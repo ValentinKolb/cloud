@@ -1,5 +1,5 @@
 import type { CompactResult, Message } from "@k2b/nessi";
-import type { AiConversation, AiFrontendToolMode, AiStoredMessage, AiTurnStatus } from "./types";
+import type { AiConversation, AiFrontendToolMode, AiStoredMessage, AiToolPresentation, AiTurnStatus } from "./types";
 
 /**
  * Cloud AI wire protocol.
@@ -37,6 +37,8 @@ export type AiTurnBlock =
       approval?: { message?: string; allowAlways: boolean };
       /** Present for frontend tools. */
       frontendMode?: AiFrontendToolMode;
+      /** Saved Cloud-owned display snapshot for capability calls. */
+      presentation?: AiToolPresentation;
     }
   | { id: string; kind: "compaction"; status: "running" | "completed" | "skipped" | "failed"; result?: CompactResult };
 
@@ -122,7 +124,11 @@ export const applyWireEventToBlocks = (blocks: AiTurnBlock[], event: AiWireEvent
  * live turn and its persisted form render through exactly the same block list.
  */
 export const buildBlocksFromMessages = (
-  messages: { seq: number; message: Message; meta?: { steerId?: string } | null }[],
+  messages: {
+    seq: number;
+    message: Message;
+    meta?: { steerId?: string; toolPresentations?: Record<string, AiToolPresentation> } | null;
+  }[],
 ): AiTurnBlock[] => {
   const blocks: AiTurnBlock[] = [];
   const toolIndex = new Map<string, number>();
@@ -136,7 +142,15 @@ export const buildBlocksFromMessages = (
           blocks.push({ id: messageBlockId(seq, index), kind: "thinking", text: block.thinking });
         } else if (block.type === "tool_call") {
           toolIndex.set(block.id, blocks.length);
-          blocks.push({ id: toolBlockId(block.id), kind: "tool", callId: block.id, name: block.name, args: block.args, status: "running" });
+          blocks.push({
+            id: toolBlockId(block.id),
+            kind: "tool",
+            callId: block.id,
+            name: block.name,
+            args: block.args,
+            status: "running",
+            presentation: meta?.toolPresentations?.[block.id],
+          });
         }
       });
     } else if (message.role === "user" && meta?.steerId) {

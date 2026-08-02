@@ -16,6 +16,7 @@ import type {
   AiPendingTurnAction,
   AiPendingTurnActionRecord,
   AiStoredMessage,
+  AiToolPresentation,
   AiTurn,
   AiTurnClaim,
   AiTurnRunConfig,
@@ -480,6 +481,7 @@ const appendTurnOwnedMessage = async (input: {
   seq?: number;
   loopId: string | null;
   modelProfileId?: string | null;
+  meta?: AiStoredMessage["meta"];
 }): Promise<boolean> => {
   const { usage, providerModel, stopReason } = messageColumns(input.message);
   const rows = await sql<{ id: string }[]>`
@@ -493,7 +495,8 @@ const appendTurnOwnedMessage = async (input: {
       model_profile_id,
       provider_model,
       usage,
-      stop_reason
+      stop_reason,
+      meta
     )
     SELECT
       ${input.conversationId},
@@ -508,7 +511,8 @@ const appendTurnOwnedMessage = async (input: {
       ${input.modelProfileId ?? null},
       ${providerModel},
       ${usage ? JSON.stringify(usage) : null}::jsonb,
-      ${stopReason}
+      ${stopReason},
+      ${input.meta ? JSON.stringify(input.meta) : null}::jsonb
     WHERE EXISTS (
       SELECT 1
       FROM ai.turns
@@ -524,6 +528,19 @@ const appendTurnOwnedMessage = async (input: {
     return true;
   }
   return false;
+};
+
+const toolPresentationMeta = (
+  message: Message,
+  presentations: ReadonlyMap<string, AiToolPresentation> | undefined,
+): AiStoredMessage["meta"] => {
+  if (message.role !== "assistant" || !presentations || presentations.size === 0) return null;
+  const entries = message.content.flatMap((block) => {
+    if (block.type !== "tool_call") return [];
+    const presentation = presentations.get(block.name);
+    return presentation ? ([[block.id, presentation]] as const) : [];
+  });
+  return entries.length > 0 ? { toolPresentations: Object.fromEntries(entries) } : null;
 };
 
 export const aiConversationStore: AiConversationStore = {
@@ -671,6 +688,49 @@ export const aiConversationStore: AiConversationStore = {
   getConversation: async (input) => {
     return loadConversationSummary(input);
   },
+
+  getLoadedCapabilities: async (input) => {
+    const rows = await sql<{ loaded_capabilities: string[] | null }[]>`
+      SELECT loaded_capabilities
+      FROM ai.conversations
+      WHERE id = ${input.conversationId}::uuid
+        AND archived_at IS NULL
+    `;
+    if (!rows[0]) throw new Error(`AI conversation ${input.conversationId} not found`);
+    return rows[0].loaded_capabilities ?? [];
+  },
+
+  loadCapabilities: async (input) =>
+    sql.begin(async (tx) => {
+      const rows = await tx<{ loaded_capabilities: string[] | null }[]>`
+        SELECT loaded_capabilities
+        FROM ai.conversations
+        WHERE id = ${input.conversationId}::uuid
+          AND archived_at IS NULL
+        FOR UPDATE
+      `;
+      if (!rows[0]) throw new Error(`AI conversation ${input.conversationId} not found`);
+
+      const current = rows[0].loaded_capabilities ?? [];
+      const requested = [...new Set(input.names.map((name) => name.trim()).filter(Boolean))];
+      const currentSet = new Set(current);
+      const alreadyLoaded = requested.filter((name) => currentSet.has(name));
+      const added = requested.filter((name) => !currentSet.has(name));
+      const combined = [...current, ...added];
+      const configuredLimit = Math.floor(input.maxLoadedCapabilities ?? 0);
+      const limit = Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : 0;
+      const evicted = limit > 0 ? combined.slice(0, Math.max(0, combined.length - limit)) : [];
+      const retained = evicted.length > 0 ? combined.slice(evicted.length) : combined;
+      const retainedSet = new Set(retained);
+      const loaded = added.filter((name) => retainedSet.has(name));
+
+      await tx`
+        UPDATE ai.conversations
+        SET loaded_capabilities = ${toPgTextArray(retained)}::text[]
+        WHERE id = ${input.conversationId}::uuid
+      `;
+      return { loaded, alreadyLoaded, evicted };
+    }),
 
   updateConversationMetadata: async (input) => {
     const title = input.title.trim() || "New chat";
@@ -1829,6 +1889,7 @@ export const aiConversationStore: AiConversationStore = {
     append: async (message, opts) => {
       // Initial input and durable steering are already persisted transactionally before Nessi appends them.
       if (message.role === "user") return;
+      const meta = toolPresentationMeta(message, input.toolPresentations);
 
       if (input.turnId && input.leaseOwner) {
         const appended = await appendTurnOwnedMessage({
@@ -1840,6 +1901,7 @@ export const aiConversationStore: AiConversationStore = {
           seq: opts?.seq,
           loopId: opts?.kind === "summary" ? null : input.turnId,
           modelProfileId: input.modelProfileId,
+          meta,
         });
         if (!appended) {
           throw new Error("AI turn lost its lease while writing a message.");
@@ -1856,6 +1918,7 @@ export const aiConversationStore: AiConversationStore = {
           seq: opts?.seq,
           loopId: input.turnId && opts?.kind !== "summary" ? input.turnId : null,
           modelProfileId: input.modelProfileId,
+          meta,
         });
       });
     },

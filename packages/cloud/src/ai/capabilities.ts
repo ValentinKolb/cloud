@@ -1,0 +1,356 @@
+import { createHash } from "node:crypto";
+import type { Tool, ToolContext, ToolResolver } from "@k2b/nessi";
+import { z } from "zod";
+import type { CapabilityActionManifest, CapabilityQueryManifest } from "../contracts/capabilities";
+import type { CapabilityRegistryEntry } from "../contracts/registry";
+import type { RequestActor } from "../server";
+import { defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
+import type { AiConversationStore, AiRuntimeTool, AiToolPresentation } from "./types";
+
+export type AiCapabilityKind = "query" | "action";
+
+export type AiCapabilityCatalogItem = {
+  name: string;
+  appId: string;
+  appName: string;
+  kind: AiCapabilityKind;
+  title: string;
+  description: string;
+};
+
+export type AiCapabilityCatalogEntry = AiCapabilityCatalogItem & {
+  app: CapabilityRegistryEntry;
+  operation: CapabilityQueryManifest | CapabilityActionManifest;
+};
+
+const DEFAULT_LIST_LIMIT = 20;
+const MAX_LIST_LIMIT = 50;
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 25;
+
+const providerSafeSegment = (value: string): string =>
+  [...value]
+    .map((character) => {
+      if (/^[a-zA-Z0-9-]$/.test(character)) return character;
+      if (character === "_") return "__";
+      if (character === ".") return "_dot_";
+      return `_u${character.codePointAt(0)!.toString(16)}_`;
+    })
+    .join("");
+
+/** Readable, collision-safe name within the strictest common provider limit. */
+export const aiCapabilityToolName = (appId: string, kind: AiCapabilityKind, localId: string): string => {
+  const full = `${providerSafeSegment(appId)}__${kind}__${providerSafeSegment(localId)}`;
+  if (full.length <= 64) return full;
+  const suffix = createHash("sha256").update(full).digest("hex").slice(0, 12);
+  return `${full.slice(0, 50)}__${suffix}`;
+};
+
+const catalogItem = (entry: AiCapabilityCatalogEntry): AiCapabilityCatalogItem => ({
+  name: entry.name,
+  appId: entry.appId,
+  appName: entry.appName,
+  kind: entry.kind,
+  title: entry.title,
+  description: entry.description,
+});
+
+/** Build one deterministic, immutable view of the current live registry. */
+export const buildAiCapabilityCatalog = (apps: CapabilityRegistryEntry[]): AiCapabilityCatalogEntry[] => {
+  const entries = [...apps]
+    .sort(
+      (left, right) =>
+        left.appId.localeCompare(right.appId) ||
+        left.manifest.manifestHash.localeCompare(right.manifest.manifestHash) ||
+        left.appName.localeCompare(right.appName) ||
+        left.endpoint.localeCompare(right.endpoint),
+    )
+    .flatMap((app) => [
+      ...app.manifest.actions.map((operation) => ({ app, operation, kind: "action" as const })),
+      ...app.manifest.queries.map((operation) => ({ app, operation, kind: "query" as const })),
+    ])
+    .map(
+      ({ app, operation, kind }): AiCapabilityCatalogEntry => ({
+        name: aiCapabilityToolName(app.appId, kind, operation.localId),
+        appId: app.appId,
+        appName: app.appName,
+        kind,
+        title: operation.title,
+        description: operation.description,
+        app,
+        operation,
+      }),
+    )
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    if (seen.has(entry.name)) return false;
+    seen.add(entry.name);
+    return true;
+  });
+};
+
+const filteredCatalog = (
+  catalog: readonly AiCapabilityCatalogEntry[],
+  input: { appId?: string; kind?: AiCapabilityKind },
+): AiCapabilityCatalogEntry[] =>
+  catalog.filter((entry) => (!input.appId || entry.appId === input.appId) && (!input.kind || entry.kind === input.kind));
+
+const boundedLimit = (value: number | undefined, fallback: number, maximum: number): number => {
+  if (!Number.isInteger(value) || Number(value) <= 0) return fallback;
+  return Math.min(Number(value), maximum);
+};
+
+export const listAiCapabilities = (
+  catalog: readonly AiCapabilityCatalogEntry[],
+  input: { appId?: string; kind?: AiCapabilityKind; cursor?: string; limit?: number },
+): { capabilities: AiCapabilityCatalogItem[]; page: { hasMore: boolean; nextCursor?: string } } => {
+  const filtered = filteredCatalog(catalog, input);
+  const start = input.cursor ? filtered.findIndex((entry) => entry.name > input.cursor!) : 0;
+  const offset = start < 0 ? filtered.length : start;
+  const limit = boundedLimit(input.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
+  const page = filtered.slice(offset, offset + limit);
+  const hasMore = offset + page.length < filtered.length;
+  return {
+    capabilities: page.map(catalogItem),
+    page: {
+      hasMore,
+      ...(hasMore && page.length > 0 ? { nextCursor: page.at(-1)!.name } : {}),
+    },
+  };
+};
+
+export const searchAiCapabilities = (
+  catalog: readonly AiCapabilityCatalogEntry[],
+  input: { query: string; appId?: string; kind?: AiCapabilityKind; limit?: number },
+): { capabilities: AiCapabilityCatalogItem[] } => {
+  const query = input.query.trim().toLowerCase();
+  if (!query) return { capabilities: [] };
+  const limit = boundedLimit(input.limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
+  const matches = filteredCatalog(catalog, input)
+    .flatMap((entry) => {
+      const name = entry.name.toLowerCase();
+      const title = entry.title.toLowerCase();
+      const appName = entry.appName.toLowerCase();
+      const haystack = `${name} ${entry.appId.toLowerCase()} ${appName} ${title} ${entry.description.toLowerCase()}`;
+      if (!haystack.includes(query)) return [];
+      const rank = name === query ? 0 : name.includes(query) ? 1 : title.startsWith(query) || appName.startsWith(query) ? 2 : 3;
+      return [{ entry, rank }];
+    })
+    .sort((left, right) => left.rank - right.rank || left.entry.name.localeCompare(right.entry.name))
+    .slice(0, limit);
+  return { capabilities: matches.map(({ entry }) => catalogItem(entry)) };
+};
+
+const SCHEMA_KEYS = new Set([
+  "$ref",
+  "type",
+  "description",
+  "format",
+  "enum",
+  "const",
+  "properties",
+  "required",
+  "items",
+  "prefixItems",
+  "additionalProperties",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "not",
+  "nullable",
+  "$defs",
+  "definitions",
+]);
+
+const reduceSchemaValue = (value: unknown, key?: string): unknown => {
+  if (key === "const") return structuredClone(value);
+  if (Array.isArray(value)) {
+    if (key === "required" || key === "enum" || key === "type") return structuredClone(value);
+    return value.map((item) => reduceSchemaValue(item));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const output: Record<string, unknown> = {};
+  for (const [childKey, childValue] of Object.entries(value)) {
+    if (key === "properties" || key === "$defs" || key === "definitions") {
+      output[childKey] = reduceSchemaValue(childValue);
+      continue;
+    }
+    if (!SCHEMA_KEYS.has(childKey)) continue;
+    output[childKey] = reduceSchemaValue(childValue, childKey);
+  }
+  return output;
+};
+
+/** Keep the provider-useful shape while leaving authoritative validation in the target app. */
+export const reduceAiCapabilityInputSchema = (schema: Record<string, unknown>): Record<string, unknown> =>
+  reduceSchemaValue(schema) as Record<string, unknown>;
+
+export const aiCapabilityInputSchema = (schema: Record<string, unknown>): z.ZodType =>
+  z.fromJSONSchema(reduceAiCapabilityInputSchema(schema));
+
+const CatalogItemSchema = z
+  .object({
+    name: z.string(),
+    appId: z.string(),
+    appName: z.string(),
+    kind: z.enum(["query", "action"]),
+    title: z.string(),
+    description: z.string(),
+  })
+  .strict();
+
+type CapabilityStateStore = Pick<AiConversationStore, "loadCapabilities">;
+
+export const createAiCapabilityMetaTools = (input: {
+  catalog: readonly AiCapabilityCatalogEntry[];
+  conversationId: string;
+  store: CapabilityStateStore;
+  maxLoadedCapabilities?: number;
+}): AiRuntimeTool[] => {
+  const search = defineAiTool({
+    name: "search_capabilities",
+    description: "Search installed Cloud app capabilities by task, app, or name. Returns compact exact names for loading.",
+    inputSchema: z
+      .object({
+        query: z.string().trim().min(1).max(200).describe("What the capability should do."),
+        appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
+        kind: z.enum(["query", "action"]).optional(),
+        limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
+      })
+      .strict(),
+    outputSchema: z.object({ capabilities: z.array(CatalogItemSchema).max(MAX_SEARCH_LIMIT) }).strict(),
+    approval: "never",
+  }).server(async (args) => searchAiCapabilities(input.catalog, args));
+
+  const list = defineAiTool({
+    name: "list_capabilities",
+    description: "List installed Cloud app capabilities, optionally filtered by app and query or action kind.",
+    inputSchema: z
+      .object({
+        appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
+        kind: z.enum(["query", "action"]).optional(),
+        cursor: z.string().max(300).optional(),
+        limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
+      })
+      .strict(),
+    outputSchema: z
+      .object({
+        capabilities: z.array(CatalogItemSchema).max(MAX_LIST_LIMIT),
+        page: z.object({ hasMore: z.boolean(), nextCursor: z.string().optional() }).strict(),
+      })
+      .strict(),
+    approval: "never",
+  }).server(async (args) => listAiCapabilities(input.catalog, args));
+
+  const load = defineAiTool({
+    name: "load_capabilities",
+    description: "Load exact capability names returned by search_capabilities or list_capabilities as ordinary tools for the next turn.",
+    inputSchema: z.object({ names: z.array(z.string().trim().min(1)).min(1).max(25) }).strict(),
+    outputSchema: z
+      .object({
+        loaded: z.array(z.string()),
+        alreadyLoaded: z.array(z.string()),
+        missing: z.array(z.string()),
+        evicted: z.array(z.string()),
+      })
+      .strict(),
+    approval: "never",
+  }).server(async ({ names }) => {
+    const available = new Set(input.catalog.map((entry) => entry.name));
+    const requested = [...new Set(names)];
+    const valid = requested.filter((name) => available.has(name));
+    const missing = requested.filter((name) => !available.has(name));
+    const updated = await input.store.loadCapabilities({
+      conversationId: input.conversationId,
+      names: valid,
+      maxLoadedCapabilities: input.maxLoadedCapabilities,
+    });
+    return { ...updated, missing };
+  });
+
+  return [search, list, load];
+};
+
+export const createLoadedAiCapabilityTools = (input: {
+  catalog: readonly AiCapabilityCatalogEntry[];
+  loadedNames: readonly string[];
+  execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
+}): AiRuntimeTool[] => {
+  const byName = new Map(input.catalog.map((entry) => [entry.name, entry]));
+  return input.loadedNames.flatMap((name) => {
+    const entry = byName.get(name);
+    if (!entry) return [];
+    const approval = entry.kind === "action" ? (entry.operation as CapabilityActionManifest).approval : "never";
+    return [
+      defineAiTool({
+        name: entry.name,
+        description: `${entry.title}. ${entry.description}`,
+        inputSchema: aiCapabilityInputSchema(entry.operation.inputSchema),
+        outputSchema: z.unknown(),
+        approval,
+      }).server((args, context) => input.execute(entry, args, context)),
+    ];
+  });
+};
+
+/** Nessi resolver: one registry/load-state snapshot is used for both provider schemas and execution in each turn. */
+export const createAiCapabilityToolResolver =
+  (input: {
+    conversationId: string;
+    actor: RequestActor;
+    staticTools: AiRuntimeTool[];
+    store: Pick<AiConversationStore, "getLoadedCapabilities" | "loadCapabilities">;
+    listRegistry: () => Promise<CapabilityRegistryEntry[]>;
+    maxLoadedCapabilities?: number;
+    execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
+    onPrepared?: (snapshot: { prepared: PreparedAiTools; presentations: Map<string, AiToolPresentation> }) => void;
+  }): ToolResolver =>
+  async (): Promise<Tool[]> => {
+    const [registry, persistedLoadedNames] = await Promise.all([
+      input.listRegistry(),
+      input.store.getLoadedCapabilities({ conversationId: input.conversationId }),
+    ]);
+    const configuredLimit = Math.floor(input.maxLoadedCapabilities ?? 0);
+    const loadedNames = configuredLimit > 0 ? persistedLoadedNames.slice(-configuredLimit) : persistedLoadedNames;
+    if (loadedNames.length !== persistedLoadedNames.length) {
+      await input.store.loadCapabilities({
+        conversationId: input.conversationId,
+        names: [],
+        maxLoadedCapabilities: configuredLimit,
+      });
+    }
+    const catalog = buildAiCapabilityCatalog(registry);
+    const capabilityTools = [
+      ...createAiCapabilityMetaTools({
+        catalog,
+        conversationId: input.conversationId,
+        store: input.store,
+        maxLoadedCapabilities: input.maxLoadedCapabilities,
+      }),
+      ...createLoadedAiCapabilityTools({ catalog, loadedNames, execute: input.execute }),
+    ];
+    const prepared = prepareAiTools({
+      tools: [...input.staticTools, ...capabilityTools],
+      actor: input.actor,
+      conversationId: input.conversationId,
+    });
+    const catalogByName = new Map(catalog.map((entry) => [entry.name, entry]));
+    const presentations = new Map<string, AiToolPresentation>();
+    for (const name of loadedNames) {
+      const entry = catalogByName.get(name);
+      if (!entry) continue;
+      presentations.set(name, {
+        kind: "capability",
+        appId: entry.appId,
+        appName: entry.appName,
+        appIcon: entry.app.appIcon,
+        title: entry.title,
+        capabilityKind: entry.kind,
+      });
+    }
+    input.onPrepared?.({ prepared, presentations });
+    return prepared.tools;
+  };

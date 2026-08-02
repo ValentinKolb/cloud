@@ -43,6 +43,14 @@ describe("AI settings model registry", () => {
     if (state.ok) expect(state.profiles[0]?.id).toBe("openrouter-fast");
   });
 
+  test("keeps maxLoadedCapabilities optional and accepts zero or negative as unlimited", async () => {
+    for (const maxLoadedCapabilities of [undefined, 0, -1, 12]) {
+      const state = await resolve({ profilesJson: profilesJson([{ maxLoadedCapabilities }]) });
+      expect(state.ok).toBe(true);
+      if (state.ok) expect(state.profiles[0]?.maxLoadedCapabilities).toBe(maxLoadedCapabilities);
+    }
+  });
+
   test("tracks Firecrawl configuration without exposing the key", async () => {
     const state = await resolve({ firecrawlApiKey: "fc-secret" });
 

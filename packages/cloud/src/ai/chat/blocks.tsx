@@ -93,14 +93,25 @@ function ToolDetailSection(props: { title: string; children: JSX.Element }) {
   );
 }
 
-function ToolResultDisclosure(props: { name: string; toolName: string; args?: unknown; result: unknown; isError: boolean }) {
+function ToolResultDisclosure(props: {
+  name: string;
+  toolName: string;
+  args?: unknown;
+  result: unknown;
+  isError: boolean;
+  icon?: string;
+  labelOnError?: string;
+  descriptionPrefix?: string;
+}) {
   const summary = () => toolBlockSummary(props.result);
+  const description = () =>
+    [props.descriptionPrefix, props.isError ? "error" : undefined, summary() || undefined].filter(Boolean).join(" · ") || undefined;
   return (
     <ChatUtilityDisclosure
       meta={{
-        icon: `ti ${props.isError ? "ti-alert-circle" : "ti-tool"}`,
-        label: props.isError ? "Show tool error" : props.name,
-        description: props.isError ? `error · ${summary()}` : summary() || undefined,
+        icon: props.icon ?? `ti ${props.isError ? "ti-alert-circle" : "ti-tool"}`,
+        label: props.isError ? (props.labelOnError ?? "Show tool error") : props.name,
+        description: description(),
         tone: props.isError ? "danger" : "neutral",
       }}
     >
@@ -134,7 +145,10 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
     <div class="max-w-xl rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/25 dark:text-amber-100">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
-          <p class="font-semibold">Approve tool: {props.block.name}</p>
+          <p class="flex items-center gap-1.5 font-semibold">
+            <i class={props.block.presentation?.appIcon ?? "ti ti-tool"} aria-hidden="true" />
+            Approve {props.block.presentation ? `${props.block.presentation.appName}: ${props.block.presentation.title}` : props.block.name}
+          </p>
           <p class="mt-0.5 text-xs opacity-80">{props.block.approval?.message ?? "The assistant wants to run this tool."}</p>
         </div>
         <Show
@@ -189,6 +203,34 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
         </pre>
       </ChatUtilityDisclosure>
     </div>
+  );
+}
+
+function CapabilityToolView(props: { block: ToolBlock }) {
+  const presentation = () => props.block.presentation!;
+  const label = () => `${presentation().appName}: ${presentation().title}`;
+  const kind = () => (presentation().capabilityKind === "query" ? "Query" : "Action");
+  return (
+    <Show
+      when={props.block.status !== "running"}
+      fallback={
+        <ChatUtilityLine
+          meta={{ icon: presentation().appIcon || "ti ti-apps", label: label(), description: kind(), tone: "ai" }}
+          trailing={<PulseDots />}
+        />
+      }
+    >
+      <ToolResultDisclosure
+        name={label()}
+        labelOnError={label()}
+        icon={presentation().appIcon || "ti ti-apps"}
+        descriptionPrefix={kind()}
+        toolName={props.block.name}
+        args={props.block.args}
+        result={props.block.result}
+        isError={Boolean(props.block.isError)}
+      />
+    </Show>
   );
 }
 
@@ -263,6 +305,9 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
     >
       <Match when={status() === "awaiting_approval" || status() === "rejected"}>
         <ApprovalBlockView turnId={props.turnId} block={props.block} />
+      </Match>
+      <Match when={props.block.presentation?.kind === "capability"}>
+        <CapabilityToolView block={props.block} />
       </Match>
       <Match when={props.block.name === "bash"}>
         <BashToolBlock block={props.block} />

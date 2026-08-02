@@ -25,6 +25,7 @@ export const migrateCloudAi = async (): Promise<void> => {
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'ti ti-message'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS loaded_capabilities TEXT[] NOT NULL DEFAULT '{}'`.simple();
   // Enrichment (description/keywords/title upkeep) — dirty = updated_at > enriched_at.
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS keywords TEXT[] NOT NULL DEFAULT '{}'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS title_source TEXT NOT NULL DEFAULT 'default'`.simple();

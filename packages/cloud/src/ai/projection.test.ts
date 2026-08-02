@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { emptyProjection, reduceProjection, visibleMessages } from "./client/projection";
 import type { AiStreamSseEvent, AiTurnBlock } from "./protocol";
-import { messageBlockId, toolBlockId } from "./protocol";
+import { buildBlocksFromMessages, messageBlockId, toolBlockId } from "./protocol";
 import type { AiConversation, AiStoredMessage } from "./types";
 
 const conversation: AiConversation = {
@@ -268,6 +268,33 @@ describe("projection reducer", () => {
 });
 
 describe("buildBlocksFromMessages via timeline shape", () => {
+  test("restores the saved capability presentation without a live registry lookup", () => {
+    const presentation = {
+      kind: "capability" as const,
+      appId: "contacts",
+      appName: "Contacts",
+      appIcon: "ti ti-address-book",
+      title: "List contacts",
+      capabilityKind: "query" as const,
+    };
+    const blocks = buildBlocksFromMessages([
+      {
+        seq: 2,
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_call", id: "call-1", name: "contacts__query__list", args: {} }],
+          stopReason: "tool_use",
+        },
+        meta: { toolPresentations: { "call-1": presentation } },
+      },
+      {
+        seq: 3,
+        message: { role: "tool_result", callId: "call-1", name: "contacts__query__list", result: { data: [] } },
+      },
+    ]);
+    expect(blocks).toEqual([expect.objectContaining({ callId: "call-1", status: "completed", presentation })]);
+  });
+
   test("reconstructs the same block ids the executor emits", () => {
     const messages = [
       storedMessage({

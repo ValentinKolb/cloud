@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopAggregate, Message } from "@k2b/nessi";
 import { sql } from "bun";
+import { session as authSession } from "../services/session";
 import { forgetAiToolApproval, hasRememberedAiToolApproval, rememberAiToolApproval } from "./approvals";
 import { migrateCloudAi } from "./migrate";
 import { aiConversationStore } from "./store";
@@ -62,6 +63,78 @@ const assistantMessage = (text: string): Message => ({
 const runConfig = { kind: "chat" as const, input: "hi", toolSource: { kind: "none" as const } };
 
 suite("AI conversation store integration", () => {
+  test("creates and explicitly revokes a short-lived internal user delegation", async () => {
+    const userId = await insertUser();
+    try {
+      const token = await authSession.createDelegation(userId, 5);
+      expect(await authSession.getData(token)).toMatchObject({ userId });
+      await authSession.revoke(token);
+      expect(await authSession.getData(token)).toBeNull();
+    } finally {
+      await cleanupFixture({ userId, conversationIds: [] });
+    }
+  });
+
+  test("persists loaded capabilities and evicts the oldest names under a positive profile limit", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+
+      expect(await aiConversationStore.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([]);
+      expect(
+        await aiConversationStore.loadCapabilities({
+          conversationId: conversation.id,
+          names: ["contacts__query__list", "contacts__query__list", "mail__query__search"],
+        }),
+      ).toEqual({
+        loaded: ["contacts__query__list", "mail__query__search"],
+        alreadyLoaded: [],
+        evicted: [],
+      });
+
+      expect(
+        await aiConversationStore.loadCapabilities({
+          conversationId: conversation.id,
+          names: ["contacts__query__list", "spaces__action__task-create"],
+          maxLoadedCapabilities: 2,
+        }),
+      ).toEqual({
+        loaded: ["spaces__action__task-create"],
+        alreadyLoaded: ["contacts__query__list"],
+        evicted: ["contacts__query__list"],
+      });
+      expect(await aiConversationStore.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([
+        "mail__query__search",
+        "spaces__action__task-create",
+      ]);
+
+      await aiConversationStore.loadCapabilities({
+        conversationId: conversation.id,
+        names: ["weather__query__forecast"],
+        maxLoadedCapabilities: 0,
+      });
+      expect(await aiConversationStore.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([
+        "mail__query__search",
+        "spaces__action__task-create",
+        "weather__query__forecast",
+      ]);
+
+      await Promise.all([
+        aiConversationStore.loadCapabilities({ conversationId: conversation.id, names: ["contacts__query__get"] }),
+        aiConversationStore.loadCapabilities({ conversationId: conversation.id, names: ["notebooks__query__list"] }),
+      ]);
+      expect((await aiConversationStore.getLoadedCapabilities({ conversationId: conversation.id })).slice(-2).sort()).toEqual([
+        "contacts__query__get",
+        "notebooks__query__list",
+      ]);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
   test("preserves full and historical tool results while keeping turn usage separate from loop usage", async () => {
     const userId = await insertUser();
     const conversationIds: string[] = [];
@@ -672,17 +745,35 @@ suite("AI conversation store integration", () => {
         modelProfileId: "test-model",
         turnId: turn.id,
         leaseOwner: "worker-a",
+        toolPresentations: new Map([
+          [
+            "contacts__query__list",
+            {
+              kind: "capability",
+              appId: "contacts",
+              appName: "Contacts",
+              appIcon: "ti ti-address-book",
+              title: "List contacts",
+              capabilityKind: "query",
+            },
+          ],
+        ]),
       });
 
       // nessi re-appends the input on legacy paths — the session store must ignore it.
       await session.append(userMessage("session"));
       // Assistant output is appended with the turn as loop id.
-      await session.append(assistantMessage("answer"));
+      await session.append({
+        role: "assistant",
+        content: [{ type: "tool_call", id: "call-1", name: "contacts__query__list", args: {} }],
+        stopReason: "tool_use",
+      });
 
       const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
       expect(messages).toHaveLength(2);
       expect(messages[1]?.message.role).toBe("assistant");
       expect(messages[1]?.loopId).toBe(turn.id);
+      expect(messages[1]?.meta?.toolPresentations?.["call-1"]).toMatchObject({ appId: "contacts", title: "List contacts" });
 
       // A non-owner session store must fail loudly instead of writing.
       const stranger = aiConversationStore.createSessionStore({

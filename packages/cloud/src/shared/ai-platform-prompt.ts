@@ -34,6 +34,15 @@ App: {{ appId }}
 {% endfor -%}
 After a tool rendered content, don't repeat it in text — summarize or interpret instead.
 {%- endif %}
+{%- if capabilitiesEnabled %}
+
+# Cloud capabilities
+You can discover and use capabilities from installed Cloud apps.
+- Calls run as the current user with the user's current permissions; the owning app authorizes every call.
+- Catalog visibility does not prove access to an app resource.
+- Search or list, load only the needed capability names, then call the loaded tools normally.
+- Claim an action succeeded only after its tool returned success.
+{%- endif %}
 {%- if hasBash %}
 
 # Files & bash
@@ -70,6 +79,7 @@ export type AiPromptContextInput = {
   user?: Pick<User, "displayName" | "uid" | "mail">;
   appId?: string;
   memoryEnabled?: boolean;
+  capabilitiesEnabled?: boolean;
   tools?: AiToolPromptHint[];
   skills?: AiSkillPromptHint[];
   now?: Date;
@@ -93,6 +103,7 @@ export const aiPromptContext = (input: AiPromptContextInput): Record<string, unk
     today: now.toLocaleDateString("de-DE", { dateStyle: "full", timeZone: "Europe/Berlin" }),
     time: now.toLocaleTimeString("de-DE", { timeStyle: "short", timeZone: "Europe/Berlin" }),
     memoryEnabled: Boolean(input.memoryEnabled),
+    capabilitiesEnabled: Boolean(input.capabilitiesEnabled),
     tools: input.tools ?? [],
     skills: input.skills ?? [],
     hasBash: (input.tools ?? []).some((tool) => tool.name === "bash"),

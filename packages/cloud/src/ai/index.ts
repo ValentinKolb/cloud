@@ -182,6 +182,7 @@ export { type AiToolApprovalState, type AiToolCallLocation, aiToolAudit } from "
 export { defineAiTool, isFrontendToolMode, type PreparedAiTools, prepareAiTools } from "./tools";
 export type {
   AiAccessResult,
+  AiCapabilityToolPresentation,
   AiConversation,
   AiConversationPage,
   AiConversationResource,
@@ -215,9 +216,11 @@ export type {
   AiStoredMessage,
   AiToolApprovalPolicy,
   AiToolDefinition,
+  AiToolPresentation,
   AiToolRuntime,
   AiTurn,
   AiTurnFinalizedEvent,
   AiTurnStatus,
+  AiTurnToolSource,
   AiUserContentPart,
 } from "./types";

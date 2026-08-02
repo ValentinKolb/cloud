@@ -43,6 +43,8 @@ export type AiSystemPromptInput = {
   appId?: string;
   /** Adds memory rules and the Memories section (with the memory tool available). */
   memoryEnabled?: boolean;
+  /** Adds the compact Cloud capability discovery and authorization contract. */
+  capabilitiesEnabled?: boolean;
   /** One-line usage hints of the tools actually available this turn. */
   toolHints?: AiToolPromptHint[];
   /** One-line index of the user's active skills (mounted at /skills in the bash tool). */
@@ -65,6 +67,7 @@ export const composeAiSystemPrompt = (input: AiSystemPromptInput): string => {
     user: input.user,
     appId: input.appId,
     memoryEnabled: input.memoryEnabled,
+    capabilitiesEnabled: input.capabilitiesEnabled,
     tools: input.toolHints,
     skills: input.skillHints,
     now: input.now,

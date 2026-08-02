@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import { renderAiPlatformPrompt } from "../shared/ai-platform-prompt";
 import { aiGlobalInstructionsContext, composeAiSystemPrompt, renderAiGlobalInstructions } from "./system-prompt";
 
@@ -76,6 +76,18 @@ describe("renderAiGlobalInstructions", () => {
 });
 
 describe("composeAiSystemPrompt", () => {
+  test("includes the compact current-user capability contract only when enabled", () => {
+    const disabled = composeAiSystemPrompt({ globalInstructions: "", user });
+    const enabled = composeAiSystemPrompt({ globalInstructions: "", user, capabilitiesEnabled: true });
+
+    expect(disabled).not.toContain("# Cloud capabilities");
+    expect(enabled).toContain("# Cloud capabilities");
+    expect(enabled).toContain("current user with the user's current permissions");
+    expect(enabled).toContain("owning app authorizes every call");
+    expect(enabled).toContain("Catalog visibility does not prove access");
+    expect(enabled).toContain("load only the needed capability names");
+  });
+
   it("orders platform, admin, app, resource, user instructions and memories", () => {
     const prompt = composeAiSystemPrompt({
       globalInstructions: "Admin says hello to {{ user.displayName }}.",

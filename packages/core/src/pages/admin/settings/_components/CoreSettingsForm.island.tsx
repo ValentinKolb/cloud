@@ -127,6 +127,7 @@ type AiModelProfileDraft = {
   contextWindow?: number;
   temperature?: number;
   maxOutputTokens?: number;
+  maxLoadedCapabilities?: number;
   creditsPerInputToken?: number;
   creditsPerOutputToken?: number;
 } & Record<string, unknown>;
@@ -788,6 +789,8 @@ const normalizeAiProfile = (value: unknown): AiModelProfileDraft | null => {
       typeof raw.maxOutputTokens === "number" && Number.isInteger(raw.maxOutputTokens) && raw.maxOutputTokens > 0
         ? raw.maxOutputTokens
         : undefined,
+    maxLoadedCapabilities:
+      typeof raw.maxLoadedCapabilities === "number" && Number.isInteger(raw.maxLoadedCapabilities) ? raw.maxLoadedCapabilities : undefined,
     creditsPerInputToken: typeof raw.creditsPerInputToken === "number" ? raw.creditsPerInputToken : undefined,
     creditsPerOutputToken: typeof raw.creditsPerOutputToken === "number" ? raw.creditsPerOutputToken : undefined,
   };
@@ -1425,6 +1428,11 @@ async function openAiProfileDialog(input: {
       input.profile?.dataBoundary ?? defaultDataBoundary(initialProvider),
     );
     const [contextWindow, setContextWindow] = createSignal<number | null>(input.profile?.contextWindow ?? null);
+    const [maxLoadedCapabilities, setMaxLoadedCapabilities] = createSignal<number | null>(
+      typeof input.profile?.maxLoadedCapabilities === "number" && input.profile.maxLoadedCapabilities > 0
+        ? input.profile.maxLoadedCapabilities
+        : null,
+    );
     const [image, setImage] = createSignal<string | null>(input.profile?.image ?? null);
     const [formError, setFormError] = createSignal<string | undefined>();
 
@@ -1506,6 +1514,10 @@ async function openAiProfileDialog(input: {
       const context = contextWindow();
       if (typeof context === "number" && context > 0) nextProfile.contextWindow = context;
       else delete nextProfile.contextWindow;
+
+      const loadedLimit = maxLoadedCapabilities();
+      if (typeof loadedLimit === "number") nextProfile.maxLoadedCapabilities = Math.trunc(loadedLimit);
+      else delete nextProfile.maxLoadedCapabilities;
 
       close(nextProfile);
     };
@@ -1634,6 +1646,17 @@ async function openAiProfileDialog(input: {
                 clearable
                 showSteppers={false}
                 placeholder="Provider default"
+              />
+
+              <NumberInput
+                label="Loaded capability limit"
+                description="Maximum capability tools retained per conversation. Empty or 0 means unlimited."
+                value={maxLoadedCapabilities}
+                onValueChange={setMaxLoadedCapabilities}
+                min={0}
+                clearable
+                showSteppers={false}
+                placeholder="Unlimited"
               />
 
               <Select

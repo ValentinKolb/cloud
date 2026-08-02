@@ -108,6 +108,36 @@ describe("nessi block event mapping", () => {
     });
   });
 
+  test("capability presentation follows a live call through completion", () => {
+    const mapper = createEventMapper(1, []);
+    const presentation = {
+      kind: "capability" as const,
+      appId: "contacts",
+      appName: "Contacts",
+      appIcon: "ti ti-address-book",
+      title: "List contacts",
+      capabilityKind: "query" as const,
+    };
+    mapper.setPresentations(new Map([["contacts__query__list", presentation]]));
+    const start = mapper.translate({
+      ...turn,
+      type: "tool_execution_start",
+      callId: "call-capability",
+      name: "contacts__query__list",
+      args: {},
+    } as OutboundEvent);
+    expect(start[0]).toMatchObject({ type: "block_set", block: { presentation } });
+
+    const done = mapper.translate({
+      ...turn,
+      type: "tool_execution_end",
+      callId: "call-capability",
+      name: "contacts__query__list",
+      result: { data: [] },
+    } as OutboundEvent);
+    expect(done[0]).toMatchObject({ type: "block_set", block: { status: "completed", presentation } });
+  });
+
   test("client tool action requests carry the tool's real frontend mode", () => {
     const mapper = createEventMapper(1, []);
     mapper.setFrontendModes(new Map([["survey", "client_interaction"]]));

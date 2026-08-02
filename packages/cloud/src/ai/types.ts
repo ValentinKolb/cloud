@@ -44,6 +44,8 @@ export type AiModelProfile = {
   contextWindow?: number;
   temperature?: number;
   maxOutputTokens?: number;
+  /** Maximum capabilities retained per conversation. Missing or <= 0 keeps all loaded capabilities. */
+  maxLoadedCapabilities?: number;
   creditsPerInputToken?: number;
   creditsPerOutputToken?: number;
 };
@@ -232,7 +234,11 @@ export type AiStoredMessage = {
    */
   compactedAt: string | null;
   /** UI metadata (e.g. how many messages a compaction summary replaced). */
-  meta: { compactedCount?: number; steerId?: string } | null;
+  meta: {
+    compactedCount?: number;
+    steerId?: string;
+    toolPresentations?: Record<string, AiToolPresentation>;
+  } | null;
   createdAt: string;
 };
 
@@ -336,7 +342,7 @@ export type AiPendingTurnActionRecord = {
 
 export type AiTurnToolSource =
   | { kind: "none" }
-  | { kind: "default" }
+  | { kind: "default"; capabilities?: boolean }
   | { kind: "resource"; resourceKey: string; params: Record<string, string> };
 
 export type AiChatTurnRunConfig = {
@@ -420,6 +426,12 @@ export type AiConversationStore = {
     ownerUserId?: string;
     resource?: AiConversationResource;
   }): Promise<AiConversation | null>;
+  getLoadedCapabilities(input: { conversationId: string }): Promise<string[]>;
+  loadCapabilities(input: {
+    conversationId: string;
+    names: string[];
+    maxLoadedCapabilities?: number;
+  }): Promise<{ loaded: string[]; alreadyLoaded: string[]; evicted: string[] }>;
   updateConversationMetadata(input: {
     conversationId: string;
     appId?: string;
@@ -587,6 +599,8 @@ export type AiConversationStore = {
     modelProfileId?: string | null;
     turnId?: string | null;
     leaseOwner?: string | null;
+    /** Mutable snapshot map read only when an assistant tool-call message is persisted. */
+    toolPresentations?: ReadonlyMap<string, AiToolPresentation>;
   }): SessionStore;
 };
 
@@ -619,6 +633,17 @@ export type AiResourceDefinition<TParams, TAccess = unknown> = {
 export type AiToolApprovalPolicy = "never" | "once" | "always" | { kind: "user-configurable"; default: "once" | "always"; scope?: string };
 
 export type AiFrontendToolMode = "client" | "client_view" | "client_interaction";
+
+export type AiCapabilityToolPresentation = {
+  kind: "capability";
+  appId: string;
+  appName: string;
+  appIcon: string;
+  title: string;
+  capabilityKind: "query" | "action";
+};
+
+export type AiToolPresentation = AiCapabilityToolPresentation;
 
 export type AiToolDefinition<TInput extends z.ZodType = z.ZodType, TOutput extends z.ZodType = z.ZodType> = {
   name: string;

@@ -29,7 +29,7 @@ const chatRoutes = createAiChatRoutes({
     return {
       actor,
       ownerUserId: user.id,
-      toolSource: { kind: "default" },
+      toolSource: { kind: "default", capabilities: true },
       systemPrompt: ASSISTANT_SYSTEM_PROMPT,
       modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
       toolApprovalContext: { actorUserId: user.id, appId: ASSISTANT_APP_ID, resource: { kind: "direct" } },

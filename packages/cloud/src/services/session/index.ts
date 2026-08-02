@@ -49,6 +49,19 @@ const parseBearer = (header: string | undefined): string | null => {
 
 const isCloudApiToken = (token: string | null): boolean => Boolean(token?.startsWith("cld_"));
 
+const createToken = async (userId: string, ttlSeconds: number): Promise<string> => {
+  const randomToken = crypto.randomUUID();
+  const gen = await readGen(userId);
+  const data: SessionData = { userId, gen };
+  await redis.set(sessionKey(userId, randomToken), JSON.stringify(data), "EX", ttlSeconds);
+  return `${userId}:${randomToken}`;
+};
+
+const revokeToken = async (token: string): Promise<void> => {
+  const parsed = parseToken(token);
+  if (parsed) await redis.del(sessionKey(parsed.userId, parsed.randomToken));
+};
+
 export const session = {
   /**
    * Get session token from cookie or Authorization header.
@@ -68,17 +81,10 @@ export const session = {
   parseToken,
 
   create: async (c: Context, userId: string): Promise<string> => {
-    const randomToken = crypto.randomUUID();
     const expiryHours = await settings.get<number>("user.session.expiry_hours");
     const ttl = expiryHours * 60 * 60;
-
-    const gen = await readGen(userId);
-    const data: SessionData = { userId, gen };
-    await redis.set(sessionKey(userId, randomToken), JSON.stringify(data), "EX", ttl);
-
+    const clientToken = await createToken(userId, ttl);
     await sql`UPDATE auth.users SET last_login_local = now() WHERE id = ${userId}`;
-
-    const clientToken = `${userId}:${randomToken}`;
 
     setCookie(c, "session_token", clientToken, {
       httpOnly: true,
@@ -91,15 +97,18 @@ export const session = {
     return clientToken;
   },
 
+  /** Short-lived user delegation for one internal request. The raw token must stay in memory and be revoked after use. */
+  createDelegation: (userId: string, ttlSeconds = 60): Promise<string> => {
+    const ttl = Number.isFinite(ttlSeconds) ? Math.max(5, Math.min(Math.floor(ttlSeconds), 120)) : 60;
+    return createToken(userId, ttl);
+  },
+
+  revoke: revokeToken,
+
   /** Explicit logout — drops the current session key and cookie. Does not affect other sessions. */
   delete: async (c: Context): Promise<void> => {
     const token = session.getToken(c);
-    if (token) {
-      const parsed = parseToken(token);
-      if (parsed) {
-        await redis.del(sessionKey(parsed.userId, parsed.randomToken));
-      }
-    }
+    if (token) await revokeToken(token);
     deleteCookie(c, "session_token", { path: "/" });
   },
 

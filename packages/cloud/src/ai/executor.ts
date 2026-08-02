@@ -1,9 +1,12 @@
 import type { CompactEvent, NessiLoop, OutboundEvent } from "@k2b/nessi";
 import { compact, nessi } from "@k2b/nessi";
+import { listCapabilities } from "../_internal/registry";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
 import { listActiveAiSkillHints } from "./bash-tool";
+import { createAiCapabilityToolResolver } from "./capabilities";
+import { executeAiCapability, resolveAiCapabilityActor } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { createCloudAiMemoryTool } from "./memory-tool";
@@ -32,6 +35,7 @@ import type {
   AiPendingTurnActionRecord,
   AiRuntimeTool,
   AiStoredMessage,
+  AiToolPresentation,
   AiTurnClaim,
   AiTurnFinalizedEvent,
   AiTurnRunConfig,
@@ -130,6 +134,10 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
   const setFrontendModes = (modes: Map<string, AiFrontendToolMode>) => {
     frontendModes = modes;
   };
+  let presentations = new Map<string, AiToolPresentation>();
+  const setPresentations = (items: Map<string, AiToolPresentation>) => {
+    presentations = items;
+  };
   /** nessi stream block ids (turn-scoped) that belong to tool_call blocks — their deltas are raw args JSON. */
   const toolStreamIds = new Set<string>();
   /** kind per open Cloud stream block id, for delta create-if-missing. */
@@ -137,17 +145,19 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
 
   const setTool = (callId: string, patch: ToolBlockPatch): BlockOp => {
     const existing = toolBlocks.get(callId);
+    const name = patch.name ?? existing?.name ?? "tool";
     const block: Extract<AiTurnBlock, { kind: "tool" }> = {
       id: toolBlockId(callId),
       kind: "tool",
       callId,
-      name: patch.name ?? existing?.name ?? "tool",
+      name,
       args: "args" in patch ? patch.args : existing?.args,
       status: patch.status ?? existing?.status ?? "running",
       result: "result" in patch ? patch.result : existing?.result,
       isError: "isError" in patch ? patch.isError : existing?.isError,
       approval: patch.clearApproval ? undefined : "approval" in patch ? patch.approval : existing?.approval,
       frontendMode: patch.frontendMode ?? existing?.frontendMode,
+      presentation: patch.presentation ?? existing?.presentation ?? presentations.get(name),
     };
     toolBlocks.set(callId, block);
     return { type: "block_set", block };
@@ -228,7 +238,7 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
     }
   };
 
-  return { translate, compaction, setFrontendModes };
+  return { translate, compaction, setFrontendModes, setPresentations };
 };
 
 // ---------------------------------------------------------------------------
@@ -366,6 +376,30 @@ export class AiTurnExecutor {
     }
     const { settings, resolved } = validated;
 
+    const capabilitiesEnabled =
+      config.toolSource?.kind === "default" &&
+      config.toolSource.capabilities === true &&
+      resolved.profile.capabilities.includes("tools") &&
+      material.actor?.kind === "user";
+    let capabilityAuthority: Awaited<ReturnType<typeof resolveAiCapabilityActor>> | null = null;
+    try {
+      capabilityAuthority = capabilitiesEnabled
+        ? await resolveAiCapabilityActor({ conversationId, persistedActor: material.actor, store: aiConversationStore })
+        : null;
+    } catch (error) {
+      signal.removeEventListener("abort", onSignal);
+      await this.finalize(
+        conversationId,
+        turnId,
+        pipeline,
+        "failed",
+        error instanceof Error ? error.message : "Cloud capability actor resolution failed",
+        "chat",
+      );
+      return;
+    }
+    if (capabilityAuthority) material.actor = capabilityAuthority.actor;
+
     // User prefs (custom instructions + memory) apply to direct chats with the default toolset.
     const user = aiActorUser(material.actor);
     let prefs: AiUserPrefs | null = null;
@@ -384,11 +418,14 @@ export class AiTurnExecutor {
 
     const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
     pipeline.setFrontendModes(prepared.frontendModes);
+    const toolPresentations = new Map<string, AiToolPresentation>();
+    pipeline.setPresentations(toolPresentations);
     const store = aiConversationStore.createSessionStore({
       conversationId,
       modelProfileId: resolved.profile.id,
       turnId,
       leaseOwner: this.config.leaseOwner,
+      toolPresentations,
     });
 
     const [loopMessages, pendingRecords, resolvedRecords, turnSteers] = await Promise.all([
@@ -406,6 +443,35 @@ export class AiTurnExecutor {
 
     const appliedSteers: AiTurnSteer[] = [];
 
+    const tools = capabilitiesEnabled
+      ? createAiCapabilityToolResolver({
+          conversationId,
+          actor: capabilityAuthority!.actor,
+          staticTools: activeTools,
+          store: aiConversationStore,
+          listRegistry: listCapabilities,
+          maxLoadedCapabilities: resolved.profile.maxLoadedCapabilities,
+          execute: (entry, args, context) =>
+            executeAiCapability({
+              conversationId,
+              authority: capabilityAuthority!,
+              entry,
+              args,
+              context,
+            }),
+          onPrepared: ({ prepared: snapshot, presentations }) => {
+            prepared.approvalPolicies.clear();
+            prepared.frontendModes.clear();
+            toolPresentations.clear();
+            for (const [name, policy] of snapshot.approvalPolicies) prepared.approvalPolicies.set(name, policy);
+            for (const [name, mode] of snapshot.frontendModes) prepared.frontendModes.set(name, mode);
+            for (const [name, presentation] of presentations) toolPresentations.set(name, presentation);
+            pipeline.setFrontendModes(prepared.frontendModes);
+            pipeline.setPresentations(toolPresentations);
+          },
+        })
+      : prepared.tools;
+
     const loop = nessi({
       agentId: "cloud",
       loopId: turnId,
@@ -418,6 +484,7 @@ export class AiTurnExecutor {
         user,
         appId: material.toolApprovalContext?.appId,
         memoryEnabled: memoryActive,
+        capabilitiesEnabled,
         toolHints: aiToolPromptHints(activeTools),
         skillHints,
         userInstructions: prefs?.instructions,
@@ -434,8 +501,8 @@ export class AiTurnExecutor {
         appliedSteers.push(...steers);
         return steers.length > 0 ? steers.map((steer) => steer.text) : undefined;
       },
-      tools: prepared.tools,
-      maxTurns: prepared.tools.length > 0 ? 8 : 1,
+      tools,
+      maxTurns: capabilitiesEnabled || prepared.tools.length > 0 ? 8 : 1,
       temperature: resolved.profile.temperature,
       maxOutputTokens: resolved.profile.maxOutputTokens,
       coalesce: { ms: AI_COALESCE_MS, maxChars: AI_COALESCE_MAX_CHARS },
@@ -835,6 +902,10 @@ class StreamPipeline {
 
   setFrontendModes(modes: Map<string, AiFrontendToolMode>): void {
     this.mapper.setFrontendModes(modes);
+  }
+
+  setPresentations(presentations: Map<string, AiToolPresentation>): void {
+    this.mapper.setPresentations(presentations);
   }
 
   async emitBaseline(): Promise<void> {
