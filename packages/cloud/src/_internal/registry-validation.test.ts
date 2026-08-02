@@ -17,4 +17,30 @@ describe("validateAppRegistryEntry", () => {
   test("rejects invalid routes", () => expect(validateAppRegistryEntry({ ...valid, routes: ["auth"] })).toContain("routes"));
   test("rejects partial runtime metadata", () =>
     expect(validateAppRegistryEntry({ ...valid, runtime: { release: valid.runtime.release } })).toContain("runtime.syncVersion"));
+  test("accepts a valid Help summary", () =>
+    expect(
+      validateAppRegistryEntry({
+        ...valid,
+        help: {
+          manifestHash: "sha256",
+          pageBase: "/app/core/help",
+          documents: [
+            {
+              id: "getting-started",
+              title: "Getting started",
+              order: 10,
+              searchUrl: "/api/help/v1/core/search",
+              url: "/api/help/v1/core/documents/getting-started",
+            },
+          ],
+        },
+      }),
+    ).toBeNull());
+  test("rejects a relative Help route", () =>
+    expect(
+      validateAppRegistryEntry({
+        ...valid,
+        help: { manifestHash: "sha256", pageBase: "help", documents: [] },
+      }),
+    ).toContain("help"));
 });

@@ -19,6 +19,7 @@ import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
 import HotkeysHelpRail from "./HotkeysHelpRail.island";
 import LayoutBreadcrumbs from "./LayoutBreadcrumbs.island";
 import NavMenu from "./NavMenu.island";
+import RegisteredHelpDocuments from "./RegisteredHelpDocuments.island";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
 import ThemeToggleRail from "./ThemeToggleRail.island";
 import TimezoneCookie from "./TimezoneCookie.island";
@@ -154,6 +155,7 @@ export default function Layout({
   const user = c.get("user");
   const pathname = new URL(c.req.raw.url).pathname;
   const currentApp = resolveCurrentApp(runtime.apps, pathname);
+  const registeredHelp = currentApp?.help;
   const workspaceLayout = resolveAppWorkspaceLayoutForSidebar(
     readAppWorkspaceLayoutCookie(cookie, currentApp?.id),
     workspaceSidebarCollapsible,
@@ -229,6 +231,7 @@ export default function Layout({
         data-workspace-sidebar-collapsed={workspaceLayout?.sidebarCollapsed ? "true" : undefined}
       >
         <TimezoneCookie />
+        {registeredHelp && <RegisteredHelpDocuments documents={registeredHelp.documents} pageBase={registeredHelp.pageBase} />}
         <main class="min-h-0 min-w-0 flex-1">
           <AppWorkspace.LayoutStateProvider state={workspaceLayout}>{children}</AppWorkspace.LayoutStateProvider>
         </main>
@@ -243,6 +246,7 @@ export default function Layout({
       data-workspace-sidebar-collapsed={workspaceLayout?.sidebarCollapsed ? "true" : undefined}
     >
       <TimezoneCookie />
+      {registeredHelp && <RegisteredHelpDocuments documents={registeredHelp.documents} pageBase={registeredHelp.pageBase} />}
       <AppWorkspaceController appId={currentApp?.id} />
       {user && <BrowserNotifications userId={user.id} />}
       {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}

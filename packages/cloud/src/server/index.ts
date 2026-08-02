@@ -4,7 +4,7 @@ export { api, respond, respondMessage } from "./api";
 export type { CreateApiClientConfig } from "./api-client";
 export { api as apiClient } from "./api-client";
 export type { AppContext } from "./app-context";
-export { defineHelpCollection, type HelpCollection } from "./help";
+export { defineHelp, defineHelpCollection, type HelpCollection, type HelpDefinition, type HelpDefinitionDocument } from "./help";
 export type {
   AuthContext,
   RateLimitConfig,

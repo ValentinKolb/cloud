@@ -23,6 +23,7 @@ import { adminAnnouncementRoutes, announcementRoutes } from "./announcements";
 import { appDiscoveryRoutes } from "./apps";
 import { createAuthRoutes } from "./auth";
 import { createCapabilityRoutes } from "./capabilities";
+import { createHelpRoutes } from "./help";
 import meRoutes from "./me";
 import { createMcpRoutes } from "./mcp";
 import { createSearchRoutes } from "./search";
@@ -40,6 +41,7 @@ const buildCoreApi = (options: CoreApiOptions) => {
   const searchRoutes = createSearchRoutes();
   const capabilityRoutes = createCapabilityRoutes();
   const mcpRoutes = createMcpRoutes();
+  const helpRoutes = createHelpRoutes();
   return new Hono()
     .use(prettyJSON())
     .route("/auth", createAuthRoutes(options.notifications))
@@ -51,6 +53,7 @@ const buildCoreApi = (options: CoreApiOptions) => {
     .route("/admin/core/settings", adminCoreSettingsRoutes)
     .route("/admin/lifecycle", adminLifecycleRoutes)
     .route("/ai/skills", createAiSkillsRoutes())
+    .route("/", helpRoutes)
     .route("/", capabilityRoutes)
     .route("/", mcpRoutes)
     .route("/", searchRoutes);

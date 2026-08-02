@@ -43,6 +43,28 @@ describe("buildRuntimeFromRegistry", () => {
     expect(buildRuntimeFromRegistry([app]).apps[0]?.adminNav).toEqual(app.adminNav);
   });
 
+  it("projects the registered Help manifest", () => {
+    const app = entry();
+    app.help = {
+      manifestHash: "sha256",
+      pageBase: "/app/example/help",
+      documents: [
+        {
+          id: "getting-started",
+          title: "Getting started",
+          order: 10,
+          searchUrl: "/api/help/v1/example/search",
+          url: "/api/help/v1/example/documents/getting-started",
+        },
+      ],
+    };
+
+    const projected = buildRuntimeFromRegistry([app]).apps[0]?.help;
+    expect(projected).toEqual(app.help);
+    expect(projected).not.toBe(app.help);
+    expect(projected?.documents).not.toBe(app.help.documents);
+  });
+
   it("projects Universal Search tags and aliases from the live capability manifest", () => {
     const app = entry();
     const manifest = compileCapabilities(

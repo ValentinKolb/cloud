@@ -54,7 +54,6 @@ describe("GridsWorkspace", () => {
     const html = renderToString(() =>
       createComponent(GridsWorkspace, {
         state: workspaceState(),
-        helpDocuments: [],
       }),
     );
 

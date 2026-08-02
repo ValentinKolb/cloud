@@ -1,4 +1,4 @@
-import { defineHelpCollection } from "@valentinkolb/cloud/server";
+import { defineHelp } from "@valentinkolb/cloud/server";
 import buildBase from "./documents/grids-build-base.help.md" with { type: "text" };
 import combinedTables from "./documents/grids-combined-tables.help.md" with { type: "text" };
 import coreModel from "./documents/grids-core-model.help.md" with { type: "text" };
@@ -13,9 +13,8 @@ import tablesFields from "./documents/grids-tables-fields.help.md" with { type: 
 import viewsReports from "./documents/grids-views-reports.help.md" with { type: "text" };
 import workflows from "./documents/grids-workflows.help.md" with { type: "text" };
 
-export const gridsHelp = defineHelpCollection({
-  basePath: "/api/grids/help",
-  sources: [
+export const gridsHelp = defineHelp({
+  documents: [
     overview,
     coreModel,
     buildBase,

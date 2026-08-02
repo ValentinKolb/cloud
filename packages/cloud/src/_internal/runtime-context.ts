@@ -36,6 +36,13 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[], capabiliti
             requiresRoles: e.nav.requiresRoles as Role[] | undefined,
           }
         : undefined,
+      help: e.help
+        ? {
+            manifestHash: e.help.manifestHash,
+            pageBase: e.help.pageBase,
+            documents: e.help.documents.map((document) => ({ ...document })),
+          }
+        : undefined,
       searchTags,
       searchHelp: searchQueries?.map((query) => query.description).join(" "),
       searchTagHelp: searchQueries?.flatMap((query) =>

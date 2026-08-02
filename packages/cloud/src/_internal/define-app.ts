@@ -17,6 +17,7 @@ import { type BoundNotificationMap, bindNotificationDefinitions, type Notificati
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
+import type { HelpDefinition } from "../server/help";
 import { type AuthContext, auth } from "../server/middleware/auth";
 import { routeTemplate } from "../server/middleware/route-template";
 import { logger } from "../services/logging";
@@ -29,7 +30,8 @@ import { readBoundedJson } from "./bounded-json";
 import { appRuntimeMetadata } from "./build-metadata";
 import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
 import { createHeartbeat } from "./heartbeat";
-import { capabilityRegistry } from "./registry";
+import { compileHelp } from "./help";
+import { capabilityRegistry, helpRegistry } from "./registry";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
 import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
@@ -181,6 +183,7 @@ export type StartOptions = {
   openapi?: Hono<any>;
   lifecycle?: AppLifecycle;
   capabilities?: CapabilityDefinitions;
+  help?: HelpDefinition;
   port?: number;
   skipSetup?: boolean;
 };
@@ -321,6 +324,15 @@ export const defineApp = <
     // flag so the registry never points at a URL that 404s.
     const advertiseOpenapi = !!(opts.openapi && startOpts.openapi);
     const compiledCapabilities = startOpts.capabilities ? compileCapabilities(meta.id, startOpts.capabilities) : undefined;
+    const compiledHelp = startOpts.help
+      ? compileHelp({
+          appId: meta.id,
+          appName: meta.name,
+          appIcon: meta.icon,
+          basePath: opts.basePath,
+          definition: startOpts.help,
+        })
+      : undefined;
     const capabilityEndpoint = `${baseUrl}/api/_internal/capabilities/v1`;
 
     // Registry entry
@@ -354,6 +366,7 @@ export const defineApp = <
             manifestHash: compiledCapabilities.manifest.manifestHash,
           }
         : undefined,
+      help: compiledHelp?.summary,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
       widgets: meta.widgets ? meta.widgets.map((w) => ({ ...w })) : undefined,
       settingKeys: meta.settingKeys ? [...meta.settingKeys] : undefined,
@@ -375,7 +388,6 @@ export const defineApp = <
         process.exit(1);
       },
     });
-    await heartbeat.start();
     const capabilityEntry: CapabilityRegistryEntry | undefined = compiledCapabilities
       ? {
           appId: meta.id,
@@ -403,10 +415,33 @@ export const defineApp = <
           },
         })
       : undefined;
+    const helpHeartbeat = compiledHelp
+      ? createHeartbeat(meta.id, compiledHelp.registryEntry, {
+          key: `help/${meta.id}`,
+          registry: helpRegistry,
+          onError: (error) =>
+            log.error("Help registry heartbeat failed", {
+              appId: meta.id,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          onStale: (error) => {
+            log.error("Help registry lease expired; restarting", {
+              appId: meta.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            process.exit(1);
+          },
+        })
+      : undefined;
     try {
+      // Publish the corpus before the app advertises its manifest.
+      await helpHeartbeat?.start();
+      await heartbeat.start();
       await capabilityHeartbeat?.start();
     } catch (error) {
+      await capabilityHeartbeat?.stop();
       await heartbeat.stop();
+      await helpHeartbeat?.stop();
       throw error;
     }
     log.info(`Registered "${meta.id}"`, { baseUrl });
@@ -432,6 +467,13 @@ export const defineApp = <
       .use("*", routeTemplate)
       .route(ssrMountPath, routes(config))
       .all("/public/*", servePublicAsset(isDevelopment));
+
+    if (compiledHelp) {
+      const pageBase = compiledHelp.summary.pageBase;
+      const centralPageBase = `/help/apps/${encodeURIComponent(meta.id)}`;
+      server.get(pageBase, (c) => c.redirect(centralPageBase, 302));
+      server.get(`${pageBase}/:topic`, (c) => c.redirect(`${centralPageBase}/${encodeURIComponent(c.req.param("topic"))}`, 302));
+    }
 
     if (compiledCapabilities) {
       const invoke = async (c: Context<AuthContext>, kind: "query" | "action") => {
@@ -573,6 +615,7 @@ export const defineApp = <
       await stopRuntimeWatcher();
       await capabilityHeartbeat?.stop();
       await heartbeat.stop();
+      await helpHeartbeat?.stop();
     };
 
     process.on("SIGTERM", () => void shutdown().then(() => process.exit(0)));

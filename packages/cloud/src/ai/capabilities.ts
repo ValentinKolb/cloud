@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import type { Tool, ToolContext, ToolResolver } from "@k2b/nessi";
 import { z } from "zod";
 import type { CapabilityActionManifest, CapabilityQueryManifest } from "../contracts/capabilities";
-import type { CapabilityRegistryEntry } from "../contracts/registry";
+import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
+import { markdownToPlainText } from "../shared/markdown";
 import { defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
 import type { AiConversationStore, AiRuntimeTool, AiToolPresentation } from "./types";
 
@@ -27,6 +28,7 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 50;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_SEARCH_LIMIT = 25;
+const MAX_HELP_MARKDOWN_CHARS = 128 * 1024;
 
 const providerSafeSegment = (value: string): string =>
   [...value]
@@ -141,6 +143,83 @@ export const searchAiCapabilities = (
     .sort((left, right) => left.rank - right.rank || left.entry.name.localeCompare(right.entry.name))
     .slice(0, limit);
   return { capabilities: matches.map(({ entry }) => catalogItem(entry)) };
+};
+
+const AiHelpCatalogItemSchema = z
+  .object({
+    appId: z.string(),
+    appName: z.string(),
+    kind: z.literal("help"),
+    documentId: z.string(),
+    title: z.string(),
+    description: z.string().optional(),
+  })
+  .strict();
+
+const AiHelpDocumentSchema = AiHelpCatalogItemSchema.extend({ markdown: z.string().max(MAX_HELP_MARKDOWN_CHARS) }).strict();
+
+/** Search and read the live Help snapshot without loading one tool per article. */
+export const createAiHelpTools = (registry: readonly HelpRegistryEntry[]): AiRuntimeTool[] => {
+  const documents = registry
+    .flatMap((app) =>
+      app.documents.map((document) => ({
+        appId: app.appId,
+        appName: app.appName,
+        kind: "help" as const,
+        documentId: document.id,
+        title: document.title,
+        description: document.description,
+        markdown: document.markdown,
+      })),
+    )
+    .sort((left, right) => left.appId.localeCompare(right.appId) || left.documentId.localeCompare(right.documentId));
+
+  const search = defineAiTool({
+    name: "search_help",
+    description: "Search installed Cloud app Help by task, app, title, or article text. Returns compact document ids for read_help.",
+    inputSchema: z
+      .object({
+        query: z.string().trim().min(1).max(200).describe("Product task or concept to find."),
+        appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
+        limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
+      })
+      .strict(),
+    outputSchema: z.object({ documents: z.array(AiHelpCatalogItemSchema).max(MAX_SEARCH_LIMIT) }).strict(),
+    approval: "never",
+  }).server(async ({ query, appId, limit }) => {
+    const needle = query.trim().toLocaleLowerCase();
+    const maximum = boundedLimit(limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
+    return {
+      documents: documents
+        .filter((document) => {
+          if (appId && document.appId !== appId) return false;
+          return `${document.appId} ${document.appName} ${document.documentId} ${document.title} ${document.description ?? ""} ${markdownToPlainText(
+            document.markdown,
+          )}`
+            .toLocaleLowerCase()
+            .includes(needle);
+        })
+        .slice(0, maximum)
+        .map(({ markdown: _markdown, ...document }) => document),
+    };
+  });
+
+  const read = defineAiTool({
+    name: "read_help",
+    description: "Read one exact Cloud app Help article returned by search_help.",
+    inputSchema: z
+      .object({
+        appId: z.string().trim().min(1).describe("Exact Cloud app id."),
+        documentId: z.string().trim().min(1).describe("Exact Help document id."),
+      })
+      .strict(),
+    outputSchema: z.object({ document: AiHelpDocumentSchema.nullable() }).strict(),
+    approval: "never",
+  }).server(async ({ appId, documentId }) => ({
+    document: documents.find((document) => document.appId === appId && document.documentId === documentId) ?? null,
+  }));
+
+  return [search, read];
 };
 
 const SCHEMA_KEYS = new Set([
@@ -304,14 +383,16 @@ export const createAiCapabilityToolResolver =
     staticTools: AiRuntimeTool[];
     store: Pick<AiConversationStore, "getLoadedCapabilities" | "loadCapabilities">;
     listRegistry: () => Promise<CapabilityRegistryEntry[]>;
+    listHelpRegistry?: () => Promise<HelpRegistryEntry[]>;
     maxLoadedCapabilities?: number;
     execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
     onPrepared?: (snapshot: { prepared: PreparedAiTools; presentations: Map<string, AiToolPresentation> }) => void;
   }): ToolResolver =>
   async (): Promise<Tool[]> => {
-    const [registry, persistedLoadedNames] = await Promise.all([
+    const [registry, persistedLoadedNames, helpRegistry] = await Promise.all([
       input.listRegistry(),
       input.store.getLoadedCapabilities({ conversationId: input.conversationId }),
+      input.listHelpRegistry?.() ?? [],
     ]);
     const configuredLimit = Math.floor(input.maxLoadedCapabilities ?? 0);
     const loadedNames = configuredLimit > 0 ? persistedLoadedNames.slice(-configuredLimit) : persistedLoadedNames;
@@ -330,6 +411,7 @@ export const createAiCapabilityToolResolver =
         store: input.store,
         maxLoadedCapabilities: input.maxLoadedCapabilities,
       }),
+      ...(input.listHelpRegistry ? createAiHelpTools(helpRegistry) : []),
       ...createLoadedAiCapabilityTools({ catalog, loadedNames, execute: input.execute }),
     ];
     const prepared = prepareAiTools({

@@ -12,6 +12,7 @@ import newPasswordPage from "./auth/new-password/page";
 import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
 import helpPage from "./help/page";
+import registeredHelpPage from "./help/registered.page";
 import { resolveHomePath } from "./home";
 import { makeLegalPage } from "./legal/page-handler";
 import accessPage from "./me/access.page";
@@ -44,6 +45,8 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
       const configured = await coreSettings.get<string>("app.home_path");
       return c.redirect(resolveHomePath(configured), 302);
     })
+    .get("/help/apps/:appId", auth.requireRole("*"), ...registeredHelpPage)
+    .get("/help/apps/:appId/:topic", auth.requireRole("*"), ...registeredHelpPage)
     .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
     .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
     // Serve the installer from the currently deployed Core bundle, rather than

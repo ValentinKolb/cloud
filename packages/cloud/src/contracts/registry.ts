@@ -1,3 +1,4 @@
+import type { HelpManifest } from "../shared/help";
 import type { AppAdminNavigationGroup, AppAppearance } from "./app";
 import type { CapabilityManifest } from "./capabilities";
 import type { DashboardWidgetPresentation } from "./widgets";
@@ -29,6 +30,26 @@ export type CapabilityRegistryEntry = {
   appIcon: string;
   endpoint: string;
   manifest: CapabilityManifest;
+};
+
+export type AppRegistryHelpSummary = HelpManifest;
+
+export type HelpRegistryDocument = {
+  id: string;
+  title: string;
+  icon?: string;
+  description?: string;
+  order: number;
+  markdown: string;
+};
+
+/** Full Markdown lives separately so normal app discovery stays small. */
+export type HelpRegistryEntry = {
+  appId: string;
+  appName: string;
+  appIcon: string;
+  manifestHash: string;
+  documents: readonly HelpRegistryDocument[];
 };
 
 export type AppRegistryLegalLink = {
@@ -66,6 +87,7 @@ export type AppRegistryEntry = {
   nav?: AppRegistryNav;
   adminNav?: AppAdminNavigationGroup[];
   capabilities?: AppRegistryCapabilitySummary;
+  help?: AppRegistryHelpSummary;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];
   /** Setting keys declared by this app. Used by admin tooling to avoid treating live app-owned settings as legacy. */

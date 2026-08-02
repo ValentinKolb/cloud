@@ -1,8 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { sql } from "bun";
 import { currentActorUser } from "../../../api/permissions";
 import { ssr } from "../../../config";
-import { gridsHelp } from "../../../help";
 import { gridsService } from "../../../service";
 import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_components/query/QueryReferenceWindow";
 
@@ -57,6 +57,7 @@ export default ssr<AuthContext>(async (c) => {
   const recordCountsByTable = Object.fromEntries(
     countRows.map((row: { table_id: string; record_count: number | string | null }) => [row.table_id, Number(row.record_count ?? 0)]),
   ) as Record<string, number>;
+  const helpDocuments = getRuntimeContext(c).apps.find((registeredApp) => registeredApp.id === "grids")?.help?.documents ?? [];
 
   return () => (
     <QueryReferenceWindow
@@ -67,7 +68,7 @@ export default ssr<AuthContext>(async (c) => {
       fieldsByTable={catalog.fieldsByTable}
       viewsByTable={catalog.viewsByTable}
       recordCountsByTable={recordCountsByTable}
-      documents={gridsHelp.manifest}
+      documents={helpDocuments}
       defaultTab={defaultTab}
       inspectedSourceId={sourceId}
     />

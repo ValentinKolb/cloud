@@ -1,3 +1,4 @@
+import type { HelpManifest } from "../shared/help";
 import type { Role } from "./shared";
 import type { DashboardWidgetPresentation } from "./widgets";
 
@@ -88,6 +89,7 @@ export type WidgetEndpoint = {
 };
 
 export type RuntimeAppMeta = AppMeta & {
+  help?: HelpManifest;
   searchTags?: string[];
   searchHelp?: string;
   searchTagHelp?: AppSearchTagHelpEntry[];

@@ -7,6 +7,8 @@ const helpRegistration = /<Layout\.(?:HelpDocuments|HelpPage)(?:\s|>)/;
 
 const withoutTsx = (path: string) => path.replace(/\.tsx$/, "");
 const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const isHelpRegistration = (path: string, source: string) =>
+  path.endsWith("/RegisteredHelpDocuments.island.tsx") || helpRegistration.test(withoutComments(source));
 const loadSources = async () => {
   const sources = new Map<string, string>();
   for await (const path of sourceGlob.scan({ cwd: repoRoot })) {
@@ -33,7 +35,7 @@ describe("Layout Help hydration boundaries", () => {
     const sources = await loadSources();
 
     const registrationFiles = [...sources]
-      .filter(([path, source]) => path !== "packages/cloud/src/ssr/LayoutHelp.tsx" && helpRegistration.test(withoutComments(source)))
+      .filter(([path, source]) => path !== "packages/cloud/src/ssr/LayoutHelp.tsx" && isHelpRegistration(path, source))
       .map(([path]) => path);
 
     const importersOf = (target: string) => {
@@ -79,13 +81,17 @@ describe("Layout Help hydration boundaries", () => {
     const sources = await loadSources();
     const registrationFiles = new Set(
       [...sources]
-        .filter(([path, source]) => path !== "packages/cloud/src/ssr/LayoutHelp.tsx" && helpRegistration.test(withoutComments(source)))
+        .filter(([path, source]) => path !== "packages/cloud/src/ssr/LayoutHelp.tsx" && isHelpRegistration(path, source))
         .map(([path]) => path),
     );
     const helpPackages = new Set<string>();
+    const automaticHelpPackages = new Set<string>();
     for await (const path of new Bun.Glob("packages/*/src/help/index.ts").scan({ cwd: repoRoot })) {
       const packageName = path.split("/")[1];
-      if (packageName) helpPackages.add(packageName);
+      if (!packageName) continue;
+      helpPackages.add(packageName);
+      const source = await Bun.file(join(repoRoot, path)).text();
+      if (/\bdefineHelp\s*\(/.test(source)) automaticHelpPackages.add(packageName);
     }
     for (const path of registrationFiles) {
       const packageName = path.split("/")[1];
@@ -107,7 +113,10 @@ describe("Layout Help hydration boundaries", () => {
         return !!packageName && helpPackages.has(packageName) && /<(?:Admin)?Layout(?:\s|>)/.test(withoutComments(source));
       })
       .map(([path]) => path);
-    const missing = appPages.filter((path) => !reachesRegistrar(path));
+    const missing = appPages.filter((path) => {
+      const packageName = path.split("/")[1];
+      return !packageName || (!automaticHelpPackages.has(packageName) && !reachesRegistrar(path));
+    });
 
     expect(appPages.length).toBeGreaterThan(0);
     expect(missing).toEqual([]);

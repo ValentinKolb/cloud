@@ -5,13 +5,14 @@ import { ok } from "@k2b/stdlib";
 import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
-import type { CapabilityRegistryEntry } from "../contracts/registry";
+import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import {
   aiCapabilityInputSchema,
   aiCapabilityToolName,
   buildAiCapabilityCatalog,
   createAiCapabilityMetaTools,
   createAiCapabilityToolResolver,
+  createAiHelpTools,
   createLoadedAiCapabilityTools,
   listAiCapabilities,
   reduceAiCapabilityInputSchema,
@@ -87,6 +88,49 @@ const actor = {
 };
 
 describe("AI capability catalog", () => {
+  test("searches and reads registered Help without per-document tools", async () => {
+    const help: HelpRegistryEntry = {
+      appId: "grids",
+      appName: "Grids",
+      appIcon: "ti ti-table",
+      manifestHash: "hash",
+      documents: [
+        {
+          id: "grids-gql",
+          title: "GQL reference",
+          description: "Query Grids data.",
+          order: 10,
+          markdown: "# GQL\n\nUse `from table Books` to query records.",
+        },
+      ],
+    };
+    const prepared = prepareAiTools({ tools: createAiHelpTools([help]), actor, conversationId: "conversation-1" });
+    expect(prepared.tools.map((tool) => tool.def.name)).toEqual(["search_help", "read_help"]);
+    const search = prepared.tools[0];
+    const read = prepared.tools[1];
+    if (!search || search.kind !== "server" || !read || read.kind !== "server") throw new Error("Help tools missing");
+    const context = {
+      signal: AbortSignal.timeout(1_000),
+      requestApproval: async () => true,
+      requestClientTool: async <T>() => undefined as T,
+    };
+    expect(await search.execute({ query: "Books", appId: "grids" }, context)).toEqual({
+      documents: [
+        {
+          appId: "grids",
+          appName: "Grids",
+          kind: "help",
+          documentId: "grids-gql",
+          title: "GQL reference",
+          description: "Query Grids data.",
+        },
+      ],
+    });
+    expect(await read.execute({ appId: "grids", documentId: "grids-gql" }, context)).toMatchObject({
+      document: { kind: "help", markdown: expect.stringContaining("from table Books") },
+    });
+  });
+
   test("uses readable provider-safe names without dot or underscore collisions", () => {
     expect(aiCapabilityToolName("contacts", "query", "contact.list")).toBe("contacts__query__contact_dot_list");
     expect(aiCapabilityToolName("contacts", "query", "contact_list")).toBe("contacts__query__contact__list");

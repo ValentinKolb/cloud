@@ -1,5 +1,5 @@
 import { ephemeral } from "@k2b/sync";
-import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
 import { validateAppRegistryEntry } from "./registry-validation";
 
@@ -19,6 +19,12 @@ export const appRegistry = ephemeral<AppRegistryEntry>({
 
 export const capabilityRegistry = ephemeral<CapabilityRegistryEntry>({
   id: "cloud-capabilities",
+  ttlMs: APP_REGISTRY_TTL_MS,
+  limits: { maxPayloadBytes: 512 * 1024 },
+});
+
+export const helpRegistry = ephemeral<HelpRegistryEntry>({
+  id: "cloud-help",
   ttlMs: APP_REGISTRY_TTL_MS,
   limits: { maxPayloadBytes: 512 * 1024 },
 });
@@ -133,6 +139,41 @@ export const getCapability = async (appId: string): Promise<CapabilityRegistryEn
   const key = `capabilities/${appId}`;
   const snap = await capabilityRegistry.snapshot({ prefix: key });
   return snap.entries.find((entry) => entry.key === key)?.value ?? null;
+};
+
+const isHelpRegistryEntry = (value: unknown): value is HelpRegistryEntry => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entry = value as Partial<HelpRegistryEntry>;
+  return (
+    typeof entry.appId === "string" &&
+    typeof entry.appName === "string" &&
+    typeof entry.appIcon === "string" &&
+    typeof entry.manifestHash === "string" &&
+    Array.isArray(entry.documents) &&
+    entry.documents.every(
+      (document) =>
+        !!document &&
+        typeof document === "object" &&
+        typeof document.id === "string" &&
+        typeof document.title === "string" &&
+        typeof document.order === "number" &&
+        typeof document.markdown === "string" &&
+        (document.icon === undefined || typeof document.icon === "string") &&
+        (document.description === undefined || typeof document.description === "string"),
+    )
+  );
+};
+
+export const listHelp = async (): Promise<HelpRegistryEntry[]> => {
+  const snap = await helpRegistry.snapshot({ prefix: "help/" });
+  return snap.entries.map((entry) => entry.value).filter(isHelpRegistryEntry);
+};
+
+export const getHelp = async (appId: string): Promise<HelpRegistryEntry | null> => {
+  const key = `help/${appId}`;
+  const snap = await helpRegistry.snapshot({ prefix: key });
+  const value = snap.entries.find((entry) => entry.key === key)?.value;
+  return isHelpRegistryEntry(value) ? value : null;
 };
 
 /**

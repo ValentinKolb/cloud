@@ -12,10 +12,15 @@ const metadataSchema = z.object({
   order: z.number().int().default(100),
 });
 
-type HelpDocument = z.infer<typeof metadataSchema> & {
+export type HelpDefinitionDocument = z.infer<typeof metadataSchema> & {
   markdown: string;
   html: string;
   searchText: string;
+};
+
+export type HelpDefinition = {
+  documents: readonly HelpDefinitionDocument[];
+  getMarkdown: (id: string) => string | undefined;
 };
 
 export type HelpCollection = {
@@ -25,7 +30,7 @@ export type HelpCollection = {
   getMarkdown: (id: string) => string | undefined;
 };
 
-const parseSource = (source: string): HelpDocument => {
+const parseSource = (source: string): HelpDefinitionDocument => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/.exec(source);
   if (!match) throw new Error("Help documents require YAML frontmatter wrapped in --- markers");
 
@@ -41,6 +46,25 @@ const parseSource = (source: string): HelpDocument => {
   };
 };
 
+/** Define one app-owned Help corpus without routing or authorization config. */
+export const defineHelp = (options: { documents: readonly string[] }): HelpDefinition => {
+  const documents = options.documents
+    .map(parseSource)
+    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
+    .map((document) => Object.freeze(document));
+  const byId = new Map<string, HelpDefinitionDocument>();
+
+  for (const document of documents) {
+    if (byId.has(document.id)) throw new Error(`Duplicate help document id "${document.id}"`);
+    byId.set(document.id, document);
+  }
+
+  return {
+    documents: Object.freeze(documents),
+    getMarkdown: (id) => byId.get(id)?.markdown,
+  };
+};
+
 /**
  * Define one app-owned help corpus. The explicit source list is deliberate:
  * IDs, ordering and ownership stay visible in code; no filesystem scanning or
@@ -48,13 +72,9 @@ const parseSource = (source: string): HelpDocument => {
  */
 export const defineHelpCollection = (options: { basePath: string; sources: readonly string[] }): HelpCollection => {
   const basePath = options.basePath.replace(/\/$/, "");
-  const documents = options.sources.map(parseSource).sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
-  const byId = new Map<string, HelpDocument>();
-
-  for (const document of documents) {
-    if (byId.has(document.id)) throw new Error(`Duplicate help document id "${document.id}"`);
-    byId.set(document.id, document);
-  }
+  const definition = defineHelp({ documents: options.sources });
+  const documents = definition.documents;
+  const byId = new Map(documents.map((document) => [document.id, document]));
 
   const searchUrl = `${basePath}/search`;
   const manifest = documents.map<HelpDocumentManifest>(({ id, title, icon, description, order }) => ({
@@ -96,6 +116,6 @@ export const defineHelpCollection = (options: { basePath: string; sources: reado
   return {
     manifest,
     router,
-    getMarkdown: (id) => byId.get(id)?.markdown,
+    getMarkdown: definition.getMarkdown,
   };
 };

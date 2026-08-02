@@ -833,7 +833,7 @@ const createSession = (initialTopic?: string): HelpSession => {
 /**
  * Render the shared Help experience as a full page. Apps pass the same
  * manifest used by `Layout.HelpDocuments`; article bodies still load lazily
- * from the app-owned authenticated Help API.
+ * from the central Help API.
  */
 export function LayoutHelpPage(props: LayoutHelpPageProps) {
   const session = createSession(props.initialTopic);

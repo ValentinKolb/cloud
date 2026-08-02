@@ -1,4 +1,4 @@
-import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
@@ -16,7 +16,6 @@ import { startWorkflowRuntime, stopWorkflowRuntime } from "./service/workflow-ru
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/grids/help", new Hono<AuthContext>().use(auth.requireRole("user")).route("/", gridsHelp.router))
   .route("/api/grids", apiRoutes)
   .route("/app/grids", pageRoutes)
   .route("/admin/grids", adminRoutes)
@@ -33,6 +32,7 @@ const gridsRuntimeLifecycle = createRuntimeLifecycle({
 
 const result = await app.start({
   fetch: router.fetch,
+  help: gridsHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {

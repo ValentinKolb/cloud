@@ -13,9 +13,7 @@ import {
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, Principal } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, defineHelpCollection } from "@valentinkolb/cloud/server";
-import { Layout, type LayoutHelpDocumentsProps } from "@valentinkolb/cloud/ssr/islands";
-import { Hono } from "hono";
+import { defineHelp } from "@valentinkolb/cloud/server";
 
 type InventoryItem = {
   [key: string]: unknown;
@@ -179,29 +177,6 @@ Open Inventory and choose **New item**.
 Deleting an item cannot be undone.
 :::`;
 
-export const inventoryHelp = defineHelpCollection({
-  basePath: "/api/inventory/help",
-  sources: [startHelp],
+export const inventoryHelp = defineHelp({
+  documents: [startHelp],
 });
-
-export const inventoryHelpApi = new Hono<AuthContext>().use("*", auth.requireRole("authenticated")).route("/", inventoryHelp.router);
-
-type InventoryHelpProps = {
-  mode?: "register" | "page";
-  initialTopic?: string;
-};
-
-const HELP_PAGE_BASE = "/app/inventory/help";
-
-export function InventoryHelp(props: InventoryHelpProps) {
-  return props.mode === "page" ? (
-    <Layout.HelpPage documents={inventoryHelp.manifest} initialTopic={props.initialTopic} pageBase={HELP_PAGE_BASE} />
-  ) : (
-    <Layout.HelpDocuments documents={inventoryHelp.manifest} pageBase={HELP_PAGE_BASE} />
-  );
-}
-
-export const resolveInventoryHelpTopic = (
-  topic: string | undefined,
-  documents: LayoutHelpDocumentsProps["documents"] = inventoryHelp.manifest,
-) => (documents.some((document) => document.id === topic) ? topic : undefined);

@@ -1,6 +1,6 @@
 import type { CompactEvent, NessiLoop, OutboundEvent } from "@k2b/nessi";
 import { compact, nessi } from "@k2b/nessi";
-import { listCapabilities } from "../_internal/registry";
+import { listApps, listCapabilities, listHelp } from "../_internal/registry";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
@@ -50,6 +50,12 @@ const AI_COALESCE_MS = 25;
 const AI_COALESCE_MAX_CHARS = 512;
 const AI_SNAPSHOT_INTERVAL_MS = 1_000;
 const AI_ACTION_BUDGET_MS = 24 * 60 * 60_000;
+
+const listCurrentHelp = async () => {
+  const [apps, entries] = await Promise.all([listApps(), listHelp()]);
+  const manifestHashes = new Map(apps.flatMap((app) => (app.help ? [[app.id, app.help.manifestHash] as const] : [])));
+  return entries.filter((entry) => manifestHashes.get(entry.appId) === entry.manifestHash);
+};
 
 export type ExecutorConfig = {
   leaseOwner: string;
@@ -450,6 +456,7 @@ export class AiTurnExecutor {
           staticTools: activeTools,
           store: aiConversationStore,
           listRegistry: listCapabilities,
+          listHelpRegistry: listCurrentHelp,
           maxLoadedCapabilities: resolved.profile.maxLoadedCapabilities,
           execute: (entry, args, context) =>
             executeAiCapability({

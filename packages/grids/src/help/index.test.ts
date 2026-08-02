@@ -32,11 +32,11 @@ const expectedTopics = [
 
 describe("grids help", () => {
   test("keeps every established topic in its existing order", () => {
-    expect(gridsHelp.manifest.map((document) => document.id)).toEqual(expectedTopics);
+    expect(gridsHelp.documents.map((document) => document.id)).toEqual(expectedTopics);
   });
 
   test("serves the established reference content from Markdown", () => {
-    for (const document of gridsHelp.manifest) {
+    for (const document of gridsHelp.documents) {
       const markdown = gridsHelp.getMarkdown(document.id);
       expect(markdown, `${document.id} should have Markdown content`).toBeDefined();
       expect(markdown!.trim().length).toBeGreaterThan(100);
@@ -49,7 +49,7 @@ describe("grids help", () => {
   });
 
   test("keeps implementation stack details out of end-user help", () => {
-    const markdown = gridsHelp.manifest.map((document) => gridsHelp.getMarkdown(document.id)).join("\n");
+    const markdown = gridsHelp.documents.map((document) => gridsHelp.getMarkdown(document.id)).join("\n");
 
     for (const implementationTerm of [
       /\bGotenberg\b/i,

@@ -4,9 +4,15 @@ export type HelpDocumentManifest = {
   icon?: string;
   description?: string;
   order: number;
-  /** App-owned endpoint used for debounced full-text search. */
+  /** Core-owned endpoint used for debounced full-text search. */
   searchUrl: string;
   url: string;
+};
+
+export type HelpManifest = {
+  manifestHash: string;
+  pageBase: string;
+  documents: readonly HelpDocumentManifest[];
 };
 
 export type HelpSearchPayload = {

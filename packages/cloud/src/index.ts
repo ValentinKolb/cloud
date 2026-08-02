@@ -5,11 +5,14 @@ export type { AppRegistryDetail, AppRegistryIssue, AppRegistrySnapshot, Dashboar
 export {
   appRegistry,
   capabilityRegistry,
+  helpRegistry,
   getApp,
   getCapability,
+  getHelp,
   listApps,
   listAppsDetailed,
   listCapabilities,
+  listHelp,
   listLegalLinks,
   listWidgets,
   readAppRegistrySnapshot,
@@ -18,6 +21,8 @@ export type { RuntimeCompatibilityIssue } from "./_internal/runtime-compatibilit
 export { assessRuntimeCompatibility } from "./_internal/runtime-compatibility";
 export { buildRuntimeFromRegistry } from "./_internal/runtime-context";
 export { defineCapabilities } from "./contracts/capabilities";
+export { defineHelp } from "./server/help";
+export type { HelpDefinition, HelpDefinitionDocument } from "./server/help";
 export type {
   AnyBoundNotificationDefinition,
   BoundNotificationDefinition,

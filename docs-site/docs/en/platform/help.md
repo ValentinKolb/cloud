@@ -13,10 +13,9 @@ updated: 2026-08-02
 Declare an application's product guidance once. Cloud can then expose the same
 Markdown through the shared Layout, full-page Help, and agent search and reads.
 
-> **Pilot contract:** This page describes the proposed contract for the Grids
-> pilot. `defineHelp()` and `app.start({ help })` are not implemented yet.
-> Existing applications keep their current `defineHelpCollection()` wiring
-> until the pilot passes and the repository-wide migration begins.
+> **Pilot status:** Grids uses this contract. Existing applications keep their
+> current `defineHelpCollection()` wiring until the pilot passes and the
+> repository-wide migration begins.
 
 Help is for static product guidance: tasks, concepts, reference material, and
 troubleshooting. Use developer documentation for application APIs. Keep live,
@@ -168,9 +167,9 @@ Cloud already knows the owning application's ID and base path when it starts.
 declaration. Startup compiles the complete collection, rejects duplicate IDs,
 and calculates its manifest hash before the application advertises Help.
 
-The proposed pilot limits one serialized Help registry entry to 512 KiB. An
-invalid or oversized collection fails startup instead of registering a partial
-or unreachable Help surface.
+The pilot limits one Markdown article to 128 KiB and one serialized Help
+registry entry to 512 KiB. An invalid or oversized collection fails startup
+instead of registering a partial or unreachable Help surface.
 
 ## Register Help when the app starts
 
@@ -222,11 +221,12 @@ For the example above, Cloud derives these product routes:
 | Article deep link | `/app/inventory/help/:documentId` |
 | Search data | `/api/help/v1/inventory/search?q=...` |
 | Article data | `/api/help/v1/inventory/documents/:documentId` |
-| Agents | Discover `help` beside `query` and `action`, then search or read the same corpus |
+| Agents | Use `search_help` and `read_help` against the same live corpus |
 
 The full-page routes come from the application's `basePath`. Applications do
 not repeat that path in their Help declaration. Core owns search and article
-transport, while the application remains the content owner.
+transport and the shared reader; the derived application routes forward to
+that reader while the application remains the content owner.
 
 The browser receives the small manifest and loads article bodies on demand. An
 agent uses bounded search and read operations; Cloud does not create one

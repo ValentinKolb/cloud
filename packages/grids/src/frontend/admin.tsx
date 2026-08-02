@@ -3,10 +3,8 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, ButtonLink } from "@k2b/ui";
 import { ssr } from "../config";
-import { gridsHelp } from "../help";
 import { gridsService } from "../service";
 import AdminGridsActions from "./_components/AdminGridsActions.island";
-import GridsLayoutHelpRegistrar from "./_components/help/GridsLayoutHelpRegistrar.island";
 import AdminGridsSettings from "./_components/settings/AdminGridsSettings.island";
 
 const PER_PAGE = 100;
@@ -65,7 +63,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Grids">
-      <GridsLayoutHelpRegistrar documents={gridsHelp.manifest} />
       <div class="app-rows" data-scroll-preserve="grids-admin">
         <div class="flex items-center justify-between gap-3" style="view-transition-name: admin-grids-title">
           <div class="min-w-0">
