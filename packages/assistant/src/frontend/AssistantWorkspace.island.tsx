@@ -402,7 +402,7 @@ export default function AssistantWorkspace(props: Props) {
       />
 
       <AppWorkspace.Content>
-        <AppWorkspace.Main class="k2b-ui">
+        <AppWorkspace.Main>
           <section class="min-h-0 flex-1 overflow-hidden" data-scroll-preserve="assistant-messages">
             <AiChatActionsProvider
               actions={{

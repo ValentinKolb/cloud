@@ -1,7 +1,7 @@
 import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
 import { AppWorkspace, Dropdown, isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE } from "@k2b/ui";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
-import { openAiSkillsManager } from "@valentinkolb/cloud/ui";
+import { openAiSkillsManager } from "@valentinkolb/cloud/ai/ui";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";
@@ -240,7 +240,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
             trigger={<AppWorkspace.SidebarIconAction icon="ti ti-messages" label="Recent and all chats" active={activeView() === "all"} />}
             elements={collapsedChatMenu()}
             position="right-start"
-            width="w-64"
+            width="16rem"
             triggerClass="flex w-full"
             openOnHover
           />
