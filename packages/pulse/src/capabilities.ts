@@ -350,7 +350,7 @@ export const pulseCapabilities = defineCapabilities({
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
       openWorld: false,
-      universalSearch: { tags: [{ tag: "pulse", title: "Pulse", description: "Show Pulse Bases only.", aliases: ["base", "telemetry"] }] },
+      universalSearch: { tags: [{ tag: "pulse", title: "Pulse", description: "Show Pulse Bases only.", aliases: ["telemetry"] }] },
       run: runBaseSearch,
     },
     "base.list": {

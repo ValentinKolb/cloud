@@ -531,7 +531,7 @@ export const gridsCapabilities = defineCapabilities({
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
       openWorld: false,
-      universalSearch: { tags: [{ tag: "grid", title: "Grids", description: "Show Grids Bases only.", aliases: ["grids", "base"] }] },
+      universalSearch: { tags: [{ tag: "grid", title: "Grids", description: "Show Grids Bases only.", aliases: ["grids"] }] },
       run: runBaseSearch,
     },
     "base.list": {

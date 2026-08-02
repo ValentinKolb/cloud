@@ -205,7 +205,7 @@ const queryDefinitions = {
     input: UniversalSearchInputSchema,
     data: UniversalSearchDataSchema,
     openWorld: true,
-    universalSearch: { tags: [{ tag: "mail", title: "Mail", description: "Search mail messages.", aliases: ["email", "message"] }] },
+    universalSearch: { tags: [{ tag: "mail", title: "Mail", description: "Search mail messages.", aliases: ["message"] }] },
     run: runSearch,
   },
   "mailbox.list": {

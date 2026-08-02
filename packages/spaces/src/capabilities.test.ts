@@ -170,9 +170,10 @@ describe("spaces capabilities", () => {
       "comment.list",
       "event.list",
       "item.get",
-      "search",
+      "item.search",
       "space.get",
       "space.list",
+      "space.search",
       "task.list",
     ]);
     expect(Object.keys(spacesCapabilities.actions).sort()).toEqual([
@@ -220,6 +221,46 @@ describe("spaces capabilities", () => {
       idempotency: "none",
       target: { type: "comment", inputField: "commentId" },
     });
+  });
+
+  test("keeps Space and item search as focused Universal Search providers", async () => {
+    const listSpaces = spyOn(spacesService.space, "listWithPermission").mockResolvedValue({
+      items: [{ ...space, permission: "read" }],
+      page: 1,
+      perPage: 5,
+      total: 1,
+      hasNext: false,
+    });
+    const searchItems = spyOn(spacesService.item, "searchAcross").mockResolvedValue([{ item: task, space }]);
+
+    const spaceResult = await spacesCapabilities.queries["space.search"].run({ query: "Product", tags: [], limit: 5 }, userContext);
+    expect(spaceResult).toMatchObject({
+      ok: true,
+      data: { data: [{ ref: { type: "spaces.space", id: spaceId }, title: space.name }] },
+    });
+    expect(listSpaces).toHaveBeenCalledWith({
+      subject: userContext.accessSubject,
+      boundSpaceId: null,
+      query: "Product",
+      pagination: { page: 1, perPage: 5 },
+    });
+    expect(searchItems).not.toHaveBeenCalled();
+
+    const itemResult = await spacesCapabilities.queries["item.search"].run({ query: "Ship", tags: ["todo"], limit: 5 }, userContext);
+    expect(itemResult).toMatchObject({
+      ok: true,
+      data: { data: [{ ref: { type: "spaces.item", id: itemId }, title: task.title }] },
+    });
+    expect(searchItems).toHaveBeenCalledWith({
+      subject: userContext.accessSubject,
+      boundSpaceId: null,
+      query: "Ship",
+      kinds: "task",
+      status: "open",
+      priority: undefined,
+      limit: 5,
+    });
+    expect(listSpaces).toHaveBeenCalledTimes(1);
   });
 
   test("prepares a draft invitation only after current event write access is rechecked", async () => {

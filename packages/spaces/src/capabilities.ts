@@ -200,49 +200,16 @@ const mapSpace = (space: SpaceWithPermission, context: CapabilityExecutionContex
   updatedAt: space.updatedAt,
 });
 
-const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
+const runSpaceSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
   const scope = scopedSpaceId(context, "read");
   if (!scope.ok) return ok({ data: [] });
-
-  const tags = new Set(input.tags);
-  const wantsSpaces = tags.has("space") || tags.has("spaces");
-  const wantsTasks = tags.has("task") || tags.has("tasks") || tags.has("todo") || tags.has("kanban");
-  const wantsEvents = tags.has("event") || tags.has("events") || tags.has("calendar");
-  const itemFilterActive = tags.has("todo") || tags.has("urgent");
-  const kindActive = wantsSpaces || wantsTasks || wantsEvents;
-  const includeSpaces = !kindActive && !itemFilterActive ? true : wantsSpaces;
-  const includeAllItemKinds = !kindActive || (itemFilterActive && !wantsTasks && !wantsEvents);
-  const includeTasks = includeAllItemKinds || wantsTasks;
-  const includeEvents = includeAllItemKinds || wantsEvents;
-  if (!includeSpaces && !includeTasks && !includeEvents) return ok({ data: [] });
-
-  let kinds: ItemAcrossKind = "all";
-  if (includeTasks && !includeEvents) kinds = "task";
-  else if (includeEvents && !includeTasks) kinds = "event";
-
-  const [spacesPage, itemHits] = await Promise.all([
-    includeSpaces
-      ? spacesService.space.listWithPermission({
-          subject: context.accessSubject,
-          boundSpaceId: scope.data,
-          query: input.query,
-          pagination: { page: 1, perPage: input.limit },
-        })
-      : Promise.resolve({ items: [], page: 1, perPage: 0, total: 0, hasNext: false }),
-    includeTasks || includeEvents
-      ? spacesService.item.searchAcross({
-          subject: context.accessSubject,
-          boundSpaceId: scope.data,
-          query: input.query,
-          kinds,
-          status: tags.has("todo") ? "open" : undefined,
-          priority: tags.has("urgent") ? ["urgent"] : undefined,
-          limit: input.limit,
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const spaceItems: CloudResourceView[] = spacesPage.items.map((entry) => ({
+  const page = await spacesService.space.listWithPermission({
+    subject: context.accessSubject,
+    boundSpaceId: scope.data,
+    query: input.query,
+    pagination: { page: 1, perPage: input.limit },
+  });
+  const data: CloudResourceView[] = page.items.map((entry) => ({
     ref: { type: "spaces.space", id: entry.id },
     title: entry.name,
     preview: entry.description ?? undefined,
@@ -251,7 +218,30 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
     metadata: [{ label: "Type", value: "Space" }],
     links: [{ rel: "open", href: `/app/spaces/${entry.id}` }],
   }));
-  const itemItems: CloudResourceView[] = itemHits.map(({ item, space }) => ({
+  return ok({ data });
+};
+
+const runItemSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
+  const scope = scopedSpaceId(context, "read");
+  if (!scope.ok) return ok({ data: [] });
+
+  const tags = new Set(input.tags);
+  const wantsTasks = tags.has("task") || tags.has("tasks") || tags.has("todo") || tags.has("kanban");
+  const wantsEvents = tags.has("event") || tags.has("events") || tags.has("calendar");
+  let kinds: ItemAcrossKind = "all";
+  if (wantsTasks && !wantsEvents) kinds = "task";
+  else if (wantsEvents && !wantsTasks) kinds = "event";
+
+  const hits = await spacesService.item.searchAcross({
+    subject: context.accessSubject,
+    boundSpaceId: scope.data,
+    query: input.query,
+    kinds,
+    status: tags.has("todo") ? "open" : undefined,
+    priority: tags.has("urgent") ? ["urgent"] : undefined,
+    limit: input.limit,
+  });
+  const data: CloudResourceView[] = hits.map(({ item, space }) => ({
     ref: { type: "spaces.item", id: item.id },
     title: item.title,
     preview: item.description ?? undefined,
@@ -264,7 +254,7 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
     ],
     links: [{ rel: "open", href: buildSpaceItemHref(space.id, item.id) }],
   }));
-  return ok({ data: [...itemItems, ...spaceItems].slice(0, input.limit) });
+  return ok({ data });
 };
 
 const runSpaceList = async (input: z.infer<typeof SpaceListInputSchema>, context: CapabilityExecutionContext) => {
@@ -661,22 +651,32 @@ export const spacesCapabilities = defineCapabilities({
     comment: { title: "Space comment", description: "A user-authored comment attached to a Space item.", icon: "ti ti-message" },
   },
   queries: {
-    search: {
+    "space.search": {
       title: "Search spaces",
-      description: "Find accessible spaces, tasks, and events with optional workflow facets.",
+      description: "Find accessible Spaces by name or description.",
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      openWorld: false,
+      universalSearch: {
+        tags: [{ tag: "space", title: "Spaces", description: "Show spaces only.", aliases: ["spaces"] }],
+      },
+      run: runSpaceSearch,
+    },
+    "item.search": {
+      title: "Search Space items",
+      description: "Find accessible tasks and events with optional workflow facets.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
       openWorld: false,
       universalSearch: {
         tags: [
-          { tag: "space", title: "Spaces", description: "Show spaces only.", aliases: ["spaces"] },
           { tag: "task", title: "Tasks", description: "Show task items only.", aliases: ["tasks", "kanban"] },
           { tag: "todo", title: "Open tasks", description: "Show open tasks only." },
           { tag: "event", title: "Events", description: "Show items with a time range.", aliases: ["events", "calendar"] },
           { tag: "urgent", title: "Urgent", description: "Show urgent items only." },
         ],
       },
-      run: runSearch,
+      run: runItemSearch,
     },
     "space.list": {
       title: "List spaces",
