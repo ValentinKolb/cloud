@@ -1,0 +1,490 @@
+---
+title: App capabilities
+navTitle: Types, Queries & Actions
+section: Platform services
+order: 555
+description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
+tags: [capabilities, rpc, agents, mcp]
+updated: 2026-08-02
+---
+
+# App capabilities
+
+Capabilities are an application's small, versioned machine interface. An app
+publishes addressable resource **Types**, read-only **Queries**, and mutating
+**Actions** from one `defineCapabilities()` declaration.
+
+Use capabilities for stable operations that should work across applications,
+Cloud AI agents, the authenticated Cloud MCP server, or generic HTTP and CLI
+clients. Keep complete administrative APIs, bulk transfers, specialized
+transport behavior, and unstable internal operations in REST and app-specific
+CLI modules.
+
+> A capability is discoverable, not authorized. The owning application must
+> authenticate the request and check current resource access for every call.
+
+## Choose what to publish
+
+Publish an operation when it is:
+
+- stable enough to name and version;
+- bounded in input, output, and work;
+- useful to more than one machine client;
+- clear from its title, description, and field descriptions;
+- safe after the owning app performs its normal authorization.
+
+Do not mirror every REST endpoint. Capabilities are a curated semantic surface,
+not a second complete application API.
+
+| Surface | Use it for |
+| --- | --- |
+| Capabilities | Stable cross-app reads and mutations, agent tools, generic RPC |
+| REST API | Complete application behavior and specialized HTTP contracts |
+| App CLI module | Full application-specific terminal workflows |
+| Generic capability CLI | Discovering and invoking the curated capability surface |
+
+## Declare the surface
+
+Keep capability definitions in `src/capabilities.ts`, next to modules such as
+`src/notifications.ts`. This example publishes one resource Type, one Query,
+and one Action. The sample store keeps the example complete; a real application
+performs these reads and mutations in its service layer.
+
+**`src/capabilities.ts`**
+
+```ts
+import { defineCapabilities } from "@valentinkolb/cloud";
+import type { AccessSubject } from "@valentinkolb/cloud/contracts";
+import { ok } from "@k2b/stdlib";
+import { z } from "zod";
+
+type Item = {
+  id: string;
+  ownerId: string;
+  name: string;
+  quantity: number;
+};
+
+const items = new Map<string, Item>([
+  [
+    "11111111-1111-4111-8111-111111111111",
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      ownerId: "user-42",
+      name: "USB-C adapter",
+      quantity: 4,
+    },
+  ],
+]);
+
+const visibleItem = (itemId: string, subject: AccessSubject): Item | null => {
+  const item = items.get(itemId);
+  return item && subject.type === "user" && subject.userId === item.ownerId
+    ? item
+    : null;
+};
+
+export const inventoryCapabilities = defineCapabilities({
+  version: 1,
+  types: {
+    item: {
+      title: "Inventory item",
+      description: "One item in the inventory catalog.",
+      icon: "ti ti-package",
+    },
+  },
+  queries: {
+    "item.get": {
+      title: "Get inventory item",
+      description: "Read one visible inventory item by stable ID.",
+      input: z
+        .object({
+          itemId: z.string().uuid().describe("Stable inventory item UUID."),
+        })
+        .strict(),
+      data: z
+        .object({
+          id: z.string().uuid(),
+          name: z.string(),
+          quantity: z.number().int(),
+        })
+        .strict(),
+      openWorld: false,
+      run: async ({ itemId }, context) => {
+        const item = visibleItem(itemId, context.accessSubject);
+        if (!item) {
+          return {
+            ok: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Inventory item not found",
+              status: 404,
+            },
+          } as const;
+        }
+        return ok({
+          data: { id: item.id, name: item.name, quantity: item.quantity },
+          refs: [{ type: "inventory.item", id: item.id }],
+          links: [{ rel: "open", href: `/app/inventory/items/${item.id}` }],
+        });
+      },
+    },
+  },
+  actions: {
+    "item.rename": {
+      title: "Rename inventory item",
+      description: "Rename one inventory item the caller may edit.",
+      input: z
+        .object({
+          itemId: z.string().uuid().describe("Stable inventory item UUID."),
+          name: z.string().trim().min(1).max(120).describe("New item name."),
+        })
+        .strict(),
+      data: z.object({ id: z.string().uuid(), name: z.string() }).strict(),
+      destructive: true,
+      openWorld: false,
+      approval: "once",
+      idempotency: "none",
+      target: { type: "item", inputField: "itemId" },
+      review: async ({ itemId, name }, context) => {
+        const item = visibleItem(itemId, context.accessSubject);
+        if (!item) {
+          return {
+            ok: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Inventory item not found",
+              status: 404,
+            },
+          } as const;
+        }
+        return ok({
+          message: "This inventory item will be renamed.",
+          details: [
+            { label: "Current name", value: item.name },
+            { label: "New name", value: name },
+          ],
+          links: [{ rel: "open", href: `/app/inventory/items/${item.id}` }],
+        });
+      },
+      run: async ({ itemId, name }, context) => {
+        const item = visibleItem(itemId, context.accessSubject);
+        if (!item) {
+          return {
+            ok: false,
+            error: {
+              code: "NOT_FOUND",
+              message: "Inventory item not found",
+              status: 404,
+            },
+          } as const;
+        }
+        const renamed = { ...item, name };
+        items.set(itemId, renamed);
+        return ok({
+          data: { id: renamed.id, name: renamed.name },
+          refs: [{ type: "inventory.item", id: renamed.id }],
+          links: [
+            { rel: "edit", href: `/app/inventory/items/${renamed.id}/edit` },
+          ],
+        });
+      },
+    },
+  },
+});
+```
+
+Import the declaration where the application starts:
+
+**`src/config.ts`**
+
+```ts
+import { defineApp } from "@valentinkolb/cloud";
+import { Hono } from "hono";
+import { inventoryCapabilities } from "./capabilities";
+
+const app = defineApp({
+  id: "inventory",
+  name: "Inventory",
+  description: "Track inventory items.",
+  icon: "ti ti-package",
+  baseUrl: "http://app-inventory:3000",
+  routes: ["/app/inventory"],
+});
+
+const router = new Hono().get("/app/inventory", (c) =>
+  c.html("<h1>Inventory</h1>"),
+);
+
+export default await app.start({
+  capabilities: inventoryCapabilities,
+  fetch: router.fetch,
+});
+```
+
+`app.start()` compiles the declaration before registration. The application
+service still owns durable reads and writes, permission checks, audit records,
+and any transactional idempotency claim.
+
+## Understand Types, Queries, and Actions
+
+### Types name resources
+
+A Type gives an addressable resource a stable identity such as `item`. Cloud
+qualifies local IDs with the application ID:
+
+```text
+item        -> inventory.item
+item.get    -> inventory.item.get
+item.rename -> inventory.item.rename
+```
+
+Types connect operation targets, result references, Universal Search results,
+and client presentation. Declaring a Type does not create CRUD operations.
+
+### Queries read data
+
+Queries do not mutate application state. Use them for bounded get, list,
+filter, or search operations. Filtering, sorting, pagination, and authorization
+stay in the application service.
+
+Declare `openWorld` on every Query. Use `true` when it may interact with an
+open world of external entities, even if it remains read-only. A web search is
+open-world; a lookup limited to the app's own permission-scoped database is
+closed-world.
+
+Queries may opt into [Universal Search](/en/docs/platform/search). An app may
+publish multiple focused search Queries when it owns distinct resource kinds.
+
+### Actions change state
+
+Actions declare the mutation's objective behavior:
+
+| Field | Meaning |
+| --- | --- |
+| `destructive` | `true` when the Action may delete, overwrite, remove, or otherwise destructively update existing state; `false` only for exclusively additive updates |
+| `openWorld` | `true` when the Action may interact with an open world of external entities; `false` when its interaction domain is closed |
+| `approval` | Cloud client hint: `never`, `once`, or `always`; MCP has no equivalent and each client owns enforcement |
+| `idempotency` | Retry contract: `none`, `optional`, or `required` |
+| `target` | Optional declared Type and input field identifying the resource |
+| `review` | Optional read-only description of the concrete effect for human review |
+
+Cloud follows the MCP `ToolAnnotations` meanings rather than inventing narrower
+risk labels. Query and Action kinds project to `readOnlyHint`; `destructive`
+and `openWorld` map directly to the matching MCP hints. In particular, changing
+an existing value is not exclusively additive, so an Action such as rename,
+replace, move, clear, or remove uses `destructive: true`. `openWorld` is
+independent of mutation: a read-only web search is still open-world.
+
+The Cloud `idempotency` field declares idempotency-key support rather than a
+broader semantic guarantee. Queries project as idempotent. An Action with
+`idempotency: "required"` can project as idempotent because the stable key is
+part of the same MCP arguments; `optional` and `none` project conservatively as
+not idempotent.
+
+Do not rely on MCP's conservative defaults. Declare these fields explicitly so
+the live Cloud catalog remains deterministic. MCP defines annotations as
+untrusted hints and does not prescribe an approval policy. Cloud clients may
+use trusted app metadata for confirmation, warning, retry, or untrusted-content
+treatment, but that behavior belongs to the client. See the official
+[MCP ToolAnnotations schema](https://modelcontextprotocol.io/specification/2025-11-25/schema#toolannotations)
+and [AI tools and approvals](/en/docs/ai/tools-and-approvals).
+
+None of the metadata replaces application-side authorization. The owning app
+must authorize both an optional review and the eventual Action against current
+state.
+
+When an Action requires idempotency, the app must claim the key atomically with
+the state change and replay the same result for the same request. A cache lookup
+before the mutation is not enough.
+
+Record security-sensitive mutations with [Audit events](/en/docs/platform/audit-events).
+
+### Describe an Action before it runs
+
+Use one test: if a client chooses to ask before execution, can a person identify
+the target, change, and consequence from the parsed Action arguments alone? If
+not, add `review`.
+
+A review is normally useful when:
+
+- opaque IDs need current names, labels, or values;
+- an update needs a before-and-after comparison;
+- external communication, publication, permission changes, or destructive
+  work needs a concrete consequence;
+- a bulk Action needs a bounded count and representative targets;
+- large or encoded input such as a document, attachment, or calendar payload
+  needs a readable summary.
+
+Cloud's built-in providers add a review to every `destructive` or `openWorld`
+Action so a client can present concrete targets and consequences before asking
+for approval. Third-party apps may opt into reviews independently, but should
+follow the same rule when their Actions need human approval. Do not add reviews
+to closed-world, exclusively additive Actions merely to repeat the title or
+serialize the same arguments differently; that creates confirmation fatigue
+without adding useful context.
+
+Every review returns the same fixed Cloud type:
+
+```ts
+type CapabilityActionReview = {
+  message: string;
+  details?: Array<{
+    label: string;
+    value: string;
+  }>;
+  links?: CapabilitySemanticLink[];
+};
+```
+
+`message` states the consequence. `details` lists the concrete values a person
+should check. `links` reuses the existing root-relative, same-origin semantic
+links so the person can inspect or edit the resource in its owning app.
+
+The shape is intentionally fixed. Reviews have no app-defined schema, title,
+icon, severity, arbitrary JSON, HTML, Markdown, refs, pagination, or executable
+controls. Clients derive the title and app presentation from the live manifest
+and registry, and derive warning treatment from `openWorld` and `destructive`.
+Render every review value as untrusted plain text.
+
+Cloud bounds a review to a 1,000-character message, 20 details with a
+120-character label and 10,000-character value, and 10 semantic links. For
+larger content, return a useful bounded description and an `open` or `edit`
+link to the complete resource.
+
+The callback receives the Action's parsed input and normal
+`CapabilityExecutionContext`. It must only read, validate, and authorize; it
+must not mutate state, perform an external effect, manufacture approval, or
+change the Action input. Return normal capability errors when the target is no
+longer available or reviewable.
+
+A successful review is presentation, not permission or proof of user intent.
+The Action still revalidates its input, authorization, version or revision,
+and domain invariants in `run`. If reviewed state changes before execution,
+fail the Action rather than applying a different effect.
+
+## Write valid contracts
+
+Cloud validates the declaration at startup:
+
+- `version` is currently `1`;
+- local IDs start with a lower-case letter and may contain `.`, `_`, or `-`;
+- inputs are closed `z.object(...).strict()` schemas;
+- every meaningful input field has a concise `.describe(...)` string;
+- input and data schemas must project to JSON Schema;
+- every Query and Action declares `openWorld`, and every Action also declares
+  `destructive`, `approval`, and `idempotency`;
+- `idempotencyKey` is reserved for transports and cannot be an Action field;
+- Action reviews use the fixed platform schema and are advertised as
+  `review: true` only when the callback exists;
+- every Type used by `refs`, Action targets, or Universal Search is declared;
+- an app may declare at most 200 Types, 200 Queries, and 200 Actions;
+- the deterministic live manifest may not exceed 256 KiB.
+
+Each operation gets input and result JSON Schema plus a stable schema hash.
+Refresh the live catalog after `SCHEMA_MISMATCH`.
+
+## Return structured results
+
+Every successful operation returns `data`. Add only the navigation and identity
+metadata the caller can use:
+
+```ts
+type CapabilityResult<T> = {
+  data: T;
+  refs?: Array<{ type: string; id: string }>;
+  page?: { nextCursor?: string; hasMore: boolean };
+  links?: Array<{
+    rel: "open" | "edit" | "status" | "preview" | "download";
+    href: string;
+    title?: string;
+  }>;
+};
+```
+
+`refs` use qualified declared Types. Links are root-relative same-origin Cloud
+paths. They are hints: a caller may open one, but an operation does not require
+UI merely because it returns a link.
+
+Keep result metadata non-overlapping. For one primary resource, return its
+identity in top-level `refs` and its navigation in top-level `links`. For
+several independently navigable results, use `CloudResourceView[]` as `data`
+so each title, ref, and link stays together. Do not make clients correlate
+parallel ref and link arrays by position, and do not add another result field
+that duplicates both. These are presentation best practices, not required
+metadata; domain-only operations may return `data` without links.
+
+Failures use the normal structured service-error shape:
+
+```json
+{
+  "code": "FORBIDDEN",
+  "message": "Write access is required",
+  "details": {}
+}
+```
+
+Framework errors include `VALIDATION_FAILED`, `SCHEMA_MISMATCH`,
+`IDEMPOTENCY_KEY_REQUIRED`, `APP_UNAVAILABLE`, `CAPABILITY_NOT_FOUND`, and
+`INVALID_APP_RESPONSE`. Applications may return their own domain error codes.
+
+## Invoke capabilities
+
+Core reads the live capability registry and dispatches every generic client
+through the same path:
+
+```text
+GET  /api/capabilities/v1/catalog?limit=10&cursor=<appId>
+POST /api/capabilities/v1/queries/<appId>/<localId>
+POST /api/capabilities/v1/actions/<appId>/<localId>
+POST /api/capabilities/v1/actions/<appId>/<localId>/review
+```
+
+The POST body contains one `input` field:
+
+```json
+{ "input": { "itemId": "11111111-1111-4111-8111-111111111111" } }
+```
+
+The optional review route accepts the same body and is available only when the
+Action manifest advertises `review: true`. It performs no mutation and needs no
+`Idempotency-Key`.
+
+Send `Idempotency-Key` when invoking Actions that support or require it. Core
+pins the registered schema, forwards the caller credential and trace context,
+and rejects invalid app responses. The app authenticates again, reconstructs
+the actor and access subject, validates the input, and authorizes the resource.
+Reviewing an Action never authorizes its later invocation.
+
+The generic CLI uses the same dispatcher:
+
+```bash
+cld capabilities catalog
+cld capabilities query inventory item.get \
+  --input '{"itemId":"11111111-1111-4111-8111-111111111111"}'
+cld capabilities action inventory item.rename \
+  --input '{"itemId":"11111111-1111-4111-8111-111111111111","name":"Dock"}'
+```
+
+The Capabilities playground at `/app/capabilities` lists the live catalog,
+renders schema-driven inputs, invokes operations, and builds matching cURL
+requests. It is a discovery and debugging surface, not the app's normal UI.
+
+### Cloud MCP
+
+The authenticated `/api/mcp/v1` endpoint projects the live catalog as MCP
+tools:
+
+```text
+inventory__query__item.get
+inventory__action__item.rename
+```
+
+Queries become read-only tools. Query and Action `openWorld` values become
+`openWorldHint`; Action metadata also becomes destructive and idempotent hints.
+An optional or required idempotency key is a separate `idempotencyKey` tool
+argument. MCP uses the same Core dispatcher and has no broader authorization.
+
+> Cloud capability MCP exposes live application operations. Fibel MCP exposes
+> read-only developer documentation. They are separate endpoints with separate
+> purposes.
