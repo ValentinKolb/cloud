@@ -1,7 +1,7 @@
-import { formatBytes } from "@valentinkolb/cloud/shared";
-import { Button, Dropdown, ProgressBar, TextInput, prompts, toast } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Dropdown, ProgressBar, prompts, TextInput, toast } from "@k2b/ui";
+import { formatBytes } from "@valentinkolb/cloud/shared";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FileBaseInfo } from "@/contracts";
@@ -19,7 +19,7 @@ import {
   setHighlightedFiles,
   setSelectedInUrl,
 } from "./context";
-import MoveTargetSearch from "./MoveTargetSearch.island";
+import MoveTargetSearch from "./MoveTargetSearch";
 import { createUploadManager, type FileUploadState } from "./upload";
 
 type FileToolbarProps = {

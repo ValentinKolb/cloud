@@ -1,5 +1,5 @@
-import { Button, Placeholder, TextInput, prompts, toast } from "@k2b/ui";
 import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
+import { Button, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FileBaseInfo } from "@/contracts";
@@ -213,12 +213,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
               const isSelected = () => selectedBase().type === base.type && selectedBase().id === base.id;
               const isCurrent = base.type === props.sourceBaseType && base.id === props.sourceBaseId;
               return (
-                <Button
-                  type="button"
-                  onClick={() => handleBaseChange(base)}
-                  variant={isSelected() ? "subtle" : "secondary"}
-                  size="sm"
-                >
+                <Button type="button" onClick={() => handleBaseChange(base)} variant={isSelected() ? "subtle" : "secondary"} size="sm">
                   <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"}`} /> {base.name}
                   <Show when={isCurrent}>
                     <span class="opacity-60">(current)</span>

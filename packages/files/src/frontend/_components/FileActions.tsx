@@ -1,12 +1,12 @@
-import type { DropdownItem } from "@k2b/ui";
-import { Dropdown, prompts, toast } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { DropdownItem } from "@k2b/ui";
+import { Dropdown, prompts, toast } from "@k2b/ui";
 import { useContext } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { FileContext, fileApiUrl, fileAppUrlForPath, requestFileLightboxOpen, setDetailFileInUrl, setHighlightedFiles } from "./context";
-import MoveTargetSearch from "./MoveTargetSearch.island";
+import MoveTargetSearch from "./MoveTargetSearch";
 
 export type FileActionContext = {
   baseType: FileBaseInfo["type"];
