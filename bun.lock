@@ -242,6 +242,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/stdlib": "0.17.1",
+        "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
         "solid-js": "^1.9.10",

@@ -1,3 +1,5 @@
+import { gradients } from "@k2b/stdlib";
+import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus, type WidgetStatusTone } from "@k2b/ui";
 import { type DashboardWidget, listApps, listLegalLinks, listWidgets } from "@valentinkolb/cloud";
 import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import { type AppRegistryEntry, hasRole, type Role, type User } from "@valentinkolb/cloud/contracts";
@@ -5,8 +7,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
-import { gradients } from "@k2b/stdlib";
 import type { JSX } from "solid-js";
 import { dashboardHelp } from "@/help";
 import { ssr } from "../config";
@@ -21,12 +21,24 @@ import {
   resolveDashboardWidgetLayout,
 } from "../shared";
 import DashboardLayoutHelp from "./_components/help/DashboardLayoutHelp.island";
-import DashboardEditButton from "./DashboardEditButton.island";
-import DashboardControls from "./EditDashboard.island";
+import DashboardControls, { DashboardEditButton } from "./EditDashboard.island";
 
 const log = logger("dashboard");
 const WIDGET_TIMEOUT_MS = 500;
 const SLOW_WIDGET_MS = 250;
+
+const widgetStatusTone = (tone: "ok" | "warn" | "error" | "info"): WidgetStatusTone => {
+  switch (tone) {
+    case "ok":
+      return "success";
+    case "warn":
+      return "warning";
+    case "error":
+      return "danger";
+    case "info":
+      return "info";
+  }
+};
 
 type WidgetFetchResult =
   | { source: DashboardWidget; status: 200; data: WidgetResponse }
@@ -138,7 +150,13 @@ const renderBlock = (block: WidgetBlock): JSX.Element => {
     case "status":
       return (
         <div class="dashboard-widget-status">
-          <WidgetStatus tone={block.tone} title={block.title} message={block.message} icon={block.icon} grow={block.grow} />
+          <WidgetStatus
+            tone={widgetStatusTone(block.tone)}
+            title={block.title}
+            message={block.message}
+            icon={block.icon}
+            grow={block.grow}
+          />
         </div>
       );
     case "pills":

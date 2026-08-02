@@ -1,8 +1,21 @@
-import type { DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
-import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
-import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { gradients } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import {
+  Button,
+  ButtonLink,
+  Checkbox,
+  IconButton,
+  IconInput,
+  Placeholder,
+  prompts,
+  SegmentedControl,
+  Select,
+  TextInput,
+  Tooltip,
+  toast,
+} from "@k2b/ui";
+import type { DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
+import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import {
@@ -57,21 +70,21 @@ const ShortcutBadge = (props: { icon: string; title: string; href?: string; acce
       <span class="max-w-36 truncate text-sm font-medium text-primary">{props.title}</span>
     </>
   );
-  const className = "btn-input btn-input-sm h-9 max-w-full gap-2 px-2.5";
-
   return props.href ? (
-    <a
+    <ButtonLink
       href={props.href}
-      class={className}
+      variant="secondary"
+      size="sm"
+      class="max-w-full"
       target={isExternalHref(props.href) ? "_blank" : undefined}
       rel={isExternalHref(props.href) ? "noreferrer" : undefined}
     >
       {content}
-    </a>
+    </ButtonLink>
   ) : (
-    <button type="button" class={className} onClick={props.onClick}>
+    <Button variant="secondary" size="sm" class="max-w-full" onClick={props.onClick}>
       {content}
-    </button>
+    </Button>
   );
 };
 
@@ -143,10 +156,10 @@ export function DashboardEditButton(props: Props) {
   };
 
   return (
-    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={openEdit}>
+    <Button variant="secondary" size="sm" class="shrink-0" onClick={openEdit}>
       <i class="ti ti-adjustments" />
       Edit dashboard
-    </button>
+    </Button>
   );
 }
 
@@ -191,7 +204,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
     <div class="flex flex-col gap-5">
       <SegmentedControl<"app" | "link">
         value={kind}
-        onChange={setKind}
+        onValueChange={setKind}
         ariaLabel="Shortcut type"
         options={
           apps.length > 0
@@ -210,7 +223,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
             <TextInput
               label="Title"
               value={title}
-              onInput={setTitle}
+              onValueChange={setTitle}
               icon="ti ti-text-caption"
               required
               maxLength={DASHBOARD_MAX_TITLE_LENGTH}
@@ -219,7 +232,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
             <TextInput
               label="URL"
               value={href}
-              onInput={setHref}
+              onValueChange={setHref}
               error={hrefError}
               icon="ti ti-link"
               inputMode="url"
@@ -230,28 +243,28 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
               placeholder="example.com"
             />
             <div class="sm:col-span-2">
-              <IconInput label="Icon" value={icon} onChange={setIcon} required />
+              <IconInput label="Icon" value={icon} onValueChange={(value) => setIcon(value ?? "")} required clearable={false} />
             </div>
           </div>
         }
       >
-        <SelectInput
+        <Select
           label="App"
           icon="ti ti-apps"
           value={appId}
-          onChange={setAppId}
+          onValueChange={(value) => setAppId(value ?? "")}
           options={apps.map((app) => ({ id: app.id, label: app.name, description: app.description, icon: app.icon }))}
           required
         />
       </Show>
 
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
+        <Button variant="secondary" size="sm" onClick={() => close()}>
           Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading() || !canSubmit()}>
-          {save.loading() ? "Saving..." : "Add shortcut"}
-        </button>
+        </Button>
+        <Button size="sm" onClick={() => save.mutate()} disabled={!canSubmit()} loading={save.loading()} loadingLabel="Adding shortcut">
+          Add shortcut
+        </Button>
       </div>
     </div>
   );
@@ -358,10 +371,10 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
       <section class="flex flex-col gap-3">
         <div class="flex items-center justify-between gap-3">
           <span class="text-[11px] uppercase tracking-wider text-dimmed">Shortcuts</span>
-          <button type="button" class="btn-input btn-input-sm" onClick={onAddShortcut}>
+          <Button variant="secondary" size="sm" onClick={onAddShortcut}>
             <i class="ti ti-plus" />
             Add
-          </button>
+          </Button>
         </div>
         <Show
           when={shortcuts().length > 0}
@@ -388,14 +401,9 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                       <span class="block truncate text-xs text-dimmed">{meta}</span>
                     </span>
                     <Tooltip content="Remove shortcut">
-                      <button
-                        type="button"
-                        class="btn-ghost btn-sm"
-                        onClick={() => removeShortcut(shortcut.id)}
-                        aria-label={`Remove ${title}`}
-                      >
+                      <IconButton size="sm" label={`Remove ${title}`} onClick={() => removeShortcut(shortcut.id)}>
                         <i class="ti ti-trash" />
-                      </button>
+                      </IconButton>
                     </Tooltip>
                   </li>
                 );
@@ -427,41 +435,40 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                 return (
                   <li class="flex flex-col gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
                     <div class="flex min-w-0 items-center gap-3">
-                      <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={!hidden().includes(widget.key)}
-                          onChange={() => toggleWidget(widget.key)}
-                          class="h-4 w-4 shrink-0"
-                        />
-                        <i class={`${widget.icon} shrink-0 text-sm text-dimmed`} />
-                        <span class="min-w-0 flex-1">
-                          <span class="block truncate text-sm font-medium text-primary">{widget.title}</span>
-                          <Show when={recommendation()}>{(label) => <span class="block text-[11px] text-dimmed">{label()}</span>}</Show>
-                        </span>
-                      </label>
+                      <Checkbox
+                        class="min-w-0 flex-1"
+                        value={() => !hidden().includes(widget.key)}
+                        onValueChange={() => toggleWidget(widget.key)}
+                        label={
+                          <span class="flex min-w-0 items-center gap-3">
+                            <i class={`${widget.icon} shrink-0 text-sm text-dimmed`} />
+                            <span class="min-w-0 flex-1">
+                              <span class="block truncate text-sm font-medium text-primary">{widget.title}</span>
+                              <Show when={recommendation()}>{(label) => <span class="block text-[11px] text-dimmed">{label()}</span>}</Show>
+                            </span>
+                          </span>
+                        }
+                      />
                       <div class="flex shrink-0 items-center gap-1">
                         <Tooltip content="Move widget up" disabled={index() === 0}>
-                          <button
-                            type="button"
-                            class="btn-ghost btn-sm"
-                            aria-label={`Move ${widget.title} up`}
+                          <IconButton
+                            size="sm"
+                            label={`Move ${widget.title} up`}
                             disabled={index() === 0}
                             onClick={() => moveWidget(widget.key, -1)}
                           >
                             <i class="ti ti-arrow-up" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                         <Tooltip content="Move widget down" disabled={index() === orderedWidgets().length - 1}>
-                          <button
-                            type="button"
-                            class="btn-ghost btn-sm"
-                            aria-label={`Move ${widget.title} down`}
+                          <IconButton
+                            size="sm"
+                            label={`Move ${widget.title} down`}
                             disabled={index() === orderedWidgets().length - 1}
                             onClick={() => moveWidget(widget.key, 1)}
                           >
                             <i class="ti ti-arrow-down" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                       </div>
                     </div>
@@ -469,7 +476,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                     <div class="flex flex-wrap items-center gap-2 pl-7">
                       <SegmentedControl<DashboardWidgetZone>
                         value={() => resolved()?.zone ?? "overview"}
-                        onChange={(zone) => updateWidgetLayout(widget.key, { zone })}
+                        onValueChange={(zone) => updateWidgetLayout(widget.key, { zone })}
                         ariaLabel={`${widget.title} section`}
                         options={[
                           { value: "focus", label: "Focus", icon: "ti ti-focus-2" },
@@ -480,7 +487,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                       <Show when={resolved()?.zone !== "context"}>
                         <SegmentedControl<DashboardWidgetSpan>
                           value={() => resolved()?.span ?? "standard"}
-                          onChange={(span) => updateWidgetLayout(widget.key, { span })}
+                          onValueChange={(span) => updateWidgetLayout(widget.key, { span })}
                           ariaLabel={`${widget.title} width`}
                           options={[
                             { value: "standard", label: "Standard" },
@@ -489,9 +496,9 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                         />
                       </Show>
                       <Show when={overridden()}>
-                        <button type="button" class="btn-ghost btn-sm" onClick={() => resetWidgetLayout(widget.key)}>
+                        <Button variant="ghost" size="sm" onClick={() => resetWidgetLayout(widget.key)}>
                           Reset
-                        </button>
+                        </Button>
                       </Show>
                     </div>
                   </li>
@@ -522,12 +529,12 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
       <p class="text-[11px] text-dimmed">These settings are saved to your account and apply on every device.</p>
 
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
+        <Button variant="secondary" size="sm" onClick={() => close()}>
           Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading()}>
-          {save.loading() ? "Saving..." : "Save"}
-        </button>
+        </Button>
+        <Button size="sm" onClick={() => save.mutate()} loading={save.loading()} loadingLabel="Saving dashboard">
+          Save
+        </Button>
       </div>
     </div>
   );
