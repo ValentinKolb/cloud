@@ -313,36 +313,6 @@ export const commitCalendarResponse = async (params: {
   return ok(state);
 };
 
-export const getMailboxCalendarDefault = async (params: { mailboxId: string; subject: AccessSubject }): Promise<string | null> => {
-  const [row] = await sql<{ space_id: string }[]>`
-    SELECT space_id FROM spaces.mailbox_calendar_defaults WHERE mailbox_id = ${params.mailboxId}::uuid
-  `;
-  if (!row) return null;
-  const permission = await getSpacePermission({ spaceId: row.space_id, subject: params.subject });
-  return permission === "write" || permission === "admin" ? row.space_id : null;
-};
-
-export const setMailboxCalendarDefault = async (params: {
-  mailboxId: string;
-  spaceId: string | null;
-  subject: AccessSubject;
-}): Promise<Result<string | null>> => {
-  if (!params.spaceId) {
-    await sql`DELETE FROM spaces.mailbox_calendar_defaults WHERE mailbox_id = ${params.mailboxId}::uuid`;
-    return ok(null);
-  }
-  const permission = await getSpacePermission({ spaceId: params.spaceId, subject: params.subject });
-  if (permission !== "write" && permission !== "admin") {
-    return fail(err.forbidden("Write access to the selected Space is required"));
-  }
-  await sql`
-    INSERT INTO spaces.mailbox_calendar_defaults (mailbox_id, space_id)
-    VALUES (${params.mailboxId}::uuid, ${params.spaceId}::uuid)
-    ON CONFLICT (mailbox_id) DO UPDATE SET space_id = EXCLUDED.space_id, updated_at = now()
-  `;
-  return ok(params.spaceId);
-};
-
 const firstOpenColumn = async (spaceId: string): Promise<string | null> => {
   const [column] = await sql<{ id: string }[]>`
     SELECT id FROM spaces.columns WHERE space_id = ${spaceId}::uuid ORDER BY is_done, rank, id LIMIT 1
@@ -436,9 +406,10 @@ export const importCalendarInvitation = async (params: {
       )
     `;
   } catch (error) {
-    if ((error as { code?: string } | null)?.code !== "23505") throw error;
     const removed = await items.remove({ id: created.data.id });
-    if (!removed.ok) return fail(err.conflict("Calendar event was imported concurrently and cleanup requires attention"));
+    if (!removed.ok) return fail(err.internal("Calendar event linkage failed and cleanup requires attention"));
+    if ((error as { code?: string } | null)?.code !== "23505")
+      return fail(err.internal("Could not link the calendar event to its invitation"));
     const concurrent = await findExisting(params.input.mailboxId, invitation.uid);
     return concurrent
       ? ok({ itemId: concurrent.itemId, spaceId: concurrent.spaceId, href: concurrent.href, outcome: "unchanged" })
@@ -644,7 +615,9 @@ export const createEventInvitationDraft = async (params: {
   if (!mailboxes.ok) return fail(err.internal(mailboxes.message));
   const mailbox = mailboxes.data.find((candidate) => candidate.id === params.input.mailboxId);
   if (!mailbox) return fail(err.forbidden("The selected mailbox cannot send invitations"));
-  const attendees = normalizeAttendees(params.input.attendees, mailbox.from.address);
+  const identity = mailbox.identities.find((candidate) => candidate.id === params.input.senderIdentityId);
+  if (!identity) return fail(err.forbidden("The selected verified sender identity is unavailable"));
+  const attendees = normalizeAttendees(params.input.attendees, identity.from.address);
   if (attendees.length === 0) return fail(err.badInput("Add at least one attendee other than the organizer"));
 
   const prepared = await sql.begin(async (tx) => {
@@ -652,19 +625,25 @@ export const createEventInvitationDraft = async (params: {
       {
         item_id: string;
         mailbox_id: string;
+        sender_identity_id: string | null;
         sequence: number;
         method: "request" | "cancel";
         state: "preparing" | "drafted" | "failed";
         draft_id: string | null;
       }[]
     >`
-      SELECT item_id, mailbox_id, sequence, method, state, draft_id
+      SELECT item_id, mailbox_id, sender_identity_id, sequence, method, state, draft_id
       FROM spaces.calendar_invitation_deliveries
       WHERE idempotency_key = ${params.input.idempotencyKey}::uuid
       FOR UPDATE
     `;
     if (delivery) {
-      if (delivery.item_id !== params.itemId || delivery.mailbox_id !== mailbox.id || delivery.method !== params.input.method) {
+      if (
+        delivery.item_id !== params.itemId ||
+        delivery.mailbox_id !== mailbox.id ||
+        (delivery.sender_identity_id !== null && delivery.sender_identity_id !== identity.id) ||
+        delivery.method !== params.input.method
+      ) {
         return fail(err.conflict("Invitation idempotency key belongs to another request"));
       }
       if (delivery.state === "drafted" && delivery.draft_id) {
@@ -690,7 +669,7 @@ export const createEventInvitationDraft = async (params: {
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
         ${params.itemId}::uuid, ${mailbox.id}::uuid, NULL, ${uid}, ${sequence}, ${params.input.method},
-        ${mailbox.from}::jsonb, ${attendees}::jsonb
+        ${identity.from}::jsonb, ${attendees}::jsonb
       )
       ON CONFLICT (item_id) DO UPDATE SET
         mailbox_id = EXCLUDED.mailbox_id,
@@ -703,9 +682,9 @@ export const createEventInvitationDraft = async (params: {
     `;
     await tx`
       INSERT INTO spaces.calendar_invitation_deliveries (
-        idempotency_key, item_id, mailbox_id, sequence, method, state
+        idempotency_key, item_id, mailbox_id, sender_identity_id, sequence, method, state
       ) VALUES (
-        ${params.input.idempotencyKey}::uuid, ${params.itemId}::uuid, ${mailbox.id}::uuid,
+        ${params.input.idempotencyKey}::uuid, ${params.itemId}::uuid, ${mailbox.id}::uuid, ${identity.id}::uuid,
         ${sequence}, ${params.input.method}, 'preparing'
       )
     `;
@@ -729,7 +708,7 @@ export const createEventInvitationDraft = async (params: {
     uid,
     sequence: prepared.data.sequence,
     method: params.input.method,
-    organizer: mailbox.from,
+    organizer: identity.from,
     attendees,
   });
   const label = params.input.method === "cancel" ? "Cancelled" : prepared.data.sequence === 0 ? "Invitation" : "Updated invitation";
@@ -737,6 +716,7 @@ export const createEventInvitationDraft = async (params: {
     {
       idempotencyKey: params.input.idempotencyKey,
       mailboxId: mailbox.id,
+      senderIdentityId: identity.id,
       to: attendees,
       subject: `${label}: ${item.data.title}`,
       body:

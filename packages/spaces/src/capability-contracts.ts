@@ -7,7 +7,7 @@ import {
   CalendarInvitationResponseSchema,
   CalendarInvitationResponseStateSchema,
   CalendarParticipationStatusSchema,
-  SpacesMailDestinationContextSchema,
+  SpacesMailDestinationsSchema,
 } from "./integration";
 
 const TimestampSchema = z.string().datetime({ offset: true });
@@ -294,15 +294,6 @@ export const CalendarInvitationResponseCommitCapabilityInputSchema = z
   })
   .strict();
 export const CalendarInvitationResponseCommitCapabilityDataSchema = CalendarInvitationResponseStateSchema;
-export const CalendarDestinationListInputSchema = z
-  .object({ mailboxId: z.uuid().describe("Mail mailbox UUID whose calendar destination is being resolved.") })
-  .strict();
-export const CalendarDestinationListDataSchema = SpacesMailDestinationContextSchema;
-export const CalendarDestinationDefaultSetInputSchema = z
-  .object({
-    mailboxId: z.uuid().describe("Mail mailbox UUID whose default calendar destination is being changed."),
-    spaceId: z.uuid().nullable().describe("Writable Space UUID, or null to clear the default."),
-  })
-  .strict();
-export const CalendarDestinationDefaultSetDataSchema = SpacesMailDestinationContextSchema;
+export const CalendarDestinationListInputSchema = z.object({}).strict();
+export const CalendarDestinationListDataSchema = SpacesMailDestinationsSchema;
 export const CommentDeleteDataSchema = z.object({ commentId: z.uuid(), deleted: z.literal(true) }).strict();

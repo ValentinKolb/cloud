@@ -66,16 +66,9 @@ import {
   SpaceItemDetailSchema,
   SpacesViewSnapshotSchema,
 } from "../frontend/[id]/_components/workspace/workspace-types";
-import {
-  CreateEventInvitationDraftInputSchema,
-  EventInvitationContextSchema,
-  EventInvitationDraftSchema,
-  MailEventSourceInputSchema,
-  MailEventSourceSchema,
-} from "../integration";
+import { CreateEventInvitationDraftInputSchema, EventInvitationContextSchema, EventInvitationDraftSchema } from "../integration";
 import { spacesService } from "../service";
 import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
-import { getEventSource } from "../service/mail-integration";
 import wsRoutes from "../ws";
 
 // ==========================
@@ -456,33 +449,6 @@ const app = new Hono<AuthContext>()
           request: mailIntegrationRequest(c),
         }),
       );
-    },
-  )
-
-  .post(
-    "/:id/mail-event-source",
-    describeRoute({
-      tags: ["Spaces:Integrations"],
-      summary: "Load Mail context for the event editor",
-      description: "Resolves a bounded, permission-checked Mail source without exposing message content in the editor URL.",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(MailEventSourceSchema, "Event source"),
-        403: jsonResponse(ErrorResponseSchema, "Space write or mailbox read access required"),
-        404: jsonResponse(ErrorResponseSchema, "Source not found"),
-      },
-    }),
-    v("json", MailEventSourceInputSchema),
-    async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      if (!z.uuid().safeParse(spaceId).success) return respond(c, fail(err.badInput("Invalid space identifier")));
-      const access = await checkSpaceAccess(c, spaceId, "write");
-      if (access.error) return access.error;
-      const source = await getEventSource(c.req.valid("json"), mailIntegrationRequest(c));
-      if (source.ok) return respond(c, ok(source.data));
-      if (source.status === 403) return respond(c, fail(err.forbidden(source.message)));
-      if (source.status === 404) return respond(c, fail(err.notFound("Mail source message")));
-      return respond(c, fail(err.internal(source.message)));
     },
   )
 

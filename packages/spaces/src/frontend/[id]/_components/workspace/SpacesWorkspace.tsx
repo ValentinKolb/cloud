@@ -4,7 +4,6 @@ import ItemDetailRoute from "../detail/ItemDetailRoute.island";
 import { defaultFilter, parseFilterFromUrl } from "../filter/types";
 import SpaceSidebar from "../sidebar/SpaceSidebar";
 import type { SpaceContext } from "../sidebar/types";
-import CreateEventFromMail from "./CreateEventFromMail.island";
 import RememberSpace from "./RememberSpace.island";
 import SpaceLiveEvents from "./SpaceLiveEvents.island";
 import SpacesCalendarRoute from "./SpacesCalendarRoute.island";
@@ -46,7 +45,7 @@ const routeContext = (state: OkWorkspaceState, dateConfig?: DateContext) => {
   };
 };
 
-export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateConfig?: DateContext }) {
+export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateConfig?: DateContext; mailIntegrationAvailable: boolean }) {
   const state = props.state;
   const route = routeContext(state, props.dateConfig);
   const sidebarContext: SpaceContext = {
@@ -66,27 +65,9 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
       ? initialDetail.item.id
       : `${initialDetail.recurringContext.seriesItemId}:${initialDetail.recurringContext.recurrenceId}`
     : selectedItemId;
-  const mailHandoff = (() => {
-    const query = new URLSearchParams(state.query);
-    if (query.get("create") !== "event") return null;
-    const mailboxId = query.get("mailbox");
-    const messageId = query.get("message");
-    return mailboxId && messageId ? { mailboxId, messageId } : null;
-  })();
-
   return (
     <>
       <RememberSpace spaceId={state.space.id} />
-      {mailHandoff && (
-        <CreateEventFromMail
-          spaceId={state.space.id}
-          mailboxId={mailHandoff.mailboxId}
-          messageId={mailHandoff.messageId}
-          columns={state.space.columns}
-          tags={state.space.tags}
-          dateConfig={props.dateConfig}
-        />
-      )}
       <SpaceLiveEvents spaceId={state.space.id} initialCursor={state.eventCursor} />
       <AppWorkspace class="flex-1 min-h-0">
         <SpaceSidebar ctx={sidebarContext} baseUrl={state.icalBaseUrl} dateConfig={props.dateConfig} />
@@ -152,6 +133,7 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
             initialDetail={initialDetail}
             dateConfig={props.dateConfig}
             canWrite={state.canWrite}
+            mailIntegrationAvailable={props.mailIntegrationAvailable}
           />
         </AppWorkspace.Content>
       </AppWorkspace>

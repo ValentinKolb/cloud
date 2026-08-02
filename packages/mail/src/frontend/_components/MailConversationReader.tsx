@@ -1,5 +1,6 @@
-import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
-import type { CloudTheme } from "@valentinkolb/cloud/shared";
+import { documentNavigate, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import { type DateContext, dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Button,
   CheckboxCard,
@@ -10,11 +11,10 @@ import {
   Placeholder,
   prompts,
   Select,
-  toast,
   Tooltip,
+  toast,
 } from "@k2b/ui";
-import { type DateContext, dates } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
@@ -82,6 +82,7 @@ export default function MailConversationReader(props: {
   dateConfig: DateContext;
   readingFormat: MailReadingFormat;
   theme: CloudTheme;
+  calendarIntegrationAvailable: boolean;
   listCollapsed: boolean;
   detailsOpen: boolean;
   toolbarActions: readonly MailConversationToolbarActionId[];
@@ -999,6 +1000,7 @@ export default function MailConversationReader(props: {
                       dateConfig: props.dateConfig,
                       readingFormat: props.readingFormat,
                       theme: props.theme,
+                      calendarIntegrationAvailable: props.calendarIntegrationAvailable,
                       composerBusy: composerBusy(),
                     }}
                     actions={{

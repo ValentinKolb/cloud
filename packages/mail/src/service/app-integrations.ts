@@ -1,12 +1,7 @@
 import { getCapability } from "@valentinkolb/cloud";
-import {
-  ContactResolveDataSchema,
-  ContactResolveInputSchema,
-} from "@valentinkolb/cloud-app-contacts/capability-contracts";
 import { type CapabilityResult, capabilityResultSchema } from "@valentinkolb/cloud/contracts";
+import { ContactResolveDataSchema, ContactResolveInputSchema } from "@valentinkolb/cloud-app-contacts/capability-contracts";
 import {
-  CalendarDestinationDefaultSetDataSchema,
-  CalendarDestinationDefaultSetInputSchema,
   CalendarDestinationListDataSchema,
   CalendarDestinationListInputSchema,
   CalendarInvitationImportCapabilityDataSchema,
@@ -18,17 +13,23 @@ import {
   CalendarInvitationResponsePrepareDataSchema,
   CalendarInvitationResponsePrepareInputSchema,
 } from "@valentinkolb/cloud-app-spaces/capability-contracts";
-import {
-  type CalendarInvitationImportInput,
-  type CalendarInvitationPreviewInput,
-  type CalendarInvitationResponseCommitInput,
-  type CalendarInvitationResponseInput,
-  type SpacesMailDefaultInput,
+import type {
+  CalendarInvitationImportInput,
+  CalendarInvitationPreviewInput,
+  CalendarInvitationResponseCommitInput,
+  CalendarInvitationResponseInput,
 } from "@valentinkolb/cloud-app-spaces/integration";
 import { z } from "zod";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
 const REQUEST_TIMEOUT_MS = 3_000;
+const REQUIRED_SPACES_INVITATION_QUERIES = [
+  "calendar-destination.list",
+  "calendar-invitation.preview",
+  "calendar-invitation.response.prepare",
+] as const;
+const REQUIRED_SPACES_INVITATION_ACTIONS = ["calendar-invitation.import", "calendar-invitation.response.commit"] as const;
+const REQUIRED_SPACES_SETTINGS_QUERIES = ["calendar-destination.list"] as const;
 
 export type AppIntegrationRequest = {
   cookie?: string | null;
@@ -40,10 +41,54 @@ export type AppIntegrationRequest = {
 type AppIntegrationResult<T> = { ok: true; data: T } | { ok: false; code: "unavailable" | "rejected"; message: string; status: number };
 type BoundedJsonResponse = { ok: true; body: unknown; status: number } | { ok: false; result: AppIntegrationResult<never> };
 
+const readBoundedText = async (response: Response): Promise<string | null> => {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) return null;
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    total += chunk.value.byteLength;
+    if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(chunk.value);
+  }
+  return Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+    total,
+  ).toString("utf8");
+};
+
+export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitations: boolean; settings: boolean }> => {
+  try {
+    const app = await getCapability("spaces");
+    if (!app) return { invitations: false, settings: false };
+    const queries = new Set(app.manifest.queries.map((operation) => operation.localId));
+    const actions = new Set(app.manifest.actions.map((operation) => operation.localId));
+    const invitations =
+      REQUIRED_SPACES_INVITATION_QUERIES.every((id) => queries.has(id)) &&
+      REQUIRED_SPACES_INVITATION_ACTIONS.every((id) => actions.has(id));
+    return {
+      invitations,
+      settings: REQUIRED_SPACES_SETTINGS_QUERIES.every((id) => queries.has(id)),
+    };
+  } catch {
+    return { invitations: false, settings: false };
+  }
+};
+
 const integrationErrorSchema = z
   .object({
     message: z.string().min(1).max(2_000).optional(),
-    error: z.object({ message: z.string().min(1).max(2_000) }).passthrough().optional(),
+    error: z
+      .object({ message: z.string().min(1).max(2_000) })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 
@@ -69,17 +114,14 @@ const fetchBoundedJson = async (params: {
     headers: params.headers,
     ...(params.body === undefined ? {} : { body: JSON.stringify(params.body) }),
   });
-  const text = await response.text();
-  if (text.length > MAX_RESPONSE_BYTES) {
+  const text = await readBoundedText(response);
+  if (text === null) {
     return { ok: false, result: unavailable("The connected app returned too much data") };
   }
   return { ok: true, body: text ? JSON.parse(text) : null, status: response.status };
 };
 
-const appRequestHeaders = (
-  request: AppIntegrationRequest,
-  extra: Record<string, string | undefined> = {},
-): Record<string, string> => {
+const appRequestHeaders = (request: AppIntegrationRequest, extra: Record<string, string | undefined> = {}): Record<string, string> => {
   const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
   if (request.cookie) headers.Cookie = request.cookie;
   if (request.authorization) headers.Authorization = request.authorization;
@@ -157,24 +199,14 @@ export const resolveContacts = async (input: z.input<typeof ContactResolveInputS
   };
 };
 
-export const listCalendarDestinations = (mailboxId: string, request: AppIntegrationRequest) =>
+export const listCalendarDestinations = (request: AppIntegrationRequest) =>
   fetchAppCapability({
     appId: "spaces",
     kind: "queries",
     capabilityId: "calendar-destination.list",
     request,
     dataSchema: CalendarDestinationListDataSchema,
-    input: CalendarDestinationListInputSchema.parse({ mailboxId }),
-  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
-
-export const setCalendarDefault = (input: SpacesMailDefaultInput, request: AppIntegrationRequest) =>
-  fetchAppCapability({
-    appId: "spaces",
-    kind: "actions",
-    capabilityId: "calendar-destination.default.set",
-    request,
-    dataSchema: CalendarDestinationDefaultSetDataSchema,
-    input: CalendarDestinationDefaultSetInputSchema.parse(input),
+    input: CalendarDestinationListInputSchema.parse({}),
   }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const previewCalendarInvitation = (input: CalendarInvitationPreviewInput, request: AppIntegrationRequest) =>

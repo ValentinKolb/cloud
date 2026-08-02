@@ -36,8 +36,8 @@ Use Spaces when people need a clear shared operating surface. Use Grids when rec
 
 Spaces owns imported meeting state, recurrence, organizers, attendees, and invitation sequence numbers. Mail owns the original message, mailbox identities, editable drafts, attachments, and delivery. This boundary keeps one event in one calendar while still using the normal Mail sending pipeline.
 
-- Import from a Mail invitation explicitly and choose the destination Space.
+- Import from a Mail invitation explicitly, or respond from Mail to save/update the event and prepare an editable response draft in one step.
 - A repeated delivery with the same calendar UID updates the same linked event only when its sequence is newer. Stale and duplicate deliveries do not duplicate the event.
 - A cancellation completes the linked event; it cannot create a new one by itself.
-- In an editable event, use **Invitations** to create a Mail draft for attendees. Updates use a newer sequence, cancellation is explicit, and transport failures remain visible in Spaces.
-- An ordinary Mail message can open the existing Spaces event editor with a prefilled title and bounded description. The URL carries only mailbox and message identifiers; Spaces checks both permissions before loading context.
+- In an editable event, use **Invitations** to choose a writable mailbox and any currently verified From identity before creating an editable Mail draft. Updates use a newer sequence, cancellation is explicit, and transport failures remain visible in Spaces.
+- If Mail or its required capability surface is unavailable, invitation controls stay hidden and Spaces remains fully usable as a calendar.

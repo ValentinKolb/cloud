@@ -26,6 +26,7 @@ type Props = {
   initialDetail: SpaceItemDetail | null;
   dateConfig?: DateContext;
   canWrite: boolean;
+  mailIntegrationAvailable: boolean;
 };
 
 type DetailRequest = {
@@ -238,6 +239,7 @@ export default function ItemDetailRoute(props: Props) {
               recurringContext={current.recurringContext}
               dateConfig={props.dateConfig}
               canWrite={props.canWrite}
+              mailIntegrationAvailable={props.mailIntegrationAvailable}
             />
           )}
         </Show>

@@ -1,6 +1,6 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, dialogCore, PanelDialog, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { Button, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
 import { readResponseError } from "../../../lib/response";
@@ -33,18 +33,35 @@ const parseAttendees = (value: string) => {
 function InvitationDialog(props: { spaceId: string; itemId: string; method: "request" | "cancel"; close: () => void }) {
   const [context, setContext] = createSignal<InvitationContext | null>(null);
   const [mailboxId, setMailboxId] = createSignal<string | null>(null);
+  const [senderIdentityId, setSenderIdentityId] = createSignal<string | null>(null);
   const [recipients, setRecipients] = createSignal("");
   const [validationError, setValidationError] = createSignal<string | null>(null);
-  const idempotencyKey = crypto.randomUUID();
+  let idempotencyKey = crypto.randomUUID();
+  const resetIdempotency = () => {
+    idempotencyKey = crypto.randomUUID();
+  };
 
   const load = mutation.create<InvitationContext, void>({
     mutation: async (_input, { abortSignal }) => loadContext(props.spaceId, props.itemId, abortSignal),
     onSuccess: (result) => {
       setContext(result);
-      setMailboxId(result.mailboxes[0]?.id ?? null);
+      const mailbox = result.mailboxes[0];
+      const identity = mailbox?.identities.find((candidate) => candidate.isDefault) ?? mailbox?.identities[0];
+      setMailboxId(mailbox?.id ?? null);
+      setSenderIdentityId(identity?.id ?? null);
       setRecipients(result.attendees.map((attendee) => attendee.address).join(", "));
     },
   });
+
+  const selectedMailbox = createMemo(() => context()?.mailboxes.find((mailbox) => mailbox.id === mailboxId()) ?? null);
+
+  const chooseMailbox = (nextMailboxId: string | null) => {
+    resetIdempotency();
+    setMailboxId(nextMailboxId);
+    const mailbox = context()?.mailboxes.find((candidate) => candidate.id === nextMailboxId);
+    const identity = mailbox?.identities.find((candidate) => candidate.isDefault) ?? mailbox?.identities[0];
+    setSenderIdentityId(identity?.id ?? null);
+  };
 
   const create = mutation.create<void, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -53,7 +70,7 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
         setValidationError(parsed.message);
         return;
       }
-      if (!mailboxId()) {
+      if (!mailboxId() || !senderIdentityId()) {
         setValidationError("Choose a mailbox with a verified sending identity.");
         return;
       }
@@ -68,6 +85,7 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
             json: {
               idempotencyKey,
               mailboxId: mailboxId()!,
+              senderIdentityId: senderIdentityId()!,
               attendees: parsed.attendees,
               method: props.method,
             },
@@ -102,21 +120,62 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
         close={props.close}
       />
       <PanelDialog.Body>
-        <Show when={context()} fallback={<p class="text-sm text-dimmed">{load.error()?.message ?? "Loading Mail senders…"}</p>}>
+        <Show
+          when={context()}
+          fallback={
+            <Placeholder
+              state={load.error() ? "error" : "loading"}
+              variant="compact"
+              title={load.error() ? "Mail senders unavailable" : "Loading Mail senders"}
+              description={load.error()?.message}
+              action={
+                load.error() ? (
+                  <Button variant="secondary" size="sm" type="button" onClick={() => load.mutate()}>
+                    Retry
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
+        >
           {(value) => (
             <PanelDialog.Section title="Delivery" subtitle="Choose the organizer identity and recipients." icon="ti ti-mail-forward">
+              <Show when={value().mailboxes.length === 0}>
+                <Placeholder
+                  state="empty"
+                  variant="compact"
+                  icon="ti ti-mail-off"
+                  title="No Mail sender is available"
+                  description="You need write access to a mailbox with at least one verified sending identity."
+                />
+              </Show>
               <Select
-                label="Send from"
+                label="Mailbox"
                 value={() => mailboxId() ?? undefined}
-                onValueChange={setMailboxId}
+                onValueChange={chooseMailbox}
                 options={value().mailboxes.map((mailbox) => ({
                   value: mailbox.id,
                   label: mailbox.name,
-                  description: mailbox.from.name ? `${mailbox.from.name} <${mailbox.from.address}>` : mailbox.from.address,
                   icon: "ti ti-mail",
                 }))}
                 placeholder="No writable Mail mailbox"
                 disabled={value().mailboxes.length === 0}
+              />
+              <Select
+                label="From"
+                value={() => senderIdentityId() ?? undefined}
+                onValueChange={(value) => {
+                  resetIdempotency();
+                  setSenderIdentityId(value);
+                }}
+                options={(selectedMailbox()?.identities ?? []).map((identity) => ({
+                  value: identity.id,
+                  label: identity.label,
+                  description: identity.from.name ? `${identity.from.name} <${identity.from.address}>` : identity.from.address,
+                  icon: identity.isDefault ? "ti ti-star" : "ti ti-at",
+                }))}
+                placeholder="No verified sending identity"
+                disabled={!selectedMailbox()}
               />
               <TextInput
                 label="Attendees"
@@ -125,7 +184,10 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
                 multiline
                 lines={3}
                 value={recipients}
-                onValueChange={setRecipients}
+                onValueChange={(value) => {
+                  resetIdempotency();
+                  setRecipients(value);
+                }}
                 error={() => validationError() ?? undefined}
                 placeholder="alex@example.com, sam@example.com"
               />
@@ -140,7 +202,7 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
         <Button
           type="button"
           variant={props.method === "cancel" ? "danger" : "primary"}
-          disabled={load.loading() || create.loading() || !context()}
+          disabled={load.loading() || create.loading() || !context() || !mailboxId() || !senderIdentityId()}
           onClick={() => create.mutate()}
         >
           <i class={create.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-mail-plus"} aria-hidden="true" />

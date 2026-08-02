@@ -5329,6 +5329,10 @@ const canonicalizeMailRuleObjectNames = async (db: SqlClient): Promise<void> => 
   `;
 };
 
+const addMailboxCalendarDestination = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.mailboxes ADD COLUMN calendar_space_id UUID`;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -5433,6 +5437,7 @@ const migrations: readonly MailMigration[] = [
   { version: 102, name: "liquid_mail_templates", run: migrateMailTemplatesToLiquid },
   { version: 103, name: "generalized_mail_rules", run: generalizeMailRules },
   { version: 104, name: "canonical_mail_rule_object_names", run: canonicalizeMailRuleObjectNames },
+  { version: 105, name: "mailbox_calendar_destination", run: addMailboxCalendarDestination },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

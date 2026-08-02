@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { type DropdownItem, Placeholder, StatusBadge } from "@k2b/ui";
+import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { createMemo, createSignal, Show } from "solid-js";
 import type { DraftDerivationKind, DraftIntent, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
@@ -34,6 +34,7 @@ type MailMessageCardContext = {
   dateConfig: DateContext;
   readingFormat: MailReadingFormat;
   theme: CloudTheme;
+  calendarIntegrationAvailable: boolean;
   composerBusy: boolean;
 };
 
@@ -273,7 +274,7 @@ export default function MailMessageCard(props: {
               <Placeholder state="loading" title="Body is still synchronizing" />
             )}
           </div>
-          <Show when={hasCalendarInvitation()}>
+          <Show when={hasCalendarInvitation() && props.context.calendarIntegrationAvailable}>
             <MailCalendarInvitation
               mailboxId={props.context.mailboxId}
               messageId={props.message.id}

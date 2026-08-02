@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Dropdown, type DropdownItem, prompts, toast, IconButton } from "@k2b/ui";
+import { Dropdown, type DropdownItem, IconButton, prompts, toast } from "@k2b/ui";
 import { createEffect, on, onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { DraftDerivationKind, MailRuleConditions, SenderIdentity, SenderMatchKind } from "../../contracts";
@@ -9,7 +9,6 @@ import { openMailRuleEditor, type RuleActionKind } from "./MailRuleSettings";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import { resolveMailMessageActionVisibility } from "./mail-message-action-visibility";
 import { buildExactSenderSearchHref, senderDomainFromAddress } from "./mail-navigation";
-import { openMessageAsSpacesEvent } from "./mail-spaces-event";
 
 type SelectionContext = {
   selectionKey: string | null;
@@ -218,14 +217,7 @@ export default function MailSenderMessageActions(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const createEventInSpaces = mutation.create<void, SelectionContext>({
-    mutation: async (_context, { abortSignal }) =>
-      openMessageAsSpacesEvent({ mailboxId: props.mailboxId, messageId: props.message.id, abortSignal }),
-    onError: (error) => prompts.error(error.message, { title: "Could not open Spaces" }),
-  });
-
-  const pending = () =>
-    messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading() || createEventInSpaces.loading();
+  const pending = () => messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading();
   const sender = () => props.message.from[0] ?? null;
   const findSenderHref = () => (sender() ? buildExactSenderSearchHref(new URL(props.requestUrl), sender()!.address) : null);
   const actionVisibility = () =>
@@ -248,7 +240,6 @@ export default function MailSenderMessageActions(props: {
         messageKeywords.abort();
         conversationKeyword.abort();
         markSenderRead.abort();
-        createEventInSpaces.abort();
       },
       { defer: true },
     ),
@@ -257,7 +248,6 @@ export default function MailSenderMessageActions(props: {
     messageKeywords.abort();
     conversationKeyword.abort();
     markSenderRead.abort();
-    createEventInSpaces.abort();
   });
 
   return (
@@ -336,15 +326,6 @@ export default function MailSenderMessageActions(props: {
               {
                 sectionLabel: "Message",
                 items: [
-                  ...(props.canWrite
-                    ? [
-                        {
-                          label: "Create event in Spaces",
-                          icon: "ti ti-calendar-plus",
-                          action: () => void createEventInSpaces.mutate({ selectionKey: props.selectionKey }),
-                        },
-                      ]
-                    : []),
                   ...(actionVisibility().providerKeywords
                     ? [
                         {

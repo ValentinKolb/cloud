@@ -23,6 +23,9 @@ export type MailboxAdminSettingsContext = {
 export type MailboxSettingsContext = {
   mailbox: Mailbox;
   permission: "read" | "write" | "admin";
+  integrations: {
+    spacesCalendar: boolean;
+  };
   organization: {
     savedViews: SavedConversationView[];
     localTags: LocalTag[];

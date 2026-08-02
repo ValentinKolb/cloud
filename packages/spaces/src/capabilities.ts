@@ -13,8 +13,6 @@ import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server"
 import { type AuditActor, audit } from "@valentinkolb/cloud/services";
 import type { z } from "zod";
 import {
-  CalendarDestinationDefaultSetDataSchema,
-  CalendarDestinationDefaultSetInputSchema,
   CalendarDestinationListDataSchema,
   CalendarDestinationListInputSchema,
   CalendarInvitationImportCapabilityDataSchema,
@@ -46,7 +44,6 @@ import {
   SpaceGetInputSchema,
   SpaceListDataSchema,
   SpaceListInputSchema,
-  SpaceSummaryDataSchema,
   TaskCreateInputSchema,
   TaskDataSchema,
   TaskListDataSchema,
@@ -557,7 +554,7 @@ const runCalendarInvitationResponsePrepare = async (
   return result.ok ? ok({ data: result.data }) : result;
 };
 
-const calendarDestinationContext = async (mailboxId: string, context: CapabilityExecutionContext) => {
+const calendarDestinationContext = async (context: CapabilityExecutionContext) => {
   const scope = scopedSpaceId(context, "write");
   if (!scope.ok) return scope;
   const page = await spacesService.space.list({
@@ -566,15 +563,8 @@ const calendarDestinationContext = async (mailboxId: string, context: Capability
     requiredLevel: "write",
     pagination: { page: 1, perPage: 100 },
   });
-  const selectedSpaceId = await spacesService.calendarInvitations.getMailboxCalendarDefault({
-    mailboxId,
-    subject: context.accessSubject,
-  });
   return ok({
-    data: {
-      selectedSpaceId,
-      items: page.items.map((space) => ({ id: space.id, name: space.name, color: space.color })),
-    },
+    data: page.items.map((space) => ({ id: space.id, name: space.name, color: space.color })),
   });
 };
 
@@ -605,19 +595,6 @@ const runCalendarInvitationResponseCommit = async (
   audited(actionAudit(context, "calendar-invitation.response.commit", "mail_draft", input.draftId), async () => {
     const result = await spacesService.calendarInvitations.commitCalendarResponse({ input, subject: context.accessSubject });
     return result.ok ? ok({ data: result.data, refs: [{ type: "mail.draft", id: input.draftId }] }) : result;
-  });
-
-const runCalendarDestinationDefaultSet = async (
-  input: z.infer<typeof CalendarDestinationDefaultSetInputSchema>,
-  context: CapabilityExecutionContext,
-) =>
-  audited(actionAudit(context, "calendar-destination.default.set", "mailbox", input.mailboxId), async () => {
-    const updated = await spacesService.calendarInvitations.setMailboxCalendarDefault({
-      mailboxId: input.mailboxId,
-      spaceId: input.spaceId,
-      subject: context.accessSubject,
-    });
-    return updated.ok ? calendarDestinationContext(input.mailboxId, context) : updated;
   });
 
 export const spacesCapabilities = defineCapabilities({
@@ -702,14 +679,15 @@ export const spacesCapabilities = defineCapabilities({
     },
     "calendar-destination.list": {
       title: "List calendar destinations",
-      description: "List up to 100 writable Spaces and the selected default for a mailbox.",
+      description: "List up to 100 writable Spaces that can receive a calendar invitation.",
       input: CalendarDestinationListInputSchema,
       data: CalendarDestinationListDataSchema,
-      run: (input, context) => calendarDestinationContext(input.mailboxId, context),
+      run: (_input, context) => calendarDestinationContext(context),
     },
     "calendar-invitation.response.prepare": {
       title: "Prepare calendar response",
-      description: "Prepare a standards-based response for an invitation already imported into a writable Space. Create the draft with mail.draft.create, then commit it.",
+      description:
+        "Prepare a standards-based response for an invitation already imported into a writable Space. Create the draft with mail.draft.create, then commit it.",
       input: CalendarInvitationResponsePrepareInputSchema,
       data: CalendarInvitationResponsePrepareDataSchema,
       run: runCalendarInvitationResponsePrepare,
@@ -846,17 +824,6 @@ export const spacesCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       run: runCalendarInvitationResponseCommit,
-    },
-    "calendar-destination.default.set": {
-      title: "Set default calendar destination",
-      description: "Set or clear the writable Space used by a mailbox for calendar invitation imports.",
-      input: CalendarDestinationDefaultSetInputSchema,
-      data: CalendarDestinationDefaultSetDataSchema,
-      destructive: false,
-      openWorld: false,
-      approval: "once",
-      idempotency: "none",
-      run: runCalendarDestinationDefaultSet,
     },
   },
 });

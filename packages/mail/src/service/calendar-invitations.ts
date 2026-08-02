@@ -3,6 +3,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type {
   CalendarAddress,
   CalendarParticipationStatus,
+  SpacesMailDestinationContext,
 } from "@valentinkolb/cloud-app-spaces/integration";
 import { sql } from "bun";
 import type { MailDraft } from "../contracts";
@@ -14,7 +15,6 @@ import {
   importCalendarInvitation,
   listCalendarDestinations,
   previewCalendarInvitation,
-  setCalendarDefault,
 } from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import { enqueueDraftProjection } from "./draft-provider-projection";
@@ -35,10 +35,14 @@ const integrationFailure = (result: IntegrationFailure) => {
   return fail(err.internal(result.message));
 };
 
-const verifiedIdentity = async (context: MailRequestContext, mailboxId: string) => {
-  const identities = await senderIdentities.listSenderIdentities(context, mailboxId);
+const chooseVerifiedIdentity = (
+  identities: Awaited<ReturnType<typeof senderIdentities.listSenderIdentities>>,
+  preferredAddresses: string[],
+) => {
   if (!identities.ok) return identities;
+  const preferred = new Set(preferredAddresses.map((address) => address.trim().toLowerCase()));
   const identity =
+    identities.data.find((candidate) => candidate.status === "verified" && preferred.has(candidate.fromAddress.toLowerCase())) ??
     identities.data.find((candidate) => candidate.isDefault && candidate.status === "verified") ??
     identities.data.find((candidate) => candidate.status === "verified");
   return identity ? ok(identity) : fail(err.badInput("Verify a sending identity before creating a calendar message"));
@@ -95,13 +99,12 @@ const createCalendarDraft = async (params: {
   calendar: string;
   filename: string;
   method: "REQUEST" | "REPLY" | "CANCEL";
+  senderIdentityId: string;
 }): Promise<Result<MailDraft>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!allowed.ok) return allowed;
-  const identity = await verifiedIdentity(params.context, params.mailboxId);
-  if (!identity.ok) return identity;
   const input = {
-    senderIdentityId: identity.data.id,
+    senderIdentityId: params.senderIdentityId,
     to: params.to,
     cc: [],
     bcc: [],
@@ -133,7 +136,7 @@ const loadCalendarAttachment = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   messageId: string;
-}): Promise<Result<{ calendar: string; attachmentId: string }>> => {
+}): Promise<Result<{ calendar: string; attachmentId: string; recipientAddresses: string[] }>> => {
   const message = await messages.getMessage({ context: params.context, mailboxId: params.mailboxId, messageId: params.messageId });
   if (!message.ok) return message;
   const attachment = message.data.attachments.find(
@@ -156,14 +159,39 @@ const loadCalendarAttachment = async (params: {
   }
   const bytes = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.bytes)));
   if (bytes.byteLength !== opened.data.total) return fail(err.internal("Calendar attachment length is invalid"));
-  return ok({ calendar: new TextDecoder("utf-8", { fatal: false }).decode(bytes), attachmentId: attachment.id });
+  return ok({
+    calendar: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+    attachmentId: attachment.id,
+    recipientAddresses: [...message.data.to, ...message.data.cc].map((address) => address.address),
+  });
 };
 
-export const listDestinations = async (params: { context: MailRequestContext; mailboxId: string; request: AppIntegrationRequest }) => {
+const loadDestinationContext = async (params: {
+  mailboxId: string;
+  request: AppIntegrationRequest;
+}): Promise<Result<SpacesMailDestinationContext>> => {
+  const [result, rows] = await Promise.all([
+    listCalendarDestinations(params.request),
+    sql<{ calendar_space_id: string | null }[]>`
+      SELECT calendar_space_id FROM mail.mailboxes
+      WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+    `,
+  ]);
+  if (!result.ok) return integrationFailure(result);
+  const savedSpaceId = rows[0]?.calendar_space_id ?? null;
+  return ok({
+    selectedSpaceId: result.data.some((item) => item.id === savedSpaceId) ? savedSpaceId : null,
+    items: result.data,
+  });
+};
+
+export const listDestinations = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  request: AppIntegrationRequest;
+}): Promise<Result<SpacesMailDestinationContext>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
-  if (!allowed.ok) return allowed;
-  const result = await listCalendarDestinations(params.mailboxId, params.request);
-  return result.ok ? ok(result.data) : integrationFailure(result);
+  return allowed.ok ? loadDestinationContext(params) : allowed;
 };
 
 export const setDefaultDestination = async (params: {
@@ -171,11 +199,33 @@ export const setDefaultDestination = async (params: {
   mailboxId: string;
   spaceId: string | null;
   request: AppIntegrationRequest;
-}) => {
+}): Promise<Result<SpacesMailDestinationContext>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
-  const result = await setCalendarDefault({ mailboxId: params.mailboxId, spaceId: params.spaceId }, params.request);
-  return result.ok ? ok(result.data) : integrationFailure(result);
+  if (!params.spaceId) {
+    const [updated] = await sql<{ id: string }[]>`
+      UPDATE mail.mailboxes
+      SET calendar_space_id = NULL, updated_at = now()
+      WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+      RETURNING id
+    `;
+    if (!updated) return fail(err.notFound("Mailbox"));
+    const destinations = await listCalendarDestinations(params.request);
+    return ok({ selectedSpaceId: null, items: destinations.ok ? destinations.data : [] });
+  }
+  const destinations = await loadDestinationContext(params);
+  if (!destinations.ok) return destinations;
+  if (!destinations.data.items.some((item) => item.id === params.spaceId)) {
+    return fail(err.badInput("Choose a writable Space"));
+  }
+  const [updated] = await sql<{ id: string }[]>`
+    UPDATE mail.mailboxes
+    SET calendar_space_id = ${params.spaceId}::uuid, updated_at = now()
+    WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+    RETURNING id
+  `;
+  if (!updated) return fail(err.notFound("Mailbox"));
+  return ok({ selectedSpaceId: params.spaceId, items: destinations.data.items });
 };
 
 export const preview = async (params: {
@@ -202,9 +252,9 @@ export const importToSpace = async (params: {
 }) => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!allowed.ok) return allowed;
-  const destinations = await listCalendarDestinations(params.mailboxId, params.request);
-  if (!destinations.ok) return integrationFailure(destinations);
-  const destination = params.spaceId ?? destinations.data.selectedSpaceId;
+  const savedDestination = params.spaceId ? null : await loadDestinationContext(params);
+  if (savedDestination && !savedDestination.ok) return savedDestination;
+  const destination = params.spaceId ?? savedDestination?.data.selectedSpaceId;
   if (!destination) return fail(err.badInput("Choose a destination Space first"));
   const loaded = await loadCalendarAttachment(params);
   if (!loaded.ok) return loaded;
@@ -226,13 +276,32 @@ export const createResponseDraft = async (params: {
   messageId: string;
   participationStatus: CalendarParticipationStatus;
   idempotencyKey: string;
+  spaceId?: string;
   request: AppIntegrationRequest;
 }): Promise<Result<MailDraft>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!allowed.ok) return allowed;
-  const [loaded, identity] = await Promise.all([loadCalendarAttachment(params), verifiedIdentity(params.context, params.mailboxId)]);
+  const [loaded, identities] = await Promise.all([
+    loadCalendarAttachment(params),
+    senderIdentities.listSenderIdentities(params.context, params.mailboxId),
+  ]);
   if (!loaded.ok) return loaded;
+  const identity = chooseVerifiedIdentity(identities, loaded.data.recipientAddresses);
   if (!identity.ok) return identity;
+  const savedDestination = params.spaceId ? null : await loadDestinationContext(params);
+  if (savedDestination && !savedDestination.ok) return savedDestination;
+  const destination = params.spaceId ?? savedDestination?.data.selectedSpaceId;
+  if (!destination) return fail(err.badInput("Choose a destination Space first"));
+  const imported = await importCalendarInvitation(
+    {
+      mailboxId: params.mailboxId,
+      messageId: params.messageId,
+      spaceId: destination,
+      calendar: loaded.data.calendar,
+    },
+    params.request,
+  );
+  if (!imported.ok) return integrationFailure(imported);
   const response = await buildCalendarInvitationResponse(
     {
       mailboxId: params.mailboxId,
@@ -254,8 +323,11 @@ export const createResponseDraft = async (params: {
     calendar: response.data.calendar,
     filename: "invite-response.ics",
     method: "REPLY",
+    senderIdentityId: identity.data.id,
   });
-  if (!draft.ok) return draft;
+  if (!draft.ok) {
+    return fail(err.internal(`The event was saved in Spaces, but the response draft could not be created: ${draft.error.message}`));
+  }
   const committed = await commitCalendarInvitationResponse(
     {
       mailboxId: params.mailboxId,
@@ -265,5 +337,5 @@ export const createResponseDraft = async (params: {
     },
     params.request,
   );
-  return committed.ok ? draft : integrationFailure(committed);
+  return committed.ok ? draft : fail(err.internal(`The response draft was created, but Spaces could not record it: ${committed.message}`));
 };

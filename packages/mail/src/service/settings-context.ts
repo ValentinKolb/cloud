@@ -2,6 +2,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { SenderIdentity } from "../contracts";
 import type { MailboxSettingsContext } from "../settings-context";
 import * as mailboxAccess from "./access";
+import { getSpacesMailIntegrationAvailability } from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import * as bindings from "./bindings";
 import * as composeTemplates from "./compose-templates";
@@ -21,9 +22,10 @@ export const loadMailboxSettingsContext = async (
 
   const mailboxResult = await mailboxes.getMailbox(context, mailboxId);
   if (!mailboxResult.ok) return fail(mailboxResult.error);
-  const [savedViewResult, localTagResult] = await Promise.all([
+  const [savedViewResult, localTagResult, spacesIntegration] = await Promise.all([
     savedViews.listSavedConversationViews({ context, mailboxId }),
     localTags.listLocalTags(context, mailboxId),
+    getSpacesMailIntegrationAvailability(),
   ]);
   if (!savedViewResult.ok) return fail(savedViewResult.error);
   if (!localTagResult.ok) return fail(localTagResult.error);
@@ -31,6 +33,7 @@ export const loadMailboxSettingsContext = async (
     savedViews: savedViewResult.data,
     localTags: localTagResult.data,
   };
+  const integrations = { spacesCalendar: spacesIntegration.settings };
 
   let compose: MailboxSettingsContext["compose"] = null;
   let composeIdentities: SenderIdentity[] = [];
@@ -54,7 +57,9 @@ export const loadMailboxSettingsContext = async (
     };
   }
 
-  if (permission !== "admin") return ok({ mailbox: mailboxResult.data, permission, organization, compose, admin: null });
+  if (permission !== "admin") {
+    return ok({ mailbox: mailboxResult.data, permission, integrations, organization, compose, admin: null });
+  }
 
   const [accessResult, connectionResult, bindingResult, adminFolderResult] = await Promise.all([
     mailboxAccess.listMailboxAccess(context, mailboxId),
@@ -69,6 +74,7 @@ export const loadMailboxSettingsContext = async (
   return ok({
     mailbox: mailboxResult.data,
     permission,
+    integrations,
     organization,
     compose,
     admin: {

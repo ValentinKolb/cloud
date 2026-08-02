@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
 import { compileCapabilities } from "../../cloud/src/_internal/capabilities";
+import { decodeSpacesCapabilityCursor, spacesCapabilities } from "./capabilities";
 import {
   CommentCreateInputSchema,
   EventCreateInputSchema,
@@ -11,7 +12,6 @@ import {
   TaskCreateInputSchema,
   TaskUpdateInputSchema,
 } from "./capability-contracts";
-import { decodeSpacesCapabilityCursor, spacesCapabilities } from "./capabilities";
 import type { SpaceComment, SpaceItem } from "./contracts";
 import { spacesService } from "./service";
 
@@ -139,6 +139,26 @@ describe("spaces capabilities", () => {
     expect(compiled.manifest.actions.some((action) => action.localId === "calendar-invitation.import")).toBeTrue();
   });
 
+  test("lists only writable calendar destinations without accepting Mail ownership state", async () => {
+    const list = spyOn(spacesService.space, "list").mockResolvedValue({
+      items: [space],
+      page: 1,
+      perPage: 100,
+      total: 1,
+      hasNext: false,
+    });
+
+    const result = await spacesCapabilities.queries["calendar-destination.list"].run({}, userContext);
+
+    expect(list).toHaveBeenCalledWith({
+      subject: userContext.accessSubject,
+      boundSpaceId: null,
+      requiredLevel: "write",
+      pagination: { page: 1, perPage: 100 },
+    });
+    expect(result).toEqual({ ok: true, data: { data: [{ id: spaceId, name: space.name, color: space.color }] } });
+  });
+
   test("declares the complete bounded v1 surface and safety metadata", () => {
     expect(Object.keys(spacesCapabilities.types).sort()).toEqual(["comment", "item", "space"]);
     expect(Object.keys(spacesCapabilities.queries).sort()).toEqual([
@@ -155,7 +175,6 @@ describe("spaces capabilities", () => {
       "task.list",
     ]);
     expect(Object.keys(spacesCapabilities.actions).sort()).toEqual([
-      "calendar-destination.default.set",
       "calendar-invitation.import",
       "calendar-invitation.response.commit",
       "comment.create",

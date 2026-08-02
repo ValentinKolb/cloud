@@ -27,6 +27,8 @@ suite("mail migrations", () => {
         liquid_templates_applied_count: number;
         generalized_rules_applied_count: number;
         canonical_rule_names_applied_count: number;
+        calendar_destination_applied_count: number;
+        calendar_destination_present: boolean;
         conditions_present: boolean;
         legacy_match_removed: boolean;
       }[]
@@ -113,6 +115,18 @@ suite("mail migrations", () => {
           FROM mail.schema_migrations
           WHERE version = 104 AND name = 'canonical_mail_rule_object_names'
         ) AS canonical_rule_names_applied_count,
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 105 AND name = 'mailbox_calendar_destination'
+        ) AS calendar_destination_applied_count,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'mailboxes'
+            AND column_name = 'calendar_space_id'
+        ) AS calendar_destination_present,
         EXISTS (
           SELECT 1
           FROM information_schema.columns
@@ -144,6 +158,8 @@ suite("mail migrations", () => {
       liquid_templates_applied_count: 1,
       generalized_rules_applied_count: 1,
       canonical_rule_names_applied_count: 1,
+      calendar_destination_applied_count: 1,
+      calendar_destination_present: true,
       conditions_present: true,
       legacy_match_removed: true,
     });

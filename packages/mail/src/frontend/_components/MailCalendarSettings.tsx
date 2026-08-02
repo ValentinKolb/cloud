@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Placeholder, Select, toast, Button } from "@k2b/ui";
+import { Button, Placeholder, Select, toast } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
@@ -33,6 +33,7 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save the calendar destination"));
       const data = await response.json();
       setSavedSpaceId(data.selectedSpaceId);
+      setSpaceId(data.selectedSpaceId);
       setItems(data.items);
       toast.success(data.selectedSpaceId ? "Default calendar saved" : "Default calendar cleared");
     },
@@ -48,9 +49,7 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
     <section class="flex flex-col gap-2 border-t border-subtle pt-4">
       <div>
         <h3 class="text-sm font-semibold text-primary">Calendar invitations</h3>
-        <p class="text-xs text-dimmed">
-          Choose the Space suggested when collaborators add an invitation. Mail never imports events automatically.
-        </p>
+        <p class="text-xs text-dimmed">Choose the Space suggested when you add an invitation. Mail never imports events automatically.</p>
       </div>
       <Show when={!load.loading()} fallback={<Placeholder state="loading" variant="compact" title="Loading Spaces" />}>
         <Show
@@ -69,9 +68,18 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
             />
           }
         >
+          <Show when={items().length === 0}>
+            <Placeholder
+              state="empty"
+              variant="compact"
+              icon="ti ti-calendar-off"
+              title="No writable Spaces"
+              description="Ask a Space owner for write access before choosing a default calendar."
+            />
+          </Show>
           <Select
             label="Default Space"
-            description="The user can choose another writable Space for each invitation. Removing access clears the suggestion safely."
+            description="Writers can choose another writable Space for each invitation. Removing access hides an unavailable default safely."
             icon="ti ti-calendar-event"
             value={() => spaceId() ?? undefined}
             onValueChange={setSpaceId}
@@ -80,18 +88,20 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
             disabled={items().length === 0}
             options={items().map((item) => ({ id: item.id, label: item.name, color: item.color, icon: "ti ti-calendar-event" }))}
           />
-          <div class="flex justify-end pt-1">
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              disabled={save.loading() || spaceId() === savedSpaceId()}
-              onClick={() => save.mutate()}
-            >
-              <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} aria-hidden="true" />
-              Save calendar
-            </Button>
-          </div>
+          <Show when={items().length > 0}>
+            <div class="flex justify-end pt-1">
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                disabled={save.loading() || spaceId() === savedSpaceId()}
+                onClick={() => save.mutate()}
+              >
+                <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} aria-hidden="true" />
+                Save calendar
+              </Button>
+            </div>
+          </Show>
         </Show>
       </Show>
     </section>

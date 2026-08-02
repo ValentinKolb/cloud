@@ -1,8 +1,8 @@
 import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
+import type { DateContext } from "@k2b/stdlib";
+import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@k2b/ui";
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { type CloudTheme, getCurrentThemePreference } from "@valentinkolb/cloud/shared";
-import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@k2b/ui";
-import type { DateContext } from "@k2b/stdlib";
 import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { apiClient } from "../api/client";
@@ -21,6 +21,7 @@ import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
 import { openMailRemoteContentRulesDialog } from "./_components/MailRemoteContentRulesDialog";
 import MailScheduledView from "./_components/MailScheduledView";
+import { observeMailUserPreferences } from "./_components/MailSettingsStore";
 import MailSidebar from "./_components/MailSidebar";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
 import type { MailBulkTarget } from "./_components/mail-bulk-actions";
@@ -43,7 +44,6 @@ import {
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { buildMailListHref } from "./_components/mail-navigation";
 import { createMailPresenceSession } from "./_components/mail-presence-session";
-import { observeMailUserPreferences } from "./_components/MailSettingsStore";
 import type { MailUserPreferences } from "./_components/mail-user-preferences";
 import { type MailWorkspaceActionOptions, runMailWorkspaceAction } from "./_components/mail-workspace-action-controller";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
@@ -67,6 +67,7 @@ export default function MailWorkspace(props: {
   initialPreferences: MailWorkspacePreferences;
   initialUserPreferences: MailUserPreferences;
   initialTheme: CloudTheme;
+  calendarIntegrationAvailable: boolean;
 }) {
   // A store keeps shell, list, and detail consumers granular even though the
   // server snapshot remains one canonical contract.
@@ -1439,6 +1440,7 @@ export default function MailWorkspace(props: {
                   dateConfig={props.dateConfig}
                   readingFormat={userPreferences().readingFormat}
                   theme={theme()}
+                  calendarIntegrationAvailable={props.calendarIntegrationAvailable}
                   listCollapsed={listCollapsed()}
                   detailsOpen={detailsOpen()}
                   toolbarActions={toolbarActions()}

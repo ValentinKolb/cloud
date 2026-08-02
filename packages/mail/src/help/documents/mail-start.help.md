@@ -59,11 +59,9 @@ The center list shows one row per conversation. The reader groups the messages i
 
 ## Work with calendar invitations {icon="calendar-event"}
 
-Mail recognizes bounded `.ics` and `text/calendar` attachments, but **Spaces remains the calendar**. Expand an invitation to see its organizer, schedule, location, and current status. Choose a writable Space explicitly to add the event; Mail never imports an invitation merely because a default destination exists.
+Mail recognizes bounded `.ics` and `text/calendar` attachments, but **Spaces remains the calendar**. Expand an invitation to see its organizer, schedule, location, and current status. You can add it to a writable Space without replying, or choose **Accept**, **Maybe**, or **Decline** to save/update the event and prepare a response in one step.
 
-After the event is linked, **Accept**, **Maybe**, and **Decline** prepare an editable response draft in Mail. The card says that a draft was prepared and does not claim that the organizer was notified until you send it through the normal composer. If Spaces is unavailable or cannot parse the attachment, the original calendar attachment remains available like any other file.
-
-For an ordinary message, open its message menu and choose **Create event in Spaces**. Mail sends only an authorized message reference; Spaces loads bounded source context and opens its normal event editor, so message content is never placed in the URL.
+Every response opens as an editable Mail draft. Mail does not claim that the organizer was notified until you send it through the normal composer. If draft creation fails after the event was saved, Mail reports that partial result and a retry updates the same event instead of creating a duplicate. If Spaces or the required capability surface is unavailable, the integration controls stay hidden and the original calendar attachment remains available like any other file.
 
 ## Continue with a task {icon="point"}
 

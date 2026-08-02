@@ -226,6 +226,7 @@ export const migrate = async (): Promise<void> => {
       idempotency_key UUID PRIMARY KEY,
       item_id UUID NOT NULL REFERENCES spaces.items(id) ON DELETE CASCADE,
       mailbox_id UUID NOT NULL,
+      sender_identity_id UUID NOT NULL,
       sequence INTEGER NOT NULL CHECK (sequence >= 0),
       method TEXT NOT NULL CHECK (method IN ('request', 'cancel')),
       state TEXT NOT NULL CHECK (state IN ('preparing', 'drafted', 'failed')),
@@ -236,24 +237,16 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`
+    ALTER TABLE spaces.calendar_invitation_deliveries
+    ADD COLUMN IF NOT EXISTS sender_identity_id UUID
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_calendar_invitation_deliveries_item
     ON spaces.calendar_invitation_deliveries(item_id, created_at DESC)
   `.simple();
   console.log("  ✓ spaces.calendar_invitation_deliveries table");
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS spaces.mailbox_calendar_defaults (
-      mailbox_id UUID PRIMARY KEY,
-      space_id UUID NOT NULL REFERENCES spaces.spaces(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_mailbox_calendar_defaults_space
-    ON spaces.mailbox_calendar_defaults(space_id)
-  `.simple();
-  console.log("  ✓ spaces.mailbox_calendar_defaults table");
+  await sql`DROP TABLE IF EXISTS spaces.mailbox_calendar_defaults`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS spaces.item_assignees (

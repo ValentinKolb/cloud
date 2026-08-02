@@ -135,44 +135,33 @@ export const SpacesMailDestinationContextSchema = z
   .strict();
 export type SpacesMailDestinationContext = z.infer<typeof SpacesMailDestinationContextSchema>;
 
-export const SpacesMailDefaultInputSchema = z
-  .object({
-    mailboxId: z.string().uuid(),
-    spaceId: z.string().uuid().nullable(),
-  })
-  .strict();
-export type SpacesMailDefaultInput = z.infer<typeof SpacesMailDefaultInputSchema>;
-
 export const MailInvitationMailboxSchema = z
   .object({
     id: z.string().uuid(),
     name: z.string().min(1).max(160),
-    from: CalendarAddressSchema,
+    identities: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            label: z.string().min(1).max(160),
+            from: CalendarAddressSchema,
+            isDefault: z.boolean(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
   })
   .strict();
 export const MailInvitationMailboxesSchema = z.array(MailInvitationMailboxSchema).max(200);
 export type MailInvitationMailbox = z.infer<typeof MailInvitationMailboxSchema>;
 
-export const MailEventSourceInputSchema = z
-  .object({
-    mailboxId: z.string().uuid(),
-    messageId: z.string().uuid(),
-  })
-  .strict();
-export type MailEventSourceInput = z.infer<typeof MailEventSourceInputSchema>;
-
-export const MailEventSourceSchema = MailEventSourceInputSchema.extend({
-  title: z.string().min(1).max(200),
-  description: z.string().max(20_000),
-  sender: CalendarAddressSchema.nullable(),
-  receivedAt: z.string().datetime(),
-}).strict();
-export type MailEventSource = z.infer<typeof MailEventSourceSchema>;
-
 export const CreateEventInvitationDraftInputSchema = z
   .object({
     idempotencyKey: z.string().uuid(),
     mailboxId: z.string().uuid(),
+    senderIdentityId: z.string().uuid(),
     attendees: z.array(CalendarAddressSchema).min(1).max(200),
     method: z.enum(["request", "cancel"]).default("request"),
   })
@@ -203,6 +192,7 @@ export const MailEventInvitationDraftInputSchema = z
   .object({
     idempotencyKey: z.string().uuid(),
     mailboxId: z.string().uuid(),
+    senderIdentityId: z.string().uuid(),
     to: z.array(CalendarAddressSchema).min(1).max(200),
     subject: z.string().min(1).max(998),
     body: z.string().max(20_000),

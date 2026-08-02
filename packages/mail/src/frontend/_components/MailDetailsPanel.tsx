@@ -2,9 +2,12 @@ import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Avatar,
+  Button,
+  ButtonLink,
   ColorInput,
   DateTimePicker,
   formatFileViewSize,
+  IconButton,
   MarkdownEditor,
   MultiSelectInput,
   Placeholder,
@@ -14,9 +17,6 @@ import {
   TextInput,
   Tooltip,
   toast,
-  Button,
-  ButtonLink,
-  IconButton,
 } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -48,7 +48,6 @@ import {
   reconcileConversationTags,
   reconcileReminder,
 } from "./mail-details-reconciliation";
-import { openMessageAsSpacesEvent } from "./mail-spaces-event";
 
 const avatarSource = (userId: string | undefined, avatarHash: string | null): string | undefined =>
   userId && avatarHash ? `/api/accounts/users/${encodeURIComponent(userId)}/avatar?rev=${encodeURIComponent(avatarHash)}` : undefined;
@@ -183,11 +182,6 @@ export default function MailDetailsPanel(props: {
       await prompts.error(error.message, { title: "Conversation changed" });
       await props.onReconcile();
     },
-  });
-
-  const createEventInSpaces = mutations.create<void, { messageId: string }>({
-    mutation: async ({ messageId }, { abortSignal }) => openMessageAsSpacesEvent({ mailboxId: props.mailboxId, messageId, abortSignal }),
-    onError: (error) => prompts.error(error.message, { title: "Could not open Spaces" }),
   });
 
   const updateCollaboration = (patch: MailCollaborationPatch) => {
@@ -460,7 +454,6 @@ export default function MailDetailsPanel(props: {
     addComment.abort();
     removeComment.abort();
     editComment.abort();
-    createEventInSpaces.abort();
     detailUpdates.reset();
   });
 
@@ -603,27 +596,6 @@ export default function MailDetailsPanel(props: {
             </div>
           </div>
         </section>
-
-        <Show when={props.canWrite && latestMessage()}>
-          {(message) => (
-            <section class="detail-section">
-              <h3 class="detail-section-label">Calendar</h3>
-              <p class="mb-3 text-xs text-dimmed">
-                Turn the latest message into a new event. Spaces owns the event and opens its normal editor before anything is saved.
-              </p>
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                disabled={createEventInSpaces.loading()}
-                onClick={() => createEventInSpaces.mutate({ messageId: message().id })}
-              >
-                <i class={createEventInSpaces.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-calendar-plus"} aria-hidden="true" />
-                Create event in Spaces
-              </Button>
-            </section>
-          )}
-        </Show>
 
         <MailConversationContext
           mailboxId={props.mailboxId}

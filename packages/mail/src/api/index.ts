@@ -199,7 +199,11 @@ const calendarDestinationsResponseSchema = z.object({
 });
 const calendarImportInputSchema = z.object({ spaceId: z.string().uuid().optional() }).strict();
 const calendarResponseInputSchema = z
-  .object({ participationStatus: CalendarParticipationStatusSchema, idempotencyKey: z.string().uuid() })
+  .object({
+    participationStatus: CalendarParticipationStatusSchema,
+    idempotencyKey: z.string().uuid(),
+    spaceId: z.string().uuid().optional(),
+  })
   .strict();
 const attachBindingSchema = z.object({ connectionId: z.string().uuid() });
 const verifyIdentitySchema = z.object({
@@ -590,6 +594,7 @@ const mailOperationsApi = new Hono<AuthContext>()
           ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
           participationStatus: c.req.valid("json").participationStatus,
           idempotencyKey: c.req.valid("json").idempotencyKey,
+          spaceId: c.req.valid("json").spaceId,
           request: integrationRequest(c),
         }),
       ),

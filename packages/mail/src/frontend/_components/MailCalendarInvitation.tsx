@@ -1,7 +1,7 @@
 import { documentNavigate } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, ButtonLink, Select, StatusBadge, toast } from "@k2b/ui";
+import { Button, ButtonLink, Placeholder, Select, StatusBadge, toast } from "@k2b/ui";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
@@ -17,6 +17,34 @@ export default function MailCalendarInvitation(props: {
   const [preview, setPreview] = createSignal<Awaited<ReturnType<typeof loadPreview>> | null>(null);
   const [destinations, setDestinations] = createSignal<Awaited<ReturnType<typeof loadDestinations>> | null>(null);
   const [selectedSpaceId, setSelectedSpaceId] = createSignal<string | null>(null);
+  let responseIdempotencyKeys = new Map<"accepted" | "tentative" | "declined", string>();
+  let destinationTouched = false;
+
+  const chooseSpace = (spaceId: string | null) => {
+    destinationTouched = true;
+    responseIdempotencyKeys = new Map();
+    setSelectedSpaceId(spaceId);
+  };
+  const reconcileDestination = () => {
+    if (destinationTouched) return;
+    const available = destinations();
+    if (!available) return;
+    const existingSpaceId = preview()?.existing?.spaceId ?? null;
+    setSelectedSpaceId(
+      existingSpaceId
+        ? available.items.some((space) => space.id === existingSpaceId)
+          ? existingSpaceId
+          : null
+        : (available.selectedSpaceId ?? available.items[0]?.id ?? null),
+    );
+  };
+  const responseIdempotencyKey = (participationStatus: "accepted" | "tentative" | "declined") => {
+    const existing = responseIdempotencyKeys.get(participationStatus);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    responseIdempotencyKeys.set(participationStatus, created);
+    return created;
+  };
 
   const loadPreview = async (signal: AbortSignal) => {
     const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["calendar-invitation"].$get(
@@ -35,15 +63,17 @@ export default function MailCalendarInvitation(props: {
     return response.json();
   };
 
-  const loading = mutation.create<void, void>({
+  const previewLoad = mutation.create<void, void>({
     mutation: async (_input, { abortSignal }) => {
-      const [nextPreview, nextDestinations] = await Promise.all([
-        loadPreview(abortSignal),
-        props.canWrite ? loadDestinations(abortSignal) : Promise.resolve(null),
-      ]);
-      setPreview(nextPreview);
-      setDestinations(nextDestinations);
-      setSelectedSpaceId(nextPreview.existing?.spaceId ?? nextDestinations?.selectedSpaceId ?? nextDestinations?.items[0]?.id ?? null);
+      setPreview(await loadPreview(abortSignal));
+      reconcileDestination();
+    },
+  });
+
+  const destinationLoad = mutation.create<void, void>({
+    mutation: async (_input, { abortSignal }) => {
+      setDestinations(await loadDestinations(abortSignal));
+      reconcileDestination();
     },
   });
 
@@ -65,7 +95,6 @@ export default function MailCalendarInvitation(props: {
             ? "Event is already up to date"
             : "Event updated in Spaces",
       );
-      window.open(result.href, "_blank", "noopener,noreferrer");
       const current = preview();
       if (current) {
         setPreview({
@@ -76,12 +105,16 @@ export default function MailCalendarInvitation(props: {
     },
   });
 
-  const respond = mutation.create<void, { participationStatus: "accepted" | "tentative" | "declined"; idempotencyKey: string }>({
-    mutation: async ({ participationStatus, idempotencyKey }, { abortSignal }) => {
+  const respond = mutation.create<void, "accepted" | "tentative" | "declined">({
+    mutation: async (participationStatus, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["calendar-invitation"].respond.$post(
         {
           param: { mailboxId: props.mailboxId, messageId: props.messageId },
-          json: { participationStatus, idempotencyKey },
+          json: {
+            participationStatus,
+            idempotencyKey: responseIdempotencyKey(participationStatus),
+            ...(selectedSpaceId() ? { spaceId: selectedSpaceId()! } : {}),
+          },
         },
         { init: { signal: abortSignal } },
       );
@@ -93,26 +126,48 @@ export default function MailCalendarInvitation(props: {
 
   const invitation = () => preview()?.invitation;
   const isCancelled = () => invitation()?.method === "cancel" || invitation()?.status === "cancelled";
+  const linkedSpaceIsWritable = () => {
+    const existingSpaceId = preview()?.existing?.spaceId;
+    return !existingSpaceId || destinationOptions().some((space) => space.id === existingSpaceId);
+  };
+  const hasWritableDestination = () => linkedSpaceIsWritable() && destinationOptions().some((space) => space.id === selectedSpaceId());
   const canRespond = () =>
-    props.canWrite &&
-    Boolean(preview()?.existing) &&
-    invitation()?.method === "request" &&
-    Boolean(invitation()?.organizer) &&
-    !isCancelled();
+    props.canWrite && hasWritableDestination() && invitation()?.method === "request" && Boolean(invitation()?.organizer) && !isCancelled();
   const destinationOptions = createMemo(() =>
     (destinations()?.items ?? []).map((space) => ({ id: space.id, label: space.name, color: space.color, icon: "ti ti-calendar-event" })),
   );
 
-  onMount(() => loading.mutate());
+  onMount(() => {
+    previewLoad.mutate();
+    if (props.canWrite) destinationLoad.mutate();
+  });
   onCleanup(() => {
-    loading.abort();
+    previewLoad.abort();
+    destinationLoad.abort();
     importEvent.abort();
     respond.abort();
   });
 
   return (
     <div class="mt-3 min-h-24 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-3" aria-live="polite">
-      <Show when={preview()} fallback={<p class="text-xs text-dimmed">{loading.error()?.message ?? "Reading calendar invitation…"}</p>}>
+      <Show
+        when={preview()}
+        fallback={
+          <Placeholder
+            state={previewLoad.error() ? "error" : "loading"}
+            variant="compact"
+            title={previewLoad.error() ? "Calendar invitation unavailable" : "Reading calendar invitation"}
+            description={previewLoad.error()?.message}
+            action={
+              previewLoad.error() ? (
+                <Button variant="secondary" size="sm" type="button" onClick={() => previewLoad.mutate()}>
+                  Retry
+                </Button>
+              ) : undefined
+            }
+          />
+        }
+      >
         {(value) => (
           <div class="flex flex-col gap-3">
             <div class="flex items-start gap-3">
@@ -164,7 +219,7 @@ export default function MailCalendarInvitation(props: {
                     <Select
                       aria-label="Destination Space"
                       value={() => selectedSpaceId() ?? undefined}
-                      onValueChange={setSelectedSpaceId}
+                      onValueChange={chooseSpace}
                       options={destinationOptions()}
                       placeholder="Choose a Space"
                     />
@@ -197,8 +252,8 @@ export default function MailCalendarInvitation(props: {
                     <Button
                       size="sm"
                       type="button"
-                      disabled={respond.loading()}
-                      onClick={() => respond.mutate({ participationStatus: "accepted", idempotencyKey: crypto.randomUUID() })}
+                      disabled={respond.loading() || importEvent.loading()}
+                      onClick={() => respond.mutate("accepted")}
                     >
                       <i class="ti ti-check" aria-hidden="true" /> Accept
                     </Button>
@@ -206,8 +261,8 @@ export default function MailCalendarInvitation(props: {
                       variant="secondary"
                       size="sm"
                       type="button"
-                      disabled={respond.loading()}
-                      onClick={() => respond.mutate({ participationStatus: "tentative", idempotencyKey: crypto.randomUUID() })}
+                      disabled={respond.loading() || importEvent.loading()}
+                      onClick={() => respond.mutate("tentative")}
                     >
                       Maybe
                     </Button>
@@ -215,8 +270,8 @@ export default function MailCalendarInvitation(props: {
                       variant="secondary"
                       size="sm"
                       type="button"
-                      disabled={respond.loading()}
-                      onClick={() => respond.mutate({ participationStatus: "declined", idempotencyKey: crypto.randomUUID() })}
+                      disabled={respond.loading() || importEvent.loading()}
+                      onClick={() => respond.mutate("declined")}
                     >
                       Decline
                     </Button>
@@ -226,6 +281,23 @@ export default function MailCalendarInvitation(props: {
             </Show>
             <Show when={importEvent.error() || respond.error()}>
               <p class="text-xs text-danger">{importEvent.error()?.message ?? respond.error()?.message}</p>
+            </Show>
+            <Show when={props.canWrite && destinationLoad.loading()}>
+              <p class="text-xs text-dimmed">Loading writable Spaces…</p>
+            </Show>
+            <Show when={props.canWrite && destinationLoad.error()}>
+              <div class="flex flex-wrap items-center gap-2 text-xs text-danger">
+                <span>{destinationLoad.error()?.message}</span>
+                <Button variant="ghost" size="sm" type="button" onClick={() => destinationLoad.mutate()}>
+                  Retry
+                </Button>
+              </div>
+            </Show>
+            <Show when={props.canWrite && value().existing && destinations() && !linkedSpaceIsWritable()}>
+              <p class="text-xs text-dimmed">This event is linked to a Space where you do not have write access.</p>
+            </Show>
+            <Show when={props.canWrite && destinations() && destinationOptions().length === 0}>
+              <p class="text-xs text-dimmed">No writable Space is available. Ask a Space owner for write access.</p>
             </Show>
           </div>
         )}

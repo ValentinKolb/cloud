@@ -2,19 +2,23 @@ import { ButtonLink, Placeholder } from "@k2b/ui";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
+import { isMailInvitationIntegrationAvailable } from "../../service/mail-integration";
 import SpacesWorkspace from "./_components/workspace/SpacesWorkspace";
 import { loadSpacesWorkspaceState } from "./_components/workspace/workspace-state";
 
 export default ssr<AuthContext>(async (c) => {
   const spaceId = c.req.param("id") ?? "";
   const dateConfig = getDateConfig(c);
-  const state = await loadSpacesWorkspaceState({
-    user: expectUserBackedActor(c),
-    spaceId,
-    href: c.req.url,
-    cookieHeader: c.req.header("Cookie"),
-    dateConfig,
-  });
+  const [state, mailIntegrationAvailable] = await Promise.all([
+    loadSpacesWorkspaceState({
+      user: expectUserBackedActor(c),
+      spaceId,
+      href: c.req.url,
+      cookieHeader: c.req.header("Cookie"),
+      dateConfig,
+    }),
+    isMailInvitationIntegrationAvailable(),
+  ]);
 
   if (state.kind !== "ok") {
     return () => (
@@ -38,7 +42,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
-      <SpacesWorkspace state={state} dateConfig={dateConfig} />
+      <SpacesWorkspace state={state} dateConfig={dateConfig} mailIntegrationAvailable={mailIntegrationAvailable} />
     </Layout>
   );
 });

@@ -3,6 +3,7 @@ import { readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import type { MailRequestContext } from "../../service";
+import { getSpacesMailIntegrationAvailability } from "../../service/app-integrations";
 import { loadMailboxPageData } from "../../service/workspace";
 import { readMailUserPreferencesFromCookieHeader } from "../_components/mail-user-preferences";
 import { readMailWorkspacePreferences } from "../_components/mail-workspace-preferences";
@@ -24,7 +25,10 @@ export default ssr<AuthContext>(async (c) => {
   const workspacePreferences = readMailWorkspacePreferences(cookieHeader);
   const userPreferences = readMailUserPreferencesFromCookieHeader(cookieHeader, mailboxId);
   const theme = readThemeFromCookieHeader(cookieHeader);
-  const data = await loadMailboxPageData({ context, mailboxId, requestUrl, listMode: workspacePreferences.listMode });
+  const [data, spacesIntegration] = await Promise.all([
+    loadMailboxPageData({ context, mailboxId, requestUrl, listMode: workspacePreferences.listMode }),
+    getSpacesMailIntegrationAvailability(),
+  ]);
   if (!data) return c.redirect("/app/mail");
   const dateConfig = getDateConfig(c);
 
@@ -44,6 +48,7 @@ export default ssr<AuthContext>(async (c) => {
         initialPreferences={workspacePreferences}
         initialUserPreferences={userPreferences}
         initialTheme={theme}
+        calendarIntegrationAvailable={spacesIntegration.invitations}
       />
     </Layout>
   );

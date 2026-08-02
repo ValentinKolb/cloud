@@ -46,6 +46,7 @@ type Props = {
   recurringContext: SpaceItemDetail["recurringContext"];
   dateConfig?: DateContext;
   canWrite: boolean;
+  mailIntegrationAvailable: boolean;
 };
 
 // =============================================================================
@@ -592,7 +593,7 @@ export default function ItemDetailPanel(props: Props) {
           </section>
         </Show>
 
-        <Show when={isEvent() && canEditItem()}>
+        <Show when={isEvent() && canEditItem() && props.mailIntegrationAvailable}>
           <EventInvitations spaceId={props.spaceId} itemId={props.item.id} />
         </Show>
 

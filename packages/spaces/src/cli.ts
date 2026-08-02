@@ -23,7 +23,7 @@ import type {
   SpaceDetail,
   SpaceItem,
 } from "./contracts";
-import type { EventInvitationContext, EventInvitationDraft, MailEventSource } from "./integration";
+import type { EventInvitationContext, EventInvitationDraft } from "./integration";
 
 const SPACE_DEFAULT_KEY = "spaces.space";
 
@@ -487,10 +487,18 @@ export default defineCliCommands({
         printJsonOrTable(
           ctx,
           value.mailboxes,
-          value.mailboxes.map((mailbox) => ({ name: mailbox.name, from: mailbox.from.address, id: mailbox.id })),
+          value.mailboxes.flatMap((mailbox) =>
+            mailbox.identities.map((identity) => ({
+              name: mailbox.name,
+              from: identity.from.address,
+              identity: identity.id,
+              id: mailbox.id,
+            })),
+          ),
           [
             { key: "name", label: "MAILBOX" },
             { key: "from", label: "FROM" },
+            { key: "identity", label: "IDENTITY" },
             { key: "id", label: "ID" },
           ],
         );
@@ -510,6 +518,7 @@ export default defineCliCommands({
       flags: {
         ...spaceFlag,
         mailbox: flag.string({ required: true, description: "Writable Mail mailbox id" }),
+        identity: flag.string({ required: true, description: "Verified Mail sender identity id" }),
         to: flag.stringList({ description: "Attendee email address. Repeatable." }),
         cancel: flag.boolean({ description: "Create a cancellation instead of a request/update" }),
         idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable retry key" }),
@@ -525,34 +534,12 @@ export default defineCliCommands({
           jsonRequest("POST", {
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
             mailboxId: flags.mailbox,
+            senderIdentityId: flags.identity,
             attendees: flags.to.map((address) => ({ name: null, address })),
             method: flags.cancel ? "cancel" : "request",
           }),
         );
         if (!printStructured(ctx, value)) ctx.print(`Created Mail draft ${value.draftId}: ${value.href}`);
-      },
-    }),
-    command("mail event-source", {
-      summary: "Inspect bounded Mail context for the Spaces event editor",
-      args: optionalSpaceArgs,
-      flags: spaceFlag,
-      run: async ({ ctx, args }) => {
-        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 2);
-        const space = await resolveSpaceRef(ctx, spaceRef);
-        const value = await readApi<MailEventSource>(
-          ctx,
-          `/${space.id}/mail-event-source`,
-          jsonRequest("POST", {
-            mailboxId: requireArg(rest, 0, "mailbox id"),
-            messageId: requireArg(rest, 1, "message id"),
-          }),
-        );
-        if (!printStructured(ctx, value)) {
-          ctx.print(value.title);
-          ctx.print(`From: ${value.sender?.address ?? "unknown"}`);
-          ctx.print(`Received: ${value.receivedAt}`);
-          if (value.description) ctx.print(value.description);
-        }
       },
     }),
     command("add-item", {
