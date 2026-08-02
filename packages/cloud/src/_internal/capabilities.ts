@@ -244,15 +244,13 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
   return { manifest, typeIds, queries, actions };
 };
 
-const resultRefs = (result: unknown, universalSearch: boolean): Array<{ type: string; id: string }> => {
+const resultRefs = (result: unknown): Array<{ type: string; id: string }> => {
   if (typeof result !== "object" || result === null) return [];
   const value = result as { refs?: unknown; data?: unknown };
   const refs = Array.isArray(value.refs) ? value.refs : [];
-  if (!universalSearch || !Array.isArray(value.data)) return refs as Array<{ type: string; id: string }>;
-  return [
-    ...(refs as Array<{ type: string; id: string }>),
-    ...value.data.map((entry) => (entry as { ref?: unknown }).ref).filter(Boolean),
-  ] as Array<{
+  const resources = UniversalSearchDataSchema.safeParse(value.data);
+  if (!resources.success) return refs as Array<{ type: string; id: string }>;
+  return [...(refs as Array<{ type: string; id: string }>), ...resources.data.map((entry) => entry.ref)] as Array<{
     type: string;
     id: string;
   }>;
@@ -274,7 +272,7 @@ export const validateCapabilityResult = (
       },
     };
   }
-  for (const ref of resultRefs(parsed.data, "universalSearch" in operation.manifest && Boolean(operation.manifest.universalSearch))) {
+  for (const ref of resultRefs(parsed.data)) {
     if (!compiled.typeIds.has(ref.type)) {
       return {
         ok: false,

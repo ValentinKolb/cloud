@@ -4,6 +4,7 @@ const NullableTextSchema = z.string().nullable();
 const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
+const ReadableContactBookIdSchema = z.union([z.uuid(), z.literal("system")]);
 
 const CapabilityPageInputShape = {
   cursor: CursorSchema,
@@ -153,11 +154,9 @@ export const ContactDetailDataSchema = ContactSummaryDataSchema.extend({
   createdAt: TimestampSchema,
 }).strict();
 
-export const ContactListDataSchema = z.array(ContactSummaryDataSchema).max(100);
-
 export const ContactListInputSchema = z
   .object({
-    bookId: z.uuid().describe("Address-book UUID to list."),
+    bookId: ReadableContactBookIdSchema.describe('Address-book UUID, or "system" for the read-only system address book.'),
     query: z.string().trim().max(500).optional().describe("Optional text matched against contact fields."),
     tagIds: z.array(z.uuid()).max(100).optional().describe("Only contacts having at least one of these book-scoped tags."),
     sort: z.enum(["name", "updated", "created", "company"]).default("name").describe("Contact sort order."),

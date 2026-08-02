@@ -193,6 +193,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           user,
           appId: config.appId,
           memoryEnabled,
+          helpEnabled: isDefaultToolSource,
+          capabilitiesEnabled: ctx.toolSource.kind === "default" && ctx.toolSource.capabilities === true,
           toolHints: aiToolPromptHints(tools),
           userInstructions: prefs?.instructions,
           memory: prefs?.memory,

@@ -227,6 +227,48 @@ describe("capability v1 compilation", () => {
     ).toThrow("must use UniversalSearchInputSchema");
   });
 
+  test("validates resource refs embedded in ordinary query result views", async () => {
+    const compiled = compileCapabilities(
+      "example",
+      defineCapabilities({
+        version: 1,
+        types: { item: { title: "Item", description: "One test item." } },
+        queries: {
+          list: {
+            title: "List items",
+            description: "Lists navigable item cards.",
+            input: z.object({}).strict(),
+            data: UniversalSearchDataSchema,
+            run: async () =>
+              ok({
+                data: [
+                  {
+                    ref: { type: "other.item", id: "one" },
+                    title: "One",
+                    links: [{ rel: "open", href: "/app/example/one" }],
+                  },
+                ],
+              }),
+          },
+        },
+      }),
+    );
+    const query = compiled.manifest.queries[0]!;
+    const result = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "list",
+      input: {},
+      expectedSchemaHash: query.schemaHash,
+      context,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INTERNAL", message: "Capability returned undeclared resource type other.item" },
+    });
+  });
+
   test("rejects action targets that are absent from the input", () => {
     const base = example();
     const definitions = {

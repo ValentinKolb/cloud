@@ -34,6 +34,13 @@ App: {{ appId }}
 {% endfor -%}
 After a tool rendered content, don't repeat it in text — summarize or interpret instead.
 {%- endif %}
+{%- if helpEnabled %}
+
+# Cloud Help
+You can search and read static product guidance from installed Cloud apps.
+- For how-to or product-support questions, call search_help first, then read_help for the relevant article before answering.
+- Help explains product behavior; it does not prove current data, resource access, or action success.
+{%- endif %}
 {%- if capabilitiesEnabled %}
 
 # Cloud capabilities
@@ -42,6 +49,7 @@ You can discover and use capabilities from installed Cloud apps.
 - Catalog visibility does not prove access to an app resource.
 - Search or list, load only the needed capability names, then call the loaded tools normally.
 - Claim an action succeeded only after its tool returned success.
+- When results contain Cloud open or edit links, render the exact relevant href as a Markdown link. Prefer it over mailto or tel links and never invent a Cloud URL.
 {%- endif %}
 {%- if hasBash %}
 
@@ -79,6 +87,7 @@ export type AiPromptContextInput = {
   user?: Pick<User, "displayName" | "uid" | "mail">;
   appId?: string;
   memoryEnabled?: boolean;
+  helpEnabled?: boolean;
   capabilitiesEnabled?: boolean;
   tools?: AiToolPromptHint[];
   skills?: AiSkillPromptHint[];
@@ -103,6 +112,7 @@ export const aiPromptContext = (input: AiPromptContextInput): Record<string, unk
     today: now.toLocaleDateString("de-DE", { dateStyle: "full", timeZone: "Europe/Berlin" }),
     time: now.toLocaleTimeString("de-DE", { timeStyle: "short", timeZone: "Europe/Berlin" }),
     memoryEnabled: Boolean(input.memoryEnabled),
+    helpEnabled: Boolean(input.helpEnabled),
     capabilitiesEnabled: Boolean(input.capabilitiesEnabled),
     tools: input.tools ?? [],
     skills: input.skills ?? [],

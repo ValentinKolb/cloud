@@ -5,7 +5,7 @@ import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
 import { listActiveAiSkillHints } from "./bash-tool";
-import { createAiCapabilityToolResolver } from "./capabilities";
+import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
 import { executeAiCapability, resolveAiCapabilityActor } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
@@ -382,11 +382,11 @@ export class AiTurnExecutor {
     }
     const { settings, resolved } = validated;
 
-    const capabilitiesEnabled =
-      config.toolSource?.kind === "default" &&
-      config.toolSource.capabilities === true &&
-      resolved.profile.capabilities.includes("tools") &&
-      material.actor?.kind === "user";
+    const defaultToolSource = config.toolSource?.kind === "default" ? config.toolSource : null;
+    const helpActor =
+      defaultToolSource && resolved.profile.capabilities.includes("tools") && material.actor?.kind === "user" ? material.actor : null;
+    const helpEnabled = helpActor !== null;
+    const capabilitiesEnabled = helpActor !== null && defaultToolSource?.capabilities === true;
     let capabilityAuthority: Awaited<ReturnType<typeof resolveAiCapabilityActor>> | null = null;
     try {
       capabilityAuthority = capabilitiesEnabled
@@ -449,14 +449,18 @@ export class AiTurnExecutor {
 
     const appliedSteers: AiTurnSteer[] = [];
 
-    const tools = capabilitiesEnabled
+    const tools = capabilityAuthority
       ? createAiCapabilityToolResolver({
           conversationId,
-          actor: capabilityAuthority!.actor,
+          actor: capabilityAuthority.actor,
           staticTools: activeTools,
           store: aiConversationStore,
           listRegistry: listCapabilities,
           listHelpRegistry: listCurrentHelp,
+          onHelpRegistryError: (error) =>
+            log.warn("AI Help registry unavailable; continuing without Help documents", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
           maxLoadedCapabilities: resolved.profile.maxLoadedCapabilities,
           execute: (entry, args, context) =>
             executeAiCapability({
@@ -477,7 +481,18 @@ export class AiTurnExecutor {
             pipeline.setPresentations(toolPresentations);
           },
         })
-      : prepared.tools;
+      : helpActor
+        ? createAiHelpToolResolver({
+            conversationId,
+            actor: helpActor,
+            staticTools: activeTools,
+            listRegistry: listCurrentHelp,
+            onRegistryError: (error) =>
+              log.warn("AI Help registry unavailable; continuing without Help documents", {
+                error: error instanceof Error ? error.message : String(error),
+              }),
+          })
+        : prepared.tools;
 
     const loop = nessi({
       agentId: "cloud",
@@ -491,6 +506,7 @@ export class AiTurnExecutor {
         user,
         appId: material.toolApprovalContext?.appId,
         memoryEnabled: memoryActive,
+        helpEnabled,
         capabilitiesEnabled,
         toolHints: aiToolPromptHints(activeTools),
         skillHints,
@@ -509,7 +525,7 @@ export class AiTurnExecutor {
         return steers.length > 0 ? steers.map((steer) => steer.text) : undefined;
       },
       tools,
-      maxTurns: capabilitiesEnabled || prepared.tools.length > 0 ? 8 : 1,
+      maxTurns: helpEnabled || prepared.tools.length > 0 ? 8 : 1,
       temperature: resolved.profile.temperature,
       maxOutputTokens: resolved.profile.maxOutputTokens,
       coalesce: { ms: AI_COALESCE_MS, maxChars: AI_COALESCE_MAX_CHARS },

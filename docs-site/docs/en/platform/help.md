@@ -231,6 +231,13 @@ The browser receives the small manifest and loads article bodies on demand. An
 agent uses bounded search and read operations; Cloud does not create one
 permanently loaded tool for every article.
 
+For a user-backed direct chat on a tool-capable model, AI Core resolves
+`search_help` and `read_help` dynamically from the current Help registry. This
+does not require capability discovery to be enabled. Applications register
+their Help declaration only; they do not define AI tools or provider settings.
+A temporary Help registry read failure is isolated from the chat and from app
+capabilities, and a later model turn reads the registry again.
+
 If the corpus is missing or its hash does not match the app manifest, Core
 returns an unavailable response instead of serving stale Help. The application
 heartbeat can then restore the current registration.

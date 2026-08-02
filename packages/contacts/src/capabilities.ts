@@ -22,7 +22,6 @@ import {
   ContactDeleteInputSchema,
   ContactDetailDataSchema,
   ContactGetInputSchema,
-  ContactListDataSchema,
   ContactListInputSchema,
   ContactMoveInputSchema,
   ContactMutationDataSchema,
@@ -45,7 +44,7 @@ import {
 import { type Contact, type ContactBook, type ContactNote, type ContactTag, contactsService } from "./service";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "./service/access";
 import { SYSTEM_BOOK_ID } from "./service/system";
-import { resolveContactName } from "./shared";
+import { resolveContactName, safeWebsiteHref } from "./shared";
 
 const CONTACT_CREATE_ACTION_ID = "contacts.contact.create";
 const NOTE_CREATE_ACTION_ID = "contacts.note.create";
@@ -74,6 +73,22 @@ const mapContactSummary = (contact: Contact) => ({
   updatedAt: contact.updatedAt,
 });
 
+const mapContactResourceView = (contact: Contact): CloudResourceView => {
+  const primary = contact.emails[0]?.email ?? contact.phones[0]?.phone;
+  return {
+    ref: { type: "contacts.contact", id: contact.id },
+    title: resolveContactName(contact),
+    ...(primary ? { preview: primary } : {}),
+    icon: "ti ti-address-book",
+    priority: 7,
+    metadata: [
+      { label: "Type", value: "Contact" },
+      { label: "Book", value: contact.bookId },
+    ],
+    links: [{ rel: "open", href: contactHref(contact) }],
+  };
+};
+
 const mapContactDetail = (contact: Contact) => ({
   ...mapContactSummary(contact),
   label: contact.label,
@@ -99,7 +114,10 @@ const mapContactDetail = (contact: Contact) => ({
     stateRegion: item.stateRegion,
     countryCode: item.countryCode,
   })),
-  websites: contact.websites.map((item) => ({ label: item.label, url: item.url })),
+  websites: contact.websites.flatMap((item) => {
+    const url = safeWebsiteHref(item.url);
+    return url ? [{ label: item.label, url }] : [];
+  }),
   bankAccounts: contact.bankAccounts.map((item) => ({
     label: item.label,
     accountHolderName: item.accountHolderName,
@@ -277,21 +295,7 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
       phone: tags.has("phone") ? "yes" : "all",
     },
   });
-  const data: CloudResourceView[] = page.items.map((contact) => {
-    const primary = contact.emails[0]?.email ?? contact.phones[0]?.phone;
-    return {
-      ref: { type: "contacts.contact", id: contact.id },
-      title: resolveContactName(contact),
-      ...(primary ? { preview: primary } : {}),
-      icon: "ti ti-address-book",
-      priority: 7,
-      metadata: [
-        { label: "Type", value: "Contact" },
-        { label: "Book", value: contact.bookId },
-      ],
-      links: [{ rel: "open", href: contactHref(contact) }],
-    };
-  });
+  const data = page.items.map(mapContactResourceView);
   return ok({ data });
 };
 
@@ -358,11 +362,7 @@ const runContactList = async (input: z.infer<typeof ContactListInputSchema>, con
       ...(input.favoritesOnly && userBacked(context) ? { favoriteUserId: userBacked(context)?.id } : {}),
     },
   });
-  return pageResult(
-    page,
-    page.items.map(mapContactSummary),
-    page.items.map((contact) => ({ type: "contacts.contact", id: contact.id })),
-  );
+  return pageResult(page, page.items.map(mapContactResourceView));
 };
 
 const runContactGet = async (input: z.infer<typeof ContactGetInputSchema>, context: CapabilityExecutionContext) => {
@@ -636,7 +636,8 @@ export const contactsCapabilities = defineCapabilities({
   queries: {
     "contact.search": {
       title: "Search contacts",
-      description: "Find permission-filtered contacts by name, email, phone, or address-book facet.",
+      description:
+        "Find, show, or open permission-filtered contacts by name, email, phone, or address-book facet. Returns navigable contact cards.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
       universalSearch: {
@@ -651,23 +652,24 @@ export const contactsCapabilities = defineCapabilities({
     "contact.suggest": {
       title: "Suggest contacts",
       description:
-        "Suggest readable contacts with email addresses by matching names, organizations, email addresses, phone numbers, and addresses.",
+        "Autocomplete readable email recipients while composing mail by matching names, organizations, email addresses, phone numbers, and addresses.",
       input: ContactSuggestInputSchema,
       data: ContactSuggestDataSchema,
       run: runContactSuggest,
     },
     "contact.resolve": {
       title: "Resolve contacts by email",
-      description: "Resolve up to 100 exact email addresses to every readable matching contact with bounded contact details.",
+      description: "Resolve up to 100 known exact email addresses to every readable matching contact with bounded contact details.",
       input: ContactResolveInputSchema,
       data: ContactResolveDataSchema,
       run: runContactResolve,
     },
     "contact.list": {
       title: "List contacts",
-      description: "List one readable address book with bounded filters, stable pagination, and contact references.",
+      description:
+        "List contacts in one already selected readable address book with bounded filters, stable pagination, and navigable contact cards.",
       input: ContactListInputSchema,
-      data: ContactListDataSchema,
+      data: UniversalSearchDataSchema,
       run: runContactList,
     },
     "contact.get": {

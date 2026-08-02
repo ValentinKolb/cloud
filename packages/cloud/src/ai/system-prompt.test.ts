@@ -76,9 +76,21 @@ describe("renderAiGlobalInstructions", () => {
 });
 
 describe("composeAiSystemPrompt", () => {
+  test("includes static Cloud Help independently from executable capabilities", () => {
+    const disabled = composeAiSystemPrompt({ globalInstructions: "", user });
+    const helpOnly = composeAiSystemPrompt({ globalInstructions: "", user, helpEnabled: true });
+
+    expect(disabled).not.toContain("# Cloud Help");
+    expect(helpOnly).toContain("# Cloud Help");
+    expect(helpOnly).toContain("call search_help first");
+    expect(helpOnly).toContain("then read_help");
+    expect(helpOnly).toContain("does not prove current data");
+    expect(helpOnly).not.toContain("# Cloud capabilities");
+  });
+
   test("includes the compact current-user capability contract only when enabled", () => {
     const disabled = composeAiSystemPrompt({ globalInstructions: "", user });
-    const enabled = composeAiSystemPrompt({ globalInstructions: "", user, capabilitiesEnabled: true });
+    const enabled = composeAiSystemPrompt({ globalInstructions: "", user, helpEnabled: true, capabilitiesEnabled: true });
 
     expect(disabled).not.toContain("# Cloud capabilities");
     expect(enabled).toContain("# Cloud capabilities");
@@ -86,6 +98,8 @@ describe("composeAiSystemPrompt", () => {
     expect(enabled).toContain("owning app authorizes every call");
     expect(enabled).toContain("Catalog visibility does not prove access");
     expect(enabled).toContain("load only the needed capability names");
+    expect(enabled).toContain("exact relevant href as a Markdown link");
+    expect(enabled).toContain("never invent a Cloud URL");
   });
 
   it("orders platform, admin, app, resource, user instructions and memories", () => {

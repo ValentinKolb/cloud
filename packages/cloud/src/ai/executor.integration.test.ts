@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
+import type { User } from "../contracts";
 import { AiTurnExecutor } from "./executor";
 import { migrateCloudAi } from "./migrate";
 import type { AiWireEvent } from "./protocol";
@@ -43,6 +44,23 @@ const mockProfile = (): AiModelProfile => ({
 /** Injected settings seam — no shared settings reads/writes anywhere in this suite. */
 const fakeValidateTurn: typeof validateAiTurnRequest = async () => {
   const profile = mockProfile();
+  return {
+    settings: {
+      ok: true,
+      enabled: true,
+      defaultModelId: MODEL_ID,
+      globalInstructions: "",
+      compactionPrompt: "",
+      maxToolResultChars: 2_000,
+      firecrawlConfigured: false,
+      profiles: [profile],
+    },
+    resolved: { profile, provider: createAiProvider(profile, "test") },
+  };
+};
+
+const fakeValidateToolTurn: typeof validateAiTurnRequest = async () => {
+  const profile: AiModelProfile = { ...mockProfile(), capabilities: ["streaming", "tools"] };
   return {
     settings: {
       ok: true,
@@ -139,12 +157,36 @@ const collectWire = async (conversationId: string, until: (event: AiWireEvent) =
 
 const userMessage = (text: string): Message => ({ role: "user", content: [{ type: "text", text }] });
 
-const createExecutor = (leaseOwner: string, onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>) =>
+const actorUser = (id: string): User => ({
+  id,
+  uid: "ai-exec-user",
+  roles: ["user"],
+  provider: "local",
+  profile: "user",
+  givenname: "AI",
+  sn: "Exec",
+  displayName: "AI Exec",
+  mail: "ai-exec@example.test",
+  avatarHash: null,
+  ipa: null,
+  accountExpires: null,
+  lastLoginLocal: null,
+  memberofGroup: [],
+  memberofGroupIds: [],
+  manages: [],
+  managesGroupIds: [],
+});
+
+const createExecutor = (
+  leaseOwner: string,
+  onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>,
+  validateTurn: typeof validateAiTurnRequest = fakeValidateTurn,
+) =>
   new AiTurnExecutor({
     leaseOwner,
     heartbeatMs: 5_000,
     enqueueContinuation: async () => {},
-    validateTurn: fakeValidateTurn,
+    validateTurn,
     onTurnFinalized,
   });
 
@@ -202,6 +244,58 @@ suite("AI executor integration", () => {
         messages[1]?.message.role === "assistant" ? messages[1].message.content.map((b) => (b.type === "text" ? b.text : "")).join("") : "";
       expect(assistantText).toContain("Hello from the mock model");
     } finally {
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("exposes Help for a user-backed default chat without enabling capabilities", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+
+    try {
+      completionRequestCount = 0;
+      nextCompletion = textCompletion("Help is available");
+      const requests: unknown[] = [];
+      onCompletionRequest = (body) => {
+        requests.push(body);
+      };
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: "How do contacts work?",
+          actor: { kind: "user", user: actorUser(userId) },
+          toolSource: { kind: "default" },
+        },
+        userMessage: userMessage("How do contacts work?"),
+      });
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "help-exec",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+
+      await createExecutor("help-exec", undefined, fakeValidateToolTurn).run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      expect(requests).toHaveLength(1);
+      const request = JSON.stringify(requests[0]);
+      expect(request).toContain("# Cloud Help");
+      expect(request).not.toContain("# Cloud capabilities");
+      expect(request).toContain('"name":"search_help"');
+      expect(request).toContain('"name":"read_help"');
+    } finally {
+      onCompletionRequest = null;
       await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }

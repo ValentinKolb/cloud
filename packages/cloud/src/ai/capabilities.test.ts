@@ -12,6 +12,7 @@ import {
   buildAiCapabilityCatalog,
   createAiCapabilityMetaTools,
   createAiCapabilityToolResolver,
+  createAiHelpToolResolver,
   createAiHelpTools,
   createLoadedAiCapabilityTools,
   listAiCapabilities,
@@ -129,6 +130,54 @@ describe("AI capability catalog", () => {
     expect(await read.execute({ appId: "grids", documentId: "grids-gql" }, context)).toMatchObject({
       document: { kind: "help", markdown: expect.stringContaining("from table Books") },
     });
+  });
+
+  test("keeps Help isolated and retries the live registry after a failure", async () => {
+    const failures: unknown[] = [];
+    let attempts = 0;
+    const help: HelpRegistryEntry = {
+      appId: "contacts",
+      appName: "Contacts",
+      appIcon: "ti ti-address-book",
+      manifestHash: "hash",
+      documents: [
+        {
+          id: "contacts-start",
+          title: "Find contacts",
+          order: 10,
+          markdown: "# Contacts\n\nSearch for a contact and open the result.",
+        },
+      ],
+    };
+    const resolver = createAiHelpToolResolver({
+      conversationId: "conversation-1",
+      actor,
+      staticTools: [],
+      listRegistry: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("registry unavailable");
+        return [help];
+      },
+      onRegistryError: (error) => failures.push(error),
+    });
+
+    const unavailable = await resolver();
+    expect(unavailable.map((tool) => tool.def.name)).toEqual(["search_help", "read_help"]);
+    const recovered = await resolver();
+    const search = recovered[0];
+    if (!search || search.kind !== "server") throw new Error("search_help missing");
+    const result = await search.execute(
+      { query: "open the result", appId: "contacts" },
+      {
+        signal: AbortSignal.timeout(1_000),
+        requestApproval: async () => true,
+        requestClientTool: async <T>() => undefined as T,
+      },
+    );
+
+    expect(result).toMatchObject({ documents: [{ appId: "contacts", documentId: "contacts-start" }] });
+    expect(attempts).toBe(2);
+    expect(failures).toHaveLength(1);
   });
 
   test("uses readable provider-safe names without dot or underscore collisions", () => {
@@ -278,6 +327,34 @@ describe("AI capability catalog", () => {
       "load_capabilities",
       "spaces__action__create",
     ]);
+  });
+
+  test("keeps capability discovery available when the Help registry fails", async () => {
+    const failures: unknown[] = [];
+    const resolver = createAiCapabilityToolResolver({
+      conversationId: "conversation-1",
+      actor,
+      staticTools: [],
+      store: {
+        getLoadedCapabilities: async () => [],
+        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+      },
+      listRegistry: async () => [capabilityApp("contacts", "Contacts")],
+      listHelpRegistry: async () => {
+        throw new Error("registry unavailable");
+      },
+      onHelpRegistryError: (error) => failures.push(error),
+      execute: async () => ({ data: [] }),
+    });
+
+    expect((await resolver()).map((tool) => tool.def.name)).toEqual([
+      "search_capabilities",
+      "list_capabilities",
+      "load_capabilities",
+      "search_help",
+      "read_help",
+    ]);
+    expect(failures).toHaveLength(1);
   });
 
   test("persists automatic cleanup when a profile limit is reduced", async () => {

@@ -93,6 +93,19 @@ user.
 `promptHint` adds a short usage hint to the system prompt. It does not replace
 the tool description.
 
+## Search product Help
+
+A user-backed direct chat on a tool-capable model exposes two small Help tools:
+
+- `search_help` searches the current static Help corpus and returns compact
+  article identifiers;
+- `read_help` reads one exact article returned by search.
+
+AI Core resolves these tools dynamically from app-owned Help registration.
+They do not require `toolSource.capabilities` because static product guidance
+is separate from executable app operations. A registry read failure stays
+local to Help and is retried on a later provider turn.
+
 ## Discover Cloud app capabilities
 
 A direct chat may opt into the live capability catalog through its default tool
@@ -127,6 +140,11 @@ The chat stores only ordered loaded capability names. Removed or temporarily
 unavailable operations are omitted from later snapshots. Capability calls save
 a small app presentation snapshot so live calls and history can show the owning
 app without exposing icon metadata to the model.
+
+When a capability returns a semantic Cloud `open` or `edit` link, the model
+renders that exact path as a Markdown link when directing the user to the
+resource. It does not infer routes from refs or IDs, and it prefers the Cloud
+resource link over secondary protocol actions such as `mailto:` or `tel:`.
 
 ## Handle approval in the UI
 

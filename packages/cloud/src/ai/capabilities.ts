@@ -222,6 +222,36 @@ export const createAiHelpTools = (registry: readonly HelpRegistryEntry[]): AiRun
   return [search, read];
 };
 
+const resolveHelpRegistry = async (
+  listRegistry: () => Promise<HelpRegistryEntry[]>,
+  onError?: (error: unknown) => void,
+): Promise<HelpRegistryEntry[]> => {
+  try {
+    return await listRegistry();
+  } catch (error) {
+    onError?.(error);
+    return [];
+  }
+};
+
+/** Resolve the live Help corpus on every provider turn without coupling it to executable app capabilities. */
+export const createAiHelpToolResolver =
+  (input: {
+    conversationId: string;
+    actor: RequestActor;
+    staticTools: AiRuntimeTool[];
+    listRegistry: () => Promise<HelpRegistryEntry[]>;
+    onRegistryError?: (error: unknown) => void;
+  }): ToolResolver =>
+  async (): Promise<Tool[]> => {
+    const registry = await resolveHelpRegistry(input.listRegistry, input.onRegistryError);
+    return prepareAiTools({
+      tools: [...input.staticTools, ...createAiHelpTools(registry)],
+      actor: input.actor,
+      conversationId: input.conversationId,
+    }).tools;
+  };
+
 const SCHEMA_KEYS = new Set([
   "$ref",
   "type",
@@ -384,6 +414,7 @@ export const createAiCapabilityToolResolver =
     store: Pick<AiConversationStore, "getLoadedCapabilities" | "loadCapabilities">;
     listRegistry: () => Promise<CapabilityRegistryEntry[]>;
     listHelpRegistry?: () => Promise<HelpRegistryEntry[]>;
+    onHelpRegistryError?: (error: unknown) => void;
     maxLoadedCapabilities?: number;
     execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
     onPrepared?: (snapshot: { prepared: PreparedAiTools; presentations: Map<string, AiToolPresentation> }) => void;
@@ -392,7 +423,7 @@ export const createAiCapabilityToolResolver =
     const [registry, persistedLoadedNames, helpRegistry] = await Promise.all([
       input.listRegistry(),
       input.store.getLoadedCapabilities({ conversationId: input.conversationId }),
-      input.listHelpRegistry?.() ?? [],
+      input.listHelpRegistry ? resolveHelpRegistry(input.listHelpRegistry, input.onHelpRegistryError) : [],
     ]);
     const configuredLimit = Math.floor(input.maxLoadedCapabilities ?? 0);
     const loadedNames = configuredLimit > 0 ? persistedLoadedNames.slice(-configuredLimit) : persistedLoadedNames;
