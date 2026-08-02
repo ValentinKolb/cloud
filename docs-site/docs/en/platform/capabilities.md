@@ -255,6 +255,8 @@ closed-world.
 
 Queries may opt into [Universal Search](/en/docs/platform/search). An app may
 publish multiple focused search Queries when it owns distinct resource kinds.
+Cloud caps merged results per app, so registering more focused Queries does
+not give an app a larger share of the global result set.
 
 ### Actions change state
 

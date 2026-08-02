@@ -3,110 +3,142 @@ title: Universal search
 navTitle: Universal search
 section: Platform services
 order: 560
-description: Make application resources discoverable through Cloud search.
+description: Project focused application Queries into the shared Cloud search.
 tags: [search, capabilities, authorization]
-updated: 2026-07-27
+updated: 2026-08-01
 ---
 
 # Universal search
 
-Add a search capability when users should find application resources from the
-shared Cloud search.
+Universal Search is an optional projection of ordinary capability Queries.
+The application searches its own data and returns only resources the current
+access subject may read. Cloud discovers live providers, fans out the query,
+and merges their results.
 
-Cloud sends the query to every registered provider. The application searches
-its own data and returns only results the current access subject may read.
+Read [App capabilities](/en/docs/platform/capabilities) first for the shared
+Type, Query, schema, result, registry, and authorization rules.
 
-## Define a provider
+## Add a search Query
+
+An app may expose multiple Queries through Universal Search. Each must use the
+exact shared input and data schemas. Add the Queries to the application's
+`src/capabilities.ts` module.
 
 ```ts
-import type {
-  AppSearchInput,
-  AppSearchResult,
+import {
+  defineCapabilities,
+  UniversalSearchDataSchema,
+  UniversalSearchInputSchema,
 } from "@valentinkolb/cloud/contracts";
+import { ok } from "@k2b/stdlib";
 
-const searchInventory = async (
-  input: AppSearchInput,
-): Promise<AppSearchResult[]> => {
-  const items = await inventory.search({
-    query: input.query,
-    limit: input.limit,
-    accessSubject: input.accessSubject,
-  });
-
-  return items.map((item) => ({
-    id: item.id,
-    title: item.name,
-    href: `/app/inventory/items/${item.id}`,
-    preview: `${item.quantity} in stock`,
-    icon: "ti ti-package",
-    priority: 6,
-    metadata: [{ label: "Type", value: "Inventory item" }],
-  }));
-};
-
-export const inventoryCapabilities = {
-  search: {
-    tags: ["inventory", "stock"],
-    help: "Find inventory items.",
-    tagHelp: [
-      { tag: "stock", help: "Show inventory items." },
-    ],
-    run: searchInventory,
+export const inventoryCapabilities = defineCapabilities({
+  version: 1,
+  types: {
+    item: {
+      title: "Inventory item",
+      description: "One item in the inventory catalog.",
+    },
   },
-};
-```
+  queries: {
+    search: {
+      title: "Search inventory",
+      description: "Find visible inventory items by name.",
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      openWorld: false,
+      universalSearch: {
+        tags: [
+          {
+            tag: "inventory",
+            title: "Inventory",
+            description: "Search inventory items.",
+            aliases: ["stock", "sku"],
+          },
+        ],
+      },
+      run: async ({ query, limit }, context) => {
+        const items = await inventory.search({
+          query,
+          limit,
+          accessSubject: context.accessSubject,
+        });
 
-Pass the capability when the app starts:
-
-```ts
-await app.start({
-  fetch: router.fetch,
-  capabilities: inventoryCapabilities,
+        return ok({
+          data: items.map((item) => ({
+            ref: { type: "inventory.item", id: item.id },
+            title: item.name,
+            preview: `${item.quantity} in stock`,
+            icon: "ti ti-package",
+            priority: 7,
+            metadata: [{ label: "Type", value: "Inventory item" }],
+            links: [
+              { rel: "open", href: `/app/inventory/items/${item.id}` },
+            ],
+          })),
+        });
+      },
+    },
+  },
 });
 ```
 
-Cloud owns the internal search route and registration metadata.
+Pass the imported declaration to `app.start({ capabilities, fetch })` as described in
+[App capabilities](/en/docs/platform/capabilities).
 
-## Use the input
+## Follow the search contract
+
+`UniversalSearchInputSchema` provides:
 
 | Field | Meaning |
 | --- | --- |
-| `query` | Text after search syntax has been parsed |
-| `tags` | Active tag filters without the `#` prefix |
-| `limit` | Maximum number of results to return |
-| `user` | Signed-in Cloud user |
-| `actor` | Credential that made the request |
-| `accessSubject` | Principal used for resource permission checks |
+| `query` | User-entered text; may be empty when a facet narrows the search |
+| `tags` | Canonical facets supported by this Query |
+| `limit` | Maximum results this provider may return |
 
-Search is user-backed. Cloud does not call providers for an actor without a
-user.
+Each returned resource must:
 
-Always apply resource authorization with `accessSubject`. Do not return a
-result and rely on its destination page to hide it later. See
-[Resource authorization](/docs/en/identity/authorization).
+- use a Type declared by the app;
+- have a stable resource ID;
+- include at least one root-relative `open` link;
+- contain only information the current access subject may read;
+- stay within the requested limit.
 
-Use `actor` only when credential provenance changes the result.
+Use `preview`, `icon`, `priority`, and `metadata` only when they help identify
+the resource. A `preview` semantic link lets Cloud load a separate preview
+surface.
 
-## Return results
+Tags and aliases help users and agents discover providers. They are not
+permissions. Use stable, lower-case values without `#`, and keep each meaning
+unique within the app.
 
-Every result requires `id`, `title`, and a root-relative `href`. Start the path
-with one `/`. Do not return an absolute URL, `//host/path`, or `/\host/path`.
-Cloud rejects results that can navigate to another origin.
+Prefer one focused provider per stable resource kind when that removes
+app-local routing or result-merging code. Keep one provider when tags are only
+facets or aliases of the same search. Cloud discovers every opted-in Query
+directly from the live capability manifest; apps do not register a separate
+search wrapper. Merged results are capped per app, so multiple focused Queries
+do not give one app a larger share of the global result set.
 
-Optional fields add context:
+## Authorize every result
 
-- `preview` adds one short line;
-- `icon` uses a Tabler icon class;
-- `priority` is an integer from 0 through 9;
-- `metadata` adds label-value details;
-- `previewUrl` points to a root-relative preview resource and follows the same
-  origin rule as `href`.
+The shared `/api/search` route requires a user-backed actor. The provider still
+authorizes every resource with `context.accessSubject`; never return a result
+and rely on its destination page to hide it later.
 
-The provider owns ranking within its result set. Keep the title and preview
-useful without exposing sensitive data.
+The same Query can also be invoked through the generic capability HTTP, CLI,
+or MCP surface. Those calls follow normal capability authentication and may
+use a service-account access subject. The application must handle the subject
+types it supports explicitly.
 
-Tags must have stable meanings. Declare tag help when a user would not
-understand a tag from its name alone.
+See [Resource authorization](/en/docs/identity/authorization).
 
-Provider failures do not change the application's source of truth. Log enough
-context to diagnose them with [structured logging](/docs/en/platform/logging).
+## Keep app-specific search separate
+
+Universal Search is a projection, not the only search operation an app may
+publish. Add other Queries for app-specific list, filter, lookup, or exhaustive
+traversal semantics when they have a stable cross-client use.
+
+Cloud ranks results by app-provided priority and title after merging providers.
+One provider failure does not fail the complete search. Log provider failures
+with [structured logging](/en/docs/platform/logging); the application's domain
+database remains the source of truth.
