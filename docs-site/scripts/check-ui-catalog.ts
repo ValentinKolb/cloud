@@ -101,10 +101,7 @@ const portableDemoSources = await Promise.all(
   })),
 );
 const portableDemoBoundaryViolations = portableDemoSources
-  .filter(
-    ({ source }) =>
-      source.includes("@valentinkolb/cloud") || source.includes("packages/ui-lab"),
-  )
+  .filter(({ source }) => source.includes("@valentinkolb/cloud"))
   .map(({ path }) => path);
 
 const liveRuntimeImports = new Set<string>();

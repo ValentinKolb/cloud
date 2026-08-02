@@ -231,7 +231,7 @@
 
 /* Stat cards are component-owned by StatGrid/StatCell. See
    `skills/cloud-app/references/frontend.md` § Stats and the live demos in
-   `packages/ui-lab/src/frontend/lab/surfaces-cards.tsx`. Do not reintroduce
+   the Fibel UI catalog. Do not reintroduce
    the earlier `.stat-grid / .stat-cell / .stat-value / .stat-label / .stat-sub`
    utilities; app code should import the shared components instead. */
 

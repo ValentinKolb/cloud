@@ -36,7 +36,6 @@ COPY packages/quotes/package.json        packages/quotes/
 COPY packages/spaces/package.json        packages/spaces/
 COPY packages/tools/package.json         packages/tools/
 COPY packages/ui/package.json            packages/ui/
-COPY packages/ui-lab/package.json        packages/ui-lab/
 COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
 COPY fixtures/ui-ssr/package.json        fixtures/ui-ssr/

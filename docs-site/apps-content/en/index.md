@@ -61,8 +61,7 @@ a running application for detailed usage instructions.
 | [Hosts](/en/apps/ipa-hosts) | FreeIPA hosts, host groups, and mirrored membership data |
 | [Pulse](/en/apps/pulse) | Metrics, events, states, and realtime dashboards in development deployments |
 
-UI Lab is a developer-only component workspace rather than a product
-application. Its maintained replacement is the [UI catalog](/en/ui).
+The [UI catalog](/en/ui) in Fibel documents the reusable component package.
 
 ## Know which reference to use
 

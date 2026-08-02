@@ -236,7 +236,7 @@ The cutover has no compatibility shims:
    controlled composer contract to Cloud records in both directions.
 3. `AiChatActionsProvider` binds retry, fork, approval, frontend-tool, and file
    behavior without introducing a second timeline or message shell.
-4. Assistant, UI Lab, and Fibel compose the generic package components.
+4. Assistant and Fibel compose the generic package components.
 5. The former `AiComposer`, `AiMessageList`, and `AiContextIndicator` exports
    and implementations were removed after the final caller migrated.
 6. Official AI documentation describes the generic presentation contract

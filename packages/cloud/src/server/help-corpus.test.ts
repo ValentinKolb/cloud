@@ -23,7 +23,6 @@ const helpPackages = [
   "pulse",
   "spaces",
   "tools",
-  "ui-lab",
   "venue",
   "weather",
 ] as const;

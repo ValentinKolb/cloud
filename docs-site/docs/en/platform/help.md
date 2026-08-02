@@ -14,8 +14,7 @@ Declare an application's product guidance once. Cloud can then expose the same
 Markdown through the shared Layout, full-page Help, and agent search and reads.
 
 All supported built-in applications that own Help use this contract. OAuth
-intentionally owns no Help surface. The deprecated UI Lab application remains
-on the legacy collection until that application is removed.
+intentionally owns no Help surface.
 
 Help is for static product guidance: tasks, concepts, reference material, and
 troubleshooting. Use developer documentation for application APIs. Keep live,
@@ -278,8 +277,7 @@ A legacy provider moves through this sequence:
    reader against the registered corpus.
 
 Do not register both contracts in one application. Remove its old API and page
-routes in the same slice so one declaration remains the only source. The
-deprecated UI Lab application is the only built-in legacy exception.
+routes in the same slice so one declaration remains the only source.
 
 ## Verify Help
 

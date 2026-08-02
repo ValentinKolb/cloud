@@ -270,18 +270,6 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/tools/src/index.ts
 
-  app-ui-lab:
-    <<: *app
-    container_name: app-ui-lab
-    environment: { <<: *env, APP_ID: ui-lab }
-    profiles: [extra]
-    volumes:
-      - ./packages/cloud/src:/app/packages/cloud/src
-      - ./packages/cloud/scripts:/app/packages/cloud/scripts
-      - ./packages/ui-lab/src:/app/packages/ui-lab/src
-      - ./styles.css:/app/styles.css
-    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/ui-lab/src/index.ts
-
   app-venue:
     <<: *app
     container_name: app-venue

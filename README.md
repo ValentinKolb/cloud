@@ -27,7 +27,7 @@ Cloud bundles a set of apps that cover the common operational needs of an organi
 | **Operations** | [`gateway-ops`](packages/gateway-ops) — app registry, routes, logs, telemetry, webhooks, notifications |
 | **Productivity** | [`assistant`](packages/assistant) — general-purpose AI chat &nbsp;•&nbsp; [`mail`](packages/mail) — collaborative email &nbsp;•&nbsp; [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
 | **Content & misc** | [`faq`](packages/faq) &nbsp;•&nbsp; [`venue`](packages/venue) &nbsp;•&nbsp; [`weather`](packages/weather) &nbsp;•&nbsp; [`quotes`](packages/quotes) &nbsp;•&nbsp; [`tools`](packages/tools) |
-| **Development** | [`api-docs`](packages/api-docs) — Scalar UI aggregating every running app's OpenAPI spec &nbsp;•&nbsp; [`ui-lab`](packages/ui-lab) — component showcase |
+| **Development** | [`api-docs`](packages/api-docs) — Scalar UI aggregating every running app's OpenAPI spec &nbsp;•&nbsp; [Fibel UI catalog](http://localhost:4318/en/ui) — component showcase |
 
 ## Build your own app
 

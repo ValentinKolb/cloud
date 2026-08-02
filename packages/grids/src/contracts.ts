@@ -1512,7 +1512,7 @@ const StatWidgetSchema = z.object({
   /** Pure presentation hint for the value colour. No KPI semantics. */
   tone: StatToneSchema.optional(),
   /** Optional small-text sub-line under the value. Mirrors the
-   *  ui-lab "Small grid only" reference (`9·12 admin`, `last 24h`,
+   *  compact small-grid reference (`9·12 admin`, `last 24h`,
    *  `providers`). Plain text only, no icons. */
   sub: z.string().max(60).optional(),
 });
@@ -1677,7 +1677,7 @@ export type WorkflowButtonWidget = z.infer<typeof WorkflowButtonWidgetSchema>;
 // Layout rules (applied by the renderer, not the schema):
 //
 //   - All cells of kind="stat" → render the row as one paper with
-//     hairline dividers between cells (the dense ui-lab "small grid"
+//     hairline dividers between cells (the dense "small grid"
 //     pattern). Stats belong together visually.
 //   - Anything else (mixed, or pure view/chart/view-stats/form) →
 //     each cell renders as its own paper-card; the row's `height`

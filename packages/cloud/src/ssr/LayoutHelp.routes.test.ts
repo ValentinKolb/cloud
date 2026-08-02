@@ -75,13 +75,10 @@ describe("registered Layout Help routes", () => {
     }
   });
 
-  test("keeps deliberate OAuth and deprecated UI Lab exceptions explicit", async () => {
+  test("keeps the deliberate OAuth exception explicit", async () => {
     expect(await Bun.file(join(repoRoot, "packages/oauth/src/help/index.ts")).exists()).toBe(false);
     expect(await read("packages/oauth/src/index.ts")).not.toMatch(/oauthHelp|\/api\/oauth\/help/);
     expect(await read("packages/oauth/src/frontend/index.ts")).not.toContain("/admin/oauth/help");
-
-    expect(await read("packages/ui-lab/src/help/index.ts")).toContain("defineHelpCollection");
-    expect(await read("packages/ui-lab/src/frontend/index.ts")).toContain('.get("/help"');
   });
 
   test("the retired query-overlay strategy cannot return", async () => {
