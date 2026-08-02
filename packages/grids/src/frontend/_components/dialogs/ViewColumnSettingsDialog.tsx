@@ -1,4 +1,4 @@
-import { Checkbox, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Select, TextInput, Button } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
@@ -47,7 +47,7 @@ function ViewColumnSettingsDialog(props: { args: Args; close: (result: ViewColum
           placeholder={props.args.labelPlaceholder}
           icon="ti ti-heading"
           value={label}
-          onInput={setLabel}
+          onValueChange={setLabel}
           clearable
         />
 
@@ -60,16 +60,16 @@ function ViewColumnSettingsDialog(props: { args: Args; close: (result: ViewColum
         />
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-danger btn-sm" onClick={() => props.close({ action: "hide" })}>
+        <Button variant="danger" size="sm" type="button" onClick={() => props.close({ action: "hide" })}>
           <i class="ti ti-eye-off" /> {props.args.hideLabel}
-        </button>
+        </Button>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" onClick={() => props.close(null)}>
+          <Button variant="ghost" size="sm" type="button" onClick={() => props.close(null)}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={save}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" onClick={save}>
             Save
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -179,7 +179,7 @@ export function ColumnFormatControls(props: {
           <Select
             label="Date format"
             value={dateFormat}
-            onChange={(id) => touch(setDateFormat)((id as DateFormatChoice | null) ?? "default")}
+            onValueChange={(id) => touch(setDateFormat)((id as DateFormatChoice | null) ?? "default")}
             options={[
               { id: "default", label: "Default", description: "Use the app default." },
               { id: "iso", label: "ISO", description: "2026-05-03" },
@@ -188,19 +188,19 @@ export function ColumnFormatControls(props: {
               { id: "relative", label: "Relative", description: "2 days ago" },
             ]}
           />
-          <Checkbox label="Include time" value={includeTime} onChange={touch(setIncludeTime)} />
+          <Checkbox label="Include time" value={includeTime} onValueChange={touch(setIncludeTime)} />
         </div>
       </Show>
       <Show when={fieldType() === "number"}>
-        <Checkbox label="Custom number format" value={customNumber} onChange={touch(setCustomNumber)} />
+        <Checkbox label="Custom number format" value={customNumber} onValueChange={touch(setCustomNumber)} />
         <Show when={customNumber()}>
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <NumberInput label="Decimal places" min={0} max={10} value={precision} onInput={touch(setPrecision)} clearable />
+            <NumberInput label="Decimal places" min={0} max={10} value={precision} onValueChange={touch(setPrecision)} clearable />
             <Checkbox
               label="Thousands separator"
               description="Example: 1,234,567"
               value={thousandsSeparator}
-              onChange={touch(setThousandsSeparator)}
+              onValueChange={touch(setThousandsSeparator)}
             />
           </div>
         </Show>
@@ -209,7 +209,7 @@ export function ColumnFormatControls(props: {
         <Select
           label="Text format"
           value={textFormat}
-          onChange={(v) => touch(setTextFormat)((v as TextFormatChoice | null) ?? "default")}
+          onValueChange={(v) => touch(setTextFormat)((v as TextFormatChoice | null) ?? "default")}
           options={[
             { id: "default", label: "Default" },
             { id: "barcode", label: "Barcode / 2D code", description: "Render the stored text as a scannable code." },
@@ -228,7 +228,7 @@ export function ColumnFormatControls(props: {
         <Select
           label="Formula format"
           value={formulaFormat}
-          onChange={(v) => touch(setFormulaFormat)((v as FormulaFormatChoice | null) ?? "default")}
+          onValueChange={(v) => touch(setFormulaFormat)((v as FormulaFormatChoice | null) ?? "default")}
           options={[
             { id: "default", label: "Default" },
             { id: "number", label: "Number" },
@@ -243,7 +243,7 @@ export function ColumnFormatControls(props: {
         <Checkbox
           label="Progress bar"
           value={progress}
-          onChange={(v) => {
+          onValueChange={(v) => {
             setProgress(v);
             if (v) setCustomPercent(false);
             props.onChange?.();
@@ -254,7 +254,7 @@ export function ColumnFormatControls(props: {
         <Select
           label="Progress label"
           value={progressLabel}
-          onChange={(v) => touch(setProgressLabel)((v as ProgressLabelChoice | null) ?? "percent")}
+          onValueChange={(v) => touch(setProgressLabel)((v as ProgressLabelChoice | null) ?? "percent")}
           options={[
             { id: "percent", label: "Percent" },
             { id: "value", label: "Value" },
@@ -264,18 +264,25 @@ export function ColumnFormatControls(props: {
       </Show>
       <Show when={fieldType() === "formula" && formulaFormat() === "number"}>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <NumberInput label="Decimal places" min={0} max={10} value={precision} onInput={touch(setPrecision)} clearable />
-          <Checkbox label="Thousands separator" value={thousandsSeparator} onChange={touch(setThousandsSeparator)} />
+          <NumberInput label="Decimal places" min={0} max={10} value={precision} onValueChange={touch(setPrecision)} clearable />
+          <Checkbox label="Thousands separator" value={thousandsSeparator} onValueChange={touch(setThousandsSeparator)} />
         </div>
       </Show>
       <Show when={fieldType() === "formula" && formulaFormat() === "percent"}>
-        <NumberInput label="Decimal places" min={0} max={10} value={percentPrecision} onInput={touch(setPercentPrecision)} clearable />
+        <NumberInput
+          label="Decimal places"
+          min={0}
+          max={10}
+          value={percentPrecision}
+          onValueChange={touch(setPercentPrecision)}
+          clearable
+        />
       </Show>
       <Show when={fieldType() === "formula" && formulaFormat() === "date"}>
         <Select
           label="Date format"
           value={dateFormat}
-          onChange={(id) => touch(setDateFormat)((id as DateFormatChoice | null) ?? "short")}
+          onValueChange={(id) => touch(setDateFormat)((id as DateFormatChoice | null) ?? "short")}
           options={[
             { id: "iso", label: "ISO", description: "2026-05-03" },
             { id: "short", label: "Short", description: "May 3, 2026" },
@@ -283,7 +290,7 @@ export function ColumnFormatControls(props: {
             { id: "relative", label: "Relative", description: "2 days ago" },
           ]}
         />
-        <Checkbox label="Include time" value={includeTime} onChange={touch(setIncludeTime)} />
+        <Checkbox label="Include time" value={includeTime} onValueChange={touch(setIncludeTime)} />
       </Show>
       <Show when={fieldType() === "formula" && formulaFormat() === "barcode"}>
         <BarcodeFormatControls
@@ -294,9 +301,16 @@ export function ColumnFormatControls(props: {
         />
       </Show>
       <Show when={fieldType() === "percent" && !progress()}>
-        <Checkbox label="Custom percent format" value={customPercent} onChange={touch(setCustomPercent)} />
+        <Checkbox label="Custom percent format" value={customPercent} onValueChange={touch(setCustomPercent)} />
         <Show when={customPercent()}>
-          <NumberInput label="Decimal places" min={0} max={10} value={percentPrecision} onInput={touch(setPercentPrecision)} clearable />
+          <NumberInput
+            label="Decimal places"
+            min={0}
+            max={10}
+            value={percentPrecision}
+            onValueChange={touch(setPercentPrecision)}
+            clearable
+          />
         </Show>
       </Show>
       <Show when={!hasFormatOptions()}>
@@ -320,7 +334,9 @@ function BarcodeFormatControls(props: {
         label="Code type"
         description="Common codes are shown first. Search for advanced BWIP symbol names."
         value={props.bcid}
-        onChange={props.setBcid}
+        onValueChange={(value) => {
+          if (value !== null) props.setBcid(value);
+        }}
         selectedLabel={() => barcodeSelectedLabel(props.bcid())}
         fetchData={async (query) => searchBarcodeOptions(query)}
       />
@@ -328,7 +344,7 @@ function BarcodeFormatControls(props: {
         label="Show encoded text"
         description="Print the value below the code when the symbol supports it."
         value={props.showText}
-        onChange={props.setShowText}
+        onValueChange={props.setShowText}
       />
     </div>
   );

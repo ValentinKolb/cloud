@@ -1,4 +1,4 @@
-import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, TextInput, Button } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
@@ -75,7 +75,7 @@ function FormFieldSettings(props: {
               label="Required"
               description="Visitors must provide a value before submitting."
               value={() => entry().required}
-              onChange={(required) => props.updateEntry({ required })}
+              onValueChange={(required) => props.updateEntry({ required })}
             />
             <div class="flex flex-col gap-3">
               <TextInput
@@ -83,7 +83,7 @@ function FormFieldSettings(props: {
                 description="Use a different label on this form."
                 icon="ti ti-tag"
                 value={() => entry().label ?? ""}
-                onInput={(value) => props.updateEntry({ label: value.trim() === "" ? undefined : value })}
+                onValueChange={(value) => props.updateEntry({ label: value.trim() === "" ? undefined : value })}
                 placeholder={props.field()!.name}
               />
               <TextInput
@@ -91,7 +91,7 @@ function FormFieldSettings(props: {
                 description="Shown below the input."
                 icon="ti ti-info-circle"
                 value={() => entry().helpText ?? ""}
-                onInput={(value) => props.updateEntry({ helpText: value.trim() === "" ? undefined : value })}
+                onValueChange={(value) => props.updateEntry({ helpText: value.trim() === "" ? undefined : value })}
                 placeholder="Extra context for visitors"
                 multiline
                 lines={2}
@@ -168,12 +168,12 @@ export const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field
         <PanelDialog.Footer>
           <span class="text-[11px] text-dimmed">Confirm stages the field settings. Use the main form Save to persist.</span>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-input btn-sm" onClick={() => close(null)}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={() => close(cloneFormFieldEntry(draft()))}>
+            </Button>
+            <Button variant="primary" size="sm" type="button" onClick={() => close(cloneFormFieldEntry(draft()))}>
               Confirm
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>
@@ -256,7 +256,7 @@ function InlineCreateEditor(props: {
           label="Create related records inline"
           description="Let this form create the linked record together with the main record. Nothing is saved until submit."
           value={enabled}
-          onChange={setEnabled}
+          onValueChange={setEnabled}
         />
         <Show when={enabled()}>
           <MultiSelectInput
@@ -265,7 +265,7 @@ function InlineCreateEditor(props: {
             placeholder="Pick fields..."
             icon="ti ti-columns"
             value={selectedFieldIds}
-            onChange={setInlineFieldIds}
+            onValueChange={setInlineFieldIds}
             options={candidateOptions()}
             selectedOptions={selectedInlineOptions}
             clearable

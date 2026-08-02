@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Button } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
@@ -227,9 +227,10 @@ export default function DocumentTemplateWorkspace(props: Props) {
       <Show when={props.editMode && props.canManageTemplate ? props.editableTemplate : null}>
         {(editableTemplate) => (
           <div class="flex shrink-0 flex-wrap items-center gap-2">
-            <button
+            <Button
+              variant="success"
+              size="sm"
               type="button"
-              class="btn-input-success btn-input-sm"
               onClick={() =>
                 openDocumentTemplateEditorDialog({
                   baseId: props.baseId,
@@ -242,7 +243,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
             >
               <i class="ti ti-settings" />
               Manage
-            </button>
+            </Button>
           </div>
         )}
       </Show>

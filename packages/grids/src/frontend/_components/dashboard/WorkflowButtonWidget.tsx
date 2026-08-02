@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogWorkspaceOptions, toast } from "@valentinkolb/cloud/ui";
+import { Button, ButtonLink, dialogCore, PanelDialog, panelDialogWorkspaceOptions, StatusBadge, toast } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createEffect, createSignal, lazy, onCleanup, Show, Suspense } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -7,7 +7,7 @@ import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { requestWorkflowRunInput } from "../workflows/WorkflowRunInputDialog";
 import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface";
-import { isTerminalWorkflowRunStatus, workflowRunStatusClass } from "../workflows/workflow-display";
+import { isTerminalWorkflowRunStatus, workflowRunStatusTone } from "../workflows/workflow-display";
 import { createWorkflowRunEventsProvider } from "../workflows/workflow-run-events-provider";
 import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
@@ -264,28 +264,28 @@ export default function WorkflowButtonWidget(props: Props) {
             <Show
               when={data()?.action === "scanner"}
               fallback={
-                <button type="button" class="btn-primary btn-sm" disabled={!canRun()} onClick={run}>
+                <Button variant="primary" size="sm" type="button" disabled={!canRun()} onClick={run}>
                   <i class={running() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} />
                   {running() ? "Running..." : buttonLabel()}
-                </button>
+                </Button>
               }
             >
-              <button type="button" class="btn-primary btn-sm" disabled={!canRun()} onClick={openScanner}>
+              <Button variant="primary" size="sm" type="button" disabled={!canRun()} onClick={openScanner}>
                 <i class="ti ti-barcode" />
                 {buttonLabel()}
-              </button>
+              </Button>
             </Show>
             <Show when={disabledReason()}>
               <span class="text-xs text-dimmed">{disabledReason()}</span>
             </Show>
             <Show when={launchedRunStatus()}>
-              {(status) => <span class={`badge ${workflowRunStatusClass(status())}`}>{status().replaceAll("_", " ")}</span>}
+              {(status) => <StatusBadge tone={workflowRunStatusTone(status())} label={status().replaceAll("_", " ")} />}
             </Show>
             <Show when={runHref()}>
               {(href) => (
-                <a class="btn-simple btn-sm" href={href()}>
+                <ButtonLink variant="ghost" size="sm" href={href()}>
                   Open run <i class="ti ti-arrow-right" />
-                </a>
+                </ButtonLink>
               )}
             </Show>
           </div>

@@ -1,4 +1,4 @@
-import { MultiSelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { MultiSelectInput, TextInput } from "@k2b/ui";
 import { timed as timing } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { Field } from "../../../service";
@@ -65,11 +65,11 @@ export default function SearchBar(props: Props) {
         <TextInput
           name="grids-record-search"
           type="search"
-          ariaLabel="Search records"
+          aria-label="Search records"
           icon="ti ti-search"
           placeholder="Search records..."
           value={q}
-          onInput={onInput}
+          onValueChange={onInput}
           clearable
           onClear={() => {
             debounce.cancel();
@@ -84,7 +84,7 @@ export default function SearchBar(props: Props) {
             icon="ti ti-columns"
             placeholder={allFieldsLabel()}
             value={qFields}
-            onChange={onFieldsChange}
+            onValueChange={onFieldsChange}
             options={props.fields.map((f) => ({
               id: f.id,
               label: f.name,

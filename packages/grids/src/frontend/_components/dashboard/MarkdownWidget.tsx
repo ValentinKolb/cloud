@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView } from "@valentinkolb/cloud/ui";
+import { MarkdownView } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { Widget } from "../../../service";
 import DashboardWidgetState from "./DashboardWidgetState";

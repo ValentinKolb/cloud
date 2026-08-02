@@ -1,4 +1,4 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts, Button } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { apiClient } from "../../../api/client";
@@ -25,12 +25,12 @@ const chooseEditModeAction = (formName: string) =>
       <div class="flex flex-col gap-4">
         <p class="text-sm text-dimmed">You are in edit mode. What do you want to do with "{formName}"?</p>
         <div class="flex justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => close("use")}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => close("use")}>
             <i class="ti ti-send" /> Use form
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => close("edit")}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" onClick={() => close("edit")}>
             <i class="ti ti-pencil" /> Edit form
-          </button>
+          </Button>
         </div>
       </div>
     ),

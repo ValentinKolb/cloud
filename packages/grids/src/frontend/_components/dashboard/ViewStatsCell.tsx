@@ -1,4 +1,4 @@
-import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import type { ViewStatsWidget } from "../../../service";

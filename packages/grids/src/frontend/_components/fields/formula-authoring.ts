@@ -1,4 +1,4 @@
-import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
+import type { Completion, SuggestContext, Suggestion } from "@k2b/ui";
 import { type FormulaFunction, type FormulaValueType, GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field } from "../../../service";

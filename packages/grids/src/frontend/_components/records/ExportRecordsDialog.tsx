@@ -1,4 +1,4 @@
-import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, Select, TextInput, Button } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ExportBody, Field, RecordQuery } from "../../../contracts";
@@ -134,7 +134,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
           <Select
             label="Format"
             value={format}
-            onChange={(value) => setFormat(value as "csv" | "json")}
+            onValueChange={(value) => setFormat(value as "csv" | "json")}
             options={[
               { id: "csv", label: "CSV" },
               { id: "json", label: "JSON" },
@@ -144,7 +144,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
             <Select
               label="Delimiter"
               value={delimiter}
-              onChange={(value) => setDelimiter(value as "," | ";" | "\t" | "|")}
+              onValueChange={(value) => setDelimiter(value as "," | ";" | "\t" | "|")}
               options={[
                 { id: ",", label: "Comma" },
                 { id: ";", label: "Semicolon" },
@@ -156,7 +156,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
           <Select
             label="Markdown"
             value={markdown}
-            onChange={(value) => setMarkdown(value as "raw" | "html")}
+            onValueChange={(value) => setMarkdown(value as "raw" | "html")}
             options={[
               { id: "raw", label: "Keep markdown" },
               { id: "html", label: "Convert to HTML" },
@@ -179,12 +179,12 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
                         label={field.name}
                         description={field.type}
                         value={() => row.enabled}
-                        onChange={(enabled) => updateRow(index(), { enabled })}
+                        onValueChange={(enabled) => updateRow(index(), { enabled })}
                       />
                       <TextInput
                         label="Column label"
                         value={() => row.label}
-                        onInput={(label) => updateRow(index(), { label })}
+                        onValueChange={(label) => updateRow(index(), { label })}
                         disabled={!row.enabled}
                       />
                     </div>
@@ -193,7 +193,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
                         <Select
                           label="Relation output"
                           value={() => row.relationMode}
-                          onChange={(relationMode) => updateRow(index(), { relationMode: relationMode as RowState["relationMode"] })}
+                          onValueChange={(relationMode) => updateRow(index(), { relationMode: relationMode as RowState["relationMode"] })}
                           options={[
                             { id: "ids", label: "IDs" },
                             { id: "labels", label: "Labels" },
@@ -206,7 +206,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
                             placeholder="Choose fields"
                             icon="ti ti-columns"
                             value={() => row.targetFieldIds}
-                            onChange={(targetFieldIds) => updateRow(index(), { targetFieldIds })}
+                            onValueChange={(targetFieldIds) => updateRow(index(), { targetFieldIds })}
                             options={availableTargetFields().map((target) => ({
                               id: target.id,
                               label: target.name,
@@ -231,13 +231,13 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" onClick={props.close} disabled={busy()}>
+          <Button variant="ghost" size="sm" type="button" onClick={props.close} disabled={busy()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => void runExport()} disabled={busy()}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" onClick={() => void runExport()} disabled={busy()}>
             <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-download"} text-sm`} />
             Export
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>

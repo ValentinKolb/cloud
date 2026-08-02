@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
+import { MarkdownView, ProgressBar } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";

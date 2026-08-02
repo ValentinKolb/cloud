@@ -1,4 +1,4 @@
-import { CheckboxCard, ColorInput, NumberInput, Select, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, CheckboxCard, ColorInput, IconButton, NumberInput, Select, TextInput } from "@k2b/ui";
 import { For, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
 import { FormulaExpressionEditor } from "./FormulaExpressionEditor";
@@ -259,14 +259,14 @@ function TextConstraints(props: { config: () => FieldConfigState; onChange: (nex
         label="Min length (optional)"
         description="Empty = no minimum."
         value={minLen}
-        onInput={(v) => onLength("minLength", v)}
+        onValueChange={(v) => onLength("minLength", v)}
         placeholder="e.g. 3"
       />
       <TextInput
         label="Max length (optional)"
         description="Empty = no maximum."
         value={maxLen}
-        onInput={(v) => onLength("maxLength", v)}
+        onValueChange={(v) => onLength("maxLength", v)}
         placeholder="e.g. 50"
       />
       <div class="col-span-2">
@@ -274,16 +274,16 @@ function TextConstraints(props: { config: () => FieldConfigState; onChange: (nex
           label="Pattern (regex, optional)"
           description="Empty = no pattern check."
           value={regex}
-          onInput={(v) => update({ regex: v.trim() === "" ? undefined : v })}
+          onValueChange={(v) => update({ regex: v.trim() === "" ? undefined : v })}
           placeholder="e.g. ^[A-Z]{3}-\\d+$"
           icon="ti ti-regex"
         />
         <div class="mt-2 flex flex-wrap gap-1.5">
           <For each={REGEX_PRESETS}>
             {(preset) => (
-              <button type="button" class="btn-input btn-input-sm" onClick={() => update({ regex: preset.value })}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => update({ regex: preset.value })}>
                 {preset.label}
-              </button>
+              </Button>
             )}
           </For>
         </div>
@@ -295,7 +295,7 @@ function TextConstraints(props: { config: () => FieldConfigState; onChange: (nex
             description="Use Markdown input while editing and render formatted text in tables and detail panels."
             icon="ti ti-markdown"
             value={markdown}
-            onChange={(checked) => update({ markdown: checked || undefined })}
+            onValueChange={(checked) => update({ markdown: checked || undefined })}
           />
         </div>
       </Show>
@@ -334,41 +334,41 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
         label="Min (optional)"
         description="Empty = no minimum."
         value={min}
-        onInput={(v) => onBound("min", v)}
+        onValueChange={(v) => onBound("min", v)}
         placeholder="e.g. 0"
       />
       <TextInput
         label="Max (optional)"
         description="Empty = no maximum."
         value={max}
-        onInput={(v) => onBound("max", v)}
+        onValueChange={(v) => onBound("max", v)}
         placeholder="e.g. 100"
       />
       <TextInput
         label="Precision (optional)"
         description="Max total digits. Empty = no limit."
         value={precision}
-        onInput={(v) => onInt("precision", v, 1, 38)}
+        onValueChange={(v) => onInt("precision", v, 1, 38)}
         placeholder="e.g. 16"
       />
       <TextInput
         label="Decimal places (optional)"
         description="Empty = flexible. Use 0 for whole numbers."
         value={decimalPlaces}
-        onInput={(v) => onInt("decimalPlaces", v, 0, 20)}
+        onValueChange={(v) => onInt("decimalPlaces", v, 0, 20)}
         placeholder="e.g. 2"
       />
       <TextInput
         label="Unit (optional)"
         description="Display-only label such as EUR, kg, %, or credits."
         value={unit}
-        onInput={(v) => update({ unit: v.trim() === "" ? undefined : v.trim() })}
+        onValueChange={(v) => update({ unit: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. EUR"
       />
       <Select
         label="Unit position"
         value={unitPosition}
-        onChange={(v) => update({ unitPosition: v })}
+        onValueChange={(v) => update({ unitPosition: v })}
         options={[
           { id: "suffix", label: "After value" },
           { id: "prefix", label: "Before value" },
@@ -380,7 +380,7 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
           description="Reject decimal values for this field."
           icon="ti ti-number"
           value={integerOnly}
-          onChange={(checked) => update({ integerOnly: checked || undefined, decimalPlaces: checked ? 0 : undefined })}
+          onValueChange={(checked) => update({ integerOnly: checked || undefined, decimalPlaces: checked ? 0 : undefined })}
         />
       </div>
     </div>
@@ -402,21 +402,21 @@ function DateConstraints(props: { config: () => FieldConfigState; onChange: (nex
           description="Store and edit date plus time. Leave off for pure calendar dates."
           icon="ti ti-clock"
           value={() => Boolean(cfg().includeTime)}
-          onChange={(checked) => update({ includeTime: checked || undefined })}
+          onValueChange={(checked) => update({ includeTime: checked || undefined })}
         />
       </div>
       <TextInput
         label="Min date (optional, YYYY-MM-DD)"
         description="Empty = no minimum."
         value={min}
-        onInput={(v) => update({ min: v.trim() === "" ? undefined : v.trim() })}
+        onValueChange={(v) => update({ min: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 2020-01-01"
       />
       <TextInput
         label="Max date (optional, YYYY-MM-DD)"
         description="Empty = no maximum."
         value={max}
-        onInput={(v) => update({ max: v.trim() === "" ? undefined : v.trim() })}
+        onValueChange={(v) => update({ max: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 2099-12-31"
       />
     </div>
@@ -471,7 +471,7 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
       <Select
         label="Mode"
         value={() => (multiple() ? "multiple" : "single")}
-        onChange={(v) =>
+        onValueChange={(v) =>
           props.onChange({
             ...cfg(),
             multiple: v === "multiple",
@@ -486,9 +486,9 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
       />
       <div class="flex items-center justify-between">
         <span class="text-xs text-secondary">Options</span>
-        <button type="button" class="btn-input-success btn-input-sm" onClick={addOption}>
+        <Button variant="success" size="sm" type="button" onClick={addOption}>
           <i class="ti ti-plus" /> Add option
-        </button>
+        </Button>
       </div>
       <Show when={options().length > 0} fallback={<p class="text-xs text-dimmed py-1">No options yet.</p>}>
         <div class="flex flex-col gap-2">
@@ -510,32 +510,31 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
           <Index each={options()}>
             {(opt, i) => (
               <div class="flex items-center gap-2">
-                <ColorInput compact value={() => opt().color ?? "#3b82f6"} onChange={(c) => updateOption(i, { color: c })} />
+                <ColorInput compact value={() => opt().color ?? "#3b82f6"} onValueChange={(c) => updateOption(i, { color: c })} />
                 <div class="flex-1">
-                  <TextInput placeholder="Label" icon="ti ti-tag" value={() => opt().label} onInput={(v) => onLabelChange(i, v)} />
+                  <TextInput placeholder="Label" icon="ti ti-tag" value={() => opt().label} onValueChange={(v) => onLabelChange(i, v)} />
                 </div>
                 <div class="flex-1">
                   <TextInput
                     placeholder="Description"
                     icon="ti ti-info-circle"
                     value={() => opt().description ?? ""}
-                    onInput={(v) => updateOption(i, { description: v.trim() ? v : undefined })}
+                    onValueChange={(v) => updateOption(i, { description: v.trim() ? v : undefined })}
                     clearable
                   />
                 </div>
                 <div class="w-40 shrink-0">
-                  <TextInput placeholder="value" icon="ti ti-id" value={() => opt().id} onInput={(v) => updateOption(i, { id: v })} />
+                  <TextInput placeholder="value" icon="ti ti-id" value={() => opt().id} onValueChange={(v) => updateOption(i, { id: v })} />
                 </div>
-                <Tooltip content="Remove option">
-                  <button
-                    type="button"
-                    class="text-dimmed hover:text-red-500 p-1 shrink-0"
-                    onClick={() => removeOption(i)}
-                    aria-label="Remove option"
-                  >
-                    <i class="ti ti-x" />
-                  </button>
-                </Tooltip>
+                <IconButton
+                  variant="ghost"
+                  size="xs"
+                  class="shrink-0 text-dimmed hover:text-red-500"
+                  onClick={() => removeOption(i)}
+                  label="Remove option"
+                >
+                  <i class="ti ti-x" />
+                </IconButton>
               </div>
             )}
           </Index>
@@ -632,7 +631,7 @@ function IdConstraints(props: { config: () => FieldConfigState; onChange: (next:
       label="Prefix (optional)"
       description="Text added before each generated ID."
       value={prefix}
-      onInput={(v) => update({ prefix: v === "" ? undefined : v })}
+      onValueChange={(v) => update({ prefix: v === "" ? undefined : v })}
       placeholder="e.g. INV- or LOAN-"
     />
   );
@@ -657,7 +656,7 @@ function IdConstraints(props: { config: () => FieldConfigState; onChange: (next:
         label="ID type"
         description="Choose how new record IDs are generated."
         value={strategy}
-        onChange={(v) => {
+        onValueChange={(v) => {
           if (v === "sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4 });
           else if (v === "date_sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4, period: "year" });
           else if (v === "short_code") props.onChange({ strategy: v, prefix: prefix(), length: 5 });
@@ -681,7 +680,7 @@ function IdConstraints(props: { config: () => FieldConfigState; onChange: (next:
           label="Reset"
           description="When the sequence number starts again."
           value={period}
-          onChange={(v) => update({ period: v })}
+          onValueChange={(v) => update({ period: v })}
           options={[
             { id: "year", label: "Yearly", description: "LOAN-2026-0001", icon: "ti ti-calendar" },
             { id: "month", label: "Monthly", description: "LOAN-202606-0001", icon: "ti ti-calendar-month" },
@@ -761,7 +760,7 @@ function RelationConstraints(props: {
         <Select
           label="Target table"
           value={targetTableId}
-          onChange={(v) => update({ targetTableId: v })}
+          onValueChange={(v) => update({ targetTableId: v })}
           options={props.otherTables.map((t) => ({
             id: t.id,
             label: t.name,
@@ -774,7 +773,7 @@ function RelationConstraints(props: {
       <Select
         label="Cardinality"
         value={cardinality}
-        onChange={(v) => update({ cardinality: v })}
+        onValueChange={(v) => update({ cardinality: v })}
         options={[
           { id: "single", label: "Single — one linked record" },
           { id: "multiple", label: "Multiple — many linked records" },
@@ -833,7 +832,7 @@ function LookupRollupConstraints(props: {
           value={relationFieldId}
           // Reset targetFieldId when the relation changes — its old
           // value would point at fields on the previous target table.
-          onChange={(v) => update({ relationFieldId: v || undefined, targetFieldId: undefined })}
+          onValueChange={(v) => update({ relationFieldId: v || undefined, targetFieldId: undefined })}
           options={relationFields().map((f) => ({ id: f.id, label: f.name }))}
           placeholder="Pick a relation..."
           required
@@ -855,7 +854,7 @@ function LookupRollupConstraints(props: {
               : "Field on the linked table to show here. Formula fields are recalculated on read."
           }
           value={targetFieldId}
-          onChange={(v) => update({ targetFieldId: v || undefined })}
+          onValueChange={(v) => update({ targetFieldId: v || undefined })}
           options={targetFields().map((f) => ({ id: f.id, label: f.name }))}
           placeholder="Pick a field..."
           required
@@ -866,7 +865,7 @@ function LookupRollupConstraints(props: {
         <Select
           label="Aggregate"
           value={() => (typeof cfg().agg === "string" ? (cfg().agg as string) : "count")}
-          onChange={(v) => update({ agg: v })}
+          onValueChange={(v) => update({ agg: v })}
           options={[
             { id: "count", label: "count" },
             { id: "sum", label: "sum" },
@@ -907,7 +906,7 @@ function FileConstraints(props: { config: () => FieldConfigState; onChange: (nex
         label="Accepted MIME types/extensions (optional)"
         description="Comma-separated. Empty accepts any file type."
         value={accept}
-        onInput={(v) => {
+        onValueChange={(v) => {
           const items = v
             .split(",")
             .map((item) => item.trim())
@@ -919,9 +918,9 @@ function FileConstraints(props: { config: () => FieldConfigState; onChange: (nex
       <div class="flex flex-wrap gap-1.5">
         <For each={FILE_ACCEPT_PRESETS}>
           {(preset) => (
-            <button type="button" class="btn-input btn-input-sm" onClick={() => appendAccept(preset.values)}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => appendAccept(preset.values)}>
               {preset.label}
-            </button>
+            </Button>
           )}
         </For>
       </div>
@@ -981,7 +980,7 @@ function NumberField(props: {
       label={props.label}
       description={props.description}
       value={numericValue}
-      onInput={(v) => props.onInput(Number.isFinite(v) ? String(v) : "")}
+      onValueChange={(v) => props.onInput(Number.isFinite(v) ? String(v) : "")}
       min={props.min}
       max={props.max}
     />

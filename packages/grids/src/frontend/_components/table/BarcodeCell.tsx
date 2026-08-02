@@ -1,4 +1,4 @@
-import { Tooltip } from "@valentinkolb/cloud/ui";
+import { ButtonLink, Tooltip } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";
 import { barcodeSvgForCell, barcodeSvgForDisplay, barcodeUrl, barcodeValueText } from "./BarcodeRendering";
@@ -26,11 +26,13 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
     <Show when={props.showOpenAction && sizedSvg() && openUrl()}>
       {(url) => (
         <Tooltip content="Open URL" disabled={detail()}>
-          <a
+          <ButtonLink
             href={url()}
             target="_blank"
             rel="noopener noreferrer"
-            class={detail() ? "btn-input btn-input-sm w-fit" : "btn-simple btn-sm text-dimmed hover:text-primary"}
+            variant={detail() ? "secondary" : "ghost"}
+            size="sm"
+            class={detail() ? "w-fit" : "text-dimmed hover:text-primary"}
             aria-label="Open URL"
             onClick={(event) => event.stopPropagation()}
           >
@@ -38,7 +40,7 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
             <Show when={detail()}>
               <span>Open</span>
             </Show>
-          </a>
+          </ButtonLink>
         </Tooltip>
       )}
     </Show>

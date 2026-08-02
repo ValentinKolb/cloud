@@ -1,4 +1,4 @@
-import { PanelDialog, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { PanelDialog, Placeholder, prompts, toast, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -149,23 +149,25 @@ export function WorkflowRevisionHistory(props: {
               )}
             </For>
             <Show when={nextRevision()}>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
-                class="btn-simple btn-sm mt-2"
+                class="mt-2"
                 disabled={loadMut.loading()}
                 onClick={() => loadMut.mutate({ append: true })}
               >
                 <i class={loadMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"} /> Older revisions
-              </button>
+              </Button>
             </Show>
           </nav>
           <Show when={loadMut.error()}>
             {(error) => (
               <div class="info-block-danger text-sm md:col-span-2" role="alert">
                 <span>{error().message}</span>
-                <button type="button" class="btn-simple btn-sm" onClick={() => loadMut.mutate({ append: false })}>
+                <Button variant="ghost" size="sm" type="button" onClick={() => loadMut.mutate({ append: false })}>
                   <i class="ti ti-refresh" /> Retry history
-                </button>
+                </Button>
               </div>
             )}
           </Show>
@@ -179,13 +181,14 @@ export function WorkflowRevisionHistory(props: {
                 description={loadRevisionMut.error()?.message}
                 action={
                   loadRevisionMut.error() ? (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-input btn-input-sm"
                       onClick={() => loadRevisionMut.mutate(props.initialRevision ?? items()[0]?.revision ?? props.workflow.revision)}
                     >
                       <i class="ti ti-refresh" /> Retry
-                    </button>
+                    </Button>
                   ) : undefined
                 }
               />
@@ -201,14 +204,15 @@ export function WorkflowRevisionHistory(props: {
                     </p>
                   </div>
                   <Show when={props.canRestore && revision().revision !== props.workflow.revision}>
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-input btn-input-sm"
                       disabled={restoreMut.loading()}
                       onClick={() => void restore(revision())}
                     >
                       <i class={restoreMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-history"} /> Restore
-                    </button>
+                    </Button>
                   </Show>
                 </div>
                 <pre class="paper min-h-0 flex-1 overflow-auto p-3 text-xs leading-relaxed text-primary">

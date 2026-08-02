@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, ButtonLink } from "@k2b/ui";
 import { ssr } from "../config";
 import { gridsHelp } from "../help";
 import { gridsService } from "../service";
@@ -105,21 +105,21 @@ export default ssr<AuthContext>(async (c) => {
               <p class="text-[10px] text-dimmed">Current processing health. Request history and traces stay in Observability.</p>
             </div>
             <nav class="flex flex-wrap items-center gap-1" aria-label="Grids observability links">
-              <a class="btn-input btn-input-sm" href="/admin/observability/telemetry?app=grids">
+              <ButtonLink variant="secondary" size="sm" href="/admin/observability/telemetry?app=grids">
                 <i class="ti ti-activity" aria-hidden="true" /> Requests
-              </a>
-              <a class="btn-input btn-input-sm" href="/admin/observability/jobs?search=grids">
+              </ButtonLink>
+              <ButtonLink variant="secondary" size="sm" href="/admin/observability/jobs?search=grids">
                 <i class="ti ti-route" aria-hidden="true" /> Traces
-              </a>
-              <a class="btn-input btn-input-sm" href="/admin/observability/logs?search=grids">
+              </ButtonLink>
+              <ButtonLink variant="secondary" size="sm" href="/admin/observability/logs?search=grids">
                 <i class="ti ti-list-details" aria-hidden="true" /> Logs
-              </a>
-              <a class="btn-input btn-input-sm" href="/admin/observability/metrics">
+              </ButtonLink>
+              <ButtonLink variant="secondary" size="sm" href="/admin/observability/metrics">
                 <i class="ti ti-chart-histogram" aria-hidden="true" /> Metrics
-              </a>
-              <a class="btn-input btn-input-sm" href="/admin/observability/alerts">
+              </ButtonLink>
+              <ButtonLink variant="secondary" size="sm" href="/admin/observability/alerts">
                 <i class="ti ti-bell-ringing" aria-hidden="true" /> Alerts
-              </a>
+              </ButtonLink>
             </nav>
           </div>
 

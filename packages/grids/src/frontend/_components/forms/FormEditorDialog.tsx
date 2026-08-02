@@ -10,7 +10,8 @@ import {
   panelDialogPanelClass,
   prompts,
   TextInput,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import { img } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, type JSX, Show } from "solid-js";
@@ -165,12 +166,12 @@ function FormEditor(props: {
     <>
       <PanelDialog.Body>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
+          <TextInput label="Name" value={name} onValueChange={wrap(setName)} icon="ti ti-typography" required />
           <TextInput
             label="Title"
             description="Heading shown on the form page (defaults to the name above)."
             value={title}
-            onInput={wrap(setTitle)}
+            onValueChange={wrap(setTitle)}
             icon="ti ti-heading"
             placeholder={name()}
           />
@@ -179,7 +180,7 @@ function FormEditor(props: {
           label="Description"
           description="Optional subtitle shown under the title on the form page."
           value={description}
-          onInput={wrap(setDescription)}
+          onValueChange={wrap(setDescription)}
           icon="ti ti-align-left"
           multiline
           lines={2}
@@ -188,7 +189,7 @@ function FormEditor(props: {
           label="Title image (optional)"
           description="Shown as a banner at the top of the form. Free aspect ratio; capped at 1600 px on the longest side."
           value={titleImage}
-          onChange={wrap(setTitleImage)}
+          onValueChange={wrap(setTitleImage)}
           transform={bannerTransform}
         />
 
@@ -197,14 +198,14 @@ function FormEditor(props: {
             label="Active"
             description="Submissions are accepted. Turn this off to pause the form without deleting it."
             value={isActive}
-            onChange={wrap(setIsActive)}
+            onValueChange={wrap(setIsActive)}
           />
           <div class="flex items-center gap-3 flex-wrap">
             <Checkbox
               label="Public"
               description="Anyone with the link can submit, no login required."
               value={isPublic}
-              onChange={async (next) => {
+              onValueChange={async (next) => {
                 if (!next && props.form.publicToken) {
                   const confirmed = await prompts.confirm(
                     "This permanently breaks the existing share link. Anyone with it will no longer be able to access this form. Re-enabling later generates a fresh token. Continue?",
@@ -223,7 +224,8 @@ function FormEditor(props: {
               {(token) => (
                 <CopyButton
                   text={`${typeof window === "undefined" ? "" : window.location.origin}/share/grids/forms/${token()}`}
-                  class="btn-simple btn-sm"
+                  variant="ghost"
+                  size="sm"
                 />
               )}
             </Show>
@@ -244,7 +246,7 @@ function FormEditor(props: {
               label="Submit button label"
               description='Defaults to "Save".'
               value={submitLabel}
-              onInput={wrap(setSubmitLabel)}
+              onValueChange={wrap(setSubmitLabel)}
               icon="ti ti-send"
               placeholder="Save"
             />
@@ -252,7 +254,7 @@ function FormEditor(props: {
               label="Success message"
               description='Shown after a successful submit. Defaults to "Saved".'
               value={successMessage}
-              onInput={wrap(setSuccessMessage)}
+              onValueChange={wrap(setSuccessMessage)}
               icon="ti ti-circle-check"
               placeholder="Saved"
             />
@@ -261,7 +263,7 @@ function FormEditor(props: {
             label="Redirect URL"
             description="When set, the public form redirects here after submit instead of showing the success message. Leave empty for the default in-page success card."
             value={redirectUrl}
-            onInput={wrap(setRedirectUrl)}
+            onValueChange={wrap(setRedirectUrl)}
             icon="ti ti-external-link"
             placeholder="https://example.com/thanks"
             type="url"
@@ -281,18 +283,18 @@ function FormEditor(props: {
       </PanelDialog.Body>
 
       <PanelDialog.Footer>
-        <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDelete}>
+        <Button variant="ghost" size="sm" type="button" class="text-red-500 hover:text-red-600" onClick={props.onDelete}>
           <i class="ti ti-trash" /> Delete form
-        </button>
+        </Button>
         <div class="flex items-center gap-2">
           <Show when={props.onCancel}>
-            <button type="button" class="btn-input btn-sm" onClick={() => props.onCancel?.()}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => props.onCancel?.()}>
               Cancel
-            </button>
+            </Button>
           </Show>
-          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={!dirty() || updateMut.loading()}>
+          <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!dirty() || updateMut.loading()}>
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </>

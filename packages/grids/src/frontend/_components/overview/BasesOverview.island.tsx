@@ -1,4 +1,4 @@
-import { AppOverview, Pagination, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { AppOverview, Pagination, prompts, TextInput } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -176,12 +176,12 @@ export default function BasesOverview(props: Props) {
           <TextInput
             name="grids-base-search"
             type="search"
-            ariaLabel="Search bases"
+            aria-label="Search bases"
             placeholder="Search bases..."
             icon="ti ti-search"
             activeIcon="ti ti-search"
             value={query}
-            onInput={onSearchInput}
+            onValueChange={onSearchInput}
             clearable
             onClear={() => onSearchInput("")}
           />

@@ -1,4 +1,4 @@
-import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@valentinkolb/cloud/ui";
+import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@k2b/ui";
 import { fuzzy } from "@k2b/stdlib";
 import { createMemo, createSignal } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
@@ -227,7 +227,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
             <p class="text-sm text-dimmed">{props.tableName}</p>
           </div>
           <div class="w-full max-w-md">
-            <TextInput value={query} onInput={setQuery} icon="ti ti-search" placeholder="Search fields and functions..." clearable />
+            <TextInput value={query} onValueChange={setQuery} icon="ti ti-search" placeholder="Search fields and functions..." clearable />
           </div>
         </header>
 
@@ -255,7 +255,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
                   return <span class="text-dimmed">{FIELD_TYPE_LABELS[row.field.type] ?? row.field.type}</span>;
                 }
                 if (col.id === "ref") return <code class="font-mono text-primary">{String(value)}</code>;
-                return <CopyButton text={String(value)} class="icon-btn h-8 w-8 text-dimmed hover:text-primary" />;
+                return <CopyButton text={String(value)} class="h-8 w-8 text-dimmed hover:text-primary" />;
               }}
             />
           </section>
@@ -295,7 +295,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
                     </code>
                   );
                 }
-                return <CopyButton text={String(value)} class="icon-btn h-8 w-8 text-dimmed hover:text-primary" />;
+                return <CopyButton text={String(value)} class="h-8 w-8 text-dimmed hover:text-primary" />;
               }}
             />
           </section>

@@ -1,4 +1,4 @@
-import { DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogOptions, Select } from "@valentinkolb/cloud/ui";
+import { DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogOptions, Select, Button } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
@@ -146,7 +146,7 @@ function CombinedAuditDialog(props: Props) {
           <Select
             label="Source"
             value={sourceRef}
-            onChange={setSourceRef}
+            onValueChange={setSourceRef}
             options={[
               { id: "", label: "All published sources" },
               ...sources().map((source) => ({
@@ -155,30 +155,30 @@ function CombinedAuditDialog(props: Props) {
               })),
             ]}
           />
-          <Select label="Action" value={action} onChange={setAction} options={ACTION_OPTIONS} />
+          <Select label="Action" value={action} onValueChange={setAction} options={ACTION_OPTIONS} />
           <DatePicker
             label="From"
             dateConfig={props.dateConfig}
             value={() => from() || null}
-            onChange={(value) => setFrom(value ?? "")}
+            onValueChange={(value) => setFrom(value ?? "")}
             clearable
           />
           <DatePicker
             label="Through"
             dateConfig={props.dateConfig}
             value={() => through() || null}
-            onChange={(value) => setThrough(value ?? "")}
+            onValueChange={(value) => setThrough(value ?? "")}
             clearable
           />
         </div>
         <div class="mt-2 flex items-center gap-2">
-          <button type="button" class="btn-primary btn-sm" onClick={applyFilters} disabled={loadMut.loading()}>
+          <Button variant="primary" size="sm" type="button" onClick={applyFilters} disabled={loadMut.loading()}>
             <i class={`ti ${loadMut.loading() ? "ti-loader-2 animate-spin" : "ti-filter"}`} aria-hidden="true" />
             Apply
-          </button>
-          <button type="button" class="btn-simple btn-sm" onClick={clearFilters} disabled={loadMut.loading()}>
+          </Button>
+          <Button variant="ghost" size="sm" type="button" onClick={clearFilters} disabled={loadMut.loading()}>
             Clear
-          </button>
+          </Button>
           <span class="ml-auto text-xs text-dimmed" aria-live="polite">
             {loadMut.loading() && !loaded() ? "Loading history..." : `${items().length} events loaded`}
           </span>
@@ -204,10 +204,10 @@ function CombinedAuditDialog(props: Props) {
                     title="Could not load audit trail"
                     description={error().message}
                     action={
-                      <button type="button" class="btn-input btn-input-sm" onClick={() => loadMut.retry()}>
+                      <Button variant="secondary" size="sm" type="button" onClick={() => loadMut.retry()}>
                         <i class="ti ti-refresh" aria-hidden="true" />
                         Retry
-                      </button>
+                      </Button>
                     }
                   />
                 )}
@@ -223,29 +223,36 @@ function CombinedAuditDialog(props: Props) {
                   title="Could not load older events"
                   description={error().message}
                   action={
-                    <button type="button" class="btn-input btn-input-sm" onClick={() => loadMut.retry()}>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => loadMut.retry()}>
                       <i class="ti ti-refresh" aria-hidden="true" />
                       Retry
-                    </button>
+                    </Button>
                   }
                 />
               )}
             </Show>
             <RecordHistoryList entries={items()} fields={props.fields} dateConfig={props.dateConfig} onOpenRecord={openRecord} />
             <Show when={cursor()}>
-              <button type="button" class="btn-input btn-sm mt-2 self-start" disabled={loadMut.loading()} onClick={() => load(true)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                class="mt-2 self-start"
+                disabled={loadMut.loading()}
+                onClick={() => load(true)}
+              >
                 <i class={`ti ${loadMut.loading() ? "ti-loader-2 animate-spin" : "ti-chevron-down"}`} aria-hidden="true" />
                 Load older events
-              </button>
+              </Button>
             </Show>
           </Show>
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <span />
-        <button type="button" class="btn-simple btn-sm" onClick={props.close}>
+        <Button variant="ghost" size="sm" type="button" onClick={props.close}>
           Done
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );

@@ -1,6 +1,6 @@
-import { Tooltip } from "@valentinkolb/cloud/ui";
+import { Tag, Tooltip } from "@k2b/ui";
 import type { JSX } from "solid-js";
-import { type SelectBadgeItem, selectBadgeStyle } from "./select-badge-utils";
+import type { SelectBadgeItem } from "./select-badge-utils";
 
 export function SelectValueBadges(props: { items: SelectBadgeItem[]; empty?: JSX.Element }) {
   return (
@@ -9,13 +9,9 @@ export function SelectValueBadges(props: { items: SelectBadgeItem[]; empty?: JSX
         ? (props.empty ?? "")
         : props.items.map((item) => (
             <Tooltip content={`Unknown option: ${item.id}`} disabled={item.known}>
-              <span
-                class="badge max-w-full shrink-0 border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] font-medium leading-5 text-secondary"
-                classList={{ "opacity-75": !item.known }}
-                style={selectBadgeStyle(item.color) as JSX.CSSProperties}
-              >
-                <span class="truncate">{item.label}</span>
-              </span>
+              <Tag size="sm" color={item.color} class={`max-w-full shrink-0 ${item.known ? "" : "opacity-75"}`}>
+                {item.label}
+              </Tag>
             </Tooltip>
           ))}
     </span>

@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, ButtonLink, prompts, Tooltip } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
@@ -65,9 +65,8 @@ type Props = {
 };
 
 /**
- * Compact toolbar over the records table — uses the platform's
- * `btn-input` / `btn-input-sm` / `btn-input-active` button pattern, so
- * it visually matches every other dropdown trigger in the cloud.
+ * Compact toolbar over the records table. Shared button variants keep its
+ * actions aligned with the other portable toolbar and dropdown controls.
  *
  * Filter and sort rows live up here so the panels below appear iff
  * `rows.length > 0`. Clicking Filter / Sort directly appends a blank
@@ -278,21 +277,17 @@ export default function GridToolbar(props: Props) {
             <Show
               when={props.onOpenQuery}
               fallback={
-                <a href={queryTarget() as string} class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}>
+                <ButtonLink href={queryTarget() as string} variant="secondary" size="sm" aria-pressed={hasGroupBy() || hasAgg()}>
                   <i class="ti ti-code" />
                   Query
-                </a>
+                </ButtonLink>
               }
             >
               {(openQuery) => (
-                <button
-                  type="button"
-                  class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}
-                  onClick={openQuery()}
-                >
+                <Button variant="secondary" size="sm" aria-pressed={hasGroupBy() || hasAgg()} onClick={openQuery()}>
                   <i class="ti ti-code" />
                   Query
-                </button>
+                </Button>
               )}
             </Show>
           )}
@@ -301,33 +296,24 @@ export default function GridToolbar(props: Props) {
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
         <Tooltip content={hasFilterableFields() ? "" : "This table has no filterable fields."} disabled={hasFilterableFields()}>
           <span class="inline-flex">
-            <button
-              type="button"
-              class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
-              onClick={onFilterClick}
-              disabled={!hasFilterableFields()}
-            >
+            <Button variant="secondary" size="sm" aria-pressed={hasFilter()} onClick={onFilterClick} disabled={!hasFilterableFields()}>
               <i class="ti ti-filter" />
               Filter
-            </button>
+            </Button>
           </span>
         </Tooltip>
 
         {/* Sort */}
-        <button type="button" class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`} onClick={onSortClick}>
+        <Button variant="secondary" size="sm" aria-pressed={hasSort()} onClick={onSortClick}>
           <i class="ti ti-arrows-sort" />
           Sort
-        </button>
+        </Button>
 
         <Show when={props.onAddComputedColumn}>
-          <button
-            type="button"
-            class={`btn-input btn-input-sm ${hasCustomColumns() ? "btn-input-active" : ""}`}
-            onClick={props.onAddComputedColumn}
-          >
+          <Button variant="secondary" size="sm" aria-pressed={hasCustomColumns()} onClick={props.onAddComputedColumn}>
             <i class="ti ti-calculator" />
             Computed
-          </button>
+          </Button>
         </Show>
 
         <Show when={props.showCardSize && props.onCardSizeChange}>
@@ -337,20 +323,20 @@ export default function GridToolbar(props: Props) {
         {/* Smart Clear — appears when any query dimension is active.
             Label names exactly what goes away. */}
         <Show when={hasToolbarQuery()}>
-          <button type="button" class="btn-input btn-input-sm text-red-500" onClick={clearAll}>
+          <Button variant="secondary" size="sm" type="button" class="text-red-500" onClick={clearAll}>
             <i class="ti ti-filter-off" />
             {clearLabel()}
-          </button>
+          </Button>
         </Show>
 
         {/* Save as view — captures the current query into a frozen
             preset. The view settings modal handles renaming / sharing; the query
             becomes read-only after save. */}
         <Show when={hasSaveableQuery()}>
-          <button type="button" class="btn-input btn-input-sm ml-auto" onClick={handleSaveView} disabled={saveViewMut.loading()}>
+          <Button variant="secondary" size="sm" type="button" class="ml-auto" onClick={handleSaveView} disabled={saveViewMut.loading()}>
             <i class={`ti ${saveViewMut.loading() ? "ti-loader-2 animate-spin" : "ti-bookmark-plus"}`} />
             {saveViewMut.loading() ? "Saving…" : "Save as view"}
-          </button>
+          </Button>
         </Show>
       </div>
 

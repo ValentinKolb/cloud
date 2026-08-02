@@ -9,7 +9,9 @@ import {
   prompts,
   TextInput,
   Tooltip,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
@@ -349,12 +351,17 @@ function TableSettingsBody(props: {
     <>
       <PanelDialog.Body>
         <PanelDialog.Section title="Identity" subtitle="Name and description shown around this table." icon="ti ti-id">
-          <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} icon="ti ti-typography" required />
-          <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
+          <TextInput label="Name" value={name} onValueChange={(v) => patch({ name: v })} icon="ti ti-typography" required />
+          <IconInput
+            label="Icon"
+            value={() => icon() ?? undefined}
+            onValueChange={(v) => patch({ icon: v ?? undefined })}
+            placeholder="Search icons..."
+          />
           <TextInput
             label="Description"
             value={description}
-            onInput={(v) => patch({ description: v })}
+            onValueChange={(v) => patch({ description: v })}
             icon="ti ti-align-left"
             multiline
             lines={2}
@@ -367,7 +374,7 @@ function TableSettingsBody(props: {
               icon="ti ti-forms"
               variant="input"
               value={disableDirectInsert}
-              onChange={(v) => patch({ disableDirectInsert: v })}
+              onValueChange={(v) => patch({ disableDirectInsert: v })}
             />
           </Show>
         </PanelDialog.Section>
@@ -432,14 +439,16 @@ function TableSettingsBody(props: {
                     </span>
                     <Show when={!publication.revokedAt}>
                       <Tooltip content="Revoke publication">
-                        <button
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
                           type="button"
-                          class="btn-ghost btn-sm text-danger"
-                          aria-label={`Revoke publication to ${publication.targetTableName}`}
+                          class="text-danger"
+                          label={`Revoke publication to ${publication.targetTableName}`}
                           onClick={() => void revokePublication(publication)}
                         >
                           <i class="ti ti-unlink" aria-hidden="true" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                     </Show>
                   </div>
@@ -475,26 +484,27 @@ function TableSettingsBody(props: {
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">
-          <button type="button" class="btn-danger btn-sm self-start" onClick={deleteTable} disabled={deleteMut.loading()}>
+          <Button variant="danger" size="sm" type="button" class="self-start" onClick={deleteTable} disabled={deleteMut.loading()}>
             <i class="ti ti-trash" /> Delete table
-          </button>
+          </Button>
         </PanelDialog.Section>
       </PanelDialog.Body>
 
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.onCancel}>
+          <Button variant="secondary" size="sm" type="button" onClick={props.onCancel}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             onClick={() => saveMut.mutate(undefined)}
             disabled={!draft.dirty() || saveMut.loading()}
           >
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </>

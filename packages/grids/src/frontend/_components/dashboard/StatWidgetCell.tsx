@@ -1,4 +1,4 @@
-import { StatCell } from "@valentinkolb/cloud/ui";
+import { StatCell } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import type { StatWidget } from "../../../service";
 import type { WidgetData } from "./widget-data";

@@ -1,4 +1,4 @@
-import { dialogCore, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, toast } from "@k2b/ui";
 
 const DEFAULT_RELOAD_DELAY_MS = 200;
 

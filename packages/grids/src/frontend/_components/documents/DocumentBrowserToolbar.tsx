@@ -1,4 +1,4 @@
-import { Dropdown, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, Dropdown, DropdownItem, TextInput, Tooltip } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { Show } from "solid-js";
 
@@ -19,14 +19,9 @@ type Props = {
 function DisabledItem(props: { icon: string; label: string; title: string }) {
   return (
     <Tooltip content={props.title} class="w-full">
-      <button
-        type="button"
-        class="flex w-full cursor-not-allowed items-center gap-3 px-4 py-2 text-sm text-zinc-400 opacity-70 dark:text-zinc-500"
-        disabled
-      >
-        <i class={props.icon} />
+      <DropdownItem icon={props.icon} disabled>
         {props.label}
-      </button>
+      </DropdownItem>
     </Tooltip>
   );
 }
@@ -44,10 +39,10 @@ export default function DocumentBrowserToolbar(props: Props) {
   return (
     <div class="flex shrink-0 flex-wrap items-center gap-2">
       <Show when={props.canWrite}>
-        <button type="button" class="btn-input-primary btn-input-sm" onClick={props.onGenerate}>
+        <Button variant="primary" size="sm" type="button" onClick={props.onGenerate}>
           <i class="ti ti-plus" />
           Add new
-        </button>
+        </Button>
       </Show>
       <div class="min-w-64 flex-1">
         <TextInput
@@ -55,7 +50,7 @@ export default function DocumentBrowserToolbar(props: Props) {
           icon="ti ti-search"
           placeholder="Search documents..."
           value={props.searchDraft}
-          onInput={props.setSearchDraft}
+          onValueChange={props.setSearchDraft}
           clearable
           onClear={props.clearSearch}
         />
@@ -63,11 +58,11 @@ export default function DocumentBrowserToolbar(props: Props) {
       <Dropdown
         position="bottom-left"
         trigger={
-          <span class="btn-input btn-input-sm">
+          <Button variant="secondary" size="sm">
             <i class={activeIcon()} />
             {activeLabel()}
             <i class="ti ti-chevron-down text-[10px] opacity-60" />
-          </span>
+          </Button>
         }
         elements={modeElements()}
       />

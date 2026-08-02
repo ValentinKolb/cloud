@@ -1,4 +1,4 @@
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -87,12 +87,12 @@ export default function QueryResultView(props: {
     <div class="flex h-full min-h-0 flex-1 flex-col gap-2">
       <Show when={props.editMode && props.route.canEditActiveView}>
         <div class="flex shrink-0 items-center gap-2">
-          <button type="button" class="btn-input-success btn-input-sm" onClick={openSettings}>
+          <Button variant="success" size="sm" type="button" onClick={openSettings}>
             <i class="ti ti-table-spark" aria-hidden="true" /> View
-          </button>
-          <button type="button" class="btn-simple btn-sm ml-auto" onClick={leaveEditMode}>
+          </Button>
+          <Button variant="ghost" size="sm" type="button" class="ml-auto" onClick={leaveEditMode}>
             Done
-          </button>
+          </Button>
         </div>
       </Show>
       <Show
@@ -114,19 +114,20 @@ export default function QueryResultView(props: {
               action={
                 <div class="flex flex-wrap items-center justify-center gap-2">
                   <Show when={pageCursor()}>
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-input btn-input-sm"
                       disabled={pageMut.loading()}
                       onClick={() => pageMut.mutate({ cursor: null, history: [] })}
                     >
                       <i class="ti ti-chevrons-left" aria-hidden="true" /> First page
-                    </button>
+                    </Button>
                   </Show>
                   <Show when={props.route.canEditActiveView}>
-                    <button type="button" class="btn-input btn-input-sm" onClick={openSettings}>
+                    <Button variant="secondary" size="sm" type="button" onClick={openSettings}>
                       <i class="ti ti-settings" aria-hidden="true" /> View settings
-                    </button>
+                    </Button>
                   </Show>
                 </div>
               }

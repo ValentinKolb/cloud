@@ -1,4 +1,4 @@
-import { MultiSelectInput, type MultiSelectOption } from "@valentinkolb/cloud/ui";
+import { MultiSelectInput, type MultiSelectOption } from "@k2b/ui";
 import RecordPicker from "./RecordPicker";
 import { fetchRecordLookup, type RecordLookupItem } from "./record-lookup";
 
@@ -10,8 +10,8 @@ import { fetchRecordLookup, type RecordLookupItem } from "./record-lookup";
  * responsible for persisting the new id-array via PATCH /records/:id.
  *
  * Single vs multi:
- * - `multi=false` → renders the platform's `SelectInput` with `fetchData`.
- *   The SelectInput's built-in dropdown / search / loading / error UI
+ * - `multi=false` → renders the platform's `Select` with `fetchData`.
+ *   The Select's built-in dropdown / search / loading / error UI
  *   matches every other select in the platform — visual consistency for
  *   free.
  * - `multi=true` → renders the platform's `MultiSelectInput` in async
@@ -52,7 +52,7 @@ export default function RelationPicker(props: Props) {
   const toOption = (item: LookupItem): MultiSelectOption => ({ id: item.id, label: item.label, icon: "ti ti-link" });
 
   // ── Single-cardinality path ─────────────────────────────────────────
-  // Thin wrapper around SelectInput. The platform's SelectInput already
+  // Thin wrapper around Select. The platform's Select already
   // owns search / debounce / loading / error / abort via its mutation-
   // backed `fetchData` prop, so this is just glue: array<->string for
   // the value, and a label resolver for the selected-display fallback.
@@ -83,7 +83,7 @@ export default function RelationPicker(props: Props) {
       clearable
       disabled={props.saving?.() ?? false}
       value={props.value}
-      onChange={props.onChange}
+      onValueChange={props.onChange}
       selectedOptions={() => props.value().map((id) => ({ id, label: labelFor(id), icon: "ti ti-link" }))}
       fetchData={async (q, signal) => {
         const items = await fetchRecordLookup({ tableId: props.targetTableId, query: q, excludeIds: excludedIds(), signal });

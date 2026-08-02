@@ -5,10 +5,13 @@ import {
   Placeholder,
   panelDialogOptions,
   prompts,
-  SelectInput,
+  Select,
   TextInput,
   Tooltip,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+  StatusBadge,
+} from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -246,13 +249,13 @@ function LauncherEditor(props: {
       />
       <PanelDialog.Body>
         <div class="flex flex-col gap-3">
-          <TextInput label="Name" required value={name} onInput={setName} icon="ti ti-letter-case" />
-          <SelectInput
+          <TextInput label="Name" required value={name} onValueChange={setName} icon="ti ti-letter-case" />
+          <Select
             label="Surface"
             required
             options={launcherKindOptions}
             value={() => kind()}
-            onChange={(value) => {
+            onValueChange={(value) => {
               const next = value as GridsWorkflowLauncherKind;
               setKind(next);
               if (next !== "dashboard") {
@@ -264,13 +267,13 @@ function LauncherEditor(props: {
             }}
           />
           <Show when={kind() === "bulk"}>
-            <SelectInput
+            <Select
               label="Record-list input"
               description="The run option supplies this workflow input."
               required
               options={inputOptions()}
               value={input}
-              onChange={setInput}
+              onValueChange={setInput}
             />
             <Show when={missingRequiredInputs().length > 0}>
               <div class="info-block-danger text-sm" role="alert">
@@ -286,7 +289,7 @@ function LauncherEditor(props: {
               </p>
               <For each={props.workflow.plan.inputs}>
                 {(candidate) => (
-                  <SelectInput
+                  <Select
                     label={workflowInputLabel(candidate)}
                     description={`${candidate.type}${workflowInputRequired(candidate) ? " · required" : ""}`}
                     required={workflowInputRequired(candidate)}
@@ -299,7 +302,9 @@ function LauncherEditor(props: {
                       { id: "fixed", label: "Fixed value" },
                     ]}
                     value={() => scannerSources()[candidate.name] ?? "unused"}
-                    onChange={(value) => setScannerSources((current) => ({ ...current, [candidate.name]: value as ScannerSourceDraft }))}
+                    onValueChange={(value) =>
+                      setScannerSources((current) => ({ ...current, [candidate.name]: value as ScannerSourceDraft }))
+                    }
                   />
                 )}
               </For>
@@ -331,7 +336,7 @@ function LauncherEditor(props: {
             </div>
           </Show>
           <Show when={kind() === "dashboard"}>
-            <SelectInput
+            <Select
               label="Inputs"
               description="Use fixed values for a one-click action, or ask the user when the button runs."
               required
@@ -340,7 +345,7 @@ function LauncherEditor(props: {
                 { id: "prompt", label: "Ask when run" },
               ]}
               value={dashboardInputMode}
-              onChange={(value) => setDashboardInputMode(value as "fixed" | "prompt")}
+              onValueChange={(value) => setDashboardInputMode(value as "fixed" | "prompt")}
             />
             <Show when={dashboardInputMode() === "fixed"}>
               <WorkflowInputFields
@@ -359,7 +364,7 @@ function LauncherEditor(props: {
             </Show>
           </Show>
           <Show when={kind() === "scanner" && Object.values(scannerSources()).includes("scanRecord")}>
-            <SelectInput
+            <Select
               label="Resolve scanned values by"
               required
               options={[
@@ -367,7 +372,7 @@ function LauncherEditor(props: {
                 { id: "field", label: "Unique field" },
               ]}
               value={resolveBy}
-              onChange={(value) => setResolveBy(value as "scanCode" | "field")}
+              onValueChange={(value) => setResolveBy(value as "scanCode" | "field")}
             />
             <Show when={resolveBy() === "field"}>
               <TextInput
@@ -375,7 +380,7 @@ function LauncherEditor(props: {
                 description="Use a field name, short ID, or UUID from the bound table."
                 required
                 value={field}
-                onInput={setField}
+                onValueChange={setField}
                 icon="ti ti-columns"
               />
             </Show>
@@ -384,19 +389,19 @@ function LauncherEditor(props: {
             label="Enabled"
             description="Enabled run options are available on their scanner, table, or dashboard surface."
             value={enabled}
-            onChange={setEnabled}
+            onValueChange={setEnabled}
           />
         </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => props.close()}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => props.close()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!valid()} onClick={submit}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" disabled={!valid()} onClick={submit}>
             <i class="ti ti-check" /> {props.launcher ? "Save run option" : "Add run option"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -487,9 +492,9 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
             <p class="text-sm text-dimmed">Make this workflow available as a scanner, bulk action, or dashboard button.</p>
-            <button type="button" class="btn-primary btn-sm" disabled={mutationsBlocked()} onClick={() => void edit()}>
+            <Button variant="primary" size="sm" type="button" disabled={mutationsBlocked()} onClick={() => void edit()}>
               <i class="ti ti-plus" /> Add run option
-            </button>
+            </Button>
           </div>
           <Show
             when={!loadMut.error()}
@@ -501,9 +506,9 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                 title="Could not load run options"
                 description={loadMut.error()?.message}
                 action={
-                  <button type="button" class="btn-input btn-input-sm" disabled={loadMut.loading()} onClick={() => loadMut.retry()}>
+                  <Button variant="secondary" size="sm" type="button" disabled={loadMut.loading()} onClick={() => loadMut.retry()}>
                     <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                  </button>
+                  </Button>
                 }
               />
             }
@@ -523,9 +528,10 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                       <span class="min-w-0 flex-1">
                         <span class="flex min-w-0 items-center gap-2">
                           <span class="truncate text-sm font-medium text-primary">{launcher.name}</span>
-                          <span class={`badge ${launcher.enabled && !stale() && !invalid() ? "badge-success" : "badge-neutral"}`}>
-                            {launcher.enabled && !stale() && !invalid() ? "available" : "unavailable"}
-                          </span>
+                          <StatusBadge
+                            tone={launcher.enabled && !stale() && !invalid() ? "ok" : "neutral"}
+                            label={launcher.enabled && !stale() && !invalid() ? "available" : "unavailable"}
+                          />
                         </span>
                         <span class="mt-0.5 block text-xs text-dimmed">
                           {launcherKindLabel(launcher.config.kind)} · {launcherConfigurationSummary(launcher)}
@@ -540,26 +546,29 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                         </For>
                       </span>
                       <Tooltip content="Edit run option">
-                        <button
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
                           type="button"
-                          class="icon-btn"
                           disabled={mutationsBlocked()}
-                          aria-label={`Edit ${launcher.name}`}
+                          label={`Edit ${launcher.name}`}
                           onClick={() => void edit(launcher)}
                         >
                           <i class="ti ti-pencil" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                       <Tooltip content="Delete run option">
-                        <button
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
                           type="button"
-                          class="icon-btn text-red-600 dark:text-red-400"
+                          class="text-red-600 dark:text-red-400"
                           disabled={mutationsBlocked()}
-                          aria-label={`Delete ${launcher.name}`}
+                          label={`Delete ${launcher.name}`}
                           onClick={() => removeMut.mutate(launcher)}
                         >
                           <i class="ti ti-trash" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                     </div>
                   );
@@ -571,9 +580,9 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <span />
-        <button type="button" class="btn-input btn-sm" onClick={props.onClose}>
+        <Button variant="secondary" size="sm" type="button" onClick={props.onClose}>
           Done
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );

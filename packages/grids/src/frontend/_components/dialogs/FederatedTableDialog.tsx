@@ -1,13 +1,4 @@
-import {
-  CheckboxCard,
-  dialogCore,
-  PanelDialog,
-  Placeholder,
-  panelDialogOptions,
-  prompts,
-  SelectInput,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
+import { CheckboxCard, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, Button } from "@k2b/ui";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -297,7 +288,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
           <PanelDialog.Section title="Sources" subtitle="Only tables where you are an admin can be published." icon="ti ti-database-share">
             <TextInput
               value={candidateQuery}
-              onInput={(value) => {
+              onValueChange={(value) => {
                 setCandidateQuery(value);
                 searchCandidates.debouncedFn(value);
               }}
@@ -330,7 +321,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                           icon={candidate.table.icon ?? "ti ti-table"}
                           variant="input"
                           value={() => selectedSources().includes(candidate.table.id)}
-                          onChange={(enabled) => void toggleSource(candidate.table.id, enabled)}
+                          onValueChange={(enabled) => void toggleSource(candidate.table.id, enabled)}
                         />
                       )}
                     </For>
@@ -338,14 +329,16 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                 )}
               </For>
               <Show when={candidates().length < candidateTotal()}>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-input btn-sm self-center"
+                  class="self-center"
                   disabled={candidateLoading()}
                   onClick={() => void loadCandidates().catch((error) => prompts.error((error as Error).message))}
                 >
                   {candidateLoading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-dots" />} Load more sources
-                </button>
+                </Button>
               </Show>
             </Show>
             <Show when={opaqueSourceIds().length > 0}>
@@ -355,7 +348,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                 icon="ti ti-lock"
                 variant="input"
                 value={() => retainedSourceIds().length > 0}
-                onChange={toggleRetainedSources}
+                onValueChange={toggleRetainedSources}
               />
             </Show>
           </PanelDialog.Section>
@@ -379,11 +372,11 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                 />
               }
             >
-              <SelectInput
+              <Select
                 label="Source to map"
                 description={`${selectedTables().length} selected source${selectedTables().length === 1 ? "" : "s"}`}
                 value={() => mappingTable()?.id ?? ""}
-                onChange={setMappingSourceId}
+                onValueChange={setMappingSourceId}
                 options={selectedTables().map((table) => ({
                   id: table.id,
                   label: `${table.name} · ${table.base.name}`,
@@ -404,11 +397,11 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                           selectOptions(target).map((option) => ({ id: option.id, label: option.label, icon: "ti ti-tag" }));
                         return (
                           <div class="space-y-2">
-                            <SelectInput
+                            <Select
                               label={target.name}
                               description={`${target.type} · leave empty when this source has no value`}
                               value={() => mappingFor(table.id, target.id)?.sourceFieldId ?? ""}
-                              onChange={(sourceFieldId) => setMapping(table.id, target.id, sourceFieldId)}
+                              onValueChange={(sourceFieldId) => setMapping(table.id, target.id, sourceFieldId ?? "")}
                               options={compatibleOptions(table.id, target)}
                               placeholder="Not mapped"
                               clearable
@@ -418,7 +411,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                                 <div class="text-xs font-medium text-secondary">Option mapping</div>
                                 <For each={sourceSelectOptions()}>
                                   {(sourceOption) => (
-                                    <SelectInput
+                                    <Select
                                       label={sourceOption.label}
                                       value={() => {
                                         const optionMap = (mappingFor(table.id, target.id)?.config?.optionMap ?? {}) as Record<
@@ -427,7 +420,9 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                                         >;
                                         return optionMap[sourceOption.id] ?? "";
                                       }}
-                                      onChange={(targetOptionId) => setOptionMapping(table.id, target.id, sourceOption.id, targetOptionId)}
+                                      onValueChange={(targetOptionId) =>
+                                        setOptionMapping(table.id, target.id, sourceOption.id, targetOptionId ?? "")
+                                      }
                                       options={targetSelectOptions()}
                                       placeholder="Choose canonical option"
                                       clearable
@@ -471,9 +466,9 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                         <span class="min-w-0 flex-1 truncate text-sm text-primary">{table()?.name ?? "Unavailable source"}</span>
                         <Show when={table() && source.sourceTableId} keyed>
                           {(sourceTableId) => (
-                            <button type="button" class="btn-ghost btn-sm text-danger" onClick={() => void revoke(sourceTableId)}>
+                            <Button variant="ghost" size="sm" type="button" class="text-danger" onClick={() => void revoke(sourceTableId)}>
                               <i class="ti ti-unlink" /> Revoke
-                            </button>
+                            </Button>
                           )}
                         </Show>
                       </div>
@@ -486,29 +481,37 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
         </Show>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-input btn-sm" onClick={props.close}>
+        <Button variant="secondary" size="sm" type="button" onClick={props.close}>
           Close
-        </button>
+        </Button>
         <div class="flex items-center gap-2">
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            class="btn-input btn-sm"
             disabled={validateMutation.loading() || selectedSources().length + retainedSourceIds().length === 0}
             onClick={() => validateMutation.mutate(undefined)}
           >
             {validateMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-checkup-list" />} Validate
-          </button>
-          <button type="button" class="btn-input btn-sm" disabled={saveMutation.loading()} onClick={() => saveMutation.mutate(undefined)}>
-            Save draft
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
+            disabled={saveMutation.loading()}
+            onClick={() => saveMutation.mutate(undefined)}
+          >
+            Save draft
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
             disabled={publishMutation.loading() || selectedSources().length + retainedSourceIds().length === 0}
             onClick={() => publishMutation.mutate(undefined)}
           >
             {publishMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-cloud-upload" />} Publish
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>

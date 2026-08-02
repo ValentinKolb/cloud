@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { SettingsModal } from "@valentinkolb/cloud/ui";
+import { SettingsModal } from "@k2b/ui";
 import type { DocumentProfile } from "../../../contracts";
 import type { Dashboard } from "../../../service";
 import {

@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import { type Accessor, createEffect, createMemo, createSignal, onCleanup, type Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { TableQueryResult } from "../../../contracts";

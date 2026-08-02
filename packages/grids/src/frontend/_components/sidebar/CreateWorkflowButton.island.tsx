@@ -1,4 +1,4 @@
-import { AppWorkspace, dialogCore, panelDialogWorkspaceOptions } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, panelDialogWorkspaceOptions } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import type { Table } from "../../../service";
 import { WorkflowEditor } from "../workflows/WorkflowEditor";

@@ -1,3 +1,4 @@
+import { Button, ButtonLink } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { Show } from "solid-js";
 import type { LinkWidget as LinkWidgetConfig } from "../../../service";
@@ -60,27 +61,28 @@ export default function LinkWidget(props: Props) {
                   <Show
                     when={d().target.kind !== "blocked"}
                     fallback={
-                      <button type="button" class="btn-input btn-sm" disabled>
+                      <Button variant="secondary" size="sm" type="button" disabled>
                         <i class="ti ti-lock" />
                         {(d().target as { kind: "blocked"; reason: string }).reason}
-                      </button>
+                      </Button>
                     }
                   >
                     <>
-                      <a
+                      <ButtonLink
+                        variant="primary"
+                        size="sm"
                         href={href() ?? "#"}
                         target={external() ? "_blank" : undefined}
                         rel={external() ? "noreferrer" : undefined}
-                        class="btn-primary btn-sm"
                       >
                         <i class={external() ? "ti ti-external-link" : "ti ti-arrow-right"} />
                         Open
-                      </a>
+                      </ButtonLink>
                       <Show when={!external()}>
-                        <a href={href() ?? "#"} target="_blank" rel="noreferrer" class="btn-input btn-sm">
+                        <ButtonLink variant="secondary" size="sm" href={href() ?? "#"} target="_blank" rel="noreferrer">
                           <i class="ti ti-window-maximize" />
                           New window
-                        </a>
+                        </ButtonLink>
                       </Show>
                     </>
                   </Show>
@@ -90,9 +92,10 @@ export default function LinkWidget(props: Props) {
                   const target = d().target;
                   if (target.kind !== "form") return null;
                   return (
-                    <button
+                    <Button
+                      variant="primary"
+                      size="sm"
                       type="button"
-                      class="btn-primary btn-sm"
                       disabled={!target.canSubmit}
                       onClick={() => {
                         if (target.canSubmit)
@@ -101,7 +104,7 @@ export default function LinkWidget(props: Props) {
                     >
                       <i class={target.canSubmit ? "ti ti-forms" : "ti ti-lock"} />
                       {target.canSubmit ? "Open form" : "No submit access"}
-                    </button>
+                    </Button>
                   );
                 })()}
               </Show>

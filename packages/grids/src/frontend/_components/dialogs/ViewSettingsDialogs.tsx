@@ -8,7 +8,8 @@ import {
   panelDialogOptions,
   prompts,
   TextInput,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
@@ -150,8 +151,13 @@ function GeneralSection(props: {
 
   return (
     <PanelDialog.Section title="General" subtitle="Name and visibility scope." icon="ti ti-id">
-      <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} icon="ti ti-typography" required />
-      <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
+      <TextInput label="Name" value={name} onValueChange={(v) => patch({ name: v })} icon="ti ti-typography" required />
+      <IconInput
+        label="Icon"
+        value={() => icon() ?? undefined}
+        onValueChange={(v) => patch({ icon: v ?? undefined })}
+        placeholder="Search icons..."
+      />
       <RecordDisplayConfigEditor value={displayConfig} onChange={(value) => patch({ displayConfig: value })} fields={() => props.fields} />
       <CheckboxCard
         label="Shared view"
@@ -159,12 +165,14 @@ function GeneralSection(props: {
         icon="ti ti-users"
         variant="input"
         value={shared}
-        onChange={(v) => patch({ shared: v })}
+        onValueChange={(v) => patch({ shared: v })}
       />
       <Show when={draft.dirty()}>
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           type="button"
-          class="btn-primary btn-sm self-start"
+          class="self-start"
           onClick={() => {
             if (!name().trim()) {
               prompts.error("Name is required");
@@ -175,7 +183,7 @@ function GeneralSection(props: {
           disabled={mut.loading()}
         >
           {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-        </button>
+        </Button>
       </Show>
     </PanelDialog.Section>
   );
@@ -288,11 +296,11 @@ function QuerySourceSection(props: {
         id={`view-source-${props.viewId}`}
         name={`view-source-${props.viewId}`}
         value={source}
-        onInput={patch}
+        onValueChange={patch}
         lines={8}
         spellcheck={false}
-        ariaLabel="GQL source"
-        ariaInvalid={validationState() === "invalid" || validationState() === "error"}
+        aria-label="GQL source"
+        aria-invalid={validationState() === "invalid" || validationState() === "error"}
         error={validationState() === "invalid" || validationState() === "error"}
         variant="paper"
       />
@@ -315,14 +323,16 @@ function QuerySourceSection(props: {
         </Show>
       </div>
       <Show when={draft.dirty()}>
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           type="button"
-          class="btn-primary btn-sm self-start"
+          class="self-start"
           onClick={() => mut.mutate(undefined)}
           disabled={mut.loading() || validationState() !== "valid"}
         >
           {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save query"}
-        </button>
+        </Button>
       </Show>
     </PanelDialog.Section>
   );
@@ -358,9 +368,9 @@ function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId
   };
 
   return (
-    <button type="button" class="btn-danger btn-sm self-start" onClick={handleDelete} disabled={mut.loading()}>
+    <Button variant="danger" size="sm" type="button" class="self-start" onClick={handleDelete} disabled={mut.loading()}>
       <i class="ti ti-trash" /> Delete view
-    </button>
+    </Button>
   );
 }
 

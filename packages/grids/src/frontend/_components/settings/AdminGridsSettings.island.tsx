@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Button, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -39,35 +39,40 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
   const isNumber = props.entry.kind === "number";
   const suffix = unitSuffixForKey(props.entry.key);
 
-  const handleInput = (event: Event) => {
-    const raw = (event.currentTarget as HTMLInputElement).value;
+  const updateText = (next: string) => {
+    setValue(next);
+    props.onChange(next);
+  };
+  const updateNumber = (next: number | null) => {
+    const raw = next === null ? "" : String(next);
     setValue(raw);
-    props.onChange(isNumber ? (raw.trim() === "" ? null : Number(raw)) : raw);
+    props.onChange(next);
   };
 
   return (
-    <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-primary" for={`setting-${props.entry.key}`}>
-        {props.entry.label}
-      </label>
-      <div class="relative">
-        <input
+    <Show
+      when={isNumber}
+      fallback={
+        <TextInput
           id={`setting-${props.entry.key}`}
-          type={isNumber ? "number" : "text"}
-          min={isNumber ? "1" : undefined}
-          step={isNumber ? "1" : undefined}
-          class={`input w-full ${suffix ? "pr-12" : ""}`}
-          value={value()}
-          onInput={handleInput}
+          label={props.entry.label}
+          description={props.entry.description}
+          value={value}
+          onValueChange={updateText}
         />
-        <Show when={suffix}>
-          <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-mono text-dimmed">{suffix}</span>
-        </Show>
-      </div>
-      <Show when={props.entry.description}>
-        <p class="text-[11px] text-dimmed">{props.entry.description}</p>
-      </Show>
-    </div>
+      }
+    >
+      <NumberInput
+        id={`setting-${props.entry.key}`}
+        label={props.entry.label}
+        description={props.entry.description}
+        min={1}
+        step={1}
+        value={() => (value().trim() === "" ? null : Number(value()))}
+        onValueChange={updateNumber}
+        suffix={suffix ? <span class="font-mono text-xs text-dimmed">{suffix}</span> : undefined}
+      />
+    </Show>
   );
 };
 
@@ -114,18 +119,19 @@ const SettingsBody = (props: { close: () => void }) => {
       <PanelDialog.Footer>
         <div />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={saveMutation.loading()}>
+          <Button variant="secondary" size="sm" type="button" onClick={props.close} disabled={saveMutation.loading()}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            class="btn-input btn-input-sm"
             onClick={() => saveMutation.mutate(undefined)}
             disabled={saveMutation.loading()}
           >
             <i class={`ti ${saveMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
             Save
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -136,9 +142,9 @@ const openSettingsDialog = () => dialogCore.open<void>((close) => <SettingsBody 
 
 export default function AdminGridsSettings() {
   return (
-    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()}>
+    <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openSettingsDialog()}>
       <i class="ti ti-settings text-sm" />
       Settings
-    </button>
+    </Button>
   );
 }

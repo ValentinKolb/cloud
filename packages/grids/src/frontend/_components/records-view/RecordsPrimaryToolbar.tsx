@@ -1,4 +1,4 @@
-import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, Tooltip, Button, ButtonLink } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { Field } from "../../../service";
 import { CardSizeDropdown } from "../toolbar/CardSizeDropdown";
@@ -56,10 +56,17 @@ export default function RecordsPrimaryToolbar(props: Props) {
       </span>
       <Show when={props.livePending || props.liveRefreshing}>
         <Tooltip content="Refresh records">
-          <button type="button" class="btn-input btn-input-sm app-accent-text" disabled={props.liveRefreshing} onClick={props.onRefresh}>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            class="app-accent-text"
+            disabled={props.liveRefreshing}
+            onClick={props.onRefresh}
+          >
             <i class={`ti ${props.liveRefreshing ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
             Updates available
-          </button>
+          </Button>
         </Tooltip>
       </Show>
       <Show when={props.cardsMode && (props.viewMode || props.trashMode)}>
@@ -70,33 +77,33 @@ export default function RecordsPrimaryToolbar(props: Props) {
         when={!props.trashMode}
         fallback={
           <Show when={props.canReadTable}>
-            <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
+            <ButtonLink variant="secondary" size="sm" href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`}>
               <i class="ti ti-arrow-back" />
               Back to live records
-            </a>
+            </ButtonLink>
           </Show>
         }
       >
         <Show when={props.recordMetaCount > 0}>
-          <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={props.onOpenRecordMetadata}>
+          <Button variant="secondary" size="sm" aria-pressed="true" type="button" onClick={props.onOpenRecordMetadata}>
             <i class="ti ti-user-search" />
             Record info · {props.recordMetaCount}
-          </button>
+          </Button>
         </Show>
         <Show when={props.bulkSelectionEnabled && props.selectedBulkCount > 0}>
-          <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={props.onClearBulkSelection}>
+          <Button variant="secondary" size="sm" aria-pressed="true" type="button" onClick={props.onClearBulkSelection}>
             <i class="ti ti-checklist" />
             {props.selectedBulkCount} selected
             <i class="ti ti-x text-[10px] opacity-60" />
-          </button>
+          </Button>
         </Show>
         <Dropdown
           position="bottom-left"
           trigger={
-            <span class="btn-input btn-input-sm">
+            <Button variant="secondary" size="sm">
               Actions
               <i class="ti ti-chevron-down text-[10px] opacity-60" />
-            </span>
+            </Button>
           }
           elements={[
             {

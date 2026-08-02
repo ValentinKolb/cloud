@@ -1,7 +1,8 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { Dropdown, PermissionEditor, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Dropdown, prompts, Tooltip, toast, IconButton } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
@@ -139,17 +140,16 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
                         {entryLabel(entry)} · {entry.permission}
                       </div>
                     </div>
-                    <Tooltip content="Clear override">
-                      <button
-                        type="button"
-                        class="text-dimmed hover:text-default"
-                        aria-label={`Clear override for ${entry.resourceName}`}
-                        disabled={clearChildEntryMutation.loading()}
-                        onClick={() => clearChildEntryMutation.mutate(entry)}
-                      >
-                        <i class="ti ti-x text-sm" />
-                      </button>
-                    </Tooltip>
+                    <IconButton
+                      variant="ghost"
+                      size="xs"
+                      class="text-dimmed hover:text-default"
+                      label={`Clear override for ${entry.resourceName}`}
+                      disabled={clearChildEntryMutation.loading()}
+                      onClick={() => clearChildEntryMutation.mutate(entry)}
+                    >
+                      <i class="ti ti-x text-sm" />
+                    </IconButton>
                   </div>
                 )}
               </For>
@@ -202,17 +202,17 @@ const AdminGridsActions = (props: AdminGridsActionsProps) => {
     <Dropdown
       trigger={
         <Tooltip content="Base actions">
-          <button type="button" class="icon-btn h-7 w-7" aria-label={`Actions for ${props.baseName}`}>
+          <IconButton variant="ghost" size="sm" type="button" class="h-7 w-7" label={`Actions for ${props.baseName}`}>
             <i
               class={
                 permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
               }
             />
-          </button>
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"
-      width="w-52"
+      width="13rem"
       elements={[
         {
           items: [

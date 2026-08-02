@@ -1,13 +1,4 @@
-import {
-  DatePicker,
-  DateRangePicker,
-  DateTimePicker,
-  MultiSelectInput,
-  NumberInput,
-  Select,
-  TextInput,
-  Tooltip,
-} from "@valentinkolb/cloud/ui";
+import { DatePicker, DateRangePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput, Button, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
@@ -108,7 +99,9 @@ export default function FilterPanel(props: Props) {
               <div class="w-64 shrink-0">
                 <Select
                   value={() => leaf().fieldId}
-                  onChange={(v) => updateLeaf(index, { fieldId: v })}
+                  onValueChange={(v) => {
+                    if (v !== null) updateLeaf(index, { fieldId: v });
+                  }}
                   options={fields().map((f) => fieldOption(f))}
                   placeholder="Field"
                 />
@@ -116,7 +109,9 @@ export default function FilterPanel(props: Props) {
               <div class="w-56 shrink-0">
                 <Select
                   value={() => leaf().op}
-                  onChange={(v) => updateLeaf(index, { op: v, value: "" })}
+                  onValueChange={(v) => {
+                    if (v !== null) updateLeaf(index, { op: v, value: "" });
+                  }}
                   options={ops().map((o) => ({ id: o.id, label: o.label, description: o.description, icon: o.icon }))}
                   placeholder="Operator"
                 />
@@ -130,16 +125,15 @@ export default function FilterPanel(props: Props) {
                 dateConfig={props.dateConfig}
               />
 
-              <Tooltip content="Remove filter">
-                <button
-                  type="button"
-                  class="text-dimmed hover:text-red-500 px-1"
-                  onClick={() => removeLeaf(index)}
-                  aria-label="Remove filter"
-                >
-                  <i class="ti ti-x" />
-                </button>
-              </Tooltip>
+              <IconButton
+                variant="ghost"
+                size="xs"
+                class="text-dimmed hover:text-red-500 px-1"
+                onClick={() => removeLeaf(index)}
+                label="Remove filter"
+              >
+                <i class="ti ti-x" />
+              </IconButton>
             </div>
           );
         }}
@@ -148,9 +142,9 @@ export default function FilterPanel(props: Props) {
       {/* Bottom row — Add only. Apply is owned by the GridToolbar's
           floating Apply/Cancel chips (one for the whole query state). */}
       <div class="flex items-center gap-1">
-        <button type="button" class="btn-input-success btn-input-sm" onClick={addLeaf}>
+        <Button variant="success" size="sm" type="button" onClick={addLeaf}>
           <i class="ti ti-plus" /> Add
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -230,18 +224,18 @@ function FilterValueInput(props: {
                     withTime={includeTime()}
                     dateConfig={props.dateConfig}
                     value={() => ({ start: dateAt(0) || null, end: dateAt(1) || null })}
-                    onChange={(v) => props.onChange([v.start ?? "", v.end ?? ""])}
+                    onValueChange={(v) => props.onChange([v.start ?? "", v.end ?? ""])}
                     clearable
                   />
                 </div>
               ) : (
                 <>
                   <div class="w-52">
-                    <NumberInput value={() => numAt(0)} onChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
+                    <NumberInput value={() => numAt(0)} onValueChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
                   </div>
                   <span class="text-dimmed">to</span>
                   <div class="w-52">
-                    <NumberInput value={() => numAt(1)} onChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
+                    <NumberInput value={() => numAt(1)} onValueChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
                   </div>
                 </>
               )}
@@ -254,7 +248,7 @@ function FilterValueInput(props: {
         <div class="w-80">
           <Select
             value={() => (typeof props.value === "string" ? props.value : "")}
-            onChange={(v) => props.onChange(v)}
+            onValueChange={(v) => props.onChange(v)}
             options={(
               (props.field?.config as { options?: Array<{ id: string; label: string; description?: string; icon?: string }> } | undefined)
                 ?.options ?? []
@@ -269,7 +263,7 @@ function FilterValueInput(props: {
           <MultiSelectInput
             placeholder="Options"
             value={() => (Array.isArray(props.value) ? props.value.filter((item): item is string => typeof item === "string") : [])}
-            onChange={(value) => props.onChange(value)}
+            onValueChange={(value) => props.onChange(value)}
             options={(
               (
                 props.field?.config as
@@ -292,7 +286,7 @@ function FilterValueInput(props: {
         <div class="w-44">
           <Select
             value={() => (props.value === true ? "true" : props.value === false ? "false" : "")}
-            onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
+            onValueChange={(v) => props.onChange(v === "" ? "" : v === "true")}
             options={[
               { id: "true", label: "true", description: "Value is checked", icon: "ti ti-check" },
               { id: "false", label: "false", description: "Value is unchecked", icon: "ti ti-x" },
@@ -331,7 +325,7 @@ function FilterValueInput(props: {
               const n = typeof v === "number" ? v : Number(v);
               return Number.isFinite(n) ? n : undefined;
             }}
-            onChange={(v) => props.onChange(v)}
+            onValueChange={(v) => props.onChange(v)}
           />
         </div>
       </Match>
@@ -343,9 +337,9 @@ function FilterValueInput(props: {
             const value = () => (typeof props.value === "string" && props.value ? props.value : null);
             const onChange = (v: string | null) => props.onChange(v ?? "");
             return includeTime() ? (
-              <DateTimePicker dateConfig={props.dateConfig} value={value} onChange={onChange} clearable />
+              <DateTimePicker dateConfig={props.dateConfig} value={value} onValueChange={onChange} clearable />
             ) : (
-              <DatePicker dateConfig={props.dateConfig} value={value} onChange={onChange} clearable />
+              <DatePicker dateConfig={props.dateConfig} value={value} onValueChange={onChange} clearable />
             );
           })()}
         </div>
@@ -359,7 +353,7 @@ function FilterValueInput(props: {
               const n = typeof v === "number" ? v : Number(v);
               return Number.isFinite(n) ? n : undefined;
             }}
-            onChange={(v) => props.onChange(v)}
+            onValueChange={(v) => props.onChange(v)}
             decimalPlaces={10}
           />
         </div>
@@ -367,7 +361,7 @@ function FilterValueInput(props: {
 
       <Match when={kind() === "text"}>
         <div class="w-80">
-          <TextInput value={() => (typeof props.value === "string" ? props.value : "")} onChange={(v) => props.onChange(v)} />
+          <TextInput value={() => (typeof props.value === "string" ? props.value : "")} onValueChange={(v) => props.onChange(v)} />
         </div>
       </Match>
     </Switch>

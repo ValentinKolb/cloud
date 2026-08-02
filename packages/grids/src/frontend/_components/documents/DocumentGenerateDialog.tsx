@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, TagsInput, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, TagsInput, TextInput, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
 import type { DocumentTemplateSummary } from "../../../contracts";
@@ -89,11 +89,11 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
             label="Filename"
             description="Optional override. Leave empty to use the template's Liquid filename pattern."
             value={filename}
-            onInput={setFilename}
+            onValueChange={setFilename}
             icon="ti ti-file-text"
             placeholder="Use template default"
           />
-          <TagsInput label="Tags" placeholder="customer, signed, 2026" value={tags} onChange={setTags} />
+          <TagsInput label="Tags" placeholder="customer, signed, 2026" value={tags} onValueChange={setTags} />
           <div class="info-block-info text-xs">
             <i class="ti ti-camera" />
             Generating stores a recursive snapshot. Redownloads use the stored snapshot and filename.
@@ -111,18 +111,19 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.close} disabled={generateMut.loading()}>
+          <Button variant="secondary" size="sm" type="button" onClick={props.close} disabled={generateMut.loading()}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             onClick={() => generateMut.mutate(undefined)}
             disabled={generateMut.loading() || !hasCurrentPreview()}
           >
             {generateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
             Generate PDF
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>

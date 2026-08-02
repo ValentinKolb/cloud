@@ -1,6 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { NotFoundState } from "@valentinkolb/cloud/ui";
+import { NotFoundState } from "@k2b/ui";
 import { currentActorUser } from "../../api/permissions";
 import { withInitialGqlResults } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";

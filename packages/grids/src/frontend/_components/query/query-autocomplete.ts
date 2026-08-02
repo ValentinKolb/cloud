@@ -1,4 +1,4 @@
-import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
+import type { Completion, SuggestContext, Suggestion } from "@k2b/ui";
 import type { DslQueryAutocompleteResponse, DslQueryCompletionItem } from "../../../contracts";
 
 export type GqlCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string };

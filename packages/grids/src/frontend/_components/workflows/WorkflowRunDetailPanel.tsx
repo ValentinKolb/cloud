@@ -1,4 +1,4 @@
-import { dialogCore, Placeholder, panelDialogWorkspaceOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { Button, dialogCore, IconButton, panelDialogWorkspaceOptions, Placeholder, prompts, StatusBadge, toast, Tooltip } from "@k2b/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
@@ -21,7 +21,7 @@ import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
 import {
   formatWorkflowRunDate as formatDate,
   isTerminalWorkflowRunStatus,
-  workflowRunStatusClass as statusClass,
+  workflowRunStatusTone,
   workflowStepOutcomeSummary,
 } from "./workflow-display";
 import { mergeRefreshedWorkflowRunDocuments, type WorkflowRunDocumentsState } from "./workflow-run-documents";
@@ -301,7 +301,8 @@ export function WorkflowRunDetailPanel(props: {
                 const next = new Map(current.map((step) => [step.key, step]));
                 for (const step of event.steps) next.set(step.key, step);
                 return [...next.values()].sort(
-                  (left, right) => Date.parse(left.startedAt ?? "") - Date.parse(right.startedAt ?? "") || left.key.localeCompare(right.key),
+                  (left, right) =>
+                    Date.parse(left.startedAt ?? "") - Date.parse(right.startedAt ?? "") || left.key.localeCompare(right.key),
                 );
               });
             }
@@ -452,40 +453,58 @@ export function WorkflowRunDetailPanel(props: {
             <div class="flex min-w-0 items-center gap-2">
               <h2 class="truncate text-sm font-semibold text-primary">Workflow run</h2>
               <span aria-live="polite" aria-atomic="true">
-                <Show when={run()}>{(current) => <span class={`badge ${statusClass(current().status)}`}>{current().status}</span>}</Show>
+                <Show when={run()}>
+                  {(current) => <StatusBadge tone={workflowRunStatusTone(current().status)} label={current().status} />}
+                </Show>
               </span>
             </div>
             <p class="mt-0.5 text-xs text-dimmed">{run() ? formatDate(run()!.createdAt) : "Loading..."}</p>
           </div>
           <Tooltip content="Refresh run details">
-            <button type="button" class="icon-btn" onClick={() => refresh()} disabled={loadMut.loading()} aria-label="Refresh run details">
+            <IconButton
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => refresh()}
+              disabled={loadMut.loading()}
+              label="Refresh run details"
+            >
               <i class={loadMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
-            </button>
+            </IconButton>
           </Tooltip>
           <Show when={run() && canWrite()}>
             <Tooltip content="Run again with these inputs">
-              <button type="button" class="icon-btn" onClick={() => void runAgain()} disabled={rerunMut.loading()} aria-label="Run again">
+              <IconButton
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => void runAgain()}
+                disabled={rerunMut.loading()}
+                label="Run again"
+              >
                 <i class={rerunMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-repeat"} />
-              </button>
+              </IconButton>
             </Tooltip>
           </Show>
           <Show when={run() && !isTerminalWorkflowRunStatus(run()!.status) && canWrite()}>
             <Tooltip content="Cancel workflow run">
-              <button
+              <IconButton
+                variant="ghost"
+                size="sm"
                 type="button"
-                class="icon-btn text-red-600 dark:text-red-400"
+                class="text-red-600 dark:text-red-400"
                 onClick={() => void cancelRun()}
                 disabled={cancelMut.loading()}
-                aria-label="Cancel workflow run"
+                label="Cancel workflow run"
               >
                 <i class={cancelMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-stop"} />
-              </button>
+              </IconButton>
             </Tooltip>
           </Show>
           <Tooltip content="Close run details">
-            <button type="button" class="icon-btn" onClick={props.onClose} aria-label="Close run details">
+            <IconButton variant="ghost" size="sm" type="button" onClick={props.onClose} label="Close run details">
               <i class="ti ti-x" />
-            </button>
+            </IconButton>
           </Tooltip>
         </div>
       </header>
@@ -500,9 +519,9 @@ export function WorkflowRunDetailPanel(props: {
                 title="Could not load workflow run"
                 description={error().message}
                 action={
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => refresh()}>
+                  <Button variant="secondary" size="sm" type="button" onClick={() => refresh()}>
                     <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                  </button>
+                  </Button>
                 }
               />
             )}
@@ -518,9 +537,9 @@ export function WorkflowRunDetailPanel(props: {
               description={error().message}
               class="shrink-0 py-2"
               action={
-                <button type="button" class="btn-input btn-input-sm" onClick={() => refresh()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => refresh()}>
                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                </button>
+                </Button>
               }
             />
           )}

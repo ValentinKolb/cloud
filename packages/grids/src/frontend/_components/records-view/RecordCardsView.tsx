@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
@@ -154,10 +154,17 @@ export function RecordCardsView(props: {
         </div>
       </Show>
       <Show when={props.hasMore}>
-        <button type="button" class="btn-input btn-input-sm mt-3 self-center" onClick={props.onLoadMore} disabled={props.loadingMore}>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          class="mt-3 self-center"
+          onClick={props.onLoadMore}
+          disabled={props.loadingMore}
+        >
           {props.loadingMore ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-chevron-down" />}
           Load more
-        </button>
+        </Button>
       </Show>
     </div>
   );

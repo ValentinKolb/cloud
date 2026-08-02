@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";

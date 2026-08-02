@@ -1,4 +1,4 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@/api/client";

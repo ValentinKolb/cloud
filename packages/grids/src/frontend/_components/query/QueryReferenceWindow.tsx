@@ -11,7 +11,9 @@ import {
   DocPage,
   DocRows,
   DocSection,
-} from "@valentinkolb/cloud/ui";
+  ButtonLink,
+  Tag,
+} from "@k2b/ui";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { GQL_EXAMPLES } from "../../../help/gql-examples";
@@ -180,12 +182,12 @@ const GqlAssistantFiles = (props: { baseId: string }) => (
           <p class="mt-1 text-sm text-dimmed">Use the skill once, then pair it with this base's permission-filtered schema context.</p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <a class="btn-input btn-sm" href={assistantFileHref(props.baseId, "SKILL.md")} download="SKILL.md">
+          <ButtonLink variant="secondary" size="sm" href={assistantFileHref(props.baseId, "SKILL.md")} download="SKILL.md">
             <i class="ti ti-download" /> SKILL.md
-          </a>
-          <a class="btn-input btn-sm" href={assistantFileHref(props.baseId, "context.md")} download="context.md">
+          </ButtonLink>
+          <ButtonLink variant="secondary" size="sm" href={assistantFileHref(props.baseId, "context.md")} download="context.md">
             <i class="ti ti-download" /> context.md
-          </a>
+          </ButtonLink>
         </div>
       </div>
     </DocSection>
@@ -283,9 +285,7 @@ const dataTypeRows: DataTypeRow[] = [
   },
 ];
 
-const renderCopyCell = (value: unknown) => (
-  <CopyButton text={String(value ?? "")} class="btn-ghost btn-sm inline-flex h-7 w-7 items-center justify-center p-0" />
-);
+const renderCopyCell = (value: unknown) => <CopyButton text={String(value ?? "")} size="xs" class="h-7 w-7" />;
 
 const referenceTabHref = (baseShortId: string, tab: GqlReferenceTab) =>
   `/app/grids/${encodeURIComponent(baseShortId)}/reference/${encodeURIComponent(tab)}`;
@@ -473,7 +473,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                               <i class="ti ti-table text-dimmed" />
                               <span class="truncate">{table.name}</span>
                             </h3>
-                            <span class="badge">Table</span>
+                            <Tag size="sm">Table</Tag>
                             <span class="text-xs text-dimmed">
                               {plural(table.recordCount, "record")} · {plural(table.fieldCount, "field")}
                             </span>
@@ -484,17 +484,17 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                         </div>
                         <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           {SourceRef(table)}
-                          <CopyButton text={refSourceLabel(table)} class="btn-input btn-sm" />
-                          <a class="btn-input btn-sm" href={referenceSourceHref(props.baseShortId, table)}>
+                          <CopyButton text={refSourceLabel(table)} variant="secondary" size="sm" />
+                          <ButtonLink variant="secondary" size="sm" href={referenceSourceHref(props.baseShortId, table)}>
                             <i class="ti ti-eye" /> Inspect
-                          </a>
+                          </ButtonLink>
                         </div>
                       </div>
 
                       <div class="mt-3 flex flex-wrap gap-1.5">
                         <For each={shownFields(table)}>{FieldChip}</For>
                         <Show when={hiddenFieldCount(table) > 0}>
-                          <span class="badge bg-[var(--ui-surface-subtle)] text-[11px] text-dimmed">+{hiddenFieldCount(table)}</span>
+                          <Tag size="sm">+{hiddenFieldCount(table)}</Tag>
                         </Show>
                       </div>
 
@@ -509,19 +509,16 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                                       <i class="ti ti-table-spark text-dimmed" />
                                       <span class="truncate">{view.name}</span>
                                     </span>
-                                    <span class="badge">View</span>
+                                    <Tag size="sm">View</Tag>
                                     <span class="text-xs text-dimmed">of {view.parent}</span>
                                   </div>
                                 </div>
                                 <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
                                   {SourceRef(view)}
-                                  <CopyButton
-                                    text={refSourceLabel(view)}
-                                    class="btn-ghost btn-sm inline-flex h-8 w-8 items-center justify-center p-0"
-                                  />
-                                  <a class="btn-ghost btn-sm" href={referenceSourceHref(props.baseShortId, view)}>
+                                  <CopyButton text={refSourceLabel(view)} class="h-8 w-8" />
+                                  <ButtonLink variant="ghost" size="sm" href={referenceSourceHref(props.baseShortId, view)}>
                                     Inspect
-                                  </a>
+                                  </ButtonLink>
                                 </div>
                               </div>
                             )}
@@ -543,7 +540,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                 <div class="flex flex-wrap items-start justify-between gap-4">
                   <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="badge">{source().kind === "view" ? "View" : "Table"}</span>
+                      <Tag size="sm">{source().kind === "view" ? "View" : "Table"}</Tag>
                       <span class="text-sm text-dimmed">
                         {source().kind === "view" ? `of ${source().parent ?? "a table"}` : "Base source"}
                       </span>
@@ -556,7 +553,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                   </div>
                   <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
                     {SourceRef(source())}
-                    <CopyButton text={refSourceLabel(source())} class="btn-input btn-sm" />
+                    <CopyButton text={refSourceLabel(source())} variant="secondary" size="sm" />
                   </div>
                 </div>
               </div>
@@ -596,7 +593,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                               <code class="inline-flex rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-primary">
                                 {field.ref}
                               </code>
-                              <CopyButton text={field.ref} class="btn-ghost btn-sm inline-flex h-8 w-8 items-center justify-center p-0" />
+                              <CopyButton text={field.ref} class="h-8 w-8" />
                             </div>
                           </td>
                         </tr>

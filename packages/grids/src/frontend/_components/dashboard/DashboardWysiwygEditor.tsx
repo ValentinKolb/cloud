@@ -10,7 +10,8 @@ import {
   Select,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
@@ -495,21 +496,21 @@ const openRowSettingsDialog = (current: DashboardRow["height"]) =>
             label="Row height"
             description="Controls the minimum height of widgets in this row."
             value={height}
-            onChange={(value) => setHeight(value as DashboardRow["height"])}
+            onValueChange={(value) => setHeight(value as DashboardRow["height"])}
             options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
           />
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
+          <Button variant="danger" size="sm" type="button" onClick={() => close({ action: "delete" })}>
             <i class="ti ti-trash" /> Delete row
-          </button>
+          </Button>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => close(undefined)}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => close(undefined)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={() => close({ action: "save", height: height() })}>
+            </Button>
+            <Button variant="primary" size="sm" type="button" onClick={() => close({ action: "save", height: height() })}>
               Save
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>
@@ -600,16 +601,21 @@ function DashboardGeneralBody(props: {
       <PanelDialog.Body>
         <PanelDialog.Section title="General" subtitle="Name, description, and sharing." icon="ti ti-id">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} required />
-            <TextInput label="Description" value={description} onInput={(v) => patch({ description: v })} />
-            <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
+            <TextInput label="Name" value={name} onValueChange={(v) => patch({ name: v })} required />
+            <TextInput label="Description" value={description} onValueChange={(v) => patch({ description: v })} />
+            <IconInput
+              label="Icon"
+              value={() => icon() ?? undefined}
+              onValueChange={(v) => patch({ icon: v ?? undefined })}
+              placeholder="Search icons..."
+            />
           </div>
           <CheckboxCard
             label="Shared dashboard"
             description="Visible to users who can open this base. Permissions below can narrow access."
             icon="ti ti-users"
             value={shared}
-            onChange={(v) => patch({ shared: v })}
+            onValueChange={(v) => patch({ shared: v })}
           />
           <Show when={props.isBaseDefault}>
             <p class="app-accent-text text-xs">
@@ -641,17 +647,18 @@ function DashboardGeneralBody(props: {
           <DeleteDashboardButton dashboardId={props.dashboard.id} baseShortId={props.baseShortId} name={props.dashboard.name} />
         </div>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.close}>
+          <Button variant="secondary" size="sm" type="button" onClick={props.close}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             onClick={() => saveMut.mutate(undefined)}
             disabled={!draft.dirty() || saveMut.loading()}
           >
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </>
@@ -733,9 +740,9 @@ function DuplicateDashboardButton(props: { dashboard: Dashboard; baseShortId: st
   };
 
   return (
-    <button type="button" class="btn-input btn-sm" disabled={mut.loading()} onClick={() => void duplicate()}>
+    <Button variant="secondary" size="sm" type="button" disabled={mut.loading()} onClick={() => void duplicate()}>
       <i class={`ti ${mut.loading() ? "ti-loader-2 animate-spin" : "ti-copy"}`} /> Duplicate dashboard
-    </button>
+    </Button>
   );
 }
 
@@ -751,9 +758,11 @@ function DeleteDashboardButton(props: { dashboardId: string; baseShortId: string
     onError: (e) => prompts.error(e.message),
   });
   return (
-    <button
+    <Button
+      variant="danger"
+      size="sm"
       type="button"
-      class="btn-danger btn-sm self-start"
+      class="self-start"
       onClick={async () => {
         if (
           await prompts.confirm(`Delete dashboard "${props.name}"?`, {
@@ -768,6 +777,6 @@ function DeleteDashboardButton(props: { dashboardId: string; baseShortId: string
       disabled={mut.loading()}
     >
       <i class="ti ti-trash" /> Delete dashboard
-    </button>
+    </Button>
   );
 }

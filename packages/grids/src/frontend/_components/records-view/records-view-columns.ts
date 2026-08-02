@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";

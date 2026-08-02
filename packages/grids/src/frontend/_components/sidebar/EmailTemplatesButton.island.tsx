@@ -1,4 +1,4 @@
-import { AppWorkspace, dialogCore, panelDialogWorkspaceOptions } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, panelDialogWorkspaceOptions } from "@k2b/ui";
 import { EmailTemplateManager } from "../workflows/WorkflowEmailTemplates";
 
 export default function EmailTemplatesButton(props: { baseId: string }) {

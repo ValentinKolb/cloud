@@ -1,3 +1,4 @@
+import type { StatusTone } from "@k2b/ui";
 import type { GridsWorkflowChannel, GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
 
 export const channelLabels: Record<GridsWorkflowChannel, string> = {
@@ -9,12 +10,14 @@ export const channelLabels: Record<GridsWorkflowChannel, string> = {
   recordEvent: "Record event",
 };
 
-export const workflowRunStatusClass = (status: GridsWorkflowRun["status"] | string) =>
+export const workflowRunStatusTone = (status: GridsWorkflowRun["status"] | string): StatusTone =>
   status === "succeeded"
-    ? "badge-success"
+    ? "ok"
     : status === "failed" || status === "canceled" || status === "needs_attention"
-      ? "badge-danger"
-      : "badge-neutral";
+      ? "error"
+      : status === "running"
+        ? "running"
+        : "neutral";
 
 /**
  * The same badge vocabulary for a step, whose states are the kernel's.
@@ -23,12 +26,14 @@ export const workflowRunStatusClass = (status: GridsWorkflowRun["status"] | stri
  * "planned"; neither is "succeeded", which is a run's word. Reusing the run's
  * mapping here rendered every finished step in the neutral "still going" badge.
  */
-export const workflowStepStatusClass = (status: GridsWorkflowStepRun["status"] | string) =>
+export const workflowStepStatusTone = (status: GridsWorkflowStepRun["status"] | string): StatusTone =>
   status === "completed" || status === "planned" || status === "terminal"
-    ? "badge-success"
+    ? "ok"
     : status === "failed" || status === "canceled" || status === "needs_attention" || status === "unsupported"
-      ? "badge-danger"
-      : "badge-neutral";
+      ? "error"
+      : status === "running"
+        ? "running"
+        : "neutral";
 
 /**
  * The same step vocabulary as bare text colour, for the places that render the

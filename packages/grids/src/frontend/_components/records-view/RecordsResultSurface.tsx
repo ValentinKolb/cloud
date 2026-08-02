@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { type ComponentProps, Match, Switch } from "solid-js";
 import type { AggregationSpec, ColumnSpec, GroupBySpec, RecordDisplayConfig } from "../../../contracts";
@@ -108,10 +108,10 @@ export default function RecordsResultSurface(props: Props) {
             description="Clear the current search and filters to see all available records."
             class="flex-1"
             action={
-              <button type="button" class="btn-input btn-input-sm" onClick={props.onClearResultNarrowing}>
+              <Button variant="secondary" size="sm" type="button" onClick={props.onClearResultNarrowing}>
                 <i class="ti ti-filter-off" aria-hidden="true" />
                 Clear search and filters
-              </button>
+              </Button>
             }
           />
         </Match>

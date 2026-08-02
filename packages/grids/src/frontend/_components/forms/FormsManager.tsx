@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { CopyButton, Placeholder, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { CopyButton, Placeholder, prompts, Tooltip, Button, IconButton } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -153,11 +153,17 @@ export default function FormsManager(props: Props) {
                     </span>
                   </button>
                   <div class="flex shrink-0 items-center gap-0">
-                    <Show when={form.publicToken}>{(token) => <CopyButton text={publicFormUrl(token())} class="icon-btn" />}</Show>
+                    <Show when={form.publicToken}>{(token) => <CopyButton text={publicFormUrl(token())} />}</Show>
                     <Tooltip content="Edit form">
-                      <button type="button" class="icon-btn" onClick={() => openFormEditor(form)} aria-label={`Edit form ${form.name}`}>
+                      <IconButton
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        onClick={() => openFormEditor(form)}
+                        label={`Edit form ${form.name}`}
+                      >
                         <i class="ti ti-pencil" />
-                      </button>
+                      </IconButton>
                     </Tooltip>
                   </div>
                 </div>
@@ -168,9 +174,9 @@ export default function FormsManager(props: Props) {
       </Show>
 
       <Show when={props.canManage}>
-        <button type="button" class="btn-input-success btn-input-sm self-start" onClick={handleCreate}>
+        <Button variant="success" size="sm" type="button" class="self-start" onClick={handleCreate}>
           <i class="ti ti-plus" /> New form
-        </button>
+        </Button>
       </Show>
     </div>
   );

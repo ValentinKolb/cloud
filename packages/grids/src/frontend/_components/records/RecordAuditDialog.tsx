@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, Select, TextInput, Button } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { AuditRequirement, AuditUpdateRequirement, RecordMutationAudit } from "../../../contracts";
 
@@ -14,21 +14,21 @@ const operationCopy = {
     subtitle: "This table requires context for the fields you changed.",
     action: "Save changes",
     icon: "ti ti-pencil",
-    actionClass: "btn-primary btn-sm",
+    actionVariant: "primary" as const,
   },
   delete: {
     title: "Move record to trash",
     subtitle: "The record remains available in trash and can be restored.",
     action: "Move to trash",
     icon: "ti ti-trash",
-    actionClass: "btn-danger btn-sm",
+    actionVariant: "danger" as const,
   },
   restore: {
     title: "Restore record",
     subtitle: "The original deletion reason remains unchanged. These answers describe this restore.",
     action: "Restore",
     icon: "ti ti-arrow-back-up",
-    actionClass: "btn-primary btn-sm",
+    actionVariant: "primary" as const,
   },
 } as const;
 
@@ -76,7 +76,7 @@ export const openRecordAuditDialog = (args: OpenRecordAuditDialogArgs): Promise<
                         label={question.label}
                         description={question.description}
                         value={() => answers()[question.id] ?? ""}
-                        onInput={(value) => setAnswer(question.id, value)}
+                        onValueChange={(value) => setAnswer(question.id, value)}
                         error={() => errors()[question.id]}
                         multiline={question.type === "longtext"}
                         lines={question.type === "longtext" ? 4 : undefined}
@@ -84,11 +84,11 @@ export const openRecordAuditDialog = (args: OpenRecordAuditDialogArgs): Promise<
                       />
                     }
                   >
-                    <SelectInput
+                    <Select
                       label={question.label}
                       description={question.description}
                       value={() => answers()[question.id]}
-                      onChange={(value) => setAnswer(question.id, value)}
+                      onValueChange={(value) => setAnswer(question.id, value ?? "")}
                       error={() => errors()[question.id]}
                       options={question.type === "select" ? question.options.map((option) => ({ id: option.id, label: option.label })) : []}
                       placeholder="Choose an option"
@@ -103,12 +103,12 @@ export const openRecordAuditDialog = (args: OpenRecordAuditDialogArgs): Promise<
           <PanelDialog.Footer>
             <span />
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+              <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="button" class={copy.actionClass} onClick={submit}>
+              </Button>
+              <Button variant={copy.actionVariant} size="sm" onClick={submit}>
                 <i class={copy.icon} /> {copy.action}
-              </button>
+              </Button>
             </div>
           </PanelDialog.Footer>
         </PanelDialog>

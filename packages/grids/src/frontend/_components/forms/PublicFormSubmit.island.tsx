@@ -1,3 +1,4 @@
+import { Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -26,7 +27,7 @@ type Props = {
  *
  * All field rendering lives in `form-fields.tsx` and uses platform
  * inputs only (TextInput / NumberInput / DatePicker / DateTimePicker /
- * Checkbox / SelectInput / CheckboxCards for select).
+ * Checkbox / Select / CheckboxCards for select).
  */
 export default function PublicFormSubmit(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
@@ -152,12 +153,12 @@ export default function PublicFormSubmit(props: Props) {
               stretching the full form width (flex-column children are
               `align-items: stretch` by default). */}
           <div class="mt-2 flex items-center justify-end">
-            <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
+            <Button variant="primary" size="sm" type="submit" disabled={submitting()}>
               <Show when={submitting()} fallback={<i class="ti ti-send" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>
               {props.form.config.submitLabel ?? "Submit"}
-            </button>
+            </Button>
           </div>
         </form>
       </Show>

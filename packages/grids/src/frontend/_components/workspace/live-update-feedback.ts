@@ -1,4 +1,4 @@
-import { toast } from "@valentinkolb/cloud/ui";
+import { toast } from "@k2b/ui";
 
 const NOTIFICATION_COOLDOWN_MS = 10_000;
 let lastNotificationAt = 0;

@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createMemo, createSignal } from "solid-js";
 import type { Table } from "../../../service";
@@ -52,13 +52,13 @@ function WorkflowRunInputDialog(props: Props) {
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => props.close()}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => props.close()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!validation().ok} onClick={submit}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" disabled={!validation().ok} onClick={submit}>
             <i class={props.mode === "dryRun" ? "ti ti-flask" : "ti ti-player-play"} />
             {props.submitLabel ?? (props.mode === "dryRun" ? "Start dry run" : "Run workflow")}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>

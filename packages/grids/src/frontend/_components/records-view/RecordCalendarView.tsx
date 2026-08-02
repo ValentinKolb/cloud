@@ -1,4 +1,4 @@
-import { Calendar, type CalendarEvent, Placeholder } from "@valentinkolb/cloud/ui";
+import { Calendar, type CalendarEvent, Placeholder, Button } from "@k2b/ui";
 import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import { createMemo, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
@@ -81,15 +81,17 @@ export function RecordCalendarView(props: {
           }}
         />
         <Show when={props.hasMore}>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            class="btn-input btn-input-sm absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-sm"
+            class="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-sm"
             onClick={props.onLoadMore}
             disabled={props.loadingMore}
           >
             {props.loadingMore ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-chevron-down" />}
             Load more events
-          </button>
+          </Button>
         </Show>
       </Show>
     </div>

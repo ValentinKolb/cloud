@@ -1,5 +1,5 @@
 import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import GridsLayoutHelpRegistrar from "../help/GridsLayoutHelpRegistrar.island";
 import RememberGridsPath from "../sidebar/RememberGridsPath.island";
 import GridsRoute from "./GridsRoute.island";

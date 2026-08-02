@@ -1,7 +1,5 @@
-import { Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
-
-const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
 
 export function RecordsAdminToolbar(props: {
   savedView: boolean;
@@ -30,41 +28,41 @@ export function RecordsAdminToolbar(props: {
         when={props.savedView}
         fallback={
           <>
-            <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenTableSettings}>
+            <Button variant="success" size="sm" onClick={props.onOpenTableSettings}>
               <i class="ti ti-settings" /> General
-            </button>
-            <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onAddField}>
+            </Button>
+            <Button variant="success" size="sm" onClick={props.onAddField}>
               <i class="ti ti-plus" /> Add field
-            </button>
+            </Button>
             <Show when={props.allowForms}>
-              <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenForms}>
+              <Button variant="success" size="sm" onClick={props.onOpenForms}>
                 <i class="ti ti-forms" /> {props.formsButtonLabel}
-              </button>
+              </Button>
             </Show>
-            <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenTemplates}>
+            <Button variant="success" size="sm" onClick={props.onOpenTemplates}>
               <i class="ti ti-file-type-pdf" /> Templates
-            </button>
+            </Button>
           </>
         }
       >
         <>
           <Tooltip content={viewDisabledReason()} disabled={!viewDisabledReason()}>
             <span class="inline-flex">
-              <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenViewSettings} disabled={Boolean(viewDisabledReason())}>
+              <Button variant="success" size="sm" onClick={props.onOpenViewSettings} disabled={Boolean(viewDisabledReason())}>
                 <i class="ti ti-table-spark" /> View
-              </button>
+              </Button>
             </span>
           </Tooltip>
           <Show when={props.hiddenViewColumnCount > 0}>
-            <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onAddViewColumn}>
+            <Button variant="success" size="sm" onClick={props.onAddViewColumn}>
               <i class="ti ti-plus" /> Add column
-            </button>
+            </Button>
           </Show>
         </>
       </Show>
-      <button type="button" class="btn-simple btn-sm ml-auto" onClick={props.onDone}>
+      <Button variant="ghost" size="sm" type="button" class="ml-auto" onClick={props.onDone}>
         Done
-      </button>
+      </Button>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { CopyButton, dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { CopyButton, dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -142,20 +142,21 @@ function FormSubmitBody(props: {
               <CopyButton
                 text={`${typeof window !== "undefined" ? window.location.origin : ""}/share/grids/forms/${token()}`}
                 label="Copy public link"
-                class="btn-simple btn-sm"
+                variant="ghost"
+                size="sm"
               />
             )}
           </Show>
           <div class="ml-auto flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => props.close()} disabled={submitting()}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => props.close()} disabled={submitting()}>
               Cancel
-            </button>
-            <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
+            </Button>
+            <Button variant="primary" size="sm" type="submit" disabled={submitting()}>
               <Show when={submitting()} fallback={<i class="ti ti-send" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>
               {props.form.config.submitLabel ?? "Submit"}
-            </button>
+            </Button>
           </div>
         </div>
       </form>
@@ -171,13 +172,13 @@ function SuccessState(props: { message: string; onOk: () => void; onAddAnother: 
       </div>
       <p class="text-sm text-secondary">{props.message}</p>
       <div class="flex items-center gap-2">
-        <button type="button" class="btn-simple btn-sm" onClick={props.onAddAnother}>
+        <Button variant="ghost" size="sm" type="button" onClick={props.onAddAnother}>
           <i class="ti ti-plus" />
           Add another
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={props.onOk}>
+        </Button>
+        <Button variant="primary" size="sm" type="button" onClick={props.onOk}>
           OK
-        </button>
+        </Button>
       </div>
     </div>
   );

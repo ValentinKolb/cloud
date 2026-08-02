@@ -1,5 +1,5 @@
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts/shared";
-import { PermissionEditor } from "@valentinkolb/cloud/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import { apiClient } from "@/api/client";
 import { errorMessage } from "../utils/api-helpers";
 

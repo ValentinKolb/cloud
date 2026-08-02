@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { type Accessor, createEffect, createSignal } from "solid-js";
 import { apiClient } from "../../../api/client";

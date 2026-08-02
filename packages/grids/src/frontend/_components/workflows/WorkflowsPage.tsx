@@ -10,7 +10,10 @@ import {
   prompts,
   StatCell,
   StatGrid,
-} from "@valentinkolb/cloud/ui";
+  StatusBadge,
+  Tag,
+  Button,
+} from "@k2b/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
@@ -40,7 +43,7 @@ import {
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
   isTerminalWorkflowRunStatus,
-  workflowRunStatusClass as statusClass,
+  workflowRunStatusTone,
 } from "./workflow-display";
 import { reconcileWorkflowRunList, type WorkflowRunListFilter } from "./workflow-run-list";
 import {
@@ -197,7 +200,7 @@ function EmailDeliveryTable(props: {
           if (col.id === "status") {
             return (
               <span class="flex min-w-0 flex-col items-start gap-1">
-                <span class={`badge ${delivery.status === "failed" ? "badge-danger" : "badge-success"}`}>{delivery.status}</span>
+                <StatusBadge tone={delivery.status === "failed" ? "error" : "ok"} label={delivery.status} />
                 <Show when={delivery.error}>
                   {(error) => <span class="block max-w-48 truncate text-red-600 dark:text-red-400">{error()}</span>}
                 </Show>
@@ -628,9 +631,9 @@ export default function WorkflowsPage(props: Props) {
                   {(message) => (
                     <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
                       <span>{message()}</span>
-                      <button type="button" class="btn-simple btn-sm shrink-0" onClick={() => emailDeliveriesMut.mutate()}>
+                      <Button variant="ghost" size="sm" type="button" class="shrink-0" onClick={() => emailDeliveriesMut.mutate()}>
                         <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </Show>
@@ -675,49 +678,57 @@ export default function WorkflowsPage(props: Props) {
             <div class="min-w-0">
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <h1 class="min-w-0 truncate text-base font-semibold text-primary">{workflow().name}</h1>
-                <span class={`badge ${workflow().enabled ? "badge-success" : "badge-neutral"}`}>
-                  {workflow().enabled ? "enabled" : "disabled"}
-                </span>
-                <span class="tag">{triggerSummary(workflow())}</span>
+                <StatusBadge tone={workflow().enabled ? "ok" : "neutral"} label={workflow().enabled ? "enabled" : "disabled"} />
+                <Tag size="sm">{triggerSummary(workflow())}</Tag>
               </div>
               <Show when={workflow().description}>{(description) => <p class="mt-0.5 text-xs text-dimmed">{description()}</p>}</Show>
             </div>
             <div class="flex min-w-0 flex-wrap items-center gap-2" role="toolbar" aria-label="Workflow actions">
               <Show when={props.canRunActiveWorkflow}>
-                <button
+                <Button
+                  variant="primary"
+                  size="sm"
                   type="button"
-                  class="btn-primary btn-sm shrink-0"
+                  class="shrink-0"
                   disabled={runMut.loading() || !workflow().enabled}
                   onClick={() => void runWorkflow()}
                 >
                   <i class={runMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} /> Run workflow
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-input btn-sm shrink-0"
+                  class="shrink-0"
                   disabled={runMut.loading()}
                   onClick={() => void runWorkflow("dryRun")}
                 >
                   <i class="ti ti-flask" /> Dry run
-                </button>
+                </Button>
                 <For each={scannerLaunchers()}>
                   {(launcher) => (
-                    <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openScanner(workflow(), launcher)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      class="shrink-0"
+                      onClick={() => void openScanner(workflow(), launcher)}
+                    >
                       <i class="ti ti-barcode" /> {launcher.name}
-                    </button>
+                    </Button>
                   )}
                 </For>
               </Show>
               <Show when={props.editMode && props.canManageActiveWorkflow}>
-                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openLaunchers(workflow())}>
+                <Button variant="success" size="sm" type="button" class="shrink-0" onClick={() => void openLaunchers(workflow())}>
                   <i class="ti ti-rocket" /> Run options
-                </button>
-                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openHistory(workflow())}>
+                </Button>
+                <Button variant="success" size="sm" type="button" class="shrink-0" onClick={() => void openHistory(workflow())}>
                   <i class="ti ti-history" /> History
-                </button>
-                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openEditor(workflow())}>
+                </Button>
+                <Button variant="success" size="sm" type="button" class="shrink-0" onClick={() => void openEditor(workflow())}>
                   <i class="ti ti-settings" /> Manage
-                </button>
+                </Button>
               </Show>
             </div>
           </header>
@@ -730,9 +741,9 @@ export default function WorkflowsPage(props: Props) {
             {(message) => (
               <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
                 <span>{message()}</span>
-                <button type="button" class="btn-simple btn-sm shrink-0" onClick={reloadAll}>
+                <Button variant="ghost" size="sm" type="button" class="shrink-0" onClick={reloadAll}>
                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                </button>
+                </Button>
               </div>
             )}
           </Show>
@@ -744,7 +755,7 @@ export default function WorkflowsPage(props: Props) {
               icon="ti ti-clock"
               options={statsWindowOptions}
               value={[statsWindow()]}
-              onChange={changeStatsWindow}
+              onValueChange={changeStatsWindow}
               defaultValue={["24h"]}
               isActive={statsWindow() !== "24h"}
             />
@@ -799,9 +810,9 @@ export default function WorkflowsPage(props: Props) {
                 <h2 class="text-sm font-semibold text-primary">Runs</h2>
                 <p class="text-xs text-dimmed">Select a run to inspect its steps, outputs, and generated documents.</p>
               </div>
-              <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openEmailActivity()}>
+              <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openEmailActivity()}>
                 <i class="ti ti-mail" /> Email activity
-              </button>
+              </Button>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <FilterChip
@@ -809,7 +820,7 @@ export default function WorkflowsPage(props: Props) {
                 icon="ti ti-filter"
                 options={runStatusOptions}
                 value={[runStatus()]}
-                onChange={changeRunStatus}
+                onValueChange={changeRunStatus}
                 defaultValue={["all"]}
                 isActive={runStatus() !== "all"}
               />
@@ -818,18 +829,18 @@ export default function WorkflowsPage(props: Props) {
                 icon="ti ti-route"
                 options={runChannelOptions}
                 value={[runChannel()]}
-                onChange={changeRunChannel}
+                onValueChange={changeRunChannel}
                 defaultValue={["all"]}
                 isActive={runChannel() !== "all"}
               />
-              <button type="button" class="btn-simple btn-sm ml-auto" onClick={reloadAll}>
+              <Button variant="ghost" size="sm" type="button" class="ml-auto" onClick={reloadAll}>
                 <i
                   class={
                     runsMut.loading() || statsMut.loading() || triggerStateMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"
                   }
                 />{" "}
                 Refresh
-              </button>
+              </Button>
             </div>
             <DataTable
               rows={runs()}
@@ -847,7 +858,9 @@ export default function WorkflowsPage(props: Props) {
               onRowClick={(run) => props.onSelectRun(run.id)}
               empty={runsMut.loading() ? "Loading workflow runs..." : "No runs match these filters."}
               renderCell={({ row: run, col, render, value }) => {
-                if (col.id === "status") return <span class={`badge ${statusClass(run.status)}`}>{run.status.replaceAll("_", " ")}</span>;
+                if (col.id === "status") {
+                  return <StatusBadge tone={workflowRunStatusTone(run.status)} label={run.status.replaceAll("_", " ")} />;
+                }
                 if (col.id === "started") return <span class="text-dimmed">{formatDate(run.createdAt)}</span>;
                 if (col.id === "channel") return channelLabels[run.channel] ?? run.channel;
                 if (col.id === "mode") return run.mode === "dryRun" ? "Dry run" : "Execute";

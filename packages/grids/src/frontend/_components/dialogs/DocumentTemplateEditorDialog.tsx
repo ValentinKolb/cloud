@@ -8,7 +8,8 @@ import {
   prompts,
   type TemplateVariable,
   TextInput,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -334,22 +335,28 @@ function DocumentTemplateEditorDialog(props: {
         icon="ti ti-file-type-pdf"
         close={closeIfClean}
         actions={
-          <button type="button" class="btn-input btn-sm" onClick={() => openTemplateReferenceWindow(props.args.baseId)}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => openTemplateReferenceWindow(props.args.baseId)}>
             <i class="ti ti-external-link" /> Reference
-          </button>
+          </Button>
         }
       />
       <PanelDialog.Body>
         <div class="flex h-full min-h-0 flex-col gap-2">
           <div class="grid shrink-0 gap-2 lg:grid-cols-2">
-            <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
-            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+            <TextInput label="Name" value={name} onValueChange={setName} icon="ti ti-typography" required />
+            <TextInput
+              label="Description"
+              value={description}
+              onValueChange={setDescription}
+              icon="ti ti-align-left"
+              placeholder="Optional"
+            />
             <div>
               <TextInput
                 label="Document number"
                 description="Liquid pattern for stable generated document numbers."
                 value={numberTemplate}
-                onInput={setNumberTemplate}
+                onValueChange={setNumberTemplate}
                 icon="ti ti-hash"
                 placeholder={defaultDocumentNumberTemplate}
                 required
@@ -360,7 +367,7 @@ function DocumentTemplateEditorDialog(props: {
                 label="Filename"
                 description="Liquid pattern for generated PDF filenames. Users can edit the final filename before generating."
                 value={filenameTemplate}
-                onInput={setFilenameTemplate}
+                onValueChange={setFilenameTemplate}
                 icon="ti ti-file-text"
                 placeholder="{{ document.number }}.pdf"
                 required
@@ -369,7 +376,7 @@ function DocumentTemplateEditorDialog(props: {
             <div class="lg:col-span-2">
               <CheckboxCard
                 value={enabled}
-                onChange={setEnabled}
+                onValueChange={setEnabled}
                 label="Enabled"
                 description="Enabled templates appear in document generation lists and the Documents sidebar."
                 icon="ti ti-file-check"
@@ -397,11 +404,11 @@ function DocumentTemplateEditorDialog(props: {
                 baseId={props.args.baseId}
                 currentSource={{ kind: "table", tableId: props.args.tableId }}
                 value={source}
-                onInput={setSource}
+                onValueChange={setSource}
                 lines={4}
                 placeholder={`from table ${props.args.tableName}\nwhere record.id = "{{ record.id }}"\nlimit 1`}
                 spellcheck={false}
-                ariaLabel="GQL source"
+                aria-label="GQL source"
               />
               <Show when={gqlDiagnosticError() || previewSourceError() || gqlDiagnostics().length > 0}>
                 <div class="info-block-danger mt-2 text-xs">
@@ -450,12 +457,12 @@ function DocumentTemplateEditorDialog(props: {
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={closeIfClean}>
+          <Button variant="secondary" size="sm" type="button" onClick={closeIfClean}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => void saveTemplate()} disabled={saveMut.loading()}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" onClick={() => void saveTemplate()} disabled={saveMut.loading()}>
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save template"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>

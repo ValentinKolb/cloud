@@ -1,4 +1,4 @@
-import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, Button } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
@@ -70,12 +70,12 @@ export function GridCreateActions(props: Props) {
         when={activeForms().length > 0}
         fallback={
           <Show when={!props.disableDirectInsert}>
-            <button type="button" class="btn-input-primary btn-input-sm" onClick={addRecord} disabled={addMutation.loading()}>
+            <Button variant="primary" size="sm" type="button" onClick={addRecord} disabled={addMutation.loading()}>
               <Show when={addMutation.loading()} fallback={<i class="ti ti-plus" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>
               Add record
-            </button>
+            </Button>
           </Show>
         }
       >
@@ -85,11 +85,11 @@ export function GridCreateActions(props: Props) {
             <Dropdown
               position="bottom-right"
               trigger={
-                <span class="btn-input-primary btn-input-sm">
+                <Button variant="primary" size="sm">
                   <i class="ti ti-forms" />
                   Add with form
                   <i class="ti ti-chevron-down text-[10px] opacity-60" />
-                </span>
+                </Button>
               }
               elements={activeForms().map((form) => ({
                 icon: "ti ti-forms",
@@ -100,19 +100,19 @@ export function GridCreateActions(props: Props) {
           }
         >
           {(form) => (
-            <button type="button" class="btn-input-primary btn-input-sm" onClick={() => void submitForm(form())}>
+            <Button variant="primary" size="sm" type="button" onClick={() => void submitForm(form())}>
               <i class="ti ti-forms" />
               Add with form
-            </button>
+            </Button>
           )}
         </Show>
         <Show when={!props.disableDirectInsert}>
-          <button type="button" class="btn-input-primary btn-input-sm" onClick={addRecord} disabled={addMutation.loading()}>
+          <Button variant="primary" size="sm" type="button" onClick={addRecord} disabled={addMutation.loading()}>
             <Show when={addMutation.loading()} fallback={<i class="ti ti-plus" />}>
               <i class="ti ti-loader-2 animate-spin" />
             </Show>
             Add record
-          </button>
+          </Button>
         </Show>
       </Show>
     </Show>

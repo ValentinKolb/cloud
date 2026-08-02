@@ -8,7 +8,8 @@ import {
   prompts,
   Select,
   TextInput,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, Show } from "solid-js";
@@ -245,7 +246,7 @@ function FieldEditor(props: {
             label="Name"
             description="Used as the column header and default form label."
             value={name}
-            onInput={wrap(setName)}
+            onValueChange={wrap(setName)}
             icon="ti ti-typography"
             required
           />
@@ -262,14 +263,19 @@ function FieldEditor(props: {
           label="Description (optional)"
           description="Shown in forms and record details."
           value={description}
-          onInput={wrap(setDescription)}
+          onValueChange={wrap(setDescription)}
           icon="ti ti-info-circle"
           multiline
           lines={2}
           placeholder="e.g. Use the ISO-639-1 language code"
         />
 
-        <IconInput label="Icon (optional)" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
+        <IconInput
+          label="Icon (optional)"
+          value={icon}
+          onValueChange={(value) => wrap(setIcon)(value ?? "")}
+          placeholder="Search icons..."
+        />
 
         <PanelDialog.Section
           title="Record behavior"
@@ -283,7 +289,7 @@ function FieldEditor(props: {
                 description="Every record must have a value for this field."
                 icon="ti ti-asterisk"
                 value={required}
-                onChange={wrap(setRequired)}
+                onValueChange={wrap(setRequired)}
               />
             </Show>
             <Show when={supportsPresentable()}>
@@ -292,7 +298,7 @@ function FieldEditor(props: {
                 description="Show this field when another table links to this record."
                 icon="ti ti-tag"
                 value={presentable}
-                onChange={wrap(setPresentable)}
+                onValueChange={wrap(setPresentable)}
               />
             </Show>
             <CheckboxCard
@@ -300,7 +306,7 @@ function FieldEditor(props: {
               description="Keep it out of the default table view; detail panels and custom views can still show it."
               icon="ti ti-eye-off"
               value={hideInTable}
-              onChange={wrap(setHideInTable)}
+              onValueChange={wrap(setHideInTable)}
             />
             <Show when={supportsUnique()}>
               <CheckboxCard
@@ -312,7 +318,7 @@ function FieldEditor(props: {
                 }
                 icon="ti ti-fingerprint"
                 value={() => (forceUnique() ? true : uniqueConstraint())}
-                onChange={forceUnique() ? undefined : wrap(setUniqueConstraint)}
+                onValueChange={forceUnique() ? undefined : wrap(setUniqueConstraint)}
                 disabled={forceUnique()}
               />
             </Show>
@@ -330,7 +336,7 @@ function FieldEditor(props: {
               description="Faster filters and sorts on this field. Costs disk and write work."
               icon="ti ti-database-search"
               value={indexed}
-              onChange={wrap(setIndexed)}
+              onValueChange={wrap(setIndexed)}
             />
           </PanelDialog.Section>
         </Show>
@@ -345,7 +351,7 @@ function FieldEditor(props: {
               label="Table column name"
               description="Empty uses the field name."
               value={columnLabel}
-              onInput={wrap(setColumnLabel)}
+              onValueChange={wrap(setColumnLabel)}
               icon="ti ti-heading"
               clearable
             />
@@ -376,7 +382,7 @@ function FieldEditor(props: {
         <Show when={supportsDefaultValue()}>
           {/* Default value — fills records that don't supply this field on
             create. Renders via the shared FieldInput so the value editor
-            matches the field type (NumberInput for number, SelectInput
+            matches the field type (NumberInput for number, Select
             for select, etc). Saved as `defaultValue` on the field
             row; null/undefined = no default. */}
           <PanelDialog.Section
@@ -406,7 +412,7 @@ function FieldEditor(props: {
               <Select
                 label="Default value"
                 value={dateDefaultMode}
-                onChange={(v) => {
+                onValueChange={(v) => {
                   const mode = (v as "none" | "fixed" | "now" | null) ?? "none";
                   setDateDefaultMode(mode);
                   wrap(setDefaultValue)(mode === "now" ? { kind: "now" } : mode === "none" ? null : null);
@@ -463,18 +469,18 @@ function FieldEditor(props: {
       </PanelDialog.Body>
 
       <PanelDialog.Footer>
-        <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDeleted}>
+        <Button variant="ghost" size="sm" type="button" class="text-red-500 hover:text-red-600" onClick={props.onDeleted}>
           <i class="ti ti-trash" /> Delete field
-        </button>
+        </Button>
         <div class="flex items-center gap-2">
           <Show when={props.onCancel}>
-            <button type="button" class="btn-input btn-sm" onClick={() => props.onCancel?.()}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => props.onCancel?.()}>
               Cancel
-            </button>
+            </Button>
           </Show>
-          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={!dirty() || updateMut.loading()}>
+          <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!dirty() || updateMut.loading()}>
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </>

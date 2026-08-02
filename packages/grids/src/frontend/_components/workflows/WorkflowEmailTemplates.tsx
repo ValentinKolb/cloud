@@ -16,7 +16,10 @@ import {
   TextInput,
   Tooltip,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+  StatusBadge,
+} from "@k2b/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
@@ -188,12 +191,18 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
       <PanelDialog.Body scrollPreserveKey={`grids-email-template-editor-${props.template?.id ?? "new"}`}>
         <div class="flex min-h-[42rem] flex-1 flex-col gap-2">
           <div class="grid shrink-0 gap-2 md:grid-cols-2">
-            <TextInput label="Name" value={name} onInput={setName} required icon="ti ti-mail" placeholder="Invoice email" />
-            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+            <TextInput label="Name" value={name} onValueChange={setName} required icon="ti ti-mail" placeholder="Invoice email" />
+            <TextInput
+              label="Description"
+              value={description}
+              onValueChange={setDescription}
+              icon="ti ti-align-left"
+              placeholder="Optional"
+            />
             <TextInput
               label="Subject"
               value={subject}
-              onInput={setSubject}
+              onValueChange={setSubject}
               required
               icon="ti ti-text-caption"
               placeholder="{{ workflow.name }}"
@@ -205,7 +214,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
                 description="Enabled email templates can be used by workflow sendEmail steps."
                 icon="ti ti-mail-check"
                 value={enabled}
-                onChange={setEnabled}
+                onValueChange={setEnabled}
               />
             </div>
           </div>
@@ -213,12 +222,12 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
             Type {"{{"} for values, {"{%"} for Liquid logic, or {"<"} for HTML snippets. Use sample data to change preview values.
           </p>
           <div class="min-h-[30rem] min-w-0 flex-1 overflow-hidden">
-            <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>
+            <Panes.Root value={panes()} onValueChange={setPanes} class="h-full w-full" allowResize={false}>
               <Panes.Element id="html" title="HTML" icon="ti ti-code">
                 <div class="h-full min-h-0 overflow-auto">
                   <TemplateEditor
                     value={html}
-                    onInput={setHtml}
+                    onValueChange={setHtml}
                     variables={variables()}
                     fill
                     placeholder="<p>Hello {{ business.legalName | default: app.name }}</p>"
@@ -226,7 +235,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
                 </div>
               </Panes.Element>
               <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                <TemplatePreview html={renderedPreview} />
+                <TemplatePreview html={renderedPreview()} />
               </Panes.Element>
               <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
                 <div class="flex h-full min-h-0 flex-col gap-2 overflow-auto">
@@ -234,7 +243,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
                     label="Workflow data"
                     description="JSON available under data in the subject and HTML preview."
                     value={sampleDataSource}
-                    onInput={setSampleDataSource}
+                    onValueChange={setSampleDataSource}
                     error={() => {
                       const parsed = parsedSampleData();
                       return parsed.ok ? undefined : parsed.error;
@@ -248,8 +257,8 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
                   />
                   <TemplateSampleData
                     variables={EMAIL_TEMPLATE_SYSTEM_VARIABLES}
-                    values={systemSampleData}
-                    onChange={setSystemSampleValue}
+                    values={systemSampleData()}
+                    onValueChange={setSystemSampleValue}
                   />
                 </div>
               </Panes.Element>
@@ -260,12 +269,12 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
       <PanelDialog.Footer>
         <div />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => void closeIfClean()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => saveMut.mutate()}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" disabled={!canSave()} onClick={() => saveMut.mutate()}>
             <i class={saveMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} /> Save email template
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -349,9 +358,9 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
         subtitle="Reusable Liquid emails for workflow sendEmail steps."
         icon="ti ti-mail"
         actions={
-          <button type="button" class="btn-primary btn-sm" onClick={() => void openEditor()}>
+          <Button variant="primary" size="sm" type="button" onClick={() => void openEditor()}>
             <i class="ti ti-plus" /> Add email template
-          </button>
+          </Button>
         }
         close={props.onClose}
       />
@@ -373,9 +382,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                 <button type="button" class="min-w-0 text-left" onClick={() => void openEditor(template)}>
                   <span class="flex min-w-0 items-center gap-2">
                     <span class="truncate text-sm font-semibold text-primary">{template.name}</span>
-                    <span class={`badge ${template.enabled ? "badge-success" : "badge-neutral"}`}>
-                      {template.enabled ? "enabled" : "disabled"}
-                    </span>
+                    <StatusBadge tone={template.enabled ? "ok" : "neutral"} label={template.enabled ? "enabled" : "disabled"} />
                   </span>
                   <span class="mt-0.5 block truncate text-xs text-dimmed">{template.subject}</span>
                   <Show when={template.description}>
@@ -389,20 +396,28 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                 </button>
                 <div class="flex items-center gap-1">
                   <Tooltip content="Edit email template">
-                    <button type="button" class="icon-btn" aria-label="Edit email template" onClick={() => void openEditor(template)}>
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      label="Edit email template"
+                      onClick={() => void openEditor(template)}
+                    >
                       <i class="ti ti-pencil" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                   <Tooltip content="Delete email template">
-                    <button
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
                       type="button"
-                      class="icon-btn text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                      aria-label="Delete email template"
+                      class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                      label="Delete email template"
                       disabled={deleteMut.loading() || (dependencies()[template.id] ?? []).length > 0}
                       onClick={() => deleteMut.mutate(template)}
                     >
                       <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </div>
               </article>
@@ -412,9 +427,9 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <div />
-        <button type="button" class="btn-input btn-sm" onClick={props.onClose}>
+        <Button variant="secondary" size="sm" type="button" onClick={props.onClose}>
           Close
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );

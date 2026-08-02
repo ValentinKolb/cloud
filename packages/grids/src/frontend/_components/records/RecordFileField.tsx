@@ -7,7 +7,10 @@ import {
   panelDialogWorkspaceOptions,
   prompts,
   Tooltip,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+  IconButtonLink,
+} from "@k2b/ui";
 import { fileIcons, text } from "@k2b/stdlib";
 import { showFileDialog } from "@k2b/stdlib/browser";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -50,10 +53,16 @@ function RecordFilePreviewDialog(props: { location: RecordFileLocation; file: Gr
         })}`}
         actions={
           <Tooltip content="Download file">
-            <a class="icon-btn" href={downloadHref()} download={props.file.filename} aria-label={`Download ${props.file.filename}`}>
+            <IconButtonLink
+              variant="ghost"
+              size="sm"
+              href={downloadHref()}
+              download={props.file.filename}
+              label={`Download ${props.file.filename}`}
+            >
               <i class="ti ti-download" aria-hidden="true" />
               <span class="sr-only">Download {props.file.filename}</span>
-            </a>
+            </IconButtonLink>
           </Tooltip>
         }
         close={props.close}
@@ -193,26 +202,30 @@ export default function RecordFileField(props: {
                 <span class="shrink-0 text-xs text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
                 <Show when={previewable(file)}>
                   <Tooltip content="Preview file">
-                    <button
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
                       type="button"
-                      class="btn-simple btn-sm text-dimmed hover:text-primary"
-                      aria-label={`Preview ${file.filename}`}
+                      class="text-dimmed hover:text-primary"
+                      label={`Preview ${file.filename}`}
                       onClick={() => void openRecordFilePreview(location(), file)}
                     >
                       <i class="ti ti-eye" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </Show>
                 <Show when={props.canWrite}>
                   <Tooltip content="Delete file">
-                    <button
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
                       type="button"
-                      class="btn-simple btn-sm text-dimmed hover:text-red-500"
-                      aria-label={`Delete ${file.filename}`}
+                      class="text-dimmed hover:text-red-500"
+                      label={`Delete ${file.filename}`}
                       onClick={() => void remove(file)}
                     >
                       <i class="ti ti-trash" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </Show>
               </div>
@@ -221,16 +234,18 @@ export default function RecordFileField(props: {
         </div>
       </Show>
       <Show when={props.canWrite}>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
-          class="btn-input btn-input-sm w-fit"
+          class="w-fit"
           disabled={uploading()}
           aria-busy={uploading()}
           onClick={() => void chooseFile()}
         >
           <i aria-hidden="true" class={`ti ${uploading() ? "ti-loader-2 animate-spin" : "ti-upload"} text-sm`} />
           Upload
-        </button>
+        </Button>
       </Show>
     </div>
   );

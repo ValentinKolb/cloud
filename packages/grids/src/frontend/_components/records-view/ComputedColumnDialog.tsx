@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import type { ColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -60,7 +60,14 @@ export const openComputedColumnDialog = (args: {
             Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view
             setup.
           </div>
-          <TextInput label="Name" value={label} onInput={setLabel} icon="ti ti-typography" placeholder="e.g. Total with VAT" required />
+          <TextInput
+            label="Name"
+            value={label}
+            onValueChange={setLabel}
+            icon="ti ti-typography"
+            placeholder="e.g. Total with VAT"
+            required
+          />
           <FormulaExpressionEditor
             value={expression}
             onInput={setExpression}
@@ -73,17 +80,17 @@ export const openComputedColumnDialog = (args: {
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <Show when={args.column} fallback={<span />}>
-            <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
+            <Button variant="danger" size="sm" type="button" onClick={() => close({ action: "delete" })}>
               <i class="ti ti-trash" /> Delete column
-            </button>
+            </Button>
           </Show>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={save}>
+            </Button>
+            <Button variant="primary" size="sm" type="button" onClick={save}>
               Save
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>

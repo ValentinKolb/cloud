@@ -1,4 +1,4 @@
-import { AppWorkspace, Tooltip } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Tooltip } from "@k2b/ui";
 
 export default function SidebarTableMeta(props: { tableName: string }) {
   return (

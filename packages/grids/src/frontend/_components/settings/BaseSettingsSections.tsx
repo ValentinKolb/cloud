@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Placeholder, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Select, TextInput, Button } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -75,15 +75,15 @@ export function DocumentProfileForm(props: { base: { id: string; documentProfile
         mutation.mutate(undefined);
       }}
     >
-      <TextInput label="Legal name" icon="ti ti-building" value={value("legalName")} onInput={(v) => patch({ legalName: v })} />
-      <TextInput label="Department" icon="ti ti-users" value={value("department")} onInput={(v) => patch({ department: v })} />
+      <TextInput label="Legal name" icon="ti ti-building" value={value("legalName")} onValueChange={(v) => patch({ legalName: v })} />
+      <TextInput label="Department" icon="ti ti-users" value={value("department")} onValueChange={(v) => patch({ department: v })} />
       <div class="lg:col-span-2">
         <TextInput
           label="Sender line"
           description="Shown above recipient address blocks."
           icon="ti ti-mail-forward"
           value={value("senderLine")}
-          onInput={(v) => patch({ senderLine: v })}
+          onValueChange={(v) => patch({ senderLine: v })}
         />
       </div>
       <div class="lg:col-span-2">
@@ -91,25 +91,30 @@ export function DocumentProfileForm(props: { base: { id: string; documentProfile
           label="Address"
           icon="ti ti-map-pin"
           value={value("address")}
-          onInput={(v) => patch({ address: v })}
+          onValueChange={(v) => patch({ address: v })}
           multiline
           lines={3}
         />
       </div>
-      <TextInput label="Contact email" icon="ti ti-mail" value={value("contactEmail")} onInput={(v) => patch({ contactEmail: v })} />
-      <TextInput label="Phone" icon="ti ti-phone" value={value("phone")} onInput={(v) => patch({ phone: v })} />
-      <TextInput label="Website" icon="ti ti-link" value={value("url")} onInput={(v) => patch({ url: v })} />
-      <TextInput label="Tax ID / VAT" icon="ti ti-receipt-tax" value={value("taxId")} onInput={(v) => patch({ taxId: v })} />
-      <TextInput label="Registration" icon="ti ti-certificate" value={value("registration")} onInput={(v) => patch({ registration: v })} />
-      <TextInput label="Bank" icon="ti ti-building-bank" value={value("bankName")} onInput={(v) => patch({ bankName: v })} />
-      <TextInput label="IBAN" icon="ti ti-credit-card" value={value("iban")} onInput={(v) => patch({ iban: v })} />
-      <TextInput label="BIC" icon="ti ti-credit-card" value={value("bic")} onInput={(v) => patch({ bic: v })} />
+      <TextInput label="Contact email" icon="ti ti-mail" value={value("contactEmail")} onValueChange={(v) => patch({ contactEmail: v })} />
+      <TextInput label="Phone" icon="ti ti-phone" value={value("phone")} onValueChange={(v) => patch({ phone: v })} />
+      <TextInput label="Website" icon="ti ti-link" value={value("url")} onValueChange={(v) => patch({ url: v })} />
+      <TextInput label="Tax ID / VAT" icon="ti ti-receipt-tax" value={value("taxId")} onValueChange={(v) => patch({ taxId: v })} />
+      <TextInput
+        label="Registration"
+        icon="ti ti-certificate"
+        value={value("registration")}
+        onValueChange={(v) => patch({ registration: v })}
+      />
+      <TextInput label="Bank" icon="ti ti-building-bank" value={value("bankName")} onValueChange={(v) => patch({ bankName: v })} />
+      <TextInput label="IBAN" icon="ti ti-credit-card" value={value("iban")} onValueChange={(v) => patch({ iban: v })} />
+      <TextInput label="BIC" icon="ti ti-credit-card" value={value("bic")} onValueChange={(v) => patch({ bic: v })} />
       <div class="lg:col-span-2">
         <TextInput
           label="Payment terms"
           icon="ti ti-calendar-dollar"
           value={value("paymentTerms")}
-          onInput={(v) => patch({ paymentTerms: v })}
+          onValueChange={(v) => patch({ paymentTerms: v })}
           multiline
           lines={2}
         />
@@ -119,15 +124,15 @@ export function DocumentProfileForm(props: { base: { id: string; documentProfile
           label="Footer text"
           icon="ti ti-text-caption"
           value={value("footerText")}
-          onInput={(v) => patch({ footerText: v })}
+          onValueChange={(v) => patch({ footerText: v })}
           multiline
           lines={2}
         />
       </div>
       <Show when={draft.dirty()}>
-        <button type="submit" disabled={mutation.loading()} class="btn-primary btn-sm self-start lg:col-span-2">
+        <Button variant="primary" size="sm" type="submit" disabled={mutation.loading()} class="self-start lg:col-span-2">
           {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save document profile"}
-        </button>
+        </Button>
       </Show>
     </form>
   );
@@ -264,9 +269,9 @@ function TrashRow(props: { icon: string; name: string; deletedAt: string; onRest
       <Show when={props.deletedAt}>
         <span class="text-[11px] text-dimmed">deleted {props.deletedAt}</span>
       </Show>
-      <button type="button" class="btn-simple btn-sm shrink-0" onClick={props.onRestore}>
+      <Button variant="ghost" size="sm" type="button" class="shrink-0" onClick={props.onRestore}>
         <i class="ti ti-arrow-back-up" /> Restore
-      </button>
+      </Button>
     </div>
   );
 }
@@ -312,19 +317,26 @@ export function GeneralForm(props: { base: { id: string; name: string; descripti
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-3">
-      <TextInput label="Name" placeholder="My Base" icon="ti ti-typography" value={name} onInput={(v) => patch({ name: v })} required />
+      <TextInput
+        label="Name"
+        placeholder="My Base"
+        icon="ti ti-typography"
+        value={name}
+        onValueChange={(v) => patch({ name: v })}
+        required
+      />
       <TextInput
         label="Description"
         placeholder="Optional description..."
         icon="ti ti-align-left"
         value={description}
-        onInput={(v) => patch({ description: v })}
+        onValueChange={(v) => patch({ description: v })}
         multiline
       />
       <Show when={draft.dirty()}>
-        <button type="submit" disabled={mutation.loading()} class="btn-primary btn-sm self-start mt-2">
+        <Button variant="primary" size="sm" type="submit" disabled={mutation.loading()} class="self-start mt-2">
           {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-        </button>
+        </Button>
       </Show>
     </form>
   );
@@ -357,7 +369,8 @@ export function DefaultDashboardSelect(props: { baseId: string; initial: string 
     onError: (e) => prompts.error(e.message),
   });
 
-  const onChange = (next: string) => {
+  const onChange = (next: string | null) => {
+    if (next === null) return;
     setValue(next);
     mutation.mutate(next === "" ? null : next);
   };
@@ -374,7 +387,7 @@ export function DefaultDashboardSelect(props: { baseId: string; initial: string 
     <Select
       label="Default dashboard"
       value={value}
-      onChange={onChange}
+      onValueChange={onChange}
       options={[{ id: "", label: "(none)" }, ...props.dashboards.map((d) => ({ id: d.id, label: d.name }))]}
       icon="ti ti-layout-dashboard"
     />
@@ -407,7 +420,7 @@ export function DangerZone(props: { baseId: string; baseName: string }) {
   };
 
   return (
-    <button type="button" onClick={handleDelete} disabled={deleteMut.loading()} class="btn-danger btn-sm self-start">
+    <Button variant="danger" size="sm" type="button" onClick={handleDelete} disabled={deleteMut.loading()} class="self-start">
       {deleteMut.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (
@@ -416,6 +429,6 @@ export function DangerZone(props: { baseId: string; baseName: string }) {
           Delete base
         </>
       )}
-    </button>
+    </Button>
   );
 }

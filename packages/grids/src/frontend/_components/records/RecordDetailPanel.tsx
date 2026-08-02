@@ -1,4 +1,4 @@
-import { Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, Tooltip, Button, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Show } from "solid-js";
@@ -232,9 +232,9 @@ export default function RecordDetailPanel(props: Props) {
                 <Dropdown
                   trigger={
                     <Tooltip content="More record actions">
-                      <button type="button" class="icon-btn" aria-label="More record actions" disabled={deleteMut.loading()}>
+                      <IconButton variant="ghost" size="sm" type="button" label="More record actions" disabled={deleteMut.loading()}>
                         <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} />
-                      </button>
+                      </IconButton>
                     </Tooltip>
                   }
                   elements={[
@@ -254,23 +254,23 @@ export default function RecordDetailPanel(props: Props) {
                 />
               </Show>
               <Tooltip content="Close details">
-                <button type="button" class="icon-btn" aria-label="Close detail panel" onClick={() => props.onClose()}>
+                <IconButton variant="ghost" size="sm" type="button" label="Close detail panel" onClick={() => props.onClose()}>
                   <i class="ti ti-x" />
-                </button>
+                </IconButton>
               </Tooltip>
             </>
           }
           quickActions={
             <>
               <Show when={props.canWrite && mode() === "live"}>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => handleEdit(rec)} disabled={updateMut.loading()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => handleEdit(rec)} disabled={updateMut.loading()}>
                   <i class="ti ti-pencil" /> Edit
-                </button>
+                </Button>
               </Show>
               <Show when={props.canWrite && mode() === "trash"}>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => handleRestore(rec)} disabled={restoreMut.loading()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => handleRestore(rec)} disabled={restoreMut.loading()}>
                   <i class="ti ti-arrow-back-up" /> Restore
-                </button>
+                </Button>
               </Show>
             </>
           }

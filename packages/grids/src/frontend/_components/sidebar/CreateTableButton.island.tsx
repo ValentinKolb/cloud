@@ -1,4 +1,4 @@
-import { AppWorkspace, CheckboxCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, CheckboxCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
@@ -35,7 +35,7 @@ export default function CreateTableButton(props: { baseId: string; baseShortId: 
                 icon="ti ti-table"
                 variant="input"
                 value={() => kind() === "stored"}
-                onChange={() => setKind("stored")}
+                onValueChange={() => setKind("stored")}
               />
               <CheckboxCard
                 label="Combined table"
@@ -43,27 +43,28 @@ export default function CreateTableButton(props: { baseId: string; baseShortId: 
                 icon="ti ti-table-share"
                 variant="input"
                 value={() => kind() === "federated"}
-                onChange={() => setKind("federated")}
+                onValueChange={() => setKind("federated")}
               />
-              <TextInput label="Name" value={name} onInput={setName} placeholder="e.g. Global inventory" required />
+              <TextInput label="Name" value={name} onValueChange={setName} placeholder="e.g. Global inventory" required />
             </PanelDialog.Section>
           </PanelDialog.Body>
           <PanelDialog.Footer>
             <span />
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-input btn-sm" onClick={() => close(null)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 type="button"
-                class="btn-primary btn-sm"
                 onClick={() => {
                   const trimmed = name().trim();
                   if (trimmed) close({ name: trimmed, kind: kind() });
                 }}
               >
                 Create
-              </button>
+              </Button>
             </div>
           </PanelDialog.Footer>
         </PanelDialog>

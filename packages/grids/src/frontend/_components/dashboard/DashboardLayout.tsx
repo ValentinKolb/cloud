@@ -1,4 +1,4 @@
-import { Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { type DndBuildIntentContext, dnd } from "@k2b/stdlib/solid";
 import { createMemo, For, onCleanup, Show } from "solid-js";
@@ -47,8 +47,8 @@ const ROW_MIN_HEIGHT_PX = {
 } as const;
 
 const DASHBOARD_CELL_MAX_HEIGHT = "min(70vh, 820px)";
-const EDIT_ICON_CLASS = "icon-btn";
-
+const EDIT_HANDLE_CLASS =
+  "inline-flex h-8 w-8 items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed cursor-grab active:cursor-grabbing";
 const runDashboardControlAction = (controlKey: string, action: () => void) => {
   action();
   if (typeof document === "undefined") return;
@@ -177,17 +177,13 @@ export default function DashboardLayout(props: Props) {
               <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <DashboardSaveStatus state={edit().saveState} />
                 <Show when={props.dashboard.config.rows.length > 0}>
-                  <button
-                    type="button"
-                    class="btn-input-success btn-input-sm"
-                    onClick={() => edit().onAddRowAt(props.dashboard.config.rows.length)}
-                  >
+                  <Button variant="success" size="sm" type="button" onClick={() => edit().onAddRowAt(props.dashboard.config.rows.length)}>
                     <i class="ti ti-plus" /> Add row
-                  </button>
+                  </Button>
                 </Show>
-                <button type="button" class="btn-input btn-input-sm" onClick={edit().onGeneral}>
+                <Button variant="secondary" size="sm" type="button" onClick={edit().onGeneral}>
                   <i class="ti ti-settings" /> Dashboard settings
-                </button>
+                </Button>
               </div>
             )}
           </Show>
@@ -327,7 +323,8 @@ function DashboardRowGrid(props: {
         <Show when={props.edit}>
           {(edit) => (
             <Tooltip content="Add widget to row">
-              <button
+              <Button
+                aria-label={`Add widget to row ${props.rowIdx + 1}`}
                 ref={(element) => {
                   props.cellDnd.droppable(element, () => ({
                     id: `dashboard-row-end-drop:${props.row.id}`,
@@ -335,17 +332,16 @@ function DashboardRowGrid(props: {
                     disabled: !props.edit,
                   }));
                 }}
-                type="button"
-                class={`btn-input min-h-16 w-16 shrink-0 justify-center ${
+                variant="secondary"
+                class={`min-h-16 w-16 shrink-0 justify-center ${
                   props.cellDnd.intent()?.toRowIdx === props.rowIdx && (props.cellDnd.intent()?.toCellIdx ?? 0) >= props.row.cells.length
                     ? "bg-[var(--ui-active)]"
                     : ""
                 }`}
                 onClick={() => edit().onAddCell(props.rowIdx)}
-                aria-label={`Add widget to row ${props.rowIdx + 1}`}
               >
                 <i class="ti ti-plus" />
-              </button>
+              </Button>
             </Tooltip>
           )}
         </Show>
@@ -426,42 +422,35 @@ function RowEditRail(props: {
       }}
       class="absolute left-0 top-0 z-20 flex w-9 flex-col items-center justify-start gap-1 pt-2"
     >
-      <span class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`} data-dashboard-row-drag aria-hidden="true">
+      <span class={EDIT_HANDLE_CLASS} data-dashboard-row-drag aria-hidden="true">
         <i class="ti ti-grip-vertical" />
       </span>
       <Tooltip content="Move row up">
-        <button
-          type="button"
-          class={EDIT_ICON_CLASS}
+        <IconButton
+          label={`Move row ${props.rowIdx + 1} up`}
+          size="sm"
           data-dashboard-control={controlKey(-1)}
           onClick={() => move(-1)}
           disabled={props.rowIdx === 0}
-          aria-label={`Move row ${props.rowIdx + 1} up`}
         >
           <i class="ti ti-arrow-up" />
-        </button>
+        </IconButton>
       </Tooltip>
       <Tooltip content="Move row down">
-        <button
-          type="button"
-          class={EDIT_ICON_CLASS}
+        <IconButton
+          label={`Move row ${props.rowIdx + 1} down`}
+          size="sm"
           data-dashboard-control={controlKey(1)}
           onClick={() => move(1)}
           disabled={props.rowIdx === props.rowCount - 1}
-          aria-label={`Move row ${props.rowIdx + 1} down`}
         >
           <i class="ti ti-arrow-down" />
-        </button>
+        </IconButton>
       </Tooltip>
       <Tooltip content="Row settings">
-        <button
-          type="button"
-          class={EDIT_ICON_CLASS}
-          onClick={() => props.edit?.onEditRow(props.rowIdx)}
-          aria-label={`Settings for row ${props.rowIdx + 1}`}
-        >
+        <IconButton label={`Settings for row ${props.rowIdx + 1}`} size="sm" onClick={() => props.edit?.onEditRow(props.rowIdx)}>
           <i class="ti ti-settings" />
-        </button>
+        </IconButton>
       </Tooltip>
     </div>
   );
@@ -504,66 +493,57 @@ function EditCellControls(props: {
     <Show when={props.edit}>
       {(edit) => (
         <div class="absolute right-2 top-2 z-20 flex items-center gap-0 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1 opacity-100 transition-opacity motion-reduce:transition-none sm:opacity-0 sm:group-hover/cell:opacity-100 sm:group-focus-within/cell:opacity-100">
-          <span class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`} data-dashboard-cell-drag aria-hidden="true">
+          <span class={EDIT_HANDLE_CLASS} data-dashboard-cell-drag aria-hidden="true">
             <i class="ti ti-grip-vertical" />
           </span>
           <Tooltip content="Move widget left">
-            <button
-              type="button"
-              class={EDIT_ICON_CLASS}
+            <IconButton
+              label={`Move ${props.label} left`}
+              size="sm"
               data-dashboard-control={controlKey("left")}
               onClick={() => moveWithinRow(-1)}
               disabled={props.cellIdx === 0}
-              aria-label={`Move ${props.label} left`}
             >
               <i class="ti ti-arrow-left" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content="Move widget right">
-            <button
-              type="button"
-              class={EDIT_ICON_CLASS}
+            <IconButton
+              label={`Move ${props.label} right`}
+              size="sm"
               data-dashboard-control={controlKey("right")}
               onClick={() => moveWithinRow(1)}
               disabled={props.cellIdx === (props.rowCellCounts[props.rowIdx] ?? 0) - 1}
-              aria-label={`Move ${props.label} right`}
             >
               <i class="ti ti-arrow-right" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content="Move widget up">
-            <button
-              type="button"
-              class={EDIT_ICON_CLASS}
+            <IconButton
+              label={`Move ${props.label} up`}
+              size="sm"
               data-dashboard-control={controlKey("up")}
               onClick={() => moveToRow(-1)}
               disabled={!canMoveToRow(-1)}
-              aria-label={`Move ${props.label} up`}
             >
               <i class="ti ti-arrow-up" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content="Move widget down">
-            <button
-              type="button"
-              class={EDIT_ICON_CLASS}
+            <IconButton
+              label={`Move ${props.label} down`}
+              size="sm"
               data-dashboard-control={controlKey("down")}
               onClick={() => moveToRow(1)}
               disabled={!canMoveToRow(1)}
-              aria-label={`Move ${props.label} down`}
             >
               <i class="ti ti-arrow-down" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content="Widget settings">
-            <button
-              type="button"
-              class={EDIT_ICON_CLASS}
-              onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}
-              aria-label={`Settings for ${props.label}`}
-            >
+            <IconButton label={`Settings for ${props.label}`} size="sm" onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}>
               <i class="ti ti-settings" />
-            </button>
+            </IconButton>
           </Tooltip>
         </div>
       )}
@@ -630,9 +610,9 @@ function EmptyDashboardState(props: { edit?: Props["edit"] }) {
       <p class="text-sm font-medium text-primary">Nothing here yet</p>
       <Show when={props.edit} fallback={<p class="text-xs text-dimmed">Open edit mode to build this dashboard.</p>}>
         {(edit) => (
-          <button type="button" class="btn-input-success btn-input-sm mt-1" onClick={edit().onAddFirstWidget}>
+          <Button variant="success" size="sm" type="button" class="mt-1" onClick={edit().onAddFirstWidget}>
             <i class="ti ti-plus" /> Add first widget
-          </button>
+          </Button>
         )}
       </Show>
     </div>

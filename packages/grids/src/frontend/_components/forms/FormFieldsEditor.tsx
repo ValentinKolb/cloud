@@ -1,4 +1,4 @@
-import { Placeholder, prompts, Select, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Placeholder, prompts, Select, Tag, Tooltip } from "@k2b/ui";
 import { createMemo, createSignal, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
@@ -130,53 +130,58 @@ export function FormFieldsEditor(props: {
                         </span>
                       </button>
                       <Show when={entry().kind === "form_value"}>
-                        <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] text-secondary">Fixed</span>
+                        <Tag size="sm">Fixed</Tag>
                       </Show>
                       <Show when={entry().kind === "user_input" && (entry() as Extract<FormFieldEntry, { kind: "user_input" }>).required}>
-                        <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] text-secondary">Required</span>
+                        <Tag size="sm">Required</Tag>
                       </Show>
                       <div class="flex shrink-0 items-center gap-0.5">
                         <Tooltip content="Move field up">
-                          <button
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
                             type="button"
-                            class="icon-btn"
                             onClick={() => moveEntry(idx, -1)}
                             disabled={idx === 0}
-                            aria-label="Move field up"
+                            label="Move field up"
                           >
                             <i class="ti ti-arrow-up" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                         <Tooltip content="Move field down">
-                          <button
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
                             type="button"
-                            class="icon-btn"
                             onClick={() => moveEntry(idx, 1)}
                             disabled={idx === props.entries().length - 1}
-                            aria-label="Move field down"
+                            label="Move field down"
                           >
                             <i class="ti ti-arrow-down" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                         <Tooltip content="Edit field settings" class="md:hidden">
-                          <button
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
                             type="button"
-                            class="icon-btn"
                             onClick={() => void openFieldSettings(idx)}
-                            aria-label="Edit field settings"
+                            label="Edit field settings"
                           >
                             <i class="ti ti-pencil" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                         <Tooltip content="Remove from form">
-                          <button
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
                             type="button"
-                            class="icon-btn text-red-500 hover:text-red-600"
+                            class="text-red-500 hover:text-red-600"
                             onClick={() => removeEntry(idx)}
-                            aria-label="Remove from form"
+                            label="Remove from form"
                           >
                             <i class="ti ti-trash" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                       </div>
                     </div>
@@ -191,7 +196,7 @@ export function FormFieldsEditor(props: {
             label="Add field"
             description="Pick a table field, then choose how the form uses it."
             value={() => ""}
-            onChange={(value) => {
+            onValueChange={(value) => {
               if (value) void addEntry(value);
             }}
             options={addable().map((field) => ({
@@ -229,12 +234,12 @@ const chooseFormFieldEntryKind = (field: Field) =>
           </p>
         </div>
         <div class="flex flex-wrap justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => close("form_value")}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => close("form_value")}>
             <i class="ti ti-lock" /> Add fixed value
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => close("user_input")}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" onClick={() => close("user_input")}>
             <i class="ti ti-pencil" /> Add form field
-          </button>
+          </Button>
         </div>
       </div>
     ),

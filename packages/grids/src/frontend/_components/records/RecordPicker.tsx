@@ -1,4 +1,4 @@
-import { SelectInput } from "@valentinkolb/cloud/ui";
+import { Select } from "@k2b/ui";
 import { fetchRecordLookup } from "./record-lookup";
 
 type Props = {
@@ -20,7 +20,7 @@ export default function RecordPicker(props: Props) {
   const excludedIds = () => [...new Set([props.value(), ...(props.excludeIds?.() ?? [])].filter(Boolean))];
 
   return (
-    <SelectInput
+    <Select
       label={props.label}
       description={props.description}
       placeholder={props.placeholder ?? "Search records..."}
@@ -29,7 +29,7 @@ export default function RecordPicker(props: Props) {
       clearable={props.clearable ?? true}
       disabled={props.disabled?.() ?? false}
       value={() => props.value()}
-      onChange={props.onChange}
+      onValueChange={(recordId) => props.onChange(recordId ?? "")}
       selectedLabel={props.selectedLabel}
       fetchData={async (query, signal) => {
         const items = await fetchRecordLookup({

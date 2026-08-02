@@ -10,7 +10,8 @@ import {
   SegmentedControl,
   Select,
   TextInput,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -243,7 +244,7 @@ export const openCellEditDialog = (
             <Select
               label="Widget width"
               value={() => String(draft().span ?? 12)}
-              onChange={(v) => setDraft({ ...draft(), span: Number(v) } as Widget)}
+              onValueChange={(v) => setDraft({ ...draft(), span: Number(v) } as Widget)}
               options={[
                 { id: "3", label: "Quarter row", description: "Best for a compact number or action." },
                 { id: "4", label: "Third row", description: "Three equal widgets per row." },
@@ -257,20 +258,20 @@ export const openCellEditDialog = (
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <Show when={options.allowDelete} fallback={<span />}>
-            <button type="button" class="btn-danger btn-sm" onClick={() => void remove()}>
+            <Button variant="danger" size="sm" type="button" onClick={() => void remove()}>
               <i class="ti ti-trash" /> Delete widget
-            </button>
+            </Button>
           </Show>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => void closeIfClean()}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" disabled={validating()} onClick={() => void save()}>
+            </Button>
+            <Button variant="primary" size="sm" type="button" disabled={validating()} onClick={() => void save()}>
               <Show when={validating()} fallback={<i class="ti ti-check" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>
               {options.allowDelete ? "Save changes" : "Add widget"}
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>
@@ -406,7 +407,7 @@ function DashboardValueFormatEditor(props: {
       <Select
         label={props.label ?? "Format"}
         value={() => value().style}
-        onChange={(style) => setStyle(style as WidgetValueFormat["style"])}
+        onValueChange={(style) => setStyle(style as WidgetValueFormat["style"])}
         options={VALUE_FORMAT_OPTIONS}
       />
       <Show when={value().style !== "integer"}>
@@ -416,7 +417,7 @@ function DashboardValueFormatEditor(props: {
           min={0}
           max={20}
           value={() => value().decimalPlaces}
-          onInput={(decimalPlaces) =>
+          onValueChange={(decimalPlaces) =>
             props.onChange({ ...value(), ...(decimalPlaces === null ? { decimalPlaces: undefined } : { decimalPlaces }) })
           }
           clearable
@@ -427,14 +428,14 @@ function DashboardValueFormatEditor(props: {
           label="Unit"
           description="Optional text such as EUR, kg, or hours."
           value={() => value().unit ?? ""}
-          onInput={setUnit}
+          onValueChange={setUnit}
           maxLength={20}
         />
         <Show when={value().unit}>
           <Select
             label="Unit position"
             value={() => value().unitPosition ?? "suffix"}
-            onChange={(unitPosition) => props.onChange({ ...value(), unitPosition: unitPosition as "prefix" | "suffix" })}
+            onValueChange={(unitPosition) => props.onChange({ ...value(), unitPosition: unitPosition as "prefix" | "suffix" })}
             options={[
               { id: "prefix", label: "Before value" },
               { id: "suffix", label: "After value" },
@@ -484,7 +485,7 @@ function DashboardDataSourceEditor(props: {
         <SegmentedControl
           ariaLabel="Dashboard widget data source"
           value={() => props.source.kind}
-          onChange={switchMode}
+          onValueChange={switchMode}
           options={[
             { value: "view", label: "Saved view", icon: "ti ti-bookmark" },
             { value: "gql", label: "Query", icon: "ti ti-code" },
@@ -497,7 +498,8 @@ function DashboardDataSourceEditor(props: {
           <Select
             label="Saved view"
             value={() => (props.source.kind === "view" ? props.source.viewId : viewDraft())}
-            onChange={(viewId) => {
+            onValueChange={(viewId) => {
+              if (viewId === null) return;
               setViewDraft(viewId);
               props.onChange({ kind: "view", viewId });
             }}
@@ -520,13 +522,13 @@ function DashboardDataSourceEditor(props: {
           <GqlSourceEditor
             baseId={props.baseId}
             value={() => (props.source.kind === "gql" ? props.source.source : queryDraft())}
-            onInput={(source) => {
+            onValueChange={(source) => {
               setQueryDraft(source);
               props.onChange({ kind: "gql", source });
             }}
             lines={8}
             spellcheck={false}
-            ariaLabel="Widget GQL source"
+            aria-label="Widget GQL source"
             placeholder={props.queryPlaceholder}
             variant="paper"
           />
@@ -560,24 +562,24 @@ function StatCellBody(props: {
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
         />
         <TextInput
           label="Sub-line"
           value={() => props.widget.sub ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, sub: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, sub: v || undefined })}
           placeholder="e.g. last 24h"
         />
         <Select
           label="Value color"
           value={() => props.widget.tone ?? "blue"}
-          onChange={(v) => props.onUpdate({ ...props.widget, tone: v as StatWidget["tone"] })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, tone: v as StatWidget["tone"] })}
           options={STAT_TONE_OPTIONS}
         />
         <IconInput
           label="Icon"
           value={() => props.widget.icon ?? ""}
-          onChange={(v) => props.onUpdate({ ...props.widget, icon: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, icon: v || undefined })}
           placeholder="Search icons..."
         />
       </div>
@@ -635,14 +637,14 @@ function StatTrendSection(props: {
         <Show
           when={trend()}
           fallback={
-            <button type="button" class="btn-input-success btn-sm" onClick={enable}>
+            <Button variant="success" size="sm" type="button" onClick={enable}>
               <i class="ti ti-plus" /> Add trend
-            </button>
+            </Button>
           }
         >
-          <button type="button" class="btn-input btn-sm" onClick={disable}>
+          <Button variant="secondary" size="sm" type="button" onClick={disable}>
             Remove trend
-          </button>
+          </Button>
         </Show>
       </div>
       <p class="text-xs text-dimmed">Adds a small history line from grouped saved-view or query data.</p>
@@ -660,7 +662,7 @@ function StatTrendSection(props: {
             <Select
               label="Window size"
               value={() => String(t().windowSize)}
-              onChange={(v) => patchTrend({ windowSize: Number(v) })}
+              onValueChange={(v) => patchTrend({ windowSize: Number(v) })}
               options={[6, 8, 12, 24, 30].map((n) => ({ id: String(n), label: `Last ${n}` }))}
             />
           </div>
@@ -691,7 +693,7 @@ function ViewStatsCellBody(props: {
       <TextInput
         label="Title"
         value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
         placeholder="Defaults to the saved view or query summary"
       />
     </WidgetEditorSection>
@@ -711,13 +713,15 @@ function FormCellBody(props: {
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
           placeholder="Defaults to the form name"
         />
         <Select
           label="Form"
           value={() => props.widget.formId}
-          onChange={(v) => props.onUpdate({ ...props.widget, formId: v })}
+          onValueChange={(v) => {
+            if (v !== null) props.onUpdate({ ...props.widget, formId: v });
+          }}
           options={[
             { id: "", label: "(pick a form)" },
             ...allForms().map(({ form, tableName }) => ({
@@ -754,7 +758,7 @@ function ViewCellBody(props: {
       <TextInput
         label="Title"
         value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
         placeholder="Defaults to the saved view or query results"
       />
     </WidgetEditorSection>
@@ -795,14 +799,15 @@ function ChartCellBody(props: {
         <span class="text-xs font-medium text-primary">Chart type</span>
         <div class="flex flex-wrap items-center gap-2">
           {CHART_TYPE_OPTIONS.map((opt) => (
-            <button
-              type="button"
-              class={props.widget.chartType === opt.id ? "btn-input-primary btn-sm" : "btn-input btn-sm"}
+            <Button
+              variant={props.widget.chartType === opt.id ? "primary" : "secondary"}
+              size="sm"
+              aria-pressed={props.widget.chartType === opt.id}
               onClick={() => props.onUpdate(withChartType(props.widget, opt.id))}
             >
               <i class={opt.icon} />
               {opt.label}
-            </button>
+            </Button>
           ))}
         </div>
         <p class="text-xs text-dimmed">{CHART_TYPE_HELP[props.widget.chartType]}</p>
@@ -823,20 +828,20 @@ function ChartCellBody(props: {
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
           placeholder="e.g. Revenue by quarter"
         />
         <TextInput
           label="Subtitle"
           value={() => props.widget.subtitle ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, subtitle: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, subtitle: v || undefined })}
           placeholder="e.g. last 12 months"
         />
         <TextInput
           label="Limit"
           description="Optional. Uses the source order and keeps the last N rows."
           value={() => (props.widget.limit !== undefined ? String(props.widget.limit) : "")}
-          onInput={(raw) => {
+          onValueChange={(raw) => {
             const trimmed = raw.trim();
             if (!trimmed) {
               const { limit: _drop, ...rest } = props.widget;
@@ -852,12 +857,12 @@ function ChartCellBody(props: {
           <TextInput
             label="X-axis label"
             value={() => props.widget.xAxisLabel ?? ""}
-            onInput={(v) => props.onUpdate({ ...props.widget, xAxisLabel: v || undefined })}
+            onValueChange={(v) => props.onUpdate({ ...props.widget, xAxisLabel: v || undefined })}
           />
           <TextInput
             label="Y-axis label"
             value={() => props.widget.yAxisLabel ?? ""}
-            onInput={(v) => props.onUpdate({ ...props.widget, yAxisLabel: v || undefined })}
+            onValueChange={(v) => props.onUpdate({ ...props.widget, yAxisLabel: v || undefined })}
           />
         </Show>
       </div>
@@ -990,14 +995,15 @@ function LinkCellBody(props: {
         <span class="text-xs font-medium text-primary">Target type</span>
         <div class="flex flex-wrap items-center gap-2">
           {LINK_TARGET_OPTIONS.map((opt) => (
-            <button
-              type="button"
-              class={props.widget.target.kind === opt.id ? "btn-input-primary btn-sm" : "btn-input btn-sm"}
+            <Button
+              variant={props.widget.target.kind === opt.id ? "primary" : "secondary"}
+              size="sm"
+              aria-pressed={props.widget.target.kind === opt.id}
               onClick={() => setTargetKind(opt.id)}
             >
               <i class={opt.icon} />
               {opt.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -1005,25 +1011,27 @@ function LinkCellBody(props: {
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
           placeholder="Defaults to target name"
         />
         <IconInput
           label="Icon"
           value={() => props.widget.icon ?? ""}
-          onChange={(v) => props.onUpdate({ ...props.widget, icon: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, icon: v || undefined })}
           placeholder="Search icons..."
         />
         <TextInput
           label="Description"
           value={() => props.widget.description ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, description: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, description: v || undefined })}
         />
         <Show when={props.widget.target.kind === "dashboard"}>
           <Select
             label="Dashboard"
             value={() => (props.widget.target.kind === "dashboard" ? props.widget.target.dashboardId : "")}
-            onChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "dashboard", dashboardId: v } })}
+            onValueChange={(v) => {
+              if (v !== null) props.onUpdate({ ...props.widget, target: { kind: "dashboard", dashboardId: v } });
+            }}
             options={[
               { id: "", label: "(pick a dashboard)" },
               ...props.dashboards.map((d) => ({ id: d.id, label: d.name, description: d.description ?? undefined })),
@@ -1034,7 +1042,9 @@ function LinkCellBody(props: {
           <Select
             label="Table"
             value={() => (props.widget.target.kind === "table" ? props.widget.target.tableId : "")}
-            onChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "table", tableId: v } })}
+            onValueChange={(v) => {
+              if (v !== null) props.onUpdate({ ...props.widget, target: { kind: "table", tableId: v } });
+            }}
             options={[{ id: "", label: "(pick a table)" }, ...props.tables.map((t) => ({ id: t.id, label: t.name }))]}
           />
         </Show>
@@ -1042,7 +1052,9 @@ function LinkCellBody(props: {
           <Select
             label="View"
             value={() => (props.widget.target.kind === "view" ? props.widget.target.viewId : "")}
-            onChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "view", viewId: v } })}
+            onValueChange={(v) => {
+              if (v !== null) props.onUpdate({ ...props.widget, target: { kind: "view", viewId: v } });
+            }}
             options={[
               { id: "", label: "(pick a view)" },
               ...allViews().map(({ view, tableName }) => ({
@@ -1057,7 +1069,9 @@ function LinkCellBody(props: {
           <Select
             label="Form"
             value={() => (props.widget.target.kind === "form" ? props.widget.target.formId : "")}
-            onChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "form", formId: v } })}
+            onValueChange={(v) => {
+              if (v !== null) props.onUpdate({ ...props.widget, target: { kind: "form", formId: v } });
+            }}
             options={[
               { id: "", label: "(pick a form)" },
               ...allForms().map(({ form, tableName }) => ({
@@ -1072,7 +1086,7 @@ function LinkCellBody(props: {
           <TextInput
             label="URL"
             value={() => (props.widget.target.kind === "url" ? props.widget.target.url : "")}
-            onInput={(v) => props.onUpdate({ ...props.widget, target: { kind: "url", url: v } })}
+            onValueChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "url", url: v } })}
             placeholder="https://..."
           />
         </Show>
@@ -1087,12 +1101,12 @@ function MarkdownCellBody(props: { widget: MarkdownWidget; onUpdate: (w: Markdow
       <TextInput
         label="Title"
         value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
         placeholder="Optional"
       />
       <MarkdownEditor
         value={() => props.widget.markdown ?? ""}
-        onInput={(value) => props.onUpdate({ ...props.widget, markdown: value })}
+        onValueChange={(value) => props.onUpdate({ ...props.widget, markdown: value })}
         lines={12}
         placeholder="Add instructions, links, or context..."
       />
@@ -1111,26 +1125,27 @@ function WorkflowButtonCellBody(props: {
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
           placeholder="Defaults to workflow name"
         />
         <TextInput
           label="Button text"
           value={() => props.widget.buttonLabel ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, buttonLabel: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, buttonLabel: v || undefined })}
           placeholder="Run"
         />
         <TextInput
           label="Description"
           value={() => props.widget.description ?? ""}
-          onInput={(v) => props.onUpdate({ ...props.widget, description: v || undefined })}
+          onValueChange={(v) => props.onUpdate({ ...props.widget, description: v || undefined })}
           placeholder="Optional context shown above the button"
         />
         <Select
           label="Workflow"
           description="Workflows with dashboard or scanner launchers are listed."
           value={() => props.widget.launcherId}
-          onChange={(v) => {
+          onValueChange={(v) => {
+            if (v === null) return;
             const workflow = props.dashboardWorkflows.find((candidate) => dashboardWorkflowOption(candidate).dashboardLauncher.id === v);
             props.onUpdate({
               ...props.widget,

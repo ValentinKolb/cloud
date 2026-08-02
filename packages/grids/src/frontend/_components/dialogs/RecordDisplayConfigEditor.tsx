@@ -1,4 +1,4 @@
-import { MultiSelectInput, Select } from "@valentinkolb/cloud/ui";
+import { MultiSelectInput, Select } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { RecordDisplayConfig, RecordDisplayMode } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -94,7 +94,7 @@ export function RecordDisplayConfigEditor(props: {
         label="Display"
         description="Choose how this table or view is shown."
         value={() => display().mode}
-        onChange={(mode) => changeMode(mode as RecordDisplayMode)}
+        onValueChange={(mode) => changeMode(mode as RecordDisplayMode)}
         options={MODE_OPTIONS}
       />
 
@@ -105,7 +105,7 @@ export function RecordDisplayConfigEditor(props: {
             description="Optional image shown at the top of each card."
             placeholder={imageFieldOptions().length > 0 ? "No cover image" : "No file fields"}
             value={() => display().cards?.imageFieldId ?? ""}
-            onChange={(imageFieldId) => patchCards({ imageFieldId: imageFieldId || null })}
+            onValueChange={(imageFieldId) => patchCards({ imageFieldId: imageFieldId || null })}
             selectedLabel={imageFieldLabel}
             options={imageFieldOptions()}
             clearable
@@ -117,7 +117,7 @@ export function RecordDisplayConfigEditor(props: {
             placeholder="Choose fields"
             icon="ti ti-layout-list"
             value={() => display().cards?.fieldIds ?? []}
-            onChange={(fieldIds) => patchCards({ fieldIds })}
+            onValueChange={(fieldIds) => patchCards({ fieldIds })}
             options={cardFieldOptions()}
             selectedOptions={cardSelectedOptions}
             clearable
@@ -132,7 +132,7 @@ export function RecordDisplayConfigEditor(props: {
           description="Records are placed in the calendar by this date."
           placeholder={dateFieldOptions().length > 0 ? "Choose date field" : "No date fields"}
           value={() => display().calendar?.dateFieldId ?? ""}
-          onChange={(dateFieldId) => patchCalendar({ dateFieldId: dateFieldId || null })}
+          onValueChange={(dateFieldId) => patchCalendar({ dateFieldId: dateFieldId || null })}
           selectedLabel={dateFieldLabel}
           options={dateFieldOptions()}
           clearable

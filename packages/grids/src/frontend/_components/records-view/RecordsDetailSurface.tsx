@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { Show } from "solid-js";
 import type { AggregationSpec, ColumnSpec, DocumentTemplateSummary, GroupBySpec, RecordQuery, TableAuditPolicy } from "../../../contracts";
@@ -56,12 +56,12 @@ export default function RecordsDetailSurface(props: Props) {
               class="h-full"
               action={
                 <div class="flex items-center gap-1">
-                  <button type="button" class="btn-input btn-input-sm" onClick={props.onCloseRecord}>
+                  <Button variant="secondary" size="sm" type="button" onClick={props.onCloseRecord}>
                     Close
-                  </button>
-                  <button type="button" class="btn-input btn-input-sm" onClick={props.onRetryRecord}>
+                  </Button>
+                  <Button variant="secondary" size="sm" type="button" onClick={props.onRetryRecord}>
                     <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                  </button>
+                  </Button>
                 </div>
               }
             />

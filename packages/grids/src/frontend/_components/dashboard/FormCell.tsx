@@ -1,3 +1,4 @@
+import { Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -173,12 +174,12 @@ function FormBody(props: {
             </div>
           </Show>
           <div class="flex justify-end">
-            <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
+            <Button variant="primary" size="sm" type="submit" disabled={submitting()}>
               <Show when={submitting()} fallback={<i class="ti ti-send" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>
               {props.form.config.submitLabel ?? "Submit"}
-            </button>
+            </Button>
           </div>
         </div>
       </form>

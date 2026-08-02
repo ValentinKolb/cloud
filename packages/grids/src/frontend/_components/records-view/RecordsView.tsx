@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Button, ButtonLink } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
 import type {
@@ -247,12 +247,12 @@ export default function RecordsView(props: Props) {
             </div>
           </PanelDialog.Body>
           <PanelDialog.Footer>
-            <a href={queryWorkspaceHref()} class="btn-input btn-sm">
+            <ButtonLink variant="secondary" size="sm" href={queryWorkspaceHref()}>
               <i class="ti ti-arrows-maximize" /> Full workspace
-            </a>
-            <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+            </ButtonLink>
+            <Button variant="primary" size="sm" type="button" onClick={() => close()}>
               Done
-            </button>
+            </Button>
           </PanelDialog.Footer>
         </PanelDialog>
       ),
@@ -766,9 +766,9 @@ export default function RecordsView(props: Props) {
                   description={failure().error.message}
                   class="shrink-0 py-2"
                   action={
-                    <button type="button" class="btn-input btn-input-sm" onClick={retryQuery}>
+                    <Button variant="secondary" size="sm" type="button" onClick={retryQuery}>
                       <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                    </button>
+                    </Button>
                   }
                 />
               )}

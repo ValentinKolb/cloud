@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   isTerminalWorkflowRunStatus,
-  workflowRunStatusClass,
+  workflowRunStatusTone,
   workflowStepErrorMessage,
   workflowStepIssueReason,
   workflowStepOutcomeSummary,
   workflowStepPlannedEffects,
-  workflowStepStatusClass,
+  workflowStepStatusTone,
 } from "./workflow-display";
 
 describe("status badges", () => {
@@ -14,12 +14,12 @@ describe("status badges", () => {
     // A run succeeds; a step completes. Reusing the run's mapping for steps
     // rendered every finished step in the neutral "still going" badge, because
     // no step is ever "succeeded".
-    expect(workflowStepStatusClass("completed")).toBe("badge-success");
-    expect(workflowStepStatusClass("planned")).toBe("badge-success");
-    expect(workflowStepStatusClass("running")).toBe("badge-neutral");
-    expect(workflowStepStatusClass("failed")).toBe("badge-danger");
-    expect(workflowStepStatusClass("unsupported")).toBe("badge-danger");
-    expect(workflowRunStatusClass("succeeded")).toBe("badge-success");
+    expect(workflowStepStatusTone("completed")).toBe("ok");
+    expect(workflowStepStatusTone("planned")).toBe("ok");
+    expect(workflowStepStatusTone("running")).toBe("running");
+    expect(workflowStepStatusTone("failed")).toBe("error");
+    expect(workflowStepStatusTone("unsupported")).toBe("error");
+    expect(workflowRunStatusTone("succeeded")).toBe("ok");
   });
 });
 

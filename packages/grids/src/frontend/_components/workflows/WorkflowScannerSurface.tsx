@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, TextInput, Tooltip, Button, IconButtonLink } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -165,21 +165,21 @@ async function openScanDetails(item: ScanLogItem, retry?: () => void) {
         <PanelDialog.Footer>
           <Show when={retry} fallback={<span />}>
             {(retryAction) => (
-              <button
+              <Button
+                variant="secondary"
                 type="button"
-                class="btn-input"
                 onClick={() => {
                   close();
                   retryAction()();
                 }}
               >
                 <i class="ti ti-refresh" aria-hidden="true" /> Retry
-              </button>
+              </Button>
             )}
           </Show>
-          <button type="button" class="btn-input" onClick={() => close()}>
+          <Button variant="secondary" type="button" onClick={() => close()}>
             Close
-          </button>
+          </Button>
         </PanelDialog.Footer>
       </PanelDialog>
     ),
@@ -728,16 +728,17 @@ export default function WorkflowScannerSurface(props: Props) {
       <Show when={props.mode === "page"}>
         <header class="flex shrink-0 items-center gap-3 px-4 py-3">
           <Tooltip content="Back to workflow" placement="bottom">
-            <a
+            <IconButtonLink
+              variant="ghost"
+              size="sm"
               href={
                 props.state.returnHref ??
                 `/app/grids/${props.state.baseShortId}/workflows/${props.state.workflowShortId ?? props.state.workflowId}`
               }
-              class="icon-btn"
-              aria-label="Back to workflow"
+              label="Back to workflow"
             >
               <i class="ti ti-arrow-left" />
-            </a>
+            </IconButtonLink>
           </Tooltip>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold">{props.state.workflowName}</p>
@@ -787,23 +788,27 @@ export default function WorkflowScannerSurface(props: Props) {
             <Show
               when={pauseReason()}
               fallback={
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-input btn-input-sm bg-black/70 text-white hover:bg-black/90"
+                  class="bg-black/70 text-white hover:bg-black/90"
                   onClick={() => (cameraRunning() ? stopCamera() : void startCamera())}
                 >
                   <i class={`ti ${cameraRunning() ? "ti-video-off" : "ti-video"}`} />
                   {cameraRunning() ? "Stop" : "Start"}
-                </button>
+                </Button>
               }
             >
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-input btn-input-sm bg-black/70 text-white hover:bg-black/90"
+                class="bg-black/70 text-white hover:bg-black/90"
                 onClick={() => window.location.reload()}
               >
                 <i class="ti ti-refresh" aria-hidden="true" /> Restart
-              </button>
+              </Button>
             </Show>
           </div>
           <Show when={!setupReady() || setupError()}>
@@ -812,14 +817,16 @@ export default function WorkflowScannerSurface(props: Props) {
                 <i class={`ti ${setupError() ? "ti-alert-circle" : "ti-adjustments"} mb-3 text-2xl`} aria-hidden="true" />
                 <p class="text-sm font-semibold">{setupError() ?? "Preparing scanner..."}</p>
                 <Show when={setupError()}>
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
-                    class="btn-input btn-sm mt-4 bg-white text-zinc-900 hover:bg-zinc-100"
+                    class="mt-4 bg-white text-zinc-900 hover:bg-zinc-100"
                     disabled={collectingInput()}
                     onClick={() => void initializeScanner()}
                   >
                     <i class="ti ti-refresh" aria-hidden="true" /> Set up
-                  </button>
+                  </Button>
                 </Show>
               </div>
             </div>
@@ -843,31 +850,33 @@ export default function WorkflowScannerSurface(props: Props) {
               </span>
             </div>
             <Show when={(promptContract("session")?.workflow.plan.inputs.length ?? 0) > 0}>
-              <button type="button" class="btn-input btn-sm" disabled={collectingInput()} onClick={() => void changeSessionInputs()}>
+              <Button variant="secondary" size="sm" type="button" disabled={collectingInput()} onClick={() => void changeSessionInputs()}>
                 <i class="ti ti-adjustments" aria-hidden="true" /> Change context
-              </button>
+              </Button>
             </Show>
           </div>
           <form class="flex shrink-0 items-center gap-2 px-1 pb-2" onSubmit={submitManual}>
             <div class="min-w-0 flex-1">
               <TextInput
                 value={manualCode}
-                onInput={setManualCode}
+                onValueChange={setManualCode}
                 placeholder="Enter scan code..."
-                ariaLabel="Scan code"
+                aria-label="Scan code"
                 icon="ti ti-keyboard"
                 name="manual-scan-code"
                 autocomplete="off"
                 disabled={Boolean(pauseReason()) || !setupReady() || collectingInput()}
               />
             </div>
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               type="submit"
-              class="btn-input btn-sm shrink-0"
+              class="shrink-0"
               disabled={!manualCode().trim() || Boolean(pauseReason()) || !setupReady() || collectingInput()}
             >
               <i class="ti ti-scan" aria-hidden="true" /> Scan
-            </button>
+            </Button>
           </form>
           <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
             <Show when={counts().total > logs().length}>

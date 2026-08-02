@@ -1,4 +1,4 @@
-import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Placeholder } from "@k2b/ui";
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import DashboardLayout from "../dashboard/DashboardLayout";

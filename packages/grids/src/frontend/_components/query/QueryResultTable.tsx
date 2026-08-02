@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Button } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -95,17 +95,19 @@ export default function QueryResultTable(props: {
           </span>
           <Show when={hasPager()}>
             <div class="flex items-center gap-2">
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-input btn-sm"
                 disabled={props.loading || !props.canGoBack}
                 onClick={() => props.onPrevious?.()}
               >
                 <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-left"} /> {props.backLabel ?? "Previous"}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-input btn-sm"
                 disabled={props.loading || !page()?.nextCursor}
                 onClick={() => {
                   const cursor = page()?.nextCursor;
@@ -113,7 +115,7 @@ export default function QueryResultTable(props: {
                 }}
               >
                 Next <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-right"} />
-              </button>
+              </Button>
             </div>
           </Show>
         </div>

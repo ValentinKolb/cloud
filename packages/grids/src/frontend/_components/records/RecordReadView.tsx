@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, type JSX, Show } from "solid-js";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";

@@ -1,4 +1,4 @@
-import { Panes, type PanesValue, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Panes, type PanesValue, prompts, TextInput, Tooltip, Button } from "@k2b/ui";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -180,9 +180,9 @@ function QueryPreview(props: {
                 <div class="flex items-center gap-2">
                   <span class="text-dimmed">{plural(diagnostics().length, "issue")}</span>
                   <Show when={props.canGoBack}>
-                    <button type="button" class="btn-simple btn-sm" disabled={props.loading} onClick={props.onPrevious}>
+                    <Button variant="ghost" size="sm" type="button" disabled={props.loading} onClick={props.onPrevious}>
                       <i class="ti ti-chevrons-left" aria-hidden="true" /> {props.backLabel}
-                    </button>
+                    </Button>
                   </Show>
                 </div>
               </div>
@@ -494,7 +494,7 @@ export default function QueryWorkspace(props: Props) {
 
   return (
     <div class="flex min-h-0 flex-1 flex-col bg-[var(--ui-surface-subtle)] p-2" data-scroll-preserve="grids-query-workspace">
-      <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full flex-1">
+      <Panes.Root value={panes()} onValueChange={setPanes} class="h-full w-full flex-1">
         <Panes.Element id="results" title="Results" icon="ti ti-table-spark">
           <QueryPreview
             preview={preview()}
@@ -516,12 +516,12 @@ export default function QueryWorkspace(props: Props) {
                 baseId={props.baseId}
                 currentSource={apiSource()}
                 value={query}
-                onInput={onInput}
+                onValueChange={onInput}
                 restoreExpansionOnBackspace={false}
                 variant="paper"
                 fill
                 placeholder={"from table Orders\nwhere Status = 'Open'\nsort CreatedAt desc\nlimit 50\noffset 0"}
-                ariaLabel="GQL query"
+                aria-label="GQL query"
               />
             </div>
             <Show when={queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
@@ -534,23 +534,18 @@ export default function QueryWorkspace(props: Props) {
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <For each={examples()}>
                   {(example) => (
-                    <button type="button" class="btn-input btn-sm" onClick={() => insertExample(example.code)}>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => insertExample(example.code)}>
                       <i class="ti ti-sparkles" /> {example.label}
-                    </button>
+                    </Button>
                   )}
                 </For>
               </div>
-              <button type="button" class="btn-input btn-sm" onClick={() => openQueryReferenceWindow(props.baseShortId)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => openQueryReferenceWindow(props.baseShortId)}>
                 <i class="ti ti-external-link" /> Reference
-              </button>
-              <button
-                type="button"
-                class="btn-input-primary btn-sm"
-                onClick={handleSave}
-                disabled={!query().trim() || saveViewMut.loading()}
-              >
+              </Button>
+              <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!query().trim() || saveViewMut.loading()}>
                 <i class={saveButtonIcon()} /> {saveButtonLabel()}
-              </button>
+              </Button>
             </div>
           </section>
         </Panes.Element>
@@ -562,9 +557,9 @@ export default function QueryWorkspace(props: Props) {
               icon="ti ti-search"
               activeIcon="ti ti-search"
               placeholder="Search sources and fields..."
-              ariaLabel="Search query sources"
+              aria-label="Search query sources"
               value={sourceSearch}
-              onInput={setSourceSearch}
+              onValueChange={setSourceSearch}
               clearable
             />
 
@@ -614,9 +609,9 @@ export default function QueryWorkspace(props: Props) {
                               </button>
                             </Tooltip>
                             <Tooltip content={`Insert ${source.fromLine}`}>
-                              <button type="button" class="btn-ghost btn-sm shrink-0 px-2" onClick={() => insertSource(source)}>
+                              <Button variant="ghost" size="sm" type="button" class="shrink-0 px-2" onClick={() => insertSource(source)}>
                                 from
-                              </button>
+                              </Button>
                             </Tooltip>
                           </div>
 

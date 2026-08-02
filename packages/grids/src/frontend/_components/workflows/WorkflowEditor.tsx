@@ -1,4 +1,4 @@
-import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast, Button } from "@k2b/ui";
 import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/ui/workflow-authoring";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
@@ -366,15 +366,21 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
       <PanelDialog.Body scrollPreserveKey={`grids-workflow-editor-${props.workflow?.id ?? "new"}`}>
         <div class="flex min-h-[34rem] flex-1 flex-col gap-2">
           <div class="grid shrink-0 gap-2 md:grid-cols-2">
-            <TextInput label="Name" value={name} onInput={setName} required icon="ti ti-route" placeholder="Workflow name" />
-            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+            <TextInput label="Name" value={name} onValueChange={setName} required icon="ti ti-route" placeholder="Workflow name" />
+            <TextInput
+              label="Description"
+              value={description}
+              onValueChange={setDescription}
+              icon="ti ti-align-left"
+              placeholder="Optional"
+            />
             <div class="md:col-span-2">
               <CheckboxCard
                 label="Enabled"
                 description="Enabled workflows can run from declared triggers and manual runs."
                 icon="ti ti-player-play"
                 value={enabled}
-                onChange={setEnabled}
+                onValueChange={setEnabled}
               />
             </div>
           </div>
@@ -385,21 +391,21 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
                 <h3 class="detail-section-label mb-0">YAML source</h3>
                 <p class="text-xs text-dimmed">Defines inputs, triggers, and steps.</p>
               </div>
-              <button type="button" class="btn-input btn-input-sm" onClick={() => openWorkflowReferenceWindow(props.baseShortId)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => openWorkflowReferenceWindow(props.baseShortId)}>
                 <i class="ti ti-external-link" /> Open reference
-              </button>
+              </Button>
             </div>
             <div class="min-h-[24rem] flex-1">
               <AutocompleteEditor
                 value={source}
-                onInput={setSource}
+                onValueChange={setSource}
                 completions={completions()}
                 highlight={workflowHighlight}
                 variant="paper"
                 fill
                 restoreExpansionOnBackspace={false}
                 placeholder={defaultSource(props.tables[0])}
-                ariaLabel="Workflow YAML source"
+                aria-label="Workflow YAML source"
               />
             </div>
             <DiagnosticsPanel diagnostics={diagnostics()} validating={validating()} />
@@ -410,19 +416,19 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
         <div>
           <Show when={props.workflow}>
             {(workflow) => (
-              <button type="button" class="btn-danger btn-sm" disabled={deleteMut.loading()} onClick={() => deleteMut.mutate(workflow())}>
+              <Button variant="danger" size="sm" type="button" disabled={deleteMut.loading()} onClick={() => deleteMut.mutate(workflow())}>
                 <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} /> Delete workflow
-              </button>
+              </Button>
             )}
           </Show>
         </div>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => void closeIfClean()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => void saveWorkflow()}>
+          </Button>
+          <Button variant="primary" size="sm" type="button" disabled={!canSave()} onClick={() => void saveWorkflow()}>
             <i class={saveMut.loading() || confirmingTriggers() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} /> Save workflow
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>

@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createEffect, For, type JSX, Show } from "solid-js";
 import type { AggregationSpec, ColumnSpec } from "../../../contracts";
@@ -351,55 +351,54 @@ export default function DatabaseTable(props: Props) {
           const canMoveLeft = index > 0 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
           const canMoveRight =
             index >= 0 && index < visibleFields().length - 1 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
-          const adminIconClass = "icon-btn app-accent-text h-6 w-6 shrink-0 hover:opacity-75";
           return (
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{renderAdminHeader(field, subtitle, computed)}</div>
               <div class="flex shrink-0 items-center gap-0">
                 <Tooltip content="Move column left">
-                  <button
-                    type="button"
-                    class={adminIconClass}
+                  <IconButton
+                    label={`Move ${field.name} left`}
+                    size="xs"
+                    class="app-accent-text h-6 w-6 shrink-0 hover:opacity-75"
                     onClick={(event) => {
                       event.stopPropagation();
                       if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, -1);
                       else props.onFieldMove?.(field, -1);
                     }}
                     disabled={!canMoveLeft}
-                    aria-label={`Move ${field.name} left`}
                   >
                     <i class="ti ti-chevron-left text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
                 <Tooltip content="Move column right">
-                  <button
-                    type="button"
-                    class={adminIconClass}
+                  <IconButton
+                    label={`Move ${field.name} right`}
+                    size="xs"
+                    class="app-accent-text h-6 w-6 shrink-0 hover:opacity-75"
                     onClick={(event) => {
                       event.stopPropagation();
                       if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, 1);
                       else props.onFieldMove?.(field, 1);
                     }}
                     disabled={!canMoveRight}
-                    aria-label={`Move ${field.name} right`}
                   >
                     <i class="ti ti-chevron-right text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
                 <Tooltip content={isViewColumnEdit ? "Column settings" : "Field settings"}>
-                  <button
-                    type="button"
-                    class={adminIconClass}
+                  <IconButton
+                    label={`${isViewColumnEdit ? "Column" : "Field"} settings for ${field.name}`}
+                    size="xs"
+                    class="app-accent-text h-6 w-6 shrink-0 hover:opacity-75"
                     onClick={(event) => {
                       event.stopPropagation();
                       if (isViewColumnEdit && entry)
                         props.onViewColumnSettings?.(entry.column, isComputedColumn(entry.column) ? null : field);
                       else props.onFieldSettings?.(field);
                     }}
-                    aria-label={`${isViewColumnEdit ? "Column" : "Field"} settings for ${field.name}`}
                   >
                     <i class="ti ti-settings text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </div>
             </div>

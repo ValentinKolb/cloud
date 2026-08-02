@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import type { Field, GridRecord } from "../../../service";
@@ -162,12 +162,12 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
             <PanelDialog.Footer>
               <span />
               <div class="flex items-center gap-2">
-                <button type="button" onClick={() => close(null)} class="btn-simple btn-sm">
+                <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
                   Cancel
-                </button>
-                <button type="submit" class="btn-primary btn-sm" disabled={editableFields.length === 0 || submitting()}>
+                </Button>
+                <Button variant="primary" size="sm" type="submit" disabled={editableFields.length === 0 || submitting()}>
                   {args.mode === "create" ? "Create" : "Save"}
-                </button>
+                </Button>
               </div>
             </PanelDialog.Footer>
           </PanelDialog>

@@ -1,4 +1,4 @@
-import { Dropdown } from "@valentinkolb/cloud/ui";
+import { Button, Dropdown, DropdownItem } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { CardSize } from "../records-view/query-url";
 
@@ -14,23 +14,19 @@ export function CardSizeDropdown(props: { value: CardSize; onChange: (size: Card
   return (
     <Dropdown
       position="bottom-right"
-      width="w-56"
+      width="14rem"
       trigger={
-        <span class="btn-input-primary btn-input-sm">
+        <Button variant="primary" size="sm">
           <i class={selected().icon} />
           {selected().label}
           <i class="ti ti-chevron-down text-[10px] opacity-60" />
-        </span>
+        </Button>
       }
       elements={cardSizeOptions.map((option) => ({
-        element: (close) => (
-          <button
-            type="button"
-            class={`menu-item text-left ${option.value === props.value ? "app-accent-text" : "text-secondary"}`}
-            onClick={() => {
-              props.onChange(option.value);
-              close();
-            }}
+        element: (
+          <DropdownItem
+            class={`text-left ${option.value === props.value ? "app-accent-text" : "text-secondary"}`}
+            onSelect={() => props.onChange(option.value)}
           >
             <i class={`${option.icon} shrink-0 text-base`} />
             <span class="min-w-0">
@@ -40,7 +36,7 @@ export function CardSizeDropdown(props: { value: CardSize; onChange: (size: Card
             <Show when={option.value === props.value}>
               <i class="ti ti-check app-accent-text ml-auto" />
             </Show>
-          </button>
+          </DropdownItem>
         ),
       }))}
     />

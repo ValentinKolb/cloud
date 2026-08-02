@@ -1,4 +1,4 @@
-import { DatePicker, DateTimePicker, MultiSelectInput, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { DatePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { For, Match, Show, Switch } from "solid-js";
 import type { Table } from "../../../service";
@@ -68,7 +68,7 @@ export function WorkflowInputFields(props: Props) {
                   required={required}
                   clearable={!required}
                   value={() => (Array.isArray(value(name)) ? (value(name) as string[]) : [])}
-                  onChange={(recordIds) => props.onValueChange(name, recordIds)}
+                  onValueChange={(recordIds) => props.onValueChange(name, recordIds)}
                   fetchData={async (query, signal) =>
                     (await fetchRecordLookup({ tableId: table!.id, query, signal })).map((record) => ({
                       id: record.id,
@@ -88,12 +88,12 @@ export function WorkflowInputFields(props: Props) {
                   required={required}
                   decimalPlaces={10}
                   value={() => (typeof value(name) === "number" ? (value(name) as number) : null)}
-                  onInput={(next) => props.onValueChange(name, next)}
+                  onValueChange={(next) => props.onValueChange(name, next)}
                   error={errorFor(name)}
                 />
               </Match>
               <Match when={input.type === "boolean"}>
-                <SelectInput
+                <Select
                   label={label}
                   description={description}
                   required={required}
@@ -103,7 +103,7 @@ export function WorkflowInputFields(props: Props) {
                     { id: "false", label: "No" },
                   ]}
                   value={() => (typeof value(name) === "boolean" ? String(value(name)) : "")}
-                  onChange={(next) => props.onValueChange(name, next === "" ? undefined : next === "true")}
+                  onValueChange={(next) => props.onValueChange(name, next === "" ? undefined : next === "true")}
                   error={errorFor(name)}
                 />
               </Match>
@@ -114,7 +114,7 @@ export function WorkflowInputFields(props: Props) {
                   required={required}
                   clearable={!required}
                   value={() => (typeof value(name) === "string" ? (value(name) as string) : null)}
-                  onChange={(next) => props.onValueChange(name, next)}
+                  onValueChange={(next) => props.onValueChange(name, next)}
                   error={errorFor(name)}
                 />
               </Match>
@@ -125,19 +125,19 @@ export function WorkflowInputFields(props: Props) {
                   required={required}
                   clearable={!required}
                   value={() => (typeof value(name) === "string" ? (value(name) as string) : null)}
-                  onChange={(next) => props.onValueChange(name, next)}
+                  onValueChange={(next) => props.onValueChange(name, next)}
                   error={errorFor(name)}
                 />
               </Match>
               <Match when={input.type === "select"}>
-                <SelectInput
+                <Select
                   label={label}
                   description={description}
                   required={required}
                   clearable={!required}
                   options={workflowInputOptions(input)}
                   value={() => (typeof value(name) === "string" ? (value(name) as string) : "")}
-                  onChange={(next) => props.onValueChange(name, next)}
+                  onValueChange={(next) => props.onValueChange(name, next)}
                   error={errorFor(name)}
                 />
               </Match>
@@ -148,7 +148,7 @@ export function WorkflowInputFields(props: Props) {
                   required={required}
                   clearable={!required}
                   value={() => (typeof value(name) === "string" ? (value(name) as string) : "")}
-                  onInput={(next) => props.onValueChange(name, next)}
+                  onValueChange={(next) => props.onValueChange(name, next)}
                   error={errorFor(name)}
                 />
               </Match>

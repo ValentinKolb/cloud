@@ -1,9 +1,9 @@
-import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Placeholder, Tag } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
 import { documentRunActionState } from "./document-browser-model";
-import { documentIconActionClass, formatDocumentRelativeTime } from "./document-workspace-utils";
+import { formatDocumentRelativeTime } from "./document-workspace-utils";
 
 export type DocumentBreadcrumb = { label: string; path: string[] };
 
@@ -35,7 +35,13 @@ function DocumentTags(props: { tags: string[] }) {
   return (
     <Show when={props.tags.length > 0} fallback={<span class="text-dimmed">-</span>}>
       <span class="flex min-w-0 flex-wrap items-center gap-1">
-        <For each={props.tags}>{(tag) => <span class="tag max-w-32 truncate">{tag}</span>}</For>
+        <For each={props.tags}>
+          {(tag) => (
+            <Tag size="sm" class="max-w-32 truncate">
+              {tag}
+            </Tag>
+          )}
+        </For>
       </span>
     </Show>
   );
@@ -47,47 +53,44 @@ export default function DocumentBrowser(props: Props) {
     return (
       <div class="flex shrink-0 items-center gap-1">
         <Show when={state().showEdit}>
-          <Tooltip content="Edit document metadata">
-            <button
-              type="button"
-              class={documentIconActionClass}
-              aria-label="Edit document metadata"
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onEdit(run);
-              }}
-            >
-              <i class="ti ti-pencil" />
-            </button>
-          </Tooltip>
-          <Tooltip content="Create public link">
-            <button
-              type="button"
-              class={documentIconActionClass}
-              aria-label="Create public link"
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onLink(run);
-              }}
-            >
-              <i class="ti ti-link" />
-            </button>
-          </Tooltip>
-        </Show>
-        <Tooltip content="Download document">
-          <button
-            type="button"
-            class={documentIconActionClass}
-            aria-label="Download document"
+          <IconButton
+            variant="ghost"
+            size="sm"
+            class="shrink-0 text-dimmed hover:text-secondary"
+            label="Edit document metadata"
             onClick={(event) => {
               event.stopPropagation();
-              props.onDownload(run);
+              props.onEdit(run);
             }}
-            disabled={state().downloadBusy}
           >
-            {state().downloadBusy ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-          </button>
-        </Tooltip>
+            <i class="ti ti-pencil" />
+          </IconButton>
+          <IconButton
+            variant="ghost"
+            size="sm"
+            class="shrink-0 text-dimmed hover:text-secondary"
+            label="Create public link"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onLink(run);
+            }}
+          >
+            <i class="ti ti-link" />
+          </IconButton>
+        </Show>
+        <IconButton
+          variant="ghost"
+          size="sm"
+          class="shrink-0 text-dimmed hover:text-secondary"
+          label="Download document"
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onDownload(run);
+          }}
+          disabled={state().downloadBusy}
+        >
+          {state().downloadBusy ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+        </IconButton>
       </div>
     );
   };
@@ -172,10 +175,10 @@ export default function DocumentBrowser(props: Props) {
                   </For>
                   <Show when={props.hasMore}>
                     <div class="flex justify-center p-3">
-                      <button type="button" class="btn-input btn-input-sm" onClick={props.onLoadMore} disabled={props.loadingMore}>
+                      <Button variant="secondary" size="sm" type="button" onClick={props.onLoadMore} disabled={props.loadingMore}>
                         {props.loadingMore ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-dots" />}
                         Load more documents
-                      </button>
+                      </Button>
                     </div>
                   </Show>
                 </Show>

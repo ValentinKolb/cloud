@@ -6,10 +6,12 @@ import {
   PanelDialog,
   panelDialogOptions,
   prompts,
-  SelectInput,
+  Select,
   TextInput,
   Tooltip,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import {
   type AuditQuestion,
@@ -93,19 +95,19 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
           />
           <PanelDialog.Body>
             <PanelDialog.Section title="Question" subtitle="Shown before the record operation is completed." icon="ti ti-message-question">
-              <TextInput label="Label" value={label} onInput={setLabel} placeholder="Why is this change needed?" required />
+              <TextInput label="Label" value={label} onValueChange={setLabel} placeholder="Why is this change needed?" required />
               <TextInput
                 label="Guidance"
                 value={description}
-                onInput={setDescription}
+                onValueChange={setDescription}
                 placeholder="Optional context for the person making the change"
                 multiline
                 lines={2}
               />
-              <SelectInput
+              <Select
                 label="Answer type"
                 value={type}
-                onChange={(value) => setType(value as AuditQuestion["type"])}
+                onValueChange={(value) => setType(value as AuditQuestion["type"])}
                 options={QUESTION_TYPE_OPTIONS}
                 required
               />
@@ -115,7 +117,7 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
                 icon="ti ti-asterisk"
                 variant="input"
                 value={required}
-                onChange={setRequired}
+                onValueChange={setRequired}
               />
             </PanelDialog.Section>
 
@@ -129,32 +131,36 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
                           <TextInput
                             label={`Option ${index() + 1}`}
                             value={() => option.label}
-                            onInput={(value) => updateOption(option.id, value)}
+                            onValueChange={(value) => updateOption(option.id, value)}
                             placeholder="Option label"
                             required
                           />
                         </div>
                         <Tooltip content="Remove option">
-                          <button
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
                             type="button"
-                            class="icon-btn mb-1 text-dimmed hover:text-red-600"
-                            aria-label={`Remove option ${index() + 1}`}
+                            class="mb-1 text-dimmed hover:text-red-600"
+                            label={`Remove option ${index() + 1}`}
                             disabled={options().length === 1}
                             onClick={() => setOptions((current) => current.filter((candidate) => candidate.id !== option.id))}
                           >
                             <i class="ti ti-trash" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                       </div>
                     )}
                   </For>
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
-                    class="btn-input btn-sm self-start"
+                    class="self-start"
                     onClick={() => setOptions((current) => [...current, { id: crypto.randomUUID(), label: "" }])}
                   >
                     <i class="ti ti-plus" /> Add option
-                  </button>
+                  </Button>
                 </div>
               </PanelDialog.Section>
             </Show>
@@ -162,12 +168,12 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
           <PanelDialog.Footer>
             <span />
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+              <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={save}>
+              </Button>
+              <Button variant="primary" size="sm" type="button" onClick={save}>
                 Save question
-              </button>
+              </Button>
             </div>
           </PanelDialog.Footer>
         </PanelDialog>
@@ -204,27 +210,29 @@ function RequirementQuestions(props: { questions: () => AuditQuestion[]; onChang
               </div>
             </div>
             <Tooltip content="Edit question">
-              <button type="button" class="icon-btn" aria-label={`Edit ${question.label}`} onClick={() => void edit(question)}>
+              <IconButton variant="ghost" size="sm" type="button" label={`Edit ${question.label}`} onClick={() => void edit(question)}>
                 <i class="ti ti-pencil" />
-              </button>
+              </IconButton>
             </Tooltip>
-            <CopyButton text={question.id} label="Copy ID" class="btn-ghost btn-sm" />
+            <CopyButton text={question.id} label="Copy ID" variant="ghost" size="sm" />
             <Tooltip content="Remove question">
-              <button
+              <IconButton
+                variant="ghost"
+                size="sm"
                 type="button"
-                class="icon-btn text-dimmed hover:text-red-600"
-                aria-label={`Remove ${question.label}`}
+                class="text-dimmed hover:text-red-600"
+                label={`Remove ${question.label}`}
                 onClick={() => props.onChange(props.questions().filter((candidate) => candidate.id !== question.id))}
               >
                 <i class="ti ti-trash" />
-              </button>
+              </IconButton>
             </Tooltip>
           </div>
         )}
       </For>
-      <button type="button" class="btn-input btn-sm self-start" onClick={() => void add()}>
+      <Button variant="secondary" size="sm" type="button" class="self-start" onClick={() => void add()}>
         <i class="ti ti-plus" /> Add question
-      </button>
+      </Button>
     </div>
   );
 }
@@ -259,14 +267,14 @@ function RequirementEditor(props: {
         icon="ti ti-shield-check"
         variant="input"
         value={() => props.requirement().enabled}
-        onChange={(enabled) => copy({ enabled })}
+        onValueChange={(enabled) => copy({ enabled })}
       />
       <Show when={props.requirement().enabled}>
         <Show when={props.operation === "update"}>
-          <SelectInput
+          <Select
             label="Apply when"
             value={() => updateRequirement().scope}
-            onChange={(scope) =>
+            onValueChange={(scope) =>
               copy({ scope: scope as "all" | "selected", fieldIds: scope === "all" ? [] : updateRequirement().fieldIds })
             }
             options={[
@@ -279,7 +287,7 @@ function RequirementEditor(props: {
               label="Fields"
               description="Changing at least one selected field requires the questions below."
               value={() => updateRequirement().fieldIds}
-              onChange={(fieldIds) => copy({ fieldIds })}
+              onValueChange={(fieldIds) => copy({ fieldIds })}
               options={props.fields.filter((field) => !field.deletedAt).map((field) => ({ id: field.id, label: field.name }))}
               icon="ti ti-columns"
               clearable
@@ -345,12 +353,12 @@ export const openAuditPolicyDialog = (args: {
           <PanelDialog.Footer>
             <span />
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+              <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={save}>
+              </Button>
+              <Button variant="primary" size="sm" type="button" onClick={save}>
                 Apply
-              </button>
+              </Button>
             </div>
           </PanelDialog.Footer>
         </PanelDialog>

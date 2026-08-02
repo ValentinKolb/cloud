@@ -1,4 +1,4 @@
-import { Avatar, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Avatar, Placeholder, Tooltip, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, RecordHistoryEntry } from "../../../service";
@@ -93,9 +93,12 @@ export function RecordHistoryList(props: HistoryProps) {
                       <span class="inline-flex min-w-0 items-center gap-1 text-dimmed">
                         by
                         <Avatar
-                          username={name()}
-                          userId={entry.userId}
-                          avatarHash={entry.userAvatarHash}
+                          name={name()}
+                          src={
+                            entry.userId && entry.userAvatarHash
+                              ? `/api/accounts/users/${encodeURIComponent(entry.userId)}/avatar?rev=${encodeURIComponent(entry.userAvatarHash)}`
+                              : null
+                          }
                           size="xs"
                           class="h-4! w-4! text-[8px]!"
                         />
@@ -154,16 +157,18 @@ export function RecordHistoryList(props: HistoryProps) {
               </details>
               <Show when={props.onOpenRecord && entry.recordId}>
                 <Tooltip content="Open record" class="absolute right-0 top-0">
-                  <button
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
                     type="button"
-                    class="icon-btn -my-1"
-                    aria-label="Open record"
+                    class="-my-1"
+                    label="Open record"
                     onClick={() => {
                       props.onOpenRecord?.(entry.recordId!, "recordDeletedAt" in entry && entry.recordDeletedAt !== null);
                     }}
                   >
                     <i class="ti ti-arrow-up-right" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </Show>
             </div>

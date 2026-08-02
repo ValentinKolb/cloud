@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, TagsInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, dialogCore, IconButton, PanelDialog, panelDialogOptions, prompts, StatusBadge, TagsInput, TextInput } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -6,7 +6,7 @@ import { apiClient } from "../../../api/client";
 import type { DocumentLink, DocumentLinkListResponse, DocumentRunSummary } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { openDocumentLinkDialog } from "./DocumentLinkDialog";
-import { documentIconActionClass, formatDocumentDateTime, formatDocumentRelativeTime } from "./document-workspace-utils";
+import { formatDocumentDateTime, formatDocumentRelativeTime } from "./document-workspace-utils";
 
 type DocumentRunDetailsDialogArgs = {
   run: DocumentRunSummary;
@@ -16,10 +16,10 @@ type DocumentRunDetailsDialogArgs = {
   onDownload: (run: DocumentRunSummary) => void | Promise<void>;
 };
 
-const linkStatus = (link: DocumentLink): { label: string; class: string; active: boolean } => {
-  if (link.revokedAt) return { label: "Revoked", class: "tag", active: false };
-  if (new Date(link.expiresAt).getTime() <= Date.now()) return { label: "Expired", class: "tag", active: false };
-  return { label: "Active", class: "tag-blue", active: true };
+const linkStatus = (link: DocumentLink): { label: string; tone: "ok" | "neutral"; active: boolean } => {
+  if (link.revokedAt) return { label: "Revoked", tone: "neutral", active: false };
+  if (new Date(link.expiresAt).getTime() <= Date.now()) return { label: "Expired", tone: "neutral", active: false };
+  return { label: "Active", tone: "ok", active: true };
 };
 
 export const openDocumentRunDetailsDialog = (args: DocumentRunDetailsDialogArgs) =>
@@ -79,8 +79,14 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
       <PanelDialog.Header title="Document details" subtitle={props.args.run.filename} icon="ti ti-file-type-pdf" close={props.close} />
       <PanelDialog.Body>
         <section class="flex flex-col gap-2">
-          <TextInput label="Filename" value={filename} onInput={setFilename} icon="ti ti-file-text" disabled={!props.args.canWrite} />
-          <TagsInput label="Tags" placeholder="customer, signed, 2026" value={tags} onChange={setTags} disabled={!props.args.canWrite} />
+          <TextInput label="Filename" value={filename} onValueChange={setFilename} icon="ti ti-file-text" disabled={!props.args.canWrite} />
+          <TagsInput
+            label="Tags"
+            placeholder="customer, signed, 2026"
+            value={tags}
+            onValueChange={setTags}
+            disabled={!props.args.canWrite}
+          />
           <dl class="grid gap-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
             <dt class="text-dimmed">Number</dt>
             <dd class="min-w-0 truncate font-mono text-xs text-secondary">{props.args.run.documentNumber}</dd>
@@ -97,10 +103,10 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
                 <h3 class="text-sm font-semibold text-primary">Public links</h3>
                 <p class="text-xs text-dimmed">Expiring download links for this stored document.</p>
               </div>
-              <button type="button" class="btn-input btn-sm" onClick={createLink}>
+              <Button variant="secondary" size="sm" type="button" onClick={createLink}>
                 <i class="ti ti-link-plus" />
                 New link
-              </button>
+              </Button>
             </div>
             <div class="flex flex-col gap-1">
               <Show when={!links.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading links...</div>}>
@@ -119,7 +125,7 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
                           <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-md px-3 py-2">
                             <div class="min-w-0">
                               <div class="flex min-w-0 flex-wrap items-center gap-2">
-                                <span class={status().class}>{status().label}</span>
+                                <StatusBadge tone={status().tone} label={status().label} />
                                 <span class="text-xs text-secondary">
                                   Expires {formatDocumentDateTime(link.expiresAt, props.args.dateConfig)}
                                 </span>
@@ -134,17 +140,16 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
                               </p>
                             </div>
                             <Show when={status().active}>
-                              <Tooltip content="Revoke link">
-                                <button
-                                  type="button"
-                                  class={documentIconActionClass}
-                                  aria-label="Revoke link"
-                                  onClick={() => void revokeMut.mutate(link)}
-                                  disabled={revokeMut.loading()}
-                                >
-                                  {revokeMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-off" />}
-                                </button>
-                              </Tooltip>
+                              <IconButton
+                                variant="ghost"
+                                size="sm"
+                                class="shrink-0 text-dimmed hover:text-secondary"
+                                label="Revoke link"
+                                onClick={() => void revokeMut.mutate(link)}
+                                disabled={revokeMut.loading()}
+                              >
+                                {revokeMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-off" />}
+                              </IconButton>
                             </Show>
                           </div>
                         );
@@ -159,24 +164,25 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
         </Show>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
-          class="btn-input btn-sm"
           onClick={() => void props.args.onDownload(props.args.run)}
           disabled={saveMut.loading()}
         >
           <i class="ti ti-download" />
           Download
-        </button>
+        </Button>
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.close} disabled={saveMut.loading()}>
+          <Button variant="secondary" size="sm" type="button" onClick={props.close} disabled={saveMut.loading()}>
             Close
-          </button>
+          </Button>
           <Show when={props.args.canWrite}>
-            <button type="button" class="btn-primary btn-sm" onClick={() => saveMut.mutate(undefined)} disabled={saveMut.loading()}>
+            <Button variant="primary" size="sm" type="button" onClick={() => saveMut.mutate(undefined)} disabled={saveMut.loading()}>
               {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-device-floppy" />}
               Save
-            </button>
+            </Button>
           </Show>
         </div>
       </PanelDialog.Footer>

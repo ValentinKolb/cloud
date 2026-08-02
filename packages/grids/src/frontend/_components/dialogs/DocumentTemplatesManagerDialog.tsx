@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, dialogCore, IconButton, PanelDialog, panelDialogOptions, Placeholder, prompts, StatusBadge, Tag, Tooltip } from "@k2b/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentTemplate } from "../../../contracts";
@@ -127,9 +127,9 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between gap-2">
         <span class="text-xs text-dimmed">{templates.loading ? "Loading..." : `${templates()?.length ?? 0} templates`}</span>
-        <button type="button" class="btn-input btn-sm" onClick={() => void addTemplate()}>
+        <Button variant="secondary" size="sm" type="button" onClick={() => void addTemplate()}>
           <i class="ti ti-plus" /> Add template
-        </button>
+        </Button>
       </div>
 
       <Show when={!templates.loading && (templates()?.length ?? 0) === 0}>
@@ -144,7 +144,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
               <div class="flex items-center gap-2">
                 <span class="truncate text-sm font-semibold text-primary">{template.name}</span>
                 <Show when={!template.enabled}>
-                  <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] font-medium text-dimmed">disabled</span>
+                  <StatusBadge tone="neutral" label="disabled" />
                 </Show>
               </div>
               <Show when={template.description}>
@@ -153,56 +153,67 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
             </div>
             <div class="flex shrink-0 items-center gap-0.5">
               <Tooltip content={template.enabled ? "Disable template" : "Enable template"}>
-                <button
+                <IconButton
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  class="icon-btn"
-                  aria-label={template.enabled ? "Disable template" : "Enable template"}
+                  label={template.enabled ? "Disable template" : "Enable template"}
                   onClick={() => void patchTemplate(template, { enabled: !template.enabled })}
                 >
                   <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
-                </button>
+                </IconButton>
               </Tooltip>
               <Tooltip content="Move template up">
-                <button
+                <IconButton
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  class="icon-btn"
-                  aria-label="Move template up"
+                  label="Move template up"
                   disabled={reordering() || index() === 0}
                   onClick={() => void moveTemplate(template, -1)}
                 >
                   <i class="ti ti-arrow-up" />
-                </button>
+                </IconButton>
               </Tooltip>
               <Tooltip content="Move template down">
-                <button
+                <IconButton
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  class="icon-btn"
-                  aria-label="Move template down"
+                  label="Move template down"
                   disabled={reordering() || index() === (templates()?.length ?? 0) - 1}
                   onClick={() => void moveTemplate(template, 1)}
                 >
                   <i class="ti ti-arrow-down" />
-                </button>
+                </IconButton>
               </Tooltip>
               <Tooltip content="Duplicate template">
-                <button type="button" class="icon-btn" aria-label="Duplicate template" onClick={() => void duplicateTemplate(template)}>
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  label="Duplicate template"
+                  onClick={() => void duplicateTemplate(template)}
+                >
                   <i class="ti ti-copy" />
-                </button>
+                </IconButton>
               </Tooltip>
               <Tooltip content="Edit template">
-                <button type="button" class="icon-btn" aria-label="Edit template" onClick={() => openEditor(template)}>
+                <IconButton variant="ghost" size="sm" type="button" label="Edit template" onClick={() => openEditor(template)}>
                   <i class="ti ti-pencil" />
-                </button>
+                </IconButton>
               </Tooltip>
               <Tooltip content="Delete template">
-                <button
+                <IconButton
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  class="icon-btn text-dimmed hover:text-red-500"
-                  aria-label="Delete template"
+                  class="text-dimmed hover:text-red-500"
+                  label="Delete template"
                   onClick={() => void deleteTemplate(template)}
                 >
                   <i class="ti ti-trash" />
-                </button>
+                </IconButton>
               </Tooltip>
             </div>
           </div>
@@ -230,7 +241,7 @@ const chooseDocumentTemplateStarter = () =>
                     <div class="min-w-0">
                       <div class="flex min-w-0 flex-wrap items-center gap-1.5">
                         <div class="truncate text-sm font-semibold text-primary">{starter.name}</div>
-                        <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] font-medium text-dimmed">{starter.category}</span>
+                        <Tag size="sm">{starter.category}</Tag>
                       </div>
                       <p class="mt-1 text-xs leading-snug text-dimmed">{starter.description}</p>
                       <div class="mt-2 grid gap-1 text-[11px] leading-snug text-dimmed">
@@ -241,8 +252,8 @@ const chooseDocumentTemplateStarter = () =>
                           <span class="font-medium text-secondary">Data:</span> {starter.expectedData}
                         </div>
                         <div class="flex flex-wrap items-center gap-1.5">
-                          <span class="badge bg-[var(--ui-surface-subtle)]">{starter.page}</span>
-                          <For each={starter.uses ?? []}>{(use) => <span class="badge bg-[var(--ui-surface-subtle)]">{use}</span>}</For>
+                          <Tag size="sm">{starter.page}</Tag>
+                          <For each={starter.uses ?? []}>{(use) => <Tag size="sm">{use}</Tag>}</For>
                         </div>
                       </div>
                     </div>

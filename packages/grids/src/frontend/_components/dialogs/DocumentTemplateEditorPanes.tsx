@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Panes, type PanesValue, PdfPreview, TemplateEditor, type TemplateVariable } from "@valentinkolb/cloud/ui";
+import { Panes, type PanesValue, PdfPreview, TemplateEditor, type TemplateVariable, Button } from "@k2b/ui";
 import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
@@ -102,7 +102,7 @@ export function DocumentTemplateEditorPanes(props: Props) {
   return (
     <Panes.Root
       value={panes()}
-      onChange={setPanes}
+      onValueChange={setPanes}
       class="min-h-[24rem] w-full flex-1"
       allowResize
       allowMove={false}
@@ -117,7 +117,7 @@ export function DocumentTemplateEditorPanes(props: Props) {
             <section class="flex h-full min-h-0 flex-col overflow-hidden">
               <TemplateEditor
                 value={snippet.value}
-                onInput={snippet.onInput}
+                onValueChange={snippet.onInput}
                 variables={props.templateVariables()}
                 fill
                 placeholder={snippet.placeholder}
@@ -170,9 +170,9 @@ export function DocumentTemplateEditorPanes(props: Props) {
                   fallback={
                     <div class="info-block-danger flex items-center justify-between gap-3 text-sm">
                       <span>{props.accessError() ?? "Could not load document template access."}</span>
-                      <button type="button" class="btn-input btn-sm" onClick={props.retryAccess}>
+                      <Button variant="secondary" size="sm" type="button" onClick={props.retryAccess}>
                         <i class="ti ti-refresh" /> Retry
-                      </button>
+                      </Button>
                     </div>
                   }
                 >

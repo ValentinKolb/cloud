@@ -1,4 +1,4 @@
-import { Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Placeholder, TextInput, Tooltip, IconButton } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation, timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -165,9 +165,9 @@ export default function GroupDetailPanel(props: Props) {
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold text-secondary">Group details</span>
           <Tooltip content="Close details">
-            <button type="button" class="icon-btn" aria-label="Close group detail panel" onClick={() => props.onClose()}>
+            <IconButton variant="ghost" size="sm" type="button" label="Close group detail panel" onClick={() => props.onClose()}>
               <i class="ti ti-x" />
-            </button>
+            </IconButton>
           </Tooltip>
         </div>
 
@@ -223,7 +223,7 @@ export default function GroupDetailPanel(props: Props) {
             icon="ti ti-search"
             placeholder="Search in group..."
             value={q}
-            onInput={(next) => {
+            onValueChange={(next) => {
               setQ(next);
               searchDebounce.debouncedFn(next);
             }}

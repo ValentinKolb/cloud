@@ -1,4 +1,4 @@
-import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Placeholder, StatusBadge, Tooltip } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import type { DocumentRunSummary } from "../../../contracts";
 import type { WorkflowRunProvenance } from "../../../service/workflow-runs";
@@ -7,7 +7,7 @@ import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
-  workflowStepStatusClass as stepStatusClass,
+  workflowStepStatusTone,
   workflowStepErrorMessage,
   workflowStepIssueReason,
   workflowStepOutcomeSummary,
@@ -48,9 +48,9 @@ export function WorkflowRunExecutionSection(props: {
         <dt class="text-dimmed">Revision</dt>
         <dd>
           <Show when={props.canInspectRevision} fallback={<span class="text-primary tabular-nums">{props.run.workflowRevision}</span>}>
-            <button type="button" class="text-link tabular-nums" onClick={props.onInspectRevision}>
+            <Button variant="ghost" size="xs" type="button" class="tabular-nums" onClick={props.onInspectRevision}>
               Revision {props.run.workflowRevision}
-            </button>
+            </Button>
           </Show>
         </dd>
         <dt class="text-dimmed">Started</dt>
@@ -115,7 +115,7 @@ export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; 
             const unresolved = () => workflowStepIssueReason(step.outcome) !== null;
             return (
               <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
-                <span class={`badge ${stepStatusClass(step.status)}`}>{step.status}</span>
+                <StatusBadge tone={workflowStepStatusTone(step.status)} label={step.status} />
                 <span class="min-w-0 truncate text-primary">
                   {step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key} · {step.action ?? step.kind}
                 </span>
@@ -168,9 +168,9 @@ export function WorkflowRunDocumentsSection(props: {
       <div class="flex items-center justify-between gap-2">
         <h3 class="detail-section-label mb-0">Generated documents</h3>
         <Show when={props.documents.total > 0}>
-          <button type="button" class="btn-simple btn-sm" onClick={props.onDownloadAll} disabled={props.downloadingAll}>
+          <Button variant="ghost" size="sm" type="button" onClick={props.onDownloadAll} disabled={props.downloadingAll}>
             <i class={props.downloadingAll ? "ti ti-loader-2 animate-spin" : "ti ti-download"} /> All
-          </button>
+          </Button>
         </Show>
       </div>
       <div class="mt-3 flex flex-col gap-2">
@@ -190,30 +190,33 @@ export function WorkflowRunDocumentsSection(props: {
                 <span class="block truncate text-dimmed">{document.documentNumber}</span>
               </span>
               <Tooltip content="Download document">
-                <button
+                <IconButton
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  class="icon-btn"
-                  aria-label={`Download ${document.filename}`}
+                  label={`Download ${document.filename}`}
                   onClick={() => props.onDownload(document)}
                   disabled={props.downloadingDocumentId === document.id}
                 >
                   {props.downloadingDocumentId === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-                </button>
+                </IconButton>
               </Tooltip>
             </div>
           )}
         </For>
         <Show when={props.documents.hasMore && props.documents.nextOffset !== null ? props.documents.nextOffset : null}>
           {(offset) => (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              class="btn-input btn-input-sm self-center"
+              class="self-center"
               disabled={props.loadingMore}
               onClick={() => props.onLoadMore(offset())}
             >
               <i class={props.loadingMore ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"} />
               Load more documents
-            </button>
+            </Button>
           )}
         </Show>
         <Show when={props.loadMoreError}>{(error) => <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>}</Show>

@@ -1,4 +1,4 @@
-import { CopyButton, type TemplateVariable } from "@valentinkolb/cloud/ui";
+import { CopyButton, type TemplateVariable } from "@k2b/ui";
 import { createMemo, For, Show } from "solid-js";
 
 type DocumentDataTreeRow = {
@@ -103,9 +103,9 @@ export function DocumentDataTree(props: {
                       </div>
                       <div class="flex items-center gap-1">
                         <Show when={row.loopText}>
-                          {(snippet) => <CopyButton text={snippet()} label="Loop" class="btn-simple btn-sm" />}
+                          {(snippet) => <CopyButton text={snippet()} label="Loop" variant="ghost" size="sm" />}
                         </Show>
-                        <CopyButton text={row.copyText} label="Copy" class="btn-simple btn-sm" />
+                        <CopyButton text={row.copyText} label="Copy" variant="ghost" size="sm" />
                       </div>
                     </div>
                   )}
@@ -137,7 +137,7 @@ export function RenderedDocumentSource(props: { source: () => string | null; loa
                 {sourceText()}
               </pre>
               <div class="absolute right-2 top-2">
-                <CopyButton text={sourceText()} label="Copy" class="btn-input btn-sm" />
+                <CopyButton text={sourceText()} label="Copy" variant="secondary" size="sm" />
               </div>
             </Show>
           }

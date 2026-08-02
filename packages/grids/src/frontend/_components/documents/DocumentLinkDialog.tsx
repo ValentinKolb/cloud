@@ -1,4 +1,4 @@
-import { CopyButton, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { CopyButton, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button, ButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -125,7 +125,7 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
                 label="Comment"
                 description="Optional internal note. It is not visible to people using the link."
                 value={comment}
-                onInput={setComment}
+                onValueChange={setComment}
                 icon="ti ti-message"
                 placeholder="Why this link exists"
               />
@@ -146,11 +146,11 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
                 {url()}
               </code>
               <div class="flex flex-wrap items-center gap-2">
-                <CopyButton text={url()} label="Copy link" class="btn-input btn-sm" />
-                <a href={url()} target="_blank" rel="noreferrer" class="btn-input btn-sm">
+                <CopyButton text={url()} label="Copy link" variant="secondary" size="sm" />
+                <ButtonLink variant="secondary" size="sm" href={url()} target="_blank" rel="noreferrer">
                   <i class="ti ti-external-link" />
                   Open link
-                </a>
+                </ButtonLink>
               </div>
             </section>
           )}
@@ -159,14 +159,14 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.close} disabled={createMut.loading()}>
+          <Button variant="secondary" size="sm" type="button" onClick={props.close} disabled={createMut.loading()}>
             {createdUrl() ? "Done" : "Cancel"}
-          </button>
+          </Button>
           <Show when={!createdUrl()}>
-            <button type="button" class="btn-primary btn-sm" onClick={() => createMut.mutate(undefined)} disabled={createMut.loading()}>
+            <Button variant="primary" size="sm" type="button" onClick={() => createMut.mutate(undefined)} disabled={createMut.loading()}>
               {createMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-plus" />}
               Create link
-            </button>
+            </Button>
           </Show>
         </div>
       </PanelDialog.Footer>

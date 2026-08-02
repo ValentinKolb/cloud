@@ -1,4 +1,4 @@
-import type { TemplateVariable } from "@valentinkolb/cloud/ui";
+import type { TemplateVariable } from "@k2b/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { EmailTemplateSampleDataSchema } from "../../../contracts";
 

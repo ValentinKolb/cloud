@@ -1,4 +1,4 @@
-import { AppWorkspace, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, IconButton, prompts } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Base } from "../../../service";
@@ -38,16 +38,14 @@ export default function BaseSettingsButton(props: { base: Base; variant?: "heade
       <AppWorkspace.SidebarItemLabel>Settings</AppWorkspace.SidebarItemLabel>
     </AppWorkspace.SidebarItem>
   ) : (
-    <Tooltip content="Base settings">
-      <button
-        type="button"
-        onClick={() => void showSettings()}
-        class="sidebar-header-settings focus-ui inline-flex h-6 w-6 items-center justify-center rounded"
-        aria-label={`Settings for ${props.base.name}`}
-        disabled={open()}
-      >
-        <i class={open() ? "ti ti-loader-2 animate-spin text-xs" : "ti ti-settings text-xs"} />
-      </button>
-    </Tooltip>
+    <IconButton
+      size="xs"
+      onClick={() => void showSettings()}
+      class="h-6 w-6"
+      label={`Settings for ${props.base.name}`}
+      disabled={open()}
+    >
+      <i class={open() ? "ti ti-loader-2 animate-spin text-xs" : "ti ti-settings text-xs"} />
+    </IconButton>
   );
 }

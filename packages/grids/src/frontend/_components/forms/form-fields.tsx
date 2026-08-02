@@ -1,4 +1,4 @@
-import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, Select, TextInput, Tooltip, Button, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, For, Index, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -57,7 +57,7 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * - boolean → Checkbox
  * - date → DatePicker (or DateTimePicker when config.includeTime)
  * - datetime → DateTimePicker
- * - select → SelectInput in single mode, CheckboxCard list in multi mode
+ * - select → Select in single mode, CheckboxCard list in multi mode
  * - relation → RelationPicker (requires `baseId` prop). Picker disabled
  *   without baseId — used by the default-value editor where deep-link
  *   chips don't apply.
@@ -112,8 +112,7 @@ export function FieldInput(props: {
           multiline={markdown ? undefined : true}
           lines={markdown ? 8 : 4}
           value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          onChange={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -133,8 +132,7 @@ export function FieldInput(props: {
           multiline
           lines={6}
           value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          onChange={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -156,8 +154,7 @@ export function FieldInput(props: {
           description={helpText}
           required={required}
           value={numberText}
-          onInput={(v) => props.onChange(v)}
-          onChange={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           inputMode={decimalPlaces === 0 ? "numeric" : "decimal"}
           icon="ti ti-number"
           prefix={unit && unitPosition === "prefix" ? <span class="font-mono">{unit}</span> : undefined}
@@ -177,7 +174,7 @@ export function FieldInput(props: {
           min={0}
           max={100}
           value={numberValue}
-          onInput={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           decimalPlaces={0}
           suffix={<span class="font-mono">%</span>}
           error={error}
@@ -196,8 +193,7 @@ export function FieldInput(props: {
           required={required}
           placeholder="HH:MM:SS or seconds"
           value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          onChange={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -209,7 +205,7 @@ export function FieldInput(props: {
           description={helpText}
           required={required}
           value={boolValue}
-          onChange={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -225,7 +221,7 @@ export function FieldInput(props: {
           required={required}
           dateConfig={props.dateConfig}
           value={pickerValue}
-          onChange={onPickerChange}
+          onValueChange={onPickerChange}
           error={error}
           clearable
         />
@@ -236,7 +232,7 @@ export function FieldInput(props: {
           required={required}
           dateConfig={props.dateConfig}
           value={pickerValue}
-          onChange={onPickerChange}
+          onValueChange={onPickerChange}
           error={error}
           clearable
         />
@@ -251,7 +247,7 @@ export function FieldInput(props: {
           required={required}
           dateConfig={props.dateConfig}
           value={() => stringValue() || null}
-          onChange={(v) => props.onChange(v ?? "")}
+          onValueChange={(v) => props.onChange(v ?? "")}
           error={error}
           clearable
         />
@@ -289,7 +285,7 @@ export function FieldInput(props: {
                     description={option.description}
                     color={option.color}
                     value={() => isSelected(option.id)}
-                    onChange={(checked) => toggle(option.id, checked)}
+                    onValueChange={(checked) => toggle(option.id, checked)}
                   />
                 )}
               </For>
@@ -301,14 +297,14 @@ export function FieldInput(props: {
         );
       }
       return (
-        <SelectInput
+        <Select
           label={label}
           description={helpText}
           required={required}
           options={optionCards.map((o) => ({ id: o.id, label: o.label, description: o.description }))}
           clearable={!required}
           value={() => arrayValue()[0] ?? ""}
-          onChange={(v) => props.onChange(v ? [v] : null)}
+          onValueChange={(v) => props.onChange(v ? [v] : null)}
           error={error}
         />
       );
@@ -379,10 +375,10 @@ export function FieldInput(props: {
                 />
               </div>
               <Show when={props.entry.inlineCreate?.enabled}>
-                <button type="button" class="btn-input btn-input-sm shrink-0" onClick={createInlineDraft}>
+                <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={createInlineDraft}>
                   <i class="ti ti-plus" />
                   Create new
-                </button>
+                </Button>
               </Show>
             </div>
           </Show>
@@ -416,8 +412,7 @@ export function FieldInput(props: {
           description={helpText}
           required={required}
           value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          onChange={(v) => props.onChange(v)}
+          onValueChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -484,15 +479,15 @@ function InlineRelationCreate(props: {
           </div>
           <div class="flex items-center gap-1">
             <Show when={props.multi}>
-              <button type="button" class="btn-input btn-input-sm" onClick={props.onCreateDraft}>
+              <Button variant="secondary" size="sm" type="button" onClick={props.onCreateDraft}>
                 <i class="ti ti-plus" />
                 Another
-              </button>
+              </Button>
             </Show>
             <Show when={!props.multi}>
-              <button type="button" class="btn-input btn-input-sm" onClick={props.onUseExisting}>
+              <Button variant="secondary" size="sm" type="button" onClick={props.onUseExisting}>
                 Use existing
-              </button>
+              </Button>
             </Show>
           </div>
         </div>
@@ -503,9 +498,16 @@ function InlineRelationCreate(props: {
                 <Show when={props.multi}>
                   <div class="flex justify-end">
                     <Tooltip content="Remove draft">
-                      <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index)} aria-label="Remove draft">
+                      <IconButton
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        class="h-7 w-7"
+                        onClick={() => removeDraft(index)}
+                        label="Remove draft"
+                      >
                         <i class="ti ti-x" />
-                      </button>
+                      </IconButton>
                     </Tooltip>
                   </div>
                 </Show>

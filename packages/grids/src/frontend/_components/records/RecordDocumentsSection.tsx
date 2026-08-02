@@ -6,9 +6,9 @@ import {
   panelDialogOptions,
   prompts,
   StructuredDataPreview,
-  Tooltip,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+} from "@k2b/ui";
 import { fileIcons } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -106,18 +106,19 @@ function DocumentGenerationReviewDialog(props: {
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={() => props.close(false)} disabled={generateMut.loading()}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => props.close(false)} disabled={generateMut.loading()}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             onClick={() => generateMut.mutate(undefined)}
             disabled={generateMut.loading() || !previewed()}
           >
             {generateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
             Generate PDF
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -287,16 +288,17 @@ export default function RecordDocumentsSection(props: {
           <div class="flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Snapshots</h3>
             <Show when={props.live}>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-secondary btn-sm"
                 onClick={() => createSnapshotMut.mutate(undefined)}
                 disabled={createSnapshotMut.loading()}
                 aria-busy={createSnapshotMut.loading()}
               >
                 {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
                 Create snapshot
-              </button>
+              </Button>
             </Show>
           </div>
           <Show when={manualSnapshots().length === 0}>
@@ -334,15 +336,15 @@ export default function RecordDocumentsSection(props: {
             <Show when={props.live && availableTemplates().length > 0}>
               <Dropdown
                 trigger={
-                  <button type="button" class="btn-secondary btn-sm" disabled={refreshDocumentsMut.loading()}>
+                  <Button variant="secondary" size="sm" type="button" disabled={refreshDocumentsMut.loading()}>
                     <i class="ti ti-file-plus" />
                     Generate
                     <i class="ti ti-chevron-down text-xs" />
-                  </button>
+                  </Button>
                 }
                 elements={generationActions()}
                 position="bottom-left"
-                width="w-64"
+                width="16rem"
               />
             </Show>
           </div>

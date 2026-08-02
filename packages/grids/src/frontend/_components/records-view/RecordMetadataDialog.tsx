@@ -1,4 +1,4 @@
-import { Avatar, Combobox, type ComboboxOption, dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { Avatar, Button, Combobox, type ComboboxOption, dialogCore, PanelDialog, panelDialogOptions, prompts, Tag } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { RecordActor, RecordMetaQuery, RecordMetaUserKey } from "../../../contracts";
@@ -116,15 +116,20 @@ const ActorPicker = (props: {
           <div class="mb-2 flex flex-wrap gap-1.5">
             <For each={selectedActors()}>
               {(actor) => (
-                <button
-                  type="button"
-                  class="badge max-w-full gap-1 border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] text-secondary"
-                  onClick={() => remove(actor.id)}
-                >
-                  <Avatar username={actor.label} userId={actor.id} avatarHash={actor.avatarHash} size="xs" class="h-4! w-4! text-[8px]!" />
+                <Tag size="sm" class="max-w-full" onRemove={() => remove(actor.id)} removeLabel={`Remove ${actor.label}`}>
+                  <Avatar
+                    name={actor.label}
+                    src={
+                      actor.avatarHash
+                        ? `/api/accounts/users/${encodeURIComponent(actor.id)}/avatar?rev=${encodeURIComponent(actor.avatarHash)}`
+                        : null
+                    }
+                    size="xs"
+                    class="h-4! w-4! text-[8px]!"
+                  />
                   <span class="truncate">{actor.label}</span>
                   <i class="ti ti-x text-xs opacity-60" />
-                </button>
+                </Tag>
               )}
             </For>
           </div>
@@ -196,16 +201,16 @@ export const openRecordMetadataDialog = (args: {
           </div>
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <button type="button" class="btn-simple btn-sm" onClick={() => close(undefined)}>
+          <Button variant="ghost" size="sm" type="button" onClick={() => close(undefined)}>
             Clear
-          </button>
+          </Button>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={apply}>
+            </Button>
+            <Button variant="primary" size="sm" type="button" onClick={apply}>
               Apply
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>

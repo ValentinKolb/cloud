@@ -1,4 +1,4 @@
-import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import { createSignal } from "solid-js";
 
 type AddViewColumnOption = {
@@ -26,7 +26,7 @@ export const openAddViewColumnsDialog = (columns: AddViewColumnOption[]) =>
             placeholder="Choose columns"
             icon="ti ti-columns"
             value={selectedColumnIds}
-            onChange={setSelectedColumnIds}
+            onValueChange={setSelectedColumnIds}
             options={columns}
             clearable
           />
@@ -34,12 +34,12 @@ export const openAddViewColumnsDialog = (columns: AddViewColumnOption[]) =>
         <PanelDialog.Footer>
           <span />
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={addSelected} disabled={selectedColumnIds().length === 0}>
+            </Button>
+            <Button variant="primary" size="sm" type="button" onClick={addSelected} disabled={selectedColumnIds().length === 0}>
               Add columns
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>

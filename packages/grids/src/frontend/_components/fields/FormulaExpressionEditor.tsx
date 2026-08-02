@@ -1,4 +1,4 @@
-import { AutocompleteEditor, DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, DataTable, type DataTableColumn, Button } from "@k2b/ui";
 import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -202,14 +202,16 @@ export function FormulaExpressionEditor(props: {
         <div class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           <For each={examples()}>
             {(example) => (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-input btn-input-sm h-auto min-w-0 justify-start py-2 text-left"
+                class="h-auto min-w-0 justify-start py-2 text-left"
                 onClick={() => props.onInput(example.expression)}
               >
                 <span class="block text-[11px] font-medium text-secondary">{example.label}</span>
                 <code class="block truncate font-mono text-[11px] text-dimmed">{example.expression}</code>
-              </button>
+              </Button>
             )}
           </For>
         </div>
@@ -219,13 +221,13 @@ export function FormulaExpressionEditor(props: {
         <span class="text-label text-xs">Expression</span>
         <AutocompleteEditor
           value={props.value}
-          onInput={props.onInput}
+          onValueChange={props.onInput}
           placeholder="Reference fields by name. Leading = is optional."
           completions={completions()}
           highlight={formulaHighlight}
           restoreExpansionOnBackspace={false}
           lines={4}
-          ariaLabel={props.ariaLabel ?? "Formula expression"}
+          aria-label={props.ariaLabel ?? "Formula expression"}
         />
       </div>
 
@@ -236,9 +238,9 @@ export function FormulaExpressionEditor(props: {
       <div class="flex flex-col gap-2">
         <FormulaPreview preview={preview()} loading={previewLoading()} />
         <Show when={referenceHref()}>
-          <button type="button" class="btn-input btn-sm w-fit" onClick={() => openReferenceWindow(referenceHref())}>
+          <Button variant="secondary" size="sm" type="button" class="w-fit" onClick={() => openReferenceWindow(referenceHref())}>
             <i class="ti ti-external-link" /> Open reference
-          </button>
+          </Button>
         </Show>
       </div>
     </div>

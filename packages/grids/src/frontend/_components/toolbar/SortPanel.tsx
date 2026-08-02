@@ -1,4 +1,4 @@
-import { Select, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Select } from "@k2b/ui";
 import { createMemo, Index } from "solid-js";
 import type { RecordMetaSortKey, RecordQuery } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -115,7 +115,9 @@ export default function SortPanel(props: Props) {
             <div class="w-64 shrink-0">
               <Select
                 value={() => targetId(rowSignal())}
-                onChange={(v) => updateTarget(index, v)}
+                onValueChange={(v) => {
+                  if (v !== null) updateTarget(index, v);
+                }}
                 options={sortOptions()}
                 placeholder="Sort by"
               />
@@ -123,23 +125,27 @@ export default function SortPanel(props: Props) {
             <div class="w-44 shrink-0">
               <Select
                 value={() => rowSignal().direction}
-                onChange={(v) => updateDirection(index, v as Direction)}
+                onValueChange={(v) => updateDirection(index, v as Direction)}
                 options={directionOptions(rowSignal(), fieldsById())}
               />
             </div>
-            <Tooltip content="Remove sort">
-              <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeRow(index)} aria-label="Remove sort">
-                <i class="ti ti-x" />
-              </button>
-            </Tooltip>
+            <IconButton
+              variant="ghost"
+              size="xs"
+              class="text-dimmed hover:text-red-500"
+              onClick={() => removeRow(index)}
+              label="Remove sort"
+            >
+              <i class="ti ti-x" />
+            </IconButton>
           </div>
         )}
       </Index>
 
       <div class="flex items-center gap-1">
-        <button type="button" class="btn-input-success btn-input-sm" onClick={addRow}>
+        <Button variant="success" size="sm" type="button" onClick={addRow}>
           <i class="ti ti-plus" /> Add
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { Show } from "solid-js";
 import type { AggregationSpec, GroupBySpec } from "../../../contracts";
@@ -156,52 +156,51 @@ export default function GroupedTable(props: Props) {
           const settings = props.onColumnSettings;
           const move = props.onColumnMove;
           if (!settings && !move) return render();
-          const adminIconClass = "icon-btn app-accent-text h-6 w-6 shrink-0 hover:opacity-75";
           return (
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{render()}</div>
               <div class="flex shrink-0 items-center gap-0">
                 <Tooltip content="Move column left">
-                  <button
-                    type="button"
-                    class={adminIconClass}
+                  <IconButton
+                    label="Move column left"
+                    size="xs"
+                    class="app-accent-text h-6 w-6 shrink-0 hover:opacity-75"
                     onClick={(event) => {
                       event.stopPropagation();
                       move?.(meta.id, -1);
                     }}
                     disabled={!move || index === 0}
-                    aria-label="Move column left"
                   >
                     <i class="ti ti-chevron-left text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
                 <Tooltip content="Move column right">
-                  <button
-                    type="button"
-                    class={adminIconClass}
+                  <IconButton
+                    label="Move column right"
+                    size="xs"
+                    class="app-accent-text h-6 w-6 shrink-0 hover:opacity-75"
                     onClick={(event) => {
                       event.stopPropagation();
                       move?.(meta.id, 1);
                     }}
                     disabled={!move || index >= count - 1}
-                    aria-label="Move column right"
                   >
                     <i class="ti ti-chevron-right text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
                 <Tooltip content="Column settings">
-                  <button
-                    type="button"
-                    class={adminIconClass}
+                  <IconButton
+                    label="Column settings"
+                    size="xs"
+                    class="app-accent-text h-6 w-6 shrink-0 hover:opacity-75"
                     onClick={(event) => {
                       event.stopPropagation();
                       settings?.(meta.id);
                     }}
                     disabled={!settings}
-                    aria-label="Column settings"
                   >
                     <i class="ti ti-settings text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </div>
             </div>
@@ -236,10 +235,17 @@ export default function GroupedTable(props: Props) {
         }}
       />
       <Show when={props.hasMore}>
-        <button type="button" class="btn-input btn-input-sm mt-2 self-center" onClick={props.onLoadMore} disabled={props.loadingMore}>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          class="mt-2 self-center"
+          onClick={props.onLoadMore}
+          disabled={props.loadingMore}
+        >
           {props.loadingMore ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-chevron-down" />}
           Load more groups
-        </button>
+        </Button>
       </Show>
     </Show>
   );

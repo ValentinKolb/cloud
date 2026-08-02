@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import BaseSettingsButton from "../sidebar/BaseSettingsButton.island";
 import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
