@@ -1,7 +1,10 @@
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr/runtime";
+import { type AuthContext, ok, rateLimit, respond } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { buildApiDocSources } from "./sources";
 
-export const apiRoutes = new Hono().get("/sources", (c) => c.json({ items: buildApiDocSources(getRuntimeContext(c).apps) }));
+export const apiRoutes = new Hono<AuthContext>()
+  .use(rateLimit())
+  .get("/sources", (c) => respond(c, ok({ items: buildApiDocSources(getRuntimeContext(c).apps) })));
 
 export type ApiType = typeof apiRoutes;

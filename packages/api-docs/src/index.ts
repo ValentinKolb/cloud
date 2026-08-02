@@ -5,6 +5,8 @@ import { app } from "./config";
 import pageRoutes from "./frontend";
 import { apiDocsHelp } from "./help";
 
+export type { ApiType } from "./api";
+
 /**
  * Container entrypoint for the api-docs aggregator.
  *

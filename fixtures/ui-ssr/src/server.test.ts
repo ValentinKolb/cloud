@@ -13,14 +13,14 @@ describe("@k2b/ui standalone SSR fixture", () => {
     expect(page.status).toBe(200);
     expect(html).toContain('class="k2b-ui"');
     expect(html).toContain("Host shell outside .k2b-ui");
-    expect(html).toContain("Independent package consumer");
-    expect(html).toContain("Actions");
-    expect(html).toContain("Display name");
+    expect(html).toContain("Certified package surface");
+    expect(html).toContain("Inputs");
+    expect(html).toContain("Release date");
     expect(html).toContain("Migration readiness");
     expect(html).toContain("Generic by design");
-    expect(html).toContain("Application composition");
+    expect(html).toContain("Composition");
     expect(html).toContain("Platform health");
-    expect(html).toContain("All systems operational");
+    expect(html).toContain("All checks passed");
     expect(html).toContain('const p="/_ssr"');
     expect(html).toContain("<solid-island");
 
