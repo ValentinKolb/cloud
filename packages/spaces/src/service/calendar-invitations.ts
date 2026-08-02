@@ -599,6 +599,11 @@ export const prepareEventInvitationAttachment = async (params: {
   const contentType = "text/calendar; method=REQUEST; charset=utf-8";
 
   return sql.begin(async (tx) => {
+    await tx`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${`spaces:event-invitation:${params.deliveryId}`}, 0)
+      )
+    `;
     const [existing] = await tx<
       {
         item_id: string;
@@ -639,38 +644,48 @@ export const prepareEventInvitationAttachment = async (params: {
       });
     }
 
-    const [source] = await tx<{ sequence: number }[]>`
-      SELECT sequence
-      FROM spaces.calendar_invitation_sources
-      WHERE item_id = ${params.itemId}::uuid
-      FOR UPDATE
+    const uid = `${params.itemId}@spaces.cloud`;
+    const [insertedSource] = await tx<{ sequence: number }[]>`
+      INSERT INTO spaces.calendar_invitation_sources (
+        item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
+      ) VALUES (
+        ${params.itemId}::uuid, ${params.mailboxId}::uuid, NULL, ${uid}, 0, 'request',
+        ${organizer}::jsonb, ${attendees}::jsonb
+      )
+      ON CONFLICT (item_id) DO NOTHING
+      RETURNING sequence
     `;
-    const sequence = source ? source.sequence + 1 : 0;
+    let sequence = insertedSource?.sequence ?? 0;
+    if (!insertedSource) {
+      const [source] = await tx<{ sequence: number }[]>`
+        SELECT sequence
+        FROM spaces.calendar_invitation_sources
+        WHERE item_id = ${params.itemId}::uuid
+        FOR UPDATE
+      `;
+      if (!source) return fail(err.internal("Invitation source could not be reserved"));
+      sequence = source.sequence + 1;
+      await tx`
+        UPDATE spaces.calendar_invitation_sources
+        SET mailbox_id = ${params.mailboxId}::uuid,
+            calendar_uid = ${uid},
+            sequence = ${sequence},
+            method = 'request',
+            organizer = ${organizer}::jsonb,
+            attendees = ${attendees}::jsonb,
+            updated_at = now()
+        WHERE item_id = ${params.itemId}::uuid
+      `;
+    }
     const calendar = buildEventInvitation({
       item: item.data,
-      uid: `${params.itemId}@spaces.cloud`,
+      uid,
       sequence,
       method: "request",
       organizer,
       attendees,
       generatedAt: new Date().toISOString(),
     });
-    await tx`
-      INSERT INTO spaces.calendar_invitation_sources (
-        item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
-      ) VALUES (
-        ${params.itemId}::uuid, ${params.mailboxId}::uuid, NULL, ${`${params.itemId}@spaces.cloud`},
-        ${sequence}, 'request', ${organizer}::jsonb, ${attendees}::jsonb
-      )
-      ON CONFLICT (item_id) DO UPDATE SET
-        mailbox_id = EXCLUDED.mailbox_id,
-        calendar_uid = EXCLUDED.calendar_uid,
-        sequence = EXCLUDED.sequence,
-        method = EXCLUDED.method,
-        organizer = EXCLUDED.organizer,
-        attendees = EXCLUDED.attendees,
-        updated_at = now()
-    `;
     await tx`
       INSERT INTO spaces.calendar_invitation_deliveries (
         idempotency_key, item_id, mailbox_id, sender_identity_id, sequence, method, state,
@@ -698,8 +713,8 @@ export const commitEventInvitationAttachment = async (params: {
   deliveryId: string;
   subject: AccessSubject;
 }): Promise<Result<{ deliveryId: string; itemId: string; draftId: string; state: "drafted" }>> => {
-  const [delivery] = await sql<{ item_id: string; draft_id: string | null; state: string }[]>`
-    SELECT item_id, draft_id, state
+  const [delivery] = await sql<{ item_id: string; draft_id: string | null }[]>`
+    SELECT item_id, draft_id
     FROM spaces.calendar_invitation_deliveries
     WHERE idempotency_key = ${params.deliveryId}::uuid
   `;
@@ -708,15 +723,16 @@ export const commitEventInvitationAttachment = async (params: {
   if (!item) return fail(err.notFound("Event"));
   const writable = await requireWritableEvent({ spaceId: item.spaceId, itemId: item.id, subject: params.subject });
   if (!writable.ok) return writable;
-  if (delivery.state !== "prepared" && delivery.state !== "drafted") {
-    return fail(err.conflict("Invitation is not ready to commit"));
-  }
-  await sql`
+  const [updated] = await sql<{ item_id: string; draft_id: string }[]>`
     UPDATE spaces.calendar_invitation_deliveries
     SET state = 'drafted', error_message = NULL, updated_at = now()
     WHERE idempotency_key = ${params.deliveryId}::uuid
+      AND state IN ('prepared', 'drafted')
+      AND draft_id IS NOT NULL
+    RETURNING item_id, draft_id
   `;
-  return ok({ deliveryId: params.deliveryId, itemId: delivery.item_id, draftId: delivery.draft_id, state: "drafted" });
+  if (!updated) return fail(err.conflict("Invitation is not ready to commit"));
+  return ok({ deliveryId: params.deliveryId, itemId: updated.item_id, draftId: updated.draft_id, state: "drafted" });
 };
 
 export const getEventInvitationContext = async (params: {

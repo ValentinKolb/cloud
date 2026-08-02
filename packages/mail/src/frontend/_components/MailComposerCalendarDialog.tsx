@@ -45,6 +45,7 @@ function MailComposerCalendarDialog(props: {
   const [endsAt, setEndsAt] = createSignal<string | null>(defaults.endsAt);
   const [loading, setLoading] = createSignal(true);
   const [saving, setSaving] = createSignal(false);
+  const [attempted, setAttempted] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   let controller: AbortController | null = null;
   const invitationKey = crypto.randomUUID();
@@ -96,6 +97,7 @@ function MailComposerCalendarDialog(props: {
   const selectSpace = (value: string | null) => {
     const next = value ?? "";
     setSpaceId(next);
+    setAttempted(false);
     setError(null);
     setLoading(true);
     const request = nextController();
@@ -119,7 +121,9 @@ function MailComposerCalendarDialog(props: {
   });
 
   const attach = async () => {
-    if (saving() || validationError()) return;
+    if (saving()) return;
+    setAttempted(true);
+    if (validationError()) return;
     setSaving(true);
     setError(null);
     const request = nextController();
@@ -163,13 +167,17 @@ function MailComposerCalendarDialog(props: {
     }
   };
 
+  const closeDialog = () => {
+    if (!saving()) props.close(null);
+  };
+
   return (
     <PanelDialog>
       <PanelDialog.Header
         title="Add calendar invitation"
         subtitle="Attach an existing event or create one in Spaces"
         icon="ti ti-calendar-plus"
-        close={() => props.close(null)}
+        close={closeDialog}
       />
       <PanelDialog.Body>
         <PanelDialog.Section
@@ -181,7 +189,11 @@ function MailComposerCalendarDialog(props: {
             <SegmentedControl<"existing" | "create">
               ariaLabel="Calendar event source"
               value={mode}
-              onValueChange={setMode}
+              onValueChange={(value) => {
+                setMode(value);
+                setAttempted(false);
+                setError(null);
+              }}
               disabled={saving() || Boolean(createdEventId())}
               options={[
                 { value: "existing", label: "Existing event", icon: "ti ti-calendar" },
@@ -196,6 +208,9 @@ function MailComposerCalendarDialog(props: {
               options={destinations().map((space) => ({ id: space.id, label: space.name, color: space.color }))}
               disabled={loading() || saving() || Boolean(createdEventId())}
             />
+            <Show when={!loading() && destinations().length === 0}>
+              <p class="text-xs text-dimmed">No writable Spaces are available. Create a Space or ask for write access first.</p>
+            </Show>
             <Show
               when={mode() === "existing"}
               fallback={
@@ -224,8 +239,11 @@ function MailComposerCalendarDialog(props: {
                 }))}
                 disabled={loading() || saving()}
               />
+              <Show when={!loading() && Boolean(spaceId()) && events().length === 0}>
+                <p class="text-xs text-dimmed">No events are available in this Space. Choose New event to create one.</p>
+              </Show>
             </Show>
-            <Show when={error() ?? validationError()}>
+            <Show when={error() ?? (attempted() ? validationError() : null)}>
               {(message) => (
                 <p class="text-xs text-danger" role="alert">
                   {message()}
@@ -239,10 +257,10 @@ function MailComposerCalendarDialog(props: {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <Button variant="secondary" size="sm" type="button" disabled={saving()} onClick={() => props.close(null)}>
+        <Button variant="secondary" size="sm" type="button" disabled={saving()} onClick={closeDialog}>
           Cancel
         </Button>
-        <Button size="sm" type="button" disabled={loading() || saving() || Boolean(validationError())} onClick={() => void attach()}>
+        <Button size="sm" type="button" disabled={loading() || saving()} onClick={() => void attach()}>
           <i class={`ti ${saving() ? "ti-loader-2 animate-spin" : "ti-paperclip"}`} aria-hidden="true" />
           Attach invitation
         </Button>

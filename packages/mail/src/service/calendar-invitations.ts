@@ -280,6 +280,7 @@ export const createComposerEvent = async (params: {
   if (!allowed.ok) return allowed;
   const space = await getCalendarSpace(params.spaceId, params.request);
   if (!space.ok) return integrationFailure(space);
+  if (space.data.permission === "read") return fail(err.forbidden("Write access to the selected Space is required"));
   const column = space.data.columns.find((candidate) => !candidate.isDone);
   if (!column) return fail(err.badInput("The selected Space has no active column for a new event"));
   const result = await createCalendarEvent(
