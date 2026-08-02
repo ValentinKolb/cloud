@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
+  type CapabilityActionReview,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
   type CapabilityResult,
@@ -456,6 +457,17 @@ const runNoteList = async (input: z.infer<typeof ContactNoteListInputSchema>, co
   );
 };
 
+const reviewContactAction = async (
+  contactId: string,
+  context: CapabilityExecutionContext,
+  required: PermissionLevel,
+  describe: (contact: Contact) => Omit<CapabilityActionReview, "links">,
+) => {
+  const resolved = await resolveContact(contactId, context, required);
+  if (!resolved.ok) return resolved;
+  return ok({ ...describe(resolved.data.contact), links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }] });
+};
+
 const runContactCreate = async (input: z.infer<typeof ContactCreateInputSchema>, context: CapabilityExecutionContext) => {
   const auditParams = actionAudit(context, "contact.create", "contact_book", input.bookId);
   let replayed = false;
@@ -732,6 +744,19 @@ export const contactsCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "contact", inputField: "contactId" },
+      review: (input, context) =>
+        reviewContactAction(input.contactId, context, "write", (contact) => ({
+          message: `Update ${resolveContactName(contact)}.`,
+          details: [
+            { label: "Contact", value: resolveContactName(contact) },
+            {
+              label: "Changed fields",
+              value: Object.keys(input)
+                .filter((field) => field !== "contactId" && field !== "expectedUpdatedAt")
+                .join(", "),
+            },
+          ],
+        })),
       run: runContactUpdate,
     },
     "contact.move": {
@@ -744,6 +769,18 @@ export const contactsCapabilities = defineCapabilities({
       approval: "always",
       idempotency: "none",
       target: { type: "contact", inputField: "contactId" },
+      review: async (input, context) => {
+        const target = await requireBookPermission(input.targetBookId, context, "write");
+        if (!target.ok) return target;
+        return reviewContactAction(input.contactId, context, "write", (contact) => ({
+          message: `Move ${resolveContactName(contact)} to ${target.data.book.name}.`,
+          details: [
+            { label: "Contact", value: resolveContactName(contact) },
+            { label: "Destination", value: target.data.book.name },
+            { label: "Consequence", value: "Book-scoped tags and hierarchy links will be removed." },
+          ],
+        }));
+      },
       run: runContactMove,
     },
     "contact.delete": {
@@ -756,6 +793,11 @@ export const contactsCapabilities = defineCapabilities({
       approval: "always",
       idempotency: "none",
       target: { type: "contact", inputField: "contactId" },
+      review: (input, context) =>
+        reviewContactAction(input.contactId, context, "write", (contact) => ({
+          message: `Permanently delete ${resolveContactName(contact)}.`,
+          details: [{ label: "Contact", value: resolveContactName(contact) }],
+        })),
       run: runContactDelete,
     },
     "favorite.set": {
@@ -768,6 +810,13 @@ export const contactsCapabilities = defineCapabilities({
       approval: "never",
       idempotency: "none",
       target: { type: "contact", inputField: "contactId" },
+      review: async (input, context) => {
+        if (!userBacked(context)) return fail(err.forbidden("Favorites require a user-backed actor"));
+        return reviewContactAction(input.contactId, context, "read", (contact) => ({
+          message: `${input.favorite ? "Add" : "Remove"} ${resolveContactName(contact)} ${input.favorite ? "to" : "from"} favorites.`,
+          details: [{ label: "Contact", value: resolveContactName(contact) }],
+        }));
+      },
       run: runFavoriteSet,
     },
     "tag.change": {
@@ -780,6 +829,21 @@ export const contactsCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "contact", inputField: "contactId" },
+      review: async (input, context) => {
+        const resolved = await resolveContact(input.contactId, context, "write");
+        if (!resolved.ok) return resolved;
+        const tags = await contactsService.tag.list({ bookId: resolved.data.bookId });
+        const names = new Map(tags.map((tag) => [tag.id, tag.name]));
+        return ok({
+          message: `Change tags for ${resolveContactName(resolved.data.contact)}.`,
+          details: [
+            { label: "Contact", value: resolveContactName(resolved.data.contact) },
+            { label: "Add", value: input.addTagIds.map((id: string) => names.get(id) ?? id).join(", ") || "None" },
+            { label: "Remove", value: input.removeTagIds.map((id: string) => names.get(id) ?? id).join(", ") || "None" },
+          ],
+          links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+        });
+      },
       run: runTagChange,
     },
     "note.create": {

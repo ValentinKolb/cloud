@@ -618,6 +618,35 @@ export const gridsCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "record", inputField: "recordId" },
+      review: async (input, context) => {
+        if (Object.keys(input.values).length === 0) return fail(err.badInput("values must contain at least one field"));
+        const access = accessContext(context);
+        const table = await requireTable(input.tableId, access, "write");
+        if (!table.ok) return table;
+        const dateConfig = await capabilityDateConfig();
+        const record = await gridsService.record.get(input.tableId, input.recordId, {
+          dateConfig,
+          viewer: actorViewerFor(access),
+        });
+        if (!record) return fail(err.notFound("Record"));
+        const [base, fields] = await Promise.all([gridsService.base.get(table.data.baseId), gridsService.field.listByTable(input.tableId)]);
+        const fieldNames = new Map(fields.map((field) => [field.id, field.name]));
+        return ok({
+          message: `Update one record in ${table.data.name}.`,
+          details: [
+            { label: "Table", value: table.data.name },
+            { label: "Record", value: input.recordId },
+            { label: "Current version", value: String(record.version) },
+            {
+              label: "Changed fields",
+              value: Object.keys(input.values)
+                .map((id) => fieldNames.get(id) ?? id)
+                .join(", "),
+            },
+          ],
+          ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data, input.recordId) }] } : {}),
+        });
+      },
       run: runRecordUpdate,
     },
   },

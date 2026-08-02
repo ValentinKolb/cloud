@@ -104,6 +104,8 @@ describe("Venue capabilities", () => {
     ]);
     expect(venueCapabilities.actions?.["assignment.cancel"]?.destructive).toBe(true);
     expect(venueCapabilities.actions?.["assignment.cancel"]?.approval).toBe("always");
+    expect(venueCapabilities.actions?.["assignment.cancel"]?.review).toBeFunction();
+    expect("review" in venueCapabilities.actions["assignment.signup"]).toBeFalse();
   });
 
   postgresTest("supports safe discovery, status, shift, assignment, and feedback workflows", async () => {

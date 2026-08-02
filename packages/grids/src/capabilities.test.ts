@@ -83,6 +83,11 @@ describe("Grids capabilities", () => {
       "record.get",
     ]);
     expect(Object.keys(gridsCapabilities.actions ?? {}).sort()).toEqual(["record.create", "record.update"]);
+    expect(
+      Object.entries(gridsCapabilities.actions ?? {})
+        .filter(([, action]) => "review" in action && action.review)
+        .map(([id]) => id),
+    ).toEqual(["record.update"]);
   });
 
   postgresTest("discovers schema, executes GQL, and mutates records with conflict protection", async () => {

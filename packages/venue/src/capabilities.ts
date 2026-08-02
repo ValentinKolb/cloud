@@ -460,6 +460,21 @@ export const venueCapabilities = defineCapabilities({
       approval: "always",
       idempotency: "none",
       target: { type: "assignment", inputField: "assignmentId" },
+      review: async (input, context) => {
+        const actor = await requireUserAndVenue(input.venueId, context, "read");
+        if (!actor.ok) return actor;
+        const assignment = await venueService.assignments.getPersonal(actor.data.venue.id, input.assignmentId, actor.data.user.id);
+        if (!assignment) return fail(err.notFound("Shift assignment"));
+        return ok({
+          message: `Cancel your shift assignment at ${actor.data.venue.name}.`,
+          details: [
+            { label: "Venue", value: actor.data.venue.name },
+            { label: "Starts", value: assignment.startsAt },
+            { label: "Ends", value: assignment.endsAt },
+          ],
+          links: [{ rel: "open" as const, href: myShiftsHref(actor.data.venue.id) }],
+        });
+      },
       run: runAssignmentCancel,
     },
   },

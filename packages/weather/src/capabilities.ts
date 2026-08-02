@@ -381,6 +381,17 @@ export const weatherCapabilities = defineCapabilities({
       approval: "always",
       idempotency: "none",
       target: { type: "location", inputField: "locationId" },
+      review: async (input, context) => {
+        const userId = requireUserId(context);
+        if (!userId.ok) return userId;
+        const location = await weatherService.location.saved.get({ id: input.locationId, userId: userId.data });
+        if (!location) return fail(err.notFound("Location"));
+        return ok({
+          message: `Permanently delete saved weather location ${location.name}.`,
+          details: [{ label: "Location", value: location.name }],
+          links: [{ rel: "open" as const, href: locationHref(location.id) }],
+        });
+      },
       run: runLocationDelete,
     },
   },

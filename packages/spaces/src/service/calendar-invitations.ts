@@ -286,10 +286,10 @@ export const previewCalendarInvitation = async (input: CalendarInvitationPreview
   return ok({ invitation: parsed.data, existing: existingProjection, response });
 };
 
-export const commitCalendarResponse = async (params: {
+export const getCalendarResponseCommitContext = async (params: {
   input: CalendarInvitationResponseCommitInput;
   subject: AccessSubject;
-}): Promise<Result<CalendarInvitationResponseState>> => {
+}): Promise<Result<{ itemId: string; spaceId: string; title: string }>> => {
   const [source] = await sql<{ item_id: string; space_id: string }[]>`
     SELECT source.item_id, item.space_id
     FROM spaces.calendar_invitation_sources source
@@ -300,6 +300,16 @@ export const commitCalendarResponse = async (params: {
   if (!source) return fail(err.badInput("Add this invitation to Spaces before responding"));
   const permission = await getSpacePermission({ spaceId: source.space_id, subject: params.subject });
   if (permission !== "write" && permission !== "admin") return fail(err.forbidden("Write access to the linked Space is required"));
+  const item = await items.get({ id: source.item_id });
+  return item ? ok({ itemId: item.id, spaceId: source.space_id, title: item.title }) : fail(err.notFound("Event"));
+};
+
+export const commitCalendarResponse = async (params: {
+  input: CalendarInvitationResponseCommitInput;
+  subject: AccessSubject;
+}): Promise<Result<CalendarInvitationResponseState>> => {
+  const source = await getCalendarResponseCommitContext(params);
+  if (!source.ok) return source;
   const state: CalendarInvitationResponseState = {
     participationStatus: params.input.participationStatus,
     state: "drafted",
@@ -309,7 +319,7 @@ export const commitCalendarResponse = async (params: {
   await sql`
     UPDATE spaces.calendar_invitation_sources
     SET last_response = ${state}::jsonb, updated_at = now()
-    WHERE item_id = ${source.item_id}::uuid
+    WHERE item_id = ${source.data.itemId}::uuid
   `;
   return ok(state);
 };
@@ -709,10 +719,10 @@ export const prepareEventInvitationAttachment = async (params: {
   });
 };
 
-export const commitEventInvitationAttachment = async (params: {
+export const getEventInvitationCommitContext = async (params: {
   deliveryId: string;
   subject: AccessSubject;
-}): Promise<Result<{ deliveryId: string; itemId: string; draftId: string; state: "drafted" }>> => {
+}): Promise<Result<{ deliveryId: string; itemId: string; spaceId: string; draftId: string; title: string }>> => {
   const [delivery] = await sql<{ item_id: string; draft_id: string | null }[]>`
     SELECT item_id, draft_id
     FROM spaces.calendar_invitation_deliveries
@@ -722,7 +732,17 @@ export const commitEventInvitationAttachment = async (params: {
   const item = await items.get({ id: delivery.item_id });
   if (!item) return fail(err.notFound("Event"));
   const writable = await requireWritableEvent({ spaceId: item.spaceId, itemId: item.id, subject: params.subject });
-  if (!writable.ok) return writable;
+  return writable.ok
+    ? ok({ deliveryId: params.deliveryId, itemId: item.id, spaceId: item.spaceId, draftId: delivery.draft_id, title: item.title })
+    : writable;
+};
+
+export const commitEventInvitationAttachment = async (params: {
+  deliveryId: string;
+  subject: AccessSubject;
+}): Promise<Result<{ deliveryId: string; itemId: string; draftId: string; state: "drafted" }>> => {
+  const delivery = await getEventInvitationCommitContext(params);
+  if (!delivery.ok) return delivery;
   const [updated] = await sql<{ item_id: string; draft_id: string }[]>`
     UPDATE spaces.calendar_invitation_deliveries
     SET state = 'drafted', error_message = NULL, updated_at = now()

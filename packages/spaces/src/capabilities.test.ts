@@ -190,6 +190,22 @@ describe("spaces capabilities", () => {
       "task.set-completed",
       "task.update",
     ]);
+    expect(
+      Object.entries(spacesCapabilities.actions)
+        .filter(([, action]) => "review" in action && action.review)
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual([
+      "calendar-invitation.import",
+      "calendar-invitation.response.commit",
+      "comment.delete",
+      "comment.update",
+      "event.invitation.commit",
+      "event.update",
+      "item.delete",
+      "task.set-completed",
+      "task.update",
+    ]);
     expect(spacesCapabilities.actions["task.create"]).toMatchObject({
       destructive: false,
       openWorld: false,

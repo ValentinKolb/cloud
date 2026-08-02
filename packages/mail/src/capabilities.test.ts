@@ -77,6 +77,29 @@ describe("mail capabilities", () => {
       "mailbox.tag.update",
       "mailing-list.unsubscribe",
     ]);
+    expect(
+      Object.entries(mailCapabilities.actions)
+        .filter(([, action]) => "review" in action && action.review)
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual([
+      "conversation.collaboration.update",
+      "conversation.comment.delete",
+      "conversation.comment.update",
+      "conversation.mark",
+      "conversation.move",
+      "conversation.reminder.cancel",
+      "conversation.reminder.set",
+      "conversation.tag.update",
+      "delivery.cancel",
+      "draft.attachment.remove",
+      "draft.discard",
+      "draft.send",
+      "draft.update",
+      "mailbox.tag.delete",
+      "mailbox.tag.update",
+      "mailing-list.unsubscribe",
+    ]);
   });
 
   test("keeps draft creation bounded and closed", () => {

@@ -1091,6 +1091,18 @@ const cancelAssignment = async (venueId: string, assignmentId: string, user: Use
   return rows.length > 0 ? ok() : fail(err.notFound("Shift assignment"));
 };
 
+const getPersonalAssignment = async (venueId: string, assignmentId: string, userId: string): Promise<ShiftAssignment | null> => {
+  const [row] = await sql<DbShiftAssignment[]>`
+    SELECT sa.*, u.display_name AS user_display_name
+    FROM venue.shift_assignments sa
+    JOIN auth.users u ON u.id = sa.user_id
+    WHERE sa.venue_id = ${venueId}::uuid
+      AND sa.id = ${assignmentId}::uuid
+      AND sa.user_id = ${userId}::uuid
+  `;
+  return row ? mapAssignment(row) : null;
+};
+
 const listSections = async (venueId: string, onlyEnabled = false): Promise<PublicSection[]> => {
   const rows = await sql<DbPublicSection[]>`
     SELECT * FROM venue.public_sections
@@ -1331,7 +1343,14 @@ export const venueService = {
   overrides: { list: listOverrides, upsert: upsertOverride, update: updateOverride, delete: deleteOverride },
   templates: { list: listTemplates, create: createTemplate, update: updateTemplate, delete: deleteTemplate },
   shifts: { list: upcomingSlots },
-  assignments: { mine: listPersonalAssignments, signupTemplate, signupTemplateWeeks, signupFree, cancel: cancelAssignment },
+  assignments: {
+    mine: listPersonalAssignments,
+    getPersonal: getPersonalAssignment,
+    signupTemplate,
+    signupTemplateWeeks,
+    signupFree,
+    cancel: cancelAssignment,
+  },
   sections: { list: listSections, create: createSection, update: updateSection, delete: deleteSection },
   feedback: { create: createFeedback, summary: feedbackSummary },
   status: statusForVenue,

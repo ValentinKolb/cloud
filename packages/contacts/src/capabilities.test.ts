@@ -117,6 +117,12 @@ describe("contacts capabilities", () => {
       "note.create",
       "tag.change",
     ]);
+    expect(
+      Object.entries(contactsCapabilities.actions)
+        .filter(([, action]) => "review" in action && action.review)
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual(["contact.delete", "contact.move", "contact.update", "favorite.set", "tag.change"]);
   });
 
   test("separates general contact discovery from mail-specific lookup", () => {
@@ -125,6 +131,20 @@ describe("contacts capabilities", () => {
     expect(contactsCapabilities.queries["contact.suggest"].description).toContain("composing mail");
     expect(contactsCapabilities.queries["contact.resolve"].description).toContain("known exact email addresses");
     expect(contactsCapabilities.queries["contact.list"].description).toContain("navigable contact cards");
+  });
+
+  test("reviews a destructive contact action without mutating it", async () => {
+    spyOn(contactsService.contact, "findBookId").mockResolvedValue(bookId);
+    spyOn(contactsService.book, "get").mockResolvedValue(book);
+    spyOn(contactsService.contact, "get").mockResolvedValue(contact);
+    const remove = spyOn(contactsService.contact, "remove");
+    const review = contactsCapabilities.actions["contact.delete"].review;
+    if (!review) throw new Error("Contact delete review missing");
+
+    const result = await review({ contactId, expectedUpdatedAt: timestamp }, context);
+
+    expect(result).toMatchObject({ ok: true, data: { message: "Permanently delete Ada Example." } });
+    expect(remove).not.toHaveBeenCalled();
   });
 
   test("returns one semantic Cloud link with each listed contact", async () => {

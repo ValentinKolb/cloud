@@ -97,6 +97,8 @@ describe("weather capabilities", () => {
       idempotency: "none",
       target: { type: "location", inputField: "locationId" },
     });
+    expect("review" in weatherCapabilities.actions["location.create"]).toBeFalse();
+    expect(weatherCapabilities.actions["location.delete"].review).toBeFunction();
   });
 
   test("keeps inputs closed and bounded", () => {
@@ -119,6 +121,18 @@ describe("weather capabilities", () => {
         unexpected: true,
       }).success,
     ).toBeFalse();
+  });
+
+  test("reviews location deletion without removing it", async () => {
+    spyOn(weatherService.location.saved, "get").mockResolvedValue(location);
+    const remove = spyOn(weatherService.location.saved, "remove");
+    const review = weatherCapabilities.actions["location.delete"].review;
+    if (!review) throw new Error("Location delete review missing");
+
+    const result = await review({ locationId }, userContext);
+
+    expect(result).toMatchObject({ ok: true, data: { message: "Permanently delete saved weather location Ulm." } });
+    expect(remove).not.toHaveBeenCalled();
   });
 
   test("accepts only opaque v1 page cursors", () => {

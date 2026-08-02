@@ -121,6 +121,12 @@ describe("notebooks capabilities", () => {
       "tag.notes",
     ]);
     expect(Object.keys(notebooksCapabilities.actions).sort()).toEqual(["note.create", "note.edit", "note.move"]);
+    expect(
+      Object.entries(notebooksCapabilities.actions)
+        .filter(([, action]) => "review" in action && action.review)
+        .map(([id]) => id)
+        .sort(),
+    ).toEqual(["note.edit", "note.move"]);
     expect(notebooksCapabilities.actions["note.edit"]).toMatchObject({
       destructive: true,
       openWorld: false,

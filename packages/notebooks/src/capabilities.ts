@@ -565,6 +565,23 @@ export const notebooksCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "note", inputField: "noteId" },
+      review: async (input, context) => {
+        const resolved = await requireNote(input.noteId, context, "write");
+        if (!resolved.ok) return resolved;
+        const operations = new Map<string, number>();
+        for (const operation of input.operations) operations.set(operation.kind, (operations.get(operation.kind) ?? 0) + 1);
+        return ok({
+          message: `Edit ${resolved.data.note.title}.`,
+          details: [
+            { label: "Note", value: resolved.data.note.title },
+            {
+              label: "Operations",
+              value: [...operations].map(([kind, count]) => `${count} ${kind}`).join(", "),
+            },
+          ],
+          links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, resolved.data.note) }],
+        });
+      },
       run: runNoteEdit,
     },
     "note.move": {
@@ -577,6 +594,25 @@ export const notebooksCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "note", inputField: "noteId" },
+      review: async (input, context) => {
+        const resolved = await requireNote(input.noteId, context, "write");
+        if (!resolved.ok) return resolved;
+        let parentTitle = "Notebook root";
+        if (input.parentId) {
+          const parent = await requireNote(input.parentId, context, "write");
+          if (!parent.ok || parent.data.note.notebookId !== resolved.data.note.notebookId) return fail(err.notFound("Parent note"));
+          parentTitle = parent.data.note.title;
+        }
+        return ok({
+          message: `Move ${resolved.data.note.title} to ${parentTitle}.`,
+          details: [
+            { label: "Note", value: resolved.data.note.title },
+            { label: "New parent", value: parentTitle },
+            { label: "New position", value: String(input.position) },
+          ],
+          links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, resolved.data.note) }],
+        });
+      },
       run: runNoteMove,
     },
   },

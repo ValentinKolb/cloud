@@ -520,6 +520,49 @@ const queryDefinitions = {
   },
 };
 
+const requireDraftForReview = async (mailboxId: string, draftId: string, context: CapabilityExecutionContext) => {
+  const mailContext = requestContext(context);
+  const access = await mailboxAccess.requireMailboxPermission(mailContext, mailboxId, "write");
+  if (!access.ok) return access;
+  return drafts.getDraft(mailContext, mailboxId, draftId);
+};
+
+const recipientSummary = (draft: Pick<MailDraft, "to" | "cc" | "bcc">): string => {
+  const recipients = [...draft.to, ...draft.cc, ...draft.bcc];
+  return recipients
+    .slice(0, 20)
+    .map((recipient) => recipient.name?.trim() || recipient.address)
+    .join(", ");
+};
+
+const requireConversationForReview = async (mailboxId: string, conversationId: string, context: CapabilityExecutionContext) => {
+  const mailContext = requestContext(context);
+  const access = await mailboxAccess.requireMailboxPermission(mailContext, mailboxId, "write");
+  if (!access.ok) return access;
+  const page = await messages.listConversationMessages({ context: mailContext, mailboxId, conversationId, limit: 1 });
+  if (!page.ok) return page;
+  const message = page.data.items[0];
+  if (!message) return fail(err.notFound("Conversation"));
+  return ok({
+    subject: message.subject || "(no subject)",
+    href: `/app/mail/${mailboxId}?conversation=${conversationId}`,
+  });
+};
+
+const reviewConversationBatch = async (
+  mailboxId: string,
+  conversationIds: readonly string[],
+  context: CapabilityExecutionContext,
+) => {
+  const conversations: string[] = [];
+  for (const conversationId of conversationIds.slice(0, 5)) {
+    const conversation = await requireConversationForReview(mailboxId, conversationId, context);
+    if (!conversation.ok) return conversation;
+    conversations.push(conversation.data.subject);
+  }
+  return ok(conversations);
+};
+
 const actionDefinitions = {
   "draft.create": {
     title: "Create draft",
@@ -555,11 +598,39 @@ const actionDefinitions = {
   "draft.update": {
     title: "Update draft", description: "Replace editable draft content using an optimistic revision.", input: c.DraftUpdateInputSchema, data: c.DraftDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "draft", inputField: "draftId" },
+    review: async (input: z.output<typeof c.DraftUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const current = await requireDraftForReview(input.mailboxId, input.draftId, context);
+      if (!current.ok) return current;
+      if (current.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
+      return ok({
+        message: `Replace the editable content of draft ${current.data.subject || "(no subject)"}.`,
+        details: [
+          { label: "Current subject", value: current.data.subject || "(no subject)" },
+          { label: "New subject", value: input.draft.subject || "(no subject)" },
+          { label: "Recipients", value: recipientSummary(input.draft) || "None" },
+        ],
+        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.DraftUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await drafts.updateDraft({ context: requestContext(context), mailboxId: input.mailboxId, draftId: input.draftId, expectedRevision: input.expectedRevision, input: input.draft }), mapDraft),
   },
   "draft.discard": {
     title: "Discard draft", description: "Discard one user draft using an optimistic revision.", input: c.DraftDiscardInputSchema, data: c.DeletedDataSchema,
     destructive: true, openWorld: false, approval: "always", idempotency: "none", target: { type: "draft", inputField: "draftId" },
+    review: async (input: z.output<typeof c.DraftDiscardInputSchema>, context: CapabilityExecutionContext) => {
+      const draft = await requireDraftForReview(input.mailboxId, input.draftId, context);
+      if (!draft.ok) return draft;
+      if (draft.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
+      return ok({
+        message: `Discard draft ${draft.data.subject || "(no subject)"}.`,
+        details: [
+          { label: "Subject", value: draft.data.subject || "(no subject)" },
+          { label: "Recipients", value: recipientSummary(draft.data) || "None" },
+          { label: "Attachments", value: String(draft.data.attachments.length) },
+        ],
+        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.DraftDiscardInputSchema>, context: CapabilityExecutionContext) => mapResult(await drafts.discardDraft({ context: requestContext(context), ...input }), () => ({ deleted: true as const })),
   },
   "draft.attachment.add": {
@@ -574,11 +645,49 @@ const actionDefinitions = {
   "draft.attachment.remove": {
     title: "Remove draft attachment", description: "Remove one attachment using an optimistic draft revision.", input: c.DraftAttachmentRemoveInputSchema, data: c.DraftDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "draft", inputField: "draftId" },
+    review: async (input: z.output<typeof c.DraftAttachmentRemoveInputSchema>, context: CapabilityExecutionContext) => {
+      const draft = await requireDraftForReview(input.mailboxId, input.draftId, context);
+      if (!draft.ok) return draft;
+      if (draft.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
+      const attachment = draft.data.attachments.find((candidate) => candidate.id === input.attachmentId);
+      if (!attachment) return fail(err.notFound("Draft attachment"));
+      return ok({
+        message: `Remove attachment ${attachment.filename} from draft ${draft.data.subject || "(no subject)"}.`,
+        details: [
+          { label: "Draft", value: draft.data.subject || "(no subject)" },
+          { label: "Attachment", value: attachment.filename },
+        ],
+        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.DraftAttachmentRemoveInputSchema>, context: CapabilityExecutionContext) => mapResult(await drafts.removeDraftAttachment({ context: requestContext(context), ...input }), mapDraft),
   },
   "draft.send": {
     title: "Send draft", description: "Queue a reviewed draft for immediate or scheduled external delivery.", input: c.DraftSendInputSchema, data: c.DraftSendDataSchema,
     destructive: false, openWorld: true, approval: "always", idempotency: "required", target: { type: "draft", inputField: "draftId" },
+    review: async (input: z.output<typeof c.DraftSendInputSchema>, context: CapabilityExecutionContext) => {
+      const [draft, safety] = await Promise.all([
+        requireDraftForReview(input.mailboxId, input.draftId, context),
+        composeSafety.reviewDraftComposeSafety({
+          context: requestContext(context),
+          mailboxId: input.mailboxId,
+          draftId: input.draftId,
+          expectedRevision: input.expectedRevision,
+        }),
+      ]);
+      if (!draft.ok) return draft;
+      if (!safety.ok) return safety;
+      return ok({
+        message: `${input.scheduledAt ? "Schedule" : "Send"} draft ${draft.data.subject || "(no subject)"} to external recipients.`,
+        details: [
+          { label: "Subject", value: draft.data.subject || "(no subject)" },
+          { label: "Recipients", value: recipientSummary(draft.data) || "None" },
+          { label: "Delivery", value: input.scheduledAt ?? `After a ${input.undoSeconds}-second undo window` },
+          ...safety.data.warnings.map((warning) => ({ label: warning.title, value: warning.description })),
+        ],
+        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.DraftSendInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context);
       if (!key.ok) return key;
@@ -591,11 +700,48 @@ const actionDefinitions = {
   "delivery.cancel": {
     title: "Cancel delivery", description: "Cancel a scheduled or undo-window delivery and either restore or discard its draft.", input: c.DeliveryCancelInputSchema, data: c.DeliveryCancelDataSchema,
     destructive: true, openWorld: false, approval: "always", idempotency: "none", target: { type: "delivery", inputField: "deliveryId" },
+    review: async (input: z.output<typeof c.DeliveryCancelInputSchema>, context: CapabilityExecutionContext) => {
+      const delivery = await scheduledSends.getScheduledSend({
+        context: requestContext(context),
+        mailboxId: input.mailboxId,
+        scheduledSendId: input.deliveryId,
+      });
+      if (!delivery.ok) return delivery;
+      return ok({
+        message: `Cancel delivery of ${delivery.data.subject || "(no subject)"}.`,
+        details: [
+          { label: "Subject", value: delivery.data.subject || "(no subject)" },
+          { label: "Scheduled for", value: delivery.data.scheduledAt },
+          { label: "Draft", value: input.disposition === "draft" ? "Restore as draft" : "Discard" },
+        ],
+        links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}/compose/${delivery.data.draftId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.DeliveryCancelInputSchema>, context: CapabilityExecutionContext) => mapResult(await scheduledSends.cancelScheduledSend({ context: requestContext(context), mailboxId: input.mailboxId, scheduledSendId: input.deliveryId, input: { disposition: input.disposition } }), (item) => item),
   },
   "conversation.mark": {
     title: "Mark conversations", description: "Mark up to 100 conversations read or flagged in their source folder.", input: c.ConversationMarkInputSchema, data: c.ConversationMutationDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "required",
+    review: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
+      const conversations = await reviewConversationBatch(
+        input.mailboxId,
+        input.targets.map((target) => target.conversationId),
+        context,
+      );
+      if (!conversations.ok) return conversations;
+      const changes = [
+        ...(input.read === undefined ? [] : [input.read ? "mark read" : "mark unread"]),
+        ...(input.flagged === undefined ? [] : [input.flagged ? "flag" : "unflag"]),
+      ];
+      return ok({
+        message: `${changes.join(" and ")} ${input.targets.length} conversation${input.targets.length === 1 ? "" : "s"}.`,
+        details: [
+          { label: "Conversations", value: conversations.data.join(", ") },
+          { label: "Change", value: changes.join(", ") },
+        ],
+        links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context); if (!key.ok) return key;
       const data = [];
@@ -618,6 +764,29 @@ const actionDefinitions = {
   "conversation.move": {
     title: "Move conversations", description: "Move up to 100 conversations to a standard role or an explicit folder.", input: c.ConversationMoveInputSchema, data: c.ConversationMutationDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "required",
+    review: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
+      const conversations = await reviewConversationBatch(
+        input.mailboxId,
+        input.targets.map((target) => target.conversationId),
+        context,
+      );
+      if (!conversations.ok) return conversations;
+      let destination = input.destination.kind === "role" ? input.destination.role : input.destination.folderId;
+      if (input.destination.kind === "folder") {
+        const folderId = input.destination.folderId;
+        const folders = await messages.listFolders(requestContext(context), input.mailboxId);
+        if (!folders.ok) return folders;
+        destination = folders.data.find((folder) => folder.id === folderId)?.name ?? folderId;
+      }
+      return ok({
+        message: `Move ${input.targets.length} conversation${input.targets.length === 1 ? "" : "s"} to ${destination}.`,
+        details: [
+          { label: "Conversations", value: conversations.data.join(", ") },
+          { label: "Destination", value: destination },
+        ],
+        links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}` }],
+      });
+    },
     run: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context); if (!key.ok) return key;
       const data = [];
@@ -637,6 +806,24 @@ const actionDefinitions = {
   "conversation.tag.update": {
     title: "Update conversation tags", description: "Add and remove Cloud-local tags with optimistic concurrency.", input: c.ConversationTagUpdateInputSchema, data: c.ConversationTagDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "conversation", inputField: "conversationId" },
+    review: async (input: z.output<typeof c.ConversationTagUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const [conversation, tags] = await Promise.all([
+        requireConversationForReview(input.mailboxId, input.conversationId, context),
+        localTags.listLocalTags(requestContext(context), input.mailboxId),
+      ]);
+      if (!conversation.ok) return conversation;
+      if (!tags.ok) return tags;
+      const names = new Map(tags.data.map((tag) => [tag.id, tag.name]));
+      return ok({
+        message: `Change tags on ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Add", value: input.addTagIds.map((id) => names.get(id) ?? id).join(", ") || "None" },
+          { label: "Remove", value: input.removeTagIds.map((id) => names.get(id) ?? id).join(", ") || "None" },
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+      });
+    },
     run: async (input: z.output<typeof c.ConversationTagUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const current = await localTags.getConversationLocalTags({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId });
       if (!current.ok) return current;
@@ -648,6 +835,19 @@ const actionDefinitions = {
   "conversation.collaboration.update": {
     title: "Update collaboration", description: "Assign, snooze, or change the work status of a conversation.", input: c.CollaborationUpdateInputSchema, data: c.CollaborationDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "conversation", inputField: "conversationId" },
+    review: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      const details = [{ label: "Conversation", value: conversation.data.subject }];
+      if (input.assigneeUserId !== undefined) details.push({ label: "Assignee", value: input.assigneeUserId ?? "Unassigned" });
+      if (input.workStatus !== undefined) details.push({ label: "Status", value: input.workStatus });
+      if (input.snoozedUntil !== undefined) details.push({ label: "Snoozed until", value: input.snoozedUntil ?? "Not snoozed" });
+      return ok({
+        message: `Update collaboration state for ${conversation.data.subject}.`,
+        details,
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+      });
+    },
     run: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await collaboration.updateConversationCollaboration({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId, input: { expectedRevision: input.expectedRevision, assigneeUserId: input.assigneeUserId, workStatus: input.workStatus, snoozedUntil: input.snoozedUntil } }), (item) => item),
   },
   "conversation.reminder.set": {
@@ -660,6 +860,18 @@ const actionDefinitions = {
     approval: "once",
     idempotency: "none",
     target: { type: "conversation", inputField: "conversationId" },
+    review: async (input: z.output<typeof c.ReminderSetInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      return ok({
+        message: `Set your reminder for ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Due at", value: input.dueAt },
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+      });
+    },
     run: async (input: z.output<typeof c.ReminderSetInputSchema>, context: CapabilityExecutionContext) =>
       mapResult(
         await reminders.setConversationReminder({
@@ -681,6 +893,22 @@ const actionDefinitions = {
     approval: "once",
     idempotency: "none",
     target: { type: "conversation", inputField: "conversationId" },
+    review: async (input: z.output<typeof c.ReminderCancelInputSchema>, context: CapabilityExecutionContext) => {
+      const [conversation, reminder] = await Promise.all([
+        requireConversationForReview(input.mailboxId, input.conversationId, context),
+        reminders.getConversationReminder({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId }),
+      ]);
+      if (!conversation.ok) return conversation;
+      if (!reminder.ok) return reminder;
+      return ok({
+        message: `Cancel your reminder for ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Due at", value: reminder.data?.dueAt ?? "Unknown" },
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+      });
+    },
     run: async (input: z.output<typeof c.ReminderCancelInputSchema>, context: CapabilityExecutionContext) =>
       mapResult(
         await reminders.cancelConversationReminder({
@@ -700,11 +928,35 @@ const actionDefinitions = {
   "conversation.comment.update": {
     title: "Update internal comment", description: "Edit an owned internal comment using an optimistic revision.", input: c.CommentUpdateInputSchema, data: c.CommentDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "comment", inputField: "commentId" },
+    review: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      return ok({
+        message: `Update your internal comment on ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Replacement comment", value: input.body.slice(0, 500) },
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+      });
+    },
     run: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await collaboration.updateConversationComment({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId, commentId: input.commentId, input: { expectedRevision: input.expectedRevision, body: input.body } }), (item) => item),
   },
   "conversation.comment.delete": {
     title: "Delete internal comment", description: "Soft-delete an internal comment using an optimistic revision.", input: c.CommentDeleteInputSchema, data: c.CommentDataSchema,
     destructive: true, openWorld: false, approval: "always", idempotency: "none", target: { type: "comment", inputField: "commentId" },
+    review: async (input: z.output<typeof c.CommentDeleteInputSchema>, context: CapabilityExecutionContext) => {
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      if (!conversation.ok) return conversation;
+      return ok({
+        message: `Delete your internal comment on ${conversation.data.subject}.`,
+        details: [
+          { label: "Conversation", value: conversation.data.subject },
+          { label: "Comment", value: input.commentId },
+        ],
+        links: [{ rel: "open" as const, href: conversation.data.href }],
+      });
+    },
     run: async (input: z.output<typeof c.CommentDeleteInputSchema>, context: CapabilityExecutionContext) => mapResult(await collaboration.deleteConversationComment({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId, commentId: input.commentId, input: { expectedRevision: input.expectedRevision } }), (item) => item),
   },
   "mailbox.tag.create": {
@@ -715,16 +967,54 @@ const actionDefinitions = {
   "mailbox.tag.update": {
     title: "Update mailbox tag", description: "Rename or recolor a mailbox tag using an optimistic revision.", input: c.TagUpdateInputSchema, data: c.TagDataSchema,
     destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "tag", inputField: "tagId" },
+    review: async (input: z.output<typeof c.TagUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const tags = await localTags.listLocalTags(requestContext(context), input.mailboxId);
+      if (!tags.ok) return tags;
+      const tag = tags.data.find((candidate) => candidate.id === input.tagId);
+      if (!tag) return fail(err.notFound("Mailbox tag"));
+      return ok({
+        message: `Update mailbox tag ${tag.name}.`,
+        details: [
+          { label: "Current name", value: tag.name },
+          ...(input.name ? [{ label: "New name", value: input.name }] : []),
+          ...(input.color ? [{ label: "New color", value: input.color }] : []),
+        ],
+      });
+    },
     run: async (input: z.output<typeof c.TagUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await localTags.updateLocalTag({ context: requestContext(context), mailboxId: input.mailboxId, tagId: input.tagId, input: { expectedRevision: input.expectedRevision, name: input.name, color: input.color } }), (item) => item),
   },
   "mailbox.tag.delete": {
     title: "Delete mailbox tag", description: "Delete a mailbox tag and remove it from conversations.", input: c.TagDeleteInputSchema, data: c.DeletedDataSchema,
     destructive: true, openWorld: false, approval: "always", idempotency: "none", target: { type: "tag", inputField: "tagId" },
+    review: async (input: z.output<typeof c.TagDeleteInputSchema>, context: CapabilityExecutionContext) => {
+      const tags = await localTags.listLocalTags(requestContext(context), input.mailboxId);
+      if (!tags.ok) return tags;
+      const tag = tags.data.find((candidate) => candidate.id === input.tagId);
+      if (!tag) return fail(err.notFound("Mailbox tag"));
+      return ok({
+        message: `Delete mailbox tag ${tag.name} and remove it from conversations.`,
+        details: [{ label: "Tag", value: tag.name }],
+      });
+    },
     run: async (input: z.output<typeof c.TagDeleteInputSchema>, context: CapabilityExecutionContext) => mapResult(await localTags.deleteLocalTag({ context: requestContext(context), mailboxId: input.mailboxId, tagId: input.tagId, input: { expectedRevision: input.expectedRevision } }), () => ({ deleted: true as const })),
   },
   "mailing-list.unsubscribe": {
     title: "Unsubscribe from mailing list", description: "Request standards-based one-click unsubscribe after confirming the current advertised endpoint.", input: c.SubscriptionUnsubscribeInputSchema, data: c.SubscriptionUnsubscribeDataSchema,
     destructive: true, openWorld: true, approval: "always", idempotency: "required", target: { type: "mailing-list", inputField: "listKey" },
+    review: async (input: z.output<typeof c.SubscriptionUnsubscribeInputSchema>, context: CapabilityExecutionContext) => {
+      const subscription = await listSubscriptions.getSubscription(requestContext(context), input.mailboxId, input.listKey);
+      if (!subscription.ok) return subscription;
+      if (!subscription.data) return fail(err.notFound("Mailing-list subscription"));
+      if (subscription.data.unsubscribe?.href !== input.href) return fail(err.conflict("The advertised unsubscribe endpoint changed"));
+      return ok({
+        message: `Request external unsubscribe from ${subscription.data.name}.`,
+        details: [
+          { label: "Mailing list", value: subscription.data.name },
+          { label: "Address", value: subscription.data.address },
+          { label: "Endpoint", value: input.href },
+        ],
+      });
+    },
     run: async (input: z.output<typeof c.SubscriptionUnsubscribeInputSchema>, context: CapabilityExecutionContext) => mapResult(await listSubscriptions.requestUnsubscribe({ context: requestContext(context), mailboxId: input.mailboxId, input: { listKey: input.listKey, href: input.href } }), (item) => item),
   },
 } as const;

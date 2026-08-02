@@ -783,6 +783,24 @@ export const spacesCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "item", inputField: "itemId" },
+      review: async (input, context) => {
+        const resolved = await requireItem(input.itemId, context, "write");
+        if (!resolved.ok) return resolved;
+        if (isEvent(resolved.data.item)) return fail(err.badInput("Item is not a task"));
+        return ok({
+          message: `Update task ${resolved.data.item.title}.`,
+          details: [
+            { label: "Task", value: resolved.data.item.title },
+            {
+              label: "Changed fields",
+              value: Object.keys(input)
+                .filter((field) => field !== "itemId")
+                .join(", "),
+            },
+          ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+        });
+      },
       run: runTaskUpdate,
     },
     "task.set-completed": {
@@ -795,6 +813,16 @@ export const spacesCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "item", inputField: "itemId" },
+      review: async (input, context) => {
+        const resolved = await requireItem(input.itemId, context, "write");
+        if (!resolved.ok) return resolved;
+        if (isEvent(resolved.data.item)) return fail(err.badInput("Item is not a task"));
+        return ok({
+          message: `${input.completed ? "Complete" : "Reopen"} task ${resolved.data.item.title}.`,
+          details: [{ label: "Task", value: resolved.data.item.title }],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+        });
+      },
       run: runTaskSetCompleted,
     },
     "event.create": {
@@ -819,6 +847,24 @@ export const spacesCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "item", inputField: "itemId" },
+      review: async (input, context) => {
+        const resolved = await requireItem(input.itemId, context, "write");
+        if (!resolved.ok) return resolved;
+        if (!isEvent(resolved.data.item)) return fail(err.badInput("Item is not an event"));
+        return ok({
+          message: `Update event ${resolved.data.item.title}.`,
+          details: [
+            { label: "Event", value: resolved.data.item.title },
+            {
+              label: "Changed fields",
+              value: Object.keys(input)
+                .filter((field) => field !== "itemId")
+                .join(", "),
+            },
+          ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+        });
+      },
       run: runEventUpdate,
     },
     "event.invitation.prepare": {
@@ -842,6 +888,21 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       approval: "once",
       idempotency: "none",
+      review: async (input, context) => {
+        const delivery = await spacesService.calendarInvitations.getEventInvitationCommitContext({
+          deliveryId: input.deliveryId,
+          subject: context.accessSubject,
+        });
+        if (!delivery.ok) return delivery;
+        return ok({
+          message: `Record the invitation for ${delivery.data.title} as attached to its Mail draft.`,
+          details: [
+            { label: "Event", value: delivery.data.title },
+            { label: "Draft", value: delivery.data.draftId },
+          ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(delivery.data.spaceId, delivery.data.itemId) }],
+        });
+      },
       run: runEventInvitationCommit,
     },
     "item.delete": {
@@ -854,6 +915,15 @@ export const spacesCapabilities = defineCapabilities({
       approval: "always",
       idempotency: "none",
       target: { type: "item", inputField: "itemId" },
+      review: async (input, context) => {
+        const resolved = await requireItem(input.itemId, context, "write");
+        if (!resolved.ok) return resolved;
+        return ok({
+          message: `Permanently delete ${isEvent(resolved.data.item) ? "event" : "task"} ${resolved.data.item.title}.`,
+          details: [{ label: isEvent(resolved.data.item) ? "Event" : "Task", value: resolved.data.item.title }],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+        });
+      },
       run: runItemDelete,
     },
     "comment.create": {
@@ -878,6 +948,20 @@ export const spacesCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "comment", inputField: "commentId" },
+      review: async (input, context) => {
+        if (!context.user) return fail(err.forbidden("Comments require a user-backed actor"));
+        const resolved = await resolveComment(input.commentId, context, "write");
+        if (!resolved.ok) return resolved;
+        if (resolved.data.comment.userId !== context.user.id) return fail(err.forbidden("Only the comment author may edit it"));
+        return ok({
+          message: `Update your comment on ${resolved.data.item.title}.`,
+          details: [
+            { label: "Item", value: resolved.data.item.title },
+            { label: "Current comment", value: resolved.data.comment.content.slice(0, 500) },
+          ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
+        });
+      },
       run: runCommentUpdate,
     },
     "comment.delete": {
@@ -890,6 +974,20 @@ export const spacesCapabilities = defineCapabilities({
       approval: "always",
       idempotency: "none",
       target: { type: "comment", inputField: "commentId" },
+      review: async (input, context) => {
+        if (!context.user) return fail(err.forbidden("Comments require a user-backed actor"));
+        const resolved = await resolveComment(input.commentId, context, "write");
+        if (!resolved.ok) return resolved;
+        if (resolved.data.comment.userId !== context.user.id) return fail(err.forbidden("Only the comment author may delete it"));
+        return ok({
+          message: `Delete your comment on ${resolved.data.item.title}.`,
+          details: [
+            { label: "Item", value: resolved.data.item.title },
+            { label: "Comment", value: resolved.data.comment.content.slice(0, 500) },
+          ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
+        });
+      },
       run: runCommentDelete,
     },
     "calendar-invitation.import": {
@@ -902,6 +1000,33 @@ export const spacesCapabilities = defineCapabilities({
       approval: "once",
       idempotency: "none",
       target: { type: "space", inputField: "spaceId" },
+      review: async (input, context) => {
+        if (!context.user) return fail(err.forbidden("Importing an invitation requires a user-backed actor"));
+        const access = await requireSpace(input.spaceId, context, "write");
+        if (!access.ok) return access;
+        const preview = await spacesService.calendarInvitations.previewCalendarInvitation(input);
+        if (!preview.ok) return preview;
+        if (preview.data.existing && preview.data.existing.spaceId !== input.spaceId) {
+          return fail(err.conflict("This calendar event is already linked to another Space"));
+        }
+        const decision = spacesService.calendarInvitations.decideCalendarImport({
+          existing: preview.data.existing,
+          invitation: preview.data.invitation,
+        });
+        if (decision === "reject_cancellation") return fail(err.badInput("Cannot import a cancellation without an existing event"));
+        const consequence = decision === "create" ? "Create" : decision === "unchanged" ? "Keep" : "Update";
+        return ok({
+          message: `${consequence} calendar event ${preview.data.invitation.title} in ${access.data.space.name}.`,
+          details: [
+            { label: "Space", value: access.data.space.name },
+            { label: "Event", value: preview.data.invitation.title },
+            { label: "Method", value: preview.data.invitation.method },
+            { label: "Starts", value: preview.data.invitation.startsAt },
+            { label: "Ends", value: preview.data.invitation.endsAt },
+          ],
+          ...(preview.data.existing ? { links: [{ rel: "open" as const, href: preview.data.existing.href }] } : {}),
+        });
+      },
       run: runCalendarInvitationImport,
     },
     "calendar-invitation.response.commit": {
@@ -913,6 +1038,22 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       approval: "once",
       idempotency: "none",
+      review: async (input, context) => {
+        const source = await spacesService.calendarInvitations.getCalendarResponseCommitContext({
+          input,
+          subject: context.accessSubject,
+        });
+        if (!source.ok) return source;
+        return ok({
+          message: `Record the ${input.participationStatus} calendar response for ${source.data.title}.`,
+          details: [
+            { label: "Event", value: source.data.title },
+            { label: "Response", value: input.participationStatus },
+            { label: "Draft", value: input.draftId },
+          ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(source.data.spaceId, source.data.itemId) }],
+        });
+      },
       run: runCalendarInvitationResponseCommit,
     },
   },
