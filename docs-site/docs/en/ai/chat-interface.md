@@ -5,7 +5,7 @@ section: AI
 order: 1070
 description: Present conversation state, tools, approvals, and failures with the shared chat controller and components.
 tags: [ai, ui, solidjs]
-updated: 2026-07-27
+updated: 2026-08-02
 ---
 
 # Chat interface
@@ -125,6 +125,11 @@ Distinguish:
 Keep the Stop action available until the server accepts the abort.
 
 Render tool input and output as data. Do not inject model text as HTML.
+
+Capability calls use the owning application's saved name and icon in running,
+approval, success, and failure states. The saved snapshot keeps history readable
+when an app is temporarily unavailable or later changes its registry metadata;
+ordinary Nessi tools keep the generic tool presentation.
 
 ## Handle frontend tools
 

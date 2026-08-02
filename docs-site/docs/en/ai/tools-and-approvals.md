@@ -5,7 +5,7 @@ section: AI
 order: 1040
 description: Let models request application actions while keeping authorization and approval explicit.
 tags: [ai, tools, approvals]
-updated: 2026-07-27
+updated: 2026-08-02
 ---
 
 # Tools and approvals
@@ -92,6 +92,41 @@ user.
 
 `promptHint` adds a short usage hint to the system prompt. It does not replace
 the tool description.
+
+## Discover Cloud app capabilities
+
+A direct chat may opt into the live capability catalog through its default tool
+source:
+
+```ts
+toolSource: { kind: "default", capabilities: true }
+```
+
+Capability-enabled chats always expose three small discovery tools:
+
+- `search_capabilities` finds operations by task, name, application, and
+  `query` or `action` kind;
+- `list_capabilities` lists a bounded page, optionally filtered by application
+  and kind;
+- `load_capabilities` retains exact names returned by discovery.
+
+A loaded capability becomes an ordinary named tool on the next model turn.
+Cloud sends the model a reduced input schema that keeps structure, required
+fields, descriptions, enums, and useful formats. Output schemas, schema hashes,
+icons, authorization metadata, and validation-only limits stay out of model
+context. The owning application still performs authoritative input validation.
+
+Discovery is not authorization. Every invocation resolves the conversation's
+current user, creates a short-lived request delegation, and lets the owning app
+authenticate and authorize the operation again. Cloud never persists or
+replays the user's browser cookie, bearer token, resource API key, or service
+account credential for this path. An unavailable app or denied resource fails
+that tool call without granting fallback access.
+
+The chat stores only ordered loaded capability names. Removed or temporarily
+unavailable operations are omitted from later snapshots. Capability calls save
+a small app presentation snapshot so live calls and history can show the owning
+app without exposing icon metadata to the model.
 
 ## Handle approval in the UI
 

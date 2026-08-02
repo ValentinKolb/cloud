@@ -5,7 +5,7 @@ section: AI
 order: 1020
 description: Configure models and providers without exposing credentials to application clients.
 tags: [ai, models, providers]
-updated: 2026-07-27
+updated: 2026-08-02
 ---
 
 # Models and providers
@@ -52,6 +52,7 @@ A locked policy needs `modelId`. A selectable policy may set
 | `contextWindow` | Optional context limit |
 | `temperature` | Optional profile default |
 | `maxOutputTokens` | Optional output limit |
+| `maxLoadedCapabilities` | Loaded capability names retained per conversation; missing, `0`, or negative is unlimited, while a positive value keeps the newest names and evicts the oldest |
 
 Model responses sent to the browser omit credentials and private
 configuration.

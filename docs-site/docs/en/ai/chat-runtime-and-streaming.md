@@ -5,7 +5,7 @@ section: AI
 order: 1030
 description: Run bounded chat sessions and stream model output to an application.
 tags: [ai, chat, streaming]
-updated: 2026-07-27
+updated: 2026-08-02
 ---
 
 # Chat runtime and streaming
@@ -76,6 +76,12 @@ the conversation workspace, presentation, and web search or extraction when
 Firecrawl is configured. These built-in tools use `approval: "never"`. Enable
 the default set only when the chat needs those capabilities. See
 [Tools and approvals](/docs/en/ai/tools-and-approvals).
+
+`toolSource: { kind: "default", capabilities: true }` additionally enables the
+compact Cloud app capability discovery tools. It is an explicit opt-in: other
+chat and resource consumers keep their existing tool surface. Capability tools
+require a model profile with `tools` support and a current direct user actor;
+service-backed agent identities are not part of this contract.
 
 ## Chat route groups
 
