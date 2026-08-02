@@ -46,8 +46,8 @@ while loading.
 
 `SettingsPanelFooter` provides the same status and actions for a surrounding
 panel footer. It remains visible with `No unsaved changes`, disables both
-actions until a change exists, and accepts `saveClass="btn-primary"` or
-`saveClass="btn-ai"`.
+actions until a change exists, and accepts `saveClass="btn-primary"` when the
+host needs the Cloud primary-action utility.
 
 `sameSettingValue` performs the JSON-based, order-sensitive comparison used by
 settings forms. `readSettingsError(response, fallback)` reads the shared

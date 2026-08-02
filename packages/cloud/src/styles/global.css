@@ -2,14 +2,11 @@
 @import "@k2b/ui/styles.css";
 @plugin "@tailwindcss/typography";
 
-/* global.css carries cloud-lib classes — UI primitives, layouts, shared
-   components — and is served to every container via the gateway. Apps must
-   NOT be scanned here; per-app classes come from each app's own app.css. */
+/* global.css carries the Cloud shell, integration surfaces, and shared app
+   utilities. Portable UI primitives live in @k2b/ui. This stylesheet is
+   served to every container via the gateway; per-app classes belong in each
+   app's own app.css and must not be scanned here. */
 @source "../**/*.{ts,tsx}";
-@source inline("btn-ai");
-@source inline("btn-input-ai");
-@source inline("icon-btn-ai");
-@source inline("input-ai");
 
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant light (html:not(.dark) &);
@@ -31,8 +28,6 @@
 @import "./utilities-markdown-table.css";
 @import "./utilities-script.css";
 @import "./utilities-markdown-editor.css";
-@import "./utilities-completion.css";
-@import "./utilities-code-display.css";
 @import "./base-popover.css";
 @import "./effects.css";
 @import "./input.css";

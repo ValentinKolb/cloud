@@ -31,9 +31,6 @@ jobs:
       - name: Typecheck package
         run: bun run --cwd packages/ui typecheck
 
-      - name: Verify migration inventory
-        run: bun run --cwd packages/ui check:migration
-
       - name: Build and test package
         run: bun run --cwd packages/ui test
 

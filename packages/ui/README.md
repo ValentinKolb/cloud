@@ -217,22 +217,18 @@ Pass persisted input through `normalizePanesValue(stored, ids)`. It accepts
 legacy versionless values defensively and always returns the current versioned
 shape.
 
-Cloud stays on its existing UI for component families that have not reached
-the package-wide big bang. Chat already completed a hard cut: built-in
-consumers compose these generic components with thin Cloud protocol adapters,
-without compatibility shims or a duplicate Cloud chat component set. The
-[migration inventory](./MIGRATION.md) records the remaining generic,
-Cloud-specific, and deprecated boundaries.
+Cloud applications import portable components directly from `@k2b/ui`.
+Product-owned behavior such as permissions, account routes, stored AI
+protocols, and workflow contracts stays behind focused Cloud package exports;
+there is no generic Cloud UI compatibility layer.
 
-The Fibel component showcase is the first external acceptance consumer. Its
+The Fibel component showcase is the canonical acceptance consumer. Its
 portable pages import `@k2b/ui` directly, while Cloud API integrations remain
-in a visibly separate section. It exercises the package boundary and public
-API ergonomics outside the Cloud shell before the Cloud big-bang migration.
-Neither the showcase nor `packages/ui/fixture` is a browser certification: the
-fixture has an automated server-render and shipped-class check, but it does not
-prove browser hydration or interaction. Treat it as a standalone package and
-SSR smoke test, and see the acceptance sequence in [MIGRATION.md](./MIGRATION.md)
-for the separate browser acceptance gate.
+in a visibly separate section. Together with `packages/ui/fixture`, it
+exercises the package boundary and public API ergonomics outside the Cloud
+shell. The fixture provides automated server-render and shipped-class checks;
+the catalog owns representative browser interaction, theme, responsive, and
+accessibility states.
 
 ## Verification
 
@@ -240,7 +236,6 @@ for the separate browser acceptance gate.
 bun run typecheck          # package sources
 bun run test               # builds the stylesheet first, then runs every suite
 bun run build              # dist/styles.css and the optional font/icon presets
-bun run check:migration    # migration-inventory.json against both UI surfaces
 bun run fixture:typecheck  # standalone consumer fixture
 bun run fixture:build      # standalone SSR build, no Cloud CSS or runtime
 ```

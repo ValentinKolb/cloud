@@ -74,14 +74,14 @@ body,
   color: rgb(244 244 245);
 }
 
-.markdown-editor-pane .md-editor {
+.markdown-editor-pane .k2b-markdown-editor {
   display: flex;
   height: 100%;
   min-height: 0;
   flex-direction: column;
 }
 
-.markdown-editor-pane .md-editor-surface {
+.markdown-editor-pane .k2b-markdown-editor__surface {
   min-height: 0;
   flex: 1 1 auto;
   height: auto !important;

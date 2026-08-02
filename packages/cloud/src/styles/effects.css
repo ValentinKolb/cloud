@@ -1,3 +1,12 @@
+.ai-skill-origin-badge {
+  background: var(--ui-surface-muted) !important;
+  color: var(--color-zinc-600) !important;
+}
+
+.dark .ai-skill-origin-badge {
+  color: var(--color-zinc-300) !important;
+}
+
 .ai-pulse-dots {
   display: inline-flex;
   align-items: center;

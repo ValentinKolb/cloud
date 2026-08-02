@@ -28,7 +28,7 @@ export default {
       "dist/renderer/index.html": "views/desktop-lab/index.html",
       "dist/renderer/assets": "views/desktop-lab/assets",
     },
-    watch: ["src", "../cloud/src/desktop", "../cloud/src/ui", "../cloud/src/styles"],
+    watch: ["src", "../cloud/src/desktop", "../cloud/src/styles"],
     watchIgnore: ["dist/**", ".local/**"],
   },
   scripts: {
