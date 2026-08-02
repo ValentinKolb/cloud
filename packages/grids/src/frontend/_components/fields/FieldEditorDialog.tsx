@@ -1,4 +1,7 @@
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
@@ -8,10 +11,7 @@ import {
   prompts,
   Select,
   TextInput,
-  Button,
 } from "@k2b/ui";
-import type { DateContext } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FieldColumnSpec, TableKind } from "../../../contracts";
@@ -478,8 +478,16 @@ function FieldEditor(props: {
               Cancel
             </Button>
           </Show>
-          <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!dirty() || updateMut.loading()}>
-            {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
+            onClick={handleSave}
+            disabled={!dirty()}
+            loading={updateMut.loading()}
+            loadingLabel="Saving field"
+          >
+            Save
           </Button>
         </div>
       </PanelDialog.Footer>

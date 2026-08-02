@@ -135,6 +135,7 @@ const ActorPicker = (props: {
           </div>
         </Show>
         <Combobox
+          aria-label="Search users"
           placeholder="Search users..."
           fetchData={async (query) => {
             const actors = await fetchActors(props.tableId, props.config.key, query);

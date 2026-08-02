@@ -1,5 +1,5 @@
-import { MultiSelectInput, TextInput } from "@k2b/ui";
 import { timed as timing } from "@k2b/stdlib/solid";
+import { MultiSelectInput, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { Field } from "../../../service";
 
@@ -81,6 +81,7 @@ export default function SearchBar(props: Props) {
       <Show when={props.fields.length > 0}>
         <div class="min-w-0">
           <MultiSelectInput
+            aria-label="Search record columns"
             icon="ti ti-columns"
             placeholder={allFieldsLabel()}
             value={qFields}

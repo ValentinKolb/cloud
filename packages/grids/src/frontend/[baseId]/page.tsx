@@ -1,6 +1,6 @@
+import { NotFoundState } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { NotFoundState } from "@k2b/ui";
 import { currentActorUser } from "../../api/permissions";
 import { withInitialGqlResults } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
@@ -36,6 +36,19 @@ export default ssr<AuthContext>(async (c) => {
   });
 
   if (loadedState.kind === "redirect") return c.redirect(loadedState.href, 302);
+
+  if (loadedState.kind === "invalidQuery") {
+    return () => (
+      <Layout c={c} title={loadedState.title}>
+        <NotFoundState
+          icon="ti ti-alert-triangle"
+          title={loadedState.title}
+          description={loadedState.message}
+          action={{ label: "Back to base", href: `/app/grids/${baseShortId}`, icon: "ti ti-arrow-left" }}
+        />
+      </Layout>
+    );
+  }
 
   if (loadedState.kind !== "ok") {
     // A base you may not open is found, just not yours — so no "404" numeral

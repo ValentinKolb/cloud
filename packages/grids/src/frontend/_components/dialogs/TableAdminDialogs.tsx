@@ -1,19 +1,19 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { navigateTo } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
+  IconButton,
   IconInput,
   PanelDialog,
   panelDialogOptions,
   prompts,
   TextInput,
   Tooltip,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FederatedSourcePublication } from "../../../contracts";
@@ -501,9 +501,11 @@ function TableSettingsBody(props: {
             size="sm"
             type="button"
             onClick={() => saveMut.mutate(undefined)}
-            disabled={!draft.dirty() || saveMut.loading()}
+            disabled={!draft.dirty()}
+            loading={saveMut.loading()}
+            loadingLabel="Saving table"
           >
-            {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+            Save
           </Button>
         </div>
       </PanelDialog.Footer>

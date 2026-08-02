@@ -1,5 +1,5 @@
-import { CheckboxCard, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, Button } from "@k2b/ui";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
+import { Button, CheckboxCard, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FederatedDiagnostic, FederatedRevisionView, FederatedSourceCandidate, FederatedTableConfig, Field } from "../../../contracts";
@@ -287,6 +287,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
         >
           <PanelDialog.Section title="Sources" subtitle="Only tables where you are an admin can be published." icon="ti ti-database-share">
             <TextInput
+              aria-label="Search source bases and tables"
               value={candidateQuery}
               onValueChange={(value) => {
                 setCandidateQuery(value);

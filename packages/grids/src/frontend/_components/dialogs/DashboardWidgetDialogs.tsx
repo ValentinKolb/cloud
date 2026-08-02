@@ -1,4 +1,6 @@
+import type { DateContext } from "@k2b/stdlib";
 import {
+  Button,
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
@@ -10,9 +12,7 @@ import {
   SegmentedControl,
   Select,
   TextInput,
-  Button,
 } from "@k2b/ui";
-import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import { gqlSourceRef } from "../../../query-dsl/source-format";
@@ -1105,6 +1105,7 @@ function MarkdownCellBody(props: { widget: MarkdownWidget; onUpdate: (w: Markdow
         placeholder="Optional"
       />
       <MarkdownEditor
+        aria-label="Markdown content"
         value={() => props.widget.markdown ?? ""}
         onValueChange={(value) => props.onUpdate({ ...props.widget, markdown: value })}
         lines={12}

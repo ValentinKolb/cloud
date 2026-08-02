@@ -1,5 +1,5 @@
-import { DatePicker, DateRangePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput, Button, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, DatePicker, DateRangePicker, DateTimePicker, IconButton, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
 import { fieldOption } from "../fields/field-type-meta";
@@ -98,6 +98,7 @@ export default function FilterPanel(props: Props) {
               <span class="w-12 shrink-0 text-dimmed">{index === 0 ? "where" : "and"}</span>
               <div class="w-64 shrink-0">
                 <Select
+                  aria-label={`Filter ${index + 1} field`}
                   value={() => leaf().fieldId}
                   onValueChange={(v) => {
                     if (v !== null) updateLeaf(index, { fieldId: v });
@@ -108,6 +109,7 @@ export default function FilterPanel(props: Props) {
               </div>
               <div class="w-56 shrink-0">
                 <Select
+                  aria-label={`Filter ${index + 1} operator`}
                   value={() => leaf().op}
                   onValueChange={(v) => {
                     if (v !== null) updateLeaf(index, { op: v, value: "" });
@@ -221,6 +223,7 @@ function FilterValueInput(props: {
               {isDate() ? (
                 <div class="w-96">
                   <DateRangePicker
+                    aria-label="Filter date range"
                     withTime={includeTime()}
                     dateConfig={props.dateConfig}
                     value={() => ({ start: dateAt(0) || null, end: dateAt(1) || null })}
@@ -231,11 +234,21 @@ function FilterValueInput(props: {
               ) : (
                 <>
                   <div class="w-52">
-                    <NumberInput value={() => numAt(0)} onValueChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
+                    <NumberInput
+                      aria-label="Filter range start"
+                      value={() => numAt(0)}
+                      onValueChange={(v) => props.onChange([v, range()[1]])}
+                      decimalPlaces={10}
+                    />
                   </div>
                   <span class="text-dimmed">to</span>
                   <div class="w-52">
-                    <NumberInput value={() => numAt(1)} onValueChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
+                    <NumberInput
+                      aria-label="Filter range end"
+                      value={() => numAt(1)}
+                      onValueChange={(v) => props.onChange([range()[0], v])}
+                      decimalPlaces={10}
+                    />
                   </div>
                 </>
               )}
@@ -247,6 +260,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "select"}>
         <div class="w-80">
           <Select
+            aria-label="Filter value"
             value={() => (typeof props.value === "string" ? props.value : "")}
             onValueChange={(v) => props.onChange(v)}
             options={(
@@ -261,6 +275,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "multi"}>
         <div class="w-96">
           <MultiSelectInput
+            aria-label="Filter values"
             placeholder="Options"
             value={() => (Array.isArray(props.value) ? props.value.filter((item): item is string => typeof item === "string") : [])}
             onValueChange={(value) => props.onChange(value)}
@@ -285,6 +300,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "boolean"}>
         <div class="w-44">
           <Select
+            aria-label="Filter boolean value"
             value={() => (props.value === true ? "true" : props.value === false ? "false" : "")}
             onValueChange={(v) => props.onChange(v === "" ? "" : v === "true")}
             options={[
@@ -318,6 +334,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "number-days"}>
         <div class="w-56">
           <NumberInput
+            aria-label="Filter number of days"
             min={1}
             placeholder="days"
             value={() => {
@@ -337,9 +354,15 @@ function FilterValueInput(props: {
             const value = () => (typeof props.value === "string" && props.value ? props.value : null);
             const onChange = (v: string | null) => props.onChange(v ?? "");
             return includeTime() ? (
-              <DateTimePicker dateConfig={props.dateConfig} value={value} onValueChange={onChange} clearable />
+              <DateTimePicker
+                aria-label="Filter date and time"
+                dateConfig={props.dateConfig}
+                value={value}
+                onValueChange={onChange}
+                clearable
+              />
             ) : (
-              <DatePicker dateConfig={props.dateConfig} value={value} onValueChange={onChange} clearable />
+              <DatePicker aria-label="Filter date" dateConfig={props.dateConfig} value={value} onValueChange={onChange} clearable />
             );
           })()}
         </div>
@@ -348,6 +371,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "number"}>
         <div class="w-56">
           <NumberInput
+            aria-label="Filter number"
             value={() => {
               const v = props.value;
               const n = typeof v === "number" ? v : Number(v);
@@ -361,7 +385,11 @@ function FilterValueInput(props: {
 
       <Match when={kind() === "text"}>
         <div class="w-80">
-          <TextInput value={() => (typeof props.value === "string" ? props.value : "")} onValueChange={(v) => props.onChange(v)} />
+          <TextInput
+            aria-label="Filter value"
+            value={() => (typeof props.value === "string" ? props.value : "")}
+            onValueChange={(v) => props.onChange(v)}
+          />
         </div>
       </Match>
     </Switch>

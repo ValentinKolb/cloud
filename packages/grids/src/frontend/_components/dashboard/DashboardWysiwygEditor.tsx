@@ -1,5 +1,8 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
@@ -10,11 +13,8 @@ import {
   Select,
   TextInput,
   toast,
-  Button,
 } from "@k2b/ui";
-import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import type { DateContext } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget, Workflow } from "../../../service";
@@ -655,9 +655,11 @@ function DashboardGeneralBody(props: {
             size="sm"
             type="button"
             onClick={() => saveMut.mutate(undefined)}
-            disabled={!draft.dirty() || saveMut.loading()}
+            disabled={!draft.dirty()}
+            loading={saveMut.loading()}
+            loadingLabel="Saving dashboard"
           >
-            {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+            Save
           </Button>
         </div>
       </PanelDialog.Footer>
@@ -740,8 +742,15 @@ function DuplicateDashboardButton(props: { dashboard: Dashboard; baseShortId: st
   };
 
   return (
-    <Button variant="secondary" size="sm" type="button" disabled={mut.loading()} onClick={() => void duplicate()}>
-      <i class={`ti ${mut.loading() ? "ti-loader-2 animate-spin" : "ti-copy"}`} /> Duplicate dashboard
+    <Button
+      variant="secondary"
+      size="sm"
+      type="button"
+      loading={mut.loading()}
+      loadingLabel="Duplicating dashboard"
+      onClick={() => void duplicate()}
+    >
+      <i class="ti ti-copy" /> Duplicate dashboard
     </Button>
   );
 }

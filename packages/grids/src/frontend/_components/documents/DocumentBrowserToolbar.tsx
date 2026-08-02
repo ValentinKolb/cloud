@@ -47,6 +47,7 @@ export default function DocumentBrowserToolbar(props: Props) {
       <div class="min-w-64 flex-1">
         <TextInput
           type="search"
+          aria-label="Search documents"
           icon="ti ti-search"
           placeholder="Search documents..."
           value={props.searchDraft}

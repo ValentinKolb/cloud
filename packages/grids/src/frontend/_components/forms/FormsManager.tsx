@@ -1,5 +1,5 @@
+import { Button, CopyButton, IconButton, Placeholder, prompts, Tooltip } from "@k2b/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { CopyButton, Placeholder, prompts, Tooltip, Button, IconButton } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -139,7 +139,7 @@ export default function FormsManager(props: Props) {
                   </span>
                   <button
                     type="button"
-                    class="focus-ui flex min-h-8 min-w-0 flex-1 items-center gap-2 text-left"
+                    class="flex min-h-8 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)]"
                     onClick={() => openFormEditor(form)}
                     aria-label={`Edit form ${form.name}`}
                   >

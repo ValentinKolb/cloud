@@ -7,15 +7,15 @@ import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
-  workflowStepStatusTone,
   workflowStepErrorMessage,
   workflowStepIssueReason,
   workflowStepOutcomeSummary,
   workflowStepPlannedEffects,
+  workflowStepStatusTone,
 } from "./workflow-display";
 import type { WorkflowRunDocumentsState } from "./workflow-run-documents";
 
-export type WorkflowRunInputRow = {
+type WorkflowRunInputRow = {
   name: string;
   label: string;
   display: string;

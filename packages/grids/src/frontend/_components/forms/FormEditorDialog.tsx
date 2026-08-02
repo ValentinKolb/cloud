@@ -1,5 +1,7 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import { img } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   Checkbox,
   CopyButton,
   confirmDiscardIfDirty,
@@ -10,10 +12,8 @@ import {
   panelDialogPanelClass,
   prompts,
   TextInput,
-  Button,
 } from "@k2b/ui";
-import { img } from "@k2b/stdlib/browser";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -292,8 +292,16 @@ function FormEditor(props: {
               Cancel
             </Button>
           </Show>
-          <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!dirty() || updateMut.loading()}>
-            {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
+            onClick={handleSave}
+            disabled={!dirty()}
+            loading={updateMut.loading()}
+            loadingLabel="Saving form"
+          >
+            Save
           </Button>
         </div>
       </PanelDialog.Footer>

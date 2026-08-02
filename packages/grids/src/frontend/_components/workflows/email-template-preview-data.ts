@@ -22,7 +22,7 @@ export const EMAIL_TEMPLATE_SYSTEM_VARIABLES: TemplateVariable[] = [
   { name: "date.iso", kind: "string" },
 ];
 
-export const EMAIL_TEMPLATE_SYSTEM_SAMPLE_VALUES: Record<string, string> = {
+const EMAIL_TEMPLATE_SYSTEM_SAMPLE_VALUES: Record<string, string> = {
   "app.name": "Cloud",
   "app.logoSvgDataUrl": "https://cloud.example.org/logo.svg",
   "business.legalName": "ACME Operations GmbH",
@@ -87,7 +87,7 @@ export const emailTemplatePreviewContext = (
   return context;
 };
 
-export type ParsedEmailTemplateSampleData = { ok: true; data: Record<string, WorkflowJsonValue> } | { ok: false; error: string };
+type ParsedEmailTemplateSampleData = { ok: true; data: Record<string, WorkflowJsonValue> } | { ok: false; error: string };
 
 export const parseEmailTemplateSampleData = (source: string): ParsedEmailTemplateSampleData => {
   try {

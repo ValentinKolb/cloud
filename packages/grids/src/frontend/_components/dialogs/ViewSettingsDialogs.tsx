@@ -1,5 +1,7 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import { navigateTo } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
@@ -8,10 +10,8 @@ import {
   panelDialogOptions,
   prompts,
   TextInput,
-  Button,
 } from "@k2b/ui";
-import { navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DslQueryPreviewDiagnostic } from "../../../contracts";
@@ -180,9 +180,10 @@ function GeneralSection(props: {
             }
             mut.mutate(undefined);
           }}
-          disabled={mut.loading()}
+          loading={mut.loading()}
+          loadingLabel="Saving view"
         >
-          {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+          Save
         </Button>
       </Show>
     </PanelDialog.Section>
@@ -329,9 +330,11 @@ function QuerySourceSection(props: {
           type="button"
           class="self-start"
           onClick={() => mut.mutate(undefined)}
-          disabled={mut.loading() || validationState() !== "valid"}
+          disabled={validationState() !== "valid"}
+          loading={mut.loading()}
+          loadingLabel="Saving query"
         >
-          {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save query"}
+          Save query
         </Button>
       </Show>
     </PanelDialog.Section>

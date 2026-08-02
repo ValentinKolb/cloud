@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, TextInput, Tooltip, Button, IconButtonLink } from "@k2b/ui";
+import { Button, dialogCore, IconButtonLink, PanelDialog, panelDialogOptions, TextInput, Tooltip } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -54,7 +54,7 @@ import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-came
 import { retainVisibleScannerLogs } from "./workflow-scanner-log";
 import { invokeWorkflowScannerRequest, type WorkflowScannerTransport, workflowScannerResponseKind } from "./workflow-scanner-request";
 
-export type WorkflowScannerInputContract = {
+type WorkflowScannerInputContract = {
   workflow: {
     id: string;
     name: string;

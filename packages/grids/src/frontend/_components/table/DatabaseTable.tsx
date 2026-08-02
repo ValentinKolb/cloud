@@ -1,5 +1,5 @@
-import { DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { createEffect, For, type JSX, Show } from "solid-js";
 import type { AggregationSpec, ColumnSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
@@ -118,7 +118,7 @@ const SelectionCheckbox = (props: { checked: boolean; indeterminate?: boolean; l
     <input
       ref={inputRef}
       type="checkbox"
-      class="focus-ui h-4 w-4 rounded border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900"
+      class="h-4 w-4 rounded border-zinc-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)] dark:border-zinc-700 dark:bg-zinc-900"
       style={{ "accent-color": "var(--app-accent)" }}
       checked={props.checked}
       aria-label={props.label}

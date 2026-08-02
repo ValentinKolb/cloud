@@ -1,5 +1,5 @@
-import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@k2b/stdlib";
+import { markdown } from "@valentinkolb/cloud/shared";
 import type {
   AggregationSpec,
   DashboardWidgetSource,
@@ -199,6 +199,7 @@ const previewWidgetSource = async (
   viewer: ViewerContext,
   options: ResolveOptions,
   limit?: number,
+  maxRows?: number,
 ): Promise<
   | {
       preview: PreviewSuccess;
@@ -225,6 +226,7 @@ const previewWidgetSource = async (
     fieldsByTableId: compiled.data.fieldsByTableId,
     timeZone: options.dateConfig?.timeZone,
     limit,
+    maxRows,
     viewer,
   });
   if (!result.ok) return { error: result.error.message };
@@ -234,6 +236,23 @@ const previewWidgetSource = async (
     preview: result.data,
     tableId: compiled.data.plan.tableId,
     ...outputMetadata,
+  };
+};
+
+const MAX_DASHBOARD_TAIL_BUCKETS = 1000;
+
+const previewWidgetTailSource = async (
+  source: DashboardWidgetSource,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+  tailLimit: number,
+) => {
+  const result = await previewWidgetSource(source, viewer, options, MAX_DASHBOARD_TAIL_BUCKETS, MAX_DASHBOARD_TAIL_BUCKETS);
+  if ("error" in result) return result;
+  if (result.preview.truncated) return { error: "dashboard source exceeds the 1000-bucket tail window; narrow it with a GQL filter" };
+  return {
+    ...result,
+    preview: { ...result.preview, rows: result.preview.rows.slice(-tailLimit) },
   };
 };
 
@@ -524,7 +543,7 @@ const resolveStatTrend = async (
   options: ResolveOptions,
 ): Promise<number[] | null> => {
   try {
-    const result = await previewWidgetSource(source, viewer, options, windowSize);
+    const result = await previewWidgetTailSource(source, viewer, options, windowSize);
     if ("error" in result) return null;
     const column = firstAggregateColumn(result.preview.columns);
     if (!column) return null;
@@ -599,7 +618,9 @@ const resolveChart = async (
   viewer: ViewerContext,
   options: ResolveOptions,
 ): Promise<WidgetData> => {
-  const result = await previewWidgetSource(widget.source, viewer, options, widget.limit);
+  const result = widget.limit
+    ? await previewWidgetTailSource(widget.source, viewer, options, widget.limit)
+    : await previewWidgetSource(widget.source, viewer, options);
   if ("error" in result) return { kind: "error", reason: result.error };
   const shape = previewChartShape(result.preview);
   if (shape.groupBy.length === 0 || shape.aggregations.length === 0) {

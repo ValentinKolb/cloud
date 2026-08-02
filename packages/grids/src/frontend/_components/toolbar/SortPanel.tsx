@@ -114,6 +114,7 @@ export default function SortPanel(props: Props) {
             <span class="w-12 shrink-0 text-dimmed">{index === 0 ? "sort" : "then"}</span>
             <div class="w-64 shrink-0">
               <Select
+                aria-label={`Sort ${index + 1} field`}
                 value={() => targetId(rowSignal())}
                 onValueChange={(v) => {
                   if (v !== null) updateTarget(index, v);
@@ -124,6 +125,7 @@ export default function SortPanel(props: Props) {
             </div>
             <div class="w-44 shrink-0">
               <Select
+                aria-label={`Sort ${index + 1} direction`}
                 value={() => rowSignal().direction}
                 onValueChange={(v) => updateDirection(index, v as Direction)}
                 options={directionOptions(rowSignal(), fieldsById())}

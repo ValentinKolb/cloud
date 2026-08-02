@@ -1,5 +1,6 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
@@ -8,9 +9,8 @@ import {
   prompts,
   type TemplateVariable,
   TextInput,
-  Button,
 } from "@k2b/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
@@ -460,8 +460,15 @@ function DocumentTemplateEditorDialog(props: {
           <Button variant="secondary" size="sm" type="button" onClick={closeIfClean}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" type="button" onClick={() => void saveTemplate()} disabled={saveMut.loading()}>
-            {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save template"}
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
+            onClick={() => void saveTemplate()}
+            loading={saveMut.loading()}
+            loadingLabel="Saving template"
+          >
+            Save template
           </Button>
         </div>
       </PanelDialog.Footer>

@@ -400,14 +400,14 @@ const main = async (): Promise<void> => {
   assertHas(catalogViews, grantedView.name, "base.catalog views");
   assertMissing(catalogViews, privateView.name, "base.catalog views");
   assertMissing(catalogViews, deniedView.name, "base.catalog views");
-  assertMissing(catalogViews, groupView.name, "base.catalog views without userGroups");
+  assertHas(catalogViews, groupView.name, "base.catalog resolves group views from authoritative membership");
 
   const sidebarForms = catalog.sidebarForms.map(({ form }) => form.name);
-  assertHas(sidebarForms, publicForm.name, "base.catalog sidebar forms");
+  assertMissing(sidebarForms, publicForm.name, "public token does not grant authenticated form-write access");
   assertHas(sidebarForms, writeForm.name, "base.catalog sidebar forms");
   assertMissing(sidebarForms, privateForm.name, "base.catalog sidebar forms");
   assertMissing(sidebarForms, inactivePublicForm.name, "base.catalog sidebar forms");
-  assert(catalog.formLevels[privateForm.id] === "read", "base.catalog private form level should inherit read");
+  assert(catalog.formLevels[privateForm.id] === undefined, "base.catalog should omit forms without submit access");
   assert(catalog.formLevels[writeForm.id] === "write", "base.catalog write form level should use form ACL");
 
   const catalogDashboards = catalog.dashboards.map((dashboard) => dashboard.name);
@@ -415,8 +415,10 @@ const main = async (): Promise<void> => {
   assertHas(catalogDashboards, grantedDashboard.name, "base.catalog dashboards");
   assertMissing(catalogDashboards, privateDashboard.name, "base.catalog dashboards");
   assertMissing(catalogDashboards, deniedDashboard.name, "base.catalog dashboards");
-  assertMissing(catalogDashboards, groupDashboard.name, "base.catalog dashboards without userGroups");
+  assertHas(catalogDashboards, groupDashboard.name, "base.catalog resolves group dashboards from authoritative membership");
 
+  // Caller-supplied group ids are deprecated and intentionally ignored. The
+  // effective group set is derived recursively from the authenticated user.
   const groupCatalog = await gridsService.base.catalog({
     baseId: base.id,
     userId: userA,
@@ -444,7 +446,7 @@ const main = async (): Promise<void> => {
   assertHas(listedViews, grantedView.name, "views.listForTable");
   assertMissing(listedViews, privateView.name, "views.listForTable");
   assertMissing(listedViews, deniedView.name, "views.listForTable");
-  assertMissing(listedViews, groupView.name, "views.listForTable without userGroups");
+  assertHas(listedViews, groupView.name, "views.listForTable resolves authoritative group ACLs");
   assertHas(
     (
       await gridsService.view.listForTable({
@@ -468,7 +470,7 @@ const main = async (): Promise<void> => {
   assertHas(listedDashboards, grantedDashboard.name, "dashboards.listForBase");
   assertMissing(listedDashboards, privateDashboard.name, "dashboards.listForBase");
   assertMissing(listedDashboards, deniedDashboard.name, "dashboards.listForBase");
-  assertMissing(listedDashboards, groupDashboard.name, "dashboards.listForBase without userGroups");
+  assertHas(listedDashboards, groupDashboard.name, "dashboards.listForBase resolves authoritative group ACLs");
   assertHas(
     (
       await gridsService.dashboard.listForBase({
@@ -548,12 +550,13 @@ const main = async (): Promise<void> => {
       id: "smoke-chart",
       kind: "chart",
       chartType: "bar",
-      viewId: chartView.id,
+      source: { kind: "view", viewId: chartView.id },
       limit: 3,
     },
     { userId: userA, userGroups: [] },
+    { baseId: base.id },
   );
-  assert(chartData.kind === "chart", `chart widget expected chart data, got ${chartData.kind}`);
+  assert(chartData.kind === "chart", `chart widget expected chart data, got ${JSON.stringify(chartData)}`);
   const chartKeys = chartData.buckets.map((bucket) => String(bucket.keys[0]));
   assert(chartKeys.length === 3, `chart widget expected 3 buckets, got ${chartKeys.length}`);
   assert(chartKeys[0]?.startsWith("2026-03"), `chart widget first key should be March, got ${chartKeys[0]}`);
@@ -583,12 +586,13 @@ const main = async (): Promise<void> => {
     {
       id: "smoke-stat",
       kind: "stat",
-      viewId: statView.id,
-      trend: { viewId: trendView.id, windowSize: 3 },
+      source: { kind: "view", viewId: statView.id },
+      trend: { source: { kind: "view", viewId: trendView.id }, windowSize: 3 },
     },
     { userId: userA, userGroups: [] },
+    { baseId: base.id },
   );
-  assert(statData.kind === "stat", `stat widget expected stat data, got ${statData.kind}`);
+  assert(statData.kind === "stat", `stat widget expected stat data, got ${JSON.stringify(statData)}`);
   assert(statData.value === 150, `stat widget total should be 150, got ${String(statData.value)}`);
   assert(
     JSON.stringify(statData.trend) === JSON.stringify([30, 40, 50]),

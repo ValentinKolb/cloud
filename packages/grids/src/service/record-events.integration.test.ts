@@ -4,6 +4,9 @@ import { type GridsRecordEvent, publishRecordEvent, recordEventReader } from "./
 
 const redisTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
+const topicNamespace = (baseId: string): string =>
+  `sync:topic:namespace:v2:${encodeURIComponent(JSON.stringify(["cloud:grids:events", baseId, "records"]))}`;
+
 describe("record event topic recovery", () => {
   redisTest("distributes one event to only one replica reader in the consumer group", async () => {
     const baseId = Bun.randomUUIDv7();
@@ -19,8 +22,9 @@ describe("record event topic recovery", () => {
       actorId: null,
       occurredAt: new Date().toISOString(),
     };
-    const streamKey = `cloud:grids:events:${baseId}:records:stream`;
-    const idempotencyKey = `cloud:grids:events:${baseId}:records:idempotency:${event.type}:${event.recordId}:${event.version}:${event.occurredAt}`;
+    const namespace = topicNamespace(baseId);
+    const streamKey = `${namespace}:stream`;
+    const idempotencyKey = `${namespace}:idempotency:${event.type}:${event.tableId}:${event.recordId}:${event.version}:${event.occurredAt}`;
     try {
       await publishRecordEvent(event);
       const [first, second] = await Promise.all([
@@ -51,8 +55,9 @@ describe("record event topic recovery", () => {
       actorId: null,
       occurredAt: new Date().toISOString(),
     };
-    const streamKey = `cloud:grids:events:${baseId}:records:stream`;
-    const idempotencyKey = `cloud:grids:events:${baseId}:records:idempotency:${event.type}:${event.recordId}:${event.version}:${event.occurredAt}`;
+    const namespace = topicNamespace(baseId);
+    const streamKey = `${namespace}:stream`;
+    const idempotencyKey = `${namespace}:idempotency:${event.type}:${event.tableId}:${event.recordId}:${event.version}:${event.occurredAt}`;
     try {
       await publishRecordEvent(event);
       const reader = recordEventReader(group);
@@ -74,7 +79,7 @@ describe("record event topic recovery", () => {
   redisTest("surfaces and reclaims malformed transport envelopes", async () => {
     const baseId = Bun.randomUUIDv7();
     const group = `invalid-${Bun.randomUUIDv7()}`;
-    const streamKey = `cloud:grids:events:${baseId}:records:stream`;
+    const streamKey = `${topicNamespace(baseId)}:stream`;
     try {
       await Bun.redis.send("XADD", [streamKey, "*", "payload", "{broken"]);
       const reader = recordEventReader(group);

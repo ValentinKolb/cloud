@@ -1,6 +1,6 @@
-import { Placeholder, TextInput, Tooltip, IconButton } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation, timed } from "@k2b/stdlib/solid";
+import { IconButton, Placeholder, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { AggregationSpec, FilterTree, GroupBySpec, RecordQuery, TableQueryResult } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
@@ -220,6 +220,7 @@ export default function GroupDetailPanel(props: Props) {
         <section class="detail-section flex min-h-[18rem] flex-col gap-3">
           <h3 class="detail-section-label mb-0">Records</h3>
           <TextInput
+            aria-label="Search group records"
             icon="ti ti-search"
             placeholder="Search in group..."
             value={q}

@@ -871,7 +871,7 @@ const smokeDashboards = async (page: Page, fixture: Fixture) => {
   if ((await settingsDialog.count()) === 0) fail("dashboard settings action did not hydrate");
   await settingsDialog.getByRole("button", { name: "Duplicate dashboard" }).click();
   const duplicateDialog = page.getByRole("dialog").last();
-  await page.getByRole("textbox", { name: /Copies the latest saved layout/ }).fill("Duplicated dashboard");
+  await duplicateDialog.getByRole("textbox", { name: "Name" }).fill("Duplicated dashboard");
   const duplicateSaved = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" && new URL(response.url()).pathname === `/api/grids/dashboards/by-base/${fixture.base.id}`,

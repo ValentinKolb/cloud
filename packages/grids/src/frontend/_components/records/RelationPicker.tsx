@@ -77,6 +77,7 @@ export default function RelationPicker(props: Props) {
   // ── Multi-cardinality path ──────────────────────────────────────────
   return (
     <MultiSelectInput
+      aria-label="Linked records"
       placeholder="Add linked records..."
       icon="ti ti-link"
       activeIcon="ti ti-link"

@@ -1,5 +1,5 @@
-import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@k2b/ui";
 import { fuzzy } from "@k2b/stdlib";
+import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@k2b/ui";
 import { createMemo, createSignal } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import type { Field } from "../../../service";
@@ -227,7 +227,14 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
             <p class="text-sm text-dimmed">{props.tableName}</p>
           </div>
           <div class="w-full max-w-md">
-            <TextInput value={query} onValueChange={setQuery} icon="ti ti-search" placeholder="Search fields and functions..." clearable />
+            <TextInput
+              aria-label="Search fields and functions"
+              value={query}
+              onValueChange={setQuery}
+              icon="ti ti-search"
+              placeholder="Search fields and functions..."
+              clearable
+            />
           </div>
         </header>
 

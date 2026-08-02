@@ -510,12 +510,24 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
           <Index each={options()}>
             {(opt, i) => (
               <div class="flex items-center gap-2">
-                <ColorInput compact value={() => opt().color ?? "#3b82f6"} onValueChange={(c) => updateOption(i, { color: c })} />
+                <ColorInput
+                  compact
+                  aria-label={`Option ${i + 1} color`}
+                  value={() => opt().color ?? "#3b82f6"}
+                  onValueChange={(c) => updateOption(i, { color: c })}
+                />
                 <div class="flex-1">
-                  <TextInput placeholder="Label" icon="ti ti-tag" value={() => opt().label} onValueChange={(v) => onLabelChange(i, v)} />
+                  <TextInput
+                    aria-label={`Option ${i + 1} label`}
+                    placeholder="Label"
+                    icon="ti ti-tag"
+                    value={() => opt().label}
+                    onValueChange={(v) => onLabelChange(i, v)}
+                  />
                 </div>
                 <div class="flex-1">
                   <TextInput
+                    aria-label={`Option ${i + 1} description`}
                     placeholder="Description"
                     icon="ti ti-info-circle"
                     value={() => opt().description ?? ""}
@@ -524,7 +536,13 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
                   />
                 </div>
                 <div class="w-40 shrink-0">
-                  <TextInput placeholder="value" icon="ti ti-id" value={() => opt().id} onValueChange={(v) => updateOption(i, { id: v })} />
+                  <TextInput
+                    aria-label={`Option ${i + 1} value`}
+                    placeholder="Value"
+                    icon="ti ti-id"
+                    value={() => opt().id}
+                    onValueChange={(v) => updateOption(i, { id: v })}
+                  />
                 </div>
                 <IconButton
                   variant="ghost"

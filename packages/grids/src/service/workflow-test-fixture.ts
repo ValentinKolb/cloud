@@ -99,6 +99,11 @@ export const insertTestWorkflow = async (input: TestWorkflowInput): Promise<stri
   `;
   if (!version) throw new Error("test workflow version insert returned no row");
   await db`
+    UPDATE workflows.workflow
+    SET active_version_id = ${version.id}::uuid, updated_at = now()
+    WHERE id = ${id}::uuid
+  `;
+  await db`
     INSERT INTO grids.workflow_profile (id, base_id, short_id, position, owner_user_id, enabled, record_event_active_since)
     VALUES (
       ${id}::uuid, ${input.baseId}::uuid, ${input.shortId ?? nextShortId()}, ${input.position ?? 0},
@@ -122,6 +127,11 @@ export const publishTestWorkflowVersion = async (id: string, source: string, pla
     RETURNING id::text AS id, revision
   `;
   if (!row) throw new Error("test workflow version insert returned no row");
+  await sql`
+    UPDATE workflows.workflow
+    SET active_version_id = ${row.id}::uuid, updated_at = now()
+    WHERE id = ${id}::uuid
+  `;
   await repointInvocationActivations(sql, id, row.id);
   return row.revision;
 };

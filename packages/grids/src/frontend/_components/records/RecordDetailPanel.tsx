@@ -1,6 +1,6 @@
-import { Dropdown, prompts, Tooltip, Button, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec, DocumentTemplateSummary, RecordMutationAudit, TableAuditPolicy } from "../../../contracts";
@@ -263,7 +263,14 @@ export default function RecordDetailPanel(props: Props) {
           quickActions={
             <>
               <Show when={props.canWrite && mode() === "live"}>
-                <Button variant="secondary" size="sm" type="button" onClick={() => handleEdit(rec)} disabled={updateMut.loading()}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  aria-label="Edit record"
+                  onClick={() => handleEdit(rec)}
+                  disabled={updateMut.loading()}
+                >
                   <i class="ti ti-pencil" /> Edit
                 </Button>
               </Show>

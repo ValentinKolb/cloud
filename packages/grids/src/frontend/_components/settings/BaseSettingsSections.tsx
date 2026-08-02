@@ -1,7 +1,7 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Placeholder, prompts, Select, TextInput, Button } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Placeholder, prompts, Select, TextInput } from "@k2b/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentProfile } from "../../../contracts";
@@ -130,8 +130,15 @@ export function DocumentProfileForm(props: { base: { id: string; documentProfile
         />
       </div>
       <Show when={draft.dirty()}>
-        <Button variant="primary" size="sm" type="submit" disabled={mutation.loading()} class="self-start lg:col-span-2">
-          {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save document profile"}
+        <Button
+          variant="primary"
+          size="sm"
+          type="submit"
+          loading={mutation.loading()}
+          loadingLabel="Saving document profile"
+          class="self-start lg:col-span-2"
+        >
+          Save document profile
         </Button>
       </Show>
     </form>
@@ -334,8 +341,15 @@ export function GeneralForm(props: { base: { id: string; name: string; descripti
         multiline
       />
       <Show when={draft.dirty()}>
-        <Button variant="primary" size="sm" type="submit" disabled={mutation.loading()} class="self-start mt-2">
-          {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+        <Button
+          variant="primary"
+          size="sm"
+          type="submit"
+          loading={mutation.loading()}
+          loadingLabel="Saving view defaults"
+          class="self-start mt-2"
+        >
+          Save
         </Button>
       </Show>
     </form>
@@ -420,15 +434,17 @@ export function DangerZone(props: { baseId: string; baseName: string }) {
   };
 
   return (
-    <Button variant="danger" size="sm" type="button" onClick={handleDelete} disabled={deleteMut.loading()} class="self-start">
-      {deleteMut.loading() ? (
-        <i class="ti ti-loader-2 animate-spin" />
-      ) : (
-        <>
-          <i class="ti ti-trash mr-1" />
-          Delete base
-        </>
-      )}
+    <Button
+      variant="danger"
+      size="sm"
+      type="button"
+      onClick={handleDelete}
+      loading={deleteMut.loading()}
+      loadingLabel="Deleting base"
+      class="self-start"
+    >
+      <i class="ti ti-trash mr-1" />
+      Delete base
     </Button>
   );
 }
