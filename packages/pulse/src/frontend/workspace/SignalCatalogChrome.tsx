@@ -1,4 +1,4 @@
-import { FilterChip, TextInput } from "@valentinkolb/cloud/ui";
+import { Button, FilterChip, TextInput } from "@k2b/ui";
 import { For, Show, type Accessor } from "solid-js";
 import { METRIC_TYPE_FILTER_OPTIONS } from "./helpers";
 
@@ -12,13 +12,6 @@ export type SignalCatalogTab = {
   open: () => void;
 };
 
-const signalCatalogTabClass = (active: boolean) =>
-  `inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
-    active
-      ? "bg-zinc-100 app-accent-text dark:bg-zinc-900"
-      : "bg-zinc-100/70 text-secondary hover:bg-zinc-100 hover:text-primary dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
-  }`;
-
 export const signalCatalogKindForView = (view: string): SignalCatalogKind =>
   view === "activity-states" ? "states" : view === "activity-metrics" ? "metrics" : "events";
 
@@ -27,16 +20,17 @@ export function SignalCatalogTabs(props: { kind: SignalCatalogKind; tabs: Signal
     <div class="flex shrink-0 flex-wrap items-center gap-2">
       <For each={props.tabs}>
         {(tab) => (
-          <button
+          <Button
             type="button"
-            class={signalCatalogTabClass(tab.kind === props.kind)}
+            variant={tab.kind === props.kind ? "subtle" : "ghost"}
+            size="xs"
             aria-current={tab.kind === props.kind ? "page" : undefined}
             onClick={tab.open}
           >
             <i class={tab.icon} />
             <span>{tab.label}</span>
             <span class="text-dimmed">{tab.count}</span>
-          </button>
+          </Button>
         )}
       </For>
     </div>
@@ -57,7 +51,7 @@ export function SignalCatalogToolbar(props: {
           type="search"
           icon="ti ti-search"
           value={props.search}
-          onInput={props.onSearch}
+          onValueChange={props.onSearch}
           placeholder={props.kind === "events" ? "Search events..." : props.kind === "states" ? "Search states..." : "Search metrics..."}
           clearable
         />
@@ -67,7 +61,7 @@ export function SignalCatalogToolbar(props: {
           label="Type"
           icon="ti ti-filter"
           value={props.metricTypeFilter() ? [props.metricTypeFilter()] : []}
-          onChange={props.onMetricTypeFilter}
+          onValueChange={props.onMetricTypeFilter}
           options={METRIC_TYPE_FILTER_OPTIONS}
         />
       </Show>

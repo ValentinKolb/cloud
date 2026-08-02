@@ -1,4 +1,4 @@
-import { DataTable, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { Button, DataTable, TextInput, type DataTableColumn } from "@k2b/ui";
 import { createMemo, Show, type Accessor, type JSX, type Setter } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent } from "../../contracts";
 import { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } from "./FocusedSignalDetails";
@@ -73,12 +73,12 @@ const FocusedSignalHeader = (props: FocusedSignalViewProps & { kind: Accessor<Fo
       <p class="mt-0.5 truncate text-xs text-dimmed">{focusedSubtitle(props.kind(), props, props.rowsLabel())}</p>
     </div>
     <div class="flex shrink-0 items-center gap-2">
-      <button type="button" class="btn-input btn-input-sm" onClick={() => void props.loadRows()}>
+      <Button type="button" variant="secondary" size="sm" onClick={() => void props.loadRows()}>
         <i class={`ti ${props.loadingMore() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
-      </button>
-      <button type="button" class="btn-input btn-input-sm" onClick={props.onOpenQuery}>
+      </Button>
+      <Button type="button" variant="secondary" size="sm" onClick={props.onOpenQuery}>
         <i class="ti ti-code" /> Open query
-      </button>
+      </Button>
     </div>
   </header>
 );
@@ -90,7 +90,7 @@ const FocusedSignalSearch = (props: FocusedSignalViewProps & { kind: Accessor<Fo
         type="search"
         icon="ti ti-search"
         value={props.search}
-        onInput={(value) => props.setSearch(value)}
+        onValueChange={(value) => props.setSearch(value)}
         placeholder={focusedSearchPlaceholder(props.kind())}
         clearable
       />

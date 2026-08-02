@@ -1,4 +1,4 @@
-import { AutocompleteEditor, Panes, type PanesValue } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, Button, Panes, type PanesValue } from "@k2b/ui";
 import { createMemo, createSignal, For, Show, type Accessor, type Setter } from "solid-js";
 import type {
   PulseDashboard,
@@ -230,14 +230,14 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
     <div class="h-full overflow-hidden">
       <AutocompleteEditor
         value={props.dashboardDslText}
-        onInput={(value) => props.setDashboardDslText(value)}
+        onValueChange={(value) => props.setDashboardDslText(value)}
         highlight={pulseDashboardDslHighlight}
         variant="paper"
         fill
         lines={18}
         spellcheck={false}
-        ariaLabel="Pulse dashboard DSL"
-        ariaInvalid={props.dashboardDslDiagnostics()?.ok === false}
+        aria-label="Pulse dashboard DSL"
+        aria-invalid={props.dashboardDslDiagnostics()?.ok === false}
         placeholder={
           'dashboard "Solar overview" {\n  section "Today" {\n    gauge "Charge" {\n      query metric solar.battery.charge_percent latest since 10m\n    }\n  }\n}'
         }
@@ -349,17 +349,19 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
             />
             <span>{props.dashboardDslDiagnostics()?.ok ? "Valid" : props.dashboardDslDiagnostics() ? "Invalid" : "Waiting"}</span>
           </span>
-          <button
+          <Button
             type="button"
-            class="btn-input btn-input-sm"
+            variant="secondary"
+            size="sm"
             disabled={!props.selectedDashboard() || props.dashboardDslSaving() || !props.dashboardDslDiagnostics()?.ok}
             onClick={() => void props.onSave()}
           >
             <i class={`ti ${props.dashboardDslSaving() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} /> Save
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            class="btn-input btn-input-sm"
+            variant="secondary"
+            size="sm"
             disabled={!props.selectedDashboard()}
             onClick={() => {
               const dashboard = props.selectedDashboard();
@@ -367,19 +369,20 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
             }}
           >
             <i class="ti ti-settings" /> Settings
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            class="btn-input btn-input-sm"
+            variant="secondary"
+            size="sm"
             onClick={() => openQueryReferenceWindow(props.selectedBaseId(), { dashboardDsl: true })}
           >
             <i class="ti ti-external-link" /> Query reference
-          </button>
+          </Button>
         </div>
       </div>
 
       <div class="min-h-0 flex-1 overflow-hidden">
-        <Panes.Root value={panesValue()} onChange={updatePanesValue} class="h-full">
+        <Panes.Root value={panesValue()} onValueChange={updatePanesValue} class="h-full">
           <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
             <div class="h-full overflow-auto bg-zinc-50 p-3 dark:bg-zinc-950">
               <DashboardContent config={props.dashboardPreviewConfig} context={props.renderContext} />

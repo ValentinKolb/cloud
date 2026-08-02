@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@k2b/ui";
 import { clipboard } from "@k2b/stdlib/browser";
 import type { Accessor, Setter } from "solid-js";
 import type {

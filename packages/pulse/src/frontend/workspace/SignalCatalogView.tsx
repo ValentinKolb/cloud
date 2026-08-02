@@ -1,4 +1,4 @@
-import { DataTable, Tooltip, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, IconButton, Tooltip, type DataTableColumn } from "@k2b/ui";
 import { type Accessor, type JSX } from "solid-js";
 import type { PulseMetricSummary } from "../../contracts";
 import { compactDateWithDelta, formatSignalValue, formatValue, plural, type PulseDateContext } from "./helpers";
@@ -34,17 +34,18 @@ type SignalCatalogViewProps = {
 
 const SignalInfoButton = (props: { label: string; onClick: () => void }) => (
   <Tooltip content={props.label}>
-    <button
-      type="button"
-      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-zinc-100 hover:app-accent-text dark:hover:bg-zinc-900"
-      aria-label={props.label}
+    <IconButton
+      label={props.label}
+      variant="ghost"
+      size="xs"
+      class="h-6 w-6 shrink-0"
       onClick={(event) => {
         event.stopPropagation();
         props.onClick();
       }}
     >
-      <i class="ti ti-info-circle text-sm" />
-    </button>
+      <i class="ti ti-info-circle" />
+    </IconButton>
   </Tooltip>
 );
 

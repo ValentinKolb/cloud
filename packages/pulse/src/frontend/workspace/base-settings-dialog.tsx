@@ -1,4 +1,5 @@
-import { NumberInput, PermissionEditor, prompts, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
+import { Button, NumberInput, prompts, SettingsModal, TextInput } from "@k2b/ui";
 import { createSignal, type Accessor } from "solid-js";
 import type { AccessEntry, Principal } from "@valentinkolb/cloud/contracts";
 import type { PulseBase } from "../../contracts";
@@ -70,7 +71,7 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                   description="Shown in the Pulse sidebar, overview, and dashboard headers."
                   icon="ti ti-tag"
                   value={name}
-                  onInput={setName}
+                  onValueChange={setName}
                   required
                 />
                 <TextInput
@@ -78,15 +79,15 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                   description="Optional context for teammates who can access this Pulse base."
                   icon="ti ti-align-left"
                   value={description}
-                  onInput={setDescription}
+                  onValueChange={setDescription}
                   multiline
                   lines={3}
                   placeholder="Optional"
                 />
-                <button type="submit" class="btn-primary btn-sm self-start" disabled={options.loading() || !name().trim()}>
+                <Button type="submit" size="sm" class="self-start" disabled={options.loading() || !name().trim()}>
                   <i class={`ti ${options.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
                   Save
-                </button>
+                </Button>
               </form>
             </SettingsModal.Tab>
 
@@ -121,7 +122,7 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                   min={1}
                   max={3650}
                   value={rawRetentionDays}
-                  onInput={setRawRetentionDays}
+                  onValueChange={setRawRetentionDays}
                   required
                 />
                 <NumberInput
@@ -132,7 +133,7 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                   min={1}
                   max={3650}
                   value={rollupRetentionDays}
-                  onInput={setRollupRetentionDays}
+                  onValueChange={setRollupRetentionDays}
                   required
                 />
                 <NumberInput
@@ -143,13 +144,13 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                   min={1}
                   max={8760}
                   value={sensitiveRetentionHours}
-                  onInput={setSensitiveRetentionHours}
+                  onValueChange={setSensitiveRetentionHours}
                   required
                 />
-                <button type="submit" class="btn-primary btn-sm self-start" disabled={options.loading()}>
+                <Button type="submit" size="sm" class="self-start" disabled={options.loading()}>
                   <i class={`ti ${options.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
                   Save retention
-                </button>
+                </Button>
               </form>
             </SettingsModal.Tab>
 
@@ -164,22 +165,23 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                 Clearing data removes observed metrics, events, states, resources, and scrape history. Sources, API keys, dashboards, saved
                 queries, access, and settings are kept.
               </div>
-              <button type="button" class="btn-danger btn-sm mb-5" disabled={options.loading()} onClick={() => void options.clearBaseData()}>
+              <Button type="button" variant="danger" size="sm" class="mb-5" disabled={options.loading()} onClick={() => void options.clearBaseData()}>
                 <i class="ti ti-eraser text-sm" />
                 Clear all telemetry data
-              </button>
+              </Button>
               <div class="info-block-warning mb-3">
                 Deleting this Pulse base removes its sources, dashboards, saved queries, metrics, events, states, and ingest keys.
               </div>
-              <button
+              <Button
                 type="button"
-                class="btn-danger btn-sm"
+                variant="danger"
+                size="sm"
                 disabled={options.loading()}
                 onClick={() => void options.deleteBase().then((deleted) => deleted && close())}
               >
                 <i class="ti ti-trash text-sm" />
                 Delete Pulse base
-              </button>
+              </Button>
             </SettingsModal.Tab>
           </SettingsModal>
         </div>

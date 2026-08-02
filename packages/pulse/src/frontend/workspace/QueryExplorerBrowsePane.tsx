@@ -1,4 +1,4 @@
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { TextInput } from "@k2b/ui";
 import { For, Show, type Accessor } from "solid-js";
 import type { PulseCurrentState, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../../contracts";
 import { formatSignalValue, plural, sourceKindIcon, sourceStatus, suggestionTagClass } from "./helpers";
@@ -70,7 +70,7 @@ export default function QueryExplorerBrowsePane(props: {
           type="search"
           icon="ti ti-search"
           value={props.search}
-          onInput={props.onSearchInput}
+          onValueChange={props.onSearchInput}
           placeholder="Find sources, entities, metrics, events, states, labels..."
           clearable
         />

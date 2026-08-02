@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
+import type { SuggestContext, Suggestion } from "@k2b/ui";
 import {
   buildPulseQuery,
   buildPulseQueryCompletions,
@@ -8,7 +8,7 @@ import {
   pulseQueryHighlight,
 } from "./query-authoring";
 
-const suggest = async (query: string, ctx: SuggestContext): Promise<Suggestion[]> => {
+const suggest = async (query: string, ctx: SuggestContext): Promise<readonly Suggestion[]> => {
   const completion = buildPulseQueryCompletions({
     metrics: [
       { name: "system.cpu.usage", type: "gauge", unit: "percent", seriesCount: 1, lastSeenAt: null },

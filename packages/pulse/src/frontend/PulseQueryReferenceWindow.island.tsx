@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import { navigate } from "@k2b/ssr/nav";

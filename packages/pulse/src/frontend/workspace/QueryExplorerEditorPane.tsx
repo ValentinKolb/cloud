@@ -1,4 +1,4 @@
-import { AutocompleteEditor, TextInput, type Completion } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, Button, TextInput, type Completion } from "@k2b/ui";
 import { For, Show, type Accessor } from "solid-js";
 import type { MetricQuery, PulseQueryCompileResult, PulseSource } from "../../contracts";
 import { pulseQueryHighlight } from "../query-authoring";
@@ -64,7 +64,7 @@ const QueryEditorInput = (
 ) => (
   <AutocompleteEditor
     value={props.queryText}
-    onInput={props.onQueryInput}
+    onValueChange={props.onQueryInput}
     onSubmit={props.onRun}
     completions={props.completions()}
     highlight={pulseQueryHighlight}
@@ -73,8 +73,8 @@ const QueryEditorInput = (
     lines={7}
     spellcheck={false}
     placeholder="metric orders.created increase every 1h since 7d where channel=web"
-    ariaLabel="Pulse query"
-    ariaInvalid={props.diagnostics()?.ok === false}
+    aria-label="Pulse query"
+    aria-invalid={props.diagnostics()?.ok === false}
   />
 );
 
@@ -106,14 +106,16 @@ const SuggestionToggle = (
   props: Pick<QueryExplorerEditorPaneProps, "suggestionOverflow" | "suggestionsExpanded" | "setSuggestionsExpanded">,
 ) => (
   <Show when={props.suggestionOverflow() > 0 || props.suggestionsExpanded()}>
-    <button
+    <Button
       type="button"
-      class="inline-flex h-7 items-center gap-1 rounded-full bg-zinc-100 px-2.5 text-xs font-medium text-secondary transition hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+      variant="subtle"
+      size="xs"
+      class="rounded-full"
       onClick={() => props.setSuggestionsExpanded((expanded) => !expanded)}
     >
       <i class={`ti ${props.suggestionsExpanded() ? "ti-chevron-up" : "ti-adjustments-horizontal"}`} />
       {props.suggestionsExpanded() ? "Show less" : `Browse${props.suggestionOverflow() > 0 ? ` +${props.suggestionOverflow()}` : ""}`}
-    </button>
+    </Button>
   </Show>
 );
 
@@ -158,7 +160,7 @@ const SuggestionSearch = (
         type="search"
         icon="ti ti-search"
         value={props.suggestionSearch}
-        onInput={props.setSuggestionSearch}
+        onValueChange={props.setSuggestionSearch}
         placeholder="Search suggested sources and labels..."
         clearable
       />
@@ -270,12 +272,12 @@ const QueryExplorerActions = (
   props: Pick<QueryExplorerEditorPaneProps, "canRun" | "running" | "onRun" | "canOpenReference" | "onOpenReference">,
 ) => (
   <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
-    <button type="button" class="btn-input btn-input-sm" disabled={!props.canRun() || props.running()} onClick={props.onRun}>
+    <Button type="button" variant="secondary" size="sm" disabled={!props.canRun() || props.running()} onClick={props.onRun}>
       <i class={`ti ${props.running() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
-    </button>
-    <button type="button" class="btn-input btn-input-sm" disabled={!props.canOpenReference()} onClick={props.onOpenReference}>
+    </Button>
+    <Button type="button" variant="secondary" size="sm" disabled={!props.canOpenReference()} onClick={props.onOpenReference}>
       <i class="ti ti-external-link" /> Open reference
-    </button>
+    </Button>
   </div>
 );
 

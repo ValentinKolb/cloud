@@ -1,5 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { ButtonLink } from "@k2b/ui";
 import { ssr } from "../../config";
 import { pulseHelp } from "../../help";
 import PulseLayoutHelp from "../PulseLayoutHelp.island";
@@ -17,9 +18,9 @@ export default ssr<AuthContext>(async (c) => {
             <i class="ti ti-alert-circle text-sm" />
             {data.errorMessage}
           </p>
-          <a href="/app/pulse" class="btn-primary btn-sm">
+          <ButtonLink href="/app/pulse" size="sm">
             Back to Pulse
-          </a>
+          </ButtonLink>
         </div>
       </Layout>
     );

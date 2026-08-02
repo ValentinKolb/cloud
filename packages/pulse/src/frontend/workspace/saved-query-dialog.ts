@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import type { PulseExplorerQuery } from "../../contracts";
 import {
   defaultSavedQueryName,

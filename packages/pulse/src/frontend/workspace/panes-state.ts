@@ -1,4 +1,4 @@
-import { normalizePanesValue, type PanesNode, type PanesValue } from "@valentinkolb/cloud/ui";
+import { normalizePanesValue, type PanesNode, type PanesValue } from "@k2b/ui";
 
 export const QUERY_EXPLORER_PANES_KEY = "pulse.query-explorer";
 export const DASHBOARD_EDITOR_PANES_KEY = "pulse.dashboard-editor";

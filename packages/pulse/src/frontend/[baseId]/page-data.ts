@@ -1,6 +1,6 @@
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { get as getSetting } from "@valentinkolb/cloud/services";
-import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { Context } from "hono";
 import type {
   MetricQueryPoint,

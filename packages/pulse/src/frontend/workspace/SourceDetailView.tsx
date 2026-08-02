@@ -1,11 +1,5 @@
-import {
-  DataTable,
-  ResourceApiKeys,
-  Tooltip,
-  type DataTableColumn,
-  type ResourceApiKey,
-  type ResourceApiKeysProps,
-} from "@valentinkolb/cloud/ui";
+import { ResourceApiKeys, type ResourceApiKey, type ResourceApiKeysProps } from "@valentinkolb/cloud/access/ui";
+import { Button, DataTable, IconButton, Tooltip, type DataTableColumn } from "@k2b/ui";
 import { Show, type JSX } from "solid-js";
 import type { PulseSource, PulseSourceScrape } from "../../contracts";
 import DetailHero from "./DetailHero";
@@ -59,9 +53,9 @@ export default function SourceDetailView(props: Props) {
       <div class="mb-3 flex items-center justify-between gap-2">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">{params.title}</h3>
         <div class="flex shrink-0 items-center gap-1">
-          <button type="button" class="btn-input btn-input-sm" onClick={() => props.copySetupText(params.code, "Command copied")}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => props.copySetupText(params.code, "Command copied")}>
             <i class="ti ti-copy" /> Copy
-          </button>
+          </Button>
         </div>
       </div>
       <pre class="max-h-72 overflow-auto rounded-lg bg-zinc-100 p-3 text-[11px] leading-relaxed text-secondary dark:bg-zinc-900/80">
@@ -87,32 +81,33 @@ export default function SourceDetailView(props: Props) {
         }
         actions={
           <Tooltip content="Close details">
-            <button type="button" class="icon-btn" aria-label="Close source details" onClick={props.close}>
+            <IconButton label="Close source details" variant="ghost" size="sm" onClick={props.close}>
               <i class="ti ti-x" />
-            </button>
+            </IconButton>
           </Tooltip>
         }
         quickActions={
           <>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => void props.editSource(props.source)}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void props.editSource(props.source)}>
               <i class="ti ti-pencil" /> Edit
-            </button>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => void props.toggleSource(props.source)}>
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void props.toggleSource(props.source)}>
               <i class={`ti ${props.source.enabled ? "ti-player-pause" : "ti-player-play"}`} />
               {props.source.enabled ? "Pause" : "Resume"}
-            </button>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => props.openSourceResources(props.source)}>
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => props.openSourceResources(props.source)}>
               <i class="ti ti-cube" /> Resources
-            </button>
+            </Button>
             <Show when={props.source.kind === "metrics"}>
-              <button
+              <Button
                 type="button"
-                class="btn-secondary btn-sm"
+                variant="secondary"
+                size="sm"
                 disabled={props.loading || !props.source.enabled}
                 onClick={() => void props.scrape(props.source)}
               >
                 <i class="ti ti-refresh" /> Scrape
-              </button>
+              </Button>
             </Show>
           </>
         }
@@ -220,14 +215,16 @@ export default function SourceDetailView(props: Props) {
         <Show when={props.source.kind === "http_ingest"}>
           <span class="text-xs text-dimmed">Use a source API key as Bearer token.</span>
         </Show>
-        <button
+        <Button
           type="button"
-          class="btn-danger btn-sm ml-auto"
+          variant="danger"
+          size="sm"
+          class="ml-auto"
           disabled={props.loading}
           onClick={() => void props.removeSource(props.source)}
         >
           <i class="ti ti-trash" /> Remove
-        </button>
+        </Button>
       </div>
     </div>
   );

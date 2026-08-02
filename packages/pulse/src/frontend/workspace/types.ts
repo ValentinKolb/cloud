@@ -1,5 +1,6 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/contracts";
-import type { PanesValue, ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
+import type { PanesValue } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import type {
   MetricQueryPoint,

@@ -1,4 +1,4 @@
-import type { DataTableColumn } from "@valentinkolb/cloud/ui";
+import type { DataTableColumn } from "@k2b/ui";
 import { Show, type Accessor, type JSX } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
 import {

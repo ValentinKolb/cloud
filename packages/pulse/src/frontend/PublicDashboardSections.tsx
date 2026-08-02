@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@valentinkolb/cloud/ui";
+import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, type JSX, Show } from "solid-js";
 import type {

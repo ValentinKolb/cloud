@@ -1,4 +1,4 @@
-import { Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Tooltip } from "@k2b/ui";
 import { For, Show, type Accessor } from "solid-js";
 import type { PulseSavedQuery } from "../../contracts";
 import { compactDateWithDelta, type PulseDateContext } from "./helpers";
@@ -16,14 +16,15 @@ export function SavedQueriesPane(props: {
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
         <span class="text-label text-xs">Saved queries</span>
-        <button
+        <Button
           type="button"
-          class="text-xs font-medium text-secondary transition hover:app-accent-text"
+          variant="ghost"
+          size="xs"
           disabled={!props.currentQuery() || props.loading()}
           onClick={() => void props.onSaveCurrent()}
         >
           <i class="ti ti-device-floppy" /> Save current
-        </button>
+        </Button>
       </div>
       <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
         <Show when={props.queries().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No saved queries.</p>}>
@@ -35,14 +36,15 @@ export function SavedQueriesPane(props: {
                   <code class="block truncate font-mono text-[11px] text-dimmed">{item.query}</code>
                 </button>
                 <Tooltip content="Remove saved query">
-                  <button
-                    type="button"
-                    class="icon-btn opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                  <IconButton
+                    label={`Remove saved query ${item.name}`}
+                    variant="ghost"
+                    size="xs"
+                    class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                     onClick={() => void props.onRemove(item)}
-                    aria-label={`Remove saved query ${item.name}`}
                   >
                     <i class="ti ti-trash" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </div>
             )}

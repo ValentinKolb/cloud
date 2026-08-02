@@ -1,4 +1,4 @@
-import { dialogCore, NumberInput, PanelDialog, panelDialogOptions, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { Button, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@k2b/ui";
 import { createSignal, Show, type Accessor } from "solid-js";
 import { SOURCE_TYPE_OPTIONS } from "./helpers";
 import type { CreateSourceInput, SourceCreateKind } from "./types";
@@ -52,17 +52,17 @@ export const openSourceCreateDialog = (options: SourceCreateDialogOptions) =>
               description="Shown in source lists, dashboard filters, and setup examples."
               icon="ti ti-tag"
               value={name}
-              onInput={setName}
+              onValueChange={setName}
               placeholder={kind() === "http_ingest" ? "Sales pipeline" : "Service metrics"}
             />
 
             <PanelDialog.Section title={title()} subtitle="Choose how Pulse should receive data." icon="ti ti-route">
-              <SelectInput
+              <Select
                 label="Type"
                 description="Pick a scrape target or an ingest source that pushes data into Pulse."
                 icon="ti ti-plug-connected"
                 value={kind}
-                onChange={(value) => setKind(value as SourceCreateKind)}
+                onValueChange={(value) => setKind(value as SourceCreateKind)}
                 options={SOURCE_TYPE_OPTIONS}
                 required
               />
@@ -74,7 +74,7 @@ export const openSourceCreateDialog = (options: SourceCreateDialogOptions) =>
                     type="url"
                     icon="ti ti-link"
                     value={endpointUrl}
-                    onInput={setEndpointUrl}
+                    onValueChange={setEndpointUrl}
                     placeholder="https://example.local/metrics"
                     required
                   />
@@ -86,7 +86,7 @@ export const openSourceCreateDialog = (options: SourceCreateDialogOptions) =>
                     min={10}
                     max={86_400}
                     value={scrapeIntervalSeconds}
-                    onInput={setScrapeIntervalSeconds}
+                    onValueChange={setScrapeIntervalSeconds}
                   />
                 </div>
                 <TextInput
@@ -94,7 +94,7 @@ export const openSourceCreateDialog = (options: SourceCreateDialogOptions) =>
                   description="Optional. Stored encrypted by Pulse."
                   icon="ti ti-key"
                   value={bearerToken}
-                  onInput={setBearerToken}
+                  onValueChange={setBearerToken}
                   placeholder="Optional"
                   password
                 />
@@ -110,13 +110,13 @@ export const openSourceCreateDialog = (options: SourceCreateDialogOptions) =>
             </PanelDialog.Section>
           </PanelDialog.Body>
           <PanelDialog.Footer>
-            <button type="button" class="btn-input btn-input-sm" onClick={() => close()} disabled={options.loading()}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => close()} disabled={options.loading()}>
               Cancel
-            </button>
-            <button type="submit" class="btn-input btn-input-sm" disabled={options.loading() || (kind() === "metrics" && !endpointUrl().trim())}>
+            </Button>
+            <Button type="submit" size="sm" disabled={options.loading() || (kind() === "metrics" && !endpointUrl().trim())}>
               <i class={`ti ${options.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-sm`} />
               Add
-            </button>
+            </Button>
           </PanelDialog.Footer>
         </PanelDialog>
       </form>

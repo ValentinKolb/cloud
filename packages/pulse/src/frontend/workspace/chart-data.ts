@@ -1,4 +1,4 @@
-import type { DataTableColumn } from "@valentinkolb/cloud/ui";
+import type { DataTableColumn } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import type { MetricQueryPoint } from "../../contracts";
 import { compactDate, compactDateWithDelta, compactDay } from "./date-format";

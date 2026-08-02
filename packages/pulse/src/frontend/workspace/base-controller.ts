@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { prompts, type ResourceApiKey, toast } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
+import { prompts, toast } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import type {
   PulseBase,

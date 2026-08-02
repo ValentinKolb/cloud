@@ -1,4 +1,4 @@
-import { prompts, SelectInput, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
+import { Button, prompts, Select, SettingsModal, TextInput } from "@k2b/ui";
 import { createSignal, Show, type Accessor } from "solid-js";
 import type { PulseDashboard } from "../../contracts";
 import { DASHBOARD_REFRESH_OPTIONS, refreshOptionFromConfig } from "./helpers";
@@ -42,21 +42,21 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
                   description="Use a short dashboard name that describes the view or audience."
                   icon="ti ti-tag"
                   value={name}
-                  onInput={setName}
+                  onValueChange={setName}
                   required
                 />
-                <SelectInput
+                <Select
                   label="Auto refresh"
                   description="Controls how often Pulse refreshes this dashboard in the background. Use never for static views."
                   icon="ti ti-refresh"
                   value={refreshInterval}
-                  onChange={(value) => setRefreshInterval(value as RefreshIntervalOption)}
+                  onValueChange={(value) => setRefreshInterval(value as RefreshIntervalOption)}
                   options={DASHBOARD_REFRESH_OPTIONS}
                 />
-                <button type="submit" class="btn-primary btn-sm self-start" disabled={options.loading() || !name().trim()}>
+                <Button type="submit" size="sm" class="self-start" disabled={options.loading() || !name().trim()}>
                   <i class={`ti ${options.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
                   Save
-                </button>
+                </Button>
               </form>
             </SettingsModal.Tab>
 
@@ -73,40 +73,43 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
                     : "Public display is disabled. Create a link when you want to share this dashboard without auth."}
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                  <button
+                  <Button
                     type="button"
-                    class="btn-input btn-input-sm"
+                    variant="secondary"
+                    size="sm"
                     disabled={options.loading()}
                     onClick={() => void options.enablePublicLink(options.currentDashboard(), { copy: true })}
                   >
                     <i class="ti ti-copy" />
                     {options.currentDashboard().publicEnabled ? "Copy public link" : "Create and copy link"}
-                  </button>
+                  </Button>
                   <Show when={options.currentDashboard().publicEnabled}>
-                    <button
+                    <Button
                       type="button"
-                      class="btn-input btn-input-sm"
+                      variant="secondary"
+                      size="sm"
                       disabled={options.loading()}
                       onClick={() => void options.disablePublicLink(options.currentDashboard())}
                     >
                       <i class="ti ti-link-off" />
                       Disable public link
-                    </button>
+                    </Button>
                   </Show>
                 </div>
               </div>
             </SettingsModal.Tab>
 
             <SettingsModal.Tab id="danger" title="Danger zone" icon="ti ti-alert-triangle" tone="danger" description="Delete this dashboard.">
-              <button
+              <Button
                 type="button"
-                class="btn-danger btn-sm"
+                variant="danger"
+                size="sm"
                 disabled={options.loading()}
                 onClick={() => void options.deleteDashboard(options.dashboard).then((deleted) => deleted && close())}
               >
                 <i class="ti ti-trash text-sm" />
                 Delete dashboard
-              </button>
+              </Button>
             </SettingsModal.Tab>
           </SettingsModal>
         </div>

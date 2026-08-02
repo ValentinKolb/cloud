@@ -1,4 +1,4 @@
-import type { DataTableColumn } from "@valentinkolb/cloud/ui";
+import type { DataTableColumn } from "@k2b/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent } from "../../contracts";
 import type { ActivityEventGroup, ActivityStateGroup } from "./types";
 

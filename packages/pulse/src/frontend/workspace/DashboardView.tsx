@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Chart, DataTable, MarkdownView, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { Button, Chart, DataTable, MarkdownView, Select, TextInput } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { type Accessor, createMemo, For, Show } from "solid-js";
 import type {
@@ -393,12 +393,12 @@ const DashboardControls = (props: { dashboard: PulseDashboard; config: PulseDash
                       label={control.label}
                       icon={control.kind === "entity" ? "ti ti-cube" : control.kind === "text" ? "ti ti-search" : "ti ti-filter"}
                       value={() => dashboardControlValue(props.dashboard, control, props.context)}
-                      onInput={(value) => props.context.onControlChange(props.dashboard, control, value, props.config)}
+                      onValueChange={(value) => props.context.onControlChange(props.dashboard, control, value, props.config)}
                       placeholder={control.variable}
                     />
                   }
                 >
-                  <SelectInput
+                  <Select
                     label={control.label}
                     icon={
                       control.kind === "range"
@@ -410,7 +410,7 @@ const DashboardControls = (props: { dashboard: PulseDashboard; config: PulseDash
                             : "ti ti-filter"
                     }
                     value={() => dashboardControlValue(props.dashboard, control, props.context)}
-                    onChange={(value) => props.context.onControlChange(props.dashboard, control, value, props.config)}
+                    onValueChange={(value) => props.context.onControlChange(props.dashboard, control, value ?? "", props.config)}
                     options={options}
                   />
                 </Show>
@@ -433,10 +433,10 @@ const DashboardHeader = (props: { dashboard: PulseDashboard; config: PulseDashbo
     </div>
     <div class="flex flex-wrap items-end justify-end gap-2">
       <Show when={props.dashboard.publicEnabled}>
-        <button type="button" class="btn-input btn-input-sm" onClick={() => props.context.onOpenPublicDisplay(props.dashboard)}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => props.context.onOpenPublicDisplay(props.dashboard)}>
           <i class="ti ti-device-tv" />
           Public display
-        </button>
+        </Button>
       </Show>
       <DashboardControls dashboard={props.dashboard} config={props.config} context={props.context} />
     </div>

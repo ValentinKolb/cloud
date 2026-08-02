@@ -1,4 +1,5 @@
-import { prompts, type ResourceApiKey, type ResourceApiKeysProps, toast } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey, ResourceApiKeysProps } from "@valentinkolb/cloud/access/ui";
+import { prompts, toast } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import type { PulseSource } from "../../contracts";
 import { jsonFetch } from "../http";

@@ -1,4 +1,4 @@
-import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { Accessor, Setter } from "solid-js";
 import { createEffect, onCleanup, onMount } from "solid-js";
 import type {

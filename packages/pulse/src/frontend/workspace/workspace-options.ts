@@ -1,4 +1,4 @@
-import type { FilterChipSection } from "@valentinkolb/cloud/ui";
+import type { FilterChipSection } from "@k2b/ui";
 import type { PulseDashboardConfig } from "../../contracts";
 import type { RefreshIntervalOption } from "./types";
 

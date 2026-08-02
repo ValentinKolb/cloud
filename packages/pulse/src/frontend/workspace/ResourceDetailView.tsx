@@ -1,4 +1,4 @@
-import { DataTable, Panes, StructuredDataPreview, Tooltip, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
+import { Button, DataTable, IconButton, Panes, StructuredDataPreview, Tooltip, type DataTableColumn, type PanesValue } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, Show, type Accessor, type JSX, type Setter } from "solid-js";
 import type { PulseCurrentState, PulseRecordedEvent, PulseResourceMetric, PulseResourceSummary } from "../../contracts";
 import {
@@ -273,7 +273,7 @@ const ResourceSignalPanes = (props: ResourceSignalPanesProps) => (
   <section class="h-[min(68vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
     <Panes.Root
       value={props.selection.panesValue()}
-      onChange={props.selection.updatePanesValue}
+      onValueChange={props.selection.updatePanesValue}
       class="h-full min-h-0"
       allowMove={false}
       allowReorder={false}
@@ -351,19 +351,19 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             }`}
             actions={
               <Tooltip content="Close details">
-                <button type="button" class="icon-btn" aria-label="Close metric details" onClick={props.selection.close}>
+                <IconButton label="Close metric details" variant="ghost" size="sm" onClick={props.selection.close}>
                   <i class="ti ti-x" />
-                </button>
+                </IconButton>
               </Tooltip>
             }
             quickActions={
               <>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.openMetricQuery(metric())}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => props.openMetricQuery(metric())}>
                   <i class="ti ti-code" /> Open query
-                </button>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.openMetricVariants(metric().metric)}>
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => props.openMetricVariants(metric().metric)}>
                   <i class="ti ti-stack-2" /> All variants
-                </button>
+                </Button>
               </>
             }
           />
@@ -390,19 +390,19 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             description={compactDateWithDelta(state().updatedAt, props.dateContext)}
             actions={
               <Tooltip content="Close details">
-                <button type="button" class="icon-btn" aria-label="Close state details" onClick={props.selection.close}>
+                <IconButton label="Close state details" variant="ghost" size="sm" onClick={props.selection.close}>
                   <i class="ti ti-x" />
-                </button>
+                </IconButton>
               </Tooltip>
             }
             quickActions={
               <>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.openStateQuery(state())}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => props.openStateQuery(state())}>
                   <i class="ti ti-code" /> Open query
-                </button>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.openStateVariants(state().key)}>
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => props.openStateVariants(state().key)}>
                   <i class="ti ti-stack-2" /> All variants
-                </button>
+                </Button>
               </>
             }
           />
@@ -429,19 +429,19 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             description={`${signalSubject(event())} · ${compactDateWithDelta(event().ts, props.dateContext)}`}
             actions={
               <Tooltip content="Close details">
-                <button type="button" class="icon-btn" aria-label="Close event details" onClick={props.selection.close}>
+                <IconButton label="Close event details" variant="ghost" size="sm" onClick={props.selection.close}>
                   <i class="ti ti-x" />
-                </button>
+                </IconButton>
               </Tooltip>
             }
             quickActions={
               <>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.openEventQuery(event())}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => props.openEventQuery(event())}>
                   <i class="ti ti-code" /> Open query
-                </button>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.openEventVariants(event().kind)}>
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => props.openEventVariants(event().kind)}>
                   <i class="ti ti-stack-2" /> All variants
-                </button>
+                </Button>
               </>
             }
           />

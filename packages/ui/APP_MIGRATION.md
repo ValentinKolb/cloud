@@ -190,6 +190,12 @@ Run the smallest complete evidence set for the app:
 6. final legacy-import, native-control, direct implementation-class, prop-value,
    retained-class-definition, smoke-selector, and diff checks.
 
+Prefer the package's declared scripts (for example `bun run typecheck` and
+`bun run test`) over reconstructing their underlying commands. The scripts may
+provide safe fixture environment, filters, or setup that belongs to the app's
+test contract; bypassing them can create migration failures that do not exist
+in the supported workflow.
+
 The final legacy check covers both imports and unclassified Cloud utility
 classes from section 4.
 

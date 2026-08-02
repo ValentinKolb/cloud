@@ -1,4 +1,5 @@
-import { DataTable, TextInput, type DataTableColumn, type ResourceApiKey, type ResourceApiKeysProps } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey, ResourceApiKeysProps } from "@valentinkolb/cloud/access/ui";
+import { Button, DataTable, TextInput, type DataTableColumn } from "@k2b/ui";
 import { Show, type Accessor, type JSX } from "solid-js";
 import type { PulseSource, PulseSourceScrape } from "../../contracts";
 import { compactDateWithDelta, formatIngestCounts, sourceKindIcon, sourceStatus, type PulseDateContext } from "./helpers";
@@ -134,19 +135,20 @@ export default function SourcesView(props: SourcesViewProps) {
             type="search"
             icon="ti ti-search"
             value={props.search}
-            onInput={props.setSearch}
+            onValueChange={props.setSearch}
             placeholder="Search sources..."
             clearable
           />
         </div>
-        <button
+        <Button
           type="button"
-          class="btn-input btn-input-sm"
+          variant="secondary"
+          size="sm"
           disabled={!props.selectedBaseId() || props.loading()}
           onClick={() => void props.addSource()}
         >
           <i class="ti ti-plus" /> Source
-        </button>
+        </Button>
       </div>
       <DataTable
         rows={props.sources()}

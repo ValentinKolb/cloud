@@ -1,4 +1,4 @@
-import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { AppOverview, Button, prompts, TextInput, toast } from "@k2b/ui";
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
@@ -87,12 +87,12 @@ export default function PulseOverview(props: Props) {
             <TextInput
               name="pulse-search"
               type="search"
-              ariaLabel="Search Pulse bases"
+              aria-label="Search Pulse bases"
               placeholder="Search bases..."
               icon="ti ti-search"
               activeIcon="ti ti-search"
               value={query}
-              onInput={onSearchInput}
+              onValueChange={onSearchInput}
               clearable
               onClear={() => onSearchInput("")}
             />
@@ -107,9 +107,9 @@ export default function PulseOverview(props: Props) {
                 icon="ti ti-activity-heartbeat"
                 class="min-h-72"
               >
-                <button type="button" class="btn-secondary btn-sm" disabled={creating()} onClick={() => void createBase()}>
+                <Button variant="secondary" size="sm" disabled={creating()} onClick={() => void createBase()}>
                   <i class="ti ti-plus" /> Create a base
-                </button>
+                </Button>
               </AppOverview.EmptyState>
             }
           >
@@ -142,9 +142,10 @@ export default function PulseOverview(props: Props) {
 
         <AppOverview.Aside title="Create" description="Sources and dashboards are configured inside the base.">
           <div class="grid grid-cols-1 gap-2">
-            <button
+            <Button
               type="button"
-              class="paper group flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted"
+              variant="ghost"
+              class="group h-auto w-full items-start justify-start gap-3 rounded-xl border border-[var(--ui-border)] p-4 text-left hover:bg-[var(--ui-surface-subtle)]"
               disabled={creating()}
               onClick={() => void createBase()}
             >
@@ -158,7 +159,7 @@ export default function PulseOverview(props: Props) {
                 </span>
               </span>
               <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-colors group-hover:app-accent-text" />
-            </button>
+            </Button>
 
             <Show when={props.capabilities && !props.capabilities.timescaleEnabled}>
               <div class="info-block-warning mt-2">

@@ -1,4 +1,4 @@
-import { CopyButton, DataTable, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { Button, CopyButton, DataTable, TextInput, type DataTableColumn } from "@k2b/ui";
 import { createMemo, createSignal, For } from "solid-js";
 import type {
   PulseCurrentState,
@@ -32,7 +32,7 @@ type Props = {
   fields: PulseSignalField[];
 };
 
-const copyCell = (value: string) => <CopyButton text={value} class="icon-btn h-8 w-8 text-dimmed hover:text-primary" />;
+const copyCell = (value: string) => <CopyButton text={value} class="h-8 w-8 text-dimmed hover:text-primary" />;
 
 const ScopeChipRow = (props: {
   label: string;
@@ -44,26 +44,29 @@ const ScopeChipRow = (props: {
   <div class="flex flex-col gap-2">
     <p class="text-xs font-semibold text-dimmed">{props.label}</p>
     <div class="flex flex-wrap gap-2">
-      <button
+      <Button
         type="button"
-        class={`chip cursor-pointer border-0 ${!props.selected ? "bg-zinc-100 app-accent-text dark:bg-zinc-900" : ""}`}
+        variant={!props.selected ? "subtle" : "ghost"}
+        size="xs"
         onClick={() => props.onSelect("")}
       >
         <i class="ti ti-asterisk" />
         <span>{props.allLabel}</span>
-      </button>
+      </Button>
       <For each={props.items}>
         {(item) => (
-          <button
+          <Button
             type="button"
-            class={`chip max-w-full cursor-pointer border-0 ${props.selected === item.id ? "bg-zinc-100 app-accent-text dark:bg-zinc-900" : ""}`}
+            variant={props.selected === item.id ? "subtle" : "ghost"}
+            size="xs"
+            class="max-w-full"
             title={`${item.hint} · ${item.count}`}
             onClick={() => props.onSelect(item.id)}
           >
             <i class={item.icon} />
             <span class="truncate">{item.label}</span>
             <span class="text-dimmed">· {item.count}</span>
-          </button>
+          </Button>
         )}
       </For>
     </div>
@@ -207,7 +210,7 @@ export function PulseQueryReferenceInventory(props: Props) {
               <i class="ti ti-chart-dots" /> Metrics <span class="text-dimmed">{metricRows().length}</span>
             </h2>
             <div class="w-full sm:w-64">
-              <TextInput value={metricQuery} onInput={setMetricQuery} icon="ti ti-search" placeholder="Search metrics..." clearable />
+              <TextInput value={metricQuery} onValueChange={setMetricQuery} icon="ti ti-search" placeholder="Search metrics..." clearable />
             </div>
           </div>
           <DataTable
@@ -230,7 +233,7 @@ export function PulseQueryReferenceInventory(props: Props) {
               <i class="ti ti-bolt" /> Events <span class="text-dimmed">{eventRows().length}</span>
             </h2>
             <div class="w-full sm:w-64">
-              <TextInput value={eventQuery} onInput={setEventQuery} icon="ti ti-search" placeholder="Search events..." clearable />
+              <TextInput value={eventQuery} onValueChange={setEventQuery} icon="ti ti-search" placeholder="Search events..." clearable />
             </div>
           </div>
           <DataTable
@@ -253,7 +256,7 @@ export function PulseQueryReferenceInventory(props: Props) {
               <i class="ti ti-toggle-right" /> States <span class="text-dimmed">{stateRows().length}</span>
             </h2>
             <div class="w-full sm:w-64">
-              <TextInput value={stateQuery} onInput={setStateQuery} icon="ti ti-search" placeholder="Search states..." clearable />
+              <TextInput value={stateQuery} onValueChange={setStateQuery} icon="ti ti-search" placeholder="Search states..." clearable />
             </div>
           </div>
           <DataTable
@@ -282,7 +285,7 @@ export function PulseQueryReferenceInventory(props: Props) {
             </p>
           </div>
           <div class="w-full sm:w-72">
-            <TextInput value={fieldQuery} onInput={setFieldQuery} icon="ti ti-search" placeholder="Search fields..." clearable />
+            <TextInput value={fieldQuery} onValueChange={setFieldQuery} icon="ti ti-search" placeholder="Search fields..." clearable />
           </div>
         </div>
         <DataTable

@@ -1,4 +1,4 @@
-import { StructuredDataPreview, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, StructuredDataPreview, Tooltip } from "@k2b/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
 import DetailHero from "./DetailHero";
 import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
@@ -29,21 +29,21 @@ const SourceInlineLink = (props: SourceProps) => {
 
 const DetailClose = (props: SourceProps) => (
   <Tooltip content="Close details">
-    <button type="button" class="icon-btn" aria-label="Close signal details" onClick={props.close}>
+    <IconButton label="Close signal details" variant="ghost" size="sm" onClick={props.close}>
       <i class="ti ti-x" />
-    </button>
+    </IconButton>
   </Tooltip>
 );
 
 const DetailQuickActions = (props: SourceProps) => (
   <>
-    <button type="button" class="btn-secondary btn-sm" onClick={props.openQuery}>
+    <Button type="button" variant="secondary" size="sm" onClick={props.openQuery}>
       <i class="ti ti-code" /> Open query
-    </button>
+    </Button>
     {props.sourceId ? (
-      <button type="button" class="btn-secondary btn-sm" onClick={() => props.openSource(props.sourceId)}>
+      <Button type="button" variant="secondary" size="sm" onClick={() => props.openSource(props.sourceId)}>
         <i class="ti ti-database-share" /> Source
-      </button>
+      </Button>
     ) : null}
   </>
 );

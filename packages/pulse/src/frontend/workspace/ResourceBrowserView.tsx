@@ -1,4 +1,4 @@
-import { DataTable, FilterChip, TextInput, type DataTableColumn, type FilterChipSection } from "@valentinkolb/cloud/ui";
+import { Button, DataTable, FilterChip, TextInput, type DataTableColumn, type FilterChipSection } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import type { PulseInventory, PulseResourceSummary } from "../../contracts";
 import { compactDateWithDelta, dimensionsSummary, plural, type PulseDateContext } from "./helpers";
@@ -122,7 +122,7 @@ export default function ResourceBrowserView(props: Props) {
             type="search"
             icon="ti ti-search"
             value={props.search}
-            onInput={props.setSearch}
+            onValueChange={props.setSearch}
             placeholder="Search resources, sources, labels, hosts, services..."
             clearable
           />
@@ -132,7 +132,7 @@ export default function ResourceBrowserView(props: Props) {
           icon="ti ti-database-share"
           options={sourceFilterOptions()}
           value={props.sourceFilter() ? [props.sourceFilter()] : []}
-          onChange={props.setSourceFilter}
+          onValueChange={props.setSourceFilter}
           isActive={Boolean(props.sourceFilter())}
           defaultValue={[]}
         />
@@ -141,7 +141,7 @@ export default function ResourceBrowserView(props: Props) {
           icon="ti ti-filter"
           options={typeFilterOptions()}
           value={props.typeFilter() ? [props.typeFilter()] : []}
-          onChange={props.setTypeFilter}
+          onValueChange={props.setTypeFilter}
           isActive={Boolean(props.typeFilter())}
           defaultValue={[]}
         />
@@ -156,28 +156,29 @@ export default function ResourceBrowserView(props: Props) {
           {` across ${plural(sourceCount(), "source")}`}
         </span>
         <Show when={props.sourceFilter()}>
-          <button
+          <Button
             type="button"
-            class="chip border-0 bg-zinc-100 app-accent-text dark:bg-zinc-900"
+            variant="subtle"
+            size="xs"
             onClick={() => props.setSourceFilter([])}
           >
             <i class="ti ti-database-share" />
             {selectedSourceLabel()}
             <i class="ti ti-x text-[10px]" />
-          </button>
+          </Button>
         </Show>
         <Show when={props.typeFilter()}>
-          <button type="button" class="chip border-0 bg-zinc-100 app-accent-text dark:bg-zinc-900" onClick={() => props.setTypeFilter([])}>
+          <Button type="button" variant="subtle" size="xs" onClick={() => props.setTypeFilter([])}>
             <i class={resourceIcon(props.typeFilter())} />
             {selectedTypeLabel()}
             <i class="ti ti-x text-[10px]" />
-          </button>
+          </Button>
         </Show>
         <Show when={hasFilters()}>
-          <button type="button" class="chip border-0 text-dimmed transition hover:text-primary" onClick={props.clearFilters}>
+          <Button type="button" variant="ghost" size="xs" onClick={props.clearFilters}>
             <i class="ti ti-filter-off" />
             Clear filters
-          </button>
+          </Button>
         </Show>
       </div>
 

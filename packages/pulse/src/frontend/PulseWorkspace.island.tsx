@@ -1,4 +1,4 @@
-import { AppWorkspace, Panes, type PanesValue, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Panes, type PanesValue, toast } from "@k2b/ui";
 import { clipboard } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
@@ -1030,7 +1030,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const renderMetricExplorerView = () => (
     <section class="flex min-h-0 flex-1 overflow-hidden pb-2">
-      <Panes.Root value={explorerPanesValue()} onChange={updateExplorerPanesValue} class="h-full min-h-0 w-full">
+      <Panes.Root value={explorerPanesValue()} onValueChange={updateExplorerPanesValue} class="h-full min-h-0 w-full">
         <Panes.Element id="result" title="Result" icon="ti ti-chart-line">
           {renderExplorerResultPane()}
         </Panes.Element>

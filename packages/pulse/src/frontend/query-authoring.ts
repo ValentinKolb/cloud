@@ -1,4 +1,4 @@
-import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
+import type { Completion, SuggestContext, Suggestion } from "@k2b/ui";
 import type {
   PulseCurrentState,
   PulseMetricSeries,
