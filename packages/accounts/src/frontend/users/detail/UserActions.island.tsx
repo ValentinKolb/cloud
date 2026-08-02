@@ -1,4 +1,4 @@
-import { Dropdown, type DropdownItem } from "@valentinkolb/cloud/ui";
+import { Button, Dropdown, type DropdownItem } from "@k2b/ui";
 import type { User } from "@/contracts";
 import { createUserActions } from "./user-actions/use-user-actions";
 
@@ -141,13 +141,13 @@ export default function UserActions(props: UserActionsProps) {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="btn-input btn-input-sm" aria-label="User actions">
+        <Button size="sm" variant="subtle" aria-label="User actions">
           <i class="ti ti-dots-vertical text-sm" />
           Actions
-        </button>
+        </Button>
       }
       position="bottom-left"
-      width="w-56"
+      width="14rem"
       elements={menuElements}
     />
   );

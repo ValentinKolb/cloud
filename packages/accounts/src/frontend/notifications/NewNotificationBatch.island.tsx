@@ -1,16 +1,9 @@
-import {
-  Avatar,
-  dialogCore,
-  EntitySearch,
-  type EntitySearchPrincipal,
-  PanelDialog,
-  panelDialogOptions,
-  prompts,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { Button, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import AccountAvatar from "@/frontend/AccountAvatar";
 
 type SelectedUser = {
   id: string;
@@ -250,7 +243,7 @@ function BatchDialog(props: { close: () => void }) {
               description="Email subject shown to every resolved recipient."
               placeholder="Maintenance window tonight"
               value={subject}
-              onInput={setSubject}
+              onValueChange={setSubject}
               required
             />
 
@@ -261,7 +254,7 @@ function BatchDialog(props: { close: () => void }) {
               markdown
               lines={13}
               value={body}
-              onInput={setBody}
+              onValueChange={setBody}
               required
             />
           </PanelDialog.Section>
@@ -274,25 +267,21 @@ function BatchDialog(props: { close: () => void }) {
             >
               <div class="flex items-center justify-between gap-2">
                 <span class="text-xs text-dimmed">{users().length} users selected</span>
-                <button type="button" class="btn-input btn-input-sm" onClick={openUserPicker}>
+                <Button size="sm" variant="subtle" onClick={openUserPicker}>
                   <i class="ti ti-user-plus" />
                   <span>Add user</span>
-                </button>
+                </Button>
               </div>
               <Show when={users().length > 0} fallback={<p class="text-xs text-dimmed">No individual users selected.</p>}>
                 <div class="flex flex-col gap-2">
                   <For each={users()}>
                     {(user) => (
-                      <button
-                        type="button"
-                        class="btn-input btn-input-sm justify-start"
-                        onClick={() => remove<SelectedUser>(user.id, setUsers)}
-                      >
-                        <Avatar username={user.label} userId={user.id} avatarHash={user.avatarHash} size="xs" />
+                      <Button size="sm" variant="subtle" class="justify-start" onClick={() => remove<SelectedUser>(user.id, setUsers)}>
+                        <AccountAvatar name={user.label} userId={user.id} avatarHash={user.avatarHash} size="xs" />
                         <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
                         <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
                         <i class="ti ti-x text-dimmed" />
-                      </button>
+                      </Button>
                     )}
                   </For>
                 </div>
@@ -306,25 +295,21 @@ function BatchDialog(props: { close: () => void }) {
             >
               <div class="flex items-center justify-between gap-2">
                 <span class="text-xs text-dimmed">{groups().length} groups selected</span>
-                <button type="button" class="btn-input btn-input-sm" onClick={openGroupPicker}>
+                <Button size="sm" variant="subtle" onClick={openGroupPicker}>
                   <i class="ti ti-plus" />
                   <span>Add group</span>
-                </button>
+                </Button>
               </div>
               <Show when={groups().length > 0} fallback={<p class="text-xs text-dimmed">No groups selected.</p>}>
                 <div class="flex flex-col gap-2">
                   <For each={groups()}>
                     {(group) => (
-                      <button
-                        type="button"
-                        class="btn-input btn-input-sm justify-start"
-                        onClick={() => remove<SelectedGroup>(group.id, setGroups)}
-                      >
+                      <Button size="sm" variant="subtle" class="justify-start" onClick={() => remove<SelectedGroup>(group.id, setGroups)}>
                         <i class="ti ti-users-group" />
                         <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
                         <span class="text-[10px] uppercase text-dimmed">{group.provider}</span>
                         <i class="ti ti-x text-dimmed" />
-                      </button>
+                      </Button>
                     )}
                   </For>
                 </div>
@@ -352,22 +337,17 @@ function BatchDialog(props: { close: () => void }) {
       <PanelDialog.Footer>
         <div class="min-w-0 text-xs text-dimmed">{previewLabel()}</div>
         <div class="ml-auto flex flex-wrap justify-end gap-2">
-          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={loading()}>
+          <Button size="sm" variant="secondary" onClick={props.close} disabled={loading()}>
             Cancel
-          </button>
-          <button
-            type="button"
-            class="btn-input btn-input-sm"
-            onClick={() => void runPreview()}
-            disabled={previewLoading() || loading() || !hasAudience()}
-          >
+          </Button>
+          <Button size="sm" variant="subtle" onClick={() => void runPreview()} disabled={previewLoading() || loading() || !hasAudience()}>
             <i class={previewLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
             <span>{previewLoading() ? "Previewing..." : "Refresh preview"}</span>
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={createDraft} disabled={loading() || !canCreate()}>
+          </Button>
+          <Button size="sm" onClick={createDraft} disabled={loading() || !canCreate()}>
             <i class={loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
             <span>{loading() ? "Creating..." : "Create draft"}</span>
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -380,9 +360,9 @@ export default function NewNotificationBatch() {
   };
 
   return (
-    <button type="button" class="btn-primary btn-sm ml-auto max-w-full shrink-0 whitespace-nowrap" onClick={open}>
+    <Button size="sm" class="ml-auto max-w-full shrink-0 whitespace-nowrap" onClick={open}>
       <i class="ti ti-plus" />
       <span>New Notification</span>
-    </button>
+    </Button>
   );
 }

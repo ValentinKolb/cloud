@@ -1,4 +1,7 @@
+import { dates } from "@k2b/stdlib";
+import { ButtonLink, DataTable, type DataTableColumn, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
   accountsAppService as accountsService,
   coreSettings,
@@ -6,11 +9,9 @@ import {
   serviceAccountCredentials,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { Avatar, DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
@@ -256,15 +257,15 @@ export default ssr<AuthContext>(async (c) => {
       <AccountsWorkspace active="users" isAdmin={true} pendingRequests={pendingRequestsPage.total} scrollPreserveKey="accounts-user-detail">
         <div class="flex flex-col gap-3">
           <div>
-            <a href={buildUsersUrl(listState)} class="btn-secondary btn-sm">
+            <ButtonLink href={buildUsersUrl(listState)} size="sm" variant="secondary">
               <i class="ti ti-arrow-left" />
               Back to Users
-            </a>
+            </ButtonLink>
           </div>
 
           <div class="flex flex-wrap items-start justify-between gap-3 py-2" style="view-transition-name: accounts-user-title">
             <div class="flex min-w-0 flex-1 items-start gap-3">
-              <Avatar username={displayTitle} userId={user.id} avatarHash={user.avatarHash} size="md" />
+              <AccountAvatar name={displayTitle} userId={user.id} avatarHash={user.avatarHash} size="md" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
                   <h1 class="text-xl font-semibold tracking-tight text-primary">{displayTitle}</h1>
@@ -324,13 +325,14 @@ export default ssr<AuthContext>(async (c) => {
                   {apiKeysPage.total} active personal automation {apiKeysPage.total === 1 ? "key" : "keys"}
                 </p>
               </div>
-              <a
+              <ButtonLink
                 href={`/app/accounts/service-accounts?kind=user_delegated&status=active&search=${encodeURIComponent(user.uid)}`}
-                class="btn-input btn-input-sm"
+                size="sm"
+                variant="subtle"
               >
                 <i class="ti ti-external-link" />
                 View all
-              </a>
+              </ButtonLink>
             </div>
 
             {apiKeysPage.items.length > 0 ? (
@@ -373,14 +375,16 @@ export default ssr<AuthContext>(async (c) => {
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <a
+                <ButtonLink
                   href={toggleUrl}
-                  class={`btn-input btn-input-sm ${recursive ? "btn-input-active" : ""}`}
+                  size="sm"
+                  variant={recursive ? "primary" : "subtle"}
+                  aria-current={recursive ? "true" : undefined}
                   title={recursive ? "Show direct memberships only" : "Show all memberships including inherited ones"}
                 >
                   <i class="ti ti-git-branch" />
                   {recursive ? "All groups" : "Direct only"}
-                </a>
+                </ButtonLink>
                 <AddToGroup id={user.id} userProvider={user.provider} excludeGroups={allGroups.map((group) => group.id)} />
               </div>
             </div>

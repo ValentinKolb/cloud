@@ -1,6 +1,7 @@
-import { CopyButton, DatePicker, openAvatarUploadDialog, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, CopyButton, DatePicker, prompts } from "@k2b/ui";
+import { openAvatarUploadDialog } from "@valentinkolb/cloud/account/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { User } from "@/contracts";
@@ -388,14 +389,14 @@ export function createUserActions(props: UserActionsProps) {
               label="Expiry Date"
               description="Leave empty and click 'Remove Expiry' to make the account never expire."
               value={() => expiryDate() || null}
-              onChange={(value) => setExpiryDate(value ?? "")}
+              onValueChange={(value) => setExpiryDate(value ?? "")}
               clearable
             />
 
             <div class="flex justify-end gap-2">
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
+              <Button
+                size="sm"
+                variant="secondary"
                 onClick={async () => {
                   const confirmed = await prompts.confirm(
                     "This will allow the account to remain active indefinitely without an expiration date.",
@@ -413,15 +414,10 @@ export function createUserActions(props: UserActionsProps) {
                 disabled={setExpiryMutation.loading()}
               >
                 Never Expire
-              </button>
-              <button
-                type="button"
-                class="btn-primary btn-sm"
-                onClick={() => handleSubmit(expiryDate() || null)}
-                disabled={setExpiryMutation.loading() || !expiryDate()}
-              >
+              </Button>
+              <Button size="sm" onClick={() => handleSubmit(expiryDate() || null)} disabled={setExpiryMutation.loading() || !expiryDate()}>
                 {setExpiryMutation.loading() ? "Saving..." : "Set Expiry"}
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -597,16 +593,15 @@ export function createUserActions(props: UserActionsProps) {
           )}
 
           <div class="flex justify-end">
-            <button
-              type="button"
-              class="btn-primary btn-sm"
+            <Button
+              size="sm"
               onClick={() => {
                 close();
                 navigateTo(props.listHref);
               }}
             >
               Back to Users
-            </button>
+            </Button>
           </div>
         </div>
       ),

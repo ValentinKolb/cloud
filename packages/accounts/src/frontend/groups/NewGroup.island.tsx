@@ -1,9 +1,9 @@
-import { Checkbox, CopyButton, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, Checkbox, CopyButton, prompts, TextInput } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { BaseGroupSchema, ErrorResponseSchema, type BaseGroup } from "@/contracts";
+import { type BaseGroup, BaseGroupSchema, ErrorResponseSchema } from "@/contracts";
 
 type ProviderChoice = "ipa" | "local";
 
@@ -133,7 +133,7 @@ function CreateGroupDialog(props: { provider: ProviderChoice; close: (payload?: 
           required
           icon="ti ti-hash"
           value={name}
-          onChange={(value) => {
+          onValueChange={(value) => {
             setName(value);
             if (error()) setError(undefined);
           }}
@@ -145,7 +145,7 @@ function CreateGroupDialog(props: { provider: ProviderChoice; close: (payload?: 
           label="Description"
           icon="ti ti-notes"
           value={description}
-          onChange={setDescription}
+          onValueChange={setDescription}
           placeholder="Explain what this group is for"
           multiline
         />
@@ -156,14 +156,14 @@ function CreateGroupDialog(props: { provider: ProviderChoice; close: (payload?: 
           label="Create as POSIX group"
           description="Only POSIX groups can be used for shared filesystem access."
           value={posix}
-          onChange={setPosix}
+          onValueChange={setPosix}
         />
       </Show>
 
       <div class="flex justify-end">
-        <button type="button" class="btn-primary btn-sm" onClick={handleSubmit}>
+        <Button size="sm" onClick={handleSubmit}>
           Continue
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -261,16 +261,15 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
               </pre>
             </div>
             <div class="flex justify-end">
-              <button
-                type="button"
-                class="btn-primary btn-sm"
+              <Button
+                size="sm"
                 onClick={() => {
                   close();
                   refreshCurrentPath();
                 }}
               >
                 Done
-              </button>
+              </Button>
             </div>
           </div>
         ),
@@ -281,14 +280,15 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
   });
 
   return (
-    <button
-      type="button"
-      class="btn-input btn-input-sm shrink-0 self-stretch px-3"
+    <Button
+      size="sm"
+      variant="subtle"
+      class="shrink-0 self-stretch px-3"
       onClick={() => void createMutation.mutate(undefined)}
       disabled={createMutation.loading()}
     >
       <i class={createMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
       <span class="hidden sm:inline">{createMutation.loading() ? "Creating..." : "New Group"}</span>
-    </button>
+    </Button>
   );
 }

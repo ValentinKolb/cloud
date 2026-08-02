@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import AccountsSearchButton from "./AccountsSearchButton.island";
 
 export type AccountsNavActiveKey =

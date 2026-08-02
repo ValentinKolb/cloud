@@ -1,9 +1,10 @@
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import { getManagementBadge, getPrimaryAccountBadge } from "../lib/account-badges";
@@ -72,7 +73,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-wrap items-center gap-2">
             <UsersFilters state={listState} />
             <div class="ml-auto">
-              <CreateUserForm buttonClass="btn-input btn-input-sm shrink-0" freeIpaEnabled={freeIpaEnabled} />
+              <CreateUserForm buttonClass="shrink-0" freeIpaEnabled={freeIpaEnabled} />
             </div>
           </div>
 
@@ -92,8 +93,8 @@ export default ssr<AuthContext>(async (c) => {
                   if (col.id === "user") {
                     return (
                       <a href={href} class="flex min-w-0 items-center gap-2 text-primary hover:underline">
-                        <Avatar
-                          username={entry.displayName || entry.mail || entry.uid}
+                        <AccountAvatar
+                          name={entry.displayName || entry.mail || entry.uid}
                           userId={entry.id}
                           avatarHash={entry.avatarHash}
                           size="xs"

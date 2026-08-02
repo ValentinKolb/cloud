@@ -1,4 +1,7 @@
+import { dates } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
   accountsAppService as accountsService,
   type ServiceAccountCredentialOverview,
@@ -6,9 +9,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import ServiceAccountCredentialActions from "./ServiceAccountCredentialActions.island";
@@ -140,14 +141,17 @@ export default ssr<AuthContext>(async (c) => {
                     if (entry.owner.type === "user") {
                       return (
                         <div class="flex min-w-0 items-center gap-2">
-                          <Avatar
-                            username={entry.owner.displayName || entry.owner.uid}
+                          <AccountAvatar
+                            name={entry.owner.displayName || entry.owner.uid}
                             userId={entry.owner.userId}
                             avatarHash={entry.owner.avatarHash}
                             size="xs"
                           />
                           <div class="min-w-0 flex-1">
-                            <a href={`/app/accounts/users/${entry.owner.userId}`} class="block truncate font-medium text-primary hover:underline">
+                            <a
+                              href={`/app/accounts/users/${entry.owner.userId}`}
+                              class="block truncate font-medium text-primary hover:underline"
+                            >
                               {entry.owner.displayName || entry.owner.uid}
                             </a>
                             <span class="block truncate text-[11px] text-dimmed">{entry.owner.mail ?? entry.owner.uid}</span>

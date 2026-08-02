@@ -1,8 +1,7 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
-import { RemoveBtn } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, RemoveButton } from "@k2b/ui";
+import { apiClient } from "@/api/client";
 
 type RemoveFromGroupProps = {
   /** Group id to remove from parent */
@@ -48,5 +47,5 @@ export default function RemoveFromGroup(props: RemoveFromGroupProps) {
     }
   };
 
-  return <RemoveBtn ariaLabel={`Remove from ${props.parentGroupName}`} onClick={handleClick} loading={mutation.loading()} />;
+  return <RemoveButton ariaLabel={`Remove from ${props.parentGroupName}`} onClick={handleClick} loading={mutation.loading()} />;
 }

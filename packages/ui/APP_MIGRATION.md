@@ -112,6 +112,11 @@ For each remaining match, record why it is Cloud-owned or app-owned. An
 unclassified legacy utility match means the hard cut is incomplete; a green
 typecheck or build does not override this gate.
 
+Compilation also cannot prove that a retained app-owned class still has a
+definition. For every retained class that is not an ordinary utility, search
+both its JSX usage and stylesheet definition. A stale class can preserve the
+expected DOM shape while silently losing its visual contract.
+
 Imports and legacy class names still do not cover the full public boundary.
 Inventory native interactive elements, direct `k2b-*` implementation classes,
 and string props that look like utility classes:
@@ -138,6 +143,15 @@ particular, CSS-length props such as `Dropdown.width` receive values like
 `"12rem"`, not utility names such as `"w-48"`. A string-typed prop can pass
 typecheck while remaining inert at runtime, so this is an explicit source gate.
 
+When a legacy component combines a portable visual primitive with a product
+endpoint or protocol, keep the product knowledge in a small focused adapter.
+For example, an Accounts avatar adapter may derive the authenticated avatar URL
+and pass it to the portable `Avatar`; the URL must not leak into `@k2b/ui`.
+Compare the old fallback, accessible name, loading, and error semantics before
+replacing the component. The same boundary applies to product-owned composites
+such as entity search and avatar upload: expose them from a focused Cloud
+subpath, never from the generic legacy UI barrel.
+
 ### SSR and hydration parity
 
 Treat the server render as part of the UI contract. For every migrated
@@ -152,6 +166,17 @@ example children rendered through Solid `<For>`) remain present and keyboard
 operable after a hard reload. Do not replace this proof with a client-only
 navigation smoke.
 
+Keep server and browser assertions separate. Raw SSR tests prove initial HTML;
+hydrated geometry checks run only after the document stylesheet has loaded and
+must re-resolve elements after an island replaces server DOM. Do not measure
+layout immediately after `domcontentloaded` or keep stale element handles
+across hydration.
+
+Migration smokes must use roles, accessible names, public semantic markup, or
+an explicitly app-owned integration hook. Do not locate elements through
+private shared-component classes: those selectors couple the app to an
+implementation detail and make a correct hard cut look broken.
+
 ## 5. Verify the cut
 
 Run the smallest complete evidence set for the app:
@@ -163,7 +188,7 @@ Run the smallest complete evidence set for the app:
 4. light and dark theme, narrow and wide layout;
 5. keyboard operation, focus restoration, labels, errors, and disabled states;
 6. final legacy-import, native-control, direct implementation-class, prop-value,
-   and diff checks.
+   retained-class-definition, smoke-selector, and diff checks.
 
 The final legacy check covers both imports and unclassified Cloud utility
 classes from section 4.

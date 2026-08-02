@@ -1,4 +1,4 @@
-import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
+import { Button, CopyButton, prompts } from "@k2b/ui";
 import type { JSX } from "solid-js";
 
 function SecretField(props: { label: string; value: string; copyLabel?: string; tone?: "default" | "primary" }) {
@@ -37,9 +37,9 @@ export function openCredentialDialog(config: {
           ))}
         </div>
         <div class="flex justify-end">
-          <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+          <Button size="sm" onClick={() => close()}>
             Done
-          </button>
+          </Button>
         </div>
       </div>
     ),

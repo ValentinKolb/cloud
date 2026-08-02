@@ -1,10 +1,10 @@
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import { getProviderBadge } from "../lib/account-badges";
@@ -74,7 +74,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-wrap items-center gap-2">
             <GroupsScopeFilter state={listState} defaultScope={defaultScope} />
             {isAdmin ? (
-              <div class="ml-auto shrink-0 [&>button]:btn-input [&>button]:btn-input-sm">
+              <div class="ml-auto shrink-0">
                 <NewGroup freeIpaEnabled={freeIpaEnabled} />
               </div>
             ) : null}

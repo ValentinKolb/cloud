@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import type { JSX } from "solid-js";
 import { accountsHelp } from "../help";
 import AccountsLayoutHelp from "./AccountsLayoutHelp.island";

@@ -1,10 +1,11 @@
 // Platform lifecycle backfill endpoints are owned by cloud-lib (not by an app),
 // so the typed client is a cloud-lib export and is identical regardless of
 // which container loads it.
-import { coreClient } from "@valentinkolb/cloud/clients/core";
-import { prompts } from "@valentinkolb/cloud/ui";
+
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, prompts } from "@k2b/ui";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
 
 type JobKind = "ipa-backfill" | "local-user-backfill" | "guest-backfill";
 type OperationKey = "ipa-backfill" | "local-user-backfill" | "local-guest-backfill";
@@ -125,14 +126,15 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
                 <p class="text-xs text-dimmed">{operation.description}</p>
               </div>
             </div>
-            <button
-              type="button"
-              class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48"
+            <Button
+              size="sm"
+              variant="secondary"
+              class="w-full justify-center md:w-auto md:min-w-48"
               onClick={() => void handleRun(operation)}
               disabled={runMutation.loading()}
             >
               {isLoading() ? operation.loadingText : operation.label}
-            </button>
+            </Button>
           </section>
         );
       })}
@@ -146,9 +148,9 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
             <p class="text-xs text-dimmed">Inspect and run account lifecycle schedules from observability.</p>
           </div>
         </div>
-        <a href={SCHEDULED_JOBS_HREF} class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48">
+        <ButtonLink href={SCHEDULED_JOBS_HREF} size="sm" variant="secondary" class="w-full justify-center md:w-auto md:min-w-48">
           Open Scheduled Jobs
-        </a>
+        </ButtonLink>
       </section>
     </div>
   );

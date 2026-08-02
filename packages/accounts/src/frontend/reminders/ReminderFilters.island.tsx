@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type ReminderFiltersProps = {
   search: string;
@@ -57,7 +57,7 @@ export default function ReminderFilters(props: ReminderFiltersProps) {
         icon="ti ti-filter"
         options={STATUS_OPTIONS}
         value={props.status ? [props.status] : []}
-        onChange={(value) => navigate({ status: value[0] ?? "" })}
+        onValueChange={(value) => navigate({ status: value[0] ?? "" })}
         isActive={props.status.length > 0}
         defaultValue={[]}
       />
@@ -66,7 +66,7 @@ export default function ReminderFilters(props: ReminderFiltersProps) {
         icon="ti ti-bell"
         options={KIND_OPTIONS}
         value={props.kind ? [props.kind] : []}
-        onChange={(value) => navigate({ kind: value[0] ?? "" })}
+        onValueChange={(value) => navigate({ kind: value[0] ?? "" })}
         isActive={props.kind.length > 0}
         defaultValue={[]}
       />

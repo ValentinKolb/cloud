@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type DeletedAccountsFiltersProps = {
   search: string;
@@ -42,7 +42,7 @@ export default function DeletedAccountsFilters(props: DeletedAccountsFiltersProp
       icon="ti ti-filter"
       options={REASON_OPTIONS}
       value={props.reason ? [props.reason] : []}
-      onChange={(value) => navigate(value[0] ?? "")}
+      onValueChange={(value) => navigate(value[0] ?? "")}
       isActive={props.reason.length > 0}
       defaultValue={[]}
     />

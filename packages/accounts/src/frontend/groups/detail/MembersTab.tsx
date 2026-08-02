@@ -1,5 +1,6 @@
-import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
 import AddMember from "./AddMember.island";
 import RemoveMember from "./RemoveMember.island";
@@ -111,8 +112,8 @@ export default function MembersTab(props: MembersTabProps) {
                   const label = `${user.displayName || user.mail || user.uid} (${user.uid})`;
                   const content = (
                     <>
-                      <Avatar
-                        username={user.displayName || user.mail || user.uid}
+                      <AccountAvatar
+                        name={user.displayName || user.mail || user.uid}
                         userId={user.id}
                         avatarHash={user.avatarHash}
                         size="xs"

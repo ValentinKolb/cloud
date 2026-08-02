@@ -1,8 +1,7 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
-import { RemoveBtn } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, RemoveButton } from "@k2b/ui";
+import { apiClient } from "@/api/client";
 
 type RemoveMemberProps = {
   /** Group ID */
@@ -54,5 +53,5 @@ export default function RemoveMember(props: RemoveMemberProps) {
     }
   };
 
-  return <RemoveBtn ariaLabel={`Remove ${props.label}`} onClick={handleClick} loading={mutation.loading()} />;
+  return <RemoveButton ariaLabel={`Remove ${props.label}`} onClick={handleClick} loading={mutation.loading()} />;
 }

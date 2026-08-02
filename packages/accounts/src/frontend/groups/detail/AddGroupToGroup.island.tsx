@@ -1,6 +1,7 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { EntitySearch, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts } from "@k2b/ui";
+import { EntitySearch } from "@valentinkolb/cloud/account/ui";
 import { apiClient } from "@/api/client";
 
 type AddToGroupProps = {
@@ -55,9 +56,9 @@ export default function AddToGroup(props: AddToGroupProps) {
   };
 
   return (
-    <button type="button" class="btn-input btn-input-sm" onClick={handleClick} disabled={mutation.loading()}>
+    <Button size="sm" variant="subtle" onClick={handleClick} disabled={mutation.loading()}>
       <i class="ti ti-folder-plus" />
       <span>{mutation.loading() ? "Adding..." : "Add to Group"}</span>
-    </button>
+    </Button>
   );
 }

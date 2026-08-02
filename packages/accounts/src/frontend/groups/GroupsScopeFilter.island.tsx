@@ -1,6 +1,6 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { buildGroupsUrl, type GroupsListState } from "../lib/url-state";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
+import { buildGroupsUrl, type GroupsListState } from "../lib/url-state";
 
 type GroupsScopeFilterProps = {
   state: GroupsListState;
@@ -36,7 +36,7 @@ export default function GroupsScopeFilter(props: GroupsScopeFilterProps) {
       icon="ti ti-adjustments-horizontal"
       options={SCOPE_OPTIONS}
       value={[props.state.scope, props.state.provider]}
-      onChange={(value) => {
+      onValueChange={(value) => {
         const nextScope =
           value.find((entry): entry is GroupsListState["scope"] => SCOPE_VALUES.has(entry as GroupsListState["scope"])) ??
           props.defaultScope;

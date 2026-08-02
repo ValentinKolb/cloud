@@ -1,9 +1,9 @@
+import { dates } from "@k2b/stdlib";
+import { ButtonLink, DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import DenyRequest from "../users/DenyRequest.island";
@@ -80,12 +80,17 @@ export default ssr<AuthContext>(async (c) => {
 
           <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-requests-filters">
             {(["pending", "completed", "denied", "all"] as const).map((value) => (
-              <a href={buildRequestsUrl(value, 1)} class={`btn-input btn-input-sm ${status === value ? "btn-input-active" : ""}`}>
+              <ButtonLink
+                href={buildRequestsUrl(value, 1)}
+                size="sm"
+                variant={status === value ? "primary" : "subtle"}
+                aria-current={status === value ? "page" : undefined}
+              >
                 {value === "all" ? "All" : value[0]!.toUpperCase() + value.slice(1)}
-              </a>
+              </ButtonLink>
             ))}
             <div class="ml-auto">
-              <CreateUserForm buttonClass="btn-input btn-input-sm" freeIpaEnabled={freeIpaEnabled} />
+              <CreateUserForm freeIpaEnabled={freeIpaEnabled} />
             </div>
           </div>
 
@@ -125,7 +130,6 @@ export default ssr<AuthContext>(async (c) => {
                             <CreateUserForm
                               buttonLabel="Create"
                               buttonIcon="ti ti-user-plus"
-                              buttonClass="btn-input btn-input-sm"
                               freeIpaEnabled={freeIpaEnabled}
                               prefill={{
                                 requestId: request.id,

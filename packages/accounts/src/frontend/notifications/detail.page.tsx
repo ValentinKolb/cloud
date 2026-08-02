@@ -1,4 +1,7 @@
+import { dates } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
   accounts,
   accountsAppService as accountsService,
@@ -9,9 +12,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { Avatar, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import NotificationBatchActions from "./NotificationBatchActions.island";
@@ -243,8 +244,8 @@ export default ssr<AuthContext>(async (c) => {
                       <>
                         {selectionUsers.map((user) => (
                           <span class="chip max-w-full" title={user.uid}>
-                            <Avatar
-                              username={user.displayName || user.uid}
+                            <AccountAvatar
+                              name={user.displayName || user.uid}
                               userId={user.id}
                               avatarHash={user.avatarHash}
                               size="xs"
@@ -359,7 +360,12 @@ export default ssr<AuthContext>(async (c) => {
                           href={`/app/accounts/users/${entry.userId}`}
                           class="flex min-w-0 items-center gap-2 text-primary hover:underline"
                         >
-                          <Avatar username={entry.displayName || entry.uid} userId={entry.userId} avatarHash={entry.avatarHash} size="xs" />
+                          <AccountAvatar
+                            name={entry.displayName || entry.uid}
+                            userId={entry.userId}
+                            avatarHash={entry.avatarHash}
+                            size="xs"
+                          />
                           <span class="min-w-0 flex-1">
                             <span class="block truncate font-medium">{entry.displayName || entry.uid}</span>
                             <span class="block truncate text-[11px] text-dimmed">{entry.uid}</span>

@@ -1,4 +1,7 @@
+import { dates } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
   type AuditActionGroup,
   type AuditEvent,
@@ -8,9 +11,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import AuditFilters from "./AuditFilters.island";
@@ -179,7 +180,7 @@ export default ssr<AuthContext>(async (c) => {
                   class="tag max-w-full bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                   title={`Actor: ${state.actor}`}
                 >
-                  <Avatar username={actorFilterLabel} userId={state.actor} size="xs" class="h-4 w-4 text-[8px]" />
+                  <AccountAvatar name={actorFilterLabel} userId={state.actor} size="xs" class="h-4 w-4 text-[8px]" />
                   <span class="truncate">Actor: {actorFilterLabel}</span>
                   <i class="ti ti-x" />
                 </a>
@@ -190,7 +191,7 @@ export default ssr<AuthContext>(async (c) => {
                   class="tag max-w-full bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
                   title={`Target: ${state.target}`}
                 >
-                  <Avatar username={targetFilterLabel} userId={state.target} size="xs" class="h-4 w-4 text-[8px]" />
+                  <AccountAvatar name={targetFilterLabel} userId={state.target} size="xs" class="h-4 w-4 text-[8px]" />
                   <span class="truncate">Target: {targetFilterLabel}</span>
                   <i class="ti ti-x" />
                 </a>
@@ -229,7 +230,7 @@ export default ssr<AuthContext>(async (c) => {
                     const actorLabel = event.actor.uid ?? event.actor.userId ?? "System";
                     return (
                       <div class="flex min-w-0 items-center gap-2">
-                        <Avatar username={actorLabel} userId={event.actor.userId} size="xs" />
+                        <AccountAvatar name={actorLabel} userId={event.actor.userId} size="xs" />
                         <div class="min-w-0 flex-1">
                           {event.actor.userId ? (
                             <a
@@ -268,7 +269,7 @@ export default ssr<AuthContext>(async (c) => {
                     return (
                       <div class="flex min-w-0 items-center gap-2">
                         {event.target.type === "user" ? (
-                          <Avatar username={targetLabel} userId={event.target.id} size="xs" />
+                          <AccountAvatar name={targetLabel} userId={event.target.id} size="xs" />
                         ) : (
                           <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
                             <i class={`ti ${event.target.type === "group" ? "ti-users-group" : "ti-target"} text-xs`} />

@@ -1,6 +1,6 @@
-import { CopyButton, Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, CopyButton, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { ErrorResponseSchema } from "@/contracts";
 
@@ -56,16 +56,15 @@ export default function GroupActions(props: GroupActionsProps) {
             </div>
 
             <div class="flex justify-end">
-              <button
-                type="button"
-                class="btn-primary btn-sm"
+              <Button
+                size="sm"
                 onClick={() => {
                   close();
                   navigateTo(props.listHref);
                 }}
               >
                 Done
-              </button>
+              </Button>
             </div>
           </div>
         ),
@@ -149,13 +148,13 @@ export default function GroupActions(props: GroupActionsProps) {
     <Dropdown
       trigger={
         <Tooltip content="Manage group">
-          <button type="button" class="icon-btn h-7 w-7" aria-label="Group actions">
+          <IconButton size="sm" label="Group actions">
             <i class="ti ti-dots-vertical text-sm" />
-          </button>
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"
-      width="w-48"
+      width="12rem"
       elements={[
         {
           items: [

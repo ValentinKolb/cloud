@@ -1,6 +1,6 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { buildUsersUrl, type UsersListState } from "../lib/url-state";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
+import { buildUsersUrl, type UsersListState } from "../lib/url-state";
 
 type UsersFiltersProps = {
   state: UsersListState;
@@ -42,7 +42,7 @@ export default function UsersFilters(props: UsersFiltersProps) {
         icon="ti ti-building-bank"
         options={PROVIDER_OPTIONS}
         value={props.state.provider ? [props.state.provider] : []}
-        onChange={(value) => navigate({ provider: (value[0] as UsersListState["provider"] | undefined) ?? "" })}
+        onValueChange={(value) => navigate({ provider: (value[0] as UsersListState["provider"] | undefined) ?? "" })}
         isActive={props.state.provider.length > 0}
         defaultValue={[]}
       />
@@ -51,7 +51,7 @@ export default function UsersFilters(props: UsersFiltersProps) {
         icon="ti ti-badge"
         options={PROFILE_OPTIONS}
         value={props.state.profile ? [props.state.profile] : []}
-        onChange={(value) => navigate({ profile: (value[0] as UsersListState["profile"] | undefined) ?? "" })}
+        onValueChange={(value) => navigate({ profile: (value[0] as UsersListState["profile"] | undefined) ?? "" })}
         isActive={props.state.profile.length > 0}
         defaultValue={[]}
       />

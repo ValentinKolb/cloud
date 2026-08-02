@@ -1,5 +1,5 @@
+import { Button, CopyButton, IconButton, prompts } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
-import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
 
 type Props = {
   displayName: string;
@@ -35,9 +35,9 @@ export default function DeletedAccountDetails(props: Props) {
           </div>
           <MetadataDetail metadata={props.metadata} />
           <div class="flex justify-end">
-            <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+            <Button size="sm" variant="secondary" onClick={() => close()}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       ),
@@ -46,10 +46,9 @@ export default function DeletedAccountDetails(props: Props) {
   };
 
   return (
-    <button type="button" class="btn-simple btn-sm" onClick={open}>
+    <IconButton size="sm" label="Show details" onClick={open}>
       <i class="ti ti-eye text-xs" />
-      <span class="sr-only">Show details</span>
-    </button>
+    </IconButton>
   );
 }
 
@@ -91,13 +90,14 @@ function MetadataDetail(props: { metadata: Record<string, unknown> | null }) {
           )}
         </div>
       </Show>
-      <button
-        type="button"
+      <Button
+        size="xs"
+        variant="ghost"
         class="self-start text-[10px] text-dimmed transition-colors hover:text-secondary"
         onClick={() => setShowRaw(!showRaw())}
       >
         {showRaw() ? "View formatted" : "View raw"}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -1,13 +1,7 @@
-import {
-  isSpotlightShortcut,
-  openSpotlightSearch,
-  SpotlightButton,
-  SPOTLIGHT_SHORTCUT_TITLE,
-  type SpotlightButtonVariant,
-} from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@k2b/ssr/nav";
+import { isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@k2b/ui";
 import { apiClient as coreClient } from "@valentinkolb/cloud/clients/core";
 import type { EntityKind, EntityListItem } from "@valentinkolb/cloud/contracts";
-import { navigateTo } from "@k2b/ssr/nav";
 import { onCleanup, onMount } from "solid-js";
 
 type Props = {

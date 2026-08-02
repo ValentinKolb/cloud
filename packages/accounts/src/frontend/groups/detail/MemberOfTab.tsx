@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
 import { getProviderBadge } from "../../lib/account-badges";
 import AddGroupToGroup from "./AddGroupToGroup.island";

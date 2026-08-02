@@ -1,10 +1,11 @@
+import { dates } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import ReminderFilters from "./ReminderFilters.island";
@@ -106,7 +107,7 @@ export default ssr<AuthContext>(async (c) => {
                     const label = entry.displayName || entry.uid || "(deleted user)";
                     return (
                       <div class="flex min-w-0 items-center gap-2">
-                        <Avatar username={label} userId={entry.userId} avatarHash={entry.avatarHash} size="xs" />
+                        <AccountAvatar name={label} userId={entry.userId} avatarHash={entry.avatarHash} size="xs" />
                         <div class="min-w-0 flex-1">
                           <div class="truncate font-medium text-primary">{label}</div>
                           {entry.lastError ? (

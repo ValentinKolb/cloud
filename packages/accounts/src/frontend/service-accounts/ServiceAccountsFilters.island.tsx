@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type Props = {
   search: string;
@@ -47,7 +47,7 @@ export default function ServiceAccountsFilters(props: Props) {
         icon="ti ti-filter"
         options={KIND_OPTIONS}
         value={props.kind ? [props.kind] : []}
-        onChange={(value) => navigate({ kind: value[0] ?? "" })}
+        onValueChange={(value) => navigate({ kind: value[0] ?? "" })}
         isActive={props.kind.length > 0}
         defaultValue={[]}
       />
@@ -56,7 +56,7 @@ export default function ServiceAccountsFilters(props: Props) {
         icon="ti ti-circle-check"
         options={STATUS_OPTIONS}
         value={props.status ? [props.status] : ["active"]}
-        onChange={(value) => navigate({ status: value[0] ?? "active" })}
+        onValueChange={(value) => navigate({ status: value[0] ?? "active" })}
         isActive={(props.status || "active") !== "active"}
         defaultValue={["active"]}
       />

@@ -1,5 +1,6 @@
-import { EntitySearch, FilterChip, prompts, type EntitySearchPrincipal, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { Button, FilterChip, type FilterChipSection, prompts } from "@k2b/ui";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import type { AuditActionGroup, AuditOutcome } from "@valentinkolb/cloud/services";
 import { ACTION_OPTIONS } from "./audit-labels";
 
@@ -128,7 +129,7 @@ export default function AuditFilters(props: AuditFiltersProps) {
         icon="ti ti-filter"
         options={OUTCOME_OPTIONS}
         value={props.outcome ? [props.outcome] : []}
-        onChange={(value) => navigate({ outcome: (value[0] as AuditFiltersProps["outcome"] | undefined) ?? "" })}
+        onValueChange={(value) => navigate({ outcome: (value[0] as AuditFiltersProps["outcome"] | undefined) ?? "" })}
         isActive={props.outcome.length > 0}
         defaultValue={[]}
       />
@@ -137,7 +138,7 @@ export default function AuditFilters(props: AuditFiltersProps) {
         icon="ti ti-calendar"
         options={RANGE_OPTIONS}
         value={[String(props.days)]}
-        onChange={(value) => navigate({ days: Number(value[0] ?? 30) })}
+        onValueChange={(value) => navigate({ days: Number(value[0] ?? 30) })}
         isActive={props.days !== 30}
         defaultValue={["30"]}
       />
@@ -146,7 +147,7 @@ export default function AuditFilters(props: AuditFiltersProps) {
         icon="ti ti-building"
         options={PROVIDER_OPTIONS}
         value={props.provider ? [props.provider] : []}
-        onChange={(value) => navigate({ provider: (value[0] as AuditFiltersProps["provider"] | undefined) ?? "" })}
+        onValueChange={(value) => navigate({ provider: (value[0] as AuditFiltersProps["provider"] | undefined) ?? "" })}
         isActive={props.provider.length > 0}
         defaultValue={[]}
       />
@@ -155,7 +156,7 @@ export default function AuditFilters(props: AuditFiltersProps) {
         icon="ti ti-bolt"
         options={ACTION_OPTIONS}
         value={props.action ? [props.action] : []}
-        onChange={(value) => navigate({ action: value[0] ?? "" })}
+        onValueChange={(value) => navigate({ action: value[0] ?? "" })}
         isActive={props.action.length > 0}
         defaultValue={[]}
       />
@@ -164,30 +165,37 @@ export default function AuditFilters(props: AuditFiltersProps) {
         icon="ti ti-category"
         options={ACTION_GROUP_OPTIONS}
         value={props.actionGroup ? [props.actionGroup] : []}
-        onChange={(value) => navigate({ actionGroup: (value[0] as AuditFiltersProps["actionGroup"] | undefined) ?? "" })}
+        onValueChange={(value) => navigate({ actionGroup: (value[0] as AuditFiltersProps["actionGroup"] | undefined) ?? "" })}
         isActive={props.actionGroup.length > 0}
         defaultValue={[]}
       />
-      <button type="button" class={`btn-input btn-input-sm ${props.actor ? "btn-input-active" : ""}`} onClick={() => selectEntity("actor")}>
+      <Button
+        size="sm"
+        variant={props.actor ? "primary" : "subtle"}
+        aria-pressed={Boolean(props.actor)}
+        onClick={() => selectEntity("actor")}
+      >
         <i class="ti ti-user-search" />
         <span>Actor</span>
-      </button>
-      <button
-        type="button"
-        class={`btn-input btn-input-sm ${props.target ? "btn-input-active" : ""}`}
+      </Button>
+      <Button
+        size="sm"
+        variant={props.target ? "primary" : "subtle"}
+        aria-pressed={Boolean(props.target)}
         onClick={() => selectEntity("target")}
       >
         <i class="ti ti-target" />
         <span>Target</span>
-      </button>
-      <button
-        type="button"
-        class={`btn-input btn-input-sm ${props.serviceAccountId ? "btn-input-active" : ""}`}
+      </Button>
+      <Button
+        size="sm"
+        variant={props.serviceAccountId ? "primary" : "subtle"}
+        aria-pressed={Boolean(props.serviceAccountId)}
         onClick={selectServiceAccount}
       >
         <i class="ti ti-user-key" />
         <span>Service account</span>
-      </button>
+      </Button>
     </div>
   );
 }

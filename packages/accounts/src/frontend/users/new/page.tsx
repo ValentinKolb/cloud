@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import DenyRequest from "../DenyRequest.island";
@@ -124,7 +124,6 @@ export default ssr<AuthContext>(async (c) => {
             <div class="mt-6">
               <CreateUserForm
                 buttonLabel="Open account creation"
-                buttonClass="btn-input btn-input-sm"
                 freeIpaEnabled={freeIpaEnabled}
                 prefill={
                   accountRequest

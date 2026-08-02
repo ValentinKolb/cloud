@@ -1,6 +1,6 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, RemoveBtn } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, RemoveButton } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 type Props = {
@@ -39,6 +39,11 @@ export default function ServiceAccountCredentialActions(props: Props) {
   };
 
   return (
-    <RemoveBtn ariaLabel={`Revoke API key ${props.name}`} onClick={revoke} loading={revokeMutation.loading()} disabled={props.disabled} />
+    <RemoveButton
+      ariaLabel={`Revoke API key ${props.name}`}
+      onClick={revoke}
+      loading={revokeMutation.loading()}
+      disabled={props.disabled}
+    />
   );
 }

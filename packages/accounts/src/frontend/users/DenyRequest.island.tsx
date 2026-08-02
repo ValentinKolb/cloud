@@ -1,7 +1,7 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts } from "@k2b/ui";
+import { apiClient } from "@/api/client";
 
 type DenyRequestProps = {
   requestId: string;
@@ -59,14 +59,9 @@ export default function DenyRequest(props: DenyRequestProps) {
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={mutation.loading()}
-      class="btn-simple text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5"
-    >
+    <Button size="sm" variant="danger" onClick={handleClick} disabled={mutation.loading()}>
       {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-x" />}
       <span>Deny</span>
-    </button>
+    </Button>
   );
 }

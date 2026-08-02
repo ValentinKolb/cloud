@@ -1,10 +1,11 @@
+import { dates } from "@k2b/stdlib";
+import { ButtonLink, LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { Avatar, LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
-import { dates } from "@k2b/stdlib";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import AccountAvatar from "@/frontend/AccountAvatar";
 import { ssr } from "../config";
 import AccountsWorkspace from "./AccountsWorkspace";
 import AdminOperations from "./dashboard/AdminOperations.island";
@@ -61,7 +62,13 @@ export default ssr<AuthContext>(async (c) => {
           {/* Identity */}
           <section class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-muted)] p-5">
             <div class="flex items-center gap-4">
-              <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="md" class="h-11 w-11" />
+              <AccountAvatar
+                name={user.displayName || user.uid}
+                userId={user.id}
+                avatarHash={user.avatarHash}
+                size="md"
+                class="h-11 w-11"
+              />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <h1 class="text-sm font-semibold text-primary">{user.displayName || user.uid}</h1>
@@ -71,10 +78,10 @@ export default ssr<AuthContext>(async (c) => {
                 </div>
                 <span class="text-xs text-dimmed">{user.uid}</span>
               </div>
-              <a href="/me" class="btn-input btn-input-sm shrink-0">
+              <ButtonLink href="/me" size="sm" variant="subtle" class="shrink-0">
                 <i class="ti ti-user" />
                 <span class="hidden sm:inline">Profile</span>
-              </a>
+              </ButtonLink>
             </div>
             <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
               {(
@@ -138,10 +145,10 @@ export default ssr<AuthContext>(async (c) => {
                       Review user, group, and account request changes from one searchable history.
                     </p>
                   </div>
-                  <a href="/app/accounts/audit" class="btn-input btn-input-sm shrink-0">
+                  <ButtonLink href="/app/accounts/audit" size="sm" variant="subtle" class="shrink-0">
                     <i class="ti ti-clipboard-list" />
                     Audit Log
-                  </a>
+                  </ButtonLink>
                 </div>
               </div>
 
@@ -169,7 +176,7 @@ export default ssr<AuthContext>(async (c) => {
                       return (
                         <div class="flex items-center gap-3">
                           <span class="text-xs text-secondary w-28 shrink-0 truncate">{label}</span>
-                          <ProgressBar value={rate} size="xs" tone={hasFails ? "danger" : "primary"} class="flex-1 min-w-0" />
+                          <ProgressBar value={rate} size="xs" tone={hasFails ? "danger" : "info"} class="flex-1 min-w-0" />
                           <span
                             class={`text-[11px] tabular-nums shrink-0 ${hasFails ? "text-red-600 dark:text-red-400 font-medium" : "text-dimmed"}`}
                           >

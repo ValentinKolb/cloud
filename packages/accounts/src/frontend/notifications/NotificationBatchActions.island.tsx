@@ -1,6 +1,6 @@
-import { formatNumber } from "@valentinkolb/cloud/shared";
-import { Checkbox, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
+import { Button, Checkbox, prompts } from "@k2b/ui";
+import { formatNumber } from "@valentinkolb/cloud/shared";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
@@ -67,17 +67,17 @@ function FinalizeDialog(props: {
       <Checkbox
         label="I confirmed the recipient count and message."
         value={confirmed}
-        onChange={setConfirmed}
+        onValueChange={setConfirmed}
         description="Finalizing snapshots the recipients and starts the async delivery job."
       />
       <div class="flex flex-wrap justify-end gap-2 pt-1">
-        <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={loading()}>
+        <Button size="sm" variant="secondary" onClick={props.close} disabled={loading()}>
           Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={confirm} disabled={!confirmed() || loading()}>
+        </Button>
+        <Button size="sm" onClick={confirm} disabled={!confirmed() || loading()}>
           <i class={loading() ? "ti ti-loader-2 animate-spin" : "ti ti-send"} />
           <span>{loading() ? "Starting..." : "Finalize and send"}</span>
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -167,31 +167,26 @@ export default function NotificationBatchActions(props: Props) {
   return (
     <div class="flex flex-wrap justify-end gap-2">
       <Show when={props.status === "draft"}>
-        <button
-          type="button"
-          class="btn-input btn-input-sm text-red-600 hover:text-red-700 dark:text-red-300"
-          onClick={deleteDraft}
-          disabled={isLoading()}
-        >
+        <Button size="sm" variant="danger" onClick={deleteDraft} disabled={isLoading()}>
           <i class={loadingAction() === "delete" ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
           <span>Delete draft</span>
-        </button>
-        <button
-          type="button"
-          class={`btn-primary btn-sm ${finalizeBlocked() ? "opacity-60" : ""}`}
+        </Button>
+        <Button
+          size="sm"
+          class={finalizeBlocked() ? "opacity-60" : undefined}
           onClick={finalize}
           disabled={isLoading()}
           aria-disabled={finalizeBlocked() ? "true" : undefined}
         >
           <i class={loadingAction() === "finalize" ? "ti ti-loader-2 animate-spin" : "ti ti-send"} />
           <span>{loadingAction() === "finalize" ? "Checking..." : "Finalize"}</span>
-        </button>
+        </Button>
       </Show>
       <Show when={props.errorCount > 0 && props.status !== "draft"}>
-        <button type="button" class="btn-input btn-input-sm" onClick={retryFailed} disabled={isLoading()}>
+        <Button size="sm" variant="subtle" onClick={retryFailed} disabled={isLoading()}>
           <i class={loadingAction() === "retry" ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
           <span>Retry failed</span>
-        </button>
+        </Button>
       </Show>
     </div>
   );

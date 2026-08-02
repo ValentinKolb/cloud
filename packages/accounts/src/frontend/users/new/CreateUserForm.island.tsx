@@ -1,7 +1,7 @@
-import { Checkbox, CopyButton, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { dates } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, Checkbox, CopyButton, prompts, SegmentedControl, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { type CreateUserResponse, CreateUserResponseSchema, ErrorResponseSchema } from "@/contracts";
@@ -245,7 +245,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
             ariaLabel="Local account profile"
             options={PROFILE_OPTIONS.map((option) => ({ value: option.value, label: option.label, icon: option.icon }))}
             value={profile}
-            onChange={(value) => setProfile(value as LocalProfile)}
+            onValueChange={(value) => setProfile(value as LocalProfile)}
           />
         </div>
       </Show>
@@ -256,7 +256,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
             label="Grant admin access"
             description="Only local full accounts can be admins. FreeIPA admin access is managed through FreeIPA groups."
             value={admin}
-            onChange={setAdmin}
+            onValueChange={setAdmin}
           />
         </div>
       </Show>
@@ -267,7 +267,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
           required
           icon="ti ti-mail"
           value={email}
-          onChange={setEmail}
+          onValueChange={setEmail}
           error={() => errors().email}
           placeholder="name@example.com"
         />
@@ -275,7 +275,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
           label="Display name"
           icon="ti ti-id-badge-2"
           value={displayName}
-          onChange={(value) => {
+          onValueChange={(value) => {
             setDisplayNameTouched(true);
             setDisplayName(value);
           }}
@@ -286,7 +286,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
           required
           icon="ti ti-user"
           value={givenname}
-          onChange={setGivenname}
+          onValueChange={setGivenname}
           error={() => errors().givenname}
           placeholder="First name"
         />
@@ -295,7 +295,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
           required
           icon="ti ti-user"
           value={sn}
-          onChange={setSn}
+          onValueChange={setSn}
           error={() => errors().sn}
           placeholder="Last name"
         />
@@ -314,14 +314,14 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
               : "If enabled, the created user receives the local onboarding email immediately."
           }
           value={autoSendNotification}
-          onChange={setAutoSendNotification}
+          onValueChange={setAutoSendNotification}
         />
       </div>
 
       <div class="flex justify-end">
-        <button type="button" class="btn-primary btn-sm" onClick={handleSubmit}>
+        <Button size="sm" onClick={handleSubmit}>
           Continue
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -391,19 +391,18 @@ const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResponse
         </Show>
 
         <div class="flex justify-end gap-3">
-          <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+          <Button size="sm" variant="secondary" onClick={() => close()}>
             Close
-          </button>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
+          </Button>
+          <Button
+            size="sm"
             onClick={() => {
               close();
               navigateTo(`/app/accounts/users/${data.id}`);
             }}
           >
             View account
-          </button>
+          </Button>
         </div>
       </div>
     ),
@@ -489,15 +488,16 @@ export default function CreateUserForm(props: Props) {
 
   return (
     <Show when={!props.hideButton}>
-      <button
-        type="button"
-        class={props.buttonClass ?? "btn-input btn-input-sm"}
+      <Button
+        size="sm"
+        variant="subtle"
+        class={props.buttonClass}
         onClick={() => void createMutation.mutate(undefined)}
         disabled={createMutation.loading()}
       >
         <i class={createMutation.loading() ? "ti ti-loader-2 animate-spin" : (props.buttonIcon ?? "ti ti-plus")} />
         <span>{createMutation.loading() ? "Working..." : (props.buttonLabel ?? "New User")}</span>
-      </button>
+      </Button>
     </Show>
   );
 }

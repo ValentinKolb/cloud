@@ -1,4 +1,4 @@
-import type { FilterChipSection } from "@valentinkolb/cloud/ui";
+import type { FilterChipSection } from "@k2b/ui";
 
 const ACTION_LABEL: Record<string, string> = {
   "accounts.user.create": "Create user",

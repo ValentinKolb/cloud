@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type Props = {
   batchId: string;
@@ -33,7 +33,7 @@ export default function NotificationRecipientStatusFilters(props: Props) {
         icon="ti ti-circle-check"
         options={STATUS_OPTIONS}
         value={props.status ? [props.status] : []}
-        onChange={(value) => navigateTo(buildUrl(props.batchId, value[0] ?? ""))}
+        onValueChange={(value) => navigateTo(buildUrl(props.batchId, value[0] ?? ""))}
         isActive={props.status.length > 0}
         defaultValue={[]}
       />

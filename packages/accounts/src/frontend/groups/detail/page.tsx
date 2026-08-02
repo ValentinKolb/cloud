@@ -1,10 +1,11 @@
+import { ButtonLink } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { canManageGroup, getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js/jsx-runtime";
 import { createPagination } from "@/contracts";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
@@ -256,10 +257,10 @@ export default ssr<AuthContext>(async (c) => {
       >
         <div class="flex flex-col gap-3">
           <div>
-            <a href={groupsListHref} class="btn-secondary btn-sm">
+            <ButtonLink href={groupsListHref} size="sm" variant="secondary">
               <i class="ti ti-arrow-left" />
               {groupsBackLabel}
-            </a>
+            </ButtonLink>
           </div>
 
           <div class="flex flex-wrap items-start justify-between gap-3 py-2" style="view-transition-name: accounts-group-title">
@@ -304,7 +305,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-wrap items-start justify-between gap-2" style="view-transition-name: accounts-group-tabs">
             <nav class="flex flex-wrap items-center gap-1" aria-label="Group detail sections">
               {getVisibleGroupDetailTabs(isAdmin).map((entryTab) => (
-                <a
+                <ButtonLink
                   href={buildDetailHref(groupId, {
                     tab: entryTab,
                     search: null,
@@ -312,13 +313,14 @@ export default ssr<AuthContext>(async (c) => {
                     indirect: null,
                     service_accounts: null,
                   })}
-                  class={`btn-input btn-input-sm ${tab === entryTab ? "btn-input-active" : ""}`}
+                  size="sm"
+                  variant={tab === entryTab ? "primary" : "subtle"}
                   role="tab"
                   aria-selected={tab === entryTab}
                 >
                   <i class={`${GROUP_DETAIL_TAB_META[entryTab].icon} text-sm`} />
                   <span>{GROUP_DETAIL_TAB_META[entryTab].label}</span>
-                </a>
+                </ButtonLink>
               ))}
             </nav>
             <p class="px-1 py-2 text-xs text-dimmed">{activeCountText}</p>

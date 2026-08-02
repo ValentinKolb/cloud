@@ -1,5 +1,6 @@
-import type { JSX } from "solid-js/jsx-runtime";
+import { ButtonLink } from "@k2b/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import type { JSX } from "solid-js/jsx-runtime";
 
 type Props = {
   /** URL to toggle indirect/recursive mode (omit to hide the button) */
@@ -25,25 +26,30 @@ export default function TabToolbar(props: Props) {
         <SearchBar />
       </div>
       {props.indirectToggleUrl && (
-        <a
+        <ButtonLink
           href={props.indirectToggleUrl}
-          class={`btn-input btn-input-sm shrink-0 self-stretch ${props.indirect ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
+          size="sm"
+          variant={props.indirect ? "secondary" : "subtle"}
+          class={`shrink-0 self-stretch ${props.indirect ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
           title={props.indirect ? "Show direct members only" : "Show all members (including indirect)"}
+          aria-current={props.indirect ? "true" : undefined}
         >
           <i class="ti ti-hierarchy text-sm" />
           {props.indirect ? "All members" : "Direct only"}
-        </a>
+        </ButtonLink>
       )}
       {props.serviceAccountsToggleUrl && (
-        <a
+        <ButtonLink
           href={props.serviceAccountsToggleUrl}
-          class={`btn-input btn-input-sm shrink-0 self-stretch ${props.showServiceAccounts ? "btn-input-active" : ""}`}
+          size="sm"
+          variant={props.showServiceAccounts ? "primary" : "subtle"}
+          class="shrink-0 self-stretch"
           title={props.showServiceAccounts ? "Hide service account memberships" : "Show service account memberships"}
           aria-current={props.showServiceAccounts ? "true" : undefined}
         >
           <i class="ti ti-user-key text-sm" />
           Service accounts
-        </a>
+        </ButtonLink>
       )}
       {props.actions}
     </div>

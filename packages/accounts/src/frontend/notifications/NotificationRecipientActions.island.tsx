@@ -1,6 +1,6 @@
-import { createSignal, Show } from "solid-js";
-import { dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { Button, dialogCore, PanelDialog, panelDialogOptions, prompts } from "@k2b/ui";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
 type Props = {
@@ -35,9 +35,9 @@ const showError = (error: string | null) => {
           </pre>
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
+          <Button size="sm" variant="secondary" onClick={() => close()}>
             Close
-          </button>
+          </Button>
         </PanelDialog.Footer>
       </PanelDialog>
     ),
@@ -66,14 +66,14 @@ export default function NotificationRecipientActions(props: Props) {
   return (
     <Show when={props.status === "error"}>
       <div class="flex justify-end gap-1.5">
-        <button type="button" class="btn-input btn-input-sm" onClick={() => showError(props.error)} disabled={retrying()}>
+        <Button size="sm" variant="subtle" onClick={() => showError(props.error)} disabled={retrying()}>
           <i class="ti ti-alert-circle" />
           <span>Error</span>
-        </button>
-        <button type="button" class="btn-input btn-input-sm" onClick={retry} disabled={retrying()}>
+        </Button>
+        <Button size="sm" variant="subtle" onClick={retry} disabled={retrying()}>
           <i class={retrying() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
           <span>{retrying() ? "Sending..." : "Send again"}</span>
-        </button>
+        </Button>
       </div>
     </Show>
   );
