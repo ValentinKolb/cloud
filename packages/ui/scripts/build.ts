@@ -7,6 +7,7 @@ import tailwind from "bun-plugin-tailwind";
 
 const root = resolve(import.meta.dir, "..");
 const dist = resolve(root, "dist");
+const buildComplete = resolve(dist, ".build-complete");
 const sourceRoot = resolve(root, "src");
 
 await rm(dist, { recursive: true, force: true });
@@ -105,6 +106,8 @@ for (const asset of await readdir(dist)) {
     await rm(resolve(dist, asset));
   }
 }
+
+await writeFile(buildComplete, "");
 
 const declarations = Bun.spawnSync({
   cmd: [
