@@ -109,6 +109,10 @@ describe("capability API", () => {
         authorization: "Bearer secret",
         cookie: "session=ignored",
         "content-type": "application/json",
+        "idempotency-key": "attempt-1",
+        traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
+        tracestate: "cloud=test",
+        "x-request-id": "request-123",
         "x-cloud-actor": "forged",
       },
       body: JSON.stringify({ input: { id: "one" } }),
@@ -117,7 +121,48 @@ describe("capability API", () => {
     expect(forwarded?.get("authorization")).toBe("Bearer secret");
     expect(forwarded?.get("cookie")).toBeNull();
     expect(forwarded?.get("x-cloud-actor")).toBeNull();
+    expect(forwarded?.get("idempotency-key")).toBe("attempt-1");
+    expect(forwarded?.get("traceparent")).toBe("00-11111111111111111111111111111111-2222222222222222-01");
+    expect(forwarded?.get("tracestate")).toBe("cloud=test");
+    expect(forwarded?.get("x-request-id")).toBe("request-123");
     expect(forwarded?.get("x-cloud-capability-schema-hash")).toBe(compiled.manifest.queries[0]?.schemaHash);
+  });
+
+  test("rejects input outside the live registered schema before calling the app", async () => {
+    let requested = false;
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => {
+        requested = true;
+        return Response.json({ data: { id: "one" } });
+      },
+    });
+    const response = await routes.request("/capabilities/v1/queries/demo/get", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: 42 } }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(requested).toBe(false);
+    expect(await response.json()).toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  test("rejects a successful app response outside the registered result schema", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => Response.json({ data: { id: 42 } }),
+    });
+    const response = await routes.request("/capabilities/v1/queries/demo/get", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one" } }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "INVALID_APP_RESPONSE" });
   });
 
   test("preserves structured throttling errors from the owning app", async () => {
@@ -174,6 +219,22 @@ describe("capability API", () => {
 
     expect(response.status).toBe(404);
     expect(requested).toBe(false);
+  });
+
+  test("rejects an invalid successful Action review", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => Response.json({ message: 42 }),
+    });
+    const response = await routes.request("/capabilities/v1/actions/demo/rename/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "INVALID_APP_RESPONSE" });
   });
 });
 

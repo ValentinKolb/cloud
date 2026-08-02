@@ -3,7 +3,12 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { getCapability, listApps } from "..";
 import { readBoundedJson } from "../_internal/bounded-json";
-import { CAPABILITY_PROTOCOL_VERSION, CapabilityErrorSchema, CapabilityManifestSchema } from "../contracts/capabilities";
+import {
+  CAPABILITY_PROTOCOL_VERSION,
+  CapabilityActionReviewSchema,
+  CapabilityErrorSchema,
+  CapabilityManifestSchema,
+} from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { type AuthContext, auth, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
@@ -16,6 +21,26 @@ const MAX_APP_RESPONSE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_CATALOG_LIMIT = 10;
 const MAX_CATALOG_LIMIT = 25;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
+const MAX_SCHEMA_VALIDATORS = 512;
+
+const schemaValidators = new Map<string, z.ZodType | null>();
+
+const schemaValidator = (key: string, schema: Record<string, unknown>): z.ZodType | null => {
+  if (schemaValidators.has(key)) return schemaValidators.get(key) ?? null;
+  let validator: z.ZodType | null = null;
+  try {
+    validator = z.fromJSONSchema(schema);
+  } catch {
+    // A live manifest with an unsupported schema is unusable, but must not
+    // crash the dispatcher serving unrelated applications.
+  }
+  if (schemaValidators.size >= MAX_SCHEMA_VALIDATORS) {
+    const oldest = schemaValidators.keys().next().value;
+    if (oldest) schemaValidators.delete(oldest);
+  }
+  schemaValidators.set(key, validator);
+  return validator;
+};
 
 const CapabilityInvocationRequestSchema = z.object({ input: z.unknown() }).strict();
 const CapabilityCatalogQuerySchema = z
@@ -66,7 +91,7 @@ export const capabilityCredentialHeaders = (request: Request): Headers => {
   const cookie = request.headers.get("cookie");
   if (authorization) headers.set("authorization", authorization);
   else if (cookie) headers.set("cookie", cookie);
-  for (const name of ["traceparent", "tracestate", "idempotency-key"] as const) {
+  for (const name of ["x-request-id", "traceparent", "tracestate", "idempotency-key"] as const) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -118,6 +143,19 @@ export const dispatchCapability = async (params: {
     return capabilityJsonResponse(error.body, error.status);
   }
 
+  const inputValidator = schemaValidator(`${operation.schemaHash}:input`, operation.inputSchema);
+  if (!inputValidator) {
+    const invalid = errorResponse("INVALID_APP_RESPONSE", `App ${params.appId} registered an unsupported capability schema`, 502);
+    return capabilityJsonResponse(invalid.body, invalid.status);
+  }
+  const input = inputValidator.safeParse(params.input);
+  if (!input.success) {
+    const invalid = errorResponse("VALIDATION_FAILED", "Capability input did not match the registered schema", 400, {
+      issues: input.error.issues.slice(0, 20).map((issue) => ({ path: issue.path.join("."), message: issue.message })),
+    });
+    return capabilityJsonResponse(invalid.body, invalid.status);
+  }
+
   const headers = capabilityCredentialHeaders(params.request);
   headers.set("x-cloud-capability-schema-hash", operation.schemaHash);
   const timeout = AbortSignal.timeout(params.kind === "queries" || params.review ? QUERY_TIMEOUT_MS : ACTION_TIMEOUT_MS);
@@ -130,7 +168,7 @@ export const dispatchCapability = async (params: {
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ input: params.input }),
+        body: JSON.stringify({ input: input.data }),
         signal,
       },
     );
@@ -157,6 +195,18 @@ export const dispatchCapability = async (params: {
       return capabilityJsonResponse(parsed.data, response.status);
     }
     const invalid = errorResponse("INVALID_APP_RESPONSE", `App ${params.appId} returned an invalid capability error`, 502);
+    return capabilityJsonResponse(invalid.body, invalid.status);
+  }
+
+  const resultValidator = params.review
+    ? CapabilityActionReviewSchema
+    : schemaValidator(`${operation.schemaHash}:result`, operation.resultSchema);
+  if (!resultValidator || !resultValidator.safeParse(upstreamBody.data).success) {
+    const invalid = errorResponse(
+      "INVALID_APP_RESPONSE",
+      `App ${params.appId} returned data outside its registered capability schema`,
+      502,
+    );
     return capabilityJsonResponse(invalid.body, invalid.status);
   }
 

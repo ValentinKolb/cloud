@@ -5,11 +5,8 @@ import type {
   WorkflowIr,
   WorkflowJsonValue,
 } from "@valentinkolb/cloud/workflows";
-import {
-  ContactResolveMatchDataSchema,
-  NormalizedContactEmailSchema,
-} from "@valentinkolb/cloud-app-contacts/capability-contracts";
 import { z } from "zod";
+import { contactResolveMatchSchema, normalizedContactEmailSchema } from "./app-integration-contracts";
 
 export const DEFAULT_CONVERSATION_REFERENCE_PATTERN = "REF-{{ short_id }}";
 
@@ -226,7 +223,7 @@ export type MailConversationContextQuery = z.infer<typeof mailConversationContex
 
 export const mailConversationParticipantSchema = z
   .object({
-    email: NormalizedContactEmailSchema,
+    email: normalizedContactEmailSchema,
     displayName: z.string().min(1).max(500).nullable(),
   })
   .strict();
@@ -239,8 +236,8 @@ export const mailConversationContextSchema = z
       z
         .object({
           status: z.literal("ready"),
-          items: z.array(ContactResolveMatchDataSchema),
-          matchedEmails: z.array(NormalizedContactEmailSchema).max(100),
+          items: z.array(contactResolveMatchSchema),
+          matchedEmails: z.array(normalizedContactEmailSchema).max(100),
           nextCursor: z.string().nullable(),
         })
         .strict(),

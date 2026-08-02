@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ContactResolveMatchDataSchema } from "@valentinkolb/cloud-app-contacts/capability-contracts";
 import type { z } from "zod";
+import type { contactResolveMatchSchema } from "../../app-integration-contracts";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
 
-type ContactMatch = z.infer<typeof ContactResolveMatchDataSchema>;
+type ContactMatch = z.infer<typeof contactResolveMatchSchema>;
 
 const contact = (id: string, bookId: string, email: string): ContactMatch => ({
   contactId: id,

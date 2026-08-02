@@ -211,6 +211,8 @@ const mailIntegrationRequest = (c: Context<AuthContext>) => ({
   cookie: c.req.header("Cookie"),
   authorization: c.req.header("Authorization"),
   requestId: c.req.header("X-Request-Id") ?? null,
+  traceparent: c.req.header("traceparent"),
+  tracestate: c.req.header("tracestate"),
   signal: c.req.raw.signal,
 });
 

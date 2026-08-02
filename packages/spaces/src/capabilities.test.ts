@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
-import { compileCapabilities } from "../../cloud/src/_internal/capabilities";
 import { decodeSpacesCapabilityCursor, spacesCapabilities } from "./capabilities";
 import {
   CommentCreateInputSchema,
@@ -134,10 +134,10 @@ afterEach(() => mock.restore());
 
 describe("spaces capabilities", () => {
   test("compiles calendar integration inputs into the registered manifest", () => {
-    const compiled = compileCapabilities("spaces", spacesCapabilities);
-    expect(compiled.manifest.queries.some((query) => query.localId === "calendar-invitation.preview")).toBeTrue();
-    expect(compiled.manifest.actions.some((action) => action.localId === "calendar-invitation.import")).toBeTrue();
-    expect(compiled.manifest.actions.some((action) => action.localId === "event.invitation.prepare")).toBeTrue();
+    const manifest = compileCapabilityManifest("spaces", spacesCapabilities);
+    expect(manifest.queries.some((query) => query.localId === "calendar-invitation.preview")).toBeTrue();
+    expect(manifest.actions.some((action) => action.localId === "calendar-invitation.import")).toBeTrue();
+    expect(manifest.actions.some((action) => action.localId === "event.invitation.prepare")).toBeTrue();
   });
 
   test("lists only writable calendar destinations without accepting Mail ownership state", async () => {

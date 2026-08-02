@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compileCapabilities } from "../../cloud/src/_internal/capabilities";
+import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import { mailCapabilities } from "./capabilities";
 import {
   DraftCreateInputSchema,
@@ -10,10 +10,10 @@ import {
 
 describe("mail capabilities", () => {
   test("compiles into a registrable v1 manifest", () => {
-    const compiled = compileCapabilities("mail", mailCapabilities);
-    expect(compiled.manifest.appId).toBe("mail");
-    expect(compiled.manifest.queries).toHaveLength(Object.keys(mailCapabilities.queries).length);
-    expect(compiled.manifest.actions).toHaveLength(Object.keys(mailCapabilities.actions).length);
+    const manifest = compileCapabilityManifest("mail", mailCapabilities);
+    expect(manifest.appId).toBe("mail");
+    expect(manifest.queries).toHaveLength(Object.keys(mailCapabilities.queries).length);
+    expect(manifest.actions).toHaveLength(Object.keys(mailCapabilities.actions).length);
   });
 
   test("declares the complete daily-work v1 surface", () => {

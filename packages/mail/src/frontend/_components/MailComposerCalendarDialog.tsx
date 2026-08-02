@@ -9,14 +9,12 @@ import {
   Select,
   TextInput,
 } from "@k2b/ui";
-import type { EventDataSchema } from "@valentinkolb/cloud-app-spaces/capability-contracts";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import type { z } from "zod";
 import { apiClient } from "../../api/client";
+import type { CalendarEvent } from "../../app-integration-contracts";
 import type { MailDraft } from "../../contracts";
 import { readApiError } from "./api-response";
 
-type CalendarEvent = z.infer<typeof EventDataSchema>;
 type CalendarDestination = { id: string; name: string; color: string };
 
 const defaultRange = (): { startsAt: string; endsAt: string } => {

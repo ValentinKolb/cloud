@@ -17,12 +17,12 @@ import {
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { z } from "zod";
 import type {
   CalendarInvitationImportResult,
   CalendarInvitationPreview,
   SpacesMailDestinationContext,
-} from "@valentinkolb/cloud-app-spaces/integration";
-import { z } from "zod";
+} from "./app-integration-contracts";
 import {
   type AcquiredDraftLease,
   type AttachmentLink,

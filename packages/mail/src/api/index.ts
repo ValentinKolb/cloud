@@ -2,16 +2,17 @@ import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { ErrorResponseSchema, GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { EventDataSchema, EventListDataSchema } from "@valentinkolb/cloud-app-spaces/capability-contracts";
-import {
-  CalendarInvitationImportResultSchema,
-  CalendarInvitationPreviewSchema,
-  CalendarParticipationStatusSchema,
-  SpacesMailDestinationsSchema,
-} from "@valentinkolb/cloud-app-spaces/integration";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import {
+  calendarEventSchema,
+  calendarEventsSchema,
+  calendarInvitationImportResultSchema,
+  calendarInvitationPreviewSchema,
+  calendarParticipationStatusSchema,
+  spacesMailDestinationsSchema,
+} from "../app-integration-contracts";
 import { attachmentPreviewKind, attachmentPreviewSignatureMatches, baseAttachmentContentType } from "../attachment-preview-policy";
 import {
   archiveComposeTemplateInputSchema,
@@ -196,7 +197,7 @@ const updateMailboxSchema = z
 const calendarDestinationInputSchema = z.object({ spaceId: z.string().uuid().nullable() }).strict();
 const calendarDestinationsResponseSchema = z.object({
   selectedSpaceId: z.string().uuid().nullable(),
-  items: SpacesMailDestinationsSchema,
+  items: spacesMailDestinationsSchema,
 });
 const calendarImportInputSchema = z.object({ spaceId: z.string().uuid().optional() }).strict();
 const calendarEventsQuerySchema = z
@@ -220,7 +221,7 @@ const attachCalendarEventInputSchema = z
   .strict();
 const calendarResponseInputSchema = z
   .object({
-    participationStatus: CalendarParticipationStatusSchema,
+    participationStatus: calendarParticipationStatusSchema,
     idempotencyKey: z.string().uuid(),
     spaceId: z.string().uuid().optional(),
   })
@@ -296,6 +297,8 @@ const integrationRequest = (c: Context<AuthContext>) => ({
   cookie: c.req.header("Cookie"),
   authorization: c.req.header("Authorization"),
   requestId: c.req.header("X-Request-Id") ?? requestContext(c).requestId,
+  traceparent: c.req.header("traceparent"),
+  tracestate: c.req.header("tracestate"),
   signal: c.req.raw.signal,
 });
 
@@ -559,7 +562,7 @@ const mailOperationsApi = new Hono<AuthContext>()
       summary: "List writable Space events for the composer",
       ...requiresAuth,
       responses: {
-        200: jsonResponse(EventListDataSchema, "Calendar events"),
+        200: jsonResponse(calendarEventsSchema, "Calendar events"),
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
@@ -587,7 +590,7 @@ const mailOperationsApi = new Hono<AuthContext>()
       summary: "Create a Space event for the current composer",
       ...requiresAuth,
       responses: {
-        200: jsonResponse(EventDataSchema, "Created calendar event"),
+        200: jsonResponse(calendarEventSchema, "Created calendar event"),
         400: jsonResponse(ErrorResponseSchema, "Invalid event"),
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
@@ -643,7 +646,7 @@ const mailOperationsApi = new Hono<AuthContext>()
       summary: "Preview a message calendar invitation",
       ...requiresAuth,
       responses: {
-        200: jsonResponse(CalendarInvitationPreviewSchema, "Calendar invitation"),
+        200: jsonResponse(calendarInvitationPreviewSchema, "Calendar invitation"),
         404: jsonResponse(ErrorResponseSchema, "No calendar invitation"),
       },
     }),
@@ -664,7 +667,7 @@ const mailOperationsApi = new Hono<AuthContext>()
       tags: ["Mail:Calendar"],
       summary: "Add or update an invitation in Spaces",
       ...requiresAuth,
-      responses: { 200: jsonResponse(CalendarInvitationImportResultSchema, "Imported event") },
+      responses: { 200: jsonResponse(calendarInvitationImportResultSchema, "Imported event") },
     }),
     v("param", mailboxAndIdParamSchema("messageId")),
     v("json", calendarImportInputSchema),

@@ -5,7 +5,7 @@ section: Platform services
 order: 555
 description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
 tags: [capabilities, rpc, agents, mcp]
-updated: 2026-08-02
+updated: 2026-08-03
 ---
 
 # App capabilities
@@ -386,6 +386,32 @@ Cloud validates the declaration at startup:
 Each operation gets input and result JSON Schema plus a stable schema hash.
 Refresh the live catalog after `SCHEMA_MISMATCH`.
 
+### Keep contracts at the owning boundary
+
+The provider owns the canonical Zod input and data schemas in its
+`src/capabilities.ts` declaration. Core stores their projected JSON Schemas in
+the live registry and validates both the caller input and every successful app
+response before returning it. Core does not compile built-in app DTOs into a
+central schema package.
+
+A consuming app calls the public capability client and keeps only the small
+DTO projection its own UI or service needs. Do not import another app's
+`capability-contracts`, service files, or private source paths. This applies to
+built-in and third-party apps equally: installation and registration make a
+provider discoverable, while the live manifest supplies the runtime contract.
+Additive consumer projections should accept unknown extra fields so a provider
+can extend a result without breaking older consumers.
+
+This boundary keeps deployment independent:
+
+```text
+provider Zod declaration -> live manifest JSON Schema -> Core dispatcher
+                                                    -> public consumer client
+```
+
+The provider still parses and authorizes inside `run`. Core's validation is an
+additional transport invariant, not a replacement for app-side checks.
+
 ## Return structured results
 
 Every successful operation returns `data`. Add only the navigation and identity
@@ -457,6 +483,52 @@ pins the registered schema, forwards the caller credential and trace context,
 and rejects invalid app responses. The app authenticates again, reconstructs
 the actor and access subject, validates the input, and authorizes the resource.
 Reviewing an Action never authorizes its later invocation.
+
+Browser and client islands use the same-origin public client:
+
+```ts
+import { invokeCapability } from "@valentinkolb/cloud/capabilities";
+
+const result = await invokeCapability<{ id: string }>({
+  appId: "inventory",
+  capabilityId: "item.get",
+  kind: "query",
+  input: { itemId },
+});
+if (!result.ok) throw new Error(result.error.message);
+```
+
+Server-side app code uses the registry-backed adapter. Pass only credentials
+and trace data from the current request; the adapter dispatches through Core
+without making an HTTP loop through Gateway:
+
+```ts
+import { invokeCapability } from "@valentinkolb/cloud/capabilities/server";
+
+const result = await invokeCapability<{ id: string }>(
+  {
+    appId: "inventory",
+    capabilityId: "item.get",
+    kind: "query",
+    input: { itemId },
+  },
+  {
+    cookie: request.headers.get("cookie"),
+    authorization: request.headers.get("authorization"),
+    requestId: request.headers.get("x-request-id"),
+    signal: request.signal,
+  },
+);
+```
+
+Both clients return `{ ok: true, data }` or `{ ok: false, error }`; ordinary
+network and protocol failures do not require exception handling. Use
+`reviewCapabilityAction()` from the same entry point for an advertised Action
+review. App tests may compile a declaration without importing Cloud internals:
+
+```ts
+import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
+```
 
 The generic CLI uses the same dispatcher:
 

@@ -1,32 +1,32 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { sql } from "bun";
 import type {
   CalendarAddress,
   CalendarParticipationStatus,
   SpacesMailDestinationContext,
-} from "@valentinkolb/cloud-app-spaces/integration";
-import { sql } from "bun";
+} from "../app-integration-contracts";
 import type { MailDraft } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import {
   type AppIntegrationRequest,
   buildCalendarInvitationResponse,
-  commitEventInvitation,
   commitCalendarInvitationResponse,
+  commitEventInvitation,
   createCalendarEvent,
-  getSpacesMailIntegrationAvailability,
   getCalendarSpace,
+  getSpacesMailIntegrationAvailability,
   importCalendarInvitation,
-  listCalendarEvents,
   listCalendarDestinations,
+  listCalendarEvents,
   prepareEventInvitation,
   previewCalendarInvitation,
 } from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import { enqueueDraftProjection } from "./draft-provider-projection";
-import * as drafts from "./drafts";
 import * as draftUploads from "./draft-uploads";
+import * as drafts from "./drafts";
 import { storeReadableBlob } from "./message-blobs";
 import * as messages from "./messages";
 import * as senderIdentities from "./sender-identities";

@@ -1,9 +1,9 @@
 import type { z } from "zod";
-import { ContactResolveMatchDataSchema } from "@valentinkolb/cloud-app-contacts/capability-contracts";
+import type { contactResolveMatchSchema } from "../../app-integration-contracts";
 import type { mailConversationParticipantSchema } from "../../contracts";
 
 type MailConversationParticipant = z.infer<typeof mailConversationParticipantSchema>;
-type ContactMatch = z.infer<typeof ContactResolveMatchDataSchema>;
+type ContactMatch = z.infer<typeof contactResolveMatchSchema>;
 
 type MailContactParticipantRow = MailConversationParticipant & {
   contacts: ContactMatch[];

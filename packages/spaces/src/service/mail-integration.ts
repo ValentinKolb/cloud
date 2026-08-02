@@ -1,23 +1,13 @@
 import { getCapability } from "@valentinkolb/cloud";
-import { type CapabilityResult, capabilityResultSchema } from "@valentinkolb/cloud/contracts";
-import {
-  DraftCreateInputSchema,
-  DraftDataSchema,
-  MailboxListDataSchema,
-  MailboxListInputSchema,
-  SenderIdentityListDataSchema,
-  SenderIdentityListInputSchema,
-} from "@valentinkolb/cloud-app-mail/capability-contracts";
-import type { z } from "zod";
+import { invokeCapability } from "@valentinkolb/cloud/capabilities/server";
+import type { CapabilityResult } from "@valentinkolb/cloud/contracts";
+import { z } from "zod";
 import {
   type MailEventInvitationDraft,
   type MailEventInvitationDraftInput,
   MailEventInvitationDraftInputSchema,
   type MailInvitationMailbox,
 } from "../integration";
-
-const MAX_RESPONSE_BYTES = 1_000_000;
-const REQUEST_TIMEOUT_MS = 3_000;
 
 const REQUIRED_MAIL_QUERIES = ["mailbox.list", "mailbox.identity.list"] as const;
 const REQUIRED_MAIL_ACTIONS = ["draft.create"] as const;
@@ -26,33 +16,29 @@ export type MailIntegrationRequest = {
   cookie?: string | null;
   authorization?: string | null;
   requestId?: string | null;
+  traceparent?: string | null;
+  tracestate?: string | null;
   signal?: AbortSignal;
 };
 
 type IntegrationResult<T> = { ok: true; data: T } | { ok: false; message: string; status: number };
 
-const readBoundedText = async (response: Response): Promise<string | null> => {
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) return null;
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    total += chunk.value.byteLength;
-    if (total > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(chunk.value);
-  }
-  return Buffer.concat(
-    chunks.map((chunk) => Buffer.from(chunk)),
-    total,
-  ).toString("utf8");
-};
+const mailboxListSchema = z.array(z.object({ id: z.uuid(), name: z.string().min(1) }).passthrough()).max(100);
+const senderIdentityListSchema = z
+  .array(
+    z
+      .object({
+        id: z.uuid(),
+        label: z.string().min(1),
+        displayName: z.string(),
+        fromAddress: z.email(),
+        isDefault: z.boolean(),
+        status: z.enum(["unverified", "verified", "rejected"]),
+      })
+      .passthrough(),
+  )
+  .max(100);
+const draftDataSchema = z.object({ id: z.uuid() }).passthrough();
 
 export const isMailInvitationIntegrationAvailable = async (): Promise<boolean> => {
   try {
@@ -66,68 +52,50 @@ export const isMailInvitationIntegrationAvailable = async (): Promise<boolean> =
   }
 };
 
-const capabilityHeaders = (request: MailIntegrationRequest, schemaHash: string, idempotencyKey?: string): Record<string, string> => ({
-  Accept: "application/json",
-  "Content-Type": "application/json",
-  "x-cloud-capability-schema-hash": schemaHash,
-  ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-  ...(request.cookie ? { Cookie: request.cookie } : {}),
-  ...(request.authorization ? { Authorization: request.authorization } : {}),
-  ...(request.requestId ? { "X-Request-Id": request.requestId } : {}),
-});
-
 const callMailCapability = async <T>(params: {
-  kind: "queries" | "actions";
+  kind: "query" | "action";
   capabilityId: string;
   request: MailIntegrationRequest;
   dataSchema: z.ZodType<T>;
   input: unknown;
   idempotencyKey?: string;
 }): Promise<IntegrationResult<CapabilityResult<T>>> => {
-  try {
-    const app = await getCapability("mail");
-    if (!app) return { ok: false, message: "Mail is unavailable", status: 503 };
-    const operation = (params.kind === "queries" ? app.manifest.queries : app.manifest.actions).find(
-      (candidate) => candidate.localId === params.capabilityId,
-    );
-    if (!operation) return { ok: false, message: "Mail does not provide the required capability", status: 503 };
-    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-    const signal = params.request.signal ? AbortSignal.any([params.request.signal, timeout]) : timeout;
-    const response = await fetch(`${app.endpoint}/${params.kind}/${encodeURIComponent(params.capabilityId)}`, {
-      method: "POST",
-      signal,
-      headers: capabilityHeaders(params.request, operation.schemaHash, params.idempotencyKey),
-      body: JSON.stringify({ input: params.input }),
-    });
-    const text = await readBoundedText(response);
-    if (text === null) return { ok: false, message: "Mail returned too much data", status: 502 };
-    if (!response.ok) {
-      const parsed = text ? (JSON.parse(text) as { error?: { message?: string }; message?: string }) : null;
-      return { ok: false, message: parsed?.error?.message ?? parsed?.message ?? "Mail rejected the request", status: response.status };
-    }
-    const parsed = capabilityResultSchema(params.dataSchema).safeParse(JSON.parse(text));
-    return parsed.success ? { ok: true, data: parsed.data } : { ok: false, message: "Mail returned an invalid response", status: 502 };
-  } catch {
-    return { ok: false, message: "Mail is temporarily unavailable", status: 503 };
+  const result = await invokeCapability<unknown>(
+    {
+      appId: "mail",
+      capabilityId: params.capabilityId,
+      kind: params.kind,
+      input: params.input,
+      idempotencyKey: params.idempotencyKey,
+    },
+    params.request,
+  );
+  if (!result.ok) {
+    const appUnavailable = result.error.code === "APP_UNAVAILABLE" || result.error.code === "CAPABILITY_NOT_FOUND";
+    return { ok: false, message: result.error.message, status: appUnavailable ? 503 : result.error.status };
   }
+  const data = params.dataSchema.safeParse(result.data.data);
+  return data.success
+    ? { ok: true, data: { ...result.data, data: data.data } }
+    : { ok: false, message: "Mail returned an incompatible response", status: 502 };
 };
 
 const listIdentities = (mailboxId: string, request: MailIntegrationRequest) =>
   callMailCapability({
-    kind: "queries",
+    kind: "query",
     capabilityId: "mailbox.identity.list",
     request,
-    dataSchema: SenderIdentityListDataSchema,
-    input: SenderIdentityListInputSchema.parse({ mailboxId }),
+    dataSchema: senderIdentityListSchema,
+    input: { mailboxId },
   });
 
 export const listInvitationMailboxes = async (request: MailIntegrationRequest): Promise<IntegrationResult<MailInvitationMailbox[]>> => {
   const mailboxes = await callMailCapability({
-    kind: "queries",
+    kind: "query",
     capabilityId: "mailbox.list",
     request,
-    dataSchema: MailboxListDataSchema,
-    input: MailboxListInputSchema.parse({ minimumPermission: "write", limit: 100 }),
+    dataSchema: mailboxListSchema,
+    input: { minimumPermission: "write", limit: 100 },
   });
   if (!mailboxes.ok) return mailboxes;
   const resolved: MailInvitationMailbox[] = [];
@@ -172,12 +140,12 @@ export const createInvitationDraft = async (
   const identity = identities.data.data.find((candidate) => candidate.id === input.senderIdentityId && candidate.status === "verified");
   if (!identity) return { ok: false, message: "The selected verified sender identity is unavailable", status: 403 };
   const created = await callMailCapability({
-    kind: "actions",
+    kind: "action",
     capabilityId: "draft.create",
     request,
-    dataSchema: DraftDataSchema,
+    dataSchema: draftDataSchema,
     idempotencyKey: input.idempotencyKey,
-    input: DraftCreateInputSchema.parse({
+    input: {
       mailboxId: input.mailboxId,
       senderIdentityId: input.senderIdentityId,
       to: input.to,
@@ -191,7 +159,7 @@ export const createInvitationDraft = async (
           base64: Buffer.from(input.calendar, "utf8").toString("base64"),
         },
       ],
-    }),
+    },
   });
   return created.ok ? { ok: true, data: { mailboxId: input.mailboxId, draftId: created.data.data.id } } : created;
 };
