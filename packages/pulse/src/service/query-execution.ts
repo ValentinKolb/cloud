@@ -301,7 +301,22 @@ const querySampleAggregateMetric = async (query: MetricQuery, window: MetricWind
   return rows;
 };
 
-export const queryMetricData = async (query: MetricQuery): Promise<Result<MetricQueryPoint[]>> => {
+const boundedMetricPoints = (
+  query: MetricQuery,
+  rows: MetricValueRow[],
+  series: MetricSeriesMatch[],
+  maxOutputPoints: number,
+): Result<MetricQueryPoint[]> => {
+  const points = metricRowsToPoints(query, rows, series);
+  return points.length <= maxOutputPoints
+    ? ok(points)
+    : fail(err.badInput("This query creates too many grouped points. Use a larger bucket, shorter range, or narrower filter."));
+};
+
+export const queryMetricData = async (
+  query: MetricQuery,
+  limits: { maxOutputPoints?: number } = {},
+): Promise<Result<MetricQueryPoint[]>> => {
   const window = resolveMetricWindow(query);
   if (!window.ok) return window;
 
@@ -311,20 +326,27 @@ export const queryMetricData = async (query: MetricQuery): Promise<Result<Metric
     return fail(err.badInput("This query matches too many series. Add a source or dimension filter."));
   }
   const groups = new Set(series.map((item) => metricGroup(item, query.groupBy).key));
-  if (Math.ceil(window.data.sinceMs / window.data.bucketMs) * Math.max(groups.size, 1) > MAX_METRIC_POINTS) {
+  const maxOutputPoints = Math.min(MAX_METRIC_POINTS, Math.max(1, limits.maxOutputPoints ?? MAX_METRIC_POINTS));
+  const bucketCount = Math.ceil(window.data.sinceMs / window.data.bucketMs);
+  if (bucketCount * Math.max(groups.size, 1) > maxOutputPoints) {
     return fail(err.badInput("This query creates too many grouped points. Use a larger bucket, shorter range, or narrower filter."));
+  }
+  if ((bucketCount + 1) * series.length > MAX_METRIC_POINTS) {
+    return fail(err.badInput("This query scans too many series-bucket points. Use a larger bucket, shorter range, or narrower filter."));
   }
   const seriesIds = series.map((item) => item.id);
 
   const rollupRows = await queryHourlyRollupRows(query, window.data, seriesIds);
-  if (rollupRows) return ok(metricRowsToPoints(query, rollupRows, series));
+  if (rollupRows) return boundedMetricPoints(query, rollupRows, series, maxOutputPoints);
 
-  if (query.aggregation === "latest") return ok(metricRowsToPoints(query, await queryLatestMetric(query, window.data, seriesIds), series));
+  if (query.aggregation === "latest") {
+    return boundedMetricPoints(query, await queryLatestMetric(query, window.data, seriesIds), series, maxOutputPoints);
+  }
   if (query.aggregation === "rate" || query.aggregation === "increase") {
-    return ok(metricRowsToPoints(query, await queryCounterDeltaMetric(query, window.data, seriesIds), series));
+    return boundedMetricPoints(query, await queryCounterDeltaMetric(query, window.data, seriesIds), series, maxOutputPoints);
   }
 
-  return ok(metricRowsToPoints(query, await querySampleAggregateMetric(query, window.data, seriesIds), series));
+  return boundedMetricPoints(query, await querySampleAggregateMetric(query, window.data, seriesIds), series, maxOutputPoints);
 };
 
 export const queryEventsData = async (query: EventQuery): Promise<Result<PulseRecordedEvent[]>> => {
@@ -398,7 +420,10 @@ const eventGroupExpression = (groupBy: string[]) => {
   }
 };
 
-export const queryEventAggregateData = async (query: EventQuery): Promise<Result<MetricQueryPoint[]>> => {
+export const queryEventAggregateData = async (
+  query: EventQuery,
+  limits: { maxOutputPoints?: number } = {},
+): Promise<Result<MetricQueryPoint[]>> => {
   const aggregation = query.aggregation ?? "rows";
   if (aggregation === "rows") return fail(err.badInput("Event aggregation is required"));
   const sinceMs = intervalToMs(query.since);
@@ -409,6 +434,7 @@ export const queryEventAggregateData = async (query: EventQuery): Promise<Result
 
   const dimensions = jsonbObject(normalizeDimensions(query.dimensions));
   const since = new Date(Date.now() - sinceMs);
+  const maxOutputPoints = Math.min(1_000, Math.max(1, limits.maxOutputPoints ?? 1_000));
   const rows = await sql<EventAggregateRow[]>`
     WITH scoped AS (
       SELECT
@@ -430,8 +456,11 @@ export const queryEventAggregateData = async (query: EventQuery): Promise<Result
     FROM scoped
     GROUP BY bucket, group_data
     ORDER BY bucket ASC, group_data::text ASC
-    LIMIT 1000
+    LIMIT ${maxOutputPoints + 1}
   `;
+  if (rows.length > maxOutputPoints) {
+    return fail(err.badInput("This query creates too many aggregate points. Use a larger bucket, shorter range, or narrower filter."));
+  }
   return ok(
     rows.map((row) => ({
       bucket: iso(row.bucket),

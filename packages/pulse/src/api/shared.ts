@@ -1,7 +1,7 @@
 import type { User } from "@valentinkolb/cloud/contracts";
 import { err, fail, ok, type AuthContext, type Result } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
-import type { AccessScope } from "../service/access-control";
+import { accessScopeFor, type AccessScope } from "../service/access-control";
 
 export const requireParam = (value: string | undefined, label: string) =>
   value ? { ok: true as const, value } : { ok: false as const, result: fail(err.badInput(`Missing ${label}`)) };
@@ -23,16 +23,7 @@ export const requireUserBackedActor = (c: Context<AuthContext>): Result<User> =>
 };
 
 export const requestAccessScope = (c: Context<AuthContext>): AccessScope => {
-  const subject = c.get("accessSubject");
-  if (subject.type === "user") return { id: subject.userId };
-
-  const actor = c.get("actor");
-  if (actor.kind !== "service_account" || actor.delegatedUser) {
-    throw new Error("Resource access subject does not match the authenticated actor");
-  }
-  return {
-    subject,
-    serviceAccount: actor.serviceAccount,
-    scopes: actor.scopes,
-  };
+  const scope = accessScopeFor(c.get("actor"), c.get("accessSubject"));
+  if (!scope.ok) throw new Error(scope.error.message);
+  return scope.data;
 };

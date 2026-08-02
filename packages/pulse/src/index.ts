@@ -1,6 +1,7 @@
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
+import { pulseCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
 import { pulseHelp } from "./help";
@@ -16,6 +17,7 @@ const router = new Hono<AuthContext>()
 
 export default await app.start({
   fetch: router.fetch,
+  capabilities: pulseCapabilities,
   help: pulseHelp,
   openapi: apiRoutes,
   lifecycle: {

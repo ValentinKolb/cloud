@@ -25,17 +25,39 @@ const mapSavedQuery = (row: SavedQueryRow): PulseSavedQuery => ({
   updatedAt: iso(row.updated_at),
 });
 
-export const listSavedQueries = async (baseId: string, user: AccessScope): Promise<Result<PulseSavedQuery[]>> => {
+export const listSavedQueries = async (
+  baseId: string,
+  user: AccessScope,
+  params: { query?: string | null; limit?: number; offset?: number } = {},
+): Promise<Result<PulseSavedQuery[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
+  const query = params.query?.trim() || null;
+  const pattern = query ? `%${query.replace(/([\\%_])/g, "\\$1")}%` : null;
+  const limit = Math.min(100, Math.max(1, params.limit ?? 100));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<SavedQueryRow[]>`
     SELECT id, base_id, name, description, query, created_at, updated_at
     FROM pulse.saved_queries
     WHERE base_id = ${baseId}::uuid
-    ORDER BY updated_at DESC, name ASC
-    LIMIT 100
+      AND (${pattern}::text IS NULL OR name ILIKE ${pattern} ESCAPE '\\' OR description ILIKE ${pattern} ESCAPE '\\')
+    ORDER BY updated_at DESC, name ASC, id ASC
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return ok(rows.map(mapSavedQuery));
+};
+
+export const getSavedQuery = async (baseId: string, queryId: string, user: AccessScope): Promise<Result<PulseSavedQuery>> => {
+  const access = await requireBaseAccess(baseId, user, "read");
+  if (!access.ok) return fail(access.error);
+  const [row] = await sql<SavedQueryRow[]>`
+    SELECT id, base_id, name, description, query, created_at, updated_at
+    FROM pulse.saved_queries
+    WHERE base_id = ${baseId}::uuid
+      AND id = ${queryId}::uuid
+  `;
+  return row ? ok(mapSavedQuery(row)) : fail(err.notFound("Saved query"));
 };
 
 export const createSavedQuery = async (params: {

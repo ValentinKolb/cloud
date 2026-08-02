@@ -41,8 +41,8 @@ import {
   getPublicDashboardSnapshot as getPublicDashboardSnapshotWithDeps,
 } from "./public-dashboard-snapshot";
 import { queryEventAggregateData, queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
-import { compileQueryText, queryEventMapText, queryMetric, queryMetricText } from "./query-management";
-import { createSavedQuery, deleteSavedQuery, listSavedQueries } from "./saved-query-management";
+import { compileQueryText, executeCompiledQuery, queryEventMapText, queryMetric, queryMetricText } from "./query-management";
+import { createSavedQuery, deleteSavedQuery, getSavedQuery, listSavedQueries } from "./saved-query-management";
 import {
   listCurrentStates,
   listInventory,
@@ -53,6 +53,7 @@ import {
   listResourceMetrics,
   listResourceStates,
   listResources,
+  searchResources,
   listSignalFields,
 } from "./signal-catalog";
 import {
@@ -180,6 +181,7 @@ export const pulseService = {
   },
   savedQuery: {
     list: listSavedQueries,
+    get: getSavedQuery,
     create: createSavedQuery,
     remove: deleteSavedQuery,
   },
@@ -196,6 +198,7 @@ export const pulseService = {
     metricText: queryMetricText,
     eventMapText: queryEventMapText,
     compileText: compileQueryText,
+    executeCompiled: executeCompiledQuery,
     metrics: listMetrics,
     series: listMetricSeries,
     recentEvents: listRecentEvents,
@@ -203,6 +206,7 @@ export const pulseService = {
     fields: listSignalFields,
     inventory: listInventory,
     resources: listResources,
+    searchResources,
     resourceMetrics: listResourceMetrics,
     resourceEvents: listResourceEvents,
     resourceStates: listResourceStates,

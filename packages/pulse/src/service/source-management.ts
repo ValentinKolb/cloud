@@ -120,14 +120,25 @@ const ensureHttpIngestSource = async (params: { baseId: string; sourceId: string
   return source ? ok(mapSource(source)) : fail(err.notFound("Ingest source"));
 };
 
-export const listSources = async (baseId: string, user: AccessScope): Promise<Result<PulseSource[]>> => {
+export const listSources = async (
+  baseId: string,
+  user: AccessScope,
+  params: { query?: string | null; limit?: number; offset?: number } = {},
+): Promise<Result<PulseSource[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
+  const query = params.query?.trim() || null;
+  const pattern = query ? `%${query.replace(/([\\%_])/g, "\\$1")}%` : null;
+  const limit = params.limit === undefined ? null : Math.min(500, Math.max(1, params.limit));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<SourceRow[]>`
     SELECT *
     FROM pulse.sources
     WHERE base_id = ${baseId}::uuid
-    ORDER BY created_at DESC
+      AND (${pattern}::text IS NULL OR name ILIKE ${pattern} ESCAPE '\\')
+    ORDER BY created_at DESC, id ASC
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return ok(rows.map(mapSource));
 };

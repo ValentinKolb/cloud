@@ -123,15 +123,18 @@ const deleteBoundServiceAccounts = async (baseId: string, db: typeof sql = sql):
   `;
 };
 
-export const listBases = async (user: AccessScope): Promise<Result<PulseBase[]>> => {
-  const baseIds = await listBaseIdsVisibleTo(user);
+export const listBases = async (
+  user: AccessScope,
+  params: { query?: string | null; limit?: number; offset?: number } = {},
+): Promise<Result<PulseBase[]>> => {
+  const baseIds = await listBaseIdsVisibleTo(user, params);
   if (baseIds.length === 0) return ok([]);
   const rows = await sql<BaseRow[]>`
     SELECT b.*
     FROM pulse.bases b
     WHERE b.deletion_started_at IS NULL
       AND b.id = ANY(${toPgUuidArray(baseIds)}::uuid[])
-    ORDER BY b.updated_at DESC, b.name ASC
+    ORDER BY b.updated_at DESC, b.name ASC, b.id ASC
   `;
   return ok(rows.map(mapBase));
 };

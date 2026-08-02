@@ -8,10 +8,11 @@ import type {
   PulseMetricSummary,
   PulseRecordedEvent,
   PulseResourceMetric,
+  PulseResourceSearchResult,
   PulseResourceSummary,
   PulseSignalField,
 } from "../contracts";
-import { requireBaseAccess, type AccessScope } from "./access-control";
+import { listBaseIdsVisibleTo, requireBaseAccess, type AccessScope } from "./access-control";
 import {
   type CurrentStateRow,
   isoNullable,
@@ -44,6 +45,11 @@ type ObservedResourceRow = {
   source_ids: unknown;
   dimensions: unknown;
   last_seen_at: Date | string | null;
+};
+
+type SearchResourceRow = ObservedResourceRow & {
+  base_id: string;
+  base_name: string;
 };
 
 type ResourceCountRow = {
@@ -188,12 +194,16 @@ export const listMetrics = async (
     type?: MetricType | null;
     entityId?: string | null;
     entityType?: string | null;
+    limit?: number;
+    offset?: number;
   } = {},
 ): Promise<Result<PulseMetricSummary[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const pattern = searchPattern(params.q);
   const sourceId = params.sourceId ?? null;
+  const limit = Math.min(500, Math.max(1, params.limit ?? 500));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<
     { name: string; unit: string | null; type: MetricType; series_count: number; last_seen_at: Date | string | null }[]
   >`
@@ -215,6 +225,8 @@ export const listMetrics = async (
     GROUP BY md.id, md.name, md.unit, md.type
     HAVING ${sourceId}::uuid IS NULL OR COUNT(ms.id) > 0
     ORDER BY md.name ASC
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return ok(
     rows.map((row) => ({
@@ -222,6 +234,45 @@ export const listMetrics = async (
       unit: row.unit,
       type: row.type,
       seriesCount: row.series_count,
+      lastSeenAt: isoNullable(row.last_seen_at),
+    })),
+  );
+};
+
+export const searchResources = async (
+  user: AccessScope,
+  params: { query?: string | null; limit?: number } = {},
+): Promise<Result<PulseResourceSearchResult[]>> => {
+  const limit = Math.min(100, Math.max(1, params.limit ?? 25));
+  const visibleBaseIds = await listBaseIdsVisibleTo(user);
+  if (visibleBaseIds.length === 0) return ok([]);
+  const pattern = searchPattern(params.query);
+  const rows = await sql<SearchResourceRow[]>`
+    SELECT
+      resource.base_id,
+      base.name AS base_name,
+      resource.resource_key,
+      resource.resource_id,
+      resource.resource_type,
+      resource.label,
+      resource.source_ids,
+      resource.dimensions,
+      resource.last_seen_at
+    FROM pulse.observed_resources resource
+    JOIN pulse.bases base ON base.id = resource.base_id
+    WHERE resource.base_id = ANY(${sql.array(visibleBaseIds, "UUID")})
+      AND (${pattern}::text IS NULL OR resource.search_text ILIKE ${pattern} ESCAPE '\\')
+    ORDER BY resource.last_seen_at DESC NULLS LAST, resource.label ASC, resource.resource_key ASC
+    LIMIT ${limit}
+  `;
+  return ok(
+    rows.map((row) => ({
+      baseId: row.base_id,
+      baseName: row.base_name,
+      key: row.resource_key,
+      id: row.resource_id,
+      label: row.label,
+      type: row.resource_type,
       lastSeenAt: isoNullable(row.last_seen_at),
     })),
   );

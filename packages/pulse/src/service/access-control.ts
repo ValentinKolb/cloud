@@ -1,4 +1,4 @@
-import type { ServiceAccount } from "@valentinkolb/cloud/contracts";
+import type { RequestActor, ServiceAccount } from "@valentinkolb/cloud/contracts";
 import {
   buildAccessPrincipalCondition,
   err,
@@ -27,6 +27,14 @@ export const PULSE_BASE_RESOURCE_TYPE = "pulse_base";
 const PERMISSION_RANK: Record<PermissionLevel, number> = { none: 0, read: 1, write: 2, admin: 3 };
 
 const isResourceScope = (scope: AccessScope): scope is ResourceScope => "subject" in scope;
+
+export const accessScopeFor = (actor: RequestActor, subject: AccessSubject): Result<AccessScope> => {
+  if (subject.type === "user") return ok({ id: subject.userId });
+  if (actor.kind !== "service_account" || actor.delegatedUser) {
+    return fail(err.forbidden("Resource access subject does not match the authenticated actor"));
+  }
+  return ok({ subject, serviceAccount: actor.serviceAccount, scopes: actor.scopes });
+};
 
 const subjectForScope = (scope: AccessScope): AccessSubject =>
   isResourceScope(scope) ? scope.subject : { type: "user", userId: scope.id };
@@ -89,7 +97,10 @@ export const requireBaseAccess = async (
     : fail(err.forbidden("Access denied"));
 };
 
-export const listBaseIdsVisibleTo = async (scope: AccessScope): Promise<string[]> => {
+export const listBaseIdsVisibleTo = async (
+  scope: AccessScope,
+  params: { query?: string | null; limit?: number; offset?: number } = {},
+): Promise<string[]> => {
   if (!canRequestPermission(scope, "read")) return [];
   const boundBaseId = boundBaseIdForScope(scope);
   if (isResourceScope(scope) && !boundBaseId) return [];
@@ -103,13 +114,26 @@ export const listBaseIdsVisibleTo = async (scope: AccessScope): Promise<string[]
       authenticatedOnly: sql`a.authenticated_only`,
     },
   });
+  const query = params.query?.trim() || null;
+  const pattern = query ? `%${query.replace(/([\\%_])/g, "\\$1")}%` : null;
+  const limit = params.limit === undefined ? null : Math.min(1_000, Math.max(1, params.limit));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<{ id: string }[]>`
-    SELECT DISTINCT ba.base_id AS id
-    FROM pulse.base_access ba
-    JOIN auth.access a ON a.id = ba.access_id
-    WHERE ${principalMatch}
-      AND a.permission <> 'none'
-      AND (${boundBaseId}::text IS NULL OR ba.base_id::text = ${boundBaseId})
+    SELECT visible.id
+    FROM (
+      SELECT DISTINCT ba.base_id AS id, b.updated_at, b.name
+      FROM pulse.base_access ba
+      JOIN auth.access a ON a.id = ba.access_id
+      JOIN pulse.bases b ON b.id = ba.base_id
+      WHERE ${principalMatch}
+        AND a.permission <> 'none'
+        AND (${boundBaseId}::text IS NULL OR ba.base_id::text = ${boundBaseId})
+        AND b.deletion_started_at IS NULL
+        AND (${pattern}::text IS NULL OR b.name ILIKE ${pattern} ESCAPE '\\' OR b.description ILIKE ${pattern} ESCAPE '\\')
+    ) visible
+    ORDER BY visible.updated_at DESC, visible.name ASC, visible.id ASC
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return rows.map((row) => row.id);
 };

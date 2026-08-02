@@ -174,6 +174,11 @@ export type PulseResourceSummary = {
   dimensions: Record<string, string>;
 };
 
+export type PulseResourceSearchResult = Pick<PulseResourceSummary, "key" | "id" | "label" | "type" | "lastSeenAt"> & {
+  baseId: string;
+  baseName: string;
+};
+
 export type PulseResourceMetric = {
   seriesId: string;
   resourceKey: string;
