@@ -70,6 +70,12 @@ export const panelDialogOptions = {
   contentClassName: "k2b-panel-dialog-viewport",
 } satisfies OpenDialogOptions;
 
+export const panelDialogWidePanelClass = `${panelDialogBasePanelClass} is-wide`;
+export const panelDialogWideOptions = {
+  panelClassName: panelDialogWidePanelClass,
+  contentClassName: "k2b-panel-dialog-viewport",
+} satisfies OpenDialogOptions;
+
 export const panelDialogFixedPanelClass = `${panelDialogBasePanelClass} is-fixed`;
 export const panelDialogFixedOptions = {
   panelClassName: panelDialogFixedPanelClass,
@@ -121,11 +127,7 @@ const PanelDialogHeader = (props: PanelDialogHeaderProps): JSX.Element => (
 );
 
 const PanelDialogBody = (props: PanelDialogBodyProps): JSX.Element => (
-  <div
-    class="k2b-panel-dialog__body"
-    data-scroll-preserve={props.scrollPreserveKey}
-    data-surface={usePanelDialogSurface()}
-  >
+  <div class="k2b-panel-dialog__body" data-scroll-preserve={props.scrollPreserveKey} data-surface={usePanelDialogSurface()}>
     {props.children}
   </div>
 );

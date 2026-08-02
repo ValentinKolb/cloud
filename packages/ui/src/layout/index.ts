@@ -37,6 +37,8 @@ export {
   panelDialogFixedPanelClass,
   panelDialogOptions,
   panelDialogPanelClass,
+  panelDialogWideOptions,
+  panelDialogWidePanelClass,
   panelDialogWorkspaceOptions,
   panelDialogWorkspacePanelClass,
 } from "./PanelDialog";

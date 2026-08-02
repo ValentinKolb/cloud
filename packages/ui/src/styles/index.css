@@ -1448,6 +1448,10 @@
   max-height: min(86dvh, var(--k2b-dialog-available-height));
 }
 
+.k2b-ui .k2b-panel-dialog-frame.is-wide {
+  width: min(96vw, 72rem);
+}
+
 .k2b-ui .k2b-panel-dialog-frame.is-workspace {
   width: min(80vw, var(--k2b-dialog-available-width));
   height: min(80dvh, var(--k2b-dialog-available-height));

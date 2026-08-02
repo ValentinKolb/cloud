@@ -19,6 +19,7 @@ const {
   PanelDialog,
   panelDialogFixedOptions,
   panelDialogOptions,
+  panelDialogWideOptions,
   panelDialogWorkspaceOptions,
   PanelHeader,
   Placeholder,
@@ -181,6 +182,7 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
     expect(html).toContain("k2b-panel-dialog__section");
     expect(html).toContain("k2b-panel-dialog__footer");
     expect(panelDialogOptions.contentClassName).toBe("k2b-panel-dialog-viewport");
+    expect(panelDialogWideOptions.panelClassName).toContain("is-wide");
     expect(panelDialogFixedOptions.panelClassName).toContain("is-fixed");
     expect(panelDialogWorkspaceOptions.panelClassName).toContain("is-workspace");
   });
