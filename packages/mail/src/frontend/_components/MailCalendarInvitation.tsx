@@ -1,7 +1,7 @@
 import { documentNavigate } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
-import { Select, toast } from "@valentinkolb/cloud/ui";
+import { Button, ButtonLink, Select, StatusBadge, toast } from "@k2b/ui";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
@@ -123,7 +123,7 @@ export default function MailCalendarInvitation(props: {
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <h3 class="truncate text-sm font-semibold text-primary">{value().invitation.title}</h3>
                   <Show when={isCancelled()}>
-                    <span class="status-badge status-badge-danger">Cancelled</span>
+                    <StatusBadge tone="error" label="Cancelled" />
                   </Show>
                 </div>
                 <p class="mt-0.5 text-xs text-secondary">
@@ -164,7 +164,7 @@ export default function MailCalendarInvitation(props: {
                     <Select
                       aria-label="Destination Space"
                       value={() => selectedSpaceId() ?? undefined}
-                      onChange={setSelectedSpaceId}
+                      onValueChange={setSelectedSpaceId}
                       options={destinationOptions()}
                       placeholder="Choose a Space"
                     />
@@ -173,50 +173,53 @@ export default function MailCalendarInvitation(props: {
                 <Show
                   when={value().existing}
                   fallback={
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm"
                       disabled={!selectedSpaceId() || importEvent.loading()}
                       onClick={() => importEvent.mutate()}
                     >
                       <i class={importEvent.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-calendar-plus"} aria-hidden="true" />
                       Add to Spaces
-                    </button>
+                    </Button>
                   }
                 >
                   {(existing) => (
-                    <a class="btn-secondary btn-sm" href={existing().href} target="_blank" rel="noreferrer">
+                    <ButtonLink variant="secondary" size="sm" href={existing().href} target="_blank" rel="noreferrer">
                       <i class="ti ti-external-link" aria-hidden="true" />
                       Open in Spaces
-                    </a>
+                    </ButtonLink>
                   )}
                 </Show>
                 <Show when={canRespond()}>
                   <div class="flex flex-wrap gap-1">
-                    <button
+                    <Button
+                      size="sm"
                       type="button"
-                      class="btn-primary btn-sm"
                       disabled={respond.loading()}
                       onClick={() => respond.mutate({ participationStatus: "accepted", idempotencyKey: crypto.randomUUID() })}
                     >
                       <i class="ti ti-check" aria-hidden="true" /> Accept
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm"
                       disabled={respond.loading()}
                       onClick={() => respond.mutate({ participationStatus: "tentative", idempotencyKey: crypto.randomUUID() })}
                     >
                       Maybe
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm"
                       disabled={respond.loading()}
                       onClick={() => respond.mutate({ participationStatus: "declined", idempotencyKey: crypto.randomUUID() })}
                     >
                       Decline
-                    </button>
+                    </Button>
                   </div>
                 </Show>
               </div>

@@ -1,6 +1,7 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, IconButton } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { apiClient } from "../../api/client";
 
@@ -72,15 +73,15 @@ export default function MailAdminMailboxActions(props: MailAdminMailboxActionsPr
 
   return (
     <Tooltip content="Manage permissions">
-      <button
+      <IconButton
         type="button"
-        class="icon-btn h-7 w-7"
-        aria-label={`Manage permissions for ${props.mailboxName}`}
+        class="h-7 w-7"
+        label={`Manage permissions for ${props.mailboxName}`}
         disabled={accessMutation.loading()}
         onClick={() => accessMutation.mutate(undefined)}
       >
         <i class={accessMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-shield text-sm"} aria-hidden="true" />
-      </button>
+      </IconButton>
     </Tooltip>
   );
 }

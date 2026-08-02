@@ -7,9 +7,12 @@ import {
   Placeholder,
   panelDialogWorkspaceOptions,
   prompts,
+  StatusBadge,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  ButtonLink,
+} from "@k2b/ui";
 import {
   buildWorkflowAutocompleteCompletions,
   createWorkflowYamlHighlighter,
@@ -260,20 +263,21 @@ function WorkflowEditor(props: {
       />
       <PanelDialog.Body>
         <PanelDialog.Section title="Identity" subtitle="Shown to mailbox administrators." icon="ti ti-id">
-          <TextInput label="Name" value={name} onInput={setName} required />
-          <TextInput label="Description" value={description} onInput={setDescription} multiline lines={2} />
-          <NumberInput label="Priority" value={priority} onInput={(value) => setPriority(value ?? 100)} min={-1_000} max={1_000} />
+          <TextInput label="Name" value={name} onValueChange={setName} required />
+          <TextInput label="Description" value={description} onValueChange={setDescription} multiline lines={2} />
+          <NumberInput label="Priority" value={priority} onValueChange={(value) => setPriority(value ?? 100)} min={-1_000} max={1_000} />
           <Show when={props.workflow}>
             <div class="flex justify-end">
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-secondary btn-sm"
                 disabled={updateDetails.loading() || !name().trim()}
                 onClick={() => updateDetails.mutate()}
               >
                 <i class={`ti ${updateDetails.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
                 Update details
-              </button>
+              </Button>
             </div>
           </Show>
         </PanelDialog.Section>
@@ -311,15 +315,15 @@ function WorkflowEditor(props: {
           icon="ti ti-code"
         >
           <div class="flex justify-end">
-            <a class="btn-simple btn-sm" href={WORKFLOW_REFERENCE_HREF} target="_blank" rel="noreferrer">
+            <ButtonLink variant="ghost" size="sm" href={WORKFLOW_REFERENCE_HREF} target="_blank" rel="noreferrer">
               <i class="ti ti-external-link" aria-hidden="true" /> Open YAML reference
-            </a>
+            </ButtonLink>
           </div>
           <div class="min-h-[24rem]">
             <AutocompleteEditor
-              ariaLabel="Workflow YAML"
+              aria-label="Workflow YAML"
               value={source}
-              onInput={(value) => {
+              onValueChange={(value) => {
                 setSource(value);
                 setValidation(null);
               }}
@@ -352,36 +356,36 @@ function WorkflowEditor(props: {
         </PanelDialog.Section>
         <PanelDialog.Section title="Effect budget" subtitle="Hard limits bound each workflow execution." icon="ti ti-gauge">
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <NumberInput label="Targets" value={maxTargets} onInput={(value) => setMaxTargets(value ?? 1)} min={1} max={50_000} />
-            <NumberInput label="Moves" value={maxMoves} onInput={(value) => setMaxMoves(value ?? 0)} min={0} max={50_000} />
-            <NumberInput label="Copies" value={maxCopies} onInput={(value) => setMaxCopies(value ?? 0)} min={0} max={50_000} />
-            <NumberInput label="Sends" value={maxSends} onInput={(value) => setMaxSends(value ?? 0)} min={0} max={50_000} />
-            <NumberInput label="Drafts" value={maxDrafts} onInput={(value) => setMaxDrafts(value ?? 0)} min={0} max={50_000} />
+            <NumberInput label="Targets" value={maxTargets} onValueChange={(value) => setMaxTargets(value ?? 1)} min={1} max={50_000} />
+            <NumberInput label="Moves" value={maxMoves} onValueChange={(value) => setMaxMoves(value ?? 0)} min={0} max={50_000} />
+            <NumberInput label="Copies" value={maxCopies} onValueChange={(value) => setMaxCopies(value ?? 0)} min={0} max={50_000} />
+            <NumberInput label="Sends" value={maxSends} onValueChange={(value) => setMaxSends(value ?? 0)} min={0} max={50_000} />
+            <NumberInput label="Drafts" value={maxDrafts} onValueChange={(value) => setMaxDrafts(value ?? 0)} min={0} max={50_000} />
             <NumberInput
               label="Flag changes"
               value={maxFlagChanges}
-              onInput={(value) => setMaxFlagChanges(value ?? 0)}
+              onValueChange={(value) => setMaxFlagChanges(value ?? 0)}
               min={0}
               max={100_000}
             />
             <NumberInput
               label="Notifications"
               value={maxNotifications}
-              onInput={(value) => setMaxNotifications(value ?? 0)}
+              onValueChange={(value) => setMaxNotifications(value ?? 0)}
               min={0}
               max={50_000}
             />
             <NumberInput
               label="Keyword changes"
               value={maxKeywordChanges}
-              onInput={(value) => setMaxKeywordChanges(value ?? 0)}
+              onValueChange={(value) => setMaxKeywordChanges(value ?? 0)}
               min={0}
               max={100_000}
             />
             <NumberInput
               label="Collaboration changes"
               value={maxCollaborationChanges}
-              onInput={(value) => setMaxCollaborationChanges(value ?? 0)}
+              onValueChange={(value) => setMaxCollaborationChanges(value ?? 0)}
               min={0}
               max={100_000}
             />
@@ -389,22 +393,22 @@ function WorkflowEditor(props: {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-secondary btn-sm" disabled={validating()} onClick={() => void runValidation(source(), true)}>
+        <Button variant="secondary" size="sm" type="button" disabled={validating()} onClick={() => void runValidation(source(), true)}>
           <i class={`ti ${validating() ? "ti-loader-2 animate-spin" : "ti-shield-check"}`} aria-hidden="true" /> Validate
-        </button>
+        </Button>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" onClick={props.close}>
+          <Button variant="ghost" size="sm" type="button" onClick={props.close}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             disabled={save.loading() || !source().trim() || (!props.workflow && !name().trim())}
             onClick={() => save.mutate()}
           >
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
             {props.workflow ? "Save version" : "Create workflow"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -434,21 +438,21 @@ function WorkflowVersionViewer(props: {
       <PanelDialog.Footer>
         <span class="flex items-center gap-2">
           <Show when={props.version.id === props.workflow.activeVersionId}>
-            <span class="badge badge-success">Active</span>
+            <StatusBadge tone="ok" label="Active" />
           </Show>
           <Show when={props.version.id === props.workflow.currentVersionId}>
-            <span class="badge">Current</span>
+            <StatusBadge tone="neutral" label="Current" icon={null} />
           </Show>
         </span>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" onClick={props.close}>
+          <Button variant="ghost" size="sm" type="button" onClick={props.close}>
             Close
-          </button>
+          </Button>
           <Show when={props.version.id !== props.workflow.currentVersionId}>
-            <button type="button" class="btn-primary btn-sm" disabled={props.restoring} onClick={props.restore}>
+            <Button size="sm" type="button" disabled={props.restoring} onClick={props.restore}>
               <i class={`ti ${props.restoring ? "ti-loader-2 animate-spin" : "ti-history"}`} aria-hidden="true" />
               Restore as new version
-            </button>
+            </Button>
           </Show>
         </div>
       </PanelDialog.Footer>
@@ -634,9 +638,9 @@ export default function MailWorkflowSettings(props: {
   return (
     <div class="flex flex-col gap-2">
       <div class="flex justify-end">
-        <button type="button" class="btn-primary btn-sm" onClick={() => void openEditor()}>
+        <Button size="sm" type="button" onClick={() => void openEditor()}>
           <i class="ti ti-plus" aria-hidden="true" /> New workflow
-        </button>
+        </Button>
       </div>
       <p class="text-xs text-dimmed">
         Mailbox-scoped runtime history is available under Activity. Platform operators retain the central view.
@@ -658,37 +662,39 @@ export default function MailWorkflowSettings(props: {
                   <span class="block truncate text-sm font-medium text-primary">{workflow.name}</span>
                   <span class="block truncate text-xs text-dimmed">{workflow.description || `Priority ${workflow.priority}`}</span>
                 </span>
-                <span class={`badge ${workflow.enabled ? "badge-success" : ""}`}>{workflow.enabled ? "Active" : "Inactive"}</span>
+                <StatusBadge tone={workflow.enabled ? "ok" : "neutral"} label={workflow.enabled ? "Active" : "Inactive"} />
                 <Show when={workflow.enabled && workflow.activeVersionId !== workflow.currentVersionId}>
-                  <span class="badge badge-warning">Update available</span>
+                  <StatusBadge tone="warning" label="Update available" />
                 </Show>
-                <button type="button" class="btn-simple btn-sm" onClick={() => void toggleVersions(workflow)}>
+                <Button variant="ghost" size="sm" type="button" onClick={() => void toggleVersions(workflow)}>
                   <i class="ti ti-history" aria-hidden="true" /> Versions
-                </button>
-                <button type="button" class="btn-simple btn-sm" onClick={() => void openEditor(workflow)}>
+                </Button>
+                <Button variant="ghost" size="sm" type="button" onClick={() => void openEditor(workflow)}>
                   <i class="ti ti-code" aria-hidden="true" /> Edit YAML
-                </button>
+                </Button>
                 <Show
                   when={workflow.enabled && workflow.activeVersionId === workflow.currentVersionId}
                   fallback={
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm"
                       disabled={activate.loading()}
                       onClick={() => activate.mutate(workflow)}
                     >
                       {workflow.enabled ? "Activate current version" : "Activate"}
-                    </button>
+                    </Button>
                   }
                 >
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
-                    class="btn-secondary btn-sm"
                     disabled={deactivate.loading()}
                     onClick={() => deactivate.mutate(workflow)}
                   >
                     Deactivate
-                  </button>
+                  </Button>
                 </Show>
               </div>
               <Show when={expandedWorkflowId() === workflow.id}>
@@ -702,14 +708,14 @@ export default function MailWorkflowSettings(props: {
                         />
                         <span class="min-w-0 flex-1 truncate font-mono">{version.identity}</span>
                         <Show when={version.id === workflow.currentVersionId}>
-                          <span class="badge">Current</span>
+                          <StatusBadge tone="neutral" label="Current" icon={null} />
                         </Show>
                         <Show when={version.id === workflow.activeVersionId}>
-                          <span class="badge badge-success">Active</span>
+                          <StatusBadge tone="ok" label="Active" />
                         </Show>
-                        <button type="button" class="btn-simple btn-xs" onClick={() => void openVersion(workflow, version)}>
+                        <Button variant="ghost" size="xs" type="button" onClick={() => void openVersion(workflow, version)}>
                           View
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </For>

@@ -6,7 +6,10 @@ import {
   panelDialogWorkspaceOptions,
   Select,
   Tooltip,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  ButtonLink,
+  IconButtonLink,
+} from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -96,15 +99,14 @@ function MailMessageInspectorDialog(props: {
         actions={
           <Show when={inspector()?.source.available}>
             <Tooltip content="Download original message">
-              <a
-                class="icon-btn"
+              <IconButtonLink
                 href={sourceHref(props.mailboxId, selectedMessageId())}
                 download={downloadName()}
-                aria-label="Download original message"
+                label="Download original message"
               >
                 <i class="ti ti-download" aria-hidden="true" />
                 <span class="sr-only">Download original message</span>
-              </a>
+              </IconButtonLink>
             </Tooltip>
           </Show>
         }
@@ -122,10 +124,10 @@ function MailMessageInspectorDialog(props: {
                 label: messageOptionLabel(message, index),
                 description: message.from.map((address) => address.name || address.address).join(", ") || "Unknown sender",
               }))}
-              onChange={setSelectedMessageId}
+              onValueChange={setSelectedMessageId}
             />
           </Show>
-          <PanelDialog.Tabs options={inspectorTabs} value={tab} onChange={setTab} ariaLabel="Message inspection view" />
+          <PanelDialog.Tabs options={inspectorTabs} value={tab} onValueChange={setTab} ariaLabel="Message inspection view" />
 
           <Show
             when={inspector()}
@@ -138,14 +140,15 @@ function MailMessageInspectorDialog(props: {
                     title="Could not inspect this message"
                     description={error().message}
                     action={
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         type="button"
-                        class="btn-secondary btn-sm"
                         disabled={loadInspector.loading()}
                         onClick={() => reloadInspector(selectedMessageId())}
                       >
                         <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                      </button>
+                      </Button>
                     }
                   />
                 )}
@@ -199,13 +202,15 @@ function MailMessageInspectorDialog(props: {
                         <dd class="text-primary">{current().placements.length}</dd>
                       </dl>
                       <Show when={current().source.available}>
-                        <a
-                          class="btn-secondary btn-sm mt-3 inline-flex"
+                        <ButtonLink
+                          variant="secondary"
+                          size="sm"
+                          class="mt-3 inline-flex"
                           href={sourceHref(props.mailboxId, current().id)}
                           download={downloadName()}
                         >
                           <i class="ti ti-download" aria-hidden="true" /> Download .eml
-                        </a>
+                        </ButtonLink>
                       </Show>
                     </section>
                   </div>
@@ -221,29 +226,29 @@ function MailMessageInspectorDialog(props: {
                               <p class="truncate text-xs text-dimmed">{list().address}</p>
                             </Show>
                           </div>
-                          <a class="btn-secondary btn-sm" href={subscriptionsHref(props.mailboxId, list().listKey)}>
+                          <ButtonLink variant="secondary" size="sm" href={subscriptionsHref(props.mailboxId, list().listKey)}>
                             <i class="ti ti-settings" aria-hidden="true" />
                             Manage subscription
-                          </a>
+                          </ButtonLink>
                         </div>
                         <div class="mt-3 flex flex-wrap items-center gap-2">
                           <Show when={list().postHref}>
-                            <a class="btn-simple btn-sm" href={list().postHref!}>
+                            <ButtonLink variant="ghost" size="sm" href={list().postHref!}>
                               <i class="ti ti-send" aria-hidden="true" />
                               Write to list
-                            </a>
+                            </ButtonLink>
                           </Show>
                           <Show when={list().helpHref}>
-                            <a class="btn-simple btn-sm" href={list().helpHref!} target="_blank" rel="noopener noreferrer">
+                            <ButtonLink variant="ghost" size="sm" href={list().helpHref!} target="_blank" rel="noopener noreferrer">
                               <i class="ti ti-help" aria-hidden="true" />
                               List help
-                            </a>
+                            </ButtonLink>
                           </Show>
                           <Show when={list().archiveHref}>
-                            <a class="btn-simple btn-sm" href={list().archiveHref!} target="_blank" rel="noopener noreferrer">
+                            <ButtonLink variant="ghost" size="sm" href={list().archiveHref!} target="_blank" rel="noopener noreferrer">
                               <i class="ti ti-world" aria-hidden="true" />
                               List archive
-                            </a>
+                            </ButtonLink>
                           </Show>
                         </div>
                       </section>
@@ -390,14 +395,15 @@ function MailMessageInspectorDialog(props: {
                               title="Could not load source preview"
                               description={error().message}
                               action={
-                                <button
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
                                   type="button"
-                                  class="btn-secondary btn-sm"
                                   disabled={loadSourcePreview.loading()}
                                   onClick={() => void loadSourcePreview.mutate(current().id)}
                                 >
                                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                                </button>
+                                </Button>
                               }
                             />
                           )}
@@ -413,9 +419,14 @@ function MailMessageInspectorDialog(props: {
                                 Showing {formatFileViewSize(preview().previewByteLength)} of {formatFileViewSize(preview().byteLength)}
                               </p>
                             </div>
-                            <a class="btn-secondary btn-sm" href={sourceHref(props.mailboxId, current().id)} download={downloadName()}>
+                            <ButtonLink
+                              variant="secondary"
+                              size="sm"
+                              href={sourceHref(props.mailboxId, current().id)}
+                              download={downloadName()}
+                            >
                               <i class="ti ti-download" aria-hidden="true" /> Download .eml
-                            </a>
+                            </ButtonLink>
                           </div>
                           <Show when={preview().truncated}>
                             <div class="info-block mb-3 text-xs">

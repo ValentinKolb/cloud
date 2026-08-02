@@ -9,7 +9,9 @@ import {
   Switch,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -402,9 +404,9 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       when={editor()}
       fallback={
         <div class="flex flex-col gap-2">
-          <button type="button" class="btn-secondary btn-sm self-end" disabled={props.reloading} onClick={openCreate}>
+          <Button variant="secondary" size="sm" type="button" class="self-end" disabled={props.reloading} onClick={openCreate}>
             <i class="ti ti-plus" aria-hidden="true" /> Add identity
-          </button>
+          </Button>
           <Show
             when={identities().length > 0}
             fallback={
@@ -432,23 +434,24 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                       <span class="badge">Automatic replies</span>
                     </Show>
                     <Show when={identity.status === "unverified" || identity.status === "rejected"}>
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         type="button"
-                        class="btn-secondary btn-sm"
                         disabled={activeBindings().length === 0 || props.reloading}
                         onClick={() => openVerify(identity)}
                       >
                         Verify
-                      </button>
+                      </Button>
                     </Show>
-                    <button
+                    <IconButton
                       type="button"
-                      class="icon-btn opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                      aria-label={`Edit ${identity.label}`}
+                      class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      label={`Edit ${identity.label}`}
                       onClick={() => openEdit(identity)}
                     >
                       <i class="ti ti-edit" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </div>
                 )}
               </For>
@@ -478,25 +481,25 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                 <Select
                   label="Connected account"
                   value={bindingId}
-                  onChange={setBindingId}
+                  onValueChange={setBindingId}
                   options={activeBindings().map((binding) => ({ id: binding.id, label: binding.authenticatedPrincipal ?? binding.id }))}
                   required
                 />
-                <TextInput label="Verification recipient" type="email" value={recipient} onInput={setRecipient} required />
-                <Switch label="Provider saves sent mail automatically" value={savesSent} onChange={setSavesSent} />
+                <TextInput label="Verification recipient" type="email" value={recipient} onValueChange={setRecipient} required />
+                <Switch label="Provider saves sent mail automatically" value={savesSent} onValueChange={setSavesSent} />
                 <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
-                  <button type="button" class="btn-simple btn-sm" disabled={verifyIdentity.loading()} onClick={() => void closeEditor()}>
+                  <Button variant="ghost" size="sm" type="button" disabled={verifyIdentity.loading()} onClick={() => void closeEditor()}>
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    size="sm"
                     type="button"
-                    class="btn-primary btn-sm"
                     disabled={!bindingId() || !recipient().trim() || verifyIdentity.loading()}
                     onClick={() => verifyIdentity.mutate()}
                   >
                     <i class={verifyIdentity.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-shield-check"} aria-hidden="true" />
                     Send verification
-                  </button>
+                  </Button>
                 </div>
               </>
             }
@@ -518,14 +521,16 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                           This identity is not ready to send. Verify that the provider accepts its From address and delivery settings.
                         </span>
                       </span>
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         type="button"
-                        class="btn-secondary btn-sm shrink-0"
+                        class="shrink-0"
                         disabled={activeBindings().length === 0 || props.reloading}
                         onClick={() => openVerify(identity())}
                       >
                         Verify identity
-                      </button>
+                      </Button>
                     </div>
                   }
                 >
@@ -540,17 +545,17 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
               label="Identity label"
               description="The private name collaborators see in identity pickers."
               value={label}
-              onInput={setLabel}
+              onValueChange={setLabel}
               required
             />
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <TextInput label="Display name" description="The name recipients see." value={displayName} onInput={setDisplayName} />
+              <TextInput label="Display name" description="The name recipients see." value={displayName} onValueChange={setDisplayName} />
               <TextInput
                 label="From address"
                 description="The address recipients see."
                 type="email"
                 value={address}
-                onInput={setAddress}
+                onValueChange={setAddress}
                 required
               />
             </div>
@@ -559,7 +564,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
               description="Optional address for recipient replies."
               type="email"
               value={replyTo}
-              onInput={setReplyTo}
+              onValueChange={setReplyTo}
             />
             <div>
               <p class="text-sm font-medium text-primary">Default Cc</p>
@@ -598,7 +603,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                   label="Default signature"
                   description="Inserted into new messages unless a writer has a personal override."
                   value={defaultSignatureTemplateId}
-                  onChange={setDefaultSignatureTemplateId}
+                  onValueChange={setDefaultSignatureTemplateId}
                   options={mailboxSignatures().map((template) => ({ id: template.id, label: template.name }))}
                   clearable
                 />
@@ -607,7 +612,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                     label="Message format"
                     description="Writers can change this for each draft."
                     value={defaultFormat}
-                    onChange={(value) => setDefaultFormat(value === "plain" ? "plain" : "markdown")}
+                    onValueChange={(value) => setDefaultFormat(value === "plain" ? "plain" : "markdown")}
                     options={[
                       { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
                       { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
@@ -617,7 +622,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                     label="Priority"
                     description="Normal is appropriate for most messages."
                     value={defaultPriority}
-                    onChange={(value) => setDefaultPriority(value === "high" ? "high" : value === "low" ? "low" : "normal")}
+                    onValueChange={(value) => setDefaultPriority(value === "high" ? "high" : value === "low" ? "low" : "normal")}
                     options={[
                       { id: "normal", label: "Normal" },
                       { id: "high", label: "High", icon: "ti ti-arrow-up" },
@@ -633,14 +638,14 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                 description="Preselected when Mail cannot determine a more specific identity."
                 icon="ti ti-star"
                 value={isDefault}
-                onChange={setIsDefault}
+                onValueChange={setIsDefault}
               />
               <CheckboxCard
                 label="Allow automatic replies"
                 description="Rules may use this identity. No message is sent until a rule is explicitly enabled."
                 icon="ti ti-message-reply"
                 value={allowAutomation}
-                onChange={setAllowAutomation}
+                onValueChange={setAllowAutomation}
               />
             </div>
             <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
@@ -659,7 +664,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                     icon="ti ti-mail-check"
                     variant="input"
                     value={defaultDeliveryReceipt}
-                    onChange={setDefaultDeliveryReceipt}
+                    onValueChange={setDefaultDeliveryReceipt}
                   />
                   <CheckboxCard
                     label="Request read receipts"
@@ -667,7 +672,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                     icon="ti ti-eye-check"
                     variant="input"
                     value={defaultReadReceipt}
-                    onChange={setDefaultReadReceipt}
+                    onValueChange={setDefaultReadReceipt}
                   />
                 </div>
                 <TextInput
@@ -675,13 +680,13 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                   description="Optional technical address for delivery failures. Leave empty unless your mail provider requires a separate bounce address."
                   type="email"
                   value={envelopeSender}
-                  onInput={setEnvelopeSender}
+                  onValueChange={setEnvelopeSender}
                 />
                 <Select
                   label="Sent folder"
                   description="Required when the provider does not save submitted mail automatically."
                   value={sentFolderId}
-                  onChange={setSentFolderId}
+                  onValueChange={setSentFolderId}
                   options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
                   clearable
                 />
@@ -689,7 +694,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                   label="Drafts folder"
                   description="Provider folder used for projected drafts."
                   value={draftsFolderId}
-                  onChange={setDraftsFolderId}
+                  onValueChange={setDraftsFolderId}
                   options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
                   clearable
                 />
@@ -734,9 +739,9 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                       <span class="block text-sm font-medium text-primary">Contact card attached</span>
                       <span class="block text-xs text-dimmed">A vCard is added to every message from this identity.</span>
                     </span>
-                    <button type="button" class="icon-btn" aria-label="Remove contact card" onClick={() => setVcard(null)}>
+                    <IconButton type="button" label="Remove contact card" onClick={() => setVcard(null)}>
                       <i class="ti ti-x" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </div>
                 </Show>
                 <Show when={editingIdentity()}>
@@ -748,24 +753,31 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                         icon="ti ti-server"
                         variant="input"
                         value={customSmtpEnabled}
-                        onChange={setCustomSmtpEnabled}
+                        onValueChange={setCustomSmtpEnabled}
                       />
                       <Show when={customSmtpEnabled()}>
                         <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem]">
-                          <TextInput label="SMTP host" value={customSmtpHost} onInput={setCustomSmtpHost} required />
-                          <NumberInput label="Port" value={customSmtpPort} onChange={setCustomSmtpPort} min={1} max={65_535} required />
+                          <TextInput label="SMTP host" value={customSmtpHost} onValueChange={setCustomSmtpHost} required />
+                          <NumberInput
+                            label="Port"
+                            value={customSmtpPort}
+                            onValueChange={setCustomSmtpPort}
+                            min={1}
+                            max={65_535}
+                            required
+                          />
                         </div>
                         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <Select
                             label="Connection security"
                             value={customSmtpTlsMode}
-                            onChange={(value) => setCustomSmtpTlsMode(value === "implicit" ? "implicit" : "starttls")}
+                            onValueChange={(value) => setCustomSmtpTlsMode(value === "implicit" ? "implicit" : "starttls")}
                             options={[
                               { id: "starttls", label: "STARTTLS" },
                               { id: "implicit", label: "TLS" },
                             ]}
                           />
-                          <TextInput label="Username" value={customSmtpUsername} onInput={setCustomSmtpUsername} required />
+                          <TextInput label="Username" value={customSmtpUsername} onValueChange={setCustomSmtpUsername} required />
                         </div>
                         <TextInput
                           label="Password"
@@ -776,13 +788,14 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                           }
                           password
                           value={customSmtpPassword}
-                          onInput={setCustomSmtpPassword}
+                          onValueChange={setCustomSmtpPassword}
                           required={identity().transport.mode !== "custom"}
                         />
                         <div class="flex justify-end">
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             type="button"
-                            class="btn-secondary btn-sm"
                             disabled={
                               saveCustomSmtp.loading() ||
                               !customSmtpHost().trim() ||
@@ -793,20 +806,21 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                           >
                             <i class={saveCustomSmtp.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-shield-check"} aria-hidden="true" />
                             Verify and save SMTP
-                          </button>
+                          </Button>
                         </div>
                       </Show>
                       <Show when={!customSmtpEnabled() && identity().transport.mode === "custom"}>
                         <div class="flex justify-end">
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             type="button"
-                            class="btn-secondary btn-sm"
                             disabled={removeCustomSmtp.loading()}
                             onClick={() => removeCustomSmtp.mutate()}
                           >
                             <i class={removeCustomSmtp.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-server-off"} aria-hidden="true" />
                             Use mailbox SMTP
-                          </button>
+                          </Button>
                         </div>
                       </Show>
                     </div>
@@ -817,29 +831,31 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
             <div class="sticky bottom-0 flex items-center justify-between gap-2 bg-[var(--ui-surface)] py-2">
               <Show when={editingIdentity()} fallback={<span />}>
                 {(identity) => (
-                  <button
+                  <Button
+                    variant="danger"
+                    size="sm"
                     type="button"
-                    class="btn-danger btn-sm"
                     disabled={disableIdentity.loading() || updateIdentity.loading()}
                     onClick={() => disableIdentity.mutate(identity())}
                   >
                     <i class={disableIdentity.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} aria-hidden="true" />
                     Disable identity
-                  </button>
+                  </Button>
                 )}
               </Show>
               <span class="flex items-center justify-end gap-2">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  class="btn-simple btn-sm"
                   disabled={createIdentity.loading() || updateIdentity.loading()}
                   onClick={() => void closeEditor()}
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="sm"
                   type="button"
-                  class="btn-primary btn-sm"
                   disabled={
                     !label().trim() || !address().trim() || Boolean(vcardError()) || createIdentity.loading() || updateIdentity.loading()
                   }
@@ -856,7 +872,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                     aria-hidden="true"
                   />
                   {currentEditor().kind === "edit" ? "Save identity" : "Add identity"}
-                </button>
+                </Button>
               </span>
             </div>
           </Show>

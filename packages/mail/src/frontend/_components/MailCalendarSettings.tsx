@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Placeholder, Select, toast } from "@valentinkolb/cloud/ui";
+import { Placeholder, Select, toast, Button } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
@@ -62,9 +62,9 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
               title="Spaces is unavailable"
               description={load.error()?.message}
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={() => load.mutate()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => load.mutate()}>
                   Retry
-                </button>
+                </Button>
               }
             />
           }
@@ -74,22 +74,23 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
             description="The user can choose another writable Space for each invitation. Removing access clears the suggestion safely."
             icon="ti ti-calendar-event"
             value={() => spaceId() ?? undefined}
-            onChange={setSpaceId}
+            onValueChange={setSpaceId}
             clearable
             placeholder={items().length > 0 ? "No default Space" : "No writable Spaces"}
             disabled={items().length === 0}
             options={items().map((item) => ({ id: item.id, label: item.name, color: item.color, icon: "ti ti-calendar-event" }))}
           />
           <div class="flex justify-end pt-1">
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
-              class="btn-secondary btn-sm"
               disabled={save.loading() || spaceId() === savedSpaceId()}
               onClick={() => save.mutate()}
             >
               <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} aria-hidden="true" />
               Save calendar
-            </button>
+            </Button>
           </div>
         </Show>
       </Show>

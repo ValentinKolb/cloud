@@ -1,4 +1,4 @@
-import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid, ButtonLink } from "@k2b/ui";
 import type { MailAutomationActivityData } from "../service/automation-workspace";
 import MailAutomationActivityTable from "./_components/MailAutomationActivityTable";
 import MailAutomationShell from "./_components/MailAutomationShell";
@@ -16,9 +16,9 @@ export default function MailAutomationActivityPage(props: { data: MailAutomation
           <h1 class="text-base font-semibold text-primary">Activity</h1>
           <p class="mt-0.5 text-xs text-dimmed">Workflow runs and mail-rule backfills for this mailbox during the last 30 days.</p>
         </header>
-        <a class="btn-secondary btn-sm" href={`/app/mail/${props.data.mailbox.id}/automations/activity`}>
+        <ButtonLink variant="secondary" size="sm" href={`/app/mail/${props.data.mailbox.id}/automations/activity`}>
           <i class="ti ti-refresh" aria-hidden="true" /> Refresh
-        </a>
+        </ButtonLink>
       </div>
       <StatGrid columns={4}>
         <StatCell

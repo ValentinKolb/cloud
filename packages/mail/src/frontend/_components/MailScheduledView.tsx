@@ -1,5 +1,5 @@
-import { Link, type LinkNavigateEvent, navigateTo } from "@k2b/ssr/nav";
-import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { type LinkNavigateEvent, navigateTo } from "@k2b/ssr/nav";
+import { Button, ButtonLink, Placeholder, prompts, toast } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -23,15 +23,15 @@ const chooseDisposition = () =>
           The scheduled delivery will be stopped immediately. Keep the message as a shared draft to edit it later, or discard it.
         </p>
         <div class="flex flex-wrap items-center justify-end gap-2">
-          <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => close(null)}>
             Keep scheduled
-          </button>
-          <button type="button" class="btn-danger btn-sm" onClick={() => close("discard")}>
+          </Button>
+          <Button variant="danger" size="sm" type="button" onClick={() => close("discard")}>
             <i class="ti ti-trash" aria-hidden="true" /> Discard message
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => close("draft")}>
+          </Button>
+          <Button size="sm" type="button" onClick={() => close("draft")}>
             <i class="ti ti-file-pencil" aria-hidden="true" /> Keep as draft
-          </button>
+          </Button>
         </div>
       </div>
     ),
@@ -158,9 +158,11 @@ export default function MailScheduledView(props: {
                       </div>
                     </div>
                     <Show when={props.canWrite}>
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         type="button"
-                        class="btn-secondary btn-sm shrink-0"
+                        class="shrink-0"
                         disabled={Boolean(cancellingId())}
                         onClick={() => void cancel(item.id)}
                       >
@@ -169,21 +171,24 @@ export default function MailScheduledView(props: {
                           aria-hidden="true"
                         />
                         Cancel
-                      </button>
+                      </Button>
                     </Show>
                   </article>
                 )}
               </For>
               <Show when={props.page.nextCursor}>
                 {(cursor) => (
-                  <Link
+                  <ButtonLink
                     href={`/app/mail/${props.mailboxId}?scheduled=1&cursor=${encodeURIComponent(cursor())}`}
-                    class="btn-secondary btn-sm self-center"
+                    variant="secondary"
+                    size="sm"
+                    class="self-center"
+                    navigation="enhanced"
                     onNavigate={props.onNavigate}
                     scroll="preserve"
                   >
                     Load more
-                  </Link>
+                  </ButtonLink>
                 )}
               </Show>
             </div>

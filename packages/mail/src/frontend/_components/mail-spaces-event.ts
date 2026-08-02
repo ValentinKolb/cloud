@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
 import { buildSpacesEventHandoffHref } from "./mail-spaces-event-route";

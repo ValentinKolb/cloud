@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, ButtonLink } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, onMount, Show } from "solid-js";
 import type { MailDraftSeed, SenderIdentity } from "../../contracts";
@@ -32,9 +32,9 @@ export default function MailDraftSeedComposerPage(props: {
               title="This message is no longer available"
               description="The temporary composer data expired or was removed. Start the message again."
               action={
-                <a class="btn-secondary btn-sm" href={props.returnHref}>
+                <ButtonLink variant="secondary" size="sm" href={props.returnHref}>
                   Back to mailbox
-                </a>
+                </ButtonLink>
               }
             />
           </div>

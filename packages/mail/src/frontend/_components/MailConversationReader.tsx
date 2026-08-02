@@ -1,6 +1,6 @@
 import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
-import { CheckboxCard, Dropdown, type DropdownItem, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, Dropdown, type DropdownItem, Placeholder, prompts, Select, Tooltip, toast, Button, IconButton } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -240,13 +240,13 @@ export default function MailConversationReader(props: {
               </For>
             </div>
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => close(null)}>
+              </Button>
+              <Button size="sm" type="button" onClick={() => close(null)}>
                 <i class="ti ti-plus" aria-hidden="true" />
                 New {intentLabel(lookup.request.intent)}
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -341,7 +341,7 @@ export default function MailConversationReader(props: {
             <Select
               label="From"
               value={senderIdentityId}
-              onChange={setSenderIdentityId}
+              onValueChange={setSenderIdentityId}
               options={identities.map((identity) => ({
                 id: identity.id,
                 label: identity.label,
@@ -349,12 +349,12 @@ export default function MailConversationReader(props: {
               }))}
             />
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => close(senderIdentityId())}>
+              </Button>
+              <Button size="sm" type="button" onClick={() => close(senderIdentityId())}>
                 Continue
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -439,23 +439,23 @@ export default function MailConversationReader(props: {
             <Select
               label="Send from"
               value={senderIdentityId}
-              onChange={setSenderIdentityId}
+              onValueChange={setSenderIdentityId}
               options={identities.map((identity) => ({ id: identity.id, label: identity.label }))}
             />
             <Show when={message.attachments.length > 0}>
               <CheckboxCard
                 label={`Include ${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`}
                 value={includeAttachments}
-                onChange={setIncludeAttachments}
+                onValueChange={setIncludeAttachments}
               />
             </Show>
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                size="sm"
                 type="button"
-                class="btn-primary btn-sm"
                 onClick={() =>
                   close({
                     kind,
@@ -465,7 +465,7 @@ export default function MailConversationReader(props: {
                 }
               >
                 <i class="ti ti-file-pencil" aria-hidden="true" /> Continue
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -824,9 +824,9 @@ export default function MailConversationReader(props: {
               title="Could not load this message"
               description={message}
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={() => void props.onReconcile()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => void props.onReconcile()}>
                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                </button>
+                </Button>
               }
             />
           );
@@ -863,14 +863,9 @@ export default function MailConversationReader(props: {
             </Link>
             <Show when={props.listCollapsed}>
               <Tooltip content="Show conversation list">
-                <button
-                  type="button"
-                  class="icon-btn hidden lg:inline-flex"
-                  aria-label="Show conversation list"
-                  onClick={props.onRestoreList}
-                >
+                <IconButton type="button" class="hidden lg:inline-flex" label="Show conversation list" onClick={props.onRestoreList}>
                   <i class="ti ti-layout-sidebar-left-expand" aria-hidden="true" />
-                </button>
+                </IconButton>
               </Tooltip>
             </Show>
             <div class="min-w-0 flex-1">
@@ -921,16 +916,16 @@ export default function MailConversationReader(props: {
                       <For each={section.actions}>
                         {(action) => (
                           <Tooltip content={action.label}>
-                            <button
+                            <IconButton
                               type="button"
-                              class="icon-btn shrink-0"
-                              aria-label={action.label}
+                              class="shrink-0"
+                              label={action.label}
                               data-mail-toolbar-action={action.id}
                               disabled={action.disabled}
                               onClick={action.action}
                             >
                               <i class={action.icon} aria-hidden="true" />
-                            </button>
+                            </IconButton>
                           </Tooltip>
                         )}
                       </For>
@@ -940,26 +935,25 @@ export default function MailConversationReader(props: {
               </div>
               <Dropdown
                 trigger={
-                  <button type="button" class="icon-btn" aria-label="More conversation actions">
+                  <IconButton type="button" label="More conversation actions">
                     <i class="ti ti-dots" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 }
                 position="bottom-left"
-                width="w-56"
+                width="14rem"
                 elements={overflowActions()}
               />
               <Tooltip content="Conversation details">
-                <button
+                <IconButton
                   type="button"
-                  class="icon-btn"
                   classList={{ "bg-[var(--ui-selected)]": props.detailsOpen }}
-                  aria-label="Toggle conversation details"
+                  label="Toggle conversation details"
                   aria-pressed={props.detailsOpen}
                   data-mail-details-trigger
                   onClick={props.onToggleDetails}
                 >
                   <i class="ti ti-layout-sidebar-right" aria-hidden="true" />
-                </button>
+                </IconButton>
               </Tooltip>
             </div>
           </div>
@@ -1022,15 +1016,16 @@ export default function MailConversationReader(props: {
           </div>
           <Show when={pendingNewMessages()}>
             {(count) => (
-              <button
+              <Button
+                size="sm"
                 type="button"
-                class="btn-primary btn-sm absolute left-1/2 top-3 z-10 -translate-x-1/2 shadow-[var(--ui-shadow-float)]"
+                class="absolute left-1/2 top-3 z-10 -translate-x-1/2 shadow-[var(--ui-shadow-float)]"
                 aria-live="polite"
                 onClick={jumpToNewest}
               >
                 {count()} new message{count() === 1 ? "" : "s"}
                 <i class="ti ti-arrow-up" aria-hidden="true" />
-              </button>
+              </Button>
             )}
           </Show>
         </div>

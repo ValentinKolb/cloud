@@ -1,4 +1,4 @@
-import { AutocompleteEditor, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue, Button } from "@k2b/ui";
 import type { Accessor } from "solid-js";
 import { Show } from "solid-js";
 import type { ComposePreview } from "../../contracts";
@@ -31,10 +31,10 @@ export default function MailComposerEditor(props: {
       fallback={
         <AutocompleteEditor
           value={props.body}
-          onInput={props.onBodyInput}
+          onValueChange={props.onBodyInput}
           lines={26}
           placeholder="Write your message"
-          ariaLabel="Message body"
+          aria-label="Message body"
           spellcheck
           disabled={!props.editable()}
           completions={props.completions()}
@@ -45,9 +45,9 @@ export default function MailComposerEditor(props: {
     >
       <MarkdownEditor
         value={props.body}
-        onInput={props.onBodyInput}
+        onValueChange={props.onBodyInput}
         placeholder="Write your message"
-        ariaLabel="Message body"
+        aria-label="Message body"
         lines={26}
         spellcheck
         disabled={!props.editable()}
@@ -70,9 +70,9 @@ export default function MailComposerEditor(props: {
             {(message) => (
               <div class="flex h-full min-h-72 flex-col items-center justify-center gap-2 p-4 text-sm text-red-600">
                 <span>{message()}</span>
-                <button type="button" class="btn-secondary btn-sm" onClick={props.onRetryPreview}>
+                <Button variant="secondary" size="sm" type="button" onClick={props.onRetryPreview}>
                   Retry
-                </button>
+                </Button>
               </div>
             )}
           </Show>
@@ -83,9 +83,9 @@ export default function MailComposerEditor(props: {
       <Show when={props.preview() && props.previewError()}>
         <div class="absolute inset-x-2 top-2 flex items-center gap-2 border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm">
           <span class="min-w-0 flex-1 truncate">{props.previewError()}</span>
-          <button type="button" class="btn-simple btn-sm" onClick={props.onRetryPreview}>
+          <Button variant="ghost" size="sm" type="button" onClick={props.onRetryPreview}>
             Retry
-          </button>
+          </Button>
         </div>
       </Show>
       <Show when={props.previewLoading()}>
@@ -101,7 +101,7 @@ export default function MailComposerEditor(props: {
       <Show when={props.format() === "markdown"} fallback={<div class="h-full min-h-72 overflow-hidden">{writeSurface()}</div>}>
         <Panes.Root
           value={props.panes()}
-          onChange={props.onPanesChange}
+          onValueChange={props.onPanesChange}
           class="h-full w-full"
           keepMounted
           allowResize

@@ -1,14 +1,6 @@
 import { mutation } from "@k2b/stdlib/solid";
-import {
-  confirmDiscardIfDirty,
-  NumberInput,
-  PermissionEditor,
-  prompts,
-  Select,
-  SettingsModal,
-  TextInput,
-  toast,
-} from "@valentinkolb/cloud/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
+import { confirmDiscardIfDirty, NumberInput, prompts, Select, SettingsModal, TextInput, toast, Button } from "@k2b/ui";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
@@ -325,7 +317,7 @@ export default function MailboxSettings(props: {
             label="Default message format"
             description="Choose how message bodies are displayed in this browser."
             value={readingFormat}
-            onChange={(value) => setReadingFormat(value === "html" || value === "plain" ? value : "automatic")}
+            onValueChange={(value) => setReadingFormat(value === "html" || value === "plain" ? value : "automatic")}
             options={[
               {
                 id: "automatic",
@@ -351,15 +343,15 @@ export default function MailboxSettings(props: {
             Scripts and active content are always removed. Remote images remain blocked until you choose to load them.
           </p>
           <div class="flex justify-end pt-1">
-            <button
+            <Button
+              size="sm"
               type="button"
-              class="btn-primary btn-sm"
               disabled={saveReadingPreferences.loading() || !ownDirty()}
               onClick={() => saveReadingPreferences.mutate()}
             >
               <i class={`ti ${saveReadingPreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
               Save preference
-            </button>
+            </Button>
           </div>
         </div>
       </SettingsModal.Tab>
@@ -367,12 +359,12 @@ export default function MailboxSettings(props: {
       <Show when={canAdmin() && props.context.admin}>
         <SettingsModal.Tab id="mailbox" title="Mailbox" icon="ti ti-id" description="The name and context collaborators see.">
           <div class="flex flex-col gap-2">
-            <TextInput label="Name" description="The label collaborators see." value={name} onInput={setName} required />
+            <TextInput label="Name" description="The label collaborators see." value={name} onValueChange={setName} required />
             <TextInput
               label="Description"
               description="Optional context for this mailbox."
               value={description}
-              onInput={setDescription}
+              onValueChange={setDescription}
               multiline
               lines={3}
             />
@@ -384,14 +376,14 @@ export default function MailboxSettings(props: {
               label="Internal email domains"
               description="Comma-separated domains. Recipients outside these domains trigger a review."
               value={internalDomains}
-              onInput={setInternalDomains}
+              onValueChange={setInternalDomains}
               placeholder="example.org, subsidiary.example"
             />
             <NumberInput
               label="Large recipient warning"
               description="Show a review when a message reaches at least this many unique recipients."
               value={largeRecipientThreshold}
-              onInput={(value) => setLargeRecipientThreshold(value ?? 20)}
+              onValueChange={(value) => setLargeRecipientThreshold(value ?? 20)}
               min={5}
               max={200}
               allowNegative={false}
@@ -399,15 +391,15 @@ export default function MailboxSettings(props: {
             />
             <MailCalendarSettings mailboxId={props.context.mailbox.id} />
             <div class="flex justify-end pt-1">
-              <button
+              <Button
+                size="sm"
                 type="button"
-                class="btn-primary btn-sm"
                 onClick={() => saveMailbox.mutate()}
                 disabled={saveMailbox.loading() || props.reloading || !name().trim() || !ownDirty()}
               >
                 <i class={`ti ${saveMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
                 Save mailbox
-              </button>
+              </Button>
             </div>
           </div>
         </SettingsModal.Tab>
@@ -432,7 +424,7 @@ export default function MailboxSettings(props: {
                     label="Compose format"
                     description="Used when you open a new message, reply, or forward."
                     value={composeFormat}
-                    onChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
+                    onValueChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
                     options={[
                       { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
                       { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
@@ -442,7 +434,7 @@ export default function MailboxSettings(props: {
                     label="Undo send window"
                     description="Delay delivery so you can cancel a queued message."
                     value={undoSeconds}
-                    onInput={(value) => setUndoSeconds(value ?? 0)}
+                    onValueChange={(value) => setUndoSeconds(value ?? 0)}
                     min={0}
                     max={60}
                     allowNegative={false}
@@ -450,9 +442,9 @@ export default function MailboxSettings(props: {
                   />
                 </div>
                 <div class="flex justify-end pt-1">
-                  <button
+                  <Button
+                    size="sm"
                     type="button"
-                    class="btn-primary btn-sm"
                     disabled={saveWritingPreferences.loading() || !ownDirty()}
                     onClick={() => saveWritingPreferences.mutate()}
                   >
@@ -461,7 +453,7 @@ export default function MailboxSettings(props: {
                       aria-hidden="true"
                     />
                     Save preferences
-                  </button>
+                  </Button>
                 </div>
               </section>
               <MailComposeSettings
@@ -586,7 +578,7 @@ export default function MailboxSettings(props: {
                   description="Allow writers to manage absences and acknowledgements without giving them mailbox administration."
                   icon="ti ti-message-cog"
                   value={automaticReplyManagementPermission}
-                  onChange={(value) => setAutomaticReplyManagementPermission(value === "write" ? "write" : "admin")}
+                  onValueChange={(value) => setAutomaticReplyManagementPermission(value === "write" ? "write" : "admin")}
                   options={[
                     {
                       id: "write",
@@ -602,9 +594,10 @@ export default function MailboxSettings(props: {
                     },
                   ]}
                 />
-                <button
+                <Button
+                  size="sm"
                   type="button"
-                  class="btn-primary btn-sm self-end"
+                  class="self-end"
                   disabled={saveAutomaticReplyAccess.loading() || !ownDirty()}
                   onClick={() => saveAutomaticReplyAccess.mutate()}
                 >
@@ -613,7 +606,7 @@ export default function MailboxSettings(props: {
                     aria-hidden="true"
                   />
                   Save automatic reply access
-                </button>
+                </Button>
               </section>
               <section class="flex flex-col gap-2">
                 <div>
@@ -665,15 +658,17 @@ export default function MailboxSettings(props: {
                   The mailbox is paused and hidden. Provider mail and Cloud data remain retained for restoration.
                 </p>
               </div>
-              <button
+              <Button
+                variant="danger"
+                size="sm"
                 type="button"
-                class="btn-danger btn-sm shrink-0"
+                class="shrink-0"
                 onClick={() => deleteMailbox.mutate()}
                 disabled={deleteMailbox.loading()}
               >
                 <i class={`ti ${deleteMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
                 Move to recently deleted
-              </button>
+              </Button>
             </div>
           </SettingsModal.Tab>
         </>

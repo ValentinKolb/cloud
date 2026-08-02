@@ -1,4 +1,4 @@
-import { CheckboxCard, prompts } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, prompts, Button } from "@k2b/ui";
 import { createSignal, For } from "solid-js";
 import {
   MAIL_CONVERSATION_TOOLBAR_SECTIONS,
@@ -47,7 +47,7 @@ export const openMailConversationToolbarDialog = (
                             icon={option.icon}
                             value={checked}
                             disabled={!checked() && selected().length >= MAX_MAIL_CONVERSATION_TOOLBAR_ACTIONS}
-                            onChange={(enabled) => toggle(option.id, enabled)}
+                            onValueChange={(enabled) => toggle(option.id, enabled)}
                           />
                         );
                       }}
@@ -62,12 +62,12 @@ export const openMailConversationToolbarDialog = (
               {selected().length} of {MAX_MAIL_CONVERSATION_TOOLBAR_ACTIONS} selected
             </span>
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => close(selected())}>
+              </Button>
+              <Button size="sm" type="button" onClick={() => close(selected())}>
                 Save toolbar
-              </button>
+              </Button>
             </div>
           </div>
         </div>

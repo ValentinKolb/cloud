@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogFixedOptions } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogFixedOptions } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import MailAttachmentLinksSettings from "./MailAttachmentLinksSettings";
 

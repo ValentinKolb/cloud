@@ -30,6 +30,14 @@ import { Button, IconButton } from "@k2b/ui";
 
 `size` accepts `xs`, `sm`, `md`, or `lg`. `Button` defaults to `primary`; `IconButton` defaults to `ghost`. Loading disables the action, exposes busy semantics, and may replace the visible label through `loadingLabel`.
 
+`ButtonLink` uses normal document navigation by default. Inside a hydrated SSR workspace, opt into the shared navigation contract explicitly:
+
+```tsx
+<ButtonLink href="/items" navigation="enhanced" scroll="preserve" onNavigate={refreshWorkspace}>
+  More items
+</ButtonLink>
+```
+
 ## Accessibility
 
 All native button attributes pass through. The default `type` is `button`, so form submission stays explicit. `IconButton` requires `label`, which supplies its accessible name and title.

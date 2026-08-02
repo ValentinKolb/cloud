@@ -1,4 +1,4 @@
-import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, Tooltip, IconButton } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import { getMailAction, type MailActionId, spamActionForFolder } from "./mail-actions";
@@ -220,12 +220,12 @@ export default function MailConversationRow(props: {
         <div class="absolute right-3 top-2 z-10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           <Dropdown
             trigger={
-              <button type="button" class="icon-btn icon-btn-sm" aria-label={`Actions for ${props.item.subject || "conversation"}`}>
+              <IconButton size="sm" type="button" label={`Actions for ${props.item.subject || "conversation"}`}>
                 <i class="ti ti-dots" aria-hidden="true" />
-              </button>
+              </IconButton>
             }
             position="bottom-left"
-            width="w-52"
+            width="13rem"
             elements={[
               {
                 label: getMailAction(props.item.unread ? "mark_read" : "mark_unread").label,

@@ -11,7 +11,9 @@ import {
   Switch,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -379,7 +381,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                     label="Label"
                     description="The private name shown to mailbox administrators."
                     value={name}
-                    onInput={setName}
+                    onValueChange={setName}
                     required
                   />
                   <div class="flex items-end gap-2">
@@ -389,19 +391,21 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                         description="Used to find the provider's server settings."
                         type="email"
                         value={email}
-                        onInput={setEmail}
+                        onValueChange={setEmail}
                         required
                       />
                     </div>
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm shrink-0"
+                      class="shrink-0"
                       disabled={!email().trim() || discover.loading()}
                       onClick={() => discover.mutate()}
                     >
                       <i class={`ti ${discover.loading() ? "ti-loader-2 animate-spin" : "ti-wand"}`} aria-hidden="true" />
                       Find settings
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <Show when={discoverySource()}>
@@ -415,7 +419,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                   label="Username"
                   description="The login name used for incoming and outgoing mail."
                   value={username}
-                  onInput={setUsername}
+                  onValueChange={setUsername}
                   required
                 />
               </PanelDialog.Section>
@@ -428,12 +432,12 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 <div>
                   <p class="mb-1 text-xs font-semibold text-primary">Incoming mail</p>
                   <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_11rem]">
-                    <TextInput label="IMAP host" placeholder="imap.example.com" value={imapHost} onInput={setImapHost} required />
-                    <NumberInput label="Port" value={imapPort} onInput={(value) => setImapPort(value ?? 993)} min={1} max={65_535} />
+                    <TextInput label="IMAP host" placeholder="imap.example.com" value={imapHost} onValueChange={setImapHost} required />
+                    <NumberInput label="Port" value={imapPort} onValueChange={(value) => setImapPort(value ?? 993)} min={1} max={65_535} />
                     <Select
                       label="TLS"
                       value={imapTls}
-                      onChange={(value) => setImapTls(value === "starttls" ? "starttls" : "implicit")}
+                      onValueChange={(value) => setImapTls(value === "starttls" ? "starttls" : "implicit")}
                       options={[
                         { id: "implicit", label: "Implicit TLS" },
                         { id: "starttls", label: "STARTTLS" },
@@ -444,12 +448,12 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 <div>
                   <p class="mb-1 text-xs font-semibold text-primary">Outgoing mail</p>
                   <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_11rem]">
-                    <TextInput label="SMTP host" placeholder="smtp.example.com" value={smtpHost} onInput={setSmtpHost} required />
-                    <NumberInput label="Port" value={smtpPort} onInput={(value) => setSmtpPort(value ?? 587)} min={1} max={65_535} />
+                    <TextInput label="SMTP host" placeholder="smtp.example.com" value={smtpHost} onValueChange={setSmtpHost} required />
+                    <NumberInput label="Port" value={smtpPort} onValueChange={(value) => setSmtpPort(value ?? 587)} min={1} max={65_535} />
                     <Select
                       label="TLS"
                       value={smtpTls}
-                      onChange={(value) => setSmtpTls(value === "implicit" ? "implicit" : "starttls")}
+                      onValueChange={(value) => setSmtpTls(value === "implicit" ? "implicit" : "starttls")}
                       options={[
                         { id: "starttls", label: "STARTTLS" },
                         { id: "implicit", label: "Implicit TLS" },
@@ -470,9 +474,10 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               >
                 <Show when={oauthProviderId()}>
                   {(providerId) => (
-                    <button
+                    <Button
+                      size="sm"
                       type="button"
-                      class="btn-primary btn-sm self-start"
+                      class="self-start"
                       disabled={!canStartOAuth() || startOAuth.loading()}
                       onClick={() =>
                         startOAuth.mutate({
@@ -492,7 +497,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                     >
                       <i class={startOAuth.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-login-2"} aria-hidden="true" />
                       Continue with {providerId() === "google" ? "Google" : "Microsoft"}
-                    </button>
+                    </Button>
                   )}
                 </Show>
                 <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -500,7 +505,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                     label="Authentication"
                     description="Choose how Mail signs in to the provider."
                     value={auth}
-                    onChange={(value) => setAuth(value === "oauth2" ? "oauth2" : "password")}
+                    onValueChange={(value) => setAuth(value === "oauth2" ? "oauth2" : "password")}
                     options={[
                       { id: "password", label: "Password" },
                       { id: "oauth2", label: "OAuth2 access token" },
@@ -510,7 +515,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                     label={auth() === "oauth2" ? "Access token" : "Password"}
                     description="Encrypted after verification and never shown again."
                     value={secret}
-                    onInput={setSecret}
+                    onValueChange={setSecret}
                     password
                     required
                     autocomplete="off"
@@ -523,14 +528,14 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                       description="Creates and verifies the default sending identity after incoming mail is connected."
                       icon="ti ti-at"
                       value={createSender}
-                      onChange={setCreateSender}
+                      onValueChange={setCreateSender}
                     />
                     <Show when={createSender()}>
                       <div class="px-1">
                         <Switch
                           label="Provider saves sent mail automatically"
                           value={savesSentAutomatically}
-                          onChange={setSavesSentAutomatically}
+                          onValueChange={setSavesSentAutomatically}
                         />
                       </div>
                     </Show>
@@ -541,18 +546,13 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
             <PanelDialog.Footer>
               <span />
               <div class="flex items-center gap-2">
-                <button type="button" class="btn-simple btn-sm" disabled={connect.loading()} onClick={() => void closeEditor()}>
+                <Button variant="ghost" size="sm" type="button" disabled={connect.loading()} onClick={() => void closeEditor()}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  class="btn-primary btn-sm"
-                  disabled={!canSubmit() || connect.loading()}
-                  onClick={() => connect.mutate()}
-                >
+                </Button>
+                <Button size="sm" type="button" disabled={!canSubmit() || connect.loading()} onClick={() => connect.mutate()}>
                   <i class={connect.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" />
                   {replacingConnectionId() ? "Verify and save" : "Verify and connect"}
-                </button>
+                </Button>
               </div>
             </PanelDialog.Footer>
           </PanelDialog>
@@ -574,9 +574,9 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
             description="Connect an IMAP and SMTP account to synchronize mail."
             icon="ti ti-plug-off"
             action={
-              <button
+              <Button
+                size="sm"
                 type="button"
-                class="btn-primary btn-sm"
                 disabled={props.reloading}
                 onClick={() => {
                   resetEditor();
@@ -585,7 +585,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               >
                 <i class="ti ti-plus" aria-hidden="true" />
                 Connect account
-              </button>
+              </Button>
             }
           />
         }
@@ -605,26 +605,27 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
             </span>
             <span class="badge capitalize">{connection().status.replaceAll("_", " ")}</span>
             <Show when={!currentBinding()}>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-secondary btn-sm"
                 disabled={finishSetup.loading() || props.reloading}
                 onClick={() => finishSetup.mutate(connection().id)}
               >
                 <i class={finishSetup.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" />
                 Finish setup
-              </button>
+              </Button>
             </Show>
             <Dropdown
               trigger={
-                <button
+                <IconButton
                   type="button"
-                  class="icon-btn opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                  aria-label="Connected account actions"
+                  class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                  label="Connected account actions"
                   disabled={props.reloading || revoke.loading() || startOAuth.loading()}
                 >
                   <i class="ti ti-dots" aria-hidden="true" />
-                </button>
+                </IconButton>
               }
               elements={[
                 {
@@ -682,12 +683,13 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 <Switch
                   label="Provider saves sent mail automatically"
                   value={savesSentAutomatically}
-                  onChange={setSavesSentAutomatically}
+                  onValueChange={setSavesSentAutomatically}
                   disabled={setupSender.loading()}
                 />
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-secondary btn-sm"
                   disabled={!currentBinding() || setupSender.loading() || props.reloading}
                   onClick={() => {
                     const binding = currentBinding();
@@ -696,7 +698,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 >
                   <i class={setupSender.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-send"} aria-hidden="true" />
                   Set up sending
-                </button>
+                </Button>
               </div>
             }
           />

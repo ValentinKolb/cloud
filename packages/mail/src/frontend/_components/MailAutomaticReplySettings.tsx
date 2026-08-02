@@ -8,10 +8,13 @@ import {
   prompts,
   SegmentedControl,
   Select,
+  StatusBadge,
   Switch,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -327,9 +330,9 @@ function AutomaticReplyPresetPicker(props: {
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <span />
-        <button type="button" class="btn-simple btn-sm" onClick={() => props.close(null)}>
+        <Button variant="ghost" size="sm" type="button" onClick={() => props.close(null)}>
           Cancel
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );
@@ -473,7 +476,7 @@ function AutomaticReplyEditor(props: {
               label="Name"
               description="Shown to mailbox administrators."
               value={() => draft().name}
-              onInput={(value) => update("name", value)}
+              onValueChange={(value) => update("name", value)}
               required
             />
             <Select
@@ -493,7 +496,7 @@ function AutomaticReplyEditor(props: {
                 description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
                 icon: "ti ti-mail",
               }))}
-              onChange={(value) => update("senderIdentityId", value)}
+              onValueChange={(value) => update("senderIdentityId", value ?? "")}
               required
             />
           </div>
@@ -508,7 +511,7 @@ function AutomaticReplyEditor(props: {
               label="Automatic reply enabled"
               value={() => draft().enabled}
               disabled={!props.canEnable && !draft().enabled}
-              onChange={(value) => update("enabled", value)}
+              onValueChange={(value) => update("enabled", value)}
             />
             <p class="mt-0.5 text-xs text-dimmed">
               {props.canEnable
@@ -520,7 +523,7 @@ function AutomaticReplyEditor(props: {
             <Switch
               label="Assign a reference number before replying"
               value={() => draft().ensureReference}
-              onChange={(value) => update("ensureReference", value)}
+              onValueChange={(value) => update("ensureReference", value)}
             />
             <p class="-mt-1 text-xs text-dimmed">
               Makes the permanent reference available as <code>{"{{ reference.value }}"}</code> in the subject and message.
@@ -564,14 +567,14 @@ function AutomaticReplyEditor(props: {
                   { id: "skip", label: "Do not reply", description: "Messages outside the schedule are ignored." },
                   { id: "defer", label: "Reply at the next active time", description: "Messages wait until the schedule becomes active." },
                 ]}
-                onChange={(value) => update("inactiveBehavior", value as AutomaticReplyInactiveBehavior)}
+                onValueChange={(value) => update("inactiveBehavior", value as AutomaticReplyInactiveBehavior)}
               />
             </Show>
             <NumberInput
               label="Repeat protection"
               description="Minimum time before the same sender may receive another reply. The out-of-office preset uses 96 hours (4 days)."
               value={() => draft().minimumIntervalHours}
-              onInput={(value) => update("minimumIntervalHours", value ?? 24)}
+              onValueChange={(value) => update("minimumIntervalHours", value ?? 24)}
               min={0}
               max={8_760}
               suffix="hours"
@@ -588,7 +591,7 @@ function AutomaticReplyEditor(props: {
             label="Subject"
             description={'Use "{{ inputs.message.subject }}" to include the original subject.'}
             value={() => draft().subject}
-            onInput={(value) => {
+            onValueChange={(value) => {
               update("subject", value);
               setPreview(null);
             }}
@@ -598,7 +601,7 @@ function AutomaticReplyEditor(props: {
           <SegmentedControl
             ariaLabel="Message format"
             value={() => draft().format}
-            onChange={(format) => {
+            onValueChange={(format) => {
               update("format", format);
               setContentTab("write");
               setPreview(null);
@@ -612,9 +615,9 @@ function AutomaticReplyEditor(props: {
             when={draft().format === "markdown"}
             fallback={
               <TextInput
-                ariaLabel="Automatic reply message"
+                aria-label="Automatic reply message"
                 value={() => draft().body}
-                onInput={(value) => update("body", value)}
+                onValueChange={(value) => update("body", value)}
                 multiline
                 lines={14}
                 spellcheck
@@ -624,7 +627,7 @@ function AutomaticReplyEditor(props: {
             <PanelDialog.Tabs
               ariaLabel="Response content view"
               value={contentTab}
-              onChange={(tab) => {
+              onValueChange={(tab) => {
                 setContentTab(tab);
                 if (tab === "preview") requestPreview();
               }}
@@ -645,9 +648,9 @@ function AutomaticReplyEditor(props: {
                           {loadPreview.loading() ? "Preparing preview..." : (loadPreview.error()?.message ?? "Preview unavailable")}
                         </span>
                         <Show when={loadPreview.error()}>
-                          <button type="button" class="btn-secondary btn-sm" onClick={requestPreview}>
+                          <Button variant="secondary" size="sm" type="button" onClick={requestPreview}>
                             Retry
-                          </button>
+                          </Button>
                         </Show>
                       </div>
                     }
@@ -663,9 +666,9 @@ function AutomaticReplyEditor(props: {
               }
             >
               <TextInput
-                ariaLabel="Automatic reply message"
+                aria-label="Automatic reply message"
                 value={() => draft().body}
-                onInput={(value) => {
+                onValueChange={(value) => {
                   update("body", value);
                   setPreview(null);
                 }}
@@ -688,12 +691,12 @@ function AutomaticReplyEditor(props: {
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" onClick={props.close}>
+          <Button variant="ghost" size="sm" type="button" onClick={props.close}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             disabled={
               save.loading() ||
               !draft().name.trim() ||
@@ -707,7 +710,7 @@ function AutomaticReplyEditor(props: {
           >
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
             Save automatic reply
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -804,14 +807,9 @@ export default function MailAutomaticReplySettings(props: {
           <span />
         </Show>
         <Show when={props.canManage !== false}>
-          <button
-            type="button"
-            class="btn-primary btn-sm shrink-0"
-            disabled={automationIdentities().length === 0}
-            onClick={() => void open()}
-          >
+          <Button size="sm" type="button" class="shrink-0" disabled={automationIdentities().length === 0} onClick={() => void open()}>
             <i class="ti ti-plus" aria-hidden="true" /> Add automatic reply
-          </button>
+          </Button>
         </Show>
       </div>
       <Show when={automationIdentities().length === 0}>
@@ -826,9 +824,9 @@ export default function MailAutomaticReplySettings(props: {
             icon="ti ti-mail-off"
             action={
               props.onManageIdentities ? (
-                <button type="button" class="btn-secondary btn-sm" onClick={props.onManageIdentities}>
+                <Button variant="secondary" size="sm" type="button" onClick={props.onManageIdentities}>
                   <i class="ti ti-at" aria-hidden="true" /> Manage identities
-                </button>
+                </Button>
               ) : undefined
             }
           />
@@ -853,13 +851,11 @@ export default function MailAutomaticReplySettings(props: {
                   <p class="truncate text-sm font-medium text-primary">{configuration.name}</p>
                   <p class="truncate text-xs text-dimmed">{responseScheduleSummary(configuration.schedule)}</p>
                 </div>
-                <span class={`badge ${configuration.enabled ? "badge-success" : ""}`}>
-                  {configuration.enabled ? "Enabled" : "Disabled"}
-                </span>
+                <StatusBadge tone={configuration.enabled ? "ok" : "neutral"} label={configuration.enabled ? "Enabled" : "Disabled"} />
                 <Show when={props.canManage !== false}>
-                  <button type="button" class="icon-btn" aria-label={`Edit ${configuration.name}`} onClick={() => void open(configuration)}>
+                  <IconButton type="button" label={`Edit ${configuration.name}`} onClick={() => void open(configuration)}>
                     <i class="ti ti-pencil" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </Show>
               </div>
             )}

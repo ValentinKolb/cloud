@@ -10,7 +10,10 @@ import {
   prompts,
   Tooltip,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+  IconButtonLink,
+} from "@k2b/ui";
 import { fileIcons } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { For, onCleanup, Show } from "solid-js";
@@ -68,10 +71,10 @@ function MailAttachmentPreviewDialog(props: { attachment: Attachment; downloadHr
         })}`}
         actions={
           <Tooltip content="Download attachment">
-            <a class="icon-btn" href={props.downloadHref} download={filename()} aria-label={`Download ${filename()}`}>
+            <IconButtonLink href={props.downloadHref} download={filename()} label={`Download ${filename()}`}>
               <i class="ti ti-download" aria-hidden="true" />
               <span class="sr-only">Download {filename()}</span>
-            </a>
+            </IconButtonLink>
           </Tooltip>
         }
         close={props.close}
@@ -155,34 +158,35 @@ export default function MailMessageAttachments(props: {
                 </span>
                 <span class="shrink-0 text-xs text-dimmed">{formatFileViewSize(attachment.sizeBytes)}</span>
                 <Show when={canPreviewAttachment(attachment)}>
-                  <button
+                  <Button
+                    variant="ghost"
                     type="button"
-                    class="mail-attachment-preview btn-simple"
+                    class="mail-attachment-preview"
                     onClick={() => void openAttachmentPreview(attachment, downloadHref, previewHref)}
                   >
                     <i class="ti ti-eye" aria-hidden="true" />
                     Preview
-                  </button>
+                  </Button>
                 </Show>
                 <Show when={props.canShare}>
-                  <button
+                  <IconButton
                     type="button"
-                    class="icon-btn !h-7 !w-7 !p-0 text-sm"
-                    aria-label={`Share ${attachment.filename ?? "attachment"}`}
+                    class="!h-7 !w-7 !p-0 text-sm"
+                    label={`Share ${attachment.filename ?? "attachment"}`}
                     disabled={createLink.loading()}
                     onClick={() => void shareAttachment(attachment)}
                   >
                     <i class={`ti ${createLink.loading() ? "ti-loader-2 animate-spin" : "ti-link"}`} aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </Show>
-                <a
-                  class="icon-btn !h-7 !w-7 !p-0 text-sm"
+                <IconButtonLink
+                  class="!h-7 !w-7 !p-0 text-sm"
                   href={downloadHref}
-                  aria-label={`Download ${attachment.filename ?? "attachment"}`}
+                  label={`Download ${attachment.filename ?? "attachment"}`}
                 >
                   <i class="ti ti-download" aria-hidden="true" />
                   <span class="sr-only">Download {attachment.filename ?? "attachment"}</span>
-                </a>
+                </IconButtonLink>
               </div>
             );
           }}

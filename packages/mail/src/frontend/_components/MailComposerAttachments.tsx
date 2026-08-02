@@ -3,6 +3,7 @@ import type { Accessor } from "solid-js";
 import { For, Show } from "solid-js";
 import type { MailDraft } from "../../contracts";
 
+import { IconButton } from "@k2b/ui";
 export type MailComposerUpload = {
   file: File;
   progress: number;
@@ -32,25 +33,23 @@ export default function MailComposerAttachments(props: {
               <span class="max-w-48 truncate">{attachment.filename}</span>
               <span class="text-xs text-dimmed">{text.pprintBytes(attachment.byteLength)}</span>
               <Show when={props.canShare}>
-                <button
+                <IconButton
                   type="button"
-                  class="icon-btn"
-                  aria-label={`Insert public link for ${attachment.filename}`}
+                  label={`Insert public link for ${attachment.filename}`}
                   disabled={!props.editable() || props.shareLoading()}
                   onClick={() => props.onInsertLink(attachment.id)}
                 >
                   <i class="ti ti-link" aria-hidden="true" />
-                </button>
+                </IconButton>
               </Show>
-              <button
+              <IconButton
                 type="button"
-                class="icon-btn"
-                aria-label={`Remove ${attachment.filename}`}
+                label={`Remove ${attachment.filename}`}
                 disabled={!props.editable()}
                 onClick={() => props.onRemove(attachment.id)}
               >
                 <i class="ti ti-x" aria-hidden="true" />
-              </button>
+              </IconButton>
             </span>
           )}
         </For>
@@ -61,25 +60,23 @@ export default function MailComposerAttachments(props: {
               <span class="max-w-48 truncate">{upload.file.name}</span>
               <span class="text-xs text-dimmed">{upload.error ?? `${upload.progress}%`}</span>
               <Show when={upload.error}>
-                <button
+                <IconButton
                   type="button"
-                  class="icon-btn"
-                  aria-label={`Retry ${upload.file.name}`}
+                  label={`Retry ${upload.file.name}`}
                   disabled={!props.editable()}
                   onClick={() => props.onRetryUpload(upload)}
                 >
                   <i class="ti ti-refresh" aria-hidden="true" />
-                </button>
+                </IconButton>
               </Show>
-              <button
+              <IconButton
                 type="button"
-                class="icon-btn"
-                aria-label={`Cancel ${upload.file.name}`}
+                label={`Cancel ${upload.file.name}`}
                 disabled={!props.editable()}
                 onClick={() => props.onCancelUpload(upload)}
               >
                 <i class="ti ti-x" aria-hidden="true" />
-              </button>
+              </IconButton>
             </span>
           )}
         </For>

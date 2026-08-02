@@ -1,5 +1,5 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { AppWorkspace, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Button, ButtonLink, IconButtonLink, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
 import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -24,14 +24,8 @@ const statusLabel = (status: MailSubscriptionSummary["status"]): string =>
         ? "Request failed"
         : "Detected";
 
-const statusClass = (status: MailSubscriptionSummary["status"]): string =>
-  status === "failed"
-    ? "badge-danger"
-    : status === "unsubscribe_requested"
-      ? "badge-success"
-      : status === "requesting"
-        ? "badge-warning"
-        : "";
+const statusTone = (status: MailSubscriptionSummary["status"]): "error" | "ok" | "warning" | "neutral" =>
+  status === "failed" ? "error" : status === "unsubscribe_requested" ? "ok" : status === "requesting" ? "warning" : "neutral";
 
 const formatDate = (value: string): string =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -309,17 +303,17 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
           subtitle={props.data.mailbox.name}
           icon="ti ti-news"
           action={
-            <a href={`/app/mail/${props.data.mailbox.id}`} class="icon-btn" aria-label="Back to mailbox" title="Back to mailbox">
+            <IconButtonLink href={`/app/mail/${props.data.mailbox.id}`} label="Back to mailbox" title="Back to mailbox">
               <i class="ti ti-arrow-left" aria-hidden="true" />
               <span class="sr-only">Back to mailbox</span>
-            </a>
+            </IconButtonLink>
           }
         />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
-            <a href={`/app/mail/${props.data.mailbox.id}`} class="sidebar-item-mobile">
-              <i class="ti ti-inbox" aria-hidden="true" /> Back to mailbox
-            </a>
+            <AppWorkspace.SidebarItem href={`/app/mail/${props.data.mailbox.id}`} icon="ti ti-inbox">
+              Back to mailbox
+            </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarMobileItems>
           <AppWorkspace.SidebarMobileBody>
             <AppWorkspace.SidebarSection title="Mailbox tools">
@@ -338,10 +332,9 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
           <AppWorkspace.SidebarFooter>
-            <a href={`/app/mail/${props.data.mailbox.id}`} class="sidebar-item">
-              <i class="ti ti-inbox" aria-hidden="true" />
-              <span>Back to mailbox</span>
-            </a>
+            <AppWorkspace.SidebarItem href={`/app/mail/${props.data.mailbox.id}`} icon="ti ti-inbox">
+              Back to mailbox
+            </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarFooter>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
@@ -389,7 +382,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
                           <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-2">
                               <h2 class="truncate text-sm font-semibold text-primary">{item.name}</h2>
-                              <span class={`badge badge-sm ${statusClass(item.status)}`}>{statusLabel(item.status)}</span>
+                              <StatusBadge tone={statusTone(item.status)} label={statusLabel(item.status)} />
                             </div>
                             <Show when={item.name.toLowerCase() !== item.address.toLowerCase()}>
                               <p class="mt-0.5 truncate text-xs text-dimmed">{item.address}</p>
@@ -409,54 +402,57 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
 
                         <div class="flex flex-wrap items-center gap-2">
                           <Show when={canWrite() && item.unsubscribe && item.status !== "unsubscribe_requested"}>
-                            <button
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               type="button"
-                              class="btn-secondary btn-sm"
                               disabled={Boolean(pendingAction()) || unsubscribe.loading() || dispose.loading()}
                               onClick={() => void requestUnsubscribe(item)}
                             >
                               <i class="ti ti-mail-off" aria-hidden="true" />
                               Unsubscribe
-                            </button>
+                            </Button>
                           </Show>
                           <Show when={item.postHref}>
-                            <a class="btn-simple btn-sm" href={item.postHref!}>
+                            <ButtonLink variant="ghost" size="sm" href={item.postHref!}>
                               <i class="ti ti-send" aria-hidden="true" />
                               Write to list
-                            </a>
+                            </ButtonLink>
                           </Show>
                           <Show when={item.helpHref}>
-                            <a class="btn-simple btn-sm" href={item.helpHref!} target="_blank" rel="noopener noreferrer">
+                            <ButtonLink variant="ghost" size="sm" href={item.helpHref!} target="_blank" rel="noopener noreferrer">
                               <i class="ti ti-help" aria-hidden="true" />
                               List help
-                            </a>
+                            </ButtonLink>
                           </Show>
                           <Show when={item.archiveHref}>
-                            <a class="btn-simple btn-sm" href={item.archiveHref!} target="_blank" rel="noopener noreferrer">
+                            <ButtonLink variant="ghost" size="sm" href={item.archiveHref!} target="_blank" rel="noopener noreferrer">
                               <i class="ti ti-world" aria-hidden="true" />
                               List archive
-                            </a>
+                            </ButtonLink>
                           </Show>
                           <Show when={canWrite() && item.status === "unsubscribe_requested"}>
                             <span class="ml-auto flex flex-wrap items-center gap-2">
-                              <button
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 type="button"
-                                class="btn-simple btn-sm"
                                 disabled={Boolean(pendingAction()) || unsubscribe.loading() || dispose.loading()}
                                 onClick={() => void requestDisposition(item, "archive")}
                               >
                                 <i class="ti ti-archive" aria-hidden="true" />
                                 Archive existing
-                              </button>
-                              <button
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 type="button"
-                                class="btn-simple btn-sm"
                                 disabled={Boolean(pendingAction()) || unsubscribe.loading() || dispose.loading()}
                                 onClick={() => void requestDisposition(item, "trash")}
                               >
                                 <i class="ti ti-trash" aria-hidden="true" />
                                 Move existing to Trash
-                              </button>
+                              </Button>
                             </span>
                           </Show>
                         </div>
@@ -466,15 +462,16 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
                 </div>
                 <Show when={nextCursor()}>
                   <div class="flex justify-center py-2">
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm"
                       disabled={loadMore.loading()}
                       onClick={() => nextCursor() && void loadMore.mutate(nextCursor()!)}
                     >
                       <i class={`ti ${loadMore.loading() ? "ti-loader-2 animate-spin" : "ti-chevron-down"}`} aria-hidden="true" />
                       Load more
-                    </button>
+                    </Button>
                   </div>
                 </Show>
               </Show>

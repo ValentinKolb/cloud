@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import type { Accessor, Setter } from "solid-js";
 import { createSignal, onCleanup } from "solid-js";

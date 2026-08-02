@@ -1,3 +1,4 @@
+import { Link, type LinkNavigateEvent, type NavigationScrollMode } from "@k2b/ssr/nav";
 import { type JSX, Show, splitProps } from "solid-js";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "success" | "ai";
@@ -10,7 +11,12 @@ export type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
 };
 
-export type ButtonLinkProps = JSX.AnchorHTMLAttributes<HTMLAnchorElement> & {
+export type ButtonLinkProps = Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "onClick"> & {
+  navigation?: "document" | "enhanced";
+  onClick?: JSX.EventHandlerUnion<HTMLAnchorElement, MouseEvent>;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
+  replace?: boolean;
+  scroll?: NavigationScrollMode;
   size?: ButtonSize;
   variant?: ButtonVariant;
 };
@@ -43,11 +49,49 @@ export function Button(props: ButtonProps): JSX.Element {
 }
 
 export function ButtonLink(props: ButtonLinkProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["children", "class", "size", "variant"]);
+  const [local, rest] = splitProps(props, [
+    "children",
+    "class",
+    "href",
+    "navigation",
+    "onClick",
+    "onNavigate",
+    "replace",
+    "scroll",
+    "size",
+    "variant",
+  ]);
+  const className = buttonClass(local.class);
+  const content = <span class="k2b-button__label">{local.children}</span>;
+
+  if (local.navigation === "enhanced" && local.href) {
+    return (
+      <Link
+        {...rest}
+        href={local.href}
+        class={className}
+        data-size={local.size ?? "md"}
+        data-variant={local.variant ?? "primary"}
+        onClick={local.onClick}
+        onNavigate={local.onNavigate}
+        replace={local.replace}
+        scroll={local.scroll}
+      >
+        {content}
+      </Link>
+    );
+  }
 
   return (
-    <a {...rest} class={buttonClass(local.class)} data-size={local.size ?? "md"} data-variant={local.variant ?? "primary"}>
-      <span class="k2b-button__label">{local.children}</span>
+    <a
+      {...rest}
+      href={local.href}
+      class={className}
+      data-size={local.size ?? "md"}
+      data-variant={local.variant ?? "primary"}
+      onClick={local.onClick}
+    >
+      {content}
     </a>
   );
 }

@@ -3,17 +3,20 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Avatar,
   ColorInput,
-  DateTimeInput,
+  DateTimePicker,
   formatFileViewSize,
   MarkdownEditor,
-  MultiSelect,
+  MultiSelectInput,
   Placeholder,
   prompts,
   Select,
   TextInput,
   Tooltip,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  ButtonLink,
+  IconButton,
+} from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "../../service/collaboration";
@@ -45,6 +48,9 @@ import {
   reconcileReminder,
 } from "./mail-details-reconciliation";
 import { openMessageAsSpacesEvent } from "./mail-spaces-event";
+
+const avatarSource = (userId: string | undefined, avatarHash: string | null): string | undefined =>
+  userId && avatarHash ? `/api/accounts/users/${encodeURIComponent(userId)}/avatar?rev=${encodeURIComponent(avatarHash)}` : undefined;
 
 export default function MailDetailsPanel(props: {
   mailboxId: string;
@@ -216,15 +222,15 @@ export default function MailDetailsPanel(props: {
               if (name().trim()) close({ name: name().trim(), color: color() });
             }}
           >
-            <TextInput label="Name" placeholder="Tag name" value={name} onInput={setName} required />
-            <ColorInput label="Color" value={color} onChange={setColor} />
+            <TextInput label="Name" placeholder="Tag name" value={name} onValueChange={setName} required />
+            <ColorInput label="Color" value={color} onValueChange={setColor} />
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="submit" class="btn-primary btn-sm" disabled={!name().trim()}>
+              </Button>
+              <Button size="sm" type="submit" disabled={!name().trim()}>
                 <i class="ti ti-tag-plus" aria-hidden="true" /> Create tag
-              </button>
+              </Button>
             </div>
           </form>
         );
@@ -469,9 +475,9 @@ export default function MailDetailsPanel(props: {
               title="Some conversation details are temporarily unavailable"
               description={`Could not refresh ${unavailableSections().join(", ")}. Previously loaded values remain visible where available.`}
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={() => void props.onReconcile()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => void props.onReconcile()}>
                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                </button>
+                </Button>
               }
             />
           </section>
@@ -483,7 +489,7 @@ export default function MailDetailsPanel(props: {
               <For each={props.presence}>
                 {(participant) => (
                   <div class="flex items-center gap-2">
-                    <Avatar username={participant.displayName} userId={participant.userId} avatarHash={participant.avatarHash} size="sm" />
+                    <Avatar name={participant.displayName} src={avatarSource(participant.userId, participant.avatarHash)} size="sm" />
                     <span class="min-w-0 flex-1 truncate text-sm text-primary">{participant.displayName}</span>
                     <span class="badge">{participant.mode === "composing" ? "Composing" : "Viewing"}</span>
                   </div>
@@ -496,14 +502,14 @@ export default function MailDetailsPanel(props: {
           <div class="mb-3 flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Tags</h3>
             <Tooltip content="Create tag">
-              <button type="button" class="icon-btn" aria-label="Create tag" disabled={!props.canWrite} onClick={() => void createTag()}>
+              <IconButton type="button" label="Create tag" disabled={!props.canWrite} onClick={() => void createTag()}>
                 <i class="ti ti-tag-plus" aria-hidden="true" />
-              </button>
+              </IconButton>
             </Tooltip>
           </div>
-          <MultiSelect
+          <MultiSelectInput
             value={() => tagState().tags.map((tag) => tag.id)}
-            onChange={updateConversationTags}
+            onValueChange={updateConversationTags}
             options={availableTags().map((tag) => ({
               id: tag.id,
               label: tag.name,
@@ -538,7 +544,7 @@ export default function MailDetailsPanel(props: {
               label="Assignee"
               value={() => state().assignee?.id}
               selectedLabel={() => state().assignee?.displayName}
-              onChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
+              onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
               options={props.assignableUsers.map((user) => ({
                 id: user.id,
                 label: user.displayName,
@@ -550,7 +556,7 @@ export default function MailDetailsPanel(props: {
             <Select
               label="Status"
               value={() => state().workStatus}
-              onChange={(workStatus) =>
+              onValueChange={(workStatus) =>
                 updateCollaboration({
                   workStatus: workStatus as MailCollaborationPatch["workStatus"],
                 })
@@ -562,32 +568,34 @@ export default function MailDetailsPanel(props: {
               ]}
               disabled={!props.canWrite}
             />
-            <DateTimeInput
+            <DateTimePicker
               label="Snooze until"
               value={() => state().snoozedUntil}
-              onChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
+              onValueChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
               dateConfig={props.dateConfig}
               disabled={!props.canWrite || state().workStatus === "done"}
             />
             <div class="flex items-end gap-2">
               <div class="min-w-0 flex-1">
-                <DateTimeInput
+                <DateTimePicker
                   label="Personal reminder"
                   value={reminderDueAt}
-                  onChange={(value) => value && updateReminder(value)}
+                  onValueChange={(value) => value && updateReminder(value)}
                   dateConfig={props.dateConfig}
                   disabled={Boolean(props.detailErrors.reminder)}
                 />
               </div>
               <Show when={reminderDueAt()}>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-secondary btn-sm mb-0.5"
+                  class="mb-0.5"
                   disabled={Boolean(props.detailErrors.reminder)}
                   onClick={clearReminder}
                 >
                   Clear
-                </button>
+                </Button>
               </Show>
             </div>
           </div>
@@ -600,15 +608,16 @@ export default function MailDetailsPanel(props: {
               <p class="mb-3 text-xs text-dimmed">
                 Turn the latest message into a new event. Spaces owns the event and opens its normal editor before anything is saved.
               </p>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 type="button"
-                class="btn-secondary btn-sm"
                 disabled={createEventInSpaces.loading()}
                 onClick={() => createEventInSpaces.mutate({ messageId: message().id })}
               >
                 <i class={createEventInSpaces.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-calendar-plus"} aria-hidden="true" />
                 Create event in Spaces
-              </button>
+              </Button>
             </section>
           )}
         </Show>
@@ -640,9 +649,8 @@ export default function MailDetailsPanel(props: {
                     <article class="group flex min-w-0 flex-col gap-1.5">
                       <div class="flex min-w-0 items-center gap-2">
                         <Avatar
-                          username={comment.author.displayName}
-                          userId={comment.author.kind === "user" ? comment.author.id : undefined}
-                          avatarHash={comment.author.avatarHash}
+                          name={comment.author.displayName}
+                          src={avatarSource(comment.author.kind === "user" ? comment.author.id : undefined, comment.author.avatarHash)}
                           size="xs"
                         />
                         <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
@@ -657,40 +665,29 @@ export default function MailDetailsPanel(props: {
                           <Show when={canModerate()}>
                             <span class="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                               <Tooltip content="Edit comment">
-                                <button
-                                  type="button"
-                                  class="icon-btn"
-                                  aria-label="Edit comment"
-                                  onClick={() => editComment.mutate(comment)}
-                                >
+                                <IconButton type="button" label="Edit comment" onClick={() => editComment.mutate(comment)}>
                                   <i class="ti ti-edit" aria-hidden="true" />
-                                </button>
+                                </IconButton>
                               </Tooltip>
                               <Tooltip content="Delete comment">
-                                <button
-                                  type="button"
-                                  class="icon-btn"
-                                  aria-label="Delete comment"
-                                  onClick={() => removeComment.mutate(comment)}
-                                >
+                                <IconButton type="button" label="Delete comment" onClick={() => removeComment.mutate(comment)}>
                                   <i class="ti ti-trash" aria-hidden="true" />
-                                </button>
+                                </IconButton>
                               </Tooltip>
                             </span>
                           </Show>
                           <Show when={!comment.deletedAt}>
                             <Tooltip content={`Reply to ${comment.author.displayName}`}>
-                              <button
+                              <IconButton
                                 type="button"
-                                class="icon-btn"
-                                aria-label={`Reply to ${comment.author.displayName}`}
+                                label={`Reply to ${comment.author.displayName}`}
                                 onClick={() => {
                                   setReplyingTo(comment);
                                   setCommentBody("");
                                 }}
                               >
                                 <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                              </button>
+                              </IconButton>
                             </Tooltip>
                           </Show>
                         </span>
@@ -717,19 +714,19 @@ export default function MailDetailsPanel(props: {
                   <i class="ti ti-arrow-back-up" aria-hidden="true" />
                   <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
                   <Tooltip content="Cancel reply">
-                    <button type="button" class="icon-btn" aria-label="Cancel reply" onClick={() => setReplyingTo(null)}>
+                    <IconButton type="button" label="Cancel reply" onClick={() => setReplyingTo(null)}>
                       <i class="ti ti-x" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </div>
               )}
             </Show>
             <MarkdownEditor
               value={commentBody}
-              onInput={setCommentBody}
+              onValueChange={setCommentBody}
               onSubmit={() => addComment.mutate()}
               placeholder="Add internal comment"
-              ariaLabel="Internal comment"
+              aria-label="Internal comment"
               lines={4}
               noToolbar
               showStats={false}
@@ -740,9 +737,9 @@ export default function MailDetailsPanel(props: {
               <p class="text-xs text-red-600 dark:text-red-300" role="alert">
                 {commentError()}
               </p>
-              <button type="button" class="btn-secondary btn-sm" disabled={addComment.loading()} onClick={() => addComment.mutate()}>
+              <Button variant="secondary" size="sm" type="button" disabled={addComment.loading()} onClick={() => addComment.mutate()}>
                 <i class="ti ti-send" aria-hidden="true" /> Comment
-              </button>
+              </Button>
             </div>
           </Show>
         </section>
@@ -829,9 +826,10 @@ export default function MailDetailsPanel(props: {
           <Show when={latestMessage()}>
             {(message) => (
               <div class="mt-3 flex flex-wrap items-center gap-2">
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-secondary btn-sm"
                   onClick={() =>
                     void openMailMessageInspector({
                       mailboxId: props.mailboxId,
@@ -842,10 +840,11 @@ export default function MailDetailsPanel(props: {
                   }
                 >
                   <i class="ti ti-list-details" aria-hidden="true" /> Headers
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-secondary btn-sm"
                   onClick={() =>
                     void openMailMessageInspector({
                       mailboxId: props.mailboxId,
@@ -856,15 +855,16 @@ export default function MailDetailsPanel(props: {
                   }
                 >
                   <i class="ti ti-code" aria-hidden="true" /> Source
-                </button>
+                </Button>
                 <Show when={message().sourceAvailable}>
-                  <a
-                    class="btn-secondary btn-sm"
+                  <ButtonLink
+                    variant="secondary"
+                    size="sm"
                     href={`/api/mail/mailboxes/${props.mailboxId}/messages/${message().id}/source`}
                     download={`${message().subject.trim() || "message"}.eml`}
                   >
                     <i class="ti ti-download" aria-hidden="true" /> Download .eml
-                  </a>
+                  </ButtonLink>
                 </Show>
               </div>
             )}

@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Button } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -255,32 +255,34 @@ export default function MailMessageBody(props: {
           <div class="info-block-note flex flex-wrap items-center gap-2 text-xs">
             <i class="ti ti-photo-shield shrink-0" aria-hidden="true" />
             <span class="min-w-48 flex-1">Remote images are blocked to protect your privacy.</span>
-            <button type="button" class="btn-secondary btn-xs" disabled={remoteLoading()} onClick={() => void loadRemoteImages()}>
+            <Button variant="secondary" size="xs" type="button" disabled={remoteLoading()} onClick={() => void loadRemoteImages()}>
               <i class={`ti ${remoteLoading() ? "ti-loader-2 animate-spin" : "ti-photo"}`} aria-hidden="true" />
               Load images
-            </button>
+            </Button>
             <Show when={props.remoteContent.sender}>
               {(sender) => (
-                <button
+                <Button
+                  variant="ghost"
+                  size="xs"
                   type="button"
-                  class="btn-simple btn-xs"
                   disabled={remoteLoading() || allowRemoteContent.loading()}
                   onClick={() => void allowRemoteContent.mutate({ scope: "sender", value: sender() })}
                 >
                   Always for sender
-                </button>
+                </Button>
               )}
             </Show>
             <Show when={props.remoteContent.domain}>
               {(domain) => (
-                <button
+                <Button
+                  variant="ghost"
+                  size="xs"
                   type="button"
-                  class="btn-simple btn-xs"
                   disabled={remoteLoading() || allowRemoteContent.loading()}
                   onClick={() => void allowRemoteContent.mutate({ scope: "domain", value: domain() })}
                 >
                   Always for domain
-                </button>
+                </Button>
               )}
             </Show>
           </div>

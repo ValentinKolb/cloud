@@ -1,5 +1,5 @@
 import { documentNavigate, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
-import { AppWorkspace, Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Dropdown, prompts, toast, ButtonLink, IconButton, IconButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -186,13 +186,15 @@ export default function MailSidebar(props: {
     </AppWorkspace.SidebarItem>
   );
 
-  const mailboxTools = (className: string) => (
+  const mailboxTools = () => (
     <Dropdown
       trigger={
-        <button type="button" class={className} disabled={props.managementOpening !== null || sync.loading()}>
-          <i class={`ti ${props.managementOpening || sync.loading() ? "ti-loader-2 animate-spin" : "ti-tool"}`} aria-hidden="true" />
-          <span>Mailbox tools</span>
-        </button>
+        <AppWorkspace.SidebarItem
+          icon={props.managementOpening || sync.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-tool"}
+          disabled={props.managementOpening !== null || sync.loading()}
+        >
+          Mailbox tools
+        </AppWorkspace.SidebarItem>
       }
       elements={[
         ...(props.canAdmin
@@ -283,15 +285,15 @@ export default function MailSidebar(props: {
               </Show>
             }
           >
-            <button
+            <IconButton
               type="button"
-              class="icon-btn h-7 w-5 shrink-0"
-              aria-label={`${collapsed() ? "Expand" : "Collapse"} ${folder.name}`}
+              class="h-7 w-5 shrink-0"
+              label={`${collapsed() ? "Expand" : "Collapse"} ${folder.name}`}
               aria-expanded={!collapsed()}
               onClick={() => toggleFolder(folder.id)}
             >
               <i class={`ti ${collapsed() ? "ti-chevron-right" : "ti-chevron-down"} text-xs`} aria-hidden="true" />
-            </button>
+            </IconButton>
           </Show>
           <div class="min-w-0 flex-1">
             <AppWorkspace.SidebarItem
@@ -346,10 +348,13 @@ export default function MailSidebar(props: {
 
   const moreItems = (suffix: string) => (
     <AppWorkspace.SidebarSection>
-      <button type="button" class="sidebar-item w-full" aria-expanded={moreOpen()} onClick={() => setMoreExpanded((current) => !current)}>
-        <i class={`ti ${moreOpen() ? "ti-chevron-down" : "ti-chevron-right"}`} aria-hidden="true" />
-        <span>More</span>
-      </button>
+      <AppWorkspace.SidebarItem
+        icon={`ti ${moreOpen() ? "ti-chevron-down" : "ti-chevron-right"}`}
+        onClick={() => setMoreExpanded((current) => !current)}
+        data={{ expanded: moreOpen() }}
+      >
+        More
+      </AppWorkspace.SidebarItem>
       <Show when={moreOpen()}>
         {viewItems(SECONDARY_VIEW_ITEMS, `${suffix}-more`)}
         <For each={secondaryFolders()}>{(folder) => folderNode({ folder, children: [] }, suffix, 0)}</For>
@@ -381,26 +386,23 @@ export default function MailSidebar(props: {
         subtitle="Mailbox"
         icon="ti ti-mail"
         action={
-          <a href="/app/mail" class="icon-btn" aria-label="All mailboxes" title="All mailboxes">
+          <IconButtonLink href="/app/mail" label="All mailboxes" title="All mailboxes">
             <i class="ti ti-switch-horizontal" aria-hidden="true" />
             <span class="sr-only">All mailboxes</span>
-          </a>
+          </IconButtonLink>
         }
       />
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           {props.canWrite && (
-            <a
-              href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`}
-              class="mail-compose-action sidebar-item-mobile btn-primary btn-sm"
-            >
-              <i class="ti ti-pencil" aria-hidden="true" /> Compose
-            </a>
+            <AppWorkspace.SidebarItem href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`} icon="ti ti-pencil">
+              Compose
+            </AppWorkspace.SidebarItem>
           )}
-          {mailboxTools("sidebar-item-mobile")}
-          <button type="button" class="sidebar-item-mobile" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
-            <i class="ti ti-settings" aria-hidden="true" /> Settings
-          </button>
+          {mailboxTools()}
+          <AppWorkspace.SidebarItem icon="ti ti-settings" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
+            Settings
+          </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey={`mail-sidebar-mobile-${props.mailboxId}`}>
           <AppWorkspace.SidebarSection title="Work">{viewItems(WORK_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
@@ -416,10 +418,10 @@ export default function MailSidebar(props: {
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
         {props.canWrite && (
-          <a href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`} class="mail-compose-action btn-primary btn-sm mx-2 mt-2">
+          <ButtonLink size="sm" href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`} class="mail-compose-action mx-2 mt-2">
             <i class="ti ti-pencil" aria-hidden="true" />
             <span>Compose</span>
-          </a>
+          </ButtonLink>
         )}
         <AppWorkspace.SidebarBody scrollPreserveKey={`mail-sidebar-${props.mailboxId}`}>
           <AppWorkspace.SidebarSection title="Work">{viewItems(WORK_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
@@ -433,11 +435,14 @@ export default function MailSidebar(props: {
           {moreItems("desktop")}
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
-          {mailboxTools("sidebar-item w-full")}
-          <button type="button" class="sidebar-item w-full" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
-            <i class={`ti ${props.settingsOpening ? "ti-loader-2 animate-spin" : "ti-settings"}`} aria-hidden="true" />
-            <span>Settings</span>
-          </button>
+          {mailboxTools()}
+          <AppWorkspace.SidebarItem
+            icon={props.settingsOpening ? "ti ti-loader-2 animate-spin" : "ti ti-settings"}
+            disabled={props.settingsOpening}
+            onClick={props.onOpenSettings}
+          >
+            Settings
+          </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>

@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Dropdown, type DropdownItem, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, type DropdownItem, prompts, toast, IconButton } from "@k2b/ui";
 import { createEffect, on, onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { DraftDerivationKind, MailRuleConditions, SenderIdentity, SenderMatchKind } from "../../contracts";
@@ -263,12 +263,12 @@ export default function MailSenderMessageActions(props: {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn icon-btn-sm" aria-label="Message actions" disabled={pending()}>
+        <IconButton size="sm" type="button" label="Message actions" disabled={pending()}>
           <i class={`ti ${pending() ? "ti-loader-2 animate-spin" : "ti-dots"}`} aria-hidden="true" />
-        </button>
+        </IconButton>
       }
       position="bottom-left"
-      width="w-64"
+      width="16rem"
       elements={[
         ...(props.primaryActions ?? []),
         ...(sender() && actionVisibility().findSender

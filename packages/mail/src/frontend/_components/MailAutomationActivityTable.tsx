@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, StatusBadge, type StatusTone } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, StatusBadge, type StatusTone } from "@k2b/ui";
 import type {
   MailAutomationActivityItem,
   MailAutomationActivityKind,

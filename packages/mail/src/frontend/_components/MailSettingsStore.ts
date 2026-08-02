@@ -1,4 +1,4 @@
-import type { PanesNode, PanesValue } from "@valentinkolb/cloud/ui";
+import type { PanesNode, PanesValue } from "@k2b/ui";
 import { cookies } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 import {
@@ -67,8 +67,7 @@ export const normalizeMailComposerPanes = (value: unknown): PanesValue => {
 
 const [preferencesRevision, setPreferencesRevision] = createSignal(0);
 
-const readSettings = () =>
-  readStoredMailUserPreferencesFromCookieHeader(typeof document === "undefined" ? null : document.cookie);
+const readSettings = () => readStoredMailUserPreferencesFromCookieHeader(typeof document === "undefined" ? null : document.cookie);
 
 export const readMailUserPreferences = (mailboxId: string): MailUserPreferences =>
   normalizeMailUserPreferences(readSettings().mailboxes[mailboxId]);

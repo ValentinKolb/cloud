@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast, Button } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -74,7 +74,7 @@ export function MailReferenceConfigurationFields(props: {
         label="Number format"
         description="Use exactly one unique identifier. Existing references never change when the format changes."
         value={() => props.value().pattern}
-        onInput={(value) => update("pattern", value)}
+        onValueChange={(value) => update("pattern", value)}
         monospace
         required
       />
@@ -150,13 +150,13 @@ export function MailReferenceConfigurationFields(props: {
         <Switch
           label="Allow automations to assign reference numbers"
           value={() => props.value().enabled}
-          onChange={(value) => update("enabled", value)}
+          onValueChange={(value) => update("enabled", value)}
         />
         <p class="-mt-2 text-xs text-dimmed">Disabling this stops new allocations but keeps existing references searchable.</p>
         <Switch
           label="Include the reference in reply subjects"
           value={() => props.value().includeInReplySubjects}
-          onChange={(value) => update("includeInReplySubjects", value)}
+          onValueChange={(value) => update("includeInReplySubjects", value)}
         />
         <p class="-mt-2 text-xs text-dimmed">New replies use Re: [REFERENCE] Original subject after a reference has been assigned.</p>
       </Show>
@@ -199,15 +199,16 @@ export function MailReferenceConfigurationForm(props: {
     <div class="flex flex-col gap-3">
       <MailReferenceConfigurationFields mailboxId={props.mailboxId} value={draft} onChange={setDraft} compact={props.compact} />
       <div class="flex justify-end">
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
-          class="btn-secondary btn-sm"
           disabled={save.loading() || !draft().pattern.trim()}
           onClick={() => save.mutate()}
         >
           <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
           Save reference format
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -280,9 +281,9 @@ export function MailReferenceConfigurationCard(props: {
               : "Configure a reference format before a workflow assigns durable conversation references."}
           </p>
         </div>
-        <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openEditor()}>
+        <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openEditor()}>
           <i class="ti ti-settings" aria-hidden="true" /> {props.configuration ? "Configure" : "Set up"}
-        </button>
+        </Button>
       </div>
     </section>
   );

@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, IconButtonLink } from "@k2b/ui";
 import { createSignal, type JSX, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import { openMailboxSettingsDialog } from "./MailboxSettingsDialog";
@@ -68,17 +68,17 @@ export default function MailAutomationShell(props: {
           subtitle={props.mailbox.name}
           icon="ti ti-route"
           action={
-            <a href={mailboxHref} class="icon-btn" aria-label="Back to mailbox" title="Back to mailbox">
+            <IconButtonLink href={mailboxHref} label="Back to mailbox" title="Back to mailbox">
               <i class="ti ti-arrow-left" aria-hidden="true" />
               <span class="sr-only">Back to mailbox</span>
-            </a>
+            </IconButtonLink>
           }
         />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
-            <a href={mailboxHref} class="sidebar-item-mobile">
-              <i class="ti ti-inbox" aria-hidden="true" /> Back to mailbox
-            </a>
+            <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox">
+              Back to mailbox
+            </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarMobileItems>
           <AppWorkspace.SidebarMobileBody>
             <NavigationItems
@@ -99,14 +99,16 @@ export default function MailAutomationShell(props: {
             />
           </AppWorkspace.SidebarBody>
           <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
-            <a href={mailboxHref} class="sidebar-item">
-              <i class="ti ti-inbox" aria-hidden="true" />
-              <span>Back to mailbox</span>
-            </a>
-            <button type="button" class="sidebar-item w-full" disabled={settingsOpening()} onClick={() => void openSettings()}>
-              <i class={`ti ${settingsOpening() ? "ti-loader-2 animate-spin" : "ti-settings"}`} aria-hidden="true" />
-              <span>Mailbox settings</span>
-            </button>
+            <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox">
+              Back to mailbox
+            </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem
+              icon={settingsOpening() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"}
+              disabled={settingsOpening()}
+              onClick={() => void openSettings()}
+            >
+              Mailbox settings
+            </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarFooter>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>

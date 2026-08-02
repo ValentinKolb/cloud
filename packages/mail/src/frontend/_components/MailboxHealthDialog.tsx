@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, Placeholder, panelDialogFixedOptions } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogFixedOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
@@ -67,10 +67,10 @@ function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext
                   title="Could not load mailbox health"
                   description={error().message}
                   action={
-                    <button type="button" class="btn-secondary btn-sm" disabled={load.loading()} onClick={() => void reload()}>
+                    <Button variant="secondary" size="sm" type="button" disabled={load.loading()} onClick={() => void reload()}>
                       <i class={load.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" />
                       Retry
-                    </button>
+                    </Button>
                   }
                 />
               )}
@@ -83,9 +83,16 @@ function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext
                 {(error) => (
                   <div class="info-block-danger flex items-start justify-between gap-3 text-xs" role="alert">
                     <span>{error().message}</span>
-                    <button type="button" class="btn-secondary btn-sm shrink-0" disabled={load.loading()} onClick={() => void reload()}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      class="shrink-0"
+                      disabled={load.loading()}
+                      onClick={() => void reload()}
+                    >
                       Retry
-                    </button>
+                    </Button>
                   </div>
                 )}
               </Show>

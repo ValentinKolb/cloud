@@ -1,7 +1,7 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid, ButtonLink } from "@k2b/ui";
 import { dates } from "@k2b/stdlib";
 import { ssr } from "../config";
 import type { PlatformMailboxOperationSummary } from "../contracts";
@@ -184,15 +184,16 @@ export default ssr<AuthContext>(async (c) => {
             />
             {operationsResult.data.nextCursor ? (
               <div class="flex justify-center px-3 py-3">
-                <a
-                  class="btn-secondary btn-sm"
+                <ButtonLink
+                  variant="secondary"
+                  size="sm"
                   href={`/admin/mail?${new URLSearchParams({
                     ...(query ? { q: query } : {}),
                     cursor: operationsResult.data.nextCursor,
                   }).toString()}`}
                 >
                   Next page
-                </a>
+                </ButtonLink>
               </div>
             ) : null}
           </section>

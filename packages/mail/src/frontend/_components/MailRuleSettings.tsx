@@ -9,10 +9,13 @@ import {
   panelDialogFixedOptions,
   prompts,
   Select,
+  StatusBadge,
   Switch,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -108,7 +111,7 @@ function MailRuleConditionsEditor(props: {
                 <Select
                   label="Field"
                   value={() => condition().field}
-                  onChange={(field) => replace(index, initialCondition(field as RuleConditionField))}
+                  onValueChange={(field) => replace(index, initialCondition(field as RuleConditionField))}
                   options={Object.entries(conditionFieldLabels).map(([id, label]) => ({ id, label }))}
                 />
               </div>
@@ -117,7 +120,7 @@ function MailRuleConditionsEditor(props: {
                   <Select
                     label="Operator"
                     value={() => (condition().field === "subject" || condition().field === "body_text" ? condition().operator : "is")}
-                    onChange={(operator) => {
+                    onValueChange={(operator) => {
                       const current = condition();
                       if (current.field === "subject" || current.field === "body_text") {
                         replace(index, { ...current, operator: operator as TextOperator });
@@ -138,7 +141,7 @@ function MailRuleConditionsEditor(props: {
                         const current = condition();
                         return current.field === "attachment_presence" ? "" : current.value;
                       }}
-                      onInput={(value) => {
+                      onValueChange={(value) => {
                         const current = condition();
                         if (current.field !== "attachment_presence") replace(index, { ...current, value });
                       }}
@@ -157,7 +160,7 @@ function MailRuleConditionsEditor(props: {
                   <Select
                     label="Value"
                     value={() => (condition().field === "attachment_presence" && condition().value ? "yes" : "no")}
-                    onChange={(value) => replace(index, { field: "attachment_presence", operator: "is", value: value === "yes" })}
+                    onValueChange={(value) => replace(index, { field: "attachment_presence", operator: "is", value: value === "yes" })}
                     options={[
                       { id: "yes", label: "Has attachments" },
                       { id: "no", label: "Has no attachments" },
@@ -166,28 +169,22 @@ function MailRuleConditionsEditor(props: {
                 </Show>
               </div>
               <div class="flex h-9 shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  class="icon-btn icon-btn-sm"
-                  aria-label="Move condition up"
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
-                >
+                <IconButton size="sm" type="button" label="Move condition up" disabled={index === 0} onClick={() => move(index, -1)}>
                   <i class="ti ti-arrow-up" aria-hidden="true" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
+                  size="sm"
                   type="button"
-                  class="icon-btn icon-btn-sm"
-                  aria-label="Move condition down"
+                  label="Move condition down"
                   disabled={index === props.conditions.items.length - 1}
                   onClick={() => move(index, 1)}
                 >
                   <i class="ti ti-arrow-down" aria-hidden="true" />
-                </button>
-                <button
+                </IconButton>
+                <IconButton
+                  size="sm"
                   type="button"
-                  class="icon-btn icon-btn-sm"
-                  aria-label="Remove condition"
+                  label="Remove condition"
                   disabled={props.conditions.items.length === 1}
                   onClick={() =>
                     props.onChange({
@@ -197,7 +194,7 @@ function MailRuleConditionsEditor(props: {
                   }
                 >
                   <i class="ti ti-x" aria-hidden="true" />
-                </button>
+                </IconButton>
               </div>
             </div>
           </div>
@@ -205,21 +202,22 @@ function MailRuleConditionsEditor(props: {
       </Index>
       <div class="flex flex-wrap items-center gap-2">
         <Show when={props.conditions.items.length < 8}>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             type="button"
-            class="btn-secondary btn-sm"
             onClick={() => props.onChange({ ...props.conditions, items: [...props.conditions.items, initialCondition("subject")] })}
           >
             <i class="ti ti-plus" aria-hidden="true" />
             Add condition
-          </button>
+          </Button>
         </Show>
         <Show when={props.conditions.items.length > 1}>
           <div class="w-56">
             <Select
-              ariaLabel="Match conditions"
+              aria-label="Match conditions"
               value={() => props.conditions.mode}
-              onChange={(mode) => props.onChange({ ...props.conditions, mode: mode as MailRuleConditions["mode"] })}
+              onValueChange={(mode) => props.onChange({ ...props.conditions, mode: mode as MailRuleConditions["mode"] })}
               options={[
                 {
                   id: "all",
@@ -262,7 +260,7 @@ function MailRuleActionFields(props: {
         label="Provider keyword"
         description="This syncs through IMAP and is separate from Cloud tags."
         value={() => (props.action.kind === "add_keyword" ? props.action.keyword : "")}
-        onInput={(keyword) => props.onChange({ kind: "add_keyword", keyword })}
+        onValueChange={(keyword) => props.onChange({ kind: "add_keyword", keyword })}
         maxLength={100}
         required
       />
@@ -273,7 +271,7 @@ function MailRuleActionFields(props: {
       <Select
         label="Destination folder"
         value={() => (props.action.kind === "move_to_folder" ? props.action.folderId : "")}
-        onChange={(folderId) => props.onChange({ kind: "move_to_folder", folderId })}
+        onValueChange={(folderId) => props.onChange({ kind: "move_to_folder", folderId: folderId ?? "" })}
         options={mailRuleDestinationFolders(props.catalog).map((folder) => ({ id: folder.id, label: folder.name }))}
       />
     );
@@ -285,7 +283,7 @@ function MailRuleActionFields(props: {
       <Select
         label="Tag"
         value={() => (props.action.kind === "add_local_tag" ? props.action.tagId : "")}
-        onChange={(tagId) => props.onChange({ kind: "add_local_tag", tagId })}
+        onValueChange={(tagId) => props.onChange({ kind: "add_local_tag", tagId: tagId ?? "" })}
         options={(props.catalog.localTags ?? [])
           .filter((tag) => (props.action.kind === "add_local_tag" && tag.id === props.action.tagId) || !usedTagIds().has(tag.id))
           .map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
@@ -297,7 +295,7 @@ function MailRuleActionFields(props: {
       <Select
         label="Assignee"
         value={() => (props.action.kind === "assign_user" ? props.action.userId : "")}
-        onChange={(userId) => props.onChange({ kind: "assign_user", userId })}
+        onValueChange={(userId) => props.onChange({ kind: "assign_user", userId: userId ?? "" })}
         options={props.catalog.assignableUsers.map((user) => ({ id: user.id, label: user.name }))}
       />
     );
@@ -307,7 +305,7 @@ function MailRuleActionFields(props: {
       <Select
         label="Conversation status"
         value={() => (props.action.kind === "set_status" ? props.action.status : "")}
-        onChange={(status) =>
+        onValueChange={(status) =>
           props.onChange({
             kind: "set_status",
             status: status as Extract<MailRuleAction, { kind: "set_status" }>["status"],
@@ -357,9 +355,9 @@ function MailRuleActionsEditor(props: {
               title="Could not load available actions"
               description={error().message}
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={props.onRetry}>
+                <Button variant="secondary" size="sm" type="button" onClick={props.onRetry}>
                   Retry
-                </button>
+                </Button>
               }
             />
           )}
@@ -375,37 +373,37 @@ function MailRuleActionsEditor(props: {
                   <Select
                     label={`Action ${index() + 1}`}
                     value={() => action.kind}
-                    onChange={(kind) => changeActionKind(index(), kind as RuleActionKind)}
+                    onValueChange={(kind) => changeActionKind(index(), kind as RuleActionKind)}
                     options={actionKindsFor(index()).map((kind) => ({ id: kind, label: mailRuleActionKindLabels[kind] }))}
                   />
                   <div class="flex h-9 items-center justify-end gap-1">
-                    <button
+                    <IconButton
+                      size="sm"
                       type="button"
-                      class="icon-btn icon-btn-sm"
-                      aria-label={`Move action ${index() + 1} up`}
+                      label={`Move action ${index() + 1} up`}
                       disabled={index() === 0}
                       onClick={() => moveAction(index(), -1)}
                     >
                       <i class="ti ti-arrow-up" aria-hidden="true" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
+                      size="sm"
                       type="button"
-                      class="icon-btn icon-btn-sm"
-                      aria-label={`Move action ${index() + 1} down`}
+                      label={`Move action ${index() + 1} down`}
                       disabled={index() === props.actions.length - 1}
                       onClick={() => moveAction(index(), 1)}
                     >
                       <i class="ti ti-arrow-down" aria-hidden="true" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
+                      size="sm"
                       type="button"
-                      class="icon-btn icon-btn-sm"
-                      aria-label={`Remove action ${index() + 1}`}
+                      label={`Remove action ${index() + 1}`}
                       disabled={props.actions.length === 1}
                       onClick={() => props.onChange(props.actions.filter((_, candidateIndex) => candidateIndex !== index()))}
                     >
                       <i class="ti ti-x" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </div>
                 </div>
                 <div class="mt-2 empty:hidden">
@@ -423,13 +421,13 @@ function MailRuleActionsEditor(props: {
           <Show when={props.actions.length < 8 && actionKindsFor().length > 0}>
             <Dropdown
               trigger={
-                <button type="button" class="btn-secondary btn-sm self-start">
+                <Button variant="secondary" size="sm" type="button" class="self-start">
                   <i class="ti ti-plus" aria-hidden="true" />
                   Add action
-                </button>
+                </Button>
               }
               position="bottom-right"
-              width="w-56"
+              width="14rem"
               elements={actionKindsFor().map((kind) => ({
                 label: mailRuleActionKindLabels[kind],
                 action: () => {
@@ -613,7 +611,7 @@ function MailRuleEditor(props: {
           subtitle="Combine up to eight conditions. Sender addresses and international domains are normalized on save."
           icon="ti ti-at"
         >
-          <TextInput label="Rule name" value={name} onInput={setName} maxLength={120} required />
+          <TextInput label="Rule name" value={name} onValueChange={setName} maxLength={120} required />
           <MailRuleConditionsEditor conditions={conditions()} validationMessage={conditionValidationMessage()} onChange={setConditions} />
         </PanelDialog.Section>
         <PanelDialog.Section
@@ -632,7 +630,7 @@ function MailRuleEditor(props: {
           <Switch
             label="Rule active"
             value={enabled}
-            onChange={(value) => {
+            onValueChange={(value) => {
               setEnabled(value);
               if (!value) setApplyExisting(false);
             }}
@@ -640,7 +638,7 @@ function MailRuleEditor(props: {
           <Switch
             label="Also apply to existing matching messages"
             value={applyExisting}
-            onChange={setApplyExisting}
+            onValueChange={setApplyExisting}
             disabled={!enabled()}
           />
         </PanelDialog.Section>
@@ -661,13 +659,13 @@ function MailRuleEditor(props: {
             : "Changes affect newly received messages."}
         </span>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-secondary btn-sm" disabled={save.loading()} onClick={props.close}>
+          <Button variant="secondary" size="sm" type="button" disabled={save.loading()} onClick={props.close}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!valid() || save.loading()} onClick={() => void submit()}>
+          </Button>
+          <Button size="sm" type="button" disabled={!valid() || save.loading()} onClick={() => void submit()}>
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} aria-hidden="true" />
             {props.rule ? "Save changes" : "Create rule"}
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -949,9 +947,9 @@ export default function MailRuleSettings(props: {
             {rules().length} managed workflow{rules().length === 1 ? "" : "s"} for future incoming messages
           </p>
         </div>
-        <button
+        <Button
+          size="sm"
           type="button"
-          class="btn-primary btn-sm"
           onClick={() =>
             void openMailRuleEditor({
               mailboxId: props.mailboxId,
@@ -962,7 +960,7 @@ export default function MailRuleSettings(props: {
           }
         >
           <i class="ti ti-plus" aria-hidden="true" /> Create rule
-        </button>
+        </Button>
       </div>
       <DataTable
         rows={rules()}
@@ -979,7 +977,7 @@ export default function MailRuleSettings(props: {
                 label={row.enabled ? "Enabled" : "Disabled"}
                 value={() => row.enabled}
                 disabled={toggle.loading()}
-                onChange={(enabled) => void toggle.mutate({ rule: row, enabled })}
+                onValueChange={(enabled) => void toggle.mutate({ rule: row, enabled })}
               />
             );
           }
@@ -994,18 +992,13 @@ export default function MailRuleSettings(props: {
             if (!backfill) return <span class="text-dimmed">Not run</span>;
             const accepted = backfill.alreadyAcceptedCount + backfill.newlyAcceptedCount;
             if (activeBackfillStates.has(backfill.state)) {
-              return (
-                <span class="badge bg-[var(--ui-selected)] text-accent">
-                  <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
-                  Backfill · {accepted}/{backfill.candidateCount}
-                </span>
-              );
+              return <StatusBadge tone="running" label={`Backfill · ${accepted}/${backfill.candidateCount}`} />;
             }
             if (backfill.state === "completed") {
-              return <span class="badge badge-success">Completed · {backfill.newlyAcceptedCount} new</span>;
+              return <StatusBadge tone="ok" label={`Completed · ${backfill.newlyAcceptedCount} new`} />;
             }
-            if (backfill.state === "failed") return <span class="badge badge-warning">Failed</span>;
-            return <span class="badge">Canceled</span>;
+            if (backfill.state === "failed") return <StatusBadge tone="warning" label="Failed" />;
+            return <StatusBadge tone="neutral" label="Canceled" />;
           }
           if (col.id === "menu") {
             const backfill = backfills()[row.id];
@@ -1013,9 +1006,9 @@ export default function MailRuleSettings(props: {
             return (
               <Dropdown
                 trigger={
-                  <button type="button" class="icon-btn icon-btn-sm" aria-label={`Actions for ${row.name}`}>
+                  <IconButton size="sm" type="button" label={`Actions for ${row.name}`}>
                     <i class="ti ti-dots" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 }
                 position="bottom-left"
                 elements={[

@@ -1,4 +1,4 @@
-import { CheckboxCard, DatePicker, DateRangePicker, Select, Switch, TextInput } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, DatePicker, DateRangePicker, Select, Switch, TextInput, Button, IconButton } from "@k2b/ui";
 import { createMemo, For, Show } from "solid-js";
 import { validateResponseScheduleDefinition } from "../../response-schedule-validation";
 import type { ResponseScheduleDefinition } from "../../service/response-schedule";
@@ -51,9 +51,9 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
           <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] items-end gap-2">
             <TextInput
               label={!props.compact && index() === 0 ? "From" : undefined}
-              ariaLabel={`Window ${index() + 1} start`}
+              aria-label={`Window ${index() + 1} start`}
               value={() => window.start}
-              onInput={(value) => update(index(), "start", value)}
+              onValueChange={(value) => update(index(), "start", value)}
               placeholder="09:00"
               icon="ti ti-clock"
               maxLength={5}
@@ -61,9 +61,9 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
             />
             <TextInput
               label={!props.compact && index() === 0 ? "Until" : undefined}
-              ariaLabel={`Window ${index() + 1} end`}
+              aria-label={`Window ${index() + 1} end`}
               value={() => window.end}
-              onInput={(value) => update(index(), "end", value)}
+              onValueChange={(value) => update(index(), "end", value)}
               placeholder="17:00"
               icon="ti ti-clock"
               maxLength={5}
@@ -80,13 +80,15 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
           </div>
         )}
       </For>
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
-        class="btn-simple btn-sm self-start"
+        class="self-start"
         onClick={() => props.onChange([...props.windows(), { ...DEFAULT_WINDOW }])}
       >
         <i class="ti ti-plus" aria-hidden="true" /> {props.addLabel}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -158,7 +160,7 @@ function WindowedResponseScheduleFields(props: {
             .slice(0, 100)
             .map((zone) => ({ id: zone, label: zone }));
         }}
-        onChange={(timeZone) => update("timeZone", timeZone)}
+        onValueChange={(timeZone) => update("timeZone", timeZone ?? props.value().timeZone)}
       />
 
       <div>
@@ -167,13 +169,15 @@ function WindowedResponseScheduleFields(props: {
             <p class="text-sm font-medium text-primary">Active date ranges</p>
             <p class="text-xs text-dimmed">Optional. Without a range, the weekly hours repeat indefinitely.</p>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
-            class="btn-simple btn-sm shrink-0"
+            class="shrink-0"
             onClick={() => update("activeRanges", [...props.value().activeRanges, { from: today(), to: null }])}
           >
             <i class="ti ti-plus" aria-hidden="true" /> Add range
-          </button>
+          </Button>
         </div>
         <Show when={props.value().activeRanges.length > 0} fallback={<p class="text-xs text-dimmed">No date limit.</p>}>
           <div class="flex flex-col gap-2">
@@ -183,7 +187,7 @@ function WindowedResponseScheduleFields(props: {
                   <DateRangePicker
                     label={index() === 0 ? "Range" : undefined}
                     value={() => ({ start: range.from, end: range.to })}
-                    onChange={(value) =>
+                    onValueChange={(value) =>
                       update(
                         "activeRanges",
                         props
@@ -194,10 +198,10 @@ function WindowedResponseScheduleFields(props: {
                       )
                     }
                   />
-                  <button
+                  <IconButton
                     type="button"
-                    class="icon-btn mb-0.5"
-                    aria-label={`Remove date range ${index() + 1}`}
+                    class="mb-0.5"
+                    label={`Remove date range ${index() + 1}`}
                     onClick={() =>
                       update(
                         "activeRanges",
@@ -206,7 +210,7 @@ function WindowedResponseScheduleFields(props: {
                     }
                   >
                     <i class="ti ti-x" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </div>
               )}
             </For>
@@ -240,11 +244,11 @@ function WindowedResponseScheduleFields(props: {
                     icon={active() ? "ti ti-calendar-check" : "ti ti-calendar-off"}
                     variant="input"
                     value={active}
-                    onChange={(enabled) => setDayEnabled(day.id, enabled)}
+                    onValueChange={(enabled) => setDayEnabled(day.id, enabled)}
                   />
                   <Show when={active()}>
                     <div class="flex min-h-12 items-center md:justify-center">
-                      <Switch label="All day" value={allDay} onChange={(value) => setAllDay(day.id, value)} />
+                      <Switch label="All day" value={allDay} onValueChange={(value) => setAllDay(day.id, value)} />
                     </div>
                     <div class="min-w-0">
                       <Show
@@ -273,13 +277,15 @@ function WindowedResponseScheduleFields(props: {
             <p class="text-sm font-medium text-primary">Date exceptions</p>
             <p class="text-xs text-dimmed">Disable replies on a specific date or replace its normal hours.</p>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
-            class="btn-simple btn-sm shrink-0"
+            class="shrink-0"
             onClick={() => update("exceptions", [...props.value().exceptions, { date: today(), closed: true, windows: [] }])}
           >
             <i class="ti ti-plus" aria-hidden="true" /> Add exception
-          </button>
+          </Button>
         </div>
         <Show when={props.value().exceptions.length > 0} fallback={<p class="text-xs text-dimmed">No exceptions.</p>}>
           <div class="flex flex-col gap-2">
@@ -293,12 +299,16 @@ function WindowedResponseScheduleFields(props: {
                 return (
                   <div class="flex flex-col gap-2 py-3">
                     <div class="grid grid-cols-[minmax(0,1fr)_auto_2rem] items-end gap-2">
-                      <DatePicker label="Date" value={() => exception.date} onChange={(date) => date && replace({ ...exception, date })} />
+                      <DatePicker
+                        label="Date"
+                        value={() => exception.date}
+                        onValueChange={(date) => date && replace({ ...exception, date })}
+                      />
                       <div class="mb-0.5 flex h-10 items-center">
                         <Switch
                           label="Disabled"
                           value={() => exception.closed}
-                          onChange={(closed) =>
+                          onValueChange={(closed) =>
                             replace({
                               ...exception,
                               closed,
@@ -307,10 +317,10 @@ function WindowedResponseScheduleFields(props: {
                           }
                         />
                       </div>
-                      <button
+                      <IconButton
                         type="button"
-                        class="icon-btn mb-0.5"
-                        aria-label={`Remove exception ${index() + 1}`}
+                        class="mb-0.5"
+                        label={`Remove exception ${index() + 1}`}
                         onClick={() =>
                           update(
                             "exceptions",
@@ -319,7 +329,7 @@ function WindowedResponseScheduleFields(props: {
                         }
                       >
                         <i class="ti ti-trash" aria-hidden="true" />
-                      </button>
+                      </IconButton>
                     </div>
                     <Show when={!exception.closed}>
                       <WindowEditor
@@ -383,7 +393,7 @@ export default function MailResponseScheduleFields(props: {
         icon="ti ti-clock-24"
         variant="input"
         value={() => props.value().mode === "always"}
-        onChange={setAlways}
+        onValueChange={setAlways}
       />
       <Show when={windowedSchedule()}>
         {(schedule) => <WindowedResponseScheduleFields value={schedule} onChange={setWindowedSchedule} errors={props.errors} />}

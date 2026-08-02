@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import type { CreateAttachmentLinkInput } from "../../contracts";
 
 export const promptAttachmentLinkOptions = async (): Promise<CreateAttachmentLinkInput | null> => {

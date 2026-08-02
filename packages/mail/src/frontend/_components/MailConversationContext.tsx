@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Button } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailConversationContext, RelatedMailPage } from "../../contracts";
@@ -76,9 +76,10 @@ function RelatedMail(props: {
 
   return (
     <div class="mt-2">
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
-        class="btn-simple btn-sm"
         aria-expanded={open()}
         onClick={() => {
           const next = !open();
@@ -87,7 +88,7 @@ function RelatedMail(props: {
         }}
       >
         <i class={`ti ${open() ? "ti-chevron-up" : "ti-history"}`} aria-hidden="true" /> Related Mail
-      </button>
+      </Button>
       <Show when={open()}>
         <Show when={!error()} fallback={<p class="mt-2 text-xs text-red-600 dark:text-red-300">{error()}</p>}>
           <Show
@@ -110,14 +111,16 @@ function RelatedMail(props: {
             </div>
           </Show>
           <Show when={page().nextCursor}>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
-              class="btn-simple btn-sm mt-2"
+              class="mt-2"
               disabled={loading()}
               onClick={() => void load(page().nextCursor ?? undefined)}
             >
               Load more
-            </button>
+            </Button>
           </Show>
         </Show>
       </Show>
@@ -332,14 +335,16 @@ export default function MailConversationContext(props: {
                                 when={!participant.hasMatch}
                                 fallback={<p class="mt-2 text-xs text-dimmed">Matching contact available. Load more to view it.</p>}
                               >
-                                <button
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
                                   type="button"
-                                  class="btn-secondary btn-sm mt-2 w-full justify-center"
+                                  class="mt-2 w-full justify-center"
                                   disabled={createParticipantContact.loading()}
                                   onClick={() => void chooseBookAndCreate(participant)}
                                 >
                                   <i class="ti ti-user-plus" aria-hidden="true" /> Create contact
-                                </button>
+                                </Button>
                               </Show>
                             }
                           >
@@ -380,14 +385,16 @@ export default function MailConversationContext(props: {
               </div>
               <Show when={context()?.contacts.status === "ready" ? context()!.contacts.nextCursor : null}>
                 {(cursor) => (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
-                    class="btn-simple btn-sm mt-3"
+                    class="mt-3"
                     disabled={loading()}
                     onClick={() => void loadContacts(cursor())}
                   >
                     Load more
-                  </button>
+                  </Button>
                 )}
               </Show>
             </Show>

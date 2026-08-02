@@ -212,7 +212,7 @@
     height: auto;
   }
 
-  .mail-attachment-preview.btn-simple {
+  .mail-attachment-preview {
     min-height: 1.75rem;
     padding: 0 0.375rem;
     font-size: 0.75rem;
@@ -229,13 +229,13 @@
 }
 
 @layer utilities {
-  .mail-compose-action.btn-primary {
+  .mail-compose-action {
     border-color: color-mix(in srgb, var(--app-accent) 68%, black);
     background: color-mix(in srgb, var(--app-accent) 80%, black);
     color: white;
   }
 
-  .mail-compose-action.btn-primary:hover {
+  .mail-compose-action:hover {
     border-color: color-mix(in srgb, var(--app-accent) 76%, black);
     background: color-mix(in srgb, var(--app-accent) 88%, black);
   }

@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { suggestContacts } from "./contact-capabilities";
 import { commitMailRecipient, shouldCommitMailRecipient } from "./mail-recipient";
 
+import { IconButton } from "@k2b/ui";
 type RecipientSuggestion = { label: string; address: string; context: string | null };
 
 export default function MailRecipientInput(props: {
@@ -173,15 +174,15 @@ export default function MailRecipientInput(props: {
                   >
                     {recipient}
                   </button>
-                  <button
+                  <IconButton
                     type="button"
-                    class="icon-btn !h-5 !w-5 !p-0"
-                    aria-label={`Remove ${recipient}`}
+                    class="!h-5 !w-5 !p-0"
+                    label={`Remove ${recipient}`}
                     disabled={props.disabled}
                     onClick={() => remove(index())}
                   >
                     <i class="ti ti-x" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </span>
               }
             >

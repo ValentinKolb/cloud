@@ -1,4 +1,4 @@
-import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { AppOverview, Button, prompts, StatusBadge, TextInput, toast } from "@k2b/ui";
 import { listenPopState, navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -184,12 +184,12 @@ export default function MailOverview(props: {
           <TextInput
             type="search"
             name="mailbox-search"
-            ariaLabel="Search mailboxes"
+            aria-label="Search mailboxes"
             placeholder="Search mailboxes..."
             icon="ti ti-search"
             activeIcon="ti ti-search"
             value={query}
-            onInput={updateQuery}
+            onValueChange={updateQuery}
             maxLength={200}
             suffix={
               <Show when={searchLoading()}>
@@ -238,28 +238,29 @@ export default function MailOverview(props: {
                 when={!searchLoading() && (searchError() || query().trim())}
                 fallback={
                   <Show when={!searchLoading()}>
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="btn-secondary btn-sm"
                       onClick={() => createMailbox.mutate()}
                       disabled={createMailbox.loading()}
                     >
                       <i class="ti ti-mail-plus" aria-hidden="true" /> Create mailbox
-                    </button>
+                    </Button>
                   </Show>
                 }
               >
                 <Show
                   when={searchError()}
                   fallback={
-                    <button type="button" class="btn-secondary btn-sm" onClick={() => updateQuery("")}>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => updateQuery("")}>
                       <i class="ti ti-x" aria-hidden="true" /> Clear search
-                    </button>
+                    </Button>
                   }
                 >
-                  <button type="button" class="btn-secondary btn-sm" onClick={() => void loadQuery(query(), "none")}>
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void loadQuery(query(), "none")}>
                     <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                  </button>
+                  </Button>
                 </Show>
               </Show>
             </AppOverview.EmptyState>
@@ -280,7 +281,7 @@ export default function MailOverview(props: {
                     <span class="block truncate text-sm font-semibold text-primary">{mailbox.name}</span>
                     <span class="block truncate text-xs text-dimmed">{mailbox.description || mailbox.health.replaceAll("_", " ")}</span>
                   </span>
-                  <span class={`badge ${mailbox.health === "active" ? "badge-success" : ""}`}>{mailbox.permission}</span>
+                  <StatusBadge tone={mailbox.health === "active" ? "ok" : "neutral"} label={mailbox.permission} icon={null} />
                   <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                 </a>
               )}
@@ -323,15 +324,17 @@ export default function MailOverview(props: {
             </For>
             <Show when={deletedCursor()}>
               {(cursor) => (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   type="button"
-                  class="btn-secondary btn-sm self-start"
+                  class="self-start"
                   disabled={loadDeletedMailboxes.loading()}
                   onClick={() => loadDeletedMailboxes.mutate(cursor())}
                 >
                   <i class="ti ti-chevron-down" aria-hidden="true" />
                   Load more
-                </button>
+                </Button>
               )}
             </Show>
           </div>

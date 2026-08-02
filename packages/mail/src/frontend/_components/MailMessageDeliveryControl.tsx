@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast, Button } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
@@ -114,13 +114,13 @@ export default function MailMessageDeliveryControl(props: {
                 Cancel delivery to return this message to Drafts. You can edit it there or schedule it again.
               </p>
               <div class="flex flex-wrap items-center justify-end gap-2">
-                <button type="button" class="btn-secondary btn-sm" disabled={cancel.loading()} onClick={() => close()}>
+                <Button variant="secondary" size="sm" type="button" disabled={cancel.loading()} onClick={() => close()}>
                   Keep scheduled
-                </button>
-                <button type="button" class="btn-danger btn-sm" disabled={cancel.loading()} onClick={() => void cancelScheduledSend()}>
+                </Button>
+                <Button variant="danger" size="sm" type="button" disabled={cancel.loading()} onClick={() => void cancelScheduledSend()}>
                   <i class={`ti ${cancel.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-cancel"}`} aria-hidden="true" />
                   Cancel send
-                </button>
+                </Button>
               </div>
             </div>
           );

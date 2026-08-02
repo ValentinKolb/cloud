@@ -1,4 +1,4 @@
-import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid, ButtonLink } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { MailAutomationOverviewData } from "../service/automation-workspace";
 import MailAutomationActivityTable from "./_components/MailAutomationActivityTable";
@@ -123,9 +123,9 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
                 <h2 class="text-sm font-semibold text-primary">Recent activity</h2>
                 <p class="mt-0.5 text-xs text-dimmed">Workflow runs and mail-rule backfills for this mailbox.</p>
               </div>
-              <a class="btn-simple btn-sm" href={`${base}/activity`}>
+              <ButtonLink variant="ghost" size="sm" href={`${base}/activity`}>
                 View all <i class="ti ti-arrow-right" aria-hidden="true" />
-              </a>
+              </ButtonLink>
             </div>
             <MailAutomationActivityTable items={items()} compact />
           </section>

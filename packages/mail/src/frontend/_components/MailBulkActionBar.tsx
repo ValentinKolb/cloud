@@ -1,4 +1,4 @@
-import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, Tooltip, IconButton } from "@k2b/ui";
 import { Show } from "solid-js";
 import { getMailAction, type MailActionId } from "./mail-actions";
 
@@ -18,40 +18,38 @@ export default function MailBulkActionBar(props: {
       </span>
       <Show when={props.selectedCount > 0}>
         <Tooltip content="Add tags">
-          <button
+          <IconButton
             type="button"
-            class="icon-btn"
-            aria-label={`Add tags to ${props.selectedCount} selected conversations`}
+            label={`Add tags to ${props.selectedCount} selected conversations`}
             disabled={props.busy}
             onClick={() => void props.onAddTags()}
           >
             <i class="ti ti-tags" aria-hidden="true" />
-          </button>
+          </IconButton>
         </Tooltip>
         {primaryActions.map((actionId) => {
           const action = getMailAction(actionId);
           return (
             <Tooltip content={action.label}>
-              <button
+              <IconButton
                 type="button"
-                class="icon-btn"
-                aria-label={`${action.label} ${props.selectedCount} selected conversations`}
+                label={`${action.label} ${props.selectedCount} selected conversations`}
                 disabled={props.busy}
                 onClick={() => void props.onAction(actionId)}
               >
                 <i class={action.icon} aria-hidden="true" />
-              </button>
+              </IconButton>
             </Tooltip>
           );
         })}
         <Dropdown
           trigger={
-            <button type="button" class="icon-btn" aria-label="More selected conversation actions" disabled={props.busy}>
+            <IconButton type="button" label="More selected conversation actions" disabled={props.busy}>
               <i class="ti ti-dots" aria-hidden="true" />
-            </button>
+            </IconButton>
           }
           position="bottom-left"
-          width="w-56"
+          width="14rem"
           elements={[
             ...(["mark_unread", "unflag", props.selectedInJunk ? "not_spam" : "junk"] as const).map((actionId) => {
               const action = getMailAction(actionId);
@@ -65,9 +63,9 @@ export default function MailBulkActionBar(props: {
         />
       </Show>
       <Tooltip content="Exit selection">
-        <button type="button" class="icon-btn" aria-label="Exit conversation selection" disabled={props.busy} onClick={props.onClear}>
+        <IconButton type="button" label="Exit conversation selection" disabled={props.busy} onClick={props.onClear}>
           <i class="ti ti-x" aria-hidden="true" />
-        </button>
+        </IconButton>
       </Tooltip>
     </div>
   );

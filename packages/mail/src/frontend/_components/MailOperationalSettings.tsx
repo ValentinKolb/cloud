@@ -1,4 +1,4 @@
-import { Placeholder, ProgressBar, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Placeholder, ProgressBar, prompts, StatusBadge, type StatusTone, toast } from "@k2b/ui";
 import { type DateContext, dates, text } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
@@ -15,8 +15,7 @@ import type {
 import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
 import { readApiError } from "./api-response";
 
-const healthTone = (health: Mailbox["health"]): string =>
-  health === "active" ? "badge-success" : health === "paused" ? "" : "badge-warning";
+const healthTone = (health: Mailbox["health"]): StatusTone => (health === "active" ? "ok" : health === "paused" ? "neutral" : "warning");
 
 const providerLimitCheckedLabel = (checkedAt: string, dateConfig: DateContext): string =>
   Date.parse(checkedAt) <= 0
@@ -65,23 +64,23 @@ const activityLabel = (kind: RedactedOperatorCommand["kind"]): string =>
     send: "Message delivery",
   })[kind];
 
-const activityState = (state: RedactedOperatorCommand["state"]): { label: string; icon: string; badge: string } => {
+const activityState = (state: RedactedOperatorCommand["state"]): { label: string; icon: string; tone: StatusTone } => {
   if (state === "confirmed" || state === "reconciled") {
-    return { label: "Completed", icon: "ti-circle-check", badge: "badge-success" };
+    return { label: "Completed", icon: "ti-circle-check", tone: "ok" };
   }
   if (state === "failed") {
-    return { label: "Failed", icon: "ti-alert-circle", badge: "badge-danger" };
+    return { label: "Failed", icon: "ti-alert-circle", tone: "error" };
   }
   if (state === "ambiguous" || state === "needs_attention") {
-    return { label: "Needs attention", icon: "ti-alert-triangle", badge: "badge-warning" };
+    return { label: "Needs attention", icon: "ti-alert-triangle", tone: "warning" };
   }
   if (state === "executing") {
-    return { label: "In progress", icon: "ti-loader-2 animate-spin", badge: "" };
+    return { label: "In progress", icon: "ti-loader-2 animate-spin", tone: "running" };
   }
   if (state === "queued") {
-    return { label: "Queued", icon: "ti-clock", badge: "" };
+    return { label: "Queued", icon: "ti-clock", tone: "neutral" };
   }
-  return { label: "Cancelled", icon: "ti-circle-minus", badge: "" };
+  return { label: "Cancelled", icon: "ti-circle-minus", tone: "neutral" };
 };
 
 export default function MailOperationalSettings(props: {
@@ -258,7 +257,7 @@ export default function MailOperationalSettings(props: {
         <div class="min-w-64 flex-1">
           <div class="flex flex-wrap items-center gap-2">
             <h3 class="text-base font-semibold text-primary">Mailbox connection</h3>
-            <span class={`badge ${healthTone(props.health.health)}`}>{props.health.health.replaceAll("_", " ")}</span>
+            <StatusBadge tone={healthTone(props.health.health)} label={props.health.health.replaceAll("_", " ")} />
           </div>
           <p class="mt-1 text-sm text-secondary">
             {props.health.healthReason ||
@@ -275,27 +274,27 @@ export default function MailOperationalSettings(props: {
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <button
+          <Button
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             disabled={busy() || !props.mailbox.syncEnabled}
             aria-busy={syncLoading()}
             onClick={() => command.mutate({ kind: "sync_mailbox" })}
           >
             <i class={`ti ${syncLoading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
             Sync now
-          </button>
+          </Button>
           <Show
             when={props.mailbox.syncEnabled}
             fallback={
-              <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => updateSync.mutate(true)}>
+              <Button variant="secondary" size="sm" type="button" disabled={busy()} onClick={() => updateSync.mutate(true)}>
                 <i class="ti ti-player-play" aria-hidden="true" /> Resume mailbox
-              </button>
+              </Button>
             }
           >
-            <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => void pause()}>
+            <Button variant="secondary" size="sm" type="button" disabled={busy()} onClick={() => void pause()}>
               <i class="ti ti-player-pause" aria-hidden="true" /> Pause mailbox
-            </button>
+            </Button>
           </Show>
         </div>
       </section>
@@ -352,11 +351,11 @@ export default function MailOperationalSettings(props: {
                       <span class="shrink-0 text-xs text-dimmed">
                         {providerLimitCheckedLabel(connection.limits.checkedAt, props.dateConfig)}
                       </span>
-                      <button
+                      <IconButton
                         type="button"
-                        class="btn-ghost btn-icon-sm"
+                        size="sm"
                         title="Refresh provider limits"
-                        aria-label={`Refresh limits for ${connection.name}`}
+                        label={`Refresh limits for ${connection.name}`}
                         disabled={busy()}
                         onClick={() => {
                           setRefreshingConnectionId(connection.id);
@@ -367,7 +366,7 @@ export default function MailOperationalSettings(props: {
                           class={`ti ${refreshingConnectionId() === connection.id ? "ti-loader-2 animate-spin" : "ti-refresh"}`}
                           aria-hidden="true"
                         />
-                      </button>
+                      </IconButton>
                     </div>
                     <Show
                       when={storage()}
@@ -386,7 +385,7 @@ export default function MailOperationalSettings(props: {
                           <ProgressBar
                             value={storagePercent()}
                             size="xs"
-                            tone={storagePercent() >= 90 ? "danger" : "primary"}
+                            tone={storagePercent() >= 90 ? "danger" : "info"}
                             label={`${connection.name} mailbox storage`}
                           />
                           <span class="text-xs tabular-nums text-secondary">
@@ -429,10 +428,10 @@ export default function MailOperationalSettings(props: {
           title="Could not load mailbox activity"
           description={operatorStatus.error instanceof Error ? operatorStatus.error.message : "Try loading the mailbox status again."}
           action={
-            <button type="button" class="btn-secondary btn-sm" onClick={() => void operatorStatusActions.refetch()}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => void operatorStatusActions.refetch()}>
               <i class="ti ti-refresh" aria-hidden="true" />
               Retry
-            </button>
+            </Button>
           }
         />
       </Show>
@@ -457,7 +456,7 @@ export default function MailOperationalSettings(props: {
                         <span class="block truncate text-sm font-medium text-primary">{activityLabel(item.kind)}</span>
                         <Show when={detail}>{(value) => <span class="block truncate text-xs text-dimmed">{value()}</span>}</Show>
                       </span>
-                      <span class={`badge badge-sm ${state.badge}`}>{state.label}</span>
+                      <StatusBadge tone={state.tone} label={state.label} />
                       <time class="shrink-0 text-xs text-dimmed" datetime={item.updatedAt}>
                         {dates.formatDateTimeRelative(item.updatedAt, props.dateConfig)}
                       </time>
@@ -512,15 +511,16 @@ export default function MailOperationalSettings(props: {
                     )}
                   >
                     {(action) => (
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         type="button"
-                        class="btn-secondary btn-sm"
                         disabled={busy() || !action.eligible}
                         title={action.reason ?? actionLabel(action.kind)}
                         onClick={() => operatorCommand.mutate(action)}
                       >
                         <i class="ti ti-tool" aria-hidden="true" /> {actionLabel(action.kind)}
-                      </button>
+                      </Button>
                     )}
                   </For>
                 </div>
@@ -550,24 +550,25 @@ export default function MailOperationalSettings(props: {
                     <Show
                       when={binding.state === "pending"}
                       fallback={
-                        <button
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           type="button"
-                          class="btn-secondary btn-sm"
                           disabled={busy()}
                           onClick={() => command.mutate({ kind: "discover_folders", bindingId: binding.id })}
                         >
                           <i class="ti ti-folders" aria-hidden="true" /> Rediscover
-                        </button>
+                        </Button>
                       }
                     >
-                      <button
+                      <Button
+                        size="sm"
                         type="button"
-                        class="btn-primary btn-sm"
                         disabled={busy()}
                         onClick={() => command.mutate({ kind: "verify_binding", bindingId: binding.id })}
                       >
                         <i class="ti ti-shield-check" aria-hidden="true" /> Verify connection
-                      </button>
+                      </Button>
                     </Show>
                   </div>
                 )}
@@ -599,15 +600,16 @@ export default function MailOperationalSettings(props: {
                           </span>
                           <For each={folder.actions}>
                             {(action) => (
-                              <button
+                              <Button
+                                variant="secondary"
+                                size="sm"
                                 type="button"
-                                class="btn-secondary btn-sm"
                                 disabled={busy() || !action.eligible}
                                 title={action.reason ?? actionLabel(action.kind)}
                                 onClick={() => operatorCommand.mutate(action)}
                               >
                                 <i class="ti ti-tool" aria-hidden="true" /> {actionLabel(action.kind)}
-                              </button>
+                              </Button>
                             )}
                           </For>
                         </div>
@@ -629,14 +631,15 @@ export default function MailOperationalSettings(props: {
                           </span>
                           <For each={item.actions.filter((action) => action.eligible)}>
                             {(action) => (
-                              <button
+                              <Button
+                                variant="secondary"
+                                size="sm"
                                 type="button"
-                                class="btn-secondary btn-sm"
                                 disabled={busy()}
                                 onClick={() => operatorCommand.mutate(action)}
                               >
                                 {actionLabel(action.kind)}
-                              </button>
+                              </Button>
                             )}
                           </For>
                         </div>
@@ -644,9 +647,11 @@ export default function MailOperationalSettings(props: {
                     </For>
                     <Show when={status().nextAttentionCursor}>
                       {(cursor) => (
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           type="button"
-                          class="btn-simple btn-sm self-center"
+                          class="self-center"
                           disabled={loadMoreAttention.loading()}
                           onClick={() => loadMoreAttention.mutate(cursor())}
                         >
@@ -655,7 +660,7 @@ export default function MailOperationalSettings(props: {
                             aria-hidden="true"
                           />
                           Load more attention items
-                        </button>
+                        </Button>
                       )}
                     </Show>
                   </div>

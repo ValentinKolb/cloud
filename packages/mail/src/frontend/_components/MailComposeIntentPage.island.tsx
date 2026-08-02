@@ -1,4 +1,4 @@
-import { Placeholder, prompts, Select } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Select, Button, ButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -194,7 +194,7 @@ export default function MailComposeIntentPage(props: {
                 label="Mailbox"
                 placeholder="Choose mailbox"
                 value={mailboxId}
-                onChange={setMailboxId}
+                onValueChange={setMailboxId}
                 options={props.mailboxes.map((mailbox) => ({
                   id: mailbox.id,
                   label: mailbox.name,
@@ -206,7 +206,7 @@ export default function MailComposeIntentPage(props: {
                 label="From"
                 placeholder={identityLoading() ? "Loading senders..." : "Choose sender"}
                 value={identityId}
-                onChange={setIdentityId}
+                onValueChange={setIdentityId}
                 options={identities().map((identity) => ({
                   id: identity.id,
                   label: identity.label,
@@ -218,9 +218,9 @@ export default function MailComposeIntentPage(props: {
                 {(message) => (
                   <div class="info-block-error flex items-center justify-between gap-3 text-sm" role="alert">
                     <span>{message()}</span>
-                    <button type="button" class="btn-secondary btn-sm" onClick={() => setIdentityReload((current) => current + 1)}>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => setIdentityReload((current) => current + 1)}>
                       Retry
-                    </button>
+                    </Button>
                   </div>
                 )}
               </Show>
@@ -244,18 +244,18 @@ export default function MailComposeIntentPage(props: {
               </div>
             </Show>
             <div class="flex items-center justify-between gap-3">
-              <a class="btn-secondary btn-sm" href={selectedMailbox() ? `/app/mail/${selectedMailbox()!.id}` : "/app/mail"}>
+              <ButtonLink variant="secondary" size="sm" href={selectedMailbox() ? `/app/mail/${selectedMailbox()!.id}` : "/app/mail"}>
                 Cancel
-              </a>
-              <button
+              </ButtonLink>
+              <Button
+                size="sm"
                 type="button"
-                class="btn-primary btn-sm"
                 disabled={!selectedMailbox() || !selectedIdentity() || identityLoading() || draftCreation.loading()}
                 onClick={createDraft}
               >
                 <i class={`ti ${draftCreation.loading() ? "ti-loader-2 animate-spin" : "ti-arrow-right"}`} aria-hidden="true" />
                 Continue
-              </button>
+              </Button>
             </div>
           </Show>
         </Show>

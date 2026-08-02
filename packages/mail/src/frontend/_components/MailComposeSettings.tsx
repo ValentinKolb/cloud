@@ -10,7 +10,9 @@ import {
   Select,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -131,7 +133,7 @@ function ComposeTemplateEditor(props: {
                 label="Type"
                 description="Signatures stay dynamic until send; snippets insert resolved text."
                 value={kind}
-                onChange={(value) => setKind(value === "signature" ? "signature" : "snippet")}
+                onValueChange={(value) => setKind(value === "signature" ? "signature" : "snippet")}
                 options={[
                   { id: "snippet", label: "Snippet", icon: "ti ti-bolt" },
                   { id: "signature", label: "Signature", icon: "ti ti-signature" },
@@ -141,7 +143,7 @@ function ComposeTemplateEditor(props: {
                 label="Visibility"
                 description="Private is only visible to you; mailbox is shared with collaborators."
                 value={scope}
-                onChange={(value) => setScope(value === "mailbox" ? "mailbox" : "private")}
+                onValueChange={(value) => setScope(value === "mailbox" ? "mailbox" : "private")}
                 options={[
                   { id: "private", label: "Private", icon: "ti ti-lock" },
                   ...(props.canCreateMailboxTemplate ? [{ id: "mailbox", label: "Mailbox", icon: "ti ti-users" }] : []),
@@ -154,14 +156,14 @@ function ComposeTemplateEditor(props: {
               label="Name"
               description="The label shown in settings and slash-command results."
               value={name}
-              onInput={setName}
+              onValueChange={setName}
               required
             />
             <TextInput
               label="Shortcut"
               description={`Type /${shortcut() || "shortcut"} in the composer. Use lowercase letters, numbers, or underscores.`}
               value={shortcut}
-              onInput={setShortcut}
+              onValueChange={setShortcut}
               prefix="/"
               required
             />
@@ -171,7 +173,7 @@ function ComposeTemplateEditor(props: {
             <p class="mb-2 text-xs text-dimmed">
               Markdown is converted to branded email HTML. Variables use syntax such as {"{{ actor.display_name }}"}.
             </p>
-            <MarkdownEditor value={body} onInput={setBody} lines={14} ariaLabel="Template content" spellcheck />
+            <MarkdownEditor value={body} onValueChange={setBody} lines={14} aria-label="Template content" spellcheck />
           </div>
           <div class="flex flex-wrap gap-1.5" role="group" aria-label="Available compose variables">
             <For each={TEMPLATE_VARIABLES}>
@@ -191,30 +193,31 @@ function ComposeTemplateEditor(props: {
       <PanelDialog.Footer>
         <Show when={props.template} fallback={<span />}>
           {(template) => (
-            <button
+            <Button
+              variant="danger"
+              size="sm"
               type="button"
-              class="btn-danger btn-sm"
               disabled={save.loading()}
               onClick={() => void props.onArchive(template()).then((archived) => archived && props.close())}
             >
               <i class="ti ti-archive" aria-hidden="true" />
               Archive
-            </button>
+            </Button>
           )}
         </Show>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" onClick={() => void closeSafely()}>
+          <Button variant="ghost" size="sm" type="button" onClick={() => void closeSafely()}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
             type="button"
-            class="btn-primary btn-sm"
             disabled={save.loading() || !name().trim() || !shortcut().trim() || !body().trim()}
             onClick={() => save.mutate()}
           >
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
             Save template
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -283,7 +286,7 @@ function EmailDesignEditor(props: {
               label="Mailbox CSS"
               description="Unsaved changes appear immediately in the preview."
               value={customCss}
-              onInput={setCustomCss}
+              onValueChange={setCustomCss}
               multiline
               lines={16}
               monospace
@@ -319,13 +322,13 @@ function EmailDesignEditor(props: {
       <PanelDialog.Footer>
         <span />
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-simple btn-sm" disabled={save.loading()} onClick={() => void closeSafely()}>
+          <Button variant="ghost" size="sm" type="button" disabled={save.loading()} onClick={() => void closeSafely()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={save.loading() || !dirty()} onClick={() => save.mutate()}>
+          </Button>
+          <Button size="sm" type="button" disabled={save.loading() || !dirty()} onClick={() => save.mutate()}>
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
             Save email design
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -484,9 +487,9 @@ export default function MailComposeSettings(props: {
               Use slash commands while writing. Mailbox templates are shared; private templates remain yours.
             </p>
           </div>
-          <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openTemplate()}>
+          <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openTemplate()}>
             <i class="ti ti-plus" aria-hidden="true" /> Add template
-          </button>
+          </Button>
         </div>
         <Show
           when={templates().length > 0}
@@ -512,14 +515,14 @@ export default function MailComposeSettings(props: {
                     <p class="truncate text-xs text-dimmed">/{template.shortcut}</p>
                   </div>
                   <Show when={template.scope === "private" || props.permission === "admin"}>
-                    <button
+                    <IconButton
                       type="button"
-                      class="icon-btn opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                      aria-label={`Edit ${template.name}`}
+                      class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      label={`Edit ${template.name}`}
                       onClick={() => void openTemplate(template)}
                     >
                       <i class="ti ti-pencil" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </Show>
                 </div>
               )}
@@ -545,7 +548,7 @@ export default function MailComposeSettings(props: {
                     label={`${identity.label} · My signature`}
                     description={`Overrides the identity default for ${identity.fromAddress}.`}
                     value={privateDefault}
-                    onChange={(value) => void setDefault(identity, "private", value)}
+                    onValueChange={(value) => void setDefault(identity, "private", value ?? "")}
                     disabled={pendingDefaults().has(`${identity.id}:private`)}
                     options={signatures().map((template) => ({
                       id: template.id,
@@ -568,10 +571,10 @@ export default function MailComposeSettings(props: {
               <h3 class="text-sm font-semibold text-primary">Email design</h3>
               <p class="mt-0.5 text-xs text-dimmed">Preview and adjust mailbox branding for Markdown messages.</p>
             </div>
-            <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openEmailDesign()}>
+            <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openEmailDesign()}>
               <i class="ti ti-palette" aria-hidden="true" />
               Edit design
-            </button>
+            </Button>
           </div>
         </section>
       </Show>

@@ -1,4 +1,4 @@
-import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Button, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -101,9 +101,9 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
               title="Could not load shared links"
               description={load.error()?.message}
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={() => load.mutate()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => load.mutate()}>
                   Retry
-                </button>
+                </Button>
               }
             />
           }
@@ -135,11 +135,11 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
                           {link.passwordProtected ? " · password protected" : ""}
                         </span>
                       </span>
-                      <span class={`badge badge-sm ${status() === "active" ? "badge-success" : "badge-neutral"}`}>{status()}</span>
+                      <StatusBadge tone={status() === "active" ? "ok" : "neutral"} label={status()} />
                       <Show when={status() === "active"}>
-                        <button type="button" class="btn-simple btn-sm" disabled={revoke.loading()} onClick={() => revoke.mutate(link)}>
+                        <Button variant="ghost" size="sm" type="button" disabled={revoke.loading()} onClick={() => revoke.mutate(link)}>
                           <i class="ti ti-link-off" aria-hidden="true" /> Revoke
-                        </button>
+                        </Button>
                       </Show>
                     </div>
                   );
@@ -147,14 +147,16 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
               </For>
               <Show when={nextCursor()}>
                 {(cursor) => (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     type="button"
-                    class="btn-secondary btn-sm self-start"
+                    class="self-start"
                     disabled={loadMore.loading()}
                     onClick={() => loadMore.mutate(cursor())}
                   >
                     {loadMore.loading() ? "Loading..." : "Load more"}
-                  </button>
+                  </Button>
                 )}
               </Show>
             </div>

@@ -1,5 +1,5 @@
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
-import type { StatusTone } from "@valentinkolb/cloud/ui";
+import type { StatusTone } from "@k2b/ui";
 import type { MessageDeliveryState } from "../../service/messages";
 import type { MailReadingFormat } from "./mail-user-preferences";
 
@@ -137,7 +137,7 @@ export const messageDeliveryPresentation = (state: MessageDeliveryState): { labe
       return { label: "Send failed", icon: "ti ti-alert-circle", tone: "error" };
     case "unknown":
     case "needs_attention":
-      return { label: "Needs attention", icon: "ti ti-alert-triangle", tone: "warn" };
+      return { label: "Needs attention", icon: "ti ti-alert-triangle", tone: "warning" };
     case "cancelled":
       return { label: "Cancelled", icon: "ti ti-ban", tone: "neutral" };
   }

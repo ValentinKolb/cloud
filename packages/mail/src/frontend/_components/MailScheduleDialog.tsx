@@ -1,4 +1,4 @@
-import { DateTimePicker, prompts } from "@valentinkolb/cloud/ui";
+import { DateTimePicker, prompts, Button } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
 
@@ -31,7 +31,7 @@ export const chooseScheduledSendTime = (dateConfig: DateContext): Promise<string
             label="Delivery time"
             placeholder="Choose date and time"
             value={value}
-            onChange={setValue}
+            onValueChange={setValue}
             dateConfig={dateConfig}
           />
           <Show when={error()} fallback={<p class="text-xs text-dimmed">Time zone: {dateConfig.timeZone}</p>}>
@@ -48,13 +48,13 @@ export const chooseScheduledSendTime = (dateConfig: DateContext): Promise<string
             </div>
           </Show>
           <div class="flex items-center justify-end gap-2">
-            <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" disabled={Boolean(error())} onClick={schedule}>
+            </Button>
+            <Button size="sm" type="button" disabled={Boolean(error())} onClick={schedule}>
               <i class="ti ti-calendar-time" aria-hidden="true" />
               Schedule
-            </button>
+            </Button>
           </div>
         </div>
       );

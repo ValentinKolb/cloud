@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast, Button } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -18,9 +18,9 @@ export default function MailAdminStorageActions() {
   onCleanup(() => reconcile.abort());
 
   return (
-    <button type="button" class="btn-secondary btn-sm" disabled={reconcile.loading()} onClick={() => reconcile.mutate()}>
+    <Button variant="secondary" size="sm" type="button" disabled={reconcile.loading()} onClick={() => reconcile.mutate()}>
       <i class={`ti ${reconcile.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
       Refresh storage snapshot
-    </button>
+    </Button>
   );
 }

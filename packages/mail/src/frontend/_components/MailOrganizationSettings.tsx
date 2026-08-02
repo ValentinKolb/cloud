@@ -1,4 +1,4 @@
-import { ColorInput, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { ColorInput, Placeholder, prompts, TextInput, toast, Button, IconButton } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -31,16 +31,16 @@ function TagEditor(props: {
         if (name().trim()) props.onSave({ name: name(), color: color() });
       }}
     >
-      <TextInput label="Name" placeholder="Tag name" value={name} onInput={setName} required />
-      <ColorInput label="Color" value={color} onChange={setColor} />
+      <TextInput label="Name" placeholder="Tag name" value={name} onValueChange={setName} required />
+      <ColorInput label="Color" value={color} onValueChange={setColor} />
       <div class="flex items-center gap-2">
-        <button type="submit" class="btn-primary btn-sm" disabled={props.loading}>
+        <Button size="sm" type="submit" disabled={props.loading}>
           <i class={`ti ${props.loading ? "ti-loader-2 animate-spin" : "ti-check"}`} aria-hidden="true" />
           {props.tag ? "Save" : "Create tag"}
-        </button>
-        <button type="button" class="btn-secondary btn-sm" onClick={props.onCancel}>
+        </Button>
+        <Button variant="secondary" size="sm" type="button" onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -185,9 +185,9 @@ export default function MailOrganizationSettings(props: {
             <h3 class="text-sm font-semibold text-primary">Saved views</h3>
             <p class="text-xs text-dimmed">Reusable folder and collaboration filters shown in the mailbox navigation.</p>
           </div>
-          <button type="button" class="btn-secondary btn-sm shrink-0 whitespace-nowrap" onClick={() => void editView()}>
+          <Button variant="secondary" size="sm" type="button" class="shrink-0 whitespace-nowrap" onClick={() => void editView()}>
             <i class="ti ti-plus" aria-hidden="true" /> New view
-          </button>
+          </Button>
         </div>
         <Show
           when={views().length > 0}
@@ -209,22 +209,12 @@ export default function MailOrganizationSettings(props: {
                   </span>
                   <Show when={view.scope === "private" || canWrite()}>
                     <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                      <button
-                        type="button"
-                        class="icon-btn icon-btn-sm"
-                        aria-label={`Edit ${view.name}`}
-                        onClick={() => void editView(view)}
-                      >
+                      <IconButton size="sm" type="button" label={`Edit ${view.name}`} onClick={() => void editView(view)}>
                         <i class="ti ti-pencil" aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        class="icon-btn icon-btn-sm"
-                        aria-label={`Delete ${view.name}`}
-                        onClick={() => void removeView(view)}
-                      >
+                      </IconButton>
+                      <IconButton size="sm" type="button" label={`Delete ${view.name}`} onClick={() => void removeView(view)}>
                         <i class="ti ti-trash" aria-hidden="true" />
-                      </button>
+                      </IconButton>
                     </div>
                   </Show>
                 </div>
@@ -241,9 +231,9 @@ export default function MailOrganizationSettings(props: {
               <h3 class="text-sm font-semibold text-primary">Conversation tags</h3>
               <p class="text-xs text-dimmed">Organize conversations for your team, saved views, and automations.</p>
             </div>
-            <button type="button" class="btn-secondary btn-sm" disabled={tagEditor() !== null} onClick={() => setTagEditor("new")}>
+            <Button variant="secondary" size="sm" type="button" disabled={tagEditor() !== null} onClick={() => setTagEditor("new")}>
               <i class="ti ti-plus" aria-hidden="true" /> New tag
-            </button>
+            </Button>
           </div>
           <Show when={tagEditor() === "new"}>
             <TagEditor
@@ -266,24 +256,24 @@ export default function MailOrganizationSettings(props: {
                       <span class="h-3 w-3 shrink-0 rounded-full" style={{ "background-color": tag.color }} />
                       <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">{tag.name}</span>
                       <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 sm:group-focus-within/tag:opacity-100">
-                        <button
+                        <IconButton
+                          size="sm"
                           type="button"
-                          class="icon-btn icon-btn-sm"
-                          aria-label={`Edit ${tag.name}`}
+                          label={`Edit ${tag.name}`}
                           disabled={tagEditor() !== null}
                           onClick={() => setTagEditor(tag)}
                         >
                           <i class="ti ti-pencil" aria-hidden="true" />
-                        </button>
-                        <button
+                        </IconButton>
+                        <IconButton
+                          size="sm"
                           type="button"
-                          class="icon-btn icon-btn-sm"
-                          aria-label={`Delete ${tag.name}`}
+                          label={`Delete ${tag.name}`}
                           disabled={tagEditor() !== null}
                           onClick={() => void removeTag(tag)}
                         >
                           <i class="ti ti-trash" aria-hidden="true" />
-                        </button>
+                        </IconButton>
                       </div>
                     </div>
                   }

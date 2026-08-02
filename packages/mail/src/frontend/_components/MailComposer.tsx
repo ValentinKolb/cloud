@@ -10,7 +10,9 @@ import {
   TextInput,
   Tooltip,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -409,17 +411,17 @@ export default function MailComposer(props: {
             </For>
           </div>
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => close(undefined)}>
               Cancel
-            </button>
+            </Button>
             <Show when={review.warnings.some((warning) => warning.id === "missing_attachment")}>
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close("attachment")}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close("attachment")}>
                 <i class="ti ti-paperclip" aria-hidden="true" /> Add attachment
-              </button>
+              </Button>
             </Show>
-            <button type="button" class="btn-primary btn-sm" onClick={() => close("approve")}>
+            <Button size="sm" type="button" onClick={() => close("approve")}>
               {scheduled ? "Schedule anyway" : "Send anyway"}
-            </button>
+            </Button>
           </div>
         </div>
       ),
@@ -541,7 +543,7 @@ export default function MailComposer(props: {
               label="Priority"
               description="Recipients may see high or low importance when their mail client supports it."
               value={nextPriority}
-              onChange={(value) => setNextPriority(value === "high" ? "high" : value === "low" ? "low" : "normal")}
+              onValueChange={(value) => setNextPriority(value === "high" ? "high" : value === "low" ? "low" : "normal")}
               options={[
                 { id: "normal", label: "Normal", icon: "ti ti-minus" },
                 { id: "high", label: "High", icon: "ti ti-arrow-up" },
@@ -557,7 +559,7 @@ export default function MailComposer(props: {
               }
               icon="ti ti-mail-check"
               value={nextDeliveryReceipt}
-              onChange={setNextDeliveryReceipt}
+              onValueChange={setNextDeliveryReceipt}
               disabled={!deliveryReceiptSupported()}
             />
             <CheckboxCard
@@ -565,20 +567,20 @@ export default function MailComposer(props: {
               description="Ask recipients to confirm opening the message. They may decline or their mail client may ignore the request."
               icon="ti ti-eye-check"
               value={nextReadReceipt}
-              onChange={setNextReadReceipt}
+              onValueChange={setNextReadReceipt}
             />
             <div class="info-block-note flex items-start gap-2 text-xs">
               <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
               <p>Receipt requests are optional signals, not proof that a message was delivered or read.</p>
             </div>
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(false)}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => close(false)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={save}>
+              </Button>
+              <Button size="sm" type="button" onClick={save}>
                 <i class="ti ti-check" aria-hidden="true" />
                 Apply
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -772,7 +774,7 @@ export default function MailComposer(props: {
       >
         <Dropdown
           position="bottom-right"
-          width="w-72"
+          width="18rem"
           elements={identityMenuItems()}
           trigger={
             <button
@@ -828,15 +830,14 @@ export default function MailComposer(props: {
       <Show when={!props.popout}>
         <header class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
           <Tooltip content="Back to mailbox">
-            <button
+            <IconButton
               type="button"
-              class="icon-btn"
-              aria-label="Back to mailbox"
+              label="Back to mailbox"
               disabled={composerTransition.active() !== null}
               onClick={() => void leaveComposer()}
             >
               <i class="ti ti-arrow-left" aria-hidden="true" />
-            </button>
+            </IconButton>
           </Tooltip>
           <span class="shrink-0 text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
           <IdentitySwitcher />
@@ -847,19 +848,19 @@ export default function MailComposer(props: {
             </span>
           </Show>
           <Show when={status() === "readonly" && draft()}>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
               {lease() ? "Retry" : "Take over"}
-            </button>
+            </Button>
           </Show>
           <Show when={editable() && (draft()?.recoveryCopyCount ?? 0) > 0}>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => void restoreRecoveryCopy()}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => void restoreRecoveryCopy()}>
               <i class="ti ti-history" aria-hidden="true" /> Recover changes
-            </button>
+            </Button>
           </Show>
           <Tooltip content="Open in new window">
-            <button type="button" class="icon-btn" aria-label="Open in new window" disabled={!editable()} onClick={openWindow}>
+            <IconButton type="button" label="Open in new window" disabled={!editable()} onClick={openWindow}>
               <i class="ti ti-app-window" aria-hidden="true" />
-            </button>
+            </IconButton>
           </Tooltip>
         </header>
       </Show>
@@ -871,9 +872,9 @@ export default function MailComposer(props: {
         >
           <span class="min-w-0 flex-1 truncate">{statusMessage()}</span>
           <Show when={status() === "readonly" && draft()}>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
               {lease() ? "Retry" : "Take over"}
-            </button>
+            </Button>
           </Show>
         </div>
       </Show>
@@ -881,9 +882,9 @@ export default function MailComposer(props: {
       <Show when={props.popout && editable() && (draft()?.recoveryCopyCount ?? 0) > 0}>
         <div class="flex shrink-0 items-center gap-2 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
           <span class="min-w-0 flex-1">Saved conflict changes are available for this draft.</span>
-          <button type="button" class="btn-secondary btn-sm" onClick={() => void restoreRecoveryCopy()}>
+          <Button variant="secondary" size="sm" type="button" onClick={() => void restoreRecoveryCopy()}>
             <i class="ti ti-history" aria-hidden="true" /> Recover
-          </button>
+          </Button>
         </div>
       </Show>
 
@@ -902,9 +903,9 @@ export default function MailComposer(props: {
                 <MailRecipientInput placeholder="Recipients" value={to} onChange={setTo} disabled={!editable()} />
               </div>
               <Show when={!showCc()}>
-                <button type="button" class="btn-simple btn-sm" disabled={!editable()} onClick={() => setShowCc(true)}>
+                <Button variant="ghost" size="sm" type="button" disabled={!editable()} onClick={() => setShowCc(true)}>
                   Cc/Bcc
-                </button>
+                </Button>
               </Show>
             </div>
           </div>
@@ -920,7 +921,7 @@ export default function MailComposer(props: {
           </Show>
           <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2 lg:col-span-2">
             <span class="text-dimmed">Subject</span>
-            <TextInput ariaLabel="Subject" value={subject} onInput={setSubject} maxLength={998} disabled={!editable()} />
+            <TextInput aria-label="Subject" value={subject} onValueChange={setSubject} maxLength={998} disabled={!editable()} />
           </div>
         </div>
 
@@ -954,31 +955,33 @@ export default function MailComposer(props: {
 
       <footer class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
         <div class="mail-delivery-actions inline-flex shrink-0">
-          <button
+          <Button
+            size="sm"
             type="button"
-            class="btn-primary btn-sm rounded-r-none"
+            class="rounded-r-none"
             disabled={!editable() || send.loading() || uploads().length > 0}
             onClick={() => void sendDraft({})}
           >
             <i class={`ti ${send.loading() ? "ti-loader-2 animate-spin" : intentIcon(composerIntent())}`} aria-hidden="true" />
             {intentLabel(composerIntent())}
-          </button>
+          </Button>
           <Tooltip content="Schedule delivery">
-            <button
+            <Button
+              size="sm"
               type="button"
-              class="btn-primary btn-sm min-w-8 rounded-l-none border-l border-l-white/30 px-2"
+              class="min-w-8 rounded-l-none border-l border-l-white/30 px-2"
               aria-label="Schedule delivery"
               disabled={!editable() || send.loading() || uploads().length > 0}
               onClick={() => void schedule()}
             >
               <i class="ti ti-clock" aria-hidden="true" />
-            </button>
+            </Button>
           </Tooltip>
         </div>
         <Tooltip content="Attach files">
-          <button type="button" class="icon-btn" aria-label="Attach files" disabled={!editable()} onClick={() => attachmentInput?.click()}>
+          <IconButton type="button" label="Attach files" disabled={!editable()} onClick={() => attachmentInput?.click()}>
             <i class="ti ti-paperclip" aria-hidden="true" />
-          </button>
+          </IconButton>
         </Tooltip>
         <input
           ref={attachmentInput}
@@ -995,7 +998,7 @@ export default function MailComposer(props: {
         <Select
           placeholder="Message format"
           value={format}
-          onChange={(value) => {
+          onValueChange={(value) => {
             setFormat(value === "plain" ? "plain" : "markdown");
           }}
           options={[
@@ -1007,10 +1010,10 @@ export default function MailComposer(props: {
         <Tooltip
           content={deliveryOptionsSummary().length > 0 ? `Delivery options: ${deliveryOptionsSummary().join(", ")}` : "Delivery options"}
         >
-          <button
+          <IconButton
             type="button"
-            class="icon-btn relative"
-            aria-label="Delivery options"
+            class="relative"
+            label="Delivery options"
             disabled={!editable()}
             onClick={() => void editDeliveryOptions()}
           >
@@ -1018,19 +1021,13 @@ export default function MailComposer(props: {
             <Show when={deliveryOptionsSummary().length > 0}>
               <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
             </Show>
-          </button>
+          </IconButton>
         </Tooltip>
         <span class="flex-1" />
         <Tooltip content="Discard draft">
-          <button
-            type="button"
-            class="icon-btn"
-            aria-label="Discard draft"
-            disabled={!editable() || discard.loading()}
-            onClick={() => void discardDraft()}
-          >
+          <IconButton type="button" label="Discard draft" disabled={!editable() || discard.loading()} onClick={() => void discardDraft()}>
             <i class={`ti ${discard.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
-          </button>
+          </IconButton>
         </Tooltip>
       </footer>
     </div>

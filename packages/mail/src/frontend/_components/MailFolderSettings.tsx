@@ -7,10 +7,13 @@ import {
   panelDialogOptions,
   prompts,
   Select,
+  StatusBadge,
   Switch,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+  Button,
+  IconButton,
+} from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -183,7 +186,7 @@ function FolderEditor(props: {
       />
       <PanelDialog.Body>
         <div class="flex flex-col gap-2">
-          <TextInput label="Name" value={name} onInput={setName} required />
+          <TextInput label="Name" value={name} onValueChange={setName} required />
           <Show when={create()}>
             <Select
               label="Location"
@@ -195,36 +198,36 @@ function FolderEditor(props: {
               placeholder="Search folders..."
               icon="ti ti-folder"
               activeIcon="ti ti-search"
-              onChange={(value) => setParentFolderId(value === TOP_LEVEL_FOLDER_ID ? null : value)}
+              onValueChange={(value) => setParentFolderId(value === TOP_LEVEL_FOLDER_ID ? null : value)}
             />
             <div class="flex flex-col gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-2">
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
                   <p class="text-xs text-dimmed">Add the folder to this mailbox's navigation.</p>
                 </div>
-                <Switch label="Show in Mail" value={showInSidebar} onChange={setShowInSidebar} />
+                <Switch label="Show in Mail" value={showInSidebar} onValueChange={setShowInSidebar} />
               </div>
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
                   <p class="text-xs text-dimmed">Keep the folder in the provider's subscribed folder list.</p>
                 </div>
-                <Switch label="Subscribe on provider" value={subscribe} onChange={setSubscribe} />
+                <Switch label="Subscribe on provider" value={subscribe} onValueChange={setSubscribe} />
               </div>
             </div>
           </Show>
         </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-simple btn-sm" onClick={() => void closeSafely()}>
+        <Button variant="ghost" size="sm" type="button" onClick={() => void closeSafely()}>
           Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" disabled={save.loading() || !name().trim()} onClick={() => save.mutate()}>
+        </Button>
+        <Button size="sm" type="button" disabled={save.loading() || !name().trim()} onClick={() => save.mutate()}>
           <i
             class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : create() ? "ti-folder-plus" : "ti-device-floppy"}`}
             aria-hidden="true"
           />
           {create() ? "Create folder" : "Save name"}
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );
@@ -364,10 +367,10 @@ export default function MailFolderSettings(props: {
         <p class="text-xs text-dimmed">
           Choose what appears in Mail. Visibility changes apply immediately; provider subscriptions are managed separately.
         </p>
-        <button type="button" class="btn-secondary btn-sm shrink-0" disabled={busy()} onClick={() => void openFolderEditor(null)}>
+        <Button variant="secondary" size="sm" type="button" class="shrink-0" disabled={busy()} onClick={() => void openFolderEditor(null)}>
           <i class="ti ti-folder-plus" aria-hidden="true" />
           New folder
-        </button>
+        </Button>
       </div>
 
       <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
@@ -396,7 +399,7 @@ export default function MailFolderSettings(props: {
                   activeIcon="ti ti-search"
                   clearable
                   disabled={props.folderRolePending || busy()}
-                  onChange={(folderId) => props.onFolderRoleChange(role.id, folderId)}
+                  onValueChange={(folderId) => props.onFolderRoleChange(role.id, folderId ?? "")}
                 />
               );
             }}
@@ -461,15 +464,15 @@ export default function MailFolderSettings(props: {
               ];
               const status = () => {
                 if (folder.discoveryState === "missing") {
-                  return { label: "Unavailable", icon: "ti ti-folder-off", class: "badge-warning" };
+                  return { label: "Unavailable", icon: "ti ti-folder-off", tone: "warning" as const };
                 }
                 if (folder.discoveryState === "ambiguous") {
-                  return { label: "Needs review", icon: "ti ti-alert-triangle", class: "badge-warning" };
+                  return { label: "Needs review", icon: "ti ti-alert-triangle", tone: "warning" as const };
                 }
                 if (!canManageSidebarVisibility()) return null;
-                if (!folder.showInSidebar) return { label: "Hidden", icon: "ti ti-eye-off", class: "" };
-                if (hiddenByParent) return { label: "Parent hidden", icon: "ti ti-eye-off", class: "" };
-                return { label: "Visible", icon: "ti ti-eye", class: "" };
+                if (!folder.showInSidebar) return { label: "Hidden", icon: "ti ti-eye-off", tone: "neutral" as const };
+                if (hiddenByParent) return { label: "Parent hidden", icon: "ti ti-eye-off", tone: "neutral" as const };
+                return { label: "Visible", icon: "ti ti-eye", tone: "neutral" as const };
               };
               return (
                 <div class="group flex min-h-10 items-center gap-2 rounded-[var(--ui-radius-control)] px-2 py-1.5 hover:bg-[var(--ui-hover)]">
@@ -495,21 +498,18 @@ export default function MailFolderSettings(props: {
                   </span>
                   <Show when={status()}>
                     {(currentStatus) => (
-                      <span class={`badge badge-sm shrink-0 ${currentStatus().class}`}>
-                        <i class={currentStatus().icon} aria-hidden="true" />
-                        {currentStatus().label}
-                      </span>
+                      <StatusBadge class="shrink-0" tone={currentStatus().tone} icon={currentStatus().icon} label={currentStatus().label} />
                     )}
                   </Show>
                   <Show when={menuItems().length > 0}>
                     <Dropdown
                       trigger={
-                        <button type="button" class="icon-btn" disabled={busy()} aria-label={`Actions for ${folder.name}`}>
+                        <IconButton type="button" disabled={busy()} label={`Actions for ${folder.name}`}>
                           <i
                             class={busy() && pendingFolderId() === folder.id ? "ti ti-loader-2 animate-spin" : "ti ti-dots"}
                             aria-hidden="true"
                           />
-                        </button>
+                        </IconButton>
                       }
                       elements={menuItems()}
                       position="bottom-left"

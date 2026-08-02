@@ -1,5 +1,5 @@
-import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
-import { Dropdown, FilterChip, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import type { LinkNavigateEvent } from "@k2b/ssr/nav";
+import { Button, ButtonLink, Dropdown, FilterChip, IconButton, Placeholder, TextInput, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -248,25 +248,19 @@ export default function MailConversationList(props: {
               </div>
               <Show when={props.canWrite && props.listMode === "conversations"}>
                 <Tooltip content="Select conversations">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    aria-label="Select conversations"
-                    aria-pressed="false"
-                    onClick={props.onToggleSelectionMode}
-                  >
+                  <IconButton type="button" label="Select conversations" aria-pressed="false" onClick={props.onToggleSelectionMode}>
                     <i class="ti ti-checkbox" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </Show>
               <Dropdown
                 position="bottom-right"
-                width="w-56"
+                width="14rem"
                 trigger={
                   <Tooltip content={props.listMode === "conversations" ? "Conversation view" : "Message view"}>
-                    <button type="button" class="icon-btn" aria-label="Choose list view">
+                    <IconButton type="button" label="Choose list view">
                       <i class="ti ti-layout-list" aria-hidden="true" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 }
                 elements={[
@@ -295,14 +289,9 @@ export default function MailConversationList(props: {
               </Tooltip>
               <Show when={props.selectedConversationId || props.selectedMessageId}>
                 <Tooltip content="Hide conversation list">
-                  <button
-                    type="button"
-                    class="icon-btn hidden lg:inline-flex"
-                    aria-label="Hide conversation list"
-                    onClick={props.onCollapse}
-                  >
+                  <IconButton type="button" class="hidden lg:inline-flex" label="Hide conversation list" onClick={props.onCollapse}>
                     <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </Show>
             </div>
@@ -327,12 +316,12 @@ export default function MailConversationList(props: {
             <TextInput
               type="search"
               name="q"
-              ariaLabel={`Search ${props.mailbox.name}`}
+              aria-label={`Search ${props.mailbox.name}`}
               placeholder="Search mailbox"
               icon="ti ti-search"
               activeIcon="ti ti-search"
               value={searchValue}
-              onInput={updateSearchValue}
+              onValueChange={updateSearchValue}
               clearable
               onClear={() => {
                 setSearchValue("");
@@ -348,7 +337,7 @@ export default function MailConversationList(props: {
             value={searchFields()}
             defaultValue={[...DEFAULT_MAIL_QUICK_SEARCH_FIELDS]}
             isActive={!isDefaultQuickSearch(searchFields())}
-            onChange={updateSearchFields}
+            onValueChange={updateSearchFields}
             position="bottom-right"
             iconOnly
           />
@@ -380,16 +369,18 @@ export default function MailConversationList(props: {
                     <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
                   </p>
                   <Show when={props.canAdmin && health().action && health().actionLabel}>
-                    <button
+                    <Button
                       type="button"
-                      class="badge-neutral focus-ui mt-2 cursor-pointer appearance-none border-0 transition-colors hover:bg-[var(--ui-hover)]"
+                      variant="subtle"
+                      size="xs"
+                      class="mt-2"
                       aria-label={health().actionLabel ?? undefined}
                       title={health().actionLabel ?? undefined}
                       onClick={() => (health().action === "delivery" ? props.onOpenDeliverySettings() : props.onOpenHealth())}
                     >
                       <i class="ti ti-activity" aria-hidden="true" />
                       <span>{health().action === "health" ? "Status" : health().actionLabel}</span>
-                    </button>
+                    </Button>
                   </Show>
                 </div>
               </div>
@@ -412,9 +403,16 @@ export default function MailConversationList(props: {
             title="Could not load conversations"
             description={props.error}
             action={
-              <Link href={listHref()} class="btn-secondary btn-sm" onNavigate={props.onNavigate} scroll="preserve">
+              <ButtonLink
+                href={listHref()}
+                variant="secondary"
+                size="sm"
+                navigation="enhanced"
+                onNavigate={props.onNavigate}
+                scroll="preserve"
+              >
                 Retry
-              </Link>
+              </ButtonLink>
             }
           />
         ) : props.items.length === 0 ? (
@@ -427,14 +425,16 @@ export default function MailConversationList(props: {
             description={searchActive() ? "Change or clear the active search filters." : "New synchronized mail will appear in this view."}
             action={
               searchActive() ? (
-                <Link
+                <ButtonLink
                   href={buildMailListHref(requestUrl(), true)}
-                  class="btn-secondary btn-sm"
+                  variant="secondary"
+                  size="sm"
+                  navigation="enhanced"
                   onNavigate={props.onNavigate}
                   scroll="preserve"
                 >
                   Clear search
-                </Link>
+                </ButtonLink>
               ) : undefined
             }
           />
@@ -474,9 +474,10 @@ export default function MailConversationList(props: {
         <Show when={nextHref()}>
           {(href) => (
             <div ref={(element) => setLoadMoreElement(element)} class="flex min-h-14 items-center justify-center py-3">
-              <a
+              <ButtonLink
+                variant="secondary"
+                size="sm"
                 href={href()}
-                class="btn-secondary btn-sm"
                 aria-disabled={props.loading}
                 onClick={(event) => {
                   if (!props.loading) {
@@ -493,7 +494,7 @@ export default function MailConversationList(props: {
                   aria-hidden="true"
                 />
                 {props.loading ? "Loading conversations" : failedLoadHref() === href() ? "Retry loading" : "More conversations"}
-              </a>
+              </ButtonLink>
             </div>
           )}
         </Show>
