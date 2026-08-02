@@ -1,8 +1,9 @@
+import type { CalendarView } from "@k2b/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { venueService } from "../../service";
 import VenueWorkspace from "../_components/VenueWorkspace.island";

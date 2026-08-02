@@ -1,4 +1,4 @@
-import type { FilterChipSection } from "@valentinkolb/cloud/ui";
+import type { FilterChipSection } from "@k2b/ui";
 import type { VenueView } from "./types";
 
 export const views: Array<{ id: VenueView; label: string; icon: string }> = [

@@ -1,5 +1,9 @@
+import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { cookies } from "@k2b/stdlib/browser";
+import { mutation } from "@k2b/stdlib/solid";
 import {
-  CheckboxCardInput,
+  Button,
+  CheckboxCard,
   DateRangePicker,
   type DateRangeValue,
   PanelDialog,
@@ -8,10 +12,7 @@ import {
   SegmentedControl,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { cookies } from "@k2b/stdlib/browser";
-import { mutation } from "@k2b/stdlib/solid";
+} from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { UpcomingSlot, VenueDashboard } from "../../../contracts";
@@ -79,7 +80,7 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
           <Show when={props.dashboard.venue.signupMode === "both"}>
             <SegmentedControl
               value={mode}
-              onChange={setMode}
+              onValueChange={setMode}
               options={[
                 { value: "shifts", label: "Shift slots", icon: "ti ti-calendar-event" },
                 { value: "free", label: "Free time", icon: "ti ti-clock-plus" },
@@ -93,7 +94,7 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                 <DateRangePicker
                   label="Time"
                   value={freeRange}
-                  onChange={setFreeRange}
+                  onValueChange={setFreeRange}
                   withTime
                   dateConfig={timeZoneDateConfig(props.dashboard.venue.timezone)}
                   durationPresets={[
@@ -102,16 +103,11 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                     { label: "8h", minutes: 480 },
                   ]}
                 />
-                <TextInput label="Note" value={note} onInput={setNote} multiline lines={3} />
-                <button
-                  type="button"
-                  class="btn-primary btn-sm justify-center"
-                  disabled={freeSignup.loading()}
-                  onClick={() => freeSignup.mutate()}
-                >
+                <TextInput label="Note" value={note} onValueChange={setNote} multiline lines={3} />
+                <Button type="button" size="sm" class="justify-center" disabled={freeSignup.loading()} onClick={() => freeSignup.mutate()}>
                   <i class={freeSignup.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
                   Add free shift
-                </button>
+                </Button>
               </div>
             }
           >
@@ -147,22 +143,23 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                       <ProgressBar slot={slot} />
                     </div>
                     <div class="mt-3 flex flex-wrap gap-2">
-                      <button
+                      <Button
                         type="button"
-                        class="btn-primary btn-sm"
+                        size="sm"
                         disabled={slot.full || !isSlotActive(slot) || signup.loading()}
                         onClick={() => signup.mutate({ slot })}
                       >
                         Join
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        class="btn-secondary btn-sm"
+                        variant="secondary"
+                        size="sm"
                         disabled={slot.full || !isSlotActive(slot) || signup.loading()}
                         onClick={() => signup.mutate({ slot, weeks: 4 })}
                       >
                         Join next 4 weeks
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -172,9 +169,9 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <div />
-          <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(false)}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => props.close(false)}>
             Close
-          </button>
+          </Button>
         </PanelDialog.Footer>
       </div>
     </PanelDialog>
@@ -198,21 +195,21 @@ export function ConfirmShiftSignupDialog(props: { slot: UpcomingSlot; timezone: 
           <ProgressBar slot={props.slot} />
         </div>
       </div>
-      <CheckboxCardInput
+      <CheckboxCard
         label="Don't show this confirmation again"
         description="Future calendar double-clicks will join shifts directly."
         icon="ti ti-click"
         value={skipConfirm}
-        onChange={setSkipConfirm}
+        onValueChange={setSkipConfirm}
         variant="input"
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(false)}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => props.close(false)}>
           Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={confirm}>
+        </Button>
+        <Button type="button" size="sm" onClick={confirm}>
           Join shift
-        </button>
+        </Button>
       </div>
     </div>
   );

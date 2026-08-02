@@ -1,5 +1,5 @@
+import { Button, DateRangePicker, ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { DateRangePicker, ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { PublicSection, PublicSectionInput } from "../../../contracts";
@@ -202,7 +202,7 @@ export function PublicSectionDialog(props: {
         >
           <SegmentedControl
             value={kind}
-            onChange={setKind}
+            onValueChange={setKind}
             options={[
               { value: "markdown", label: "Markdown", icon: "ti ti-markdown" },
               { value: "menu", label: "Menu", icon: "ti ti-tools-kitchen-2" },
@@ -211,7 +211,13 @@ export function PublicSectionDialog(props: {
             ]}
           />
         </Show>
-        <TextInput label="Title" description="Shown as the section heading on the public page." value={title} onInput={setTitle} required />
+        <TextInput
+          label="Title"
+          description="Shown as the section heading on the public page."
+          value={title}
+          onValueChange={setTitle}
+          required
+        />
         <Show
           when={kind() === "menu"}
           fallback={
@@ -222,7 +228,7 @@ export function PublicSectionDialog(props: {
                   label="Content"
                   description="Text visitors see in this section."
                   value={contentText}
-                  onInput={setContentText}
+                  onValueChange={setContentText}
                   multiline
                   markdown={kind() === "markdown"}
                   lines={8}
@@ -235,23 +241,23 @@ export function PublicSectionDialog(props: {
                     <div class="paper p-3">
                       <div class="mb-3 flex items-center justify-between gap-2">
                         <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Link {index() + 1}</p>
-                        <button type="button" class="btn-secondary btn-sm px-2 py-1 text-xs" onClick={() => removeLink(link.id)}>
+                        <Button type="button" variant="secondary" size="xs" onClick={() => removeLink(link.id)}>
                           <i class="ti ti-trash" /> Remove
-                        </button>
+                        </Button>
                       </div>
                       <div class="grid gap-3 sm:grid-cols-2">
                         <TextInput
                           label="Label"
                           description="Visible text for this link."
                           value={() => link.label}
-                          onInput={(value) => updateLink(link.id, { label: value })}
+                          onValueChange={(value) => updateLink(link.id, { label: value })}
                           required
                         />
                         <TextInput
                           label="URL"
                           description="Destination opened when visitors click."
                           value={() => link.href}
-                          onInput={(value) => updateLink(link.id, { href: value })}
+                          onValueChange={(value) => updateLink(link.id, { href: value })}
                           placeholder="https://example.com"
                           required
                         />
@@ -259,9 +265,9 @@ export function PublicSectionDialog(props: {
                     </div>
                   )}
                 </For>
-                <button type="button" class="btn-secondary btn-sm justify-center" onClick={addLink}>
+                <Button type="button" variant="secondary" size="sm" class="justify-center" onClick={addLink}>
                   <i class="ti ti-plus" /> Add link
-                </button>
+                </Button>
               </div>
             </Show>
           }
@@ -272,16 +278,16 @@ export function PublicSectionDialog(props: {
                 <div class="paper p-3">
                   <div class="mb-3 flex items-center justify-between gap-2">
                     <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Item {index() + 1}</p>
-                    <button type="button" class="btn-secondary btn-sm px-2 py-1 text-xs" onClick={() => removeItem(item.id)}>
+                    <Button type="button" variant="secondary" size="xs" onClick={() => removeItem(item.id)}>
                       <i class="ti ti-trash" /> Remove
-                    </button>
+                    </Button>
                   </div>
                   <div class="grid gap-3">
                     <ImageInput
                       label="Image"
                       description="Optional square image for this menu item."
                       value={() => item.image}
-                      onChange={(value) => updateItem(item.id, { image: value })}
+                      onValueChange={(value) => updateItem(item.id, { image: value })}
                       variant="small"
                     />
                     <div class="grid gap-3 sm:grid-cols-2">
@@ -289,21 +295,21 @@ export function PublicSectionDialog(props: {
                         label="Name"
                         description="Main label for this item."
                         value={() => item.name}
-                        onInput={(value) => updateItem(item.id, { name: value })}
+                        onValueChange={(value) => updateItem(item.id, { name: value })}
                         required
                       />
                       <TextInput
                         label="Price"
                         description="Optional visible price or price range."
                         value={() => item.price}
-                        onInput={(value) => updateItem(item.id, { price: value })}
+                        onValueChange={(value) => updateItem(item.id, { price: value })}
                       />
                     </div>
                     <TextInput
                       label="Description"
                       description="Short explanation shown below the name."
                       value={() => item.description}
-                      onInput={(value) => updateItem(item.id, { description: value })}
+                      onValueChange={(value) => updateItem(item.id, { description: value })}
                       multiline
                       lines={2}
                     />
@@ -311,23 +317,23 @@ export function PublicSectionDialog(props: {
                       label="Allergens / info"
                       description="Optional allergens or dietary notes."
                       value={() => item.info}
-                      onInput={(value) => updateItem(item.id, { info: value })}
+                      onValueChange={(value) => updateItem(item.id, { info: value })}
                       placeholder="Contains nuts"
                     />
                     <DateRangePicker
                       label="Availability"
                       description="Optional. The item is public from the first through the last selected day in the venue timezone."
                       value={() => ({ start: item.availableFrom, end: item.availableUntil })}
-                      onChange={(value) => updateItem(item.id, { availableFrom: value.start, availableUntil: value.end })}
+                      onValueChange={(value) => updateItem(item.id, { availableFrom: value.start, availableUntil: value.end })}
                       clearable
                     />
                   </div>
                 </div>
               )}
             </For>
-            <button type="button" class="btn-secondary btn-sm justify-center" onClick={addItem}>
+            <Button type="button" variant="secondary" size="sm" class="justify-center" onClick={addItem}>
               <i class="ti ti-plus" /> Add menu item
-            </button>
+            </Button>
           </div>
         </Show>
       </div>

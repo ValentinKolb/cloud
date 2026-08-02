@@ -1,6 +1,6 @@
-import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
+import { AppOverview, Button, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { Venue, VenueTemplateSummary } from "../../contracts";
@@ -157,12 +157,12 @@ export default function VenueOverview(props: Props) {
           <TextInput
             name="venue-search"
             type="search"
-            ariaLabel="Search venues"
+            aria-label="Search venues"
             placeholder="Search venues..."
             icon="ti ti-search"
             activeIcon="ti ti-search"
             value={query}
-            onInput={onSearchInput}
+            onValueChange={onSearchInput}
             clearable
             onClear={() => onSearchInput("")}
           />
@@ -180,9 +180,9 @@ export default function VenueOverview(props: Props) {
             when={filteredVenues().length > 0}
             fallback={
               <AppOverview.EmptyState title="No matching venues" description="Try a different name or public slug." icon="ti ti-search">
-                <button type="button" class="btn-secondary btn-sm" onClick={() => onSearchInput("")}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => onSearchInput("")}>
                   <i class="ti ti-x" /> Clear search
-                </button>
+                </Button>
               </AppOverview.EmptyState>
             }
           >

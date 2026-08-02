@@ -1,5 +1,5 @@
-import { prompts, SegmentedControl, Switch, toast } from "@valentinkolb/cloud/ui";
 import { clipboard } from "@k2b/stdlib/browser";
+import { Button, prompts, SegmentedControl, Switch, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { buildPublicVenueUrl, VENUE_PUBLIC_REFRESH_SECONDS, type VenuePublicDisplayHeight } from "../../public-runtime";
 
@@ -49,7 +49,7 @@ export const openVenuePublicDisplayDialog = async (slug: string): Promise<void> 
               <p class="text-sm font-medium text-primary">Page layout</p>
               <SegmentedControl<VenuePublicDisplayHeight>
                 value={height}
-                onChange={setLayout}
+                onValueChange={setLayout}
                 options={[
                   { value: "scroll", label: "Scrollable page", icon: "ti ti-arrows-vertical" },
                   { value: "full", label: "Full display", icon: "ti ti-device-tv" },
@@ -66,17 +66,17 @@ export const openVenuePublicDisplayDialog = async (slug: string): Promise<void> 
                   Refresh venue status and public content in place every {VENUE_PUBLIC_REFRESH_SECONDS} seconds.
                 </p>
               </div>
-              <Switch label="Auto refresh" value={refresh} onChange={setRefresh} />
+              <Switch label="Auto refresh" value={refresh} onValueChange={setRefresh} />
             </div>
             <div class="flex flex-wrap justify-end gap-2 pt-2">
-              <button type="button" class="btn-input btn-input-sm" disabled={busy() !== null} onClick={copyLink}>
+              <Button type="button" variant="secondary" size="sm" disabled={busy() !== null} onClick={copyLink}>
                 <i class={`ti ${busy() === "copy" ? "ti-loader-2 animate-spin" : "ti-copy"}`} />
                 Copy link
-              </button>
-              <button type="button" class="btn-input btn-input-sm" disabled={busy() !== null} onClick={openLink}>
+              </Button>
+              <Button type="button" variant="secondary" size="sm" disabled={busy() !== null} onClick={openLink}>
                 <i class={`ti ${busy() === "open" ? "ti-loader-2 animate-spin" : "ti-external-link"}`} />
                 Open page
-              </button>
+              </Button>
             </div>
           </div>
         );

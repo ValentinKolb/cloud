@@ -1,23 +1,23 @@
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation } from "@k2b/stdlib/solid";
 import {
-  CheckboxCardInput,
+  Button,
+  ButtonLink,
+  CheckboxCard,
   ColorInput,
   dialogCore,
   IconInput,
   ImageInput,
-  PermissionEditor,
   Placeholder,
   panelDialogOptions,
   prompts,
-  type ResourceApiKey,
-  ResourceApiKeys,
   SegmentedControl,
   SettingsModal,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation } from "@k2b/stdlib/solid";
+} from "@k2b/ui";
+import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/access/ui";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type {
@@ -62,7 +62,7 @@ function VenueDangerZone(props: { venue: Venue }) {
       <p class="text-xs text-dimmed">
         This removes opening hours, shifts, public sections, feedback, access grants, and API keys. It cannot be undone.
       </p>
-      <button type="button" onClick={handleDelete} disabled={remove.loading()} class="btn-danger btn-md self-start">
+      <Button type="button" variant="danger" onClick={handleDelete} disabled={remove.loading()} class="self-start">
         {remove.loading() ? (
           <>
             <i class="ti ti-loader-2 animate-spin" />
@@ -74,7 +74,7 @@ function VenueDangerZone(props: { venue: Venue }) {
             Delete venue
           </>
         )}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -314,13 +314,13 @@ export function SettingsDialog(props: {
       <SettingsModal title="Venue settings" subtitle={venue.name} icon={icon()} onClose={props.close} closeLabel="Close settings">
         <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, public page branding, and feedback.">
           <div class="grid gap-3">
-            <TextInput label="Name" description="Shown in the app and on the public page." value={name} onInput={setName} required />
-            <TextInput label="Slug" description="Used in the public page URL." value={slug} onInput={setSlug} required />
+            <TextInput label="Name" description="Shown in the app and on the public page." value={name} onValueChange={setName} required />
+            <TextInput label="Slug" description="Used in the public page URL." value={slug} onValueChange={setSlug} required />
             <TextInput
               label="Description"
               description="Short public summary shown below the venue name."
               value={description}
-              onInput={setDescription}
+              onValueChange={setDescription}
               multiline
               lines={3}
             />
@@ -329,40 +329,45 @@ export function SettingsDialog(props: {
                 label="Icon"
                 description="Used as fallback logo and venue symbol."
                 value={icon}
-                onChange={setIcon}
+                onValueChange={setIcon}
                 clearable={false}
               />
-              <ColorInput label="Theme color" description="Used for public page accents." value={accentColor} onChange={setAccentColor} />
+              <ColorInput
+                label="Theme color"
+                description="Used for public page accents."
+                value={accentColor}
+                onValueChange={setAccentColor}
+              />
             </div>
             <div class="grid gap-3 md:grid-cols-2">
               <ImageInput
                 label="Logo"
                 description="Optional image shown next to the venue name."
                 value={logo}
-                onChange={setLogo}
+                onValueChange={setLogo}
                 variant="small"
               />
               <ImageInput
                 label="Banner image"
                 description="Optional wide image for the public page header."
                 value={banner}
-                onChange={setBanner}
+                onValueChange={setBanner}
                 variant="small"
                 transform={bannerTransform}
               />
             </div>
-            <CheckboxCardInput
+            <CheckboxCard
               label="Feedback activated"
               description="Allow visitors to leave anonymous ratings and comments on the public page."
               icon="ti ti-message-star"
               value={feedbackEnabled}
-              onChange={setFeedbackEnabled}
+              onValueChange={setFeedbackEnabled}
               variant="input"
             />
             <div class="flex justify-end gap-2 pt-2">
-              <button type="button" class="btn-primary btn-sm" disabled={save.loading()} onClick={() => save.mutate()}>
+              <Button type="button" size="sm" disabled={save.loading()} onClick={() => save.mutate()}>
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         </SettingsModal.Tab>
@@ -439,7 +444,7 @@ export function SettingsDialog(props: {
                 <div class="mt-3">
                   <SegmentedControl<Venue["openMode"]>
                     value={openMode}
-                    onChange={setOpenMode}
+                    onValueChange={setOpenMode}
                     options={[
                       { value: "regular", label: "Regular", icon: "ti ti-clock" },
                       { value: "staffed", label: "Staffed", icon: "ti ti-users" },
@@ -448,9 +453,9 @@ export function SettingsDialog(props: {
                   />
                 </div>
                 <div class="mt-3 flex justify-end">
-                  <button type="button" class="btn-primary btn-sm" disabled={save.loading()} onClick={() => save.mutate()}>
+                  <Button type="button" size="sm" disabled={save.loading()} onClick={() => save.mutate()}>
                     Save opening logic
-                  </button>
+                  </Button>
                 </div>
               </section>
             </Show>
@@ -458,14 +463,15 @@ export function SettingsDialog(props: {
               <div class="mb-3 flex items-center justify-between gap-2">
                 <h4 class="text-sm font-semibold text-primary">Regular hours</h4>
                 <Show when={canAdmin(venue)}>
-                  <button
+                  <Button
                     type="button"
-                    class="btn-secondary btn-sm"
+                    variant="secondary"
+                    size="sm"
                     disabled={createOpening.loading()}
                     onClick={() => createOpening.mutate()}
                   >
                     <i class={createOpening.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> Add
-                  </button>
+                  </Button>
                 </Show>
               </div>
               <div class="grid gap-2 sm:grid-cols-2">
@@ -516,9 +522,9 @@ export function SettingsDialog(props: {
               <div class="mb-3 flex items-center justify-between gap-2">
                 <h4 class="text-sm font-semibold text-primary">Closed days</h4>
                 <Show when={canAdmin(venue)}>
-                  <button type="button" class="btn-secondary btn-sm" disabled={addHoliday.loading()} onClick={() => addHoliday.mutate()}>
+                  <Button type="button" variant="secondary" size="sm" disabled={addHoliday.loading()} onClick={() => addHoliday.mutate()}>
                     <i class={addHoliday.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> Add
-                  </button>
+                  </Button>
                 </Show>
               </div>
               <div class="grid gap-2 sm:grid-cols-2">
@@ -569,9 +575,9 @@ export function SettingsDialog(props: {
               <div class="mb-3 flex items-center justify-between gap-2">
                 <h4 class="text-sm font-semibold text-primary">Shifts</h4>
                 <Show when={canAdmin(venue)}>
-                  <button type="button" class="btn-secondary btn-sm" disabled={createShift.loading()} onClick={() => createShift.mutate()}>
+                  <Button type="button" variant="secondary" size="sm" disabled={createShift.loading()} onClick={() => createShift.mutate()}>
                     <i class={createShift.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> Add
-                  </button>
+                  </Button>
                 </Show>
               </div>
               <div class="grid gap-2 sm:grid-cols-2">
@@ -628,14 +634,14 @@ export function SettingsDialog(props: {
 
         <SettingsModal.Tab id="links" title="Links" icon="ti ti-link" description="Public page and personal calendar subscription.">
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn-secondary btn-sm" onClick={() => openVenuePublicDisplayDialog(venue.slug)}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => openVenuePublicDisplayDialog(venue.slug)}>
               <i class="ti ti-device-tv" />
               Public page
-            </button>
-            <a class="btn-secondary btn-sm" href={`/api/venue/calendar/${props.icalToken}.ics`}>
+            </Button>
+            <ButtonLink variant="secondary" size="sm" href={`/api/venue/calendar/${props.icalToken}.ics`}>
               <i class="ti ti-calendar-down" />
               iCal
-            </a>
+            </ButtonLink>
           </div>
         </SettingsModal.Tab>
 

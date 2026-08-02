@@ -1,4 +1,4 @@
-import { CheckboxCardInput, DatePicker, PanelDialog, prompts, SelectInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, CheckboxCard, DatePicker, IconButton, PanelDialog, prompts, Select, TextInput, Tooltip } from "@k2b/ui";
 import type { JSX } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import type {
@@ -45,19 +45,16 @@ export function ScheduleActionButton(props: {
 }) {
   return (
     <Tooltip content={props.label}>
-      <button
-        type="button"
-        class={`inline-flex h-7 w-7 items-center justify-center rounded-md bg-transparent transition-colors ${
-          props.tone === "edit"
-            ? "text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-            : "text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-        }`}
-        aria-label={props.label}
-        disabled={props.loading}
+      <IconButton
+        label={props.label}
+        size="xs"
+        variant="ghost"
+        class={props.tone === "edit" ? "text-blue-600 dark:text-blue-400" : "text-red-600 dark:text-red-400"}
+        loading={props.loading}
         onClick={props.onClick}
       >
         <i class={props.loading ? "ti ti-loader-2 animate-spin" : props.icon} />
-      </button>
+      </IconButton>
     </Tooltip>
   );
 }
@@ -79,12 +76,12 @@ export function DialogFrame(props: {
         <PanelDialog.Footer>
           <div />
           <div class="flex justify-end gap-2">
-            <button type="button" class="btn-secondary btn-sm" onClick={props.onCancel}>
+            <Button type="button" variant="secondary" size="sm" onClick={props.onCancel}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={props.onSubmit}>
+            </Button>
+            <Button type="button" size="sm" onClick={props.onSubmit}>
               {props.submitLabel}
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </div>
@@ -120,12 +117,12 @@ export function OpeningRuleDialog(props: { close: (value: OpeningRuleInput | nul
       onSubmit={submit}
     >
       <div class="grid gap-3">
-        <SelectInput label="Weekday" value={weekday} onChange={setWeekday} options={weekdayOptions} />
+        <Select label="Weekday" value={weekday} onValueChange={setWeekday} options={weekdayOptions} />
         <div class="grid gap-3 sm:grid-cols-2">
-          <TextInput label="Start" value={startTime} onInput={setStartTime} placeholder="09:00" inputMode="numeric" required />
-          <TextInput label="End" value={endTime} onInput={setEndTime} placeholder="17:00" inputMode="numeric" required />
+          <TextInput label="Start" value={startTime} onValueChange={setStartTime} placeholder="09:00" inputMode="numeric" required />
+          <TextInput label="End" value={endTime} onValueChange={setEndTime} placeholder="17:00" inputMode="numeric" required />
         </div>
-        <TextInput label="Note" value={note} onInput={setNote} placeholder="Optional" />
+        <TextInput label="Note" value={note} onValueChange={setNote} placeholder="Optional" />
       </div>
     </DialogFrame>
   );
@@ -152,8 +149,8 @@ export function ClosedDayDialog(props: { close: (value: DateOverrideInput | null
       onSubmit={submit}
     >
       <div class="grid gap-3">
-        <DatePicker label="Date" value={date} onChange={setDate} dateConfig={timeZoneDateConfig(props.timeZone)} required />
-        <TextInput label="Note" value={note} onInput={setNote} placeholder="Public holiday" />
+        <DatePicker label="Date" value={date} onValueChange={setDate} dateConfig={timeZoneDateConfig(props.timeZone)} required />
+        <TextInput label="Note" value={note} onValueChange={setNote} placeholder="Public holiday" />
       </div>
     </DialogFrame>
   );
@@ -246,22 +243,22 @@ export function ShiftTemplateDialog(props: { close: (value: ShiftTemplateInput |
       onSubmit={submit}
     >
       <div class="grid gap-3">
-        <TextInput label="Title" value={title} onInput={setTitle} placeholder="Morning shift" required />
-        <SelectInput label="Weekday" value={weekday} onChange={setWeekday} options={weekdayOptions} />
+        <TextInput label="Title" value={title} onValueChange={setTitle} placeholder="Morning shift" required />
+        <Select label="Weekday" value={weekday} onValueChange={setWeekday} options={weekdayOptions} />
         <div class="grid gap-3 sm:grid-cols-2">
-          <TextInput label="Start" value={startTime} onInput={setStartTime} placeholder="09:00" inputMode="numeric" required />
-          <TextInput label="End" value={endTime} onInput={setEndTime} placeholder="13:00" inputMode="numeric" required />
+          <TextInput label="Start" value={startTime} onValueChange={setStartTime} placeholder="09:00" inputMode="numeric" required />
+          <TextInput label="End" value={endTime} onValueChange={setEndTime} placeholder="13:00" inputMode="numeric" required />
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
-          <TextInput label="Target people" value={minPeople} onInput={setMinPeople} inputMode="numeric" required />
-          <TextInput label="Max people" value={maxPeople} onInput={setMaxPeople} inputMode="numeric" placeholder="Optional" />
+          <TextInput label="Target people" value={minPeople} onValueChange={setMinPeople} inputMode="numeric" required />
+          <TextInput label="Max people" value={maxPeople} onValueChange={setMaxPeople} inputMode="numeric" placeholder="Optional" />
         </div>
-        <CheckboxCardInput
+        <CheckboxCard
           label="Require target staffing to open"
           description="The public page counts this shift as open only after the target number of people has signed up."
           icon="ti ti-users-check"
           value={requireTargetForOpening}
-          onChange={setRequireTargetForOpening}
+          onValueChange={setRequireTargetForOpening}
           variant="input"
         />
       </div>

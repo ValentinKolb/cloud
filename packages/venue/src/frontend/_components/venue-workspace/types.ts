@@ -1,5 +1,6 @@
+import type { CalendarView } from "@k2b/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { VenueDashboard } from "../../../contracts";
 
 export type VenueView = "shifts" | "my-shifts" | "feedback";

@@ -1,5 +1,5 @@
-import { prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
@@ -64,19 +64,20 @@ function FeedbackForm(props: { slug: string; accentColor: string; onSubmitted: (
         icon="ti ti-message"
         placeholder="Optional comment"
         value={comment}
-        onInput={setComment}
+        onValueChange={setComment}
         multiline
         lines={4}
       />
-      <button
+      <Button
         type="button"
-        class="btn-base btn-sm w-full border-transparent text-white disabled:opacity-70"
+        size="sm"
+        class="w-full border-transparent text-white"
         style={{ "background-color": props.accentColor, "border-color": props.accentColor }}
         disabled={submit.loading()}
         onClick={() => submit.mutate()}
       >
         {submit.loading() ? "Submitting..." : "Submit feedback"}
-      </button>
+      </Button>
     </div>
   );
 }
