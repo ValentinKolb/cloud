@@ -1,6 +1,6 @@
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { IconButton, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 export default function DeleteFaqButton(props: { id: string; question: string }) {
@@ -32,15 +32,16 @@ export default function DeleteFaqButton(props: { id: string; question: string })
 
   return (
     <Tooltip content="Delete FAQ entry">
-      <button
-        type="button"
-        class="btn-simple btn-sm text-red-500 hover:text-red-700"
+      <IconButton
+        size="sm"
+        variant="danger"
+        label={`Delete ${props.question}`}
         onClick={handleClick}
-        disabled={mutation.loading()}
-        aria-label={`Delete ${props.question}`}
+        loading={mutation.loading()}
+        loadingLabel={`Deleting ${props.question}`}
       >
-        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
-      </button>
+        <i class="ti ti-trash" aria-hidden="true" />
+      </IconButton>
     </Tooltip>
   );
 }

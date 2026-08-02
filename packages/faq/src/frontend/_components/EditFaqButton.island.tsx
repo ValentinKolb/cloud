@@ -1,6 +1,6 @@
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { IconButton, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { FaqAudience, FaqEntry, UpdateFaq } from "@/contracts";
 
@@ -85,15 +85,15 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
 
   return (
     <Tooltip content="Edit FAQ entry">
-      <button
-        type="button"
-        class="btn-simple btn-sm"
+      <IconButton
+        size="sm"
+        label={`Edit ${props.entry.question}`}
         onClick={handleClick}
-        disabled={mutation.loading()}
-        aria-label={`Edit ${props.entry.question}`}
+        loading={mutation.loading()}
+        loadingLabel={`Editing ${props.entry.question}`}
       >
-        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
-      </button>
+        <i class="ti ti-pencil" aria-hidden="true" />
+      </IconButton>
     </Tooltip>
   );
 }

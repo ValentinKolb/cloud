@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder, StatusBadge, type StatusTone } from "@k2b/ui";
 import { faqHelp } from "@/help";
 import { ssr } from "../config";
 import { faqService } from "../service";
@@ -16,10 +16,10 @@ const AUDIENCE_LABELS: Record<string, string> = {
   user: "Users",
 };
 
-const AUDIENCE_BADGE: Record<string, string> = {
-  anonymous: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  guest: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  user: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+const AUDIENCE_TONE: Record<string, StatusTone> = {
+  anonymous: "neutral",
+  guest: "warning",
+  user: "running",
 };
 
 export default ssr<AuthContext>(async (c) => {
@@ -49,9 +49,7 @@ export default ssr<AuthContext>(async (c) => {
                       <div class="flex flex-wrap items-center gap-2">
                         <h3 class="text-sm font-medium text-primary">{entry.question}</h3>
                         {entry.audience.map((aud) => (
-                          <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${AUDIENCE_BADGE[aud] ?? AUDIENCE_BADGE.user}`}>
-                            {AUDIENCE_LABELS[aud] ?? aud}
-                          </span>
+                          <StatusBadge tone={AUDIENCE_TONE[aud] ?? "neutral"} label={AUDIENCE_LABELS[aud] ?? aud} icon={null} />
                         ))}
                       </div>
                     </div>

@@ -1,6 +1,6 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { CreateFaq, FaqAudience } from "@/contracts";
 
@@ -86,9 +86,9 @@ export default function CreateFaqButton() {
   };
 
   return (
-    <button type="button" class="btn-primary btn-sm" onClick={handleClick} disabled={mutation.loading()}>
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
+    <Button size="sm" onClick={handleClick} loading={mutation.loading()} loadingLabel="Creating entry">
+      <i class="ti ti-plus" aria-hidden="true" />
       New Entry
-    </button>
+    </Button>
   );
 }
