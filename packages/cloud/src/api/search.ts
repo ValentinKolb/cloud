@@ -230,7 +230,16 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
         return a.title.localeCompare(b.title);
       });
 
-      const sliced = items.slice(0, GLOBAL_RESULT_LIMIT);
+      // Multiple focused Queries from one app must not buy that app a larger
+      // share of the merged result set.
+      const appCounts = new Map<string, number>();
+      const appBounded = items.filter((item) => {
+        const count = appCounts.get(item.appId) ?? 0;
+        if (count >= effectiveProviderLimit) return false;
+        appCounts.set(item.appId, count + 1);
+        return true;
+      });
+      const sliced = appBounded.slice(0, GLOBAL_RESULT_LIMIT);
 
       return c.json({
         query: query.q,

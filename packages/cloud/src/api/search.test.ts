@@ -84,6 +84,55 @@ describe("global capability search", () => {
     ]);
   });
 
+  test("caps merged results per app instead of per registered Query", async () => {
+    const multiManifest = compileCapabilities(
+      "demo",
+      defineCapabilities({
+        version: 1,
+        types: { item: { title: "Item", description: "One search result." } },
+        queries: {
+          first: capabilities.queries.search,
+          second: {
+            ...capabilities.queries.search,
+            universalSearch: { tags: [{ tag: "second", title: "Second", description: "Search second items." }] },
+          },
+        },
+      }),
+    ).manifest;
+    const otherManifest = compileCapabilities("other", capabilities).manifest;
+    const routes = createSearchRoutes({
+      authenticate,
+      listCapabilities: async () => [
+        { ...app, manifest: multiManifest },
+        {
+          ...app,
+          appId: "other",
+          appName: "Other",
+          endpoint: "http://other:3000/api/_internal/capabilities/v1",
+          manifest: otherManifest,
+        },
+      ],
+      fetch: async (url) => {
+        const appId = String(url).includes("http://other:") ? "other" : "demo";
+        const queryId = String(url).split("/").at(-1) ?? "search";
+        return Response.json({
+          data: Array.from({ length: 2 }, (_, index) => ({
+            ref: { type: `${appId}.item`, id: `${queryId}-${index}` },
+            title: `${appId}-${queryId}-${index}`,
+            links: [{ rel: "open", href: `/app/${appId}/${queryId}-${index}` }],
+          })),
+        });
+      },
+    });
+
+    const response = await routes.request("/search?q=test&provider_limit=2");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: Array<{ appId: string }> };
+    expect(body.items).toHaveLength(4);
+    expect(body.items.filter((item) => item.appId === "demo")).toHaveLength(2);
+    expect(body.items.filter((item) => item.appId === "other")).toHaveLength(2);
+  });
+
   test("discovers tags and maps stable resource refs", async () => {
     let input: unknown;
     const routes = createSearchRoutes({
