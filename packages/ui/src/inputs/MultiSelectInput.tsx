@@ -315,10 +315,10 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
                     <Show
                       when={props.renderOption}
                       fallback={
-                        <span>
+                        <>
                           <strong>{option.label}</strong>
                           <Show when={option.description}>{(description) => <small>{description()}</small>}</Show>
-                        </span>
+                        </>
                       }
                     >
                       {(render) => render()(option)}

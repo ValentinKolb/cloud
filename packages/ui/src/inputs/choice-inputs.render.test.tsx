@@ -149,6 +149,8 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("--k2b-choice-background:#0891b21f");
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("Clear selection");
+    expect(html).toContain("<strong>Platform</strong><small>Runtime and infrastructure</small>");
+    expect(html).not.toContain("<span><strong>Platform</strong><small>Runtime and infrastructure</small></span>");
   });
 
   test("lets applications render domain-specific multi-select labels", () => {

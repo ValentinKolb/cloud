@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Button, ButtonLink } from "@k2b/ui";
+import { AppWorkspace, dialogCore, PanelDialog, Placeholder, panelDialogWideOptions, prompts, Button, ButtonLink } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
 import type {
@@ -42,10 +42,7 @@ import { createRecordsUrlController } from "./records-url-controller";
 import { createRecordsViewColumnController, isFieldColumn } from "./records-view-columns";
 import { aggregationRowsFromQuery, applyToolbarQueryPatch, filterRowsFromQuery, type ToolbarQueryPatch } from "./toolbar-query";
 
-const QUERY_PANEL_DIALOG_OPTIONS = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(98vw,76rem)]"),
-};
+export const QUERY_PANEL_DIALOG_OPTIONS = panelDialogWideOptions;
 
 /**
  * Records-area island. It owns presentation state and delegates URL,
@@ -232,7 +229,7 @@ export default function RecordsView(props: Props) {
         <PanelDialog>
           <PanelDialog.Header title="Query" subtitle={tableName()} icon="ti ti-code" close={() => close()} />
           <PanelDialog.Body>
-            <div class="flex h-[min(72vh,46rem)] min-h-[30rem] overflow-hidden">
+            <div class="flex h-[min(72vh,46rem)] min-h-[30rem] min-w-0 overflow-hidden">
               <QueryWorkspace
                 baseId={props.baseId}
                 baseShortId={props.baseShortId}

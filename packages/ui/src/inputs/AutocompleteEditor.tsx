@@ -393,6 +393,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
       label={props.label}
       description={props.description}
       error={props.error}
+      fill={props.fill && !props.singleLine}
       meta={meta}
       required={props.required}
       disabled={props.disabled}
@@ -475,6 +476,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
               </Show>
               <For each={state()?.suggestions ?? []}>
                 {(suggestion, index) => (
+                  // biome-ignore lint/a11y/useKeyWithClickEvents: the owning textarea handles keyboard activation through aria-activedescendant.
                   <div
                     id={optionId(index())}
                     class="k2b-autocomplete__option"

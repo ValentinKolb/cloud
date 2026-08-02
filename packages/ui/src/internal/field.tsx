@@ -24,6 +24,7 @@ export const createFieldMeta = (id?: string): FieldMeta => {
 type FieldLayoutProps = {
   children: JSX.Element;
   meta: FieldMeta;
+  fill?: boolean;
 } & Pick<FieldProps, "class" | "description" | "error" | "label" | "required" | "disabled">;
 
 export function Field(props: FieldLayoutProps): JSX.Element {
@@ -33,6 +34,7 @@ export function Field(props: FieldLayoutProps): JSX.Element {
     <div
       class={`k2b-field ${props.class ?? ""}`}
       data-disabled={props.disabled ? "true" : undefined}
+      data-fill={props.fill ? "true" : undefined}
       data-invalid={error() ? "true" : undefined}
     >
       <Show when={props.label}>

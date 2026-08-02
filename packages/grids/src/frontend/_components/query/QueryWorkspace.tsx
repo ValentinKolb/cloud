@@ -584,7 +584,7 @@ export default function QueryWorkspace(props: Props) {
                       const shown = () => visibleSourceFields().shown;
                       const hidden = () => visibleSourceFields().hidden;
                       return (
-                        <article class="paper px-2.5 py-2">
+                        <article class="paper px-2 py-1.5">
                           <div class="flex items-start justify-between gap-2">
                             <Tooltip content={`Insert ${source.fromLine}`} class="min-w-0 flex-1">
                               <button
@@ -592,18 +592,18 @@ export default function QueryWorkspace(props: Props) {
                                 class="group flex min-w-0 flex-1 items-center gap-2 text-left"
                                 onClick={() => insertSource(source)}
                               >
-                                <span class="grid h-6 w-6 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                                <span class="grid h-5 w-5 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-xs text-secondary">
                                   <i class={source.icon} />
                                 </span>
                                 <span class="min-w-0">
                                   <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                                    <span class="truncate text-sm font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
+                                    <span class="truncate text-xs font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
                                       {source.name}
                                     </span>
-                                    <span class="text-[11px] text-dimmed">{source.metaLabel}</span>
+                                    <span class="text-[10px] text-dimmed">{source.metaLabel}</span>
                                   </span>
                                   <Show when={source.parent}>
-                                    <span class="block truncate text-[11px] text-dimmed">of {source.parent}</span>
+                                    <span class="block truncate text-[10px] text-dimmed">of {source.parent}</span>
                                   </Show>
                                 </span>
                               </button>
@@ -615,23 +615,23 @@ export default function QueryWorkspace(props: Props) {
                             </Tooltip>
                           </div>
 
-                          <div class="mt-2 flex flex-wrap gap-1">
+                          <div class="mt-1.5 flex flex-wrap gap-1">
                             <For each={shown()}>
                               {(field) => (
                                 <Tooltip content={field.description || `${field.name} (${field.type})`}>
                                   <button
                                     type="button"
-                                    class="inline-flex max-w-full items-center gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
+                                    class="inline-flex max-w-full items-baseline gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[10px] leading-tight text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
                                     onClick={() => insertField(field)}
                                   >
                                     <span class="truncate">{formatIdentifierRef(field.name)}</span>
-                                    <span class="text-[10px] text-dimmed">{field.type}</span>
+                                    <span class="text-[9px] text-dimmed">{field.type}</span>
                                   </button>
                                 </Tooltip>
                               )}
                             </For>
                             <Show when={hidden() > 0}>
-                              <span class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-[11px] text-dimmed">
+                              <span class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-[10px] text-dimmed">
                                 +{hidden()}
                               </span>
                             </Show>

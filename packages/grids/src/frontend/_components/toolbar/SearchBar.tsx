@@ -92,6 +92,12 @@ export default function SearchBar(props: Props) {
               icon: f.icon ?? "ti ti-columns",
               description: f.type,
             }))}
+            renderOption={(option) => (
+              <span class="flex min-w-0 items-baseline gap-1.5">
+                <strong class="truncate">{option.label}</strong>
+                <small class="shrink-0 text-dimmed">{option.description}</small>
+              </span>
+            )}
             clearable
           />
         </div>

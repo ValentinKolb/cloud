@@ -206,6 +206,20 @@ describe("@k2b/ui complete advanced input migrations", () => {
         highlight: (text: string) => text,
       }),
     );
+    const fillAutocomplete = renderToString(() =>
+      createComponent(AutocompleteEditor, {
+        label: "Query",
+        value: "",
+        fill: true,
+      }),
+    );
+    const fillMarkdown = renderToString(() =>
+      createComponent(MarkdownEditor, {
+        label: "Document",
+        value: "",
+        fill: true,
+      }),
+    );
 
     // Single-line editors are input-height, not one text line tall — folding
     // them into `--k2b-editor-lines: 1` clipped the text against the padding.
@@ -216,6 +230,12 @@ describe("@k2b/ui complete advanced input migrations", () => {
     expect(multi).toContain('data-overlay="true"');
     expect(multi).toContain("--k2b-editor-lines:5");
     expect(multi).toContain('rows="5"');
+    expect(fillAutocomplete).toContain('class="k2b-field " data-fill="true"');
+    expect(fillAutocomplete).toContain('class="k2b-autocomplete"');
+    expect(fillAutocomplete).toContain('data-fill="true"');
+    expect(fillMarkdown).toContain('class="k2b-field " data-fill="true"');
+    expect(fillMarkdown).toContain('class="k2b-markdown-editor"');
+    expect(fillMarkdown).toContain('data-fill="true"');
   });
 
   test("normalizes crop geometry and rotations", () => {

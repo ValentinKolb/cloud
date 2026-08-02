@@ -9,12 +9,6 @@ import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-f
 import { visibleCardFields } from "./display-mode";
 import type { CardSize } from "./query-url";
 
-const cardGridClass: Record<CardSize, string> = {
-  small: "grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2",
-  medium: "grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-2.5",
-  large: "grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3",
-};
-
 const cardPaddingClass: Record<CardSize, string> = {
   small: "p-2",
   medium: "p-2.5",
@@ -85,7 +79,7 @@ export function RecordCardsView(props: {
           </Placeholder>
         }
       >
-        <div class={`grid p-0.5 ${cardGridClass[size()]}`}>
+        <div class="grids-record-card-grid grid p-0.5" data-card-size={size()}>
           <For each={props.items}>
             {(record) => {
               const preview = () => coverPreview(record);
@@ -94,9 +88,10 @@ export function RecordCardsView(props: {
               return (
                 <button
                   type="button"
-                  class={`paper flex min-w-0 flex-col overflow-hidden text-left transition hover:paper-highlighted ${cardPaddingClass[size()]} ${
-                    selected() ? "app-accent-border bg-[var(--ui-selected)]" : ""
+                  class={`grids-record-card paper flex min-w-0 flex-col overflow-hidden text-left transition hover:paper-highlighted ${cardPaddingClass[size()]} ${
+                    selected() ? "bg-[var(--ui-selected)]" : ""
                   } ${highlighted() ? "bg-[var(--ui-active)]" : ""}`}
+                  data-selected={selected() ? "true" : undefined}
                   onClick={() => props.onRecordClick(record)}
                 >
                   <Show when={preview()}>
