@@ -3,23 +3,36 @@ title: In-product Help
 navTitle: In-product Help
 section: Platform services
 order: 580
-description: Add contextual product help to an application's shared layout.
-tags: [help, markdown, product]
-updated: 2026-07-27
+description: Declare app-owned Markdown once for the shared Help UI, full-page Help, and agents.
+tags: [help, markdown, product, agents]
+updated: 2026-08-02
 ---
 
 # In-product Help
 
-Use app-owned Help for instructions inside the running product.
+Declare an application's product guidance once. Cloud can then expose the same
+Markdown through the shared Layout, full-page Help, and agent search and reads.
 
-Each article is a Markdown asset. Cloud validates it, renders safe HTML,
-returns its raw Markdown, and exposes it to the shared Help search and reader.
+> **Pilot contract:** This page describes the proposed contract for the Grids
+> pilot. `defineHelp()` and `app.start({ help })` are not implemented yet.
+> Existing applications keep their current `defineHelpCollection()` wiring
+> until the pilot passes and the repository-wide migration begins.
 
-Use the developer documentation for application and platform APIs.
+Help is for static product guidance: tasks, concepts, reference material, and
+troubleshooting. Use developer documentation for application APIs. Keep live,
+permission-sensitive data in an authorized Query or application route.
 
-## Write an article
+| The application owns | Cloud owns |
+| --- | --- |
+| Markdown content and article order | Validation and bounded registration |
+| Stable article IDs and useful metadata | Layout Help and full-page Help |
+| Whether the content is safe to expose as product guidance | Search, reads, and agent discovery |
+| Specialized embedded presentation, when needed | Registry lifecycle and derived routes |
 
-Create articles under the application package:
+## Keep Help in one module
+
+When an application owns Markdown Help, put the declaration in
+`src/help/index.ts` and keep every Markdown source below `src/help/`:
 
 ```text
 src/help/
@@ -29,7 +42,20 @@ src/help/
     └── inventory-access.help.md
 ```
 
-Each file starts with YAML frontmatter:
+Small collections may place Markdown files directly beside `index.ts`. A
+larger collection may group them under `documents/`. Both follow the same
+boundary: the declaration and its content stay in `src/help/`.
+
+Use `src/help.ts` only for a declaration that owns no Markdown files. A package
+cannot contain both a `help.ts` file and a `help/` directory with the same
+module name, so file-backed Help uses the directory form.
+
+Cloud does not scan the filesystem. Import every article and list it explicitly
+so ownership, review order, and bundle contents remain visible.
+
+## Write an article
+
+Each article is a Markdown asset with YAML frontmatter:
 
 ```md
 ---
@@ -51,25 +77,25 @@ Open Inventory and choose **New item**.
 
 | Field | Required | Contract |
 | --- | --- | --- |
-| `id` | Yes | Lowercase kebab case; unique in the collection |
-| `title` | Yes | Non-empty title |
+| `id` | Yes | Lowercase kebab case; unique in the Help declaration |
+| `title` | Yes | Non-empty article title |
 | `order` | No | Integer; defaults to `100` |
 | `icon` | No | Tabler icon classes for the article |
 | `description` | No | Short search and overview text |
 
-The body must not be empty.
+The body must not be empty. Articles are sorted by `order`, then by title.
 
-Every level-two heading in a registered application article must end with icon
+Every level-two heading in a registered application article ends with icon
 metadata:
 
 ```md
 ## Create an item {icon="plus"}
 ```
 
-Cloud removes the metadata from the visible title and uses it in the article
+Cloud removes the metadata from the visible title and uses it in article
 navigation. Heading IDs must be unique after slugging.
 
-## Use guided blocks
+### Use guided blocks
 
 Help supports three guided blocks:
 
@@ -89,15 +115,10 @@ The block contains normal Markdown:
 :::
 ```
 
-A paragraph containing only bold text becomes an eyebrow:
+A paragraph containing only bold text becomes an eyebrow. Use it as a short
+label, not another heading.
 
-```md
-**First steps**
-```
-
-Use it as a short label, not as another heading.
-
-## Use callouts
+### Use callouts
 
 Callouts support `note`, `info`, `success`, `warning`, and `danger`:
 
@@ -107,7 +128,7 @@ Deleting an item cannot be undone.
 :::
 ```
 
-The text supports bold, emphasis, inline code, and line breaks. It does not
+Callout text supports bold, emphasis, inline code, and line breaks. It does not
 parse lists, links, tables, or nested blocks. Put those after the callout.
 
 The Help renderer also:
@@ -121,12 +142,13 @@ The Help renderer also:
 Do not use Mermaid in Help articles. The Help reader does not start the Mermaid
 client renderer.
 
-## Define the collection
+## Define Help once
 
-Import each article as text and list it explicitly:
+Import the articles in `src/help/index.ts` and pass only the documents to
+`defineHelp()`:
 
 ```ts
-import { defineHelpCollection } from "@valentinkolb/cloud/server";
+import { defineHelp } from "@valentinkolb/cloud";
 import access from "./documents/inventory-access.help.md" with {
   type: "text",
 };
@@ -134,146 +156,133 @@ import start from "./documents/inventory-start.help.md" with {
   type: "text",
 };
 
-export const inventoryHelp = defineHelpCollection({
-  basePath: "/api/inventory/help",
-  sources: [start, access],
+export const inventoryHelp = defineHelp({
+  documents: [start, access],
 });
 ```
 
-Cloud does not scan the filesystem. The source list makes ownership and review
-order visible.
+The declaration has no route, base path, role, router, or Layout configuration.
+Cloud already knows the owning application's ID and base path when it starts.
 
-Articles are sorted by `order`, then by title. Collection creation fails for
-invalid frontmatter, an empty body, or a duplicate ID.
+`defineHelp()` validates the article shape and creates an immutable source
+declaration. Startup compiles the complete collection, rejects duplicate IDs,
+and calculates its manifest hash before the application advertises Help.
 
-`defineHelpCollection()` returns:
+The proposed pilot limits one serialized Help registry entry to 512 KiB. An
+invalid or oversized collection fails startup instead of registering a partial
+or unreachable Help surface.
 
-| Value | Use |
-| --- | --- |
-| `manifest` | Article metadata for the shared Help UI |
-| `router` | Search and article endpoints |
-| `getMarkdown(id)` | Raw Markdown for server-side consumers |
+## Register Help when the app starts
 
-## Mount the Help API
-
-Protect the collection with the same authentication policy as the app:
+Pass the declaration to `app.start()` next to other executable app-owned
+surfaces such as capabilities:
 
 ```ts
-import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { defineApp } from "@valentinkolb/cloud";
 import { Hono } from "hono";
+import { inventoryHelp } from "./help";
 
-export const inventoryHelpApi = new Hono<AuthContext>()
-  .use("*", auth.requireRole("authenticated"))
-  .route("/", inventoryHelp.router);
+const app = defineApp({
+  id: "inventory",
+  name: "Inventory",
+  description: "Track inventory items.",
+  icon: "ti ti-package",
+  basePath: "/app/inventory",
+  baseUrl: "http://app-inventory:3000",
+  routes: ["/app/inventory"],
+});
 
-router.route("/api/inventory/help", inventoryHelpApi);
-```
-
-The router exposes these paths relative to its mount point:
-
-| Route | Response |
-| --- | --- |
-| `GET /search?q=...` | Matching article IDs |
-| `GET /:id` | Title, rendered HTML, and raw Markdown |
-
-Search reads the title, description, and plain article text. It limits the
-query to 200 characters. An unknown article ID returns `404`.
-
-The `basePath` passed to the collection must match the final API mount path.
-The manifest uses it to build search and article URLs.
-
-## Register Help in the app
-
-The shared Help UI is hydrated. Create an application island that imports the
-island-safe export:
-
-```tsx
-import {
-  Layout,
-  type LayoutHelpDocumentsProps,
-} from "@valentinkolb/cloud/ssr/islands";
-
-type InventoryHelpProps = {
-  documents: LayoutHelpDocumentsProps["documents"];
-  mode?: "register" | "page";
-  initialTopic?: string;
-};
-
-const HELP_PAGE_BASE = "/app/inventory/help";
-
-export default function InventoryHelp(props: InventoryHelpProps) {
-  return props.mode === "page" ? (
-    <Layout.HelpPage
-      documents={props.documents}
-      initialTopic={props.initialTopic}
-      pageBase={HELP_PAGE_BASE}
-    />
-  ) : (
-    <Layout.HelpDocuments
-      documents={props.documents}
-      pageBase={HELP_PAGE_BASE}
-    />
-  );
-}
-```
-
-Name the file with `.island.tsx` and import it directly from the SSR page. Do
-not re-export it through a barrel. The SSR plugin needs the island import path
-to create the hydration entry.
-
-Render registration mode on every app page that should open the shared Help
-dialog:
-
-```tsx
-<InventoryHelp documents={inventoryHelp.manifest} />
-```
-
-`Layout.HelpDocuments` registers metadata and the canonical full-page route.
-Article bodies still load from the authenticated Help API.
-
-## Add the full Help page
-
-Expose one page for the hub and one for direct article links:
-
-```ts
-pages
-  .get(
-    "/help",
-    auth.requireRole("authenticated", auth.redirectToLogin),
-    ...helpPage,
-  )
-  .get(
-    "/help/:topic",
-    auth.requireRole("authenticated", auth.redirectToLogin),
-    ...helpPage,
-  );
-```
-
-Validate the route parameter before passing it to the island:
-
-```tsx
-const requested = c.req.param("topic");
-const initialTopic = inventoryHelp.manifest.some(
-  (document) => document.id === requested,
-)
-  ? requested
-  : undefined;
-
-return () => (
-  <InventoryHelp
-    documents={inventoryHelp.manifest}
-    initialTopic={initialTopic}
-    mode="page"
-  />
+const router = new Hono().get("/app/inventory", (c) =>
+  c.html("<h1>Inventory</h1>"),
 );
+
+export default await app.start({
+  help: inventoryHelp,
+  fetch: router.fetch,
+});
 ```
 
-This prevents an unknown topic from opening a broken article state.
+Do not mount a Help API router, render a `Layout.HelpDocuments` registrar, or
+add standalone Help page routes. Those are consumers of the registration, not
+additional declarations.
 
-`Layout.HelpPage` also accepts `includeShortcuts`, `accent`, and `embedded`.
-Use the defaults unless the page has a concrete need for them.
+Cloud stores the bounded corpus in an ephemeral Help registry and keeps a small
+manifest with the normal app registration. The heartbeat repairs lost registry
+entries. Help is coordination state, not durable application data, so it does
+not use PostgreSQL or an application migration.
 
-## Verify the collection
+## Use the automatically derived surfaces
+
+For the example above, Cloud derives these product routes:
+
+| Surface | Derived route or behavior |
+| --- | --- |
+| Layout Help | Registers the current app's manifest automatically |
+| Help overview | `/app/inventory/help` |
+| Article deep link | `/app/inventory/help/:documentId` |
+| Search data | `/api/help/v1/inventory/search?q=...` |
+| Article data | `/api/help/v1/inventory/documents/:documentId` |
+| Agents | Discover `help` beside `query` and `action`, then search or read the same corpus |
+
+The full-page routes come from the application's `basePath`. Applications do
+not repeat that path in their Help declaration. Core owns search and article
+transport, while the application remains the content owner.
+
+The browser receives the small manifest and loads article bodies on demand. An
+agent uses bounded search and read operations; Cloud does not create one
+permanently loaded tool for every article.
+
+If the corpus is missing or its hash does not match the app manifest, Core
+returns an unavailable response instead of serving stale Help. The application
+heartbeat can then restore the current registration.
+
+## Keep the content safe to expose
+
+The Help declaration has no per-article role or authorization callback.
+Registered Help is static product guidance, not a resource authorization
+boundary. Any actor that can reach Cloud's central Help surface may read it.
+
+Do not include:
+
+- secrets, tokens, internal hostnames, or credentials;
+- user, tenant, or resource data;
+- role-restricted operational state;
+- instructions whose disclosure itself requires a permission check.
+
+Put dynamic or permission-sensitive context in a Query such as `gql.context`.
+The Query must authorize every request through the current access subject.
+Links from Help may point to protected application pages; those pages still
+perform their normal authorization.
+
+## Reuse the declaration for specialized readers
+
+An application may need a focused embedded reader, such as the Grids GQL
+reference. That consumer may select documents from the same Help declaration.
+It must not create another collection, registry entry, API router, or copied
+manifest.
+
+Use the automatic Layout and full-page surfaces for ordinary application Help.
+Add a specialized consumer only when its surrounding workflow needs a distinct
+presentation.
+
+## Migrate one application at a time
+
+The Grids pilot follows this sequence:
+
+1. Replace `defineHelpCollection()` with one `defineHelp()` declaration in
+   `src/help/index.ts`.
+2. Pass that declaration to `app.start({ help })`.
+3. Remove the app-owned Help API router, manual Layout registrar, and duplicate
+   full-page routes.
+4. Keep existing `/app/grids/help` deep links and the embedded GQL reference
+   backed by the registered corpus.
+
+During the pilot, every other application keeps its current Help wiring. Do not
+register both contracts in one application. A repository-wide migration starts
+only after Grids proves Layout Help, full-page routes, agent reads, registry
+recovery, and rollback.
+
+## Verify Help
 
 Run the shared corpus test after adding or changing application Help:
 
@@ -281,10 +290,17 @@ Run the shared corpus test after adding or changing application Help:
 bun test packages/cloud/src/server/help-corpus.test.ts
 ```
 
-The test checks that every registered UI app owns Help, every article parses,
-every level-two heading has icon metadata, generated IDs are unique, and
-directives do not leak into rendered HTML.
+The test checks that registered UI apps own Help, every article parses, every
+level-two heading has icon metadata, generated IDs are unique, and directives
+do not leak into rendered HTML. The pilot also adds a provider convention check
+for the `src/help/index.ts` boundary.
 
-Do not place secrets or permission-sensitive values in Help Markdown. These
-files are static application assets even when the API that serves them is
-authenticated.
+Before shipping a registration, also verify:
+
+- the application package typecheck;
+- Layout Help in normal and focus modes;
+- the overview and one article deep link;
+- search and article reads;
+- one agent Help search and read;
+- any specialized embedded reader;
+- registry recovery after the ephemeral entry disappears.
