@@ -1,4 +1,5 @@
-import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import type { DateContext } from "@k2b/stdlib";
+import { type AuthContext, getDateConfig, type PermissionLevel } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, DslQueryPreviewResponse, DslQuerySurface, RecordQuery } from "../contracts";
 import { canonicalizeDslQuery } from "../query-dsl/canonical";
@@ -26,14 +27,16 @@ import { buildTrustedGqlResolverContext, hydrateDslViewQueries } from "../servic
 import type { Field, Table } from "../service/types";
 import { type GqlRuntimeOperation, type GqlRuntimeTracer, traceGqlRuntime } from "./gql-observability";
 import {
-  currentAccessSubject,
-  currentActorViewer,
-  currentCredentialPermission,
-  currentResourceBoundBaseId,
-  gateAt,
+  accessSubjectFor,
+  actorViewerFor,
+  credentialPermissionFor,
+  type GridsAccessContext,
+  gateAtAccess,
+  gridsAccessContext,
   minPermission,
+  resourceBoundBaseIdFor,
 } from "./permissions";
-import { runWithQueryAdmission } from "./query-admission";
+import { runWithQueryAdmission, runWithQueryAdmissionSignal } from "./query-admission";
 
 export type DslCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string } | undefined;
 
@@ -42,6 +45,22 @@ type ResolverContextOptions = {
   loadAllFields?: boolean;
   trustedAllSources?: boolean;
 };
+
+export type GridsGqlRuntimeContext = {
+  access: GridsAccessContext;
+  dateConfig: DateContext;
+  signal: AbortSignal;
+};
+
+export type PermissionedGqlResolverContext = DslResolverContext & {
+  tablePermissionsById: Record<string, PermissionLevel>;
+};
+
+const httpGqlRuntimeContext = (c: Context<AuthContext>, signal: AbortSignal): GridsGqlRuntimeContext => ({
+  access: gridsAccessContext(c),
+  dateConfig: getDateConfig(c),
+  signal,
+});
 
 const withViewPresentation = (query: RecordQuery, presentation: RecordQuery | undefined): RecordQuery => {
   if (!presentation) return query;
@@ -73,39 +92,40 @@ export const sourceAst = (ast: DslQueryAst, source: DslCurrentSource, ctx: DslRe
   return view ? { ...ast, source: { kind: "view", ref: view.id } } : ast;
 };
 
-export const buildPermissionedGqlResolverContext = async (
-  c: Context<AuthContext>,
+export const buildPermissionedGqlResolverContextForAccess = async (
+  access: GridsAccessContext,
   baseId: string,
   currentTableId: string | undefined,
   currentSource: DslCurrentSource,
   ast: DslQueryAst,
   options: ResolverContextOptions = {},
-): Promise<DslResolverContext> => {
-  const viewer = currentActorViewer(c);
+): Promise<PermissionedGqlResolverContext> => {
+  const viewer = actorViewerFor(access);
   const [tables, catalogGrants] = await Promise.all([
     gridsService.table.listByBase(baseId),
     options.trustedAllSources
       ? Promise.resolve([])
       : gridsService.permission.loadBaseTableGrantsForSubject({
           baseId,
-          subject: currentAccessSubject(c),
+          subject: accessSubjectFor(access),
         }),
   ]);
 
-  let readableTables: Table[] = tables;
-  if (!options.trustedAllSources) {
-    const boundBaseId = currentResourceBoundBaseId(c);
-    const credentialPermission = currentCredentialPermission(c);
-    readableTables =
-      boundBaseId !== undefined && boundBaseId !== baseId
-        ? []
-        : tables.filter((table) =>
-            gridsService.permission.hasAtLeast(
-              minPermission(gridsService.permission.resolve(catalogGrants, { baseId, tableId: table.id }), credentialPermission),
-              "read",
-            ),
-          );
-  }
+  const boundBaseId = resourceBoundBaseIdFor(access);
+  const credentialPermission = credentialPermissionFor(access);
+  const tablePermissionsById = Object.fromEntries(
+    tables.map((table) => [
+      table.id,
+      options.trustedAllSources
+        ? "admin"
+        : boundBaseId !== undefined && boundBaseId !== baseId
+          ? "none"
+          : minPermission(gridsService.permission.resolve(catalogGrants, { baseId, tableId: table.id }), credentialPermission),
+    ]),
+  ) as Record<string, PermissionLevel>;
+  const readableTables: Table[] = tables.filter((table) =>
+    gridsService.permission.hasAtLeast(tablePermissionsById[table.id] ?? "none", "read"),
+  );
 
   const dslTables: DslTableSource[] = readableTables.map((table) => ({
     kind: "table",
@@ -157,8 +177,19 @@ export const buildPermissionedGqlResolverContext = async (
     tables: dslTables,
     views: hydratedViews,
     fieldsByTableId,
+    tablePermissionsById,
   };
 };
+
+export const buildPermissionedGqlResolverContext = (
+  c: Context<AuthContext>,
+  baseId: string,
+  currentTableId: string | undefined,
+  currentSource: DslCurrentSource,
+  ast: DslQueryAst,
+  options: ResolverContextOptions = {},
+): Promise<DslResolverContext> =>
+  buildPermissionedGqlResolverContextForAccess(gridsAccessContext(c), baseId, currentTableId, currentSource, ast, options);
 
 const fieldsWithPlanExtras = async (
   fieldsByTableId: Record<string, Field[]>,
@@ -174,7 +205,7 @@ const fieldsWithPlanExtras = async (
 };
 
 const previewResolvedGqlPlan = async (
-  c: Context<AuthContext>,
+  runtime: GridsGqlRuntimeContext,
   plan: DslResolvedSqlQueryPlan,
   fieldsByTableId: Record<string, Field[]>,
   options: {
@@ -190,10 +221,9 @@ const previewResolvedGqlPlan = async (
     signal?: AbortSignal;
   },
 ): Promise<DslQueryPreviewResponse> => {
-  const dateConfig = await getDateConfig(c);
   const result = await previewDslQuery(plan, {
     fieldsByTableId: await fieldsWithPlanExtras(fieldsByTableId, plan),
-    timeZone: dateConfig.timeZone,
+    timeZone: runtime.dateConfig.timeZone,
     limit: options.limit,
     pageSize: options.pageSize,
     cursor: options.cursor,
@@ -204,7 +234,7 @@ const previewResolvedGqlPlan = async (
     onFederatedRevisionScope: options.onFederatedRevisionScope,
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
-    viewer: currentActorViewer(c),
+    viewer: actorViewerFor(runtime.access),
   });
   return result.ok ? result.data : { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(plan, result.error.message)] };
 };
@@ -266,10 +296,10 @@ type ExecuteGqlSourceOptions = {
 };
 
 const executeGqlSourceUnadmitted = async (
-  c: Context<AuthContext>,
+  runtime: GridsGqlRuntimeContext,
   baseId: string,
   body: DslQueryPreviewBody,
-  options: ExecuteGqlSourceOptions & { signal?: AbortSignal } = {},
+  options: ExecuteGqlSourceOptions = {},
 ) => {
   const operation = options.operation ?? "preview";
   const startedAt = performance.now();
@@ -303,7 +333,13 @@ const executeGqlSourceUnadmitted = async (
     }
 
     const contextStartedAt = performance.now();
-    const ctx = await buildPermissionedGqlResolverContext(c, baseId, body.currentTableId, body.currentSource, parsed.ast);
+    const ctx = await buildPermissionedGqlResolverContextForAccess(
+      runtime.access,
+      baseId,
+      body.currentTableId,
+      body.currentSource,
+      parsed.ast,
+    );
     timings.contextMs = performance.now() - contextStartedAt;
     const resolveStartedAt = performance.now();
     const ast = sourceAst(parsed.ast, body.currentSource, ctx);
@@ -343,7 +379,7 @@ const executeGqlSourceUnadmitted = async (
 
     let revisionScope: FederatedRevisionScope = [];
     const executeStartedAt = performance.now();
-    const response = await previewResolvedGqlPlan(c, resolved.plan, ctx.fieldsByTableId, {
+    const response = await previewResolvedGqlPlan(runtime, resolved.plan, ctx.fieldsByTableId, {
       limit: body.limit,
       pageSize: body.pageSize,
       cursor: decodedCursor.cursor,
@@ -352,7 +388,7 @@ const executeGqlSourceUnadmitted = async (
       maxRows: options.maxRows,
       labelRelationValues: options.labelRelationValues,
       expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
-      ...(options.signal ? { signal: options.signal } : {}),
+      signal: runtime.signal,
       onFederatedRevisionScope: (scope) => {
         revisionScope = scope;
       },
@@ -371,13 +407,14 @@ export const executeGqlSource = (
   baseId: string,
   body: DslQueryPreviewBody,
   options: ExecuteGqlSourceOptions = {},
-) =>
-  runWithQueryAdmission(c, (signal) =>
-    executeGqlSourceUnadmitted(c, baseId, body, {
-      ...options,
-      signal,
-    }),
-  );
+) => runWithQueryAdmission(c, (signal) => executeGqlSourceUnadmitted(httpGqlRuntimeContext(c, signal), baseId, body, options));
+
+export const executeGqlSourceForContext = (
+  runtime: GridsGqlRuntimeContext,
+  baseId: string,
+  body: DslQueryPreviewBody,
+  options: ExecuteGqlSourceOptions = {},
+) => runWithQueryAdmissionSignal(runtime.signal, () => executeGqlSourceUnadmitted(runtime, baseId, body, options));
 
 /** Executes the exact stored source of an authorized saved view. View read is
  * deliberately a data-product boundary: it grants the stored result, including
@@ -394,10 +431,10 @@ type ExecuteSavedViewSourceOptions = {
 };
 
 const executeSavedViewSourceUnadmitted = async (
-  c: Context<AuthContext>,
+  runtime: GridsGqlRuntimeContext,
   baseId: string,
   viewId: string,
-  options: ExecuteSavedViewSourceOptions & { signal?: AbortSignal } = {},
+  options: ExecuteSavedViewSourceOptions = {},
 ) => {
   const trace = await (options.tracer ?? traceGqlRuntime)({
     baseId,
@@ -419,7 +456,7 @@ const executeSavedViewSourceUnadmitted = async (
     const view = await gridsService.view.get(viewId);
     const table = view ? await gridsService.table.get(view.tableId) : null;
     if (!view || !table || table.baseId !== baseId) return inaccessibleView();
-    const access = await gateAt(c, { baseId, tableId: table.id, viewId: view.id }, "read");
+    const access = await gateAtAccess(runtime.access, { baseId, tableId: table.id, viewId: view.id }, "read");
     if (!access.ok) return inaccessibleView();
     const parsed = parseGridsQueryDsl(view.source);
     if (!parsed.ok) {
@@ -477,13 +514,13 @@ const executeSavedViewSourceUnadmitted = async (
       await trace.end({ stage: "resolve", outcome: "diagnostic", response });
       return response;
     }
-    const response = await previewResolvedGqlPlan(c, resolved.plan, context.fieldsByTableId, {
+    const response = await previewResolvedGqlPlan(runtime, resolved.plan, context.fieldsByTableId, {
       maxRows: options.maxRows,
       pageSize: options.pageSize,
       cursor: decodedCursor.cursor,
       cursorFingerprint,
       cursorSigningKey,
-      ...(options.signal ? { signal: options.signal } : {}),
+      signal: runtime.signal,
     });
     await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
     return response;
@@ -498,13 +535,14 @@ export const executeSavedViewSource = (
   baseId: string,
   viewId: string,
   options: ExecuteSavedViewSourceOptions = {},
-) =>
-  runWithQueryAdmission(c, (signal) =>
-    executeSavedViewSourceUnadmitted(c, baseId, viewId, {
-      ...options,
-      signal,
-    }),
-  );
+) => runWithQueryAdmission(c, (signal) => executeSavedViewSourceUnadmitted(httpGqlRuntimeContext(c, signal), baseId, viewId, options));
+
+export const executeSavedViewSourceForContext = (
+  runtime: GridsGqlRuntimeContext,
+  baseId: string,
+  viewId: string,
+  options: ExecuteSavedViewSourceOptions = {},
+) => runWithQueryAdmissionSignal(runtime.signal, () => executeSavedViewSourceUnadmitted(runtime, baseId, viewId, options));
 
 export const compileGqlViewWrite = async (
   c: Context<AuthContext>,

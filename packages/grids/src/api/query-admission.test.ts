@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { createQueryAdmission, isQueryAdmissionError, queryAdmissionMiddleware, runWithQueryAdmission } from "./query-admission";
+import {
+  createQueryAdmission,
+  isQueryAdmissionError,
+  queryAdmissionMiddleware,
+  runWithQueryAdmission,
+  runWithQueryAdmissionSignal,
+} from "./query-admission";
 
 const deferred = () => {
   let resolve!: () => void;
@@ -120,6 +126,25 @@ describe("query admission", () => {
     expect(await rejected.text()).toBe("full");
     release.resolve();
     expect((await first).status).toBe(200);
+  });
+
+  test("guards transport-neutral runtime callers with their abort signal", async () => {
+    const admission = createQueryAdmission({ maxActive: 1, maxQueued: 0, waitTimeoutMs: 100 });
+    const release = deferred();
+    const signal = new AbortController().signal;
+    const first = runWithQueryAdmissionSignal(
+      signal,
+      async () => {
+        await release.promise;
+        return "ok";
+      },
+      admission,
+    );
+    await Promise.resolve();
+
+    await expect(runWithQueryAdmissionSignal(signal, async () => "rejected", admission)).rejects.toMatchObject({ reason: "full" });
+    release.resolve();
+    expect(await first).toBe("ok");
   });
 
   test("returns a retryable 503 when request capacity is full", async () => {

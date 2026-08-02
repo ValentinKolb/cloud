@@ -3,6 +3,7 @@ import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/clou
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import apiRoutes from "./api";
+import { gridsCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
 import { gridsHelp } from "./help";
@@ -31,6 +32,7 @@ const gridsRuntimeLifecycle = createRuntimeLifecycle({
 });
 
 const result = await app.start({
+  capabilities: gridsCapabilities,
   fetch: router.fetch,
   help: gridsHelp,
   openapi: apiRoutes,

@@ -145,6 +145,16 @@ const queryAdmission = createQueryAdmission({
 
 const admittedRequests = new WeakSet<Request>();
 
+export const runWithQueryAdmissionSignal = async <T>(
+  signal: AbortSignal,
+  task: (signal: AbortSignal) => Promise<T>,
+  admission: QueryAdmission = queryAdmission,
+): Promise<T> => {
+  const result = await admission.run(() => task(signal), signal);
+  if (!result.ok) throw new QueryAdmissionError(result.reason);
+  return result.value;
+};
+
 export const runWithQueryAdmission = async <T>(
   c: Context<AuthContext>,
   task: (signal: AbortSignal) => Promise<T>,
@@ -152,9 +162,7 @@ export const runWithQueryAdmission = async <T>(
 ): Promise<T> => {
   const request = c.req.raw;
   if (admittedRequests.has(request)) return task(request.signal);
-  const result = await admission.run(() => task(request.signal), request.signal);
-  if (!result.ok) throw new QueryAdmissionError(result.reason);
-  return result.value;
+  return runWithQueryAdmissionSignal(request.signal, task, admission);
 };
 
 export const queryAdmissionMiddleware = (admission: QueryAdmission = queryAdmission): MiddlewareHandler<AuthContext> => {

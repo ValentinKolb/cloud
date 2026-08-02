@@ -1,5 +1,5 @@
-import type { AccessSubject, AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import type { AccessSubject, AuthContext, PermissionLevel, RequestActor } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
 import { gridsService } from "../service";
@@ -23,46 +23,66 @@ export const permissionFromCredentialScopes = (scopes: readonly string[]): Permi
 export const minPermission = (left: PermissionLevel, right: PermissionLevel): PermissionLevel =>
   PERMISSION_RANK[left] <= PERMISSION_RANK[right] ? left : right;
 
-const currentActor = <T extends AuthContext>(c: Context<T>) => c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
-
-export const currentActorUser = <T extends AuthContext>(c: Context<T>) => {
-  const actor = currentActor(c);
-  return actor?.kind === "user" ? actor.user : (actor?.delegatedUser ?? null);
+export type GridsAccessContext = {
+  actor: RequestActor | undefined;
+  accessSubject: AccessSubject | null;
 };
+
+export const gridsAccessContext = <T extends AuthContext>(c: Context<T>): GridsAccessContext => ({
+  actor: c.get("actor") as AuthContext["Variables"]["actor"] | undefined,
+  accessSubject: (c.get("accessSubject") as AuthContext["Variables"]["accessSubject"] | undefined) ?? null,
+});
+
+const actorUser = (access: GridsAccessContext) => {
+  const actor = access.actor;
+  if (!actor) return null;
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+export const accessActorUser = (access: GridsAccessContext) => actorUser(access);
+
+export const currentActorUser = <T extends AuthContext>(c: Context<T>) => actorUser(gridsAccessContext(c));
 
 export const currentActorUserId = <T extends AuthContext>(c: Context<T>) => currentActorUser(c)?.id ?? null;
 
-export const currentAccessSubject = <T extends AuthContext>(c: Context<T>): AccessSubject | null => {
-  const accessSubject = c.get("accessSubject") as AuthContext["Variables"]["accessSubject"] | undefined;
-  const user = currentActorUser(c);
-  if (accessSubject) return accessSubject;
+export const accessSubjectFor = (access: GridsAccessContext): AccessSubject | null => {
+  const user = actorUser(access);
+  if (access.accessSubject) return access.accessSubject;
   return user ? { type: "user", userId: user.id } : null;
 };
+
+export const currentAccessSubject = <T extends AuthContext>(c: Context<T>): AccessSubject | null => accessSubjectFor(gridsAccessContext(c));
 
 /**
  * Returns the bound base for a valid Grids resource credential. `undefined`
  * means the request is not resource-bound; `null` means the credential is
  * bound to another app or resource type and is invalid for Grids.
  */
-export const currentResourceBoundBaseId = <T extends AuthContext>(c: Context<T>): string | null | undefined => {
-  const actor = currentActor(c);
+export const resourceBoundBaseIdFor = (access: GridsAccessContext): string | null | undefined => {
+  const actor = access.actor;
   if (actor?.kind !== "service_account" || actor.serviceAccount.kind !== "resource_bound") return undefined;
   const serviceAccount = actor.serviceAccount;
   return serviceAccount.appId === "grids" && serviceAccount.resourceType === "base" ? serviceAccount.resourceId : null;
 };
 
-export const currentCredentialPermission = <T extends AuthContext>(c: Context<T>): PermissionLevel => {
-  const actor = currentActor(c);
+export const currentResourceBoundBaseId = <T extends AuthContext>(c: Context<T>): string | null | undefined =>
+  resourceBoundBaseIdFor(gridsAccessContext(c));
+
+export const credentialPermissionFor = (access: GridsAccessContext): PermissionLevel => {
+  const actor = access.actor;
   return actor?.kind === "service_account" ? permissionFromCredentialScopes(actor.scopes) : "admin";
 };
 
-const targetMatchesResourceBinding = <T extends AuthContext>(c: Context<T>, target: ResolveTarget): boolean => {
-  const boundBaseId = currentResourceBoundBaseId(c);
+export const currentCredentialPermission = <T extends AuthContext>(c: Context<T>): PermissionLevel =>
+  credentialPermissionFor(gridsAccessContext(c));
+
+const targetMatchesResourceBinding = (access: GridsAccessContext, target: ResolveTarget): boolean => {
+  const boundBaseId = resourceBoundBaseIdFor(access);
   return boundBaseId === undefined || boundBaseId === target.baseId;
 };
 
-const loadCurrentGrants = (c: Context<AuthContext>, target: ResolveTarget): Promise<Grant[]> => {
-  const subject = currentAccessSubject(c);
+const loadCurrentGrants = (access: GridsAccessContext, target: ResolveTarget): Promise<Grant[]> => {
+  const subject = accessSubjectFor(access);
   return gridsService.permission.loadGrants({
     userId: subject?.type === "user" ? subject.userId : null,
     serviceAccountId: subject?.type === "service_account" ? subject.serviceAccountId : null,
@@ -76,24 +96,30 @@ const loadCurrentGrants = (c: Context<AuthContext>, target: ResolveTarget): Prom
   });
 };
 
-export const gateCredentialScope = async <T extends AuthContext>(
-  c: Context<T>,
+export const gateCredentialScopeFor = async (
+  access: GridsAccessContext,
   required: PermissionLevel,
   options: { allowResourceBound?: boolean } = {},
 ): Promise<Result<PermissionLevel>> => {
-  const level = currentCredentialPermission(c);
+  const level = credentialPermissionFor(access);
   if (PERMISSION_RANK[level] < PERMISSION_RANK[required]) {
     return fail(err.forbidden("The API credential does not grant the required Grids scope."));
   }
-  if (options.allowResourceBound === false && currentResourceBoundBaseId(c) !== undefined) {
+  if (options.allowResourceBound === false && resourceBoundBaseIdFor(access) !== undefined) {
     return fail(err.forbidden("Resource-bound API credentials cannot create Grids bases."));
   }
   return ok(level);
 };
 
-export const currentActorViewer = <T extends AuthContext>(c: Context<T>) => {
-  const subject = currentAccessSubject(c);
-  const user = currentActorUser(c);
+export const gateCredentialScope = <T extends AuthContext>(
+  c: Context<T>,
+  required: PermissionLevel,
+  options: { allowResourceBound?: boolean } = {},
+) => gateCredentialScopeFor(gridsAccessContext(c), required, options);
+
+export const actorViewerFor = (access: GridsAccessContext) => {
+  const subject = accessSubjectFor(access);
+  const user = actorUser(access);
   return {
     userId: subject?.type === "user" ? subject.userId : null,
     userGroups: user?.memberofGroupIds ?? [],
@@ -101,8 +127,10 @@ export const currentActorViewer = <T extends AuthContext>(c: Context<T>) => {
   };
 };
 
+export const currentActorViewer = <T extends AuthContext>(c: Context<T>) => actorViewerFor(gridsAccessContext(c));
+
 export const currentWorkflowPrincipal = <T extends AuthContext>(c: Context<T>): GridsWorkflowPrincipal => {
-  const actor = currentActor(c);
+  const actor = gridsAccessContext(c).actor;
   const viewer = currentActorViewer(c);
   if (!actor || actor.kind === "user") {
     return {
@@ -135,10 +163,10 @@ export const currentWorkflowPrincipal = <T extends AuthContext>(c: Context<T>): 
  * for a (base | table | view) target. Returns the effective level or null
  * if the user is denied. Routes typically pass the result to {@link gateAt}.
  */
-const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarget): Promise<PermissionLevel> => {
-  if (!targetMatchesResourceBinding(c, target)) return "none";
-  const grants = await loadCurrentGrants(c, target);
-  return minPermission(gridsService.permission.resolve(grants, target), currentCredentialPermission(c));
+const effectivePermission = async (access: GridsAccessContext, target: ResolveTarget): Promise<PermissionLevel> => {
+  if (!targetMatchesResourceBinding(access, target)) return "none";
+  const grants = await loadCurrentGrants(access, target);
+  return minPermission(gridsService.permission.resolve(grants, target), credentialPermissionFor(access));
 };
 
 /**
@@ -146,17 +174,20 @@ const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarge
  * on the target, or `fail(err.forbidden(...))` otherwise. Routes wrap with
  * `respond(c, ...)` to convert into a 403 response.
  */
-export const gateAt = async (
-  c: Context<AuthContext>,
+export const gateAtAccess = async (
+  access: GridsAccessContext,
   target: ResolveTarget,
   required: PermissionLevel,
 ): Promise<Result<PermissionLevel>> => {
-  const level = await effectivePermission(c, target);
+  const level = await effectivePermission(access, target);
   if (!gridsService.permission.hasAtLeast(level, required)) {
     return fail(err.forbidden("You do not have permission to access this resource."));
   }
   return ok(level);
 };
+
+export const gateAt = (c: Context<AuthContext>, target: ResolveTarget, required: PermissionLevel): Promise<Result<PermissionLevel>> =>
+  gateAtAccess(gridsAccessContext(c), target, required);
 
 /**
  * Loads the user's grants AND resolves the level in one go. Used by
@@ -165,15 +196,18 @@ export const gateAt = async (
  * visible to a non-owner only via an explicit view-level grant; the
  * level alone (which may be inherited from table) doesn't tell us.
  */
-export const resolveWithGrants = async (
-  c: Context<AuthContext>,
+export const resolveWithGrantsForAccess = async (
+  access: GridsAccessContext,
   target: ResolveTarget,
 ): Promise<{ level: PermissionLevel; grants: Grant[] }> => {
-  if (!targetMatchesResourceBinding(c, target)) return { level: "none", grants: [] };
-  const grants = await loadCurrentGrants(c, target);
-  const level = minPermission(gridsService.permission.resolve(grants, target), currentCredentialPermission(c));
+  if (!targetMatchesResourceBinding(access, target)) return { level: "none", grants: [] };
+  const grants = await loadCurrentGrants(access, target);
+  const level = minPermission(gridsService.permission.resolve(grants, target), credentialPermissionFor(access));
   return { level, grants };
 };
+
+export const resolveWithGrants = (c: Context<AuthContext>, target: ResolveTarget): Promise<{ level: PermissionLevel; grants: Grant[] }> =>
+  resolveWithGrantsForAccess(gridsAccessContext(c), target);
 
 /**
  * True when `grants` carries any explicit ACL row for the given
