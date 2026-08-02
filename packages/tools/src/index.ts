@@ -19,7 +19,6 @@ const router = new Hono<AuthContext>()
   .route("/tools/api/speedtest", speedtestRoutes)
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/tools/api/help", toolsHelp.router)
   // CLI script endpoints sit behind settings — they template the public
   // app URL (`settings.app.url`) into the served script.
   .route("/tools/api/speedtest", speedtestCliRoutes)
@@ -28,6 +27,7 @@ const router = new Hono<AuthContext>()
 
 export default await app.start({
   fetch: router.fetch,
+  help: toolsHelp,
   lifecycle: {
     setup: async () => {
       await migrate();

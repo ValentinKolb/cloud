@@ -1,10 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js";
-import { toolsHelp } from "@/help";
 import { resolveSpeedtestBase } from "../../api/_url";
 import { ssr } from "../../config";
-import ToolsLayoutHelp from "../_components/help/ToolsLayoutHelp.island";
 import { ToolsWorkspace } from "../ToolsWorkspace";
 import ColorConverter from "../tools/ColorConverter.island";
 import EncodingTool from "../tools/EncodingTool.island";
@@ -56,7 +54,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage workspaceSidebarCollapsible={tool.id !== "webhooks"} title={breadcrumbs}>
-      <ToolsLayoutHelp documents={toolsHelp.manifest} />
       {tool.id === "webhooks" ? (
         renderTool?.({ webhookState, baseHref: `/tools/${tool.id}` })
       ) : (

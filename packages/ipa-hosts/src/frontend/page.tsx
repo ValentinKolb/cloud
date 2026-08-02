@@ -4,11 +4,9 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
 import { createPagination } from "../contracts";
-import { ipaHostsHelp } from "../help";
 import { ipaHostsService } from "../service";
 import HostgroupCard from "./HostgroupCard";
 import HostSettings from "./HostSettings.island";
-import HostsLayoutHelp from "./HostsLayoutHelp.island";
 import HostsTable from "./HostsTable";
 import NewHostgroup from "./NewHostgroup.island";
 import SyncHosts from "./SyncHosts.island";
@@ -55,7 +53,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Hosts">
-      <HostsLayoutHelp documents={ipaHostsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-hosts-title">
           <h1 class="text-base font-semibold text-primary">Hosts</h1>

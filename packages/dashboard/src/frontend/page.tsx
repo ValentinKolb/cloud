@@ -8,7 +8,6 @@ import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js";
-import { dashboardHelp } from "@/help";
 import { ssr } from "../config";
 import { dashboardSettingsService } from "../service";
 import {
@@ -20,7 +19,6 @@ import {
   normalizeDashboardSettings,
   resolveDashboardWidgetLayout,
 } from "../shared";
-import DashboardLayoutHelp from "./_components/help/DashboardLayoutHelp.island";
 import DashboardControls, { DashboardEditButton } from "./EditDashboard.island";
 
 const log = logger("dashboard");
@@ -320,7 +318,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title="Dashboard">
-      <DashboardLayoutHelp documents={dashboardHelp.manifest} />
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
         <div class="dashboard-page">
           <div class="dashboard-intro">

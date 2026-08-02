@@ -1,17 +1,15 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import type { FileBaseInfo, FileInfo, SearchResult } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../config";
-import { filesHelp } from "../../help";
 import BaseSidebar from "../_components/BaseSidebar";
 import FileDetailLayoutSync from "../_components/FileDetailLayoutSync.island";
 import FileDetailPanel from "../_components/FileDetailPanel.island";
 import FileList from "../_components/FileList.island";
 import FilesUnavailable from "../_components/FilesUnavailable";
-import FilesLayoutHelp from "../_components/help/FilesLayoutHelp.island";
 import { filePageBaseUrl } from "../url";
 
 /** Shortcut presets for common searches */
@@ -65,7 +63,6 @@ export default ssr<AuthContext>(async (c) => {
   if (basesInfo.length === 0) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
-        <FilesLayoutHelp documents={filesHelp.manifest} />
         <FilesUnavailable
           title="No accessible storage"
           description="Ask an administrator to grant access to a home or group file storage."
@@ -173,7 +170,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
-      <FilesLayoutHelp documents={filesHelp.manifest} />
       <AppWorkspace>
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 

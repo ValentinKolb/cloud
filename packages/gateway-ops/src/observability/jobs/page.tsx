@@ -26,9 +26,7 @@ import {
   StructuredDataPreview,
 } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
-import { gatewayOpsHelp } from "../../help";
 import JobsActionToast from "./_components/JobsActionToast.island";
 import JobsFilterBar from "./_components/JobsFilterBar.island";
 import {
@@ -595,7 +593,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Background Jobs">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <JobsActionToast />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-jobs-title">

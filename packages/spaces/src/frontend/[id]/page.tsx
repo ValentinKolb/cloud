@@ -2,8 +2,6 @@ import { ButtonLink, Placeholder } from "@k2b/ui";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { spacesHelp } from "../../help";
-import SpacesLayoutHelp from "../_components/help/SpacesLayoutHelp.island";
 import SpacesWorkspace from "./_components/workspace/SpacesWorkspace";
 import { loadSpacesWorkspaceState } from "./_components/workspace/workspace-state";
 
@@ -40,7 +38,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
-      <SpacesLayoutHelp documents={spacesHelp.manifest} />
       <SpacesWorkspace state={state} dateConfig={dateConfig} />
     </Layout>
   );

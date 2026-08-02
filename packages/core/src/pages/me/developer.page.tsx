@@ -2,8 +2,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { coreSettings, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { coreHelp } from "../../help";
-import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountHub, { AccountPageHeader, AccountProfileActions } from "./AccountHub";
 import ApiKeysSettings from "./ApiKeysSettings.island";
 
@@ -29,7 +27,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Account", href: "/me" }, { title: "Developer" }]}>
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <AccountHub user={user} active="developer">
         <div class="flex flex-col gap-2">
           <AccountPageHeader title="Developer" description="Personal automation credentials, terminal setup, and SSH access." />

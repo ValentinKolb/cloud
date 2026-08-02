@@ -13,9 +13,9 @@ updated: 2026-08-02
 Declare an application's product guidance once. Cloud can then expose the same
 Markdown through the shared Layout, full-page Help, and agent search and reads.
 
-> **Pilot status:** Grids uses this contract. Existing applications keep their
-> current `defineHelpCollection()` wiring until the pilot passes and the
-> repository-wide migration begins.
+All supported built-in applications that own Help use this contract. OAuth
+intentionally owns no Help surface. The deprecated UI Lab application remains
+on the legacy collection until that application is removed.
 
 Help is for static product guidance: tasks, concepts, reference material, and
 troubleshooting. Use developer documentation for application APIs. Keep live,
@@ -167,7 +167,7 @@ Cloud already knows the owning application's ID and base path when it starts.
 declaration. Startup compiles the complete collection, rejects duplicate IDs,
 and calculates its manifest hash before the application advertises Help.
 
-The pilot limits one Markdown article to 128 KiB and one serialized Help
+The contract limits one Markdown article to 128 KiB and one serialized Help
 registry entry to 512 KiB. An invalid or oversized collection fails startup
 instead of registering a partial or unreachable Help surface.
 
@@ -265,22 +265,21 @@ Use the automatic Layout and full-page surfaces for ordinary application Help.
 Add a specialized consumer only when its surrounding workflow needs a distinct
 presentation.
 
-## Migrate one application at a time
+## Migrate a legacy provider
 
-The Grids pilot follows this sequence:
+A legacy provider moves through this sequence:
 
 1. Replace `defineHelpCollection()` with one `defineHelp()` declaration in
    `src/help/index.ts`.
 2. Pass that declaration to `app.start({ help })`.
 3. Remove the app-owned Help API router, manual Layout registrar, and duplicate
    full-page routes.
-4. Keep existing `/app/grids/help` deep links and the embedded GQL reference
-   backed by the registered corpus.
+4. Verify the application's Layout entry point and any specialized embedded
+   reader against the registered corpus.
 
-During the pilot, every other application keeps its current Help wiring. Do not
-register both contracts in one application. A repository-wide migration starts
-only after Grids proves Layout Help, full-page routes, agent reads, registry
-recovery, and rollback.
+Do not register both contracts in one application. Remove its old API and page
+routes in the same slice so one declaration remains the only source. The
+deprecated UI Lab application is the only built-in legacy exception.
 
 ## Verify Help
 
@@ -292,8 +291,9 @@ bun test packages/cloud/src/server/help-corpus.test.ts
 
 The test checks that registered UI apps own Help, every article parses, every
 level-two heading has icon metadata, generated IDs are unique, and directives
-do not leak into rendered HTML. The pilot also adds a provider convention check
-for the `src/help/index.ts` boundary.
+do not leak into rendered HTML. A provider convention check enforces the
+`src/help/index.ts` boundary and one `app.start({ help })` registration for
+supported built-in applications.
 
 Before shipping a registration, also verify:
 

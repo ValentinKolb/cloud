@@ -3,12 +3,10 @@ import { get } from "@valentinkolb/cloud/services";
 import { formatDate } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import { proxyAuthHelp } from "@/help";
 import { ssr } from "../config";
 import { proxyAuthService } from "../service";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
 import ProxyClientActions from "./_components/ProxyClientActions.island";
-import ProxyAuthLayoutHelp from "./ProxyAuthLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const { items: clients } = await proxyAuthService.client.list();
@@ -33,7 +31,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Proxy Auth">
-      <ProxyAuthLayoutHelp documents={proxyAuthHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-proxy-auth-title">
           <h1 class="text-base font-semibold text-primary">Proxy Auth</h1>

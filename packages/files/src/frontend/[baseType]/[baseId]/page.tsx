@@ -1,12 +1,11 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import type { DirectoryListing, FileBaseInfo, FileInfo } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../../config";
-import { filesHelp } from "../../../help";
 import BaseSidebar from "../../_components/BaseSidebar";
 import FileDetailLayoutSync from "../../_components/FileDetailLayoutSync.island";
 import FileDetailPanel from "../../_components/FileDetailPanel.island";
@@ -14,7 +13,6 @@ import FileList from "../../_components/FileList.island";
 import FileSettings, { parseFileSettings } from "../../_components/FileSettings.island";
 import FilesUnavailable from "../../_components/FilesUnavailable";
 import FileToolbar from "../../_components/FileToolbar.island";
-import FilesLayoutHelp from "../../_components/help/FilesLayoutHelp.island";
 import { filePageBaseUrl, filePageUrl } from "../../url";
 
 /**
@@ -125,7 +123,6 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!baseResult.ok) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Not Found" }]} fullWidth>
-        <FilesLayoutHelp documents={filesHelp.manifest} />
         <FilesUnavailable title="File storage not found" description={baseResult.error} icon="ti ti-folder-off" />
       </Layout>
     );
@@ -139,7 +136,6 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!accessResult.ok) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Access Denied" }]} fullWidth>
-        <FilesLayoutHelp documents={filesHelp.manifest} />
         <FilesUnavailable title="File storage unavailable" description={accessResult.error} icon="ti ti-lock" />
       </Layout>
     );
@@ -163,7 +159,6 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!infoResult.ok) {
     return () => (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
-        <FilesLayoutHelp documents={filesHelp.manifest} />
         <AppWorkspace>
           <BaseSidebar
             bases={basesInfo}
@@ -243,7 +238,6 @@ export const renderFilesBasePage = async <E extends AuthContext>(
 
   return () => (
     <Layout c={c} title={breadcrumbs} fullWidth>
-      <FilesLayoutHelp documents={filesHelp.manifest} />
       <AppWorkspace>
         <BaseSidebar
           bases={basesInfo}

@@ -3,12 +3,10 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import { contactsHelp } from "../../../help";
 import { contactsService } from "../../../service";
 import BookSettingsForm from "../../_components/BookSettingsForm.island";
 import ContactBookUnavailable from "../../_components/ContactBookUnavailable";
 import ContactsSidebar from "../../_components/ContactsSidebar";
-import ContactsLayoutHelp from "../../_components/help/ContactsLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -86,7 +84,6 @@ export default ssr<AuthContext>(async (c) => {
       ]}
       fullWidth
     >
-      <ContactsLayoutHelp documents={contactsHelp.manifest} />
       <AppWorkspace>
         <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 

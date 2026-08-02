@@ -3,11 +3,9 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
-import { notebookHelp } from "../help";
 import { notebooksService } from "../service";
 import AdminNotebookActions from "./_components/AdminNotebookActions.island";
 import AdminNotebooksAppSettings from "./_components/AdminNotebooksAppSettings.island";
-import NotebookLayoutHelp from "./[id]/_components/help/NotebookLayoutHelp.island";
 
 const PER_PAGE = 100;
 
@@ -46,7 +44,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Notebooks">
-      <NotebookLayoutHelp documents={notebookHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-notebooks-title">
           <h1 class="text-base font-semibold text-primary">Notebooks</h1>

@@ -1,10 +1,10 @@
-import { app } from "./config";
+import { type AppContext, type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { middleware, type AppContext, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import pageRoutes from "./frontend";
-import { adminPages as adminPageRoutes } from "./frontend";
 import { weatherCapabilities } from "./capabilities";
+import { app } from "./config";
+import pageRoutes, { adminPages as adminPageRoutes } from "./frontend";
+import { weatherHelp } from "./help";
 
 /** Per-app Hono context: AuthContext + typed snapshot with weather.* + core.* settings. */
 export type WeatherAppContext = AppContext<typeof app>;
@@ -23,6 +23,7 @@ const router = new Hono<AuthContext>()
 export default await app.start({
   capabilities: weatherCapabilities,
   fetch: router.fetch,
+  help: weatherHelp,
   openapi: apiRoutes,
 });
 export type { ApiType } from "./api";

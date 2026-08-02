@@ -1,15 +1,13 @@
 import { listApps } from "@valentinkolb/cloud";
 import { createPagination, hasRole, type NotificationDeliveryStatus } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { formatDateTime, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
-import { gatewayOpsHelp } from "../../help";
 import DeliveryFilterBar from "./_components/DeliveryFilterBar.island";
 import {
   buildDeliveryNotificationsUrl,
@@ -111,7 +109,6 @@ export default ssr<AuthContext>(async (c) => {
 
   const renderPage = (description: string, content: JSX.Element) => () => (
     <AdminLayout c={c} title="Notifications">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-notifications-title">
           <h1 class="text-base font-semibold text-primary">Notifications</h1>

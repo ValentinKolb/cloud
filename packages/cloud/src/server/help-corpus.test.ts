@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
-import { defineHelpCollection } from "./help";
+import { defineHelp } from "./help";
 
 const repoRoot = resolve(import.meta.dir, "../../../..");
-// Quotes is API-only and has no SSR Help surface. Invoices is intentionally
-// outside this migration until its UI is redesigned.
-const registeredHelpExemptions = new Set(["quotes"]);
+// Capabilities and OAuth intentionally own no Help. Quotes is API-only and has no SSR Help surface.
+const registeredHelpExemptions = new Set(["capabilities", "oauth", "quotes"]);
 const helpPackages = [
   "accounts",
   "api-docs",
@@ -20,7 +19,6 @@ const helpPackages = [
   "ipa-hosts",
   "mail",
   "notebooks",
-  "oauth",
   "proxy-auth",
   "pulse",
   "spaces",
@@ -67,9 +65,8 @@ describe("Cloud guided Help corpus", () => {
     }
 
     const covered = new Set(helpPackages);
-    expect(registeredPackages.filter((packageName) => !covered.has(packageName as (typeof helpPackages)[number]))).toEqual([
-      ...registeredHelpExemptions,
-    ]);
+    const uncovered = registeredPackages.filter((packageName) => !covered.has(packageName as (typeof helpPackages)[number])).sort();
+    expect(uncovered).toEqual([...registeredHelpExemptions].sort());
   });
 
   test("every app-owned article renders through the shared guided profile", async () => {
@@ -81,18 +78,12 @@ describe("Cloud guided Help corpus", () => {
       articleCount += sources.length;
 
       for (const { path, source } of sources) {
-        const collection = defineHelpCollection({
-          basePath: `/api/${packageName}/help-audit`,
-          sources: [source],
-        });
-        const [document] = collection.manifest;
+        const collection = defineHelp({ documents: [source] });
+        const [document] = collection.documents;
         expect(document, `${path} should define one valid document`).toBeDefined();
 
-        const response = await collection.router.request(`/${document!.id}`);
-        const payload = await response.json();
-        expect(response.status, `${path} should render`).toBe(200);
-        expect(payload.html, `${path} should not leak a guided directive`).not.toMatch(/<p>:::(?:steps|compare|reference)/);
-        expect(payload.html, `${path} should not leak heading metadata`).not.toContain('{icon="');
+        expect(document!.html, `${path} should not leak a guided directive`).not.toMatch(/<p>:::(?:steps|compare|reference)/);
+        expect(document!.html, `${path} should not leak heading metadata`).not.toContain('{icon="');
 
         const headings = [...withoutFencedCode(source).matchAll(/^## (?!#)(.+)$/gm)];
         expect(headings.length, `${path} should have at least one navigable H2 section`).toBeGreaterThan(0);
@@ -101,7 +92,7 @@ describe("Cloud guided Help corpus", () => {
           `${path} should annotate every H2 section`,
         ).toBe(true);
 
-        const ids = [...payload.html.matchAll(/<h2 id="([^"]+)"/g)].map((match) => match[1]);
+        const ids = [...document!.html.matchAll(/<h2 id="([^"]+)"/g)].map((match) => match[1]);
         expect(new Set(ids).size, `${path} should not render duplicate H2 ids`).toBe(ids.length);
       }
     }

@@ -14,5 +14,5 @@ export default ssr<AuthContext>((c) => {
   const requested = c.req.param("topic");
   const initialTopic = help.documents.some((document) => document.id === requested) ? requested : undefined;
   c.get("page").title = `${app.name} help`;
-  return () => <CoreLayoutHelp documents={help.documents} initialTopic={initialTopic} mode="page" pageBase={help.pageBase} />;
+  return () => <CoreLayoutHelp documents={help.documents} initialTopic={initialTopic} pageBase={help.pageBase} />;
 });

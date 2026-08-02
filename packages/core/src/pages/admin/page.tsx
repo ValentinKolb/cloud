@@ -2,8 +2,6 @@ import { LinkCard } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { coreHelp } from "../../help";
-import CoreLayoutHelp from "../CoreLayoutHelp.island";
 
 const PLATFORM_TASKS = [
   {
@@ -75,7 +73,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Overview">
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="app-rows mx-auto w-full max-w-6xl">
         <header class="flex flex-wrap items-end justify-between gap-3" style="view-transition-name: admin-overview-title">
           <div class="min-w-0">

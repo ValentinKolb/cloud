@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { spacesHelp } from ".";
 
 describe("spacesHelp", () => {
-  test("serves the existing Spaces help topics as Markdown", async () => {
-    expect(spacesHelp.manifest.map((document) => document.id)).toEqual([
+  test("owns the existing Spaces help topics as Markdown", () => {
+    expect(spacesHelp.documents.map((document) => document.id)).toEqual([
       "spaces-start",
       "spaces-views",
       "spaces-workflow",
@@ -11,13 +11,7 @@ describe("spacesHelp", () => {
       "spaces-troubleshooting",
     ]);
 
-    const response = await spacesHelp.router.request("/spaces-start");
-    const payload = await response.json();
-    expect(response.status).toBe(200);
-    expect(payload.markdown).toContain("Spaces is for shared work");
-
-    const troubleshootingResponse = await spacesHelp.router.request("/spaces-troubleshooting");
-    const troubleshootingPayload = await troubleshootingResponse.json();
-    expect(troubleshootingPayload.markdown).toContain("A space is missing from the overview");
+    expect(spacesHelp.getMarkdown("spaces-start")).toContain("Spaces is for shared work");
+    expect(spacesHelp.getMarkdown("spaces-troubleshooting")).toContain("A space is missing from the overview");
   });
 });

@@ -1,4 +1,4 @@
-import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
 import { ipaHosts } from "./backend";
@@ -8,17 +8,15 @@ import { ipaHostsHelp } from "./help";
 import { migrate } from "./migrate";
 import { ipaHostsService } from "./service";
 
-const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("admin")).route("/", ipaHostsHelp.router);
-
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/ipa-hosts/help", helpRoutes)
   .route("/api/ipa-hosts", apiRoutes)
   .route("/admin/ipa-hosts", adminPageRoutes);
 
 export default await app.start({
   fetch: router.fetch,
+  help: ipaHostsHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {

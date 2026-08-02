@@ -4,9 +4,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
-import { gatewayOpsHelp } from "../../help";
 import { getRedisDiagnostics, type RedisPrefixDiagnostic } from "../data/service";
 import RedisDataFilters from "./_components/RedisDataFilters.island";
 
@@ -78,7 +76,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Redis">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-redis-title">
           <h1 class="text-base font-semibold text-primary">Redis</h1>

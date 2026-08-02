@@ -3,8 +3,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import { coreHelp } from "../../../help";
-import CoreLayoutHelp from "../../CoreLayoutHelp.island";
 import AdminAiSkills from "./_components/AdminAiSkills.island";
 import CoreSettingsForm, { type SettingFieldDef } from "./_components/CoreSettingsForm.island";
 import LegalSettingsForm, { type LegalInitial } from "./_components/LegalSettingsForm.island";
@@ -174,7 +172,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title={tab.title}>
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="flex min-h-0 flex-1 flex-col" style="view-transition-name: admin-settings-content">
         {tab.group ? (
           <CoreSettingsForm

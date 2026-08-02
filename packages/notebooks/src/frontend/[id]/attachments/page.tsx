@@ -11,12 +11,10 @@ import { AppWorkspace, Pagination, Placeholder } from "@k2b/ui";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { notebookHelp } from "@/help";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../config";
 import { buildAttachmentsUrl } from "../../params";
 import AttachmentsOverview from "../_components/attachments-overview/AttachmentsOverview.island";
-import NotebookLayoutHelp from "../_components/help/NotebookLayoutHelp.island";
 import { parseSettings } from "../_components/settings/NotebookSettingsStore";
 import NotebookSidebar from "../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../_components/sidebar/types";
@@ -40,7 +38,6 @@ export default ssr<AuthContext>(async (c) => {
   if (!notebook) {
     return () => (
       <Layout c={c} title="Not Found">
-        <NotebookLayoutHelp documents={notebookHelp.manifest} />
         <div class="max-w-md mx-auto mt-16">
           <Placeholder surface="paper" state="error" icon="ti ti-alert-circle" title="Notebook not found" />
         </div>
@@ -56,7 +53,6 @@ export default ssr<AuthContext>(async (c) => {
   if (permission === "none") {
     return () => (
       <Layout c={c} title="Access Denied">
-        <NotebookLayoutHelp documents={notebookHelp.manifest} />
         <div class="max-w-md mx-auto mt-16">
           <Placeholder
             surface="paper"
@@ -122,7 +118,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Attachments" },
       ]}
     >
-      <NotebookLayoutHelp documents={notebookHelp.manifest} />
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookSidebar ctx={ctx} />
         <AppWorkspace.Content>

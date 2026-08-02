@@ -2,9 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
-import { filesHelp } from "../help";
 import FilesSettingsForm from "./_components/FilesSettingsForm.island";
-import FilesLayoutHelp from "./_components/help/FilesLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   // Read current values via the typed async API. Cache-aside means subsequent
@@ -24,7 +22,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Files">
-      <FilesLayoutHelp documents={filesHelp.manifest} />
       <FilesSettingsForm
         initial={{
           "files.filegate_url": filegateUrl ?? "",

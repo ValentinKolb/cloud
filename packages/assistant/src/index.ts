@@ -1,5 +1,5 @@
 import { aiMaintenanceJobs, migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
-import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
 import { app } from "./config";
@@ -7,12 +7,9 @@ import pageRoutes from "./frontend";
 import { assistantHelp } from "./help";
 import { createAssistantNotificationService } from "./notifications";
 
-const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("authenticated")).route("/", assistantHelp.router);
-
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/assistant/help", helpRoutes)
   .route("/api/assistant", apiRoutes)
   .route("/app/assistant", pageRoutes);
 
@@ -21,6 +18,7 @@ const assistantNotifications = createAssistantNotificationService(app.notificati
 
 export default await app.start({
   fetch: router.fetch,
+  help: assistantHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {

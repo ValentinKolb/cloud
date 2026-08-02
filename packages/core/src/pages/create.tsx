@@ -11,7 +11,6 @@ import settingsPage from "./admin/settings/page";
 import newPasswordPage from "./auth/new-password/page";
 import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
-import helpPage from "./help/page";
 import registeredHelpPage from "./help/registered.page";
 import { resolveHomePath } from "./home";
 import { makeLegalPage } from "./legal/page-handler";
@@ -47,8 +46,6 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     })
     .get("/help/apps/:appId", auth.requireRole("*"), ...registeredHelpPage)
     .get("/help/apps/:appId/:topic", auth.requireRole("*"), ...registeredHelpPage)
-    .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
-    .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
     // Serve the installer from the currently deployed Core bundle, rather than
     // piping a mutable branch artifact into a user's shell.
     .get("/cli", (c) => c.body(cliInstaller, 200, { "Content-Type": "text/x-shellscript; charset=utf-8" }))

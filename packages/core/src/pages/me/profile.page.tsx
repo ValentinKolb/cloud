@@ -1,10 +1,8 @@
+import { dates } from "@k2b/stdlib";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@k2b/stdlib";
 import { ssr } from "../../config";
-import { coreHelp } from "../../help";
-import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountHub, { AccountPageHeader, AccountProfileActions } from "./AccountHub";
 
 const formatAddress = (address: {
@@ -29,7 +27,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Account", href: "/me" }, { title: "Profile" }]}>
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <AccountHub user={user} active="profile">
         <div class="flex flex-col gap-2">
           <AccountPageHeader

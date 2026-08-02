@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import { pulseHelp } from "../../../help";
 import { pulseService } from "../../../service";
 import PulseQueryReferenceWindow from "../../PulseQueryReferenceWindow.island";
 import { readReferenceTab } from "../../query-reference-tabs";
@@ -34,6 +34,7 @@ export default ssr<AuthContext>(async (c) => {
     metrics.map((metric) => pulseService.query.series(baseResult.data.id, user, { metric: metric.name })),
   );
   const series = seriesResults.flatMap((result) => (result.ok ? result.data : []));
+  const helpDocuments = getRuntimeContext(c).apps.find((registeredApp) => registeredApp.id === "pulse")?.help?.documents ?? [];
 
   return () => (
     <PulseQueryReferenceWindow
@@ -46,7 +47,7 @@ export default ssr<AuthContext>(async (c) => {
       sources={sourcesResult.ok ? sourcesResult.data : []}
       series={series}
       fields={fieldsResult.ok ? fieldsResult.data : []}
-      documents={pulseHelp.manifest}
+      documents={helpDocuments}
     />
   );
 });

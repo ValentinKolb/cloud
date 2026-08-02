@@ -3,7 +3,7 @@ import { pulseHelp } from ".";
 
 describe("pulse help", () => {
   test("keeps the existing topics in their established order", () => {
-    expect(pulseHelp.manifest.map((document) => document.id)).toEqual([
+    expect(pulseHelp.documents.map((document) => document.id)).toEqual([
       "pulse-start",
       "pulse-data-model",
       "pulse-find-data",
@@ -38,7 +38,7 @@ describe("pulse help", () => {
   });
 
   test("keeps implementation details out of end-user help", () => {
-    const help = pulseHelp.manifest.map((document) => pulseHelp.getMarkdown(document.id)).join("\n");
+    const help = pulseHelp.documents.map((document) => pulseHelp.getMarkdown(document.id)).join("\n");
     expect(help).not.toMatch(
       /\bPostgres(?:QL)?\b|\bTimescaleDB\b|\bSQL\b|background jobs?|hourly metric rollups?|continuous aggregates?|time_bucket|\bKiB\b|\bMiB\b|storage engine|source of truth|\bcanonical\b|\bparser\b|\bcompiler\b|raw events?|high-cardinality/i,
     );

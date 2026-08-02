@@ -1,10 +1,9 @@
-import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { routes } from "@k2b/ssr/hono";
+import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { apiRoutes } from "./api";
 import { app } from "./config";
-import helpPage from "./frontend/help/page";
 import gatewayPage from "./frontend/page";
 import { gatewayOpsHelp } from "./help";
 import { gatewayOpsLifecycle } from "./lifecycle";
@@ -23,15 +22,14 @@ import observabilityOverviewPage from "./observability/page";
 import postgresPage from "./observability/postgres/page";
 import redisPage from "./observability/redis/page";
 import telemetryApiRoutes from "./observability/telemetry/api";
-import workflowsApiRoutes from "./observability/workflows/api";
 import telemetryPage from "./observability/telemetry/page";
+import workflowsApiRoutes from "./observability/workflows/api";
 import workflowsPage from "./observability/workflows/page";
 import { widgetRoutes } from "./widgets";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/gateway-ops/help", new Hono<AuthContext>().use(auth.requireRole("admin")).route("/", gatewayOpsHelp.router))
   .route("/admin/gateway/_ssr", routes(app.config))
   .use(
     "/public/*",
@@ -43,8 +41,6 @@ const router = new Hono<AuthContext>()
     }),
   )
   .get("/admin/gateway", (c) => c.redirect("/admin/gateway/apps"))
-  .get("/admin/gateway/help", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
-  .get("/admin/gateway/help/:topic", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
   .get("/admin/gateway/apps", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/gateway/routes", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/observability", auth.requireRole("admin", auth.redirectToLogin), ...observabilityOverviewPage)
@@ -73,6 +69,7 @@ const router = new Hono<AuthContext>()
 
 export default await app.start({
   fetch: router.fetch,
+  help: gatewayOpsHelp,
   openapi: apiRoutes,
   lifecycle: gatewayOpsLifecycle,
 });

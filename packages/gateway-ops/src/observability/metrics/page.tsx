@@ -3,8 +3,6 @@ import { formatDate, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
-import { gatewayOpsHelp } from "../../help";
 import MetricsCatalogue, { type MetricsCatalogueRow } from "./_components/MetricsCatalogue.island";
 import MetricsTokens from "./_components/MetricsTokens.island";
 import { getMetricsSnapshot, listMetricsTokens, METRICS_ENDPOINT, type MetricsSnapshot } from "./service";
@@ -70,7 +68,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Metrics">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-metrics-title">
           <h1 class="text-base font-semibold text-primary">Metrics</h1>

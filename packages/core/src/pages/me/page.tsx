@@ -4,8 +4,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, audit, coreSettings, notifications, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { coreHelp } from "../../help";
-import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountHub, { AccountPageHeader, AccountProfileActions } from "./AccountHub";
 import SignOutButton from "./SignOutButton.island";
 
@@ -36,7 +34,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Account" }]}>
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <AccountHub
         user={user}
         active="overview"

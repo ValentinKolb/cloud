@@ -1,9 +1,7 @@
+import { ButtonLink } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { ButtonLink } from "@k2b/ui";
 import { ssr } from "../../config";
-import { pulseHelp } from "../../help";
-import PulseLayoutHelp from "../PulseLayoutHelp.island";
 import PulseWorkspace from "../PulseWorkspace.island";
 import { loadPulseWorkspacePageData } from "./page-data";
 
@@ -30,7 +28,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Pulse", href: "/app/pulse" }, { title: data.baseName }]}>
-      <PulseLayoutHelp documents={pulseHelp.manifest} />
       <PulseWorkspace
         initialBases={workspaceProps.initialBases}
         initialCapabilities={workspaceProps.initialCapabilities}

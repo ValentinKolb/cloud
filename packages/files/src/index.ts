@@ -1,4 +1,4 @@
-import { type AppContext, type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
+import { type AppContext, type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
 import { filesCapabilities } from "./capabilities";
@@ -10,12 +10,9 @@ import { filesService } from "./service";
 /** Per-app Hono context: AuthContext + typed snapshot with files.* + core.* settings. */
 export type FilesAppContext = AppContext<typeof app>;
 
-const helpRoutes = new Hono<AuthContext>().use(auth.requireAccount({ provider: "ipa", profile: "user" })).route("/", filesHelp.router);
-
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/files/help", helpRoutes)
   .route("/api/files", apiRoutes)
   .route("/app/files", pageRoutes)
   .route("/admin/files", adminPageRoutes);
@@ -23,6 +20,7 @@ const router = new Hono<AuthContext>()
 export default await app.start({
   capabilities: filesCapabilities,
   fetch: router.fetch,
+  help: filesHelp,
   openapi: apiRoutes,
 });
 export type { ApiType } from "./api";

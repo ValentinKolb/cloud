@@ -3,10 +3,8 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
-import { contactsHelp } from "../help";
 import { contactsService } from "../service";
 import AdminBookActions from "./_components/AdminBookActions.island";
-import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
 
 const PER_PAGE = 100;
 
@@ -41,7 +39,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Contacts">
-      <ContactsLayoutHelp documents={contactsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-contacts-title">
           <h1 class="text-base font-semibold text-primary">Contacts</h1>

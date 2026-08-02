@@ -3,12 +3,10 @@ import { get } from "@valentinkolb/cloud/services";
 import { formatDate } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import { oauthHelp } from "@/help";
 import { ssr } from "../config";
 import { oauthService } from "../service";
 import ClientActions from "./_components/ClientActions.island";
 import CreateClientButton from "./_components/CreateClientButton.island";
-import OAuthLayoutHelp from "./_components/OAuthLayoutHelp.island";
 
 /** Admin OAuth clients list page. */
 export default ssr<AuthContext>(async (c) => {
@@ -39,7 +37,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="OAuth">
-      <OAuthLayoutHelp documents={oauthHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-oauth-title">
           <h1 class="text-base font-semibold text-primary">OAuth</h1>

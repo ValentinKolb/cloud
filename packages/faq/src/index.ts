@@ -1,22 +1,22 @@
-import { app } from "./config";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import { publicRoutes, adminRoutes } from "./frontend";
-import { faqService } from "./service";
-import { migrate } from "./migrate";
+import { app } from "./config";
+import { adminRoutes, publicRoutes } from "./frontend";
 import { faqHelp } from "./help";
+import { migrate } from "./migrate";
+import { faqService } from "./service";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/faq/help", faqHelp.router)
   .route("/api/faq", apiRoutes)
   .route("/faq", publicRoutes)
   .route("/admin/faq", adminRoutes);
 
 export default await app.start({
   fetch: router.fetch,
+  help: faqHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {
@@ -24,6 +24,6 @@ export default await app.start({
     },
   },
 });
-export { faqService as service };
 export type { ApiType } from "./api";
 export type { FaqService } from "./service";
+export { faqService as service };

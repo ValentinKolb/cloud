@@ -3,10 +3,8 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { weatherHelp } from "@/help";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
-import WeatherLayoutHelp from "../_components/help/WeatherLayoutHelp.island";
 import LocationSidebar from "../_components/LocationSidebar";
 import LocationActions from "../LocationActions.island";
 
@@ -162,7 +160,6 @@ export default ssr<AuthContext>(async (c) => {
       >
         <div class="min-h-0 min-w-0 flex-1 overflow-hidden">
           <AppWorkspace>
-            <WeatherLayoutHelp documents={weatherHelp.manifest} />
             <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
             <AppWorkspace.Content>
               <AppWorkspace.Main>
@@ -208,7 +205,6 @@ export default ssr<AuthContext>(async (c) => {
     >
       <div class="min-h-0 min-w-0 flex-1 overflow-hidden">
         <AppWorkspace>
-          <WeatherLayoutHelp documents={weatherHelp.manifest} />
           <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
           <AppWorkspace.Content>

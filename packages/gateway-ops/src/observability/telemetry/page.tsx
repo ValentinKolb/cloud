@@ -9,10 +9,8 @@ import {
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { listAppSloWindows } from "../../grids-operational-health";
-import { gatewayOpsHelp } from "../../help";
 import TelemetryFilterBar, { type TelemetryAppFilterOption } from "./_components/TelemetryFilterBar.island";
 import {
   buildTelemetryFilterUrl,
@@ -126,7 +124,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Telemetry">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-telemetry-title">
           <h1 class="text-base font-semibold text-primary">Telemetry</h1>

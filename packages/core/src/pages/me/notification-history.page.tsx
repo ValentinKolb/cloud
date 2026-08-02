@@ -6,8 +6,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { notifications } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { coreHelp } from "../../help";
-import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountHub, { AccountPageHeader, AccountSubnav, notificationViews } from "./AccountHub";
 import NotificationHistoryFilters from "./NotificationHistoryFilters.island";
 import { notificationChannelMeta, notificationStatusMeta } from "./notification-ui";
@@ -49,7 +47,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Delivery history" },
       ]}
     >
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <AccountHub user={user} active="notifications">
         <div class="flex flex-col gap-2">
           <AccountPageHeader

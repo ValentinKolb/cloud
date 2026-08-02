@@ -1,14 +1,12 @@
+import { MarkdownView, Placeholder, StatusBadge, type StatusTone } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView, Placeholder, StatusBadge, type StatusTone } from "@k2b/ui";
-import { faqHelp } from "@/help";
 import { ssr } from "../config";
 import { faqService } from "../service";
 import CreateFaqButton from "./_components/CreateFaqButton.island";
 import DeleteFaqButton from "./_components/DeleteFaqButton.island";
 import EditFaqButton from "./_components/EditFaqButton.island";
-import FaqLayoutHelp from "./_components/help/FaqLayoutHelp.island";
 
 const AUDIENCE_LABELS: Record<string, string> = {
   anonymous: "Anonymous",
@@ -27,7 +25,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="FAQ">
-      <FaqLayoutHelp documents={faqHelp.manifest} />
       <div class="app-rows">
         <div class="flex flex-wrap items-center justify-between gap-3" style="view-transition-name: admin-faq-toolbar">
           <div class="min-w-0">

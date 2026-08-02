@@ -1,7 +1,7 @@
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { app } from "./config";
-import { auth, middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
+import { app } from "./config";
 import pageRoutes from "./frontend";
 import { pulseHelp } from "./help";
 import { migrate } from "./migrate";
@@ -11,12 +11,12 @@ import { pulseRuntime } from "./service/runtime";
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/pulse/help", new Hono<AuthContext>().use(auth.requireRole("user")).route("/", pulseHelp.router))
   .route("/api/pulse", apiRoutes)
   .route("/app/pulse", pageRoutes);
 
 export default await app.start({
   fetch: router.fetch,
+  help: pulseHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {
@@ -31,5 +31,5 @@ export default await app.start({
   },
 });
 
-export { pulseService as service };
 export type { ApiType } from "./api";
+export { pulseService as service };

@@ -5,7 +5,6 @@ import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { CurrentWeatherSchema, WeatherDataSchema } from "../contracts";
-import { weatherHelp } from "../help";
 import { weatherSettingsRouter } from "./settings";
 import widgetRoutes from "./widgets";
 
@@ -76,8 +75,6 @@ const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<Ret
   if (!user) return fail(err.forbidden("Weather saved locations require a user-backed actor"));
   return ok(user);
 };
-
-const helpApi = new Hono<AuthContext>().use(auth.requireRole("authenticated")).route("/", weatherHelp.router);
 
 // Locations API (requires auth)
 const locationsApi = new Hono<AuthContext>()
@@ -151,7 +148,6 @@ const locationsApi = new Hono<AuthContext>()
 const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
   .route("/admin/settings", weatherSettingsRouter)
-  .route("/help", helpApi)
   .use(rateLimit())
   // Public: Get weather data
   .get(

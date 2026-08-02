@@ -16,16 +16,14 @@ import {
   listStrandedWorkflowEffects,
   listUndispatchedWorkflowEvents,
   listWorkflowFamilies,
-  listWorkflowRunTimeline,
   listWorkflowRuns,
+  listWorkflowRunTimeline,
   type WorkflowAppHealth,
   workflowHealth,
 } from "@valentinkolb/cloud/workflows/store";
 import type { JSX } from "solid-js";
 import { ssr } from "../../config";
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
-import { gatewayOpsHelp } from "../../help";
 import { WorkflowEffectsView, WorkflowEventsView, WorkflowFamiliesView, WorkflowRunsView } from "./_components/WorkflowQueues";
 import WorkflowRunDetailView from "./_components/WorkflowRunDetail";
 import WorkflowsFilterBar from "./_components/WorkflowsFilterBar.island";
@@ -285,7 +283,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Workflows">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-workflows-title">
           <div class="flex items-center gap-2">

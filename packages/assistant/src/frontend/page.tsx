@@ -3,8 +3,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
-import { assistantHelp } from "../help";
-import AssistantLayoutHelp from "./AssistantLayoutHelp.island";
 import AssistantWorkspace from "./AssistantWorkspace.island";
 import { resolveInitialConversation } from "./initial-conversation";
 
@@ -52,7 +50,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant" }]}>
-      <AssistantLayoutHelp documents={assistantHelp.manifest} />
       <AssistantWorkspace
         status={status}
         models={models}

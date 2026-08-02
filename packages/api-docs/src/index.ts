@@ -1,8 +1,9 @@
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
-import { app } from "./config";
 import { apiRoutes } from "./api";
+import { app } from "./config";
 import pageRoutes from "./frontend";
+import { apiDocsHelp } from "./help";
 
 /**
  * Container entrypoint for the api-docs aggregator.
@@ -20,4 +21,5 @@ const router = new Hono<AuthContext>()
 
 export default await app.start({
   fetch: router.fetch,
+  help: apiDocsHelp,
 });

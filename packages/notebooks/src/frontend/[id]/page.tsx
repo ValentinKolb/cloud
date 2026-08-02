@@ -1,12 +1,10 @@
 import { AppWorkspace, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { notebookHelp } from "@/help";
 import { ssr } from "../../config";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import NotebookGraph from "./_components/graph/NotebookGraph.island";
-import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import NotebookNavigatorPane from "./_components/sidebar/NotebookNavigatorPane.island";
@@ -87,7 +85,6 @@ export default ssr<AuthContext>(async (c) => {
     >
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
-        <NotebookLayoutHelp documents={notebookHelp.manifest} />
         {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} />}
 
         <NotebookSidebar ctx={ctx} />

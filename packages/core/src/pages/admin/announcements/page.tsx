@@ -4,8 +4,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { announcements } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import { coreHelp } from "../../../help";
-import CoreLayoutHelp from "../../CoreLayoutHelp.island";
 import AnnouncementActions from "./AnnouncementActions.island";
 
 const fmtDate = (value: string | null) => (value ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
@@ -42,7 +40,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Announcements">
-      <CoreLayoutHelp documents={coreHelp.manifest} />
       <div class="app-rows">
         <div class="flex flex-wrap items-center justify-between gap-3" style="view-transition-name: admin-announcements-title">
           <div class="min-w-0">

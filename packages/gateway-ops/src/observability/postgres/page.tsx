@@ -13,9 +13,7 @@ const formatSeconds = (seconds: number | null): string => {
   return `${Math.round(seconds / 3600)}h`;
 };
 
-import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
-import { gatewayOpsHelp } from "../../help";
 import {
   getPostgresDiagnostics,
   listPostgresIndexes,
@@ -193,7 +191,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Postgres">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-postgres-title">
           <h1 class="text-base font-semibold text-primary">Postgres</h1>

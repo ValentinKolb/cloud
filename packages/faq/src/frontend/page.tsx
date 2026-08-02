@@ -1,12 +1,10 @@
+import { MarkdownView, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView, Placeholder } from "@k2b/ui";
-import { getUserBackedActor } from "@valentinkolb/cloud/server";
-import { faqHelp } from "@/help";
 import { ssr } from "../config";
 import { faqService } from "../service";
-import FaqLayoutHelp from "./_components/help/FaqLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = getUserBackedActor(c);
@@ -17,7 +15,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "FAQ" }]}>
-      <FaqLayoutHelp documents={faqHelp.manifest} />
       <div class="max-w-2xl mx-auto flex flex-col gap-4">
         <h1 class="text-xl font-bold text-primary" style="view-transition-name: page-header">
           FAQ

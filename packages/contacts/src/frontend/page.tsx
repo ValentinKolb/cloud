@@ -3,7 +3,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
-import { contactsHelp } from "../help";
 import { contactsService } from "../service";
 import { captureContactEventCursor } from "../service/events";
 import ContactCreateLauncher from "./_components/ContactCreateLauncher.island";
@@ -12,7 +11,6 @@ import ContactsLiveEvents from "./_components/ContactsLiveEvents.island";
 import ContactsSidebar from "./_components/ContactsSidebar";
 import ContactsWorkspaceMain from "./_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "./_components/DesktopDetailLayoutSync.island";
-import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
 import {
   CONTACTS_PER_PAGE,
   loadContactBookPermissions,
@@ -77,7 +75,6 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
-      <ContactsLayoutHelp documents={contactsHelp.manifest} />
       <ContactsLiveEvents scope={{ kind: "all" }} initialCursor={initialLiveCursor} />
       <ContactCreateLauncher writableBooks={writableBooks} />
       <AppWorkspace>

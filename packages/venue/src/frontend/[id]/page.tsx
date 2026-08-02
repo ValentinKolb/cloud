@@ -1,12 +1,10 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
-import { venueHelp } from "../../help";
 import { venueService } from "../../service";
-import VenueLayoutHelp from "../_components/help/VenueLayoutHelp.island";
 import VenueWorkspace from "../_components/VenueWorkspace.island";
 
 const calendarViews: CalendarView[] = ["week", "month"];
@@ -137,7 +135,6 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       fullPage
     >
-      <VenueLayoutHelp documents={venueHelp.manifest} />
       <VenueWorkspace
         dashboard={dashboard}
         userId={user.id}

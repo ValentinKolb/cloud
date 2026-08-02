@@ -1,9 +1,5 @@
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import helpPage from "./help/page";
 import proxyAuthPage from "./page";
 
-export default new Hono<AuthContext>()
-  .get("/help", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
-  .get("/help/:topic", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
-  .get("/", auth.requireRole("admin", auth.redirectToLogin), ...proxyAuthPage);
+export default new Hono<AuthContext>().get("/", auth.requireRole("admin", auth.redirectToLogin), ...proxyAuthPage);

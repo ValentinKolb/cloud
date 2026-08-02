@@ -15,10 +15,8 @@ import { logging, type TraceWindow, trace } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { Placeholder, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
-import GatewayOpsLayoutHelp from "../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../frontend/ObservabilityChart.island";
 import { buildGatewayHealth } from "../health";
-import { gatewayOpsHelp } from "../help";
 import { buildOverviewSignals, type OverviewSignalSeverity, overviewVerdict } from "./overview";
 import { DEFAULT_TELEMETRY_RANGE, isTelemetryRange, TELEMETRY_RANGES, type TelemetryRange } from "./telemetry/contracts";
 import { getTelemetryOverview, getTelemetryTimeseries, listTelemetryRoutes } from "./telemetry/service";
@@ -98,7 +96,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Observability">
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0">
           <h1 class="text-base font-semibold text-primary">Observability</h1>

@@ -13,8 +13,6 @@ import { coreSettings } from "@valentinkolb/cloud/services";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { coreHelp } from "../../help";
-import CoreLayoutHelp from "../CoreLayoutHelp.island";
 
 type LegalKind = "terms" | "privacy" | "imprint";
 
@@ -46,7 +44,6 @@ export const makeLegalPage = (kind: LegalKind) =>
 
     return () => (
       <Layout c={c} title={title}>
-        <CoreLayoutHelp documents={coreHelp.manifest} />
         <div class="container max-w-3xl p-4 sm:p-8">
           <h1 class="text-xl font-bold mb-4">{title}</h1>
           {html ? (

@@ -3,10 +3,8 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
-import { spacesHelp } from "../help";
 import { spacesService } from "../service";
 import AdminSpaceActions from "./_components/AdminSpaceActions.island";
-import SpacesLayoutHelp from "./_components/help/SpacesLayoutHelp.island";
 
 const PER_PAGE = 100;
 
@@ -45,7 +43,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Spaces">
-      <SpacesLayoutHelp documents={spacesHelp.manifest} />
       <div class="app-rows" data-scroll-preserve="spaces-admin">
         <div class="min-w-0" style="view-transition-name: admin-spaces-title">
           <h1 class="text-base font-semibold text-primary">Spaces</h1>

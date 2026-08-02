@@ -4,50 +4,56 @@ import { join, resolve } from "node:path";
 const repoRoot = resolve(import.meta.dir, "../../../..");
 const read = (path: string) => Bun.file(join(repoRoot, path)).text();
 
-const helpRoutes = [
-  ["packages/accounts/src/frontend/index.ts", "/help"],
-  ["packages/api-docs/src/frontend/index.ts", "/help"],
-  ["packages/assistant/src/frontend/index.ts", "/help"],
-  ["packages/contacts/src/frontend/index.ts", "/help"],
-  ["packages/core/src/pages/create.tsx", "/help"],
-  ["packages/dashboard/src/index.ts", "/help"],
-  ["packages/faq/src/frontend/index.ts", "/help"],
-  ["packages/files/src/frontend/index.ts", "/help"],
-  ["packages/gateway-ops/src/index.ts", "/admin/gateway/help"],
-  ["packages/ipa-hosts/src/frontend/index.ts", "/help"],
-  ["packages/mail/src/frontend/index.ts", "/help"],
-  ["packages/notebooks/src/frontend/index.ts", "/help"],
-  ["packages/oauth/src/frontend/index.ts", "/admin/oauth/help"],
-  ["packages/proxy-auth/src/frontend/index.ts", "/help"],
-  ["packages/pulse/src/frontend/index.ts", "/help"],
-  ["packages/spaces/src/frontend/index.ts", "/help"],
-  ["packages/tools/src/frontend/index.ts", "/help"],
-  ["packages/ui-lab/src/frontend/index.ts", "/help"],
-  ["packages/venue/src/frontend/index.ts", "/help"],
-  ["packages/weather/src/frontend/index.ts", "/help"],
+const registeredHelpApps = [
+  "accounts",
+  "api-docs",
+  "assistant",
+  "contacts",
+  "core",
+  "dashboard",
+  "faq",
+  "files",
+  "gateway-ops",
+  "grids",
+  "ipa-hosts",
+  "mail",
+  "notebooks",
+  "proxy-auth",
+  "pulse",
+  "spaces",
+  "tools",
+  "venue",
+  "weather",
 ] as const;
 
-describe("standalone Layout Help routes", () => {
-  test("every legacy Help-enabled app owns a hub and topic SSR route", async () => {
-    const missing: string[] = [];
-    for (const [path, route] of helpRoutes) {
-      const source = await read(path);
-      if (!source.includes(`.get("${route}"`) || !source.includes(`.get("${route}/:topic"`)) missing.push(path);
+describe("registered Layout Help routes", () => {
+  test("every supported Help provider declares and registers Help once", async () => {
+    const invalid: string[] = [];
+    for (const appId of registeredHelpApps) {
+      const [entry, definition] = await Promise.all([read(`packages/${appId}/src/index.ts`), read(`packages/${appId}/src/help/index.ts`)]);
+      if (!entry.match(/\bhelp:\s*\w+Help\b/) || !definition.match(/\bdefineHelp\s*\(/) || definition.includes("defineHelpCollection")) {
+        invalid.push(appId);
+      }
     }
-    expect(missing).toEqual([]);
+    expect(invalid).toEqual([]);
   });
 
-  test("registered Help leaves Grids routing to the framework", async () => {
-    const [entry, definition, routes] = await Promise.all([
-      read("packages/grids/src/index.ts"),
-      read("packages/grids/src/help/index.ts"),
-      read("packages/grids/src/frontend/index.ts"),
-    ]);
-
-    expect(entry).toContain("help: gridsHelp");
-    expect(definition).toMatch(/\bdefineHelp\s*\(/);
-    expect(routes).not.toContain('.get("/help"');
-    expect(routes).not.toContain('.get("/help/:topic"');
+  test("supported providers leave APIs, pages, and Layout registration to Cloud", async () => {
+    const legacyReferences: string[] = [];
+    for (const appId of registeredHelpApps) {
+      for await (const path of new Bun.Glob(`packages/${appId}/src/**/*.{ts,tsx}`).scan({ cwd: repoRoot })) {
+        const source = await read(path);
+        if (
+          source.includes("defineHelpCollection") ||
+          /\w+Help\.router\b/.test(source) ||
+          /import helpPage from [^;]*help\/page/.test(source) ||
+          /<\w+LayoutHelp documents=\{\w+Help\.manifest\}/.test(source)
+        ) {
+          legacyReferences.push(path);
+        }
+      }
+    }
+    expect(legacyReferences).toEqual([]);
   });
 
   test("Core owns the registered Help reader", async () => {
@@ -56,13 +62,26 @@ describe("standalone Layout Help routes", () => {
     expect(routes).toContain('.get("/help/apps/:appId/:topic"');
   });
 
-  test("registered Grids Help owns its declaration and Markdown below src/help", async () => {
-    const markdownPaths: string[] = [];
-    for await (const path of new Bun.Glob("packages/grids/src/**/*.help.md").scan({ cwd: repoRoot })) markdownPaths.push(path);
+  test("registered providers own their Markdown below src/help", async () => {
+    for (const appId of registeredHelpApps) {
+      const markdownPaths: string[] = [];
+      for await (const path of new Bun.Glob(`packages/${appId}/src/**/*.help.md`).scan({ cwd: repoRoot })) markdownPaths.push(path);
+      expect(await Bun.file(join(repoRoot, `packages/${appId}/src/help/index.ts`)).exists()).toBe(true);
+      expect(markdownPaths.length, appId).toBeGreaterThan(0);
+      expect(
+        markdownPaths.every((path) => path.startsWith(`packages/${appId}/src/help/`)),
+        appId,
+      ).toBe(true);
+    }
+  });
 
-    expect(await Bun.file(join(repoRoot, "packages/grids/src/help/index.ts")).exists()).toBe(true);
-    expect(markdownPaths.length).toBeGreaterThan(0);
-    expect(markdownPaths.every((path) => path.startsWith("packages/grids/src/help/"))).toBe(true);
+  test("keeps deliberate OAuth and deprecated UI Lab exceptions explicit", async () => {
+    expect(await Bun.file(join(repoRoot, "packages/oauth/src/help/index.ts")).exists()).toBe(false);
+    expect(await read("packages/oauth/src/index.ts")).not.toMatch(/oauthHelp|\/api\/oauth\/help/);
+    expect(await read("packages/oauth/src/frontend/index.ts")).not.toContain("/admin/oauth/help");
+
+    expect(await read("packages/ui-lab/src/help/index.ts")).toContain("defineHelpCollection");
+    expect(await read("packages/ui-lab/src/frontend/index.ts")).toContain('.get("/help"');
   });
 
   test("the retired query-overlay strategy cannot return", async () => {

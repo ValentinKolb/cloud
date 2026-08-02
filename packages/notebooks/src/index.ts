@@ -5,6 +5,7 @@ import apiRoutes from "./api";
 import { notebooksCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes, { adminPages as adminPageRoutes } from "./frontend";
+import { notebookHelp } from "./help";
 import { migrate } from "./migrate";
 import { notebooksService, reindexRuntime, snapshotRuntime, yjsSnapshotWorker } from "./service";
 
@@ -18,6 +19,7 @@ const router = new Hono<AuthContext>()
 const result = await app.start({
   capabilities: notebooksCapabilities,
   fetch: router.fetch,
+  help: notebookHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {

@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import weatherDetailPage from "./[id]/page";
 import weatherAdminPage from "./admin";
 import weatherDisplayPage from "./display/page";
-import helpPage from "./help/page";
 import weatherPage from "./page";
 
 export const adminPages = new Hono<AuthContext>().get("/", auth.requireRole("admin", auth.redirectToLogin), ...weatherAdminPage);
@@ -12,7 +11,5 @@ export default new Hono<AuthContext>()
   // Public display endpoint (no auth) - must be before /:id
   .get("/display", ...weatherDisplayPage)
   // Protected routes (require auth)
-  .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
-  .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...weatherPage)
   .get("/:id", auth.requireRole("user", auth.redirectToLogin), ...weatherDetailPage);

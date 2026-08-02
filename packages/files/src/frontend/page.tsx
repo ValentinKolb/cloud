@@ -1,11 +1,9 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppOverview } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { filesService } from "@/service";
 import { ssr } from "../config";
-import { filesHelp } from "../help";
-import FilesLayoutHelp from "./_components/help/FilesLayoutHelp.island";
 
 /**
  * Files index page - redirects to first accessible base
@@ -19,7 +17,6 @@ export default ssr<AuthContext>(async (c) => {
   if (bases.length === 0) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }]}>
-        <FilesLayoutHelp documents={filesHelp.manifest} />
         <AppOverview title="Files" subtitle="Browse and manage shared file storage." icon="ti ti-folders">
           <AppOverview.Main title="Storage" description="No accessible file storage is available for your account.">
             <AppOverview.EmptyState

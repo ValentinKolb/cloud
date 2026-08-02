@@ -3,9 +3,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { weatherHelp } from "@/help";
 import { ssr } from "../config";
-import WeatherLayoutHelp from "./_components/help/WeatherLayoutHelp.island";
 import AddLocationButton from "./AddLocation.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -17,7 +15,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather" }]}>
-      <WeatherLayoutHelp documents={weatherHelp.manifest} />
       <div class="min-h-0 min-w-0 flex-1 overflow-y-auto">
         <AppOverview title="Weather" subtitle="Track forecasts for your saved locations." icon="ti ti-temperature-celsius">
           <AppOverview.Main title="Locations" description="No saved locations yet.">

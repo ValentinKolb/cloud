@@ -1,27 +1,25 @@
-import { app } from "./config";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { auth, middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import verifyRoutes from "./verify";
+import { app } from "./config";
 import adminPageRoutes from "./frontend";
-import { proxyAuthService } from "./service";
-import { migrate } from "./migrate";
 import { proxyAuthHelp } from "./help";
-
-const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("admin")).route("/", proxyAuthHelp.router);
+import { migrate } from "./migrate";
+import { proxyAuthService } from "./service";
+import verifyRoutes from "./verify";
 
 // Verify lives at the top-level `/proxy-auth/verify/:clientId` because
 // Traefik forward-auth expects a configurable URL on the public origin.
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/proxy-auth/help", helpRoutes)
   .route("/api/proxy-auth", apiRoutes)
   .route("/admin/proxy-auth", adminPageRoutes)
   .route("/proxy-auth", verifyRoutes);
 
 export default await app.start({
   fetch: router.fetch,
+  help: proxyAuthHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: async () => {
@@ -29,6 +27,6 @@ export default await app.start({
     },
   },
 });
-export { proxyAuthService as service };
 export type { ApiType } from "./api";
 export type { ProxyAuthService } from "./service";
+export { proxyAuthService as service };

@@ -20,10 +20,8 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, NoticeCard, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import { type AppRuntimeStatus, buildAppRuntimeStatuses } from "../app-runtime-status";
 import { ssr } from "../config";
-import { gatewayOpsHelp } from "../help";
 import { getTelemetryAppTotals, getTelemetryPrefixTotals } from "../observability/telemetry/service";
 import { listRegisteredAppStatus, type RegisteredAppStatus } from "../registered-apps";
-import GatewayOpsLayoutHelp from "./GatewayOpsLayoutHelp.island";
 import RemoveRegisteredAppButton from "./RemoveRegisteredAppButton.island";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -200,7 +198,6 @@ export default ssr<AuthContext>(async (c) => {
   ];
   return () => (
     <AdminLayout c={c} title={isRoutesPage ? "Routes" : "Apps"}>
-      <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <div class="app-rows">
         <div class="min-w-0" style="view-transition-name: admin-gateway-title">
           <h1 class="text-base font-semibold text-primary">{isRoutesPage ? "Routes" : "Apps"}</h1>

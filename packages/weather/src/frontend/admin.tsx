@@ -1,9 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { weatherHelp } from "@/help";
 import { ssr } from "../config";
-import WeatherLayoutHelp from "./_components/help/WeatherLayoutHelp.island";
 import WeatherSettingsForm from "./_components/WeatherSettingsForm.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -16,7 +14,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Weather">
-      <WeatherLayoutHelp documents={weatherHelp.manifest} />
       <WeatherSettingsForm
         initial={{
           "weather.default_lat": defaultLat ?? "",
