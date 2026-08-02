@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, ButtonLink, Placeholder, TextInput } from "@k2b/ui";
 import type { FileBaseInfo, FileInfo, SearchResult } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../config";
@@ -181,33 +181,15 @@ export default ssr<AuthContext>(async (c) => {
                 {/* Search form */}
                 <form action="/app/files/search" method="get" class="paper flex flex-col gap-2 p-3">
                   {/* Pattern input */}
-                  <div class="group relative flex">
-                    <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
-                      <i class="ti ti-search group-focus-within:hidden" />
-                      <i class="ti ti-pencil hidden app-accent-text group-focus-within:block" />
-                    </div>
-                    <input
-                      type="text"
-                      name="pattern"
-                      value={pattern}
-                      placeholder="**/*.pdf, report*, *.{jpg,png}"
-                      class="input w-full pl-9 pr-9"
-                      autofocus
-                    />
-                    {pattern ? (
-                      <a
-                        href="/app/files/search"
-                        class="absolute right-3 inset-y-0 flex items-center text-dimmed hover:text-primary transition-colors"
-                        aria-label="Clear search"
-                      >
-                        <i class="ti ti-x" />
-                      </a>
-                    ) : (
-                      <button type="submit" class="hidden">
-                        Search
-                      </button>
-                    )}
-                  </div>
+                  <TextInput
+                    type="search"
+                    name="pattern"
+                    value={pattern}
+                    placeholder="**/*.pdf, report*, *.{jpg,png}"
+                    icon="ti ti-search"
+                    activeIcon="ti ti-pencil"
+                    autofocus
+                  />
 
                   {/* Options row */}
                   <div class="flex flex-wrap items-center gap-3 text-xs">
@@ -255,10 +237,10 @@ export default ssr<AuthContext>(async (c) => {
                 {!hasSearch && (
                   <div class="flex flex-wrap gap-1.5">
                     {SEARCH_SHORTCUTS.map((shortcut) => (
-                      <a href={buildSearchUrl({ pattern: shortcut.pattern })} class="btn-secondary btn-sm">
+                      <ButtonLink href={buildSearchUrl({ pattern: shortcut.pattern })} variant="secondary" size="sm">
                         <i class={`ti ${shortcut.icon}`} />
                         {shortcut.label}
-                      </a>
+                      </ButtonLink>
                     ))}
                   </div>
                 )}

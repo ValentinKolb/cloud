@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { ButtonLink, Placeholder } from "@k2b/ui";
 
 type Props = {
   title: string;
@@ -21,9 +21,9 @@ export default function FilesUnavailable(props: Props) {
         icon={props.icon}
         class="w-full"
         action={
-          <a href={props.actionHref ?? "/app/files"} class="btn-secondary btn-sm">
+          <ButtonLink href={props.actionHref ?? "/app/files"} variant="secondary" size="sm">
             {props.actionLabel ?? "Back to files"}
-          </a>
+          </ButtonLink>
         }
       />
     </main>

@@ -1,4 +1,4 @@
-import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { dates, fileIcons, text } from "@k2b/stdlib";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
@@ -145,10 +145,6 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
     return items.filter((entry) => !entry.label.startsWith("Show "));
   });
 
-  const actionButtonClass = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
-  const dangerActionButtonClass =
-    "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300";
-
   return (
     <Show
       when={file()}
@@ -186,14 +182,14 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
                 </div>
               </div>
               <Tooltip content="Close details" class="absolute right-0 top-0 z-10">
-                <button
-                  type="button"
+                <IconButton
                   onClick={handleClose}
-                  class="btn-simple btn-sm text-dimmed hover:text-primary"
-                  aria-label="Close file detail panel"
+                  label="Close file detail panel"
+                  size="sm"
+                  variant="ghost"
                 >
                   <i class="ti ti-x" />
-                </button>
+                </IconButton>
               </Tooltip>
             </div>
           </section>
@@ -220,9 +216,10 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
               <div class="flex flex-col gap-0.5">
                 <For each={actionItems()}>
                   {(entry) => (
-                    <button
-                      type="button"
-                      class={entry.variant === "danger" ? dangerActionButtonClass : actionButtonClass}
+                    <Button
+                      variant={entry.variant === "danger" ? "danger" : "ghost"}
+                      size="sm"
+                      class="justify-start"
                       title={entry.label}
                       onClick={() => {
                         if ("action" in entry && entry.action) {
@@ -236,7 +233,7 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
                     >
                       {entry.icon && <i class={entry.icon} />}
                       <span>{entry.label === "Open" && canOpenFileInline(currentFile()) ? "Preview" : entry.label}</span>
-                    </button>
+                    </Button>
                   )}
                 </For>
               </div>

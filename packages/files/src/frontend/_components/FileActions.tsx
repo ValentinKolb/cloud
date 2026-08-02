@@ -1,5 +1,5 @@
-import type { DropdownItem } from "@valentinkolb/cloud/ui";
-import { Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
+import type { DropdownItem } from "@k2b/ui";
+import { Dropdown, prompts, toast } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { useContext } from "solid-js";
@@ -376,7 +376,7 @@ export default function FileActions(props: FileActionsProps) {
         ctx,
       })}
       position="bottom-left"
-      width="w-48"
+      width="12rem"
     />
   );
 }

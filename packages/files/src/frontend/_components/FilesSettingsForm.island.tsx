@@ -14,7 +14,7 @@ import {
   sameSettingValue,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal } from "solid-js";
@@ -100,7 +100,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.filegate_url"]}
-                onChange={(v) => update("files.filegate_url", v)}
+                onValueChange={(v) => update("files.filegate_url", v)}
                 placeholder="e.g. http://filegate:4000"
                 type="url"
               />
@@ -114,7 +114,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.filegate_token"]}
-                onChange={(v) => update("files.filegate_token", v)}
+                onValueChange={(v) => update("files.filegate_token", v)}
                 password
                 placeholder="Leave empty to keep current value"
               />
@@ -130,7 +130,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.base_homes"]}
-                onChange={(v) => update("files.base_homes", v)}
+                onValueChange={(v) => update("files.base_homes", v)}
                 placeholder="e.g. /data/homes"
               />
             </SettingsField>
@@ -143,7 +143,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.base_groups"]}
-                onChange={(v) => update("files.base_groups", v)}
+                onValueChange={(v) => update("files.base_groups", v)}
                 placeholder="e.g. /data/groups"
               />
             </SettingsField>
@@ -161,7 +161,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.home_dir_mode"]}
-                onChange={(v) => update("files.home_dir_mode", v)}
+                onValueChange={(v) => update("files.home_dir_mode", v)}
                 placeholder="700"
               />
             </SettingsField>
@@ -174,7 +174,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.home_file_mode"]}
-                onChange={(v) => update("files.home_file_mode", v)}
+                onValueChange={(v) => update("files.home_file_mode", v)}
                 placeholder="600"
               />
             </SettingsField>
@@ -187,7 +187,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.group_dir_mode"]}
-                onChange={(v) => update("files.group_dir_mode", v)}
+                onValueChange={(v) => update("files.group_dir_mode", v)}
                 placeholder="2770"
               />
             </SettingsField>
@@ -200,7 +200,7 @@ export default function FilesSettingsForm(props: Props) {
             >
               <TextInput
                 value={() => draft()["files.group_file_mode"]}
-                onChange={(v) => update("files.group_file_mode", v)}
+                onValueChange={(v) => update("files.group_file_mode", v)}
                 placeholder="660"
               />
             </SettingsField>

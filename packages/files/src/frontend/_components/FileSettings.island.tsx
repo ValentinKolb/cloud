@@ -1,4 +1,4 @@
-import { Dropdown, SegmentedControl, Switch, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, Dropdown, IconButton, SegmentedControl, Switch, Tooltip } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { cookies } from "@k2b/stdlib/browser";
 import { createMemo, createSignal, Show } from "solid-js";
@@ -108,14 +108,14 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
       <div class="flex items-center justify-between">
         <p class="sidebar-section-title pt-0">Panel</p>
         <Tooltip content={settings().hideSettings ? "Expand settings" : "Minimize settings"}>
-          <button
-            type="button"
+          <IconButton
             onClick={toggleMinimize}
-            class="text-dimmed hover:text-primary transition-colors"
-            aria-label={settings().hideSettings ? "Expand settings" : "Minimize settings"}
+            label={settings().hideSettings ? "Expand settings" : "Minimize settings"}
+            size="xs"
+            variant="ghost"
           >
             <i class={`ti ${settings().hideSettings ? "ti-chevron-down" : "ti-chevron-up"} text-sm`} />
-          </button>
+          </IconButton>
         </Tooltip>
       </div>
 
@@ -132,7 +132,7 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
               },
             ]}
             value={() => settings().viewMode}
-            onChange={(v) => updateSetting("viewMode", v)}
+            onValueChange={(v) => updateSetting("viewMode", v)}
           />
 
           {/* Grid size options (only shown in grid mode) */}
@@ -142,7 +142,7 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
               <SegmentedControl
                 options={GRID_SIZE_OPTIONS}
                 value={() => settings().gridSize}
-                onChange={(v) => updateSetting("gridSize", v)}
+                onValueChange={(v) => updateSetting("gridSize", v)}
               />
             </div>
           </Show>
@@ -157,7 +157,7 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
                     { value: "comfortable" as ListDensity, label: "Cozy" },
                   ]}
                   value={() => settings().listDensity}
-                  onChange={(v) => updateSetting("listDensity", v)}
+                  onValueChange={(v) => updateSetting("listDensity", v)}
                 />
               </div>
 
@@ -165,35 +165,32 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
                 <div class="text-xs text-secondary">List columns</div>
                 <Dropdown
                   trigger={
-                    <span class="btn-input btn-sm w-full justify-between text-left">
+                    <Button variant="secondary" size="sm" class="w-full justify-between text-left">
                       <span class="inline-flex min-w-0 items-center gap-2 truncate">
                         <i class="ti ti-columns-3 app-accent-text text-sm" />
                         <span class="truncate text-xs">{selectedColumnsLabel()}</span>
                       </span>
                       <i class="ti ti-chevron-down text-[10px] text-dimmed" />
-                    </span>
+                    </Button>
                   }
-                  width="w-52"
+                  width="13rem"
                   position="bottom-right"
                   elements={LIST_COLUMN_OPTIONS.map((option) => ({
                     element: (close) => (
-                      <button
+                      <Button
                         type="button"
-                        class="flex w-full items-center gap-3 px-4 py-2 text-sm text-zinc-700 transition-colors hover:bg-white/30 dark:text-zinc-300 dark:hover:bg-white/10"
+                        variant="ghost"
+                        size="sm"
+                        class="w-full justify-start"
                         onClick={() => {
                           toggleListColumn(option.value);
                           close();
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={settings().listColumns.includes(option.value)}
-                          readOnly
-                          class="pointer-events-none"
-                        />
+                        <i class={`ti ${settings().listColumns.includes(option.value) ? "ti-checkbox" : "ti-square"}`} />
                         <i class={`${option.icon} text-dimmed`} />
                         <span>{option.label}</span>
-                      </button>
+                      </Button>
                     ),
                   }))}
                 />
@@ -202,11 +199,15 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
           </Show>
 
           {/* Show hidden files toggle */}
-          <Switch label="Show hidden files" value={() => settings().showHidden} onChange={(v) => updateSetting("showHidden", v)} />
+          <Switch label="Show hidden files" value={() => settings().showHidden} onValueChange={(v) => updateSetting("showHidden", v)} />
 
           {/* Compute sizes toggle */}
           <div class="flex flex-col gap-1">
-            <Switch label="Precise file sizes" value={() => settings().computeSizes} onChange={(v) => updateSetting("computeSizes", v)} />
+            <Switch
+              label="Precise file sizes"
+              value={() => settings().computeSizes}
+              onValueChange={(v) => updateSetting("computeSizes", v)}
+            />
             <Show when={settings().computeSizes}>
               <p class="text-[10px] text-orange-500 pl-11">May slow down page</p>
             </Show>

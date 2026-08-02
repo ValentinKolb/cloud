@@ -1,4 +1,4 @@
-import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Button, Placeholder, TextInput, prompts, toast } from "@k2b/ui";
 import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -213,34 +213,30 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
               const isSelected = () => selectedBase().type === base.type && selectedBase().id === base.id;
               const isCurrent = base.type === props.sourceBaseType && base.id === props.sourceBaseId;
               return (
-                <button
+                <Button
                   type="button"
                   onClick={() => handleBaseChange(base)}
-                  class={`btn-input btn-sm ${isSelected() ? "bg-[var(--ui-selected)] app-accent-text [box-shadow:inset_0_0_0_1px_var(--ui-app-accent-border)]" : ""}`}
+                  variant={isSelected() ? "subtle" : "secondary"}
+                  size="sm"
                 >
                   <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"}`} /> {base.name}
                   <Show when={isCurrent}>
                     <span class="opacity-60">(current)</span>
                   </Show>
-                </button>
+                </Button>
               );
             }}
           </For>
         </div>
       </div>
-      <div class="group relative flex">
-        <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
-          <i class="ti ti-search group-focus-within:hidden" /> <i class="ti ti-pencil hidden app-accent-text group-focus-within:block" />
-        </div>
-        <input
-          type="text"
-          class="input w-full pl-9"
-          placeholder="Search folders..."
-          value={searchQuery()}
-          onInput={(e) => handleSearchInput(e.currentTarget.value)}
-          autofocus
-        />
-      </div>
+      <TextInput
+        value={searchQuery}
+        onValueChange={handleSearchInput}
+        placeholder="Search folders..."
+        icon="ti ti-search"
+        activeIcon="ti ti-pencil"
+        autofocus
+      />
       <div class="paper overflow-hidden">
         <div class="data-table-header data-table-divider flex items-center justify-between border-b px-4 py-3 text-xs text-dimmed">
           <span>Folders</span>
@@ -269,11 +265,12 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
                       <div class="truncate text-sm text-primary">{dir.name || "/"}</div>
                       <div class="truncate text-xs text-dimmed">{formatDisplayPath(dir.path, selectedBase().name)}</div>
                     </div>
-                    <button
+                    <Button
                       type="button"
                       onClick={() => handleTransfer(dir.path)}
                       disabled={transferringPath() !== null}
-                      class="btn-input btn-sm disabled:opacity-50"
+                      variant="secondary"
+                      size="sm"
                     >
                       <Show
                         when={transferringPath() === dir.path}
@@ -285,7 +282,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
                       >
                         <i class="ti ti-loader-2 animate-spin" />
                       </Show>
-                    </button>
+                    </Button>
                   </div>
                 )}
               </For>

@@ -1,4 +1,4 @@
-import { Lightbox, type LightboxImage, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Lightbox, type LightboxImage, Placeholder, prompts, toast } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { dates, fileIcons, text } from "@k2b/stdlib";
 import { dnd, mutation as mutations } from "@k2b/stdlib/solid";

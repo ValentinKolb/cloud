@@ -1,5 +1,5 @@
 import { formatBytes } from "@valentinkolb/cloud/shared";
-import { Dropdown, ProgressBar, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { Button, Dropdown, ProgressBar, TextInput, prompts, toast } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -236,8 +236,10 @@ export default function FileToolbar({
       <div class="flex flex-wrap items-center gap-2">
         <Dropdown
           trigger={
-            <span
-              class="btn-secondary btn-sm"
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={isLoading() || uploadManager.state.isUploading}
               classList={{
                 "opacity-50 pointer-events-none": isLoading() || uploadManager.state.isUploading,
               }}
@@ -245,7 +247,7 @@ export default function FileToolbar({
               <i class={`ti text-sm ${uploadManager.state.isUploading ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
               <span>New</span>
               <i class="ti ti-chevron-down text-[10px]" />
-            </span>
+            </Button>
           }
           elements={[
             {
@@ -275,17 +277,17 @@ export default function FileToolbar({
             },
           ]}
           position="bottom-right"
-          width="w-44"
+          width="11rem"
         />
 
         <Show when={selectionCount() > 0}>
           <Dropdown
             trigger={
-              <span class="btn-secondary btn-sm">
+              <Button variant="secondary" size="sm">
                 <i class="ti ti-checks text-sm" />
                 <span class="text-[10px]">{selectionCount()}</span>
                 <i class="ti ti-chevron-down text-[10px]" />
-              </span>
+              </Button>
             }
             elements={[
               ...(bases.length > 0
@@ -324,38 +326,24 @@ export default function FileToolbar({
               },
             ]}
             position="bottom-right"
-            width="w-40"
+            width="10rem"
           />
         </Show>
 
-        <form
-          onSubmit={handleFilterSubmit}
-          class="input flex min-h-[calc((var(--ui-input-padding-y)*2)+1.25rem)] min-w-[14rem] flex-1 items-center gap-2 p-0 pr-2"
-          role="search"
-        >
-          <input
+        <form onSubmit={handleFilterSubmit} class="min-w-[14rem] flex-1" role="search">
+          <TextInput
             type="search"
             placeholder="Search in this folder..."
             aria-label="Search files"
-            class="min-h-0 flex-1 bg-transparent px-3 py-0 text-sm focus-visible:outline-0"
-            value={filterQuery()}
-            onInput={(e) => setFilterQuery(e.currentTarget.value)}
+            value={filterQuery}
+            onValueChange={setFilterQuery}
+            clearable
+            onClear={() => {
+              setFilterQuery("");
+              navigateWithParam("filter", undefined);
+            }}
+            icon="ti ti-search"
           />
-          <Show when={filterQuery()} fallback={<span class="hidden text-[11px] text-dimmed sm:inline">Enter</span>}>
-            <Tooltip content="Clear search">
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterQuery("");
-                  navigateWithParam("filter", undefined);
-                }}
-                class="text-dimmed transition-colors hover:text-primary"
-                aria-label="Clear search"
-              >
-                <i class="ti ti-x text-sm" />
-              </button>
-            </Tooltip>
-          </Show>
         </form>
 
         <div class="ml-auto inline-flex min-h-[var(--ui-control-sm)] items-center gap-3 px-1 text-xs text-dimmed">
@@ -396,14 +384,14 @@ export default function FileToolbar({
                   : "Upload done"}
             </span>
             <Show when={!uploadManager.state.isUploading}>
-              <button type="button" class="text-xs text-dimmed hover:text-primary" onClick={() => uploadManager.clearAll()}>
+              <Button type="button" variant="ghost" size="xs" onClick={() => uploadManager.clearAll()}>
                 Clear
-              </button>
+              </Button>
             </Show>
             <Show when={uploadManager.state.isUploading}>
-              <button type="button" class="text-xs text-red-500 hover:text-red-600" onClick={() => uploadManager.cancel()}>
+              <Button type="button" variant="danger" size="xs" onClick={() => uploadManager.cancel()}>
                 Cancel
-              </button>
+              </Button>
             </Show>
           </div>
           <ProgressBar value={globalProgress()} size="sm" showValue />
