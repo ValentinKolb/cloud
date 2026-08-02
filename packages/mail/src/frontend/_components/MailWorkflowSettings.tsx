@@ -17,7 +17,7 @@ import {
   buildWorkflowAutocompleteCompletions,
   createWorkflowYamlHighlighter,
   type WorkflowAutocompleteRequest,
-} from "@valentinkolb/cloud/ui/workflow-authoring";
+} from "@valentinkolb/cloud/workflows/editor";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";

@@ -1,5 +1,5 @@
 import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast, Button } from "@k2b/ui";
-import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/ui/workflow-authoring";
+import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/workflows/editor";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";

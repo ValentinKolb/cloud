@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, onMount } from "solid-js";
-import { LAYOUT_UPDATE_EVENT, type LayoutBreadcrumb, type LayoutUpdate } from "../ui/layout";
+import { LAYOUT_UPDATE_EVENT, type LayoutBreadcrumb, type LayoutUpdate } from "./layout-runtime";
 
 type Props = {
   breadcrumbs: LayoutBreadcrumb[];

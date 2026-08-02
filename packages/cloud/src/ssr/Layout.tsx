@@ -1,12 +1,11 @@
-import { AppWorkspace, Avatar, appWorkspaceLayoutStyle as portableAppWorkspaceLayoutStyle } from "@k2b/ui";
+import { AppWorkspace, Avatar, appWorkspaceLayoutStyle } from "@k2b/ui";
 import type { JSX } from "solid-js/jsx-runtime";
+import { readAppWorkspaceLayoutCookie, resolveAppWorkspaceLayoutForSidebar } from "../_internal/app-workspace-state";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
 import { hasRole, type User } from "../contracts/shared";
 import type { LayoutAnnouncementsState } from "../server/middleware/settings";
 import { dates } from "../shared";
 import { readThemeFromCookieHeader } from "../shared/theme";
-import type { LayoutBreadcrumb } from "../ui/layout";
-import { appWorkspaceLayoutStyle, readAppWorkspaceLayoutCookie, resolveAppWorkspaceLayoutForSidebar } from "../ui/misc/app-workspace-state";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import AppWorkspaceController from "./AppWorkspaceController.island";
 import { appAccentStyle, appAppearanceStyle, resolveCurrentApp } from "./app-appearance";
@@ -18,6 +17,7 @@ import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
 import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
 import HotkeysHelpRail from "./HotkeysHelpRail.island";
 import LayoutBreadcrumbs from "./LayoutBreadcrumbs.island";
+import type { LayoutBreadcrumb } from "./layout-runtime";
 import NavMenu from "./NavMenu.island";
 import RegisteredHelpDocuments from "./RegisteredHelpDocuments.island";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
@@ -214,12 +214,7 @@ export default function Layout({
   const showRail = !!user;
   const mainLayoutClass = fullPage || fullWidth ? "flex flex-col" : "md:overflow-auto";
   const canvasStyle =
-    [
-      appAppearanceStyle(currentApp?.appearance),
-      appWorkspaceLayoutStyle(workspaceLayout),
-      portableAppWorkspaceLayoutStyle(workspaceLayout),
-      focusMode && flushCanvas ? "padding:0" : "",
-    ]
+    [appAppearanceStyle(currentApp?.appearance), appWorkspaceLayoutStyle(workspaceLayout), focusMode && flushCanvas ? "padding:0" : ""]
       .filter(Boolean)
       .join(";") || undefined;
   if (focusMode) {

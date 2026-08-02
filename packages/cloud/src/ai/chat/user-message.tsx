@@ -1,6 +1,6 @@
 import { clipboard, mutation } from "@k2b/stdlib/solid";
+import { Button, DialogHeader, Dropdown, type DropdownItem, dialogCore, IconButton, TextInput } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
-import { DialogHeader, Dropdown, type DropdownItem, dialogCore, TextInput } from "../../ui";
 import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage, AiUserContentPart } from "../types";
 import { useAiChatActions } from "./message-actions";
@@ -45,18 +45,18 @@ const openModifyRetryDialog = (
               multiline
               lines={8}
               value={draft}
-              onInput={setDraft}
+              onValueChange={setDraft}
               onSubmit={retry}
             />
           </div>
           <div class="flex justify-end gap-2 px-4 pb-4">
-            <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => close()}>
               Cancel
-            </button>
-            <button type="button" class="btn-ai btn-sm" disabled={!canRetry()} onClick={retry}>
+            </Button>
+            <Button type="button" variant="ai" size="sm" disabled={!canRetry()} onClick={retry}>
               <i class={`ti ${retryMutation.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
               {retryMutation.loading() ? "Trying again" : "Try again"}
-            </button>
+            </Button>
           </div>
           <Show when={retryMutation.error()}>
             <p class="px-4 pb-4 text-xs text-red-600 dark:text-red-400">Could not retry this message. Your changes are still here.</p>
@@ -120,9 +120,7 @@ export function AiUserMessageContent(props: { entry: AiStoredMessage }) {
           </For>
         </div>
       </Show>
-      <Show when={text()}>
-        {(value) => <p class="whitespace-pre-wrap">{value()}</p>}
-      </Show>
+      <Show when={text()}>{(value) => <p class="whitespace-pre-wrap">{value()}</p>}</Show>
     </div>
   );
 }
@@ -179,9 +177,9 @@ export function AiUserMessageActions(props: { entry: AiStoredMessage }) {
   return (
     <>
       <Show when={copyText()}>
-        <button type="button" aria-label="Copy user message" title="Copy" onClick={() => void copy(copyText())}>
+        <IconButton type="button" label="Copy user message" size="xs" onClick={() => void copy(copyText())}>
           <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
-        </button>
+        </IconButton>
       </Show>
       <Show when={!props.entry.compactedAt ? actions.onRetryMessage : undefined}>
         <Show
@@ -207,9 +205,9 @@ export function AiUserMessageActions(props: { entry: AiStoredMessage }) {
         </Show>
       </Show>
       <Show when={retry.error()}>
-        <button type="button" aria-label="Retry failed. Try again" title="Retry failed. Try again" onClick={() => void retry.retry()}>
+        <IconButton type="button" label="Retry failed. Try again" size="xs" onClick={() => void retry.retry()}>
           <i class="ti ti-refresh text-xs" aria-hidden="true" />
-        </button>
+        </IconButton>
       </Show>
     </>
   );
@@ -223,9 +221,9 @@ export function AiSteerMessageActions(props: { block: Extract<AiTurnBlock, { kin
   const actions = useAiChatActions();
   return (
     <Show when={props.block.status === "failed"}>
-      <button type="button" aria-label="Retry steering message" title="Retry" onClick={() => void actions.onRetrySteer?.(props.block)}>
+      <IconButton type="button" label="Retry steering message" size="xs" onClick={() => void actions.onRetrySteer?.(props.block)}>
         <i class="ti ti-refresh text-xs" aria-hidden="true" />
-      </button>
+      </IconButton>
     </Show>
   );
 }

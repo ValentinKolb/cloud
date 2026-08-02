@@ -1,7 +1,7 @@
 import type { Message, Usage } from "@k2b/nessi";
 import { clipboard, mutation } from "@k2b/stdlib/solid";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, StatCell, StatGrid } from "@k2b/ui";
 import { createContext, For, type JSX, Show, useContext } from "solid-js";
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, StatCell, StatGrid } from "../../ui";
 import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage } from "../types";
 import { type AiForkMessageInput, type AiRetryMessageInput, displayToolName, formatWorkedDuration } from "./message-utils";

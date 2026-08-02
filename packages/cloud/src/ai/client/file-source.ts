@@ -3,9 +3,7 @@
  * /files is the assistant's editable workspace; /input mirrors what the user
  * sent to the model and stays read-only in the UI. Browser-safe module.
  */
-import type { FileSource } from "../../ui/misc/FileBrowser";
-import type { FileTreeEntry } from "../../ui/misc/FileTree";
-import type { FileViewContent } from "../../ui/misc/FileView";
+import type { FileSource, FileTreeEntry, FileViewContent } from "@k2b/ui";
 import type { AiFileStat } from "../files-store";
 
 const readError = async (response: Response, fallback: string): Promise<string> => {

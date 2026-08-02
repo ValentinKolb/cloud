@@ -1,0 +1,253 @@
+import { dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, CopyButton, DateTimePicker, Placeholder, prompts, Select, Tag, TextInput } from "@k2b/ui";
+import { createEffect, createSignal, For, Show } from "solid-js";
+import type { PermissionLevel, ServiceAccountCredential } from "../contracts/shared";
+
+type GrantablePermission = Exclude<PermissionLevel, "none">;
+
+export type ResourceApiKey = ServiceAccountCredential & {
+  permission: PermissionLevel;
+};
+
+export type ResourceApiKeyPermissionOption = {
+  value: GrantablePermission;
+  label: string;
+  description: string;
+  icon?: string;
+};
+
+type CreateResourceApiKeyInput = {
+  name: string;
+  expiresAt: string | null;
+  permission: GrantablePermission;
+};
+
+export type ResourceApiKeysProps = {
+  title?: string;
+  description?: string;
+  initialKeys: ResourceApiKey[];
+  permissionOptions?: ResourceApiKeyPermissionOption[];
+  createKey: (input: CreateResourceApiKeyInput) => Promise<{ credential: ResourceApiKey; token: string }>;
+  revokeKey: (credentialId: string) => Promise<void>;
+};
+
+const DEFAULT_PERMISSIONS: ResourceApiKeyPermissionOption[] = [
+  { value: "read", label: "Read", description: "Read this resource through the app API.", icon: "ti ti-eye" },
+  { value: "write", label: "Write", description: "Read and update this resource through the app API.", icon: "ti ti-pencil" },
+  { value: "admin", label: "Admin", description: "Manage this resource through the app API.", icon: "ti ti-shield" },
+];
+
+const presetDate = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+const hasInstantOffset = (value: string) => /[T\s].*([zZ]|[+-]\d{2}:?\d{2})$/.test(value);
+const toInstant = (value: string | null): string | null => {
+  if (!value) return null;
+  if (hasInstantOffset(value)) return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+const permissionLabel = (permission: PermissionLevel, options: ResourceApiKeyPermissionOption[]) =>
+  permission === "none" ? "No access" : (options.find((option) => option.value === permission)?.label ?? permission);
+
+function TokenDialog(props: { token: string }) {
+  return (
+    <div class="flex flex-col gap-4">
+      <div class="info-block-warning text-xs">Copy this API key now. It is shown once and cannot be recovered later.</div>
+      <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <code class="block break-all font-mono text-xs text-primary">{props.token}</code>
+      </div>
+      <div class="flex justify-end">
+        <CopyButton text={props.token} label="Copy key" />
+      </div>
+    </div>
+  );
+}
+
+function CreateResourceApiKeyDialog(props: {
+  permissionOptions: ResourceApiKeyPermissionOption[];
+  close: (value: CreateResourceApiKeyInput | null) => void;
+}) {
+  const [name, setName] = createSignal("");
+  const [permission, setPermission] = createSignal<GrantablePermission>(props.permissionOptions[0]?.value ?? "read");
+  const [expiresAt, setExpiresAt] = createSignal<string | null>(presetDate(90));
+  const [error, setError] = createSignal<string | undefined>();
+  const selectOptions = () =>
+    props.permissionOptions.map((option) => ({
+      id: option.value,
+      label: option.label,
+      description: option.description,
+      icon: option.icon ?? "ti ti-key",
+    }));
+
+  const submit = () => {
+    const trimmedName = name().trim();
+    if (!trimmedName) {
+      setError("Name is required.");
+      return;
+    }
+    props.close({ name: trimmedName, permission: permission(), expiresAt: toInstant(expiresAt()) });
+  };
+
+  return (
+    <form
+      class="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <TextInput
+        label="Name"
+        description="Shown in this resource so admins can identify where the key is used."
+        placeholder="e.g. Website embed"
+        icon="ti ti-tag"
+        value={name}
+        onValueChange={(value) => {
+          setName(value);
+          setError(undefined);
+        }}
+        error={error}
+        required
+      />
+      <Select
+        label="Access"
+        description="Choose what this API key can do with this resource."
+        icon="ti ti-shield-lock"
+        value={permission}
+        onValueChange={(value) => setPermission(value as GrantablePermission)}
+        options={selectOptions()}
+        required
+      />
+      <DateTimePicker
+        label="Expires"
+        description="Leave empty only for long-lived integrations you actively maintain."
+        value={expiresAt}
+        onValueChange={setExpiresAt}
+        clearable
+        presets={[
+          { label: "30 days", value: presetDate(30) },
+          { label: "90 days", value: presetDate(90) },
+          { label: "1 year", value: presetDate(365) },
+          { label: "Never", value: null },
+        ]}
+      />
+      <div class="flex justify-end gap-2">
+        <Button type="button" variant="secondary" size="sm" onClick={() => props.close(null)}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" size="sm">
+          <i class="ti ti-plus" />
+          Create key
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export default function ResourceApiKeys(props: ResourceApiKeysProps) {
+  const options = () => (props.permissionOptions && props.permissionOptions.length > 0 ? props.permissionOptions : DEFAULT_PERMISSIONS);
+  const [keys, setKeys] = createSignal<ResourceApiKey[]>(props.initialKeys);
+
+  createEffect(() => {
+    setKeys(props.initialKeys);
+  });
+
+  const createMutation = mutations.create<{ credential: ResourceApiKey; token: string }, CreateResourceApiKeyInput>({
+    mutation: props.createKey,
+    onSuccess: async (data) => {
+      setKeys([data.credential, ...keys()]);
+      await prompts.dialog<void>(() => <TokenDialog token={data.token} />, {
+        title: "API key created",
+        icon: "ti ti-key",
+        size: "medium",
+      });
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const revokeMutation = mutations.create<void, { id: string; name: string }, { id: string }>({
+    onBefore: (vars) => ({ id: vars.id }),
+    mutation: async (vars) => props.revokeKey(vars.id),
+    onSuccess: (_, ctx) => {
+      if (ctx?.id) setKeys(keys().filter((key) => key.id !== ctx.id));
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const openCreate = async () => {
+    const result = await prompts.dialog<CreateResourceApiKeyInput | null>(
+      (close) => <CreateResourceApiKeyDialog permissionOptions={options()} close={close} />,
+      { title: "Create API key", icon: "ti ti-key", size: "medium" },
+    );
+    if (result) await createMutation.mutate(result);
+  };
+
+  const revoke = async (key: ResourceApiKey) => {
+    const confirmed = await prompts.confirm(`Revoke "${key.name}"? Integrations using this key will lose access immediately.`, {
+      title: "Revoke API key",
+      icon: "ti ti-key-off",
+      variant: "danger",
+      confirmText: "Revoke",
+    });
+    if (confirmed) await revokeMutation.mutate({ id: key.id, name: key.name });
+  };
+
+  return (
+    <section class="flex flex-col gap-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h3 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
+            <i class="ti ti-key text-sm" />
+            {props.title ?? "API keys"}
+          </h3>
+          <p class="mt-1 text-xs text-dimmed">{props.description ?? "Resource-bound keys for app integrations."}</p>
+        </div>
+        <Button type="button" variant="secondary" size="sm" class="shrink-0" onClick={openCreate} disabled={createMutation.loading()}>
+          <i class="ti ti-plus" />
+          Add
+        </Button>
+      </div>
+
+      <Show
+        when={keys().length > 0}
+        fallback={
+          <Placeholder icon="ti ti-key" class="rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800">
+            No API keys yet.
+          </Placeholder>
+        }
+      >
+        <div class="flex flex-col gap-2">
+          <For each={keys()}>
+            {(key) => (
+              <div class="group/api-key flex items-center gap-3 rounded-lg bg-zinc-50/70 p-3 dark:bg-zinc-900/35">
+                <div class="min-w-0 flex-1">
+                  <div class="flex min-w-0 items-center gap-2">
+                    <span class="truncate text-sm font-medium text-primary">{key.name}</span>
+                    <Tag color={key.permission === "none" ? "#dc2626" : "#2563eb"}>{permissionLabel(key.permission, options())}</Tag>
+                    <Tag>{key.tokenPrefix}</Tag>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-dimmed">
+                    <span>Created {dates.formatDate(key.createdAt)}</span>
+                    <span>{key.expiresAt ? `Expires ${dates.formatDate(key.expiresAt)}` : "Never expires"}</span>
+                    <span>{key.lastUsedAt ? `Used ${dates.formatDateTimeRelative(key.lastUsedAt)}` : "Never used"}</span>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  class="shrink-0 text-red-600 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/api-key:opacity-100 sm:group-focus-within/api-key:opacity-100 dark:text-red-400"
+                  onClick={() => revoke(key)}
+                >
+                  <i class="ti ti-trash" />
+                  Revoke
+                </Button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+    </section>
+  );
+}

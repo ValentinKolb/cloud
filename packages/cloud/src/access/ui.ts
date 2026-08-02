@@ -5,11 +5,12 @@
  * Portable controls belong in `@k2b/ui`; this focused boundary keeps apps
  * from depending on Cloud's broad legacy UI entrypoint.
  */
-export { default as PermissionEditor } from "../ui/misc/PermissionEditor";
-export type { AllowedLevel, GrantableLevel } from "../ui/misc/PermissionEditor";
-export { default as ResourceApiKeys } from "../ui/misc/ResourceApiKeys";
+
+export type { AllowedLevel, GrantableLevel } from "./PermissionEditor";
+export { default as PermissionEditor } from "./PermissionEditor";
 export type {
   ResourceApiKey,
   ResourceApiKeyPermissionOption,
   ResourceApiKeysProps,
-} from "../ui/misc/ResourceApiKeys";
+} from "./ResourceApiKeys";
+export { default as ResourceApiKeys } from "./ResourceApiKeys";
