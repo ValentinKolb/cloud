@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
+import { compileCapabilities } from "../../cloud/src/_internal/capabilities";
 import {
   CommentCreateInputSchema,
   EventCreateInputSchema,
@@ -132,9 +133,18 @@ const comment: SpaceComment = {
 afterEach(() => mock.restore());
 
 describe("spaces capabilities", () => {
+  test("compiles calendar integration inputs into the registered manifest", () => {
+    const compiled = compileCapabilities("spaces", spacesCapabilities);
+    expect(compiled.manifest.queries.some((query) => query.localId === "calendar-invitation.preview")).toBeTrue();
+    expect(compiled.manifest.actions.some((action) => action.localId === "calendar-invitation.import")).toBeTrue();
+  });
+
   test("declares the complete bounded v1 surface and safety metadata", () => {
     expect(Object.keys(spacesCapabilities.types).sort()).toEqual(["comment", "item", "space"]);
     expect(Object.keys(spacesCapabilities.queries).sort()).toEqual([
+      "calendar-destination.list",
+      "calendar-invitation.preview",
+      "calendar-invitation.response.prepare",
       "comment.get",
       "comment.list",
       "event.list",
@@ -145,6 +155,9 @@ describe("spaces capabilities", () => {
       "task.list",
     ]);
     expect(Object.keys(spacesCapabilities.actions).sort()).toEqual([
+      "calendar-destination.default.set",
+      "calendar-invitation.import",
+      "calendar-invitation.response.commit",
       "comment.create",
       "comment.delete",
       "comment.update",

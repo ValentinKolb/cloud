@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { PrioritySchema } from "./contracts";
+import {
+  CalendarAddressSchema,
+  CalendarInvitationImportResultSchema,
+  CalendarInvitationPreviewSchema,
+  CalendarInvitationResponseSchema,
+  CalendarInvitationResponseStateSchema,
+  CalendarParticipationStatusSchema,
+  SpacesMailDestinationContextSchema,
+} from "./integration";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 const NullableTextSchema = z.string().nullable();
@@ -258,4 +267,42 @@ export const CommentUpdateInputSchema = z
 export const CommentDeleteInputSchema = z
   .object({ commentId: z.uuid().describe("Stable UUID of the current user's recent comment.") })
   .strict();
+
+export const CalendarInvitationPreviewCapabilityInputSchema = z
+  .object({
+    mailboxId: z.uuid().describe("Source Mail mailbox UUID."),
+    messageId: z.uuid().describe("Source Mail message UUID."),
+    calendar: z.string().min(1).max(1_000_000).describe("Raw iCalendar invitation content."),
+  })
+  .strict();
+export const CalendarInvitationPreviewCapabilityDataSchema = CalendarInvitationPreviewSchema;
+export const CalendarInvitationResponsePrepareInputSchema = CalendarInvitationPreviewCapabilityInputSchema.extend({
+  attendee: CalendarAddressSchema.describe("Mailbox identity responding to the invitation."),
+  participationStatus: CalendarParticipationStatusSchema.describe("Invitation response to prepare."),
+}).strict();
+export const CalendarInvitationResponsePrepareDataSchema = CalendarInvitationResponseSchema;
+export const CalendarInvitationImportCapabilityInputSchema = CalendarInvitationPreviewCapabilityInputSchema.extend({
+  spaceId: z.uuid().describe("Writable destination Space UUID."),
+}).strict();
+export const CalendarInvitationImportCapabilityDataSchema = CalendarInvitationImportResultSchema;
+export const CalendarInvitationResponseCommitCapabilityInputSchema = z
+  .object({
+    mailboxId: z.uuid().describe("Source Mail mailbox UUID."),
+    messageId: z.uuid().describe("Source Mail message UUID."),
+    participationStatus: CalendarParticipationStatusSchema.describe("Response saved in Spaces."),
+    draftId: z.uuid().describe("Mail draft UUID created from the prepared response."),
+  })
+  .strict();
+export const CalendarInvitationResponseCommitCapabilityDataSchema = CalendarInvitationResponseStateSchema;
+export const CalendarDestinationListInputSchema = z
+  .object({ mailboxId: z.uuid().describe("Mail mailbox UUID whose calendar destination is being resolved.") })
+  .strict();
+export const CalendarDestinationListDataSchema = SpacesMailDestinationContextSchema;
+export const CalendarDestinationDefaultSetInputSchema = z
+  .object({
+    mailboxId: z.uuid().describe("Mail mailbox UUID whose default calendar destination is being changed."),
+    spaceId: z.uuid().nullable().describe("Writable Space UUID, or null to clear the default."),
+  })
+  .strict();
+export const CalendarDestinationDefaultSetDataSchema = SpacesMailDestinationContextSchema;
 export const CommentDeleteDataSchema = z.object({ commentId: z.uuid(), deleted: z.literal(true) }).strict();

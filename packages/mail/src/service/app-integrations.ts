@@ -1,36 +1,29 @@
-import { getCapability, listApps } from "@valentinkolb/cloud";
+import { getCapability } from "@valentinkolb/cloud";
 import {
   ContactResolveDataSchema,
   ContactResolveInputSchema,
 } from "@valentinkolb/cloud-app-contacts/capability-contracts";
 import { type CapabilityResult, capabilityResultSchema } from "@valentinkolb/cloud/contracts";
 import {
+  CalendarDestinationDefaultSetDataSchema,
+  CalendarDestinationDefaultSetInputSchema,
+  CalendarDestinationListDataSchema,
+  CalendarDestinationListInputSchema,
+  CalendarInvitationImportCapabilityDataSchema,
+  CalendarInvitationImportCapabilityInputSchema,
+  CalendarInvitationPreviewCapabilityDataSchema,
+  CalendarInvitationPreviewCapabilityInputSchema,
+  CalendarInvitationResponseCommitCapabilityDataSchema,
+  CalendarInvitationResponseCommitCapabilityInputSchema,
+  CalendarInvitationResponsePrepareDataSchema,
+  CalendarInvitationResponsePrepareInputSchema,
+} from "@valentinkolb/cloud-app-spaces/capability-contracts";
+import {
   type CalendarInvitationImportInput,
-  CalendarInvitationImportInputSchema,
-  type CalendarInvitationImportResult,
-  CalendarInvitationImportResultSchema,
-  type CalendarInvitationPreview,
   type CalendarInvitationPreviewInput,
-  CalendarInvitationPreviewInputSchema,
-  CalendarInvitationPreviewSchema,
-  type CalendarInvitationResponse,
   type CalendarInvitationResponseCommitInput,
-  CalendarInvitationResponseCommitInputSchema,
   type CalendarInvitationResponseInput,
-  CalendarInvitationResponseInputSchema,
-  CalendarInvitationResponseSchema,
-  type CalendarInvitationResponseState,
-  CalendarInvitationResponseStateSchema,
-  SPACES_MAIL_DEFAULT_PATH,
-  SPACES_MAIL_DESTINATIONS_PATH,
-  SPACES_MAIL_IMPORT_PATH,
-  SPACES_MAIL_PREVIEW_PATH,
-  SPACES_MAIL_RESPONSE_COMMIT_PATH,
-  SPACES_MAIL_RESPONSE_PATH,
   type SpacesMailDefaultInput,
-  SpacesMailDefaultInputSchema,
-  type SpacesMailDestinationContext,
-  SpacesMailDestinationContextSchema,
 } from "@valentinkolb/cloud-app-spaces/integration";
 import { z } from "zod";
 
@@ -47,7 +40,12 @@ export type AppIntegrationRequest = {
 type AppIntegrationResult<T> = { ok: true; data: T } | { ok: false; code: "unavailable" | "rejected"; message: string; status: number };
 type BoundedJsonResponse = { ok: true; body: unknown; status: number } | { ok: false; result: AppIntegrationResult<never> };
 
-const integrationErrorSchema = z.object({ message: z.string().min(1).max(2_000) }).passthrough();
+const integrationErrorSchema = z
+  .object({
+    message: z.string().min(1).max(2_000).optional(),
+    error: z.object({ message: z.string().min(1).max(2_000) }).passthrough().optional(),
+  })
+  .passthrough();
 
 const unavailable = (message = "The connected app is temporarily unavailable"): AppIntegrationResult<never> => ({
   ok: false,
@@ -99,37 +97,14 @@ const parseBoundedResponse = <T>(response: BoundedJsonResponse, schema: z.ZodTyp
     return {
       ok: false,
       code: "rejected",
-      message: parsed.success ? parsed.data.message : "The connected app rejected the request",
+      message: parsed.success
+        ? (parsed.data.error?.message ?? parsed.data.message ?? "The connected app rejected the request")
+        : "The connected app rejected the request",
       status: response.status,
     };
   }
   const parsed = schema.safeParse(response.body);
   return parsed.success ? { ok: true, data: parsed.data } : unavailable("The connected app returned an invalid response");
-};
-
-const fetchAppIntegration = async <T>(params: {
-  appId: string;
-  path: string;
-  request: AppIntegrationRequest;
-  responseSchema: z.ZodType<T>;
-  body?: unknown;
-  method?: "GET" | "POST" | "PUT";
-}): Promise<AppIntegrationResult<T>> => {
-  try {
-    const app = (await listApps()).find((entry) => entry.id === params.appId);
-    if (!app) return unavailable();
-    const url = new URL(`${app.baseUrl.replace(/\/$/, "")}${params.path}`);
-    const response = await fetchBoundedJson({
-      url,
-      request: params.request,
-      method: params.method ?? "POST",
-      headers: appRequestHeaders(params.request),
-      body: params.body,
-    });
-    return parseBoundedResponse(response, params.responseSchema);
-  } catch {
-    return unavailable();
-  }
 };
 
 const fetchAppCapability = async <T>(params: {
@@ -183,56 +158,61 @@ export const resolveContacts = async (input: z.input<typeof ContactResolveInputS
 };
 
 export const listCalendarDestinations = (mailboxId: string, request: AppIntegrationRequest) =>
-  fetchAppIntegration<SpacesMailDestinationContext>({
+  fetchAppCapability({
     appId: "spaces",
-    path: `${SPACES_MAIL_DESTINATIONS_PATH}?mailboxId=${encodeURIComponent(mailboxId)}`,
-    method: "GET",
+    kind: "queries",
+    capabilityId: "calendar-destination.list",
     request,
-    responseSchema: SpacesMailDestinationContextSchema,
-  });
+    dataSchema: CalendarDestinationListDataSchema,
+    input: CalendarDestinationListInputSchema.parse({ mailboxId }),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const setCalendarDefault = (input: SpacesMailDefaultInput, request: AppIntegrationRequest) =>
-  fetchAppIntegration<SpacesMailDestinationContext>({
+  fetchAppCapability({
     appId: "spaces",
-    path: SPACES_MAIL_DEFAULT_PATH,
-    method: "PUT",
+    kind: "actions",
+    capabilityId: "calendar-destination.default.set",
     request,
-    responseSchema: SpacesMailDestinationContextSchema,
-    body: SpacesMailDefaultInputSchema.parse(input),
-  });
+    dataSchema: CalendarDestinationDefaultSetDataSchema,
+    input: CalendarDestinationDefaultSetInputSchema.parse(input),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const previewCalendarInvitation = (input: CalendarInvitationPreviewInput, request: AppIntegrationRequest) =>
-  fetchAppIntegration<CalendarInvitationPreview>({
+  fetchAppCapability({
     appId: "spaces",
-    path: SPACES_MAIL_PREVIEW_PATH,
+    kind: "queries",
+    capabilityId: "calendar-invitation.preview",
     request,
-    responseSchema: CalendarInvitationPreviewSchema,
-    body: CalendarInvitationPreviewInputSchema.parse(input),
-  });
+    dataSchema: CalendarInvitationPreviewCapabilityDataSchema,
+    input: CalendarInvitationPreviewCapabilityInputSchema.parse(input),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const importCalendarInvitation = (input: CalendarInvitationImportInput, request: AppIntegrationRequest) =>
-  fetchAppIntegration<CalendarInvitationImportResult>({
+  fetchAppCapability({
     appId: "spaces",
-    path: SPACES_MAIL_IMPORT_PATH,
+    kind: "actions",
+    capabilityId: "calendar-invitation.import",
     request,
-    responseSchema: CalendarInvitationImportResultSchema,
-    body: CalendarInvitationImportInputSchema.parse(input),
-  });
+    dataSchema: CalendarInvitationImportCapabilityDataSchema,
+    input: CalendarInvitationImportCapabilityInputSchema.parse(input),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const buildCalendarInvitationResponse = (input: CalendarInvitationResponseInput, request: AppIntegrationRequest) =>
-  fetchAppIntegration<CalendarInvitationResponse>({
+  fetchAppCapability({
     appId: "spaces",
-    path: SPACES_MAIL_RESPONSE_PATH,
+    kind: "queries",
+    capabilityId: "calendar-invitation.response.prepare",
     request,
-    responseSchema: CalendarInvitationResponseSchema,
-    body: CalendarInvitationResponseInputSchema.parse(input),
-  });
+    dataSchema: CalendarInvitationResponsePrepareDataSchema,
+    input: CalendarInvitationResponsePrepareInputSchema.parse(input),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const commitCalendarInvitationResponse = (input: CalendarInvitationResponseCommitInput, request: AppIntegrationRequest) =>
-  fetchAppIntegration<CalendarInvitationResponseState>({
+  fetchAppCapability({
     appId: "spaces",
-    path: SPACES_MAIL_RESPONSE_COMMIT_PATH,
+    kind: "actions",
+    capabilityId: "calendar-invitation.response.commit",
     request,
-    responseSchema: CalendarInvitationResponseStateSchema,
-    body: CalendarInvitationResponseCommitInputSchema.parse(input),
-  });
+    dataSchema: CalendarInvitationResponseCommitCapabilityDataSchema,
+    input: CalendarInvitationResponseCommitCapabilityInputSchema.parse(input),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));

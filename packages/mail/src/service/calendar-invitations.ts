@@ -3,11 +3,6 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type {
   CalendarAddress,
   CalendarParticipationStatus,
-  MailEventInvitationDraft,
-  MailEventInvitationDraftInput,
-  MailEventSource,
-  MailEventSourceInput,
-  MailInvitationMailbox,
 } from "@valentinkolb/cloud-app-spaces/integration";
 import { sql } from "bun";
 import type { MailDraft } from "../contracts";
@@ -24,13 +19,11 @@ import {
 import type { MailRequestContext } from "./auth";
 import { enqueueDraftProjection } from "./draft-provider-projection";
 import * as drafts from "./drafts";
-import * as mailboxes from "./mailboxes";
 import { storeReadableBlob } from "./message-blobs";
 import * as messages from "./messages";
 import * as senderIdentities from "./sender-identities";
 
 const MAX_CALENDAR_BYTES = 1_000_000;
-const MAX_EVENT_SOURCE_DESCRIPTION = 20_000;
 
 type IntegrationFailure = { message: string; status: number };
 
@@ -134,59 +127,6 @@ const createCalendarDraft = async (params: {
     if (!attached.ok) return attached;
   }
   return drafts.getDraft(params.context, params.mailboxId, created.data.id);
-};
-
-export const listInvitationMailboxes = async (context: MailRequestContext): Promise<Result<MailInvitationMailbox[]>> => {
-  const listed = await mailboxes.listMailboxes(context, 200);
-  if (!listed.ok) return listed;
-  const writable = listed.data.filter((mailbox) => mailbox.permission === "write" || mailbox.permission === "admin");
-  const resolved = await Promise.all(
-    writable.map(async (mailbox) => {
-      const identity = await verifiedIdentity(context, mailbox.id);
-      return identity.ok
-        ? { id: mailbox.id, name: mailbox.name, from: { name: identity.data.displayName || null, address: identity.data.fromAddress } }
-        : null;
-    }),
-  );
-  return ok(resolved.filter((mailbox): mailbox is MailInvitationMailbox => mailbox !== null));
-};
-
-export const getEventSource = async (params: {
-  context: MailRequestContext;
-  input: MailEventSourceInput;
-}): Promise<Result<MailEventSource>> => {
-  const message = await messages.getMessage({
-    context: params.context,
-    mailboxId: params.input.mailboxId,
-    messageId: params.input.messageId,
-  });
-  if (!message.ok) return message;
-  const subject = message.data.subject.trim() || "Event from mail";
-  return ok({
-    ...params.input,
-    title: subject.slice(0, 200),
-    description: message.data.forwardText.slice(0, MAX_EVENT_SOURCE_DESCRIPTION),
-    sender: message.data.from[0] ?? null,
-    receivedAt: message.data.internalDate,
-  });
-};
-
-export const createInvitationDraft = async (params: {
-  context: MailRequestContext;
-  input: MailEventInvitationDraftInput;
-}): Promise<Result<MailEventInvitationDraft>> => {
-  const created = await createCalendarDraft({
-    context: params.context,
-    mailboxId: params.input.mailboxId,
-    idempotencyKey: params.input.idempotencyKey,
-    to: params.input.to,
-    subject: params.input.subject,
-    body: params.input.body,
-    calendar: params.input.calendar,
-    filename: "invitation.ics",
-    method: params.input.calendar.includes("METHOD:CANCEL") ? "CANCEL" : "REQUEST",
-  });
-  return created.ok ? ok({ mailboxId: params.input.mailboxId, draftId: created.data.id }) : created;
 };
 
 const loadCalendarAttachment = async (params: {

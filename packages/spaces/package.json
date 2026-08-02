@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
+    "./capability-contracts": "./src/capability-contracts.ts",
     "./integration": "./src/integration.ts"
   },
   "scripts": {
@@ -19,6 +20,7 @@
     "@k2b/sync": "5.9.1",
     "@k2b/ui": "workspace:*",
     "@valentinkolb/cloud": "workspace:*",
+    "@valentinkolb/cloud-app-mail": "workspace:*",
     "dayjs": "^1.11.19",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

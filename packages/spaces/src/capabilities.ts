@@ -13,6 +13,18 @@ import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server"
 import { type AuditActor, audit } from "@valentinkolb/cloud/services";
 import type { z } from "zod";
 import {
+  CalendarDestinationDefaultSetDataSchema,
+  CalendarDestinationDefaultSetInputSchema,
+  CalendarDestinationListDataSchema,
+  CalendarDestinationListInputSchema,
+  CalendarInvitationImportCapabilityDataSchema,
+  CalendarInvitationImportCapabilityInputSchema,
+  CalendarInvitationPreviewCapabilityDataSchema,
+  CalendarInvitationPreviewCapabilityInputSchema,
+  CalendarInvitationResponseCommitCapabilityDataSchema,
+  CalendarInvitationResponseCommitCapabilityInputSchema,
+  CalendarInvitationResponsePrepareDataSchema,
+  CalendarInvitationResponsePrepareInputSchema,
   CommentCreateInputSchema,
   CommentDataSchema,
   CommentDeleteDataSchema,
@@ -527,6 +539,87 @@ const runCommentDelete = async (input: z.infer<typeof CommentDeleteInputSchema>,
     return result.ok ? ok({ data: { commentId: input.commentId, deleted: true as const } }) : mutationError(result);
   });
 
+const runCalendarInvitationPreview = async (
+  input: z.infer<typeof CalendarInvitationPreviewCapabilityInputSchema>,
+  context: CapabilityExecutionContext,
+) => {
+  const result = await spacesService.calendarInvitations.previewCalendarInvitation(input);
+  if (!result.ok || !result.data.existing) return result.ok ? ok({ data: result.data }) : result;
+  const access = await requireSpace(result.data.existing.spaceId, context, "read");
+  return access.ok ? ok({ data: result.data }) : ok({ data: { ...result.data, existing: null, response: null } });
+};
+
+const runCalendarInvitationResponsePrepare = async (
+  input: z.infer<typeof CalendarInvitationResponsePrepareInputSchema>,
+  context: CapabilityExecutionContext,
+) => {
+  const result = await spacesService.calendarInvitations.prepareCalendarResponse({ input, subject: context.accessSubject });
+  return result.ok ? ok({ data: result.data }) : result;
+};
+
+const calendarDestinationContext = async (mailboxId: string, context: CapabilityExecutionContext) => {
+  const scope = scopedSpaceId(context, "write");
+  if (!scope.ok) return scope;
+  const page = await spacesService.space.list({
+    subject: context.accessSubject,
+    boundSpaceId: scope.data,
+    requiredLevel: "write",
+    pagination: { page: 1, perPage: 100 },
+  });
+  const selectedSpaceId = await spacesService.calendarInvitations.getMailboxCalendarDefault({
+    mailboxId,
+    subject: context.accessSubject,
+  });
+  return ok({
+    data: {
+      selectedSpaceId,
+      items: page.items.map((space) => ({ id: space.id, name: space.name, color: space.color })),
+    },
+  });
+};
+
+const runCalendarInvitationImport = async (
+  input: z.infer<typeof CalendarInvitationImportCapabilityInputSchema>,
+  context: CapabilityExecutionContext,
+) =>
+  audited(actionAudit(context, "calendar-invitation.import", "space", input.spaceId), async () => {
+    if (!context.user) return fail(err.forbidden("Importing an invitation requires a user-backed actor"));
+    const result = await spacesService.calendarInvitations.importCalendarInvitation({
+      input,
+      user: context.user,
+      subject: context.accessSubject,
+    });
+    return result.ok
+      ? ok({
+          data: result.data,
+          refs: [{ type: "spaces.item", id: result.data.itemId }],
+          links: [{ rel: "open", href: result.data.href }],
+        })
+      : result;
+  });
+
+const runCalendarInvitationResponseCommit = async (
+  input: z.infer<typeof CalendarInvitationResponseCommitCapabilityInputSchema>,
+  context: CapabilityExecutionContext,
+) =>
+  audited(actionAudit(context, "calendar-invitation.response.commit", "mail_draft", input.draftId), async () => {
+    const result = await spacesService.calendarInvitations.commitCalendarResponse({ input, subject: context.accessSubject });
+    return result.ok ? ok({ data: result.data, refs: [{ type: "mail.draft", id: input.draftId }] }) : result;
+  });
+
+const runCalendarDestinationDefaultSet = async (
+  input: z.infer<typeof CalendarDestinationDefaultSetInputSchema>,
+  context: CapabilityExecutionContext,
+) =>
+  audited(actionAudit(context, "calendar-destination.default.set", "mailbox", input.mailboxId), async () => {
+    const updated = await spacesService.calendarInvitations.setMailboxCalendarDefault({
+      mailboxId: input.mailboxId,
+      spaceId: input.spaceId,
+      subject: context.accessSubject,
+    });
+    return updated.ok ? calendarDestinationContext(input.mailboxId, context) : updated;
+  });
+
 export const spacesCapabilities = defineCapabilities({
   version: 1,
   types: {
@@ -599,6 +692,27 @@ export const spacesCapabilities = defineCapabilities({
       input: CommentGetInputSchema,
       data: CommentDataSchema,
       run: runCommentGet,
+    },
+    "calendar-invitation.preview": {
+      title: "Preview calendar invitation",
+      description: "Parse a bounded iCalendar invitation and show any linked Space event visible to the actor.",
+      input: CalendarInvitationPreviewCapabilityInputSchema,
+      data: CalendarInvitationPreviewCapabilityDataSchema,
+      run: runCalendarInvitationPreview,
+    },
+    "calendar-destination.list": {
+      title: "List calendar destinations",
+      description: "List up to 100 writable Spaces and the selected default for a mailbox.",
+      input: CalendarDestinationListInputSchema,
+      data: CalendarDestinationListDataSchema,
+      run: (input, context) => calendarDestinationContext(input.mailboxId, context),
+    },
+    "calendar-invitation.response.prepare": {
+      title: "Prepare calendar response",
+      description: "Prepare a standards-based response for an invitation already imported into a writable Space. Create the draft with mail.draft.create, then commit it.",
+      input: CalendarInvitationResponsePrepareInputSchema,
+      data: CalendarInvitationResponsePrepareDataSchema,
+      run: runCalendarInvitationResponsePrepare,
     },
   },
   actions: {
@@ -709,6 +823,40 @@ export const spacesCapabilities = defineCapabilities({
       idempotency: "none",
       target: { type: "comment", inputField: "commentId" },
       run: runCommentDelete,
+    },
+    "calendar-invitation.import": {
+      title: "Import calendar invitation",
+      description: "Idempotently create, update, or cancel the matching event in an explicitly selected writable Space.",
+      input: CalendarInvitationImportCapabilityInputSchema,
+      data: CalendarInvitationImportCapabilityDataSchema,
+      destructive: false,
+      openWorld: false,
+      approval: "once",
+      idempotency: "none",
+      target: { type: "space", inputField: "spaceId" },
+      run: runCalendarInvitationImport,
+    },
+    "calendar-invitation.response.commit": {
+      title: "Commit calendar response draft",
+      description: "Record the mail draft created from calendar-invitation.response.prepare after mail.draft.create succeeds.",
+      input: CalendarInvitationResponseCommitCapabilityInputSchema,
+      data: CalendarInvitationResponseCommitCapabilityDataSchema,
+      destructive: false,
+      openWorld: false,
+      approval: "once",
+      idempotency: "none",
+      run: runCalendarInvitationResponseCommit,
+    },
+    "calendar-destination.default.set": {
+      title: "Set default calendar destination",
+      description: "Set or clear the writable Space used by a mailbox for calendar invitation imports.",
+      input: CalendarDestinationDefaultSetInputSchema,
+      data: CalendarDestinationDefaultSetDataSchema,
+      destructive: false,
+      openWorld: false,
+      approval: "once",
+      idempotency: "none",
+      run: runCalendarDestinationDefaultSet,
     },
   },
 });

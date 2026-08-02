@@ -185,6 +185,62 @@ export const listScheduledSends = async (params: {
   }
 };
 
+export const getScheduledSend = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  scheduledSendId: string;
+}): Promise<Result<ScheduledSend>> => {
+  const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  try {
+    return await sql.begin(async (tx) => {
+      const currentPermission = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read", tx);
+      if (!currentPermission.ok) return currentPermission;
+      const [row] = await tx<ScheduledRow[]>`
+        SELECT
+          outbox.id,
+          outbox.command_id,
+          outbox.draft_id,
+          draft.conversation_id,
+          draft.intent,
+          outbox.draft_snapshot,
+          outbox.requested_at,
+          outbox.scheduled_at,
+          outbox.state,
+          outbox.attempt,
+          outbox.last_error_message,
+          command.actor_kind,
+          COALESCE(
+            NULLIF(actor_user.display_name, ''),
+            actor_user.uid,
+            actor_service.name,
+            CASE command.actor_kind
+              WHEN 'workflow' THEN 'Workflow'
+              WHEN 'system' THEN 'System'
+              WHEN 'user' THEN 'Former user'
+              ELSE 'Former service account'
+            END
+          ) AS actor_display_name,
+          outbox.created_at
+        FROM mail.outbox_submissions outbox
+        JOIN mail.commands command ON command.id = outbox.command_id
+        JOIN mail.drafts draft ON draft.id = outbox.draft_id
+        LEFT JOIN auth.users actor_user ON command.actor_kind = 'user' AND actor_user.id = command.actor_id
+        LEFT JOIN auth.service_accounts actor_service
+          ON command.actor_kind = 'service_account' AND actor_service.id = command.actor_id
+        WHERE outbox.mailbox_id = ${params.mailboxId}::uuid
+          AND outbox.id = ${params.scheduledSendId}::uuid
+          AND outbox.state IN ('scheduled', 'undo_window')
+          AND command.kind = 'send'
+          AND command.payload ->> 'scheduledAt' IS NOT NULL
+      `;
+      return row ? ok(mapRow(row)) : fail(err.notFound("Scheduled message not found"));
+    });
+  } catch {
+    return fail(err.internal("Failed to load scheduled message"));
+  }
+};
+
 export const countScheduledSends = async (params: { context: MailRequestContext; mailboxId: string }): Promise<Result<number>> => {
   const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;

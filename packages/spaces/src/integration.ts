@@ -1,15 +1,5 @@
 import { z } from "zod";
 
-export const SPACES_MAIL_PREVIEW_PATH = "/api/spaces/integrations/mail/calendar/preview";
-export const SPACES_MAIL_IMPORT_PATH = "/api/spaces/integrations/mail/calendar/import";
-export const SPACES_MAIL_RESPONSE_PATH = "/api/spaces/integrations/mail/calendar/respond";
-export const SPACES_MAIL_RESPONSE_COMMIT_PATH = "/api/spaces/integrations/mail/calendar/respond/commit";
-export const SPACES_MAIL_DESTINATIONS_PATH = "/api/spaces/integrations/mail/calendar/destinations";
-export const SPACES_MAIL_DEFAULT_PATH = "/api/spaces/integrations/mail/calendar/default";
-export const MAIL_SPACES_MAILBOXES_PATH = "/api/mail/integrations/spaces/mailboxes";
-export const MAIL_SPACES_DRAFT_PATH = "/api/mail/integrations/spaces/invitation-drafts";
-export const MAIL_SPACES_EVENT_SOURCE_PATH = "/api/mail/integrations/spaces/event-source";
-
 export const CalendarAddressSchema = z
   .object({
     name: z.string().max(500).nullable(),

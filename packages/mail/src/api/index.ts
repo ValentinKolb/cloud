@@ -6,11 +6,6 @@ import {
   CalendarInvitationImportResultSchema,
   CalendarInvitationPreviewSchema,
   CalendarParticipationStatusSchema,
-  MailEventInvitationDraftInputSchema,
-  MailEventInvitationDraftSchema,
-  MailEventSourceInputSchema,
-  MailEventSourceSchema,
-  MailInvitationMailboxesSchema,
   SpacesMailDestinationsSchema,
 } from "@valentinkolb/cloud-app-spaces/integration";
 import { type Context, Hono } from "hono";
@@ -374,49 +369,6 @@ const attachmentDownloadResponse = async (
 
 const mailOperationsApi = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
-  .post(
-    "/integrations/spaces/event-source",
-    describeRoute({
-      tags: ["Mail:Integrations"],
-      summary: "Read bounded event source context for Spaces",
-      description: "Returns authorized message metadata for the canonical Spaces event editor without placing message content in a URL.",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(MailEventSourceSchema, "Event source"),
-        403: jsonResponse(ErrorResponseSchema, "Mailbox read access required"),
-        404: jsonResponse(ErrorResponseSchema, "Message not found"),
-      },
-    }),
-    v("json", MailEventSourceInputSchema),
-    async (c) => respond(c, calendarInvitations.getEventSource({ context: requestContext(c), input: c.req.valid("json") })),
-  )
-  .get(
-    "/integrations/spaces/mailboxes",
-    describeRoute({
-      tags: ["Mail:Integrations"],
-      summary: "List mailboxes available for Spaces invitations",
-      description: "Returns writable mailboxes that have a verified sending identity.",
-      ...requiresAuth,
-      responses: { 200: jsonResponse(MailInvitationMailboxesSchema, "Invitation mailboxes") },
-    }),
-    async (c) => respond(c, calendarInvitations.listInvitationMailboxes(requestContext(c))),
-  )
-  .post(
-    "/integrations/spaces/invitation-drafts",
-    describeRoute({
-      tags: ["Mail:Integrations"],
-      summary: "Create an event invitation draft for Spaces",
-      description: "Creates one idempotent, editable Mail draft with a bounded iCalendar attachment.",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(MailEventInvitationDraftSchema, "Invitation draft"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid invitation"),
-        403: jsonResponse(ErrorResponseSchema, "Mailbox write access required"),
-      },
-    }),
-    v("json", MailEventInvitationDraftInputSchema),
-    async (c) => respond(c, calendarInvitations.createInvitationDraft({ context: requestContext(c), input: c.req.valid("json") })),
-  )
   .get("/mailboxes/:mailboxId/provider-discovery", v("param", uuidParamSchema), v("query", providerDiscoveryQuerySchema), async (c) => {
     const mailboxId = c.req.valid("param").mailboxId;
     const allowed = await mailboxAccess.requireMailboxPermission(requestContext(c), mailboxId, "admin");

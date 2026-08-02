@@ -297,6 +297,7 @@ export const listMailboxes = async (
   limit = 100,
   exactName?: string,
   search?: string,
+  minimumPermission: Exclude<PermissionLevel, "none"> = "read",
 ): Promise<Result<Array<Mailbox & { permission: PermissionLevel }>>> => {
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
   const normalizedExactName = exactName?.trim() || null;
@@ -314,8 +315,11 @@ export const listMailboxes = async (
       return ok([]);
     }
     const permission = await getMailboxPermission(context, mailboxId);
-    return permission === "none" ? ok([]) : ok([{ ...mailbox.data, permission }]);
+    const permissionRank = { none: 0, read: 1, write: 2, admin: 3 } as const;
+    return permissionRank[permission] < permissionRank[minimumPermission] ? ok([]) : ok([{ ...mailbox.data, permission }]);
   }
+
+  const minimumPermissionRank = { read: 1, write: 2, admin: 3 }[minimumPermission];
 
   const rows = await sql<(DbMailbox & { permission: PermissionLevel })[]>`
     WITH ranked AS (
@@ -331,7 +335,7 @@ export const listMailboxes = async (
       ${mailboxColumns},
       CASE ranked.permission_rank WHEN 3 THEN 'admin'::auth.permission_level WHEN 2 THEN 'write'::auth.permission_level ELSE 'read'::auth.permission_level END AS permission
     FROM mail.mailboxes m
-    JOIN ranked ON ranked.mailbox_id = m.id AND ranked.permission_rank >= 1
+    JOIN ranked ON ranked.mailbox_id = m.id AND ranked.permission_rank >= ${minimumPermissionRank}
     WHERE m.deleted_at IS NULL
       AND (${normalizedExactName}::text IS NULL OR m.name = ${normalizedExactName})
       AND (
@@ -346,7 +350,10 @@ export const listMailboxes = async (
   return ok(
     rows
       .map((row) => ({ ...mapMailbox(row), permission: capByCredentialScopes(context, row.permission) }))
-      .filter((row) => row.permission !== "none"),
+      .filter((row) => {
+        const permissionRank = { none: 0, read: 1, write: 2, admin: 3 } as const;
+        return permissionRank[row.permission] >= permissionRank[minimumPermission];
+      }),
   );
 };
 
