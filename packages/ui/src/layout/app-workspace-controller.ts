@@ -33,6 +33,8 @@ type ActiveResize = {
   pointerId: number;
   startClient: number;
   startSize: number;
+  liveSize: number;
+  moved: boolean;
   direction: 1 | -1;
   previousUserSelect: string;
 };
@@ -208,7 +210,7 @@ type PaneFit = {
  * and give up the same share of their optional space when the container,
  * navigation or detail panels reduce the available width.
  */
-const reconcilePanes = (root: HTMLElement, layoutState: AppWorkspaceLayoutState) => {
+const reconcilePanes = (root: HTMLElement, layoutState: AppWorkspaceLayoutState, active: ActiveResize | null = null) => {
   const main = mainElement(root);
   if (!main || !isVisible(main)) return;
   const handles = rootElements(root, HANDLE_SELECTOR).filter(
@@ -232,8 +234,10 @@ const reconcilePanes = (root: HTMLElement, layoutState: AppWorkspaceLayoutState)
     const min = numberData(handle, "workspaceMinSize", APP_WORKSPACE_PANE_MIN);
     const max = Math.max(min, numberData(handle, "workspaceMaxSize", APP_WORKSPACE_PANE_MAX));
     const preferred =
-      layoutState.paneWidths?.[panelId(handle)] ??
-      numberData(handle, "workspaceDefaultSize", elementSize(panel, "pane"));
+      active?.moved && active.root === root && active.kind === "pane" && active.handle === handle
+        ? active.liveSize
+        : layoutState.paneWidths?.[panelId(handle)] ??
+          numberData(handle, "workspaceDefaultSize", elementSize(panel, "pane"));
     const desired = clamp(preferred, min, max);
     return [{ desired, handle, min }];
   });
@@ -289,10 +293,15 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
   const onPointerMove = (event: PointerEvent) => {
     if (!active || event.pointerId !== active.pointerId) return;
     const client = active.kind === "drawer" ? event.clientY : event.clientX;
-    applySize(active.root, active.handle, active.kind, active.startSize + (client - active.startClient) * active.direction, {
-      snapSidebar: active.kind !== "sidebar",
-    });
-    if (active.kind === "sidebar" || active.kind === "detail") reconcilePanes(active.root, layoutState);
+    active.moved ||= client !== active.startClient;
+    active.liveSize = applySize(
+      active.root,
+      active.handle,
+      active.kind,
+      active.startSize + (client - active.startClient) * active.direction,
+      { snapSidebar: active.kind !== "sidebar" },
+    );
+    if (active.kind === "sidebar" || active.kind === "detail") reconcilePanes(active.root, layoutState, active);
   };
   const stopResize = (event?: Event) => {
     if (!active || (event instanceof PointerEvent && event.pointerId !== active.pointerId)) return;
@@ -300,14 +309,19 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     active = null;
     delete finished.root.dataset.workspaceResizeActive;
     delete finished.handle.dataset.workspaceResizeActive;
-    const size = applySize(
-      finished.root,
-      finished.handle,
-      finished.kind,
-      currentSize(finished.root, finished.handle, finished.kind),
-    );
-    persistSize(finished.handle, finished.kind, size);
-    if (finished.kind === "sidebar" || finished.kind === "detail") reconcilePanes(finished.root, layoutState);
+    if (finished.moved) {
+      // A pane's rendered width may have been fitted below the pointer's live
+      // preference to keep the main region usable. Persist that preference,
+      // then fit the visible panes from the updated state. Reapplying it through
+      // the per-handle limits here would count the already-fitted sibling panes
+      // a second time and permanently shrink the preference on release.
+      const size =
+        finished.kind === "pane"
+          ? finished.liveSize
+          : applySize(finished.root, finished.handle, finished.kind, finished.liveSize);
+      persistSize(finished.handle, finished.kind, size);
+      if (finished.kind !== "drawer") reconcilePanes(finished.root, layoutState);
+    }
     if (finished.handle.hasPointerCapture?.(finished.pointerId)) finished.handle.releasePointerCapture(finished.pointerId);
     document.body.style.userSelect = finished.previousUserSelect;
     window.removeEventListener("pointermove", onPointerMove);
@@ -323,13 +337,16 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       return;
     event.preventDefault();
     stopResize();
+    const startSize = currentSize(root, handle, kind);
     active = {
       handle,
       root,
       kind,
       pointerId: event.pointerId,
       startClient: kind === "drawer" ? event.clientY : event.clientX,
-      startSize: currentSize(root, handle, kind),
+      startSize,
+      liveSize: startSize,
+      moved: false,
       direction: resizeDirection(handle, kind),
       previousUserSelect: document.body.style.userSelect,
     };
@@ -404,6 +421,10 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       handles.filter((handle) => resizeKind(handle) !== "pane").forEach((handle) => {
         const kind = resizeKind(handle);
         if (!kind || !controlsResizableRegion(root, handle, kind)) return;
+        if (active?.moved && active.root === root && active.handle === handle && active.kind === kind) {
+          applySize(root, handle, kind, active.liveSize, { snapSidebar: kind !== "sidebar" });
+          return;
+        }
         const persisted =
           kind === "sidebar"
             ? layoutState.sidebarCollapsed && sidebarCollapsible(root)
@@ -415,7 +436,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
         if (persisted !== undefined) applySize(root, handle, kind, persisted);
         else updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
       });
-      reconcilePanes(root, layoutState);
+      reconcilePanes(root, layoutState, active?.root === root ? active : null);
     });
   };
   /**

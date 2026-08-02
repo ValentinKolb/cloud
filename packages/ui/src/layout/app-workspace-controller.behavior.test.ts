@@ -229,6 +229,161 @@ describe("AppWorkspace resize controller behaviour", () => {
     dispose();
   });
 
+  test("keeps a live pane preference through multi-pane reconciliation", async () => {
+    const { root } = workspace({ width: 1400 });
+    const main = document.createElement("main");
+    main.className = "k2b-app-workspace__main";
+    let mainWidth = 1200;
+    setDynamicRect(main, () => ({ height: 700, width: mainWidth }));
+
+    const pane = document.createElement("section");
+    pane.id = "conversation-list";
+    pane.className = "k2b-app-workspace__main-pane";
+    pane.dataset.workspaceResizable = "true";
+    const paneVariable = "--k2b-workspace-pane-conversations-width";
+    setDynamicRect(pane, () => ({
+      height: 700,
+      width: Number.parseFloat(root.style.getPropertyValue(paneVariable)) || 430,
+    }));
+    const paneHandle = document.createElement("button");
+    paneHandle.dataset.appWorkspaceResize = "pane";
+    paneHandle.dataset.workspacePanelId = "conversations";
+    paneHandle.dataset.workspaceResizeEdge = "end";
+    paneHandle.dataset.workspaceDefaultSize = "430";
+    paneHandle.dataset.workspaceMinSize = "300";
+    paneHandle.dataset.workspaceMaxSize = "620";
+    paneHandle.setAttribute("aria-controls", pane.id);
+    const secondPane = document.createElement("section");
+    secondPane.id = "activity-list";
+    secondPane.className = "k2b-app-workspace__main-pane";
+    secondPane.dataset.workspaceResizable = "true";
+    const secondVariable = "--k2b-workspace-pane-activity-width";
+    setDynamicRect(secondPane, () => ({
+      height: 700,
+      width: Number.parseFloat(root.style.getPropertyValue(secondVariable)) || 400,
+    }));
+    const secondHandle = document.createElement("button");
+    secondHandle.dataset.appWorkspaceResize = "pane";
+    secondHandle.dataset.workspacePanelId = "activity";
+    secondHandle.dataset.workspaceDefaultSize = "400";
+    secondHandle.dataset.workspaceMinSize = "300";
+    secondHandle.dataset.workspaceMaxSize = "620";
+    secondHandle.setAttribute("aria-controls", secondPane.id);
+    const primary = document.createElement("section");
+    primary.className = "k2b-app-workspace__main-primary";
+    main.append(pane, paneHandle, primary, secondHandle, secondPane);
+    root.append(main);
+
+    const detail = document.createElement("aside");
+    detail.className = "k2b-app-workspace__detail";
+    detail.hidden = true;
+    root.append(detail);
+
+    const written: unknown[] = [];
+    const dispose = installAppWorkspaceController({
+      root,
+      readState: () => ({ version: 2, paneWidths: { conversations: 430, activity: 400 } }),
+      writeState: (state) => written.push(state),
+    });
+    flushFrames();
+
+    paneHandle.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 430,
+        pointerId: 7,
+      }) as unknown as Event,
+    );
+    window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 480, pointerId: 7 }));
+    expect(root.style.getPropertyValue(paneVariable)).toBe("480px");
+
+    mainWidth = 1000;
+    detail.hidden = false;
+    await Promise.resolve();
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
+    expect(root.style.getPropertyValue(secondVariable)).toBe("329px");
+
+    resizeObservers.forEach((observer) => observer.trigger());
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
+
+    window.dispatchEvent(new window.PointerEvent("pointerup", { clientX: 480, pointerId: 7 }));
+    expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
+    expect(written).toEqual([
+      expect.objectContaining({ paneWidths: { conversations: 480, activity: 400 } }),
+    ]);
+
+    resizeObservers.forEach((observer) => observer.trigger());
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
+
+    paneHandle.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 351,
+        pointerId: 8,
+      }) as unknown as Event,
+    );
+    resizeObservers.forEach((observer) => observer.trigger());
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
+    window.dispatchEvent(new window.PointerEvent("pointerup", { clientX: 351, pointerId: 8 }));
+    expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
+    expect(written).toHaveLength(1);
+    dispose();
+  });
+
+  test("settles pointer cancellation and window blur exactly once", () => {
+    const { handle, root } = workspace({ sidebarWidth: 220 });
+    const written: unknown[] = [];
+    const dispose = installAppWorkspaceController({ root, writeState: (state) => written.push(state) });
+    flushFrames();
+
+    handle.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 220,
+        pointerId: 7,
+      }) as unknown as Event,
+    );
+    window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 240, pointerId: 7 }));
+    resizeObservers.forEach((observer) => observer.trigger());
+    flushFrames();
+    expect(root.style.getPropertyValue("--k2b-workspace-sidebar-width")).toBe("240px");
+
+    window.dispatchEvent(new window.PointerEvent("pointercancel", { pointerId: 7 }));
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatchObject({ sidebarWidth: 240, sidebarCollapsed: false });
+    expect(root.dataset.workspaceResizeActive).toBeUndefined();
+    expect(handle.dataset.workspaceResizeActive).toBeUndefined();
+
+    window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 260, pointerId: 7 }));
+    window.dispatchEvent(new window.PointerEvent("pointerup", { pointerId: 7 }));
+    expect(root.style.getPropertyValue("--k2b-workspace-sidebar-width")).toBe("240px");
+    expect(written).toHaveLength(1);
+
+    handle.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 220,
+        pointerId: 8,
+      }) as unknown as Event,
+    );
+    window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 250, pointerId: 8 }));
+    window.dispatchEvent(new window.Event("blur"));
+    expect(written).toHaveLength(2);
+    expect(written[1]).toMatchObject({ sidebarWidth: 250, sidebarCollapsed: false });
+
+    window.dispatchEvent(new window.PointerEvent("pointerup", { pointerId: 8 }));
+    expect(written).toHaveLength(2);
+    dispose();
+  });
+
   test("does not reconcile a hidden, zero-width or locked workspace", () => {
     for (const mode of ["hidden", "zero", "locked"] as const) {
       const { root } = workspace({
