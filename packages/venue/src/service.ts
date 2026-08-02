@@ -1,6 +1,6 @@
+import { dates } from "@k2b/stdlib";
 import {
   type AccessEntry,
-  type AccessSubject,
   buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
@@ -16,9 +16,9 @@ import {
   updateAccess,
 } from "@valentinkolb/cloud/server";
 import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
-import { dates } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { z } from "zod";
+import { permissionFromVenueScopes, type VenueAccessScope } from "./access-control";
 import { buildPublicAvailability } from "./availability";
 import type {
   DateOverride,
@@ -146,7 +146,7 @@ type UserLike = {
 };
 
 type VenueAccessSubject = {
-  subject: AccessSubject;
+  subject: VenueAccessScope["subject"];
   serviceAccountResourceId?: string | null;
   serviceAccountScopes?: string[];
 };
@@ -167,13 +167,6 @@ const PERMISSION_RANK: Record<PermissionLevel, number> = {
   read: 1,
   write: 2,
   admin: 3,
-};
-
-const permissionFromScopes = (scopes: string[] | undefined): PermissionLevel => {
-  if (scopes?.includes("admin")) return "admin";
-  if (scopes?.includes("write")) return "write";
-  if (scopes?.includes("read")) return "read";
-  return "none";
 };
 
 const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
@@ -402,7 +395,7 @@ const getPermission = async (venueId: string, subjectInput: UserLike | VenueAcce
     subject: subject.subject,
   });
   return subject.subject.type === "service_account"
-    ? minPermission(permission, permissionFromScopes(subject.serviceAccountScopes))
+    ? minPermission(permission, permissionFromVenueScopes(subject.serviceAccountScopes))
     : permission;
 };
 
@@ -431,8 +424,7 @@ const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<
       authenticatedOnly: sql`a.authenticated_only`,
     },
   });
-  const bindingMatch =
-    subject.subject.type === "service_account" ? sql`v.id = ${subject.serviceAccountResourceId}::uuid` : sql`true`;
+  const bindingMatch = subject.subject.type === "service_account" ? sql`v.id = ${subject.serviceAccountResourceId}::uuid` : sql`true`;
 
   const rows = await sql<DbVenue[]>`
     SELECT DISTINCT v.*
@@ -453,8 +445,95 @@ const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<
   return venues.filter((venue) => venue.permission && venue.permission !== "none");
 };
 
+type VenueDiscoveryOptions = {
+  query?: string | null;
+  limit?: number;
+  offset?: number;
+};
+
+const venueSearchPattern = (query: string | null | undefined): string | null => {
+  const value = query?.trim();
+  return value ? `%${value.replace(/([\\%_])/g, "\\$1")}%` : null;
+};
+
+const discoverVenues = async (subjectInput: UserLike | VenueAccessSubject, options: VenueDiscoveryOptions = {}): Promise<Venue[]> => {
+  const subject = toAccessSubject(subjectInput);
+  if (subject.subject.type === "service_account" && !UUID_PATTERN.test(subject.serviceAccountResourceId ?? "")) return [];
+
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: subject.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+  const bindingMatch = subject.subject.type === "service_account" ? sql`v.id = ${subject.serviceAccountResourceId}::uuid` : sql`true`;
+  const pattern = venueSearchPattern(options.query);
+  const limit = Math.min(101, Math.max(1, options.limit ?? 25));
+  const offset = Math.max(0, options.offset ?? 0);
+  const rows = await sql<DbVenue[]>`
+    SELECT DISTINCT
+      v.id, v.slug, v.name, v.icon, v.description, v.timezone, v.open_mode, v.signup_mode,
+      v.public_enabled, v.feedback_enabled, v.accent_color,
+      NULL::text AS logo_base64, NULL::text AS banner_base64, ''::text AS ical_token,
+      v.created_at, v.updated_at
+    FROM venue.venues v
+    JOIN venue.venue_access va ON va.venue_id = v.id
+    JOIN auth.access a ON a.id = va.access_id
+    WHERE a.permission <> 'none'
+      AND ${principalMatch}
+      AND ${bindingMatch}
+      AND (${pattern}::text IS NULL OR v.name ILIKE ${pattern} ESCAPE '\\' OR v.slug ILIKE ${pattern} ESCAPE '\\'
+        OR COALESCE(v.description, '') ILIKE ${pattern} ESCAPE '\\')
+    ORDER BY v.name, v.id
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+
+  const venues: Venue[] = [];
+  for (const row of rows) venues.push(mapVenue(row, await getPermission(row.id, subject)));
+  return venues.filter((venue) => venue.permission && venue.permission !== "none");
+};
+
+const discoverPublicVenues = async (options: VenueDiscoveryOptions = {}): Promise<Venue[]> => {
+  const pattern = venueSearchPattern(options.query);
+  const limit = Math.min(101, Math.max(1, options.limit ?? 25));
+  const offset = Math.max(0, options.offset ?? 0);
+  const rows = await sql<DbVenue[]>`
+    SELECT
+      v.id, v.slug, v.name, v.icon, v.description, v.timezone, v.open_mode, v.signup_mode,
+      v.public_enabled, v.feedback_enabled, v.accent_color,
+      NULL::text AS logo_base64, NULL::text AS banner_base64, ''::text AS ical_token,
+      v.created_at, v.updated_at
+    FROM venue.venues v
+    WHERE v.public_enabled = true
+      AND (${pattern}::text IS NULL OR v.name ILIKE ${pattern} ESCAPE '\\' OR v.slug ILIKE ${pattern} ESCAPE '\\'
+        OR COALESCE(v.description, '') ILIKE ${pattern} ESCAPE '\\')
+    ORDER BY v.name, v.id
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+  return rows.map((row) => mapVenue(row));
+};
+
 const getVenue = async (id: string, subject?: UserLike | VenueAccessSubject): Promise<Venue | null> => {
   const [row] = await sql<DbVenue[]>`SELECT * FROM venue.venues WHERE id = ${id}::uuid`;
+  if (!row) return null;
+  return mapVenue(row, subject ? await getPermission(row.id, subject) : undefined);
+};
+
+const getVenueSummary = async (id: string, subject?: UserLike | VenueAccessSubject): Promise<Venue | null> => {
+  const [row] = await sql<DbVenue[]>`
+    SELECT
+      v.id, v.slug, v.name, v.icon, v.description, v.timezone, v.open_mode, v.signup_mode,
+      v.public_enabled, v.feedback_enabled, v.accent_color,
+      NULL::text AS logo_base64, NULL::text AS banner_base64, ''::text AS ical_token,
+      v.created_at, v.updated_at
+    FROM venue.venues v
+    WHERE v.id = ${id}::uuid
+  `;
   if (!row) return null;
   return mapVenue(row, subject ? await getPermission(row.id, subject) : undefined);
 };
@@ -750,12 +829,14 @@ const deleteOverride = async (venueId: string, id: string): Promise<Result<void>
   return ok();
 };
 
-const listTemplates = async (venueId: string): Promise<ShiftTemplate[]> => {
+const listTemplates = async (venueId: string, options: { limit?: number } = {}): Promise<ShiftTemplate[]> => {
+  const limit = options.limit === undefined ? null : Math.min(101, Math.max(1, options.limit));
   const rows = await sql<DbShiftTemplate[]>`
     SELECT * FROM venue.shift_templates
     WHERE venue_id = ${venueId}::uuid
       AND active = true
     ORDER BY weekday, start_time
+    LIMIT ${limit}
   `;
   return rows.map(mapTemplate);
 };
@@ -798,6 +879,33 @@ const assignmentsForRange = async (venueId: string, start: Date, end: Date): Pro
     ORDER BY sa.starts_at, u.display_name
   `;
   return rows.map(mapAssignment);
+};
+
+type PersonalShiftAssignment = ShiftAssignment & {
+  venueName: string;
+  venueTimezone: string;
+};
+
+const listPersonalAssignments = async (
+  userId: string,
+  options: { venueId?: string; from: Date; to: Date; limit?: number; offset?: number },
+): Promise<PersonalShiftAssignment[]> => {
+  const limit = Math.min(101, Math.max(1, options.limit ?? 25));
+  const offset = Math.max(0, options.offset ?? 0);
+  const rows = await sql<(DbShiftAssignment & { venue_name: string; venue_timezone: string })[]>`
+    SELECT sa.*, u.display_name AS user_display_name, v.name AS venue_name, v.timezone AS venue_timezone
+    FROM venue.shift_assignments sa
+    JOIN auth.users u ON u.id = sa.user_id
+    JOIN venue.venues v ON v.id = sa.venue_id
+    WHERE sa.user_id = ${userId}::uuid
+      AND (${options.venueId ?? null}::uuid IS NULL OR sa.venue_id = ${options.venueId ?? null}::uuid)
+      AND sa.starts_at < ${options.to}
+      AND sa.ends_at > ${options.from}
+    ORDER BY sa.starts_at, sa.id
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+  return rows.map((row) => ({ ...mapAssignment(row), venueName: row.venue_name, venueTimezone: row.venue_timezone }));
 };
 
 type UpcomingSlotsOptions = {
@@ -892,6 +1000,9 @@ const signupTemplate = async (
 
     const startTime = toTime(template.start_time) ?? "00:00";
     const endTime = toTime(template.end_time) ?? "00:00";
+    if (localWeekday(input.date) !== template.weekday) {
+      return fail(err.badInput("The selected date does not match this shift's weekday"));
+    }
     const start = instantFor(input.date, startTime, venue.timezone);
     const end = endInstantFor(input.date, startTime, endTime, venue.timezone);
     if (end < new Date()) return fail(err.badInput("This shift has already ended"));
@@ -961,11 +1072,12 @@ const signupFree = async (
   const [row] = await sql<DbShiftAssignment[]>`
     INSERT INTO venue.shift_assignments (venue_id, user_id, starts_at, ends_at, note)
     VALUES (${venueId}::uuid, ${user.id}::uuid, ${start}, ${end}, ${input.note?.trim() || null})
+    ON CONFLICT (venue_id, user_id, starts_at, ends_at) DO NOTHING
     RETURNING *, NULL::text AS user_display_name
   `;
   return row
     ? ok((await assignmentsForRange(venueId, start, end)).find((entry) => entry.id === row.id) ?? mapAssignment(row))
-    : fail(err.internal("Failed to sign up"));
+    : fail(err.badInput("You are already signed up for this time range"));
 };
 
 const cancelAssignment = async (venueId: string, assignmentId: string, user: UserLike, canAdmin: boolean): Promise<Result<void>> => {
@@ -1029,18 +1141,20 @@ const createFeedback = async (venueId: string, input: z.infer<typeof FeedbackInp
 
 const feedbackSummary = async (
   venueId: string,
-  options: { includeEntries?: boolean; entryDays?: number; entrySearch?: string } = {},
+  options: { includeEntries?: boolean; entryDays?: number; entrySearch?: string; summaryDays?: number } = {},
 ): Promise<{ summary: FeedbackSummary; entries: FeedbackEntry[] }> => {
+  const summaryDays = options.summaryDays === undefined ? null : Math.max(1, Math.min(30, options.summaryDays));
   const [summary] = await sql<{ count: number; average_rating: number | null }[]>`
     SELECT COUNT(*)::int AS count, ROUND(AVG(rating)::numeric, 2)::float AS average_rating
     FROM venue.feedback_entries
     WHERE venue_id = ${venueId}::uuid
+      AND (${summaryDays}::int IS NULL OR created_at >= now() - (${summaryDays}::text || ' days')::interval)
   `;
   const buckets = await sql<{ date: string | Date; count: number; average_rating: number | null }[]>`
     SELECT created_at::date AS date, COUNT(*)::int AS count, ROUND(AVG(rating)::numeric, 2)::float AS average_rating
     FROM venue.feedback_entries
     WHERE venue_id = ${venueId}::uuid
-      AND created_at >= now() - INTERVAL '30 days'
+      AND created_at >= now() - (${summaryDays ?? 30}::text || ' days')::interval
     GROUP BY created_at::date
     ORDER BY created_at::date
   `;
@@ -1074,10 +1188,7 @@ const feedbackSummary = async (
   };
 };
 
-const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatus | null> => {
-  const venue = await getVenueBySlug(slug);
-  if (!venue || !venue.publicEnabled) return null;
-
+const statusForVenue = async (venue: Venue, now = new Date(), includeSections = true): Promise<PublicStatus> => {
   const days = 14;
   const startDate = localDateKey(now, venue.timezone);
   const endDate = dateKeyAfterDays(startDate, days, venue.timezone);
@@ -1087,7 +1198,7 @@ const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatu
     listOverridesForDateRange(venue.id, startDate, endDate),
     listTemplates(venue.id),
     assignmentsForRange(venue.id, new Date(now.getTime() - 1), rangeEnd),
-    listSections(venue.id, true),
+    includeSections ? listSections(venue.id, true) : Promise.resolve([]),
   ]);
   const availability = buildPublicAvailability({ venue, openingRules, overrides, templates, assignments, now, days });
 
@@ -1098,6 +1209,11 @@ const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatu
     openingRules,
     sections: filterPublicMenuSections(sections, startDate),
   };
+};
+
+const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatus | null> => {
+  const venue = await getVenueBySlug(slug);
+  return venue?.publicEnabled ? statusForVenue(venue, now) : null;
 };
 
 type VenueDashboardOptions = {
@@ -1199,14 +1315,26 @@ const generateUserIcs = async (userId: string, baseUrl: string): Promise<string>
 
 export const venueService = {
   access: { list: listAccess, grant: grantAccess, update: changeAccess, revoke: revokeAccess, require: requirePermission },
-  venues: { list: listVenues, get: getVenue, getBySlug: getVenueBySlug, create: createVenue, update: updateVenue, delete: deleteVenue },
+  venues: {
+    list: listVenues,
+    discover: discoverVenues,
+    discoverPublic: discoverPublicVenues,
+    get: getVenue,
+    getSummary: getVenueSummary,
+    getBySlug: getVenueBySlug,
+    create: createVenue,
+    update: updateVenue,
+    delete: deleteVenue,
+  },
   venueTemplates: { list: listVenueTemplates, instantiate: instantiateVenueTemplate },
   openingRules: { list: listOpeningRules, create: createOpeningRule, update: updateOpeningRule, delete: deleteOpeningRule },
   overrides: { list: listOverrides, upsert: upsertOverride, update: updateOverride, delete: deleteOverride },
   templates: { list: listTemplates, create: createTemplate, update: updateTemplate, delete: deleteTemplate },
-  assignments: { signupTemplate, signupTemplateWeeks, signupFree, cancel: cancelAssignment },
+  shifts: { list: upcomingSlots },
+  assignments: { mine: listPersonalAssignments, signupTemplate, signupTemplateWeeks, signupFree, cancel: cancelAssignment },
   sections: { list: listSections, create: createSection, update: updateSection, delete: deleteSection },
   feedback: { create: createFeedback, summary: feedbackSummary },
+  status: statusForVenue,
   publicStatus,
   dashboard,
   ical: { getOrCreateToken: getOrCreateIcalToken, getUserIdByToken: getUserIdByIcalToken, generateUser: generateUserIcs },

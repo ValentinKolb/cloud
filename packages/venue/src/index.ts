@@ -1,6 +1,7 @@
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
+import { venueCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
 import { venueHelp } from "./help";
@@ -13,6 +14,7 @@ const router = new Hono<AuthContext>()
   .route("/app/venue", pageRoutes);
 
 export default await app.start({
+  capabilities: venueCapabilities,
   fetch: router.fetch,
   help: venueHelp,
   openapi: apiRoutes,

@@ -8,23 +8,12 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import {
-  type AuthContext,
-  auth,
-  err,
-  fail,
-  hasPermission,
-  jsonResponse,
-  ok,
-  rateLimit,
-  respond,
-  respondMessage,
-  v,
-} from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, err, fail, jsonResponse, ok, rateLimit, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { coreSettings, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { venueAccessScopeFor } from "../access-control";
 import {
   DateOverrideInputSchema,
   FeedbackEntrySchema,
@@ -74,13 +63,6 @@ type UserBackedActor = AuthContext["Variables"]["user"];
 const VENUE_APP_ID = "venue";
 const VENUE_RESOURCE_TYPE = "venue";
 
-const permissionFromScopes = (scopes: string[]): PermissionLevel => {
-  if (scopes.includes("admin")) return "admin";
-  if (scopes.includes("write")) return "write";
-  if (scopes.includes("read")) return "read";
-  return "none";
-};
-
 const getUserBackedActor = (c: Context<AuthContext>): UserBackedActor | null => {
   const actor = c.get("actor");
   return actor.kind === "user" ? actor.user : actor.delegatedUser;
@@ -93,30 +75,9 @@ const requireUserBackedActor = (c: Context<AuthContext>) => {
 };
 
 const getVenueAccessSubject = (c: Context<AuthContext>, venueId?: string) => {
-  const actor = c.get("actor");
-  const accessSubject = c.get("accessSubject");
-  const user = getUserBackedActor(c);
-
-  if (actor.kind === "service_account" && actor.serviceAccount.kind === "resource_bound") {
-    const serviceAccount = actor.serviceAccount;
-    if (serviceAccount.appId !== VENUE_APP_ID || serviceAccount.resourceType !== VENUE_RESOURCE_TYPE || !serviceAccount.resourceId) {
-      return fail(err.forbidden("Access denied"));
-    }
-    if (venueId && serviceAccount.resourceId !== venueId) {
-      return fail(err.forbidden("Access denied"));
-    }
-    if (!hasPermission(permissionFromScopes(actor.scopes), "read")) {
-      return fail(err.forbidden("Access denied"));
-    }
-  }
-
-  return ok({
-    user,
-    subject: accessSubject,
-    serviceAccountResourceId:
-      actor.kind === "service_account" && actor.serviceAccount.kind === "resource_bound" ? actor.serviceAccount.resourceId : null,
-    serviceAccountScopes: actor.kind === "service_account" && actor.serviceAccount.kind === "resource_bound" ? actor.scopes : [],
-  });
+  const scope = venueAccessScopeFor(c.get("actor"), c.get("accessSubject"));
+  if (!scope.ok || !venueId || !scope.data.serviceAccountResourceId || scope.data.serviceAccountResourceId === venueId) return scope;
+  return fail(err.forbidden("Access denied"));
 };
 
 const requireVenue = async (c: Context<AuthContext>, id: string, permission: PermissionLevel) => {
