@@ -52,7 +52,10 @@ in `AppWorkspace.LayoutStateProvider`. The provider projects the initial width
 and collapse state onto each workspace root, so server HTML and the first
 client render agree before the controller attaches. Cloud passes its
 cookie-derived state from `Layout`; individual apps must not read the cookie or
-reimplement this bridge.
+reimplement this bridge. A built-in app therefore normally renders plain
+`<AppWorkspace>` and uses region props such as `MainPane.defaultSize` for its
+own defaults. Do not pass a hard-coded root `layoutState`: it overrides the
+cookie-backed server render and produces a width or collapse snap on hydration.
 
 ## 3. Convert to canonical public APIs
 
@@ -109,16 +112,58 @@ For each remaining match, record why it is Cloud-owned or app-owned. An
 unclassified legacy utility match means the hard cut is incomplete; a green
 typecheck or build does not override this gate.
 
+Imports and legacy class names still do not cover the full public boundary.
+Inventory native interactive elements, direct `k2b-*` implementation classes,
+and string props that look like utility classes:
+
+```sh
+rg -n --glob '*.tsx' --glob '*.ts' \
+  "<(button|input|select|textarea|dialog)\\b|createElement\\([\"'](button|input|select|textarea|dialog)[\"']\\)" \
+  packages/<app>/src
+rg -n --glob '*.tsx' --glob '*.ts' '\bk2b-(button|icon-button|input|select|dropdown)\b' packages/<app>/src
+rg -n --glob '*.tsx' 'width="w-[0-9]' packages/<app>/src
+rg -n --glob '*.tsx' 'layoutState=|--k2b-workspace-(sidebar|detail|drawer)' packages/<app>/src
+```
+
+Ordinary actions and fields use public `@k2b/ui` components. Native elements
+remain valid for domain composites, editor widgets, graphical canvases, and
+imperative renderers where a Solid component cannot own the DOM; classify each
+exception instead of wrapping it mechanically. Application code must not style
+itself through internal `k2b-*` implementation classes. If a real public shape
+is missing, add the smallest reusable primitive to `@k2b/ui` with a focused
+test rather than copying its internal class contract.
+
+Treat prop values according to their public type and documentation. In
+particular, CSS-length props such as `Dropdown.width` receive values like
+`"12rem"`, not utility names such as `"w-48"`. A string-typed prop can pass
+typecheck while remaining inert at runtime, so this is an explicit source gate.
+
+### SSR and hydration parity
+
+Treat the server render as part of the UI contract. For every migrated
+`AppWorkspace`, hard-reload at a non-default persisted sidebar width and in the
+collapsed state. The first rendered geometry and visible labels must match the
+hydrated result without a width snap or a brief expanded-label flash.
+
+Nested navigation rendered from runtime data must also survive hydration. Use
+stable item ids and a controlled `expandedIds` / `onExpandedIdsChange` pair
+when the application owns expansion state. Verify that dynamic children (for
+example children rendered through Solid `<For>`) remain present and keyboard
+operable after a hard reload. Do not replace this proof with a client-only
+navigation smoke.
+
 ## 5. Verify the cut
 
 Run the smallest complete evidence set for the app:
 
 1. package typecheck and focused tests;
 2. package or app build, including SSR and browser conditions;
-3. route smoke with and without client hydration where applicable;
+3. route smoke with and without client hydration, including persisted workspace
+   width/collapse state and dynamic navigation where applicable;
 4. light and dark theme, narrow and wide layout;
 5. keyboard operation, focus restoration, labels, errors, and disabled states;
-6. final legacy-import and diff checks.
+6. final legacy-import, native-control, direct implementation-class, prop-value,
+   and diff checks.
 
 The final legacy check covers both imports and unclassified Cloud utility
 classes from section 4.
@@ -194,7 +239,9 @@ preserve behavior without shims.
 ### Child 3: verify and commit
 
 ```text
-Require zero legacy UI imports, then run typecheck, focused tests, build, route,
-theme, responsive, and accessibility checks appropriate for <app>. Inspect and
-commit only the owned paths and lockfile hunk with a Conventional Commit.
+Require zero legacy UI imports and classify every remaining native control,
+direct implementation class, and utility-shaped component prop. Then run
+typecheck, focused tests, build, route, theme, responsive, and accessibility
+checks appropriate for <app>. Inspect and commit only the owned paths and
+lockfile hunk with a Conventional Commit.
 ```
