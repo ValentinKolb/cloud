@@ -1,5 +1,5 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 const HostSettings = () => {
@@ -48,10 +48,10 @@ const HostSettings = () => {
   };
 
   return (
-    <button type="button" class="btn-input btn-sm" onClick={handleSettings} disabled={saveMutation.loading()}>
-      <i class={saveMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"} />
+    <Button size="sm" variant="secondary" onClick={handleSettings} loading={saveMutation.loading()} loadingLabel="Saving settings">
+      <i class="ti ti-settings" aria-hidden="true" />
       Settings
-    </button>
+    </Button>
   );
 };
 

@@ -1,5 +1,5 @@
+import { DataTable, type DataTableColumn, Placeholder } from "@k2b/ui";
 import type { IpaHost } from "@/contracts";
-import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import CopyButton from "./CopyButton.island";
 import EditHost from "./EditHost.island";
 
@@ -40,7 +40,7 @@ const HostsTable = (props: Props) => {
           return (
             <div class="flex items-center gap-1.5">
               <span class="max-w-[260px] truncate font-medium text-primary">{host.fqdn}</span>
-              <CopyButton text={host.fqdn} class="icon-btn h-5 w-5 text-xs text-dimmed" />
+              <CopyButton text={host.fqdn} size="xs" class="shrink-0" />
             </div>
           );
         }
@@ -54,7 +54,7 @@ const HostsTable = (props: Props) => {
               {host.macAddress.map((mac) => (
                 <div class="flex items-center gap-1.5">
                   <span class="text-xs font-mono text-dimmed">{mac}</span>
-                  <CopyButton text={mac} class="icon-btn h-5 w-5 text-xs text-dimmed" />
+                  <CopyButton text={mac} size="xs" class="shrink-0" />
                 </div>
               ))}
             </div>

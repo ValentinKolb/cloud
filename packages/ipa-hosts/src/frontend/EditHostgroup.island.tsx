@@ -1,6 +1,6 @@
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { IconButton, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 type Props = {
@@ -48,15 +48,15 @@ const EditHostgroup = (props: Props) => {
 
   return (
     <Tooltip content={`Edit hostgroup ${props.cn}`}>
-      <button
-        type="button"
-        class="icon-btn h-6 w-6"
+      <IconButton
+        size="xs"
+        label={`Edit hostgroup ${props.cn}`}
         onClick={handleClick}
-        disabled={mutation.loading()}
-        aria-label={`Edit hostgroup ${props.cn}`}
+        loading={mutation.loading()}
+        loadingLabel={`Editing hostgroup ${props.cn}`}
       >
-        <i class="ti ti-pencil text-sm text-dimmed" />
-      </button>
+        <i class="ti ti-pencil" aria-hidden="true" />
+      </IconButton>
     </Tooltip>
   );
 };

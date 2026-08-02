@@ -1,7 +1,7 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
 import { navigateTo } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts } from "@k2b/ui";
+import { apiClient } from "@/api/client";
 
 const SyncHosts = () => {
   const mutation = mutations.create<void, void>({
@@ -45,10 +45,10 @@ const SyncHosts = () => {
   };
 
   return (
-    <button type="button" class="btn-input btn-sm" onClick={handleClick} disabled={mutation.loading()}>
-      <i class={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
+    <Button size="sm" variant="secondary" onClick={handleClick} loading={mutation.loading()} loadingLabel="Starting sync">
+      <i class="ti ti-refresh" aria-hidden="true" />
       Sync now
-    </button>
+    </Button>
   );
 };
 

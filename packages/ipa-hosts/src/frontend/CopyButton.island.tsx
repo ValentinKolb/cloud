@@ -1,16 +1,18 @@
-import { CopyButton as BaseCopyButton } from "@valentinkolb/cloud/ui";
+import { CopyButton as BaseCopyButton, type CopyButtonProps } from "@k2b/ui";
 
 type Props = {
   text: string;
-  label?: string;
-  class?: string;
+  class?: CopyButtonProps["class"];
+  label?: CopyButtonProps["label"];
+  size?: CopyButtonProps["size"];
+  variant?: CopyButtonProps["variant"];
 };
 
 /**
  * Island wrapper so CopyButton stays interactive when rendered from SSR-only host rows.
  */
 const CopyButton = (props: Props) => {
-  return <BaseCopyButton text={props.text} label={props.label} class={props.class} />;
+  return <BaseCopyButton text={props.text} label={props.label} class={props.class} size={props.size} variant={props.variant} />;
 };
 
 export default CopyButton;

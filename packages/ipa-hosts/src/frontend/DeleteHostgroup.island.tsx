@@ -1,6 +1,6 @@
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { IconButton, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 type DeleteHostgroupProps = {
@@ -40,15 +40,16 @@ const DeleteHostgroup = (props: DeleteHostgroupProps) => {
 
   return (
     <Tooltip content={`Delete hostgroup ${props.cn}`}>
-      <button
-        type="button"
-        class="icon-btn h-6 w-6"
+      <IconButton
+        size="xs"
+        variant="danger"
+        label={`Delete hostgroup ${props.cn}`}
         onClick={handleClick}
-        disabled={mutation.loading()}
-        aria-label={`Delete hostgroup ${props.cn}`}
+        loading={mutation.loading()}
+        loadingLabel={`Deleting hostgroup ${props.cn}`}
       >
-        <i class="ti ti-trash text-sm text-red-500" />
-      </button>
+        <i class="ti ti-trash" aria-hidden="true" />
+      </IconButton>
     </Tooltip>
   );
 };

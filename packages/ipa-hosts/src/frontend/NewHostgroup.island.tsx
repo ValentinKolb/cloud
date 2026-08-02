@@ -1,6 +1,6 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 const NewHostgroup = () => {
@@ -47,10 +47,10 @@ const NewHostgroup = () => {
   };
 
   return (
-    <button type="button" class="btn-input btn-sm" onClick={handleClick} disabled={mutation.loading()}>
-      <i class={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
+    <Button size="sm" variant="secondary" onClick={handleClick} loading={mutation.loading()} loadingLabel="Creating hostgroup">
+      <i class="ti ti-plus" aria-hidden="true" />
       New Hostgroup
-    </button>
+    </Button>
   );
 };
 

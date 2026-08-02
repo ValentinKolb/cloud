@@ -1,6 +1,6 @@
-import { Dropdown, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
+import { Button, Dropdown, IconButton, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { createSignal, For, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { normalizeMacAddress } from "@/contracts";
@@ -44,14 +44,14 @@ const MacAddressRow = (props: {
           icon="ti ti-address-book"
           activeIcon="ti ti-address-book"
           value={props.value}
-          onInput={props.onInput}
+          onValueChange={props.onInput}
           error={props.error}
         />
       </div>
       <Tooltip content={`Remove MAC address ${props.index + 1}`} class="shrink-0">
-        <button type="button" class="icon-btn h-10 w-10" onClick={props.onRemove} aria-label={`Remove MAC address ${props.index + 1}`}>
-          <i class="ti ti-trash text-sm text-red-500" />
-        </button>
+        <IconButton size="md" variant="danger" label={`Remove MAC address ${props.index + 1}`} onClick={props.onRemove}>
+          <i class="ti ti-trash" aria-hidden="true" />
+        </IconButton>
       </Tooltip>
     </div>
   );
@@ -177,13 +177,13 @@ const HostActions = (props: HostActionsProps) => {
     <Dropdown
       trigger={
         <Tooltip content="Manage host">
-          <button type="button" class="icon-btn h-7 w-7" aria-label="Host actions">
-            <i class="ti ti-dots-vertical text-sm" />
-          </button>
+          <IconButton size="sm" label="Host actions">
+            <i class="ti ti-dots-vertical" aria-hidden="true" />
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"
-      width="w-44"
+      width="11rem"
       elements={[
         {
           items: [
@@ -261,10 +261,10 @@ const EditHostDialog = (props: {
   return (
     <div class="flex flex-col gap-4">
       <div class="grid gap-3 md:grid-cols-2">
-        <TextInput label="Description" placeholder="Optional description..." value={description} onInput={setDescription} />
-        <TextInput label="Locality" placeholder="e.g. Stuttgart" value={locality} onInput={setLocality} />
+        <TextInput label="Description" placeholder="Optional description..." value={description} onValueChange={setDescription} />
+        <TextInput label="Locality" placeholder="e.g. Stuttgart" value={locality} onValueChange={setLocality} />
       </div>
-      <TextInput label="Location" placeholder="e.g. Room 101" value={location} onInput={setLocation} />
+      <TextInput label="Location" placeholder="e.g. Room 101" value={location} onValueChange={setLocation} />
 
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between gap-3">
@@ -272,10 +272,10 @@ const EditHostDialog = (props: {
             <h3 class="text-sm font-medium text-primary">MAC addresses</h3>
             <p class="text-xs text-dimmed">Add or remove MAC addresses in format AA:BB:CC:DD:EE:FF.</p>
           </div>
-          <button type="button" class="btn-simple btn-sm" onClick={addMac}>
-            <i class="ti ti-plus" />
+          <Button size="sm" variant="secondary" onClick={addMac}>
+            <i class="ti ti-plus" aria-hidden="true" />
             Add MAC
-          </button>
+          </Button>
         </div>
 
         <div class="flex flex-col gap-2">
@@ -303,13 +303,13 @@ const EditHostDialog = (props: {
       </div>
 
       <div class="flex items-center justify-end gap-2">
-        <button type="button" class="btn-simple btn-sm" onClick={props.onCancel} disabled={props.saving}>
+        <Button size="sm" variant="secondary" onClick={props.onCancel} disabled={props.saving}>
           Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={props.saving}>
-          <i class={props.saving ? "ti ti-loader-2 animate-spin" : "ti ti-check"} />
+        </Button>
+        <Button size="sm" onClick={handleSave} loading={props.saving} loadingLabel="Saving host">
+          <i class="ti ti-check" aria-hidden="true" />
           Save
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -350,11 +350,11 @@ const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect:
       <TextInput
         type="search"
         placeholder="Search hostgroups..."
-        ariaLabel="Search hostgroups"
+        aria-label="Search hostgroups"
         icon="ti ti-search"
         activeIcon="ti ti-search"
         value={search}
-        onInput={handleInput}
+        onValueChange={handleInput}
         clearable
         clearLabel="Clear hostgroup search"
         onClear={() => handleInput("")}
@@ -388,18 +388,20 @@ const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect:
                     {hg.description && <div class="text-xs text-dimmed truncate">{hg.description}</div>}
                   </div>
                   <Tooltip content={`Add host to ${hg.cn}`}>
-                    <button
-                      type="button"
+                    <IconButton
+                      size="sm"
+                      variant="success"
+                      label={`Add host to ${hg.cn}`}
                       onClick={() => {
                         setAddingCn(hg.cn);
                         props.onSelect(hg.cn);
                       }}
-                      disabled={addingCn() !== null || props.adding}
-                      class="p-2 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors disabled:opacity-50"
-                      aria-label={`Add host to ${hg.cn}`}
+                      disabled={addingCn() !== null && addingCn() !== hg.cn}
+                      loading={addingCn() === hg.cn || props.adding}
+                      loadingLabel={`Adding host to ${hg.cn}`}
                     >
-                      <i class={addingCn() === hg.cn ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
-                    </button>
+                      <i class="ti ti-plus" aria-hidden="true" />
+                    </IconButton>
                   </Tooltip>
                 </div>
               )}
