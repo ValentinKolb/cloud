@@ -5,6 +5,8 @@ import {
   CAPABILITY_PROTOCOL_VERSION,
   type CapabilityActionDefinition,
   type CapabilityActionManifest,
+  type CapabilityActionReviewResult,
+  CapabilityActionReviewSchema,
   type CapabilityDefinitions,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
@@ -218,6 +220,7 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       approval: definition.approval,
       idempotency: definition.idempotency,
       ...(target ? { target } : {}),
+      ...(definition.review ? { review: true as const } : {}),
     } satisfies CapabilityActionManifest;
     actions.set(localId, {
       definition,
@@ -365,6 +368,80 @@ export const invokeCompiledCapability = async (params: {
       error: {
         code: "INTERNAL",
         message: "Capability execution failed",
+        status: 500,
+      },
+    };
+  }
+};
+
+export const reviewCompiledCapability = async (params: {
+  compiled: CompiledCapabilities;
+  localId: string;
+  input: unknown;
+  expectedSchemaHash: string | null;
+  context: CapabilityExecutionContext;
+  onUnexpectedError?: (error: unknown) => void;
+}): Promise<CapabilityActionReviewResult> => {
+  const operation = params.compiled.actions.get(params.localId);
+  if (!operation || !operation.definition.review) {
+    return {
+      ok: false,
+      error: {
+        code: "NOT_FOUND",
+        message: "Capability action review not found",
+        status: 404,
+      },
+    };
+  }
+  if (params.expectedSchemaHash !== operation.manifest.schemaHash) {
+    return {
+      ok: false,
+      error: {
+        code: "SCHEMA_MISMATCH",
+        message: "Capability schema changed; refresh the live catalog and retry",
+        status: 409,
+        details: { expected: operation.manifest.schemaHash },
+      },
+    };
+  }
+  const input = operation.definition.input.safeParse(params.input);
+  if (!input.success) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION_FAILED",
+        message: "Capability input is invalid",
+        status: 400,
+        details: { issues: input.error.issues },
+      },
+    };
+  }
+  try {
+    const reviewed = await operation.definition.review(input.data, params.context);
+    if (!reviewed.ok) return reviewed;
+    const parsed = CapabilityActionReviewSchema.safeParse(reviewed.data);
+    return parsed.success
+      ? { ok: true, data: parsed.data }
+      : {
+          ok: false,
+          error: {
+            code: "INTERNAL",
+            message: "Capability review returned an invalid result",
+            status: 500,
+          },
+        };
+  } catch (error) {
+    if (isServiceError(error)) return { ok: false, error };
+    try {
+      params.onUnexpectedError?.(error);
+    } catch {
+      // Observability must not change the public failure contract.
+    }
+    return {
+      ok: false,
+      error: {
+        code: "INTERNAL",
+        message: "Capability review failed",
         status: 500,
       },
     };

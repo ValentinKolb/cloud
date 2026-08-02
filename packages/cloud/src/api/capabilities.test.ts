@@ -20,6 +20,20 @@ const compiled = compileCapabilities(
         run: async ({ id }) => ok({ data: { id } }),
       },
     },
+    actions: {
+      rename: {
+        title: "Rename item",
+        description: "Rename one demo item.",
+        input: z.object({ id: z.string().describe("Stable item id."), name: z.string().describe("New item name.") }).strict(),
+        data: z.object({ id: z.string(), name: z.string() }).strict(),
+        destructive: true,
+        openWorld: false,
+        approval: "once",
+        idempotency: "none",
+        review: async ({ id, name }) => ok({ message: `Rename ${id} to ${name}.` }),
+        run: async ({ id, name }) => ok({ data: { id, name } }),
+      },
+    },
   }),
 );
 
@@ -118,6 +132,47 @@ describe("capability API", () => {
     });
     expect(response.status).toBe(429);
     expect(await response.json()).toEqual({ code: "RATE_LIMITED", message: "Retry later" });
+  });
+
+  test("dispatches only advertised Action reviews through the read-only review route", async () => {
+    let requestedUrl = "";
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async (input) => {
+        requestedUrl = String(input);
+        return Response.json({ message: "Rename one to Two." });
+      },
+    });
+    const response = await routes.request("/capabilities/v1/actions/demo/rename/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(requestedUrl).toBe("http://demo:3000/api/_internal/capabilities/v1/actions/rename/review");
+    expect(await response.json()).toEqual({ message: "Rename one to Two." });
+  });
+
+  test("rejects an Action review that is not advertised", async () => {
+    let requested = false;
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => {
+        requested = true;
+        return Response.json({ message: "Unexpected review." });
+      },
+    });
+    const response = await routes.request("/capabilities/v1/actions/demo/missing/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: {} }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(requested).toBe(false);
   });
 });
 

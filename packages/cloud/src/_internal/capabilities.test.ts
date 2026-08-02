@@ -7,7 +7,7 @@ import {
   UniversalSearchDataSchema,
   UniversalSearchInputSchema,
 } from "../contracts/capabilities";
-import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
+import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability } from "./capabilities";
 
 const context = {
   actor: {
@@ -54,6 +54,12 @@ const example = () =>
         approval: "once",
         idempotency: "required",
         target: { type: "item", inputField: "id" },
+        review: async (input) =>
+          ok({
+            message: "This item will be renamed.",
+            details: [{ label: "New name", value: input.name }],
+            links: [{ rel: "open", href: `/app/example/${input.id}` }],
+          }),
         run: async (input) => ok({ data: input, refs: [{ type: "example.item", id: input.id }] }),
       },
     },
@@ -67,6 +73,7 @@ describe("capability v1 compilation", () => {
     expect(first.manifest.types[0]?.id).toBe("example.item");
     expect(first.manifest.queries[0]?.id).toBe("example.get");
     expect(first.manifest.actions[0]?.target?.type).toBe("example.item");
+    expect(first.manifest.actions[0]?.review).toBe(true);
     expect(first.manifest.manifestHash).toHaveLength(64);
   });
 
@@ -367,6 +374,65 @@ describe("capability v1 compilation", () => {
     expect(deniedResult).toMatchObject({
       ok: false,
       error: { code: "FORBIDDEN", status: 403 },
+    });
+  });
+
+  test("resolves and validates an Action review without requiring idempotency", async () => {
+    const compiled = compileCapabilities("example", example());
+    const action = compiled.manifest.actions[0]!;
+    const reviewed = await reviewCompiledCapability({
+      compiled,
+      localId: "rename",
+      input: { id: "one", name: "Two" },
+      expectedSchemaHash: action.schemaHash,
+      context,
+    });
+
+    expect(reviewed).toEqual({
+      ok: true,
+      data: {
+        message: "This item will be renamed.",
+        details: [{ label: "New name", value: "Two" }],
+        links: [{ rel: "open", href: "/app/example/one" }],
+      },
+    });
+
+    expect(
+      await reviewCompiledCapability({
+        compiled,
+        localId: "rename",
+        input: { id: "one" },
+        expectedSchemaHash: action.schemaHash,
+        context,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "VALIDATION_FAILED", status: 400 } });
+  });
+
+  test("fails closed when an advertised review returns an invalid shape", async () => {
+    const definitions = example();
+    const compiled = compileCapabilities("example", {
+      ...definitions,
+      actions: {
+        ...definitions.actions,
+        rename: {
+          ...definitions.actions!.rename!,
+          review: async () => ok({ message: "", details: [] }),
+        },
+      },
+    });
+    const action = compiled.manifest.actions[0]!;
+
+    expect(
+      await reviewCompiledCapability({
+        compiled,
+        localId: "rename",
+        input: { id: "one", name: "Two" },
+        expectedSchemaHash: action.schemaHash,
+        context,
+      }),
+    ).toEqual({
+      ok: false,
+      error: { code: "INTERNAL", message: "Capability review returned an invalid result", status: 500 },
     });
   });
 

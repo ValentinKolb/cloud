@@ -28,7 +28,7 @@ import { registerSettings, toLegacySettingDefs } from "../services/settings/defa
 import { themeBootstrapScript } from "../shared/theme";
 import { readBoundedJson } from "./bounded-json";
 import { appRuntimeMetadata } from "./build-metadata";
-import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
+import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability } from "./capabilities";
 import { createHeartbeat } from "./heartbeat";
 import { compileHelp } from "./help";
 import { capabilityRegistry, helpRegistry } from "./registry";
@@ -476,7 +476,7 @@ export const defineApp = <
     }
 
     if (compiledCapabilities) {
-      const invoke = async (c: Context<AuthContext>, kind: "query" | "action") => {
+      const invoke = async (c: Context<AuthContext>, kind: "query" | "action" | "review") => {
         const parsedBody = await readBoundedJson(c.req.raw, 256 * 1024);
         if (!parsedBody.ok) {
           const message = parsedBody.reason === "too_large" ? "Capability request is too large" : "Capability request body must be JSON";
@@ -510,9 +510,8 @@ export const defineApp = <
             400,
           );
         }
-        const result = await invokeCompiledCapability({
+        const invocation = {
           compiled: compiledCapabilities,
-          kind,
           localId: c.req.param("capabilityId") ?? "",
           input: body.input,
           expectedSchemaHash: c.req.header("x-cloud-capability-schema-hash") ?? null,
@@ -523,14 +522,16 @@ export const defineApp = <
             idempotencyKey,
             signal: c.req.raw.signal,
           },
-          onUnexpectedError: (error) =>
-            log.error("Capability execution failed", {
+          onUnexpectedError: (error: unknown) =>
+            log.error(kind === "review" ? "Capability review failed" : "Capability execution failed", {
               appId: meta.id,
               kind,
               capabilityId: c.req.param("capabilityId") ?? "",
               error: error instanceof Error ? error.message : String(error),
             }),
-        });
+        };
+        const result =
+          kind === "review" ? await reviewCompiledCapability(invocation) : await invokeCompiledCapability({ ...invocation, kind });
         return result.ok
           ? c.json(result.data)
           : c.json(
@@ -544,6 +545,9 @@ export const defineApp = <
       };
       server.post("/api/_internal/capabilities/v1/queries/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "query"));
       server.post("/api/_internal/capabilities/v1/actions/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "action"));
+      server.post("/api/_internal/capabilities/v1/actions/:capabilityId/review", auth.requireRole("authenticated"), (c) =>
+        invoke(c, "review"),
+      );
     }
 
     // OpenAPI spec mount. Registered on the framework server (before the

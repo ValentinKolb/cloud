@@ -92,6 +92,7 @@ const capabilityJsonResponse = (body: unknown, status: number): Response =>
 export const dispatchCapability = async (params: {
   request: Request;
   kind: "queries" | "actions";
+  review?: boolean;
   appId: string;
   capabilityId: string;
   input: unknown;
@@ -112,20 +113,27 @@ export const dispatchCapability = async (params: {
     const error = errorResponse("CAPABILITY_NOT_FOUND", `${label} ${params.appId}.${params.capabilityId} not found`, 404);
     return capabilityJsonResponse(error.body, error.status);
   }
+  if (params.review && (params.kind !== "actions" || !("review" in operation) || operation.review !== true)) {
+    const error = errorResponse("CAPABILITY_NOT_FOUND", `Review ${params.appId}.${params.capabilityId} not found`, 404);
+    return capabilityJsonResponse(error.body, error.status);
+  }
 
   const headers = capabilityCredentialHeaders(params.request);
   headers.set("x-cloud-capability-schema-hash", operation.schemaHash);
-  const timeout = AbortSignal.timeout(params.kind === "queries" ? QUERY_TIMEOUT_MS : ACTION_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(params.kind === "queries" || params.review ? QUERY_TIMEOUT_MS : ACTION_TIMEOUT_MS);
   const signal = AbortSignal.any([params.request.signal, timeout]);
 
   let response: Response;
   try {
-    response = await fetchUpstream(`${entry.endpoint}/${params.kind}/${encodeURIComponent(params.capabilityId)}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ input: params.input }),
-      signal,
-    });
+    response = await fetchUpstream(
+      `${entry.endpoint}/${params.kind}/${encodeURIComponent(params.capabilityId)}${params.review ? "/review" : ""}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ input: params.input }),
+        signal,
+      },
+    );
   } catch (error) {
     log.warn("Capability app unavailable", {
       appId: params.appId,
@@ -212,6 +220,47 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
             hasMore,
             ...(hasMore && lastScannedAppId ? { nextCursor: lastScannedAppId } : {}),
           },
+        });
+      },
+    )
+    .post(
+      "/capabilities/v1/actions/:appId/:capabilityId/review",
+      describeRoute({
+        tags: ["Capabilities"],
+        summary: "Review one live app Action",
+        description: "Resolves the optional read-only human review for an Action with the caller credential.",
+        ...requiresAuth,
+        responses: {
+          200: jsonResponse(z.unknown(), "Capability Action review"),
+          400: jsonResponse(CapabilityErrorSchema, "Invalid request"),
+          401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
+          404: jsonResponse(CapabilityErrorSchema, "Capability review or app unavailable"),
+          409: jsonResponse(CapabilityErrorSchema, "Schema changed"),
+          500: jsonResponse(CapabilityErrorSchema, "Capability review failed"),
+          502: jsonResponse(CapabilityErrorSchema, "Invalid app response"),
+          503: jsonResponse(CapabilityErrorSchema, "App unavailable"),
+        },
+      }),
+      async (c) => {
+        const body = await readBoundedJson(c.req.raw, MAX_BODY_BYTES);
+        if (!body.ok) {
+          const message = body.reason === "too_large" ? "Capability request is too large" : "Capability request body must be JSON";
+          const error = errorResponse("BAD_INPUT", message, 400);
+          return c.json(error.body, error.status);
+        }
+        const request = CapabilityInvocationRequestSchema.safeParse(body.data);
+        if (!request.success) {
+          const error = errorResponse("BAD_INPUT", "Capability request must contain only an input field", 400);
+          return c.json(error.body, error.status);
+        }
+        return dispatchCapability({
+          request: c.req.raw,
+          kind: "actions",
+          review: true,
+          appId: c.req.param("appId") ?? "",
+          capabilityId: c.req.param("capabilityId") ?? "",
+          input: request.data.input,
+          dependencies,
         });
       },
     )

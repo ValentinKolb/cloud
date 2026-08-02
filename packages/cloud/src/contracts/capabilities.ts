@@ -53,6 +53,26 @@ export const CapabilitySemanticLinkSchema = z
 
 export type CapabilitySemanticLink = z.infer<typeof CapabilitySemanticLinkSchema>;
 
+export const CapabilityActionReviewSchema = z
+  .object({
+    message: z.string().min(1).max(1000).describe("Plain-text description of the concrete Action consequence."),
+    details: z
+      .array(
+        z
+          .object({
+            label: z.string().min(1).max(120),
+            value: z.string().max(10_000),
+          })
+          .strict(),
+      )
+      .max(20)
+      .optional(),
+    links: z.array(CapabilitySemanticLinkSchema).max(10).optional(),
+  })
+  .strict();
+
+export type CapabilityActionReview = z.infer<typeof CapabilityActionReviewSchema>;
+
 export const CapabilityPageSchema = z
   .object({
     nextCursor: z.string().min(1).max(2048).optional().describe("Opaque cursor for the next page."),
@@ -89,6 +109,7 @@ export const CapabilityErrorSchema = z
 
 export type CapabilityError = ServiceError & { details?: Record<string, unknown> };
 export type CapabilityInvocationResult<T> = Result<CapabilityResult<T>, CapabilityError>;
+export type CapabilityActionReviewResult = Result<CapabilityActionReview, CapabilityError>;
 
 export const CloudResourceViewSchema = z
   .object({
@@ -179,6 +200,10 @@ export type CapabilityActionDefinition<Input extends z.ZodType = z.ZodType<any>,
   approval: CapabilityApprovalPolicy;
   idempotency: CapabilityIdempotencyPolicy;
   target?: { type: string; inputField: string };
+  review?: (
+    input: z.output<Input>,
+    context: CapabilityExecutionContext,
+  ) => CapabilityActionReviewResult | Promise<CapabilityActionReviewResult>;
   run: (
     input: z.output<Input>,
     context: CapabilityExecutionContext,
@@ -247,6 +272,7 @@ export const CapabilityActionManifestSchema = CapabilityOperationManifestBaseSch
     .object({ type: CapabilityQualifiedIdSchema, inputField: z.string().min(1).max(100) })
     .strict()
     .optional(),
+  review: z.literal(true).optional(),
 }).strict();
 
 export const CapabilityManifestSchema = z
