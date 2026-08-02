@@ -1,5 +1,5 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import { ButtonLink, IconButton, Tooltip } from "@k2b/ui";
+import { IconButton, IconButtonLink, Tooltip } from "@k2b/ui";
 import { forceCenter, forceLink, forceManyBody, forceSimulation, type Simulation } from "d3-force";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { NoteGraph } from "../../../../service/links";
@@ -295,15 +295,14 @@ export default function NotebookGraph(props: Props) {
     <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)]">
       <Show when={simNodes.length > 0} fallback={<EmptyState />}>
         <Tooltip content="Close graph">
-          <ButtonLink
+          <IconButtonLink
             href={closeHref()}
-            variant="ghost"
             size="sm"
-            class="k2b-icon-button absolute left-2 top-2 z-10"
-            aria-label="Close graph"
+            class="absolute left-2 top-2 z-10"
+            label="Close graph"
           >
             <i class="ti ti-x" />
-          </ButtonLink>
+          </IconButtonLink>
         </Tooltip>
 
         <svg

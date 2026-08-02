@@ -18,16 +18,38 @@ function ViewSection(props: { notebook: Notebook }) {
     refreshCurrentPath();
   };
 
+  const handleModeKeyDown = (event: KeyboardEvent) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    selectMode(event.key === "ArrowLeft" || event.key === "ArrowUp" || event.key === "Home" ? "simple" : "navigator");
+  };
+
   return (
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-      <button type="button" class={settingsChoiceClass(mode() === "simple")} onClick={() => selectMode("simple")}>
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-2" role="radiogroup" aria-label="Sidebar mode">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode() === "simple"}
+        tabIndex={mode() === "simple" ? 0 : -1}
+        class={settingsChoiceClass(mode() === "simple")}
+        onClick={() => selectMode("simple")}
+        onKeyDown={handleModeKeyDown}
+      >
         <span class="flex items-center gap-2 text-sm font-semibold">
           <i class="ti ti-layout-sidebar" />
           Simple sidebar
         </span>
         <span class="mt-1 block text-xs text-dimmed">A compact note tree with quick actions.</span>
       </button>
-      <button type="button" class={settingsChoiceClass(mode() === "navigator")} onClick={() => selectMode("navigator")}>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode() === "navigator"}
+        tabIndex={mode() === "navigator" ? 0 : -1}
+        class={settingsChoiceClass(mode() === "navigator")}
+        onClick={() => selectMode("navigator")}
+        onKeyDown={handleModeKeyDown}
+      >
         <span class="flex items-center gap-2 text-sm font-semibold">
           <i class="ti ti-layout-list" />
           Navigator

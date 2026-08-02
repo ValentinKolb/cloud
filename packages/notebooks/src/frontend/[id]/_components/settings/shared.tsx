@@ -33,7 +33,7 @@ export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?
 }
 
 export const settingsChoiceClass = (active: boolean) =>
-  `relative rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 text-left shadow-[var(--ui-shadow-surface)] transition-[background-color,box-shadow,color] ${
+  `relative rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 text-left shadow-[var(--ui-shadow-surface)] transition-[background-color,box-shadow,color] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
     active
       ? "text-blue-700 dark:text-blue-300 before:absolute before:left-2 before:top-4 before:h-3.5 before:w-0.5 before:rounded-full before:bg-blue-500 dark:before:bg-blue-400"
       : "text-secondary"

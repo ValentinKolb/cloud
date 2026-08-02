@@ -22,6 +22,7 @@ const {
   dropdownPosition,
   FilterChip,
   IconButton,
+  IconButtonLink,
   isSpotlightShortcut,
   RemoveButton,
   SegmentedControl,
@@ -122,6 +123,23 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).toContain('<span class="k2b-button__label">Open items</span>');
     expect(html).not.toContain("<button");
     expect(rule(".k2b-ui .k2b-button")).toContain("text-decoration: none");
+  });
+
+  test("renders icon-only navigational actions through the public link contract", () => {
+    const html = renderToString(() =>
+      createComponent(IconButtonLink, {
+        href: "/items",
+        label: "Back to items",
+        children: "Back",
+      }),
+    );
+
+    expect(html).toContain('<a href="/items"');
+    expect(html).toContain("k2b-icon-button");
+    expect(html).toContain('data-variant="ghost"');
+    expect(html).toContain('aria-label="Back to items"');
+    expect(html).toContain('title="Back to items"');
+    expect(html).not.toContain("<button");
   });
 
   test("renders sections, links, actions, and free dropdown elements", () => {

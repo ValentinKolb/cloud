@@ -1,4 +1,4 @@
-import { AppWorkspace, type AppWorkspaceLayoutState, Placeholder } from "@k2b/ui";
+import { AppWorkspace, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { notebookHelp } from "@/help";
@@ -74,11 +74,6 @@ export default ssr<AuthContext>(async (c) => {
     backlinks,
     dateConfig,
   } = data;
-  const initialWorkspaceLayout =
-    ctx.settings.sidebarMode === "navigator"
-      ? ({ version: 2, sidebarWidth: 208, paneWidths: { "notebook-notes": 336 } } satisfies AppWorkspaceLayoutState)
-      : null;
-
   return () => (
     <Layout
       c={c}
@@ -90,7 +85,7 @@ export default ssr<AuthContext>(async (c) => {
         ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
       ]}
     >
-      <AppWorkspace class="flex-1 min-h-0" layoutState={() => initialWorkspaceLayout}>
+      <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
         <NotebookLayoutHelp documents={notebookHelp.manifest} />
         {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} />}

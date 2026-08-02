@@ -1,6 +1,6 @@
 import { dates, fileIcons } from "@k2b/stdlib";
 import { clipboard, files } from "@k2b/stdlib/browser";
-import { AppWorkspace, Avatar, Button, ButtonLink, IconButton, Tooltip, toast } from "@k2b/ui";
+import { AppWorkspace, Avatar, Button, IconButton, IconButtonLink, Tooltip, toast } from "@k2b/ui";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -333,26 +333,22 @@ export default function NotebookDetailPanel(props: Props) {
               </IconButton>
             </Tooltip>
             <Tooltip content="Version history">
-              <ButtonLink
+              <IconButtonLink
                 href={buildVersionsUrl(props.notebookId, noteId())}
-                variant="ghost"
                 size="sm"
-                class="k2b-icon-button"
-                aria-label="Open version history"
+                label="Open version history"
               >
                 <i class="ti ti-history" />
-              </ButtonLink>
+              </IconButtonLink>
             </Tooltip>
             <Tooltip content="Graph view">
-              <ButtonLink
+              <IconButtonLink
                 href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`}
-                variant="ghost"
                 size="sm"
-                class="k2b-icon-button"
-                aria-label="Open graph view"
+                label="Open graph view"
               >
                 <i class="ti ti-affiliate" />
-              </ButtonLink>
+              </IconButtonLink>
             </Tooltip>
           </div>
         </header>
@@ -506,7 +502,7 @@ export default function NotebookDetailPanel(props: Props) {
               <ul class="flex flex-col">
                 <For each={participants()}>
                   {(p) => (
-                    <li class="detail-row items-center">
+                    <li class="detail-row items-center gap-3">
                       <Avatar
                         name={p.displayName}
                         fallback={(p.displayName.trim() || "?").slice(0, 2).toUpperCase()}

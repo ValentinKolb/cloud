@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { isServer, render } from "solid-js/web";
 import { createDomTestHarness } from "./dom";
 
@@ -34,6 +34,13 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
           <AppWorkspace.NavTree ariaLabel="Uncontrolled groups" defaultExpandedIds={["group"]}>
             <AppWorkspace.NavTree.Item id="group" label="Group" icon="ti ti-folders">
               <AppWorkspace.NavTree.Item id="group-child" label="Child" />
+            </AppWorkspace.NavTree.Item>
+          </AppWorkspace.NavTree>
+          <AppWorkspace.NavTree ariaLabel="Dynamic groups" expandedIds={["dynamic"]}>
+            <AppWorkspace.NavTree.Item id="dynamic" label="Dynamic">
+              <For each={[{ id: "dynamic-child", label: "Dynamic child" }]}>
+                {(item) => <AppWorkspace.NavTree.Item id={item.id} label={item.label} />}
+              </For>
             </AppWorkspace.NavTree.Item>
           </AppWorkspace.NavTree>
         </>
@@ -79,6 +86,7 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
     (group?.firstElementChild as HTMLElement | null)?.click();
     expect(group?.getAttribute("aria-expanded")).toBe("false");
     expect(dom.root.querySelector('[data-k2b-nav-tree-id="group-child"]')).toBeNull();
+    expect(dom.root.querySelector('[data-k2b-nav-tree-id="dynamic-child"]')).not.toBeNull();
 
     dispose();
     dom.cleanup();

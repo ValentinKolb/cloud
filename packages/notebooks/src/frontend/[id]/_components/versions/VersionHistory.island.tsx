@@ -1,7 +1,7 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, ButtonLink, MarkdownView, openSpotlightSearch, Placeholder, prompts, SegmentedControl } from "@k2b/ui";
+import { Button, IconButtonLink, MarkdownView, openSpotlightSearch, Placeholder, prompts, SegmentedControl } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { diffLines } from "diff";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -328,16 +328,14 @@ export default function VersionHistory(props: Props) {
       {/* Header */}
       <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-2 pt-2">
         <div class="flex items-center gap-2">
-          <ButtonLink
+          <IconButtonLink
             href={backUrl}
-            variant="ghost"
             size="sm"
-            class="k2b-icon-button text-dimmed"
-            title="Back to editor"
-            aria-label="Back to editor"
+            class="text-dimmed"
+            label="Back to editor"
           >
             <i class="ti ti-arrow-left" />
-          </ButtonLink>
+          </IconButtonLink>
           <div>
             <h2 class="text-sm font-semibold">Version History</h2>
             <p class="text-xs text-dimmed">{props.noteTitle}</p>
@@ -428,14 +426,17 @@ export default function VersionHistory(props: Props) {
 
               {/* Load more */}
               <Show when={pagination()?.has_next}>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="xs"
                   onClick={loadMore}
                   disabled={loadingMore()}
-                  class="text-[10px] text-dimmed hover:text-primary transition-colors py-1.5 text-center"
+                  loading={loadingMore()}
+                  loadingLabel="Loading more"
+                  class="w-full"
                 >
-                  {loadingMore() ? <i class="ti ti-loader-2 animate-spin" /> : "Load more..."}
-                </button>
+                  Load more
+                </Button>
               </Show>
 
               <Show when={pagination()}>
@@ -456,28 +457,30 @@ export default function VersionHistory(props: Props) {
                     <span class="flex min-w-0 items-center gap-1">
                       <span class="truncate font-medium text-primary">{comparisonLabel()!.from}</span>
                       <Show when={comparisonLabel()!.fromId === comparisonTarget().id}>
-                        <button
-                          type="button"
-                          class="shrink-0 p-0 font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          class="shrink-0"
                           onClick={openComparisonPicker}
                           aria-label="Change comparison version"
                         >
-                          (change)
-                        </button>
+                          Change
+                        </Button>
                       </Show>
                     </span>
                     <i class="ti ti-arrow-right shrink-0 text-dimmed" />
                     <span class="flex min-w-0 items-center gap-1">
                       <span class="truncate font-medium text-primary">{comparisonLabel()!.to}</span>
                       <Show when={comparisonLabel()!.toId === comparisonTarget().id}>
-                        <button
-                          type="button"
-                          class="shrink-0 p-0 font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          class="shrink-0"
                           onClick={openComparisonPicker}
                           aria-label="Change comparison version"
                         >
-                          (change)
-                        </button>
+                          Change
+                        </Button>
                       </Show>
                     </span>
                   </p>

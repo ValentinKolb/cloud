@@ -159,7 +159,7 @@ export default function EditorToolbar(props: Props) {
             </Tooltip>
           }
           position="top-right"
-          width="w-52"
+          width="13rem"
           elements={[
             {
               sectionLabel: "Lists",

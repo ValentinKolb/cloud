@@ -1,5 +1,5 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { Dropdown, prompts, Tooltip, toast } from "@k2b/ui";
+import { Dropdown, IconButton, prompts, Tooltip, toast } from "@k2b/ui";
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@/api/client";
@@ -102,17 +102,13 @@ const AdminNotebookActions = (props: AdminNotebookActionsProps) => {
     <Dropdown
       trigger={
         <Tooltip content="Notebook actions">
-          <button
-            type="button"
-            class="p-1.5 text-dimmed hover:text-primary transition-colors"
-            aria-label={`Actions for ${props.notebookName}`}
-          >
+          <IconButton label={`Actions for ${props.notebookName}`} size="xs">
             <i class="ti ti-settings text-sm" />
-          </button>
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"
-      width="w-52"
+      width="13rem"
       elements={[
         {
           items: [

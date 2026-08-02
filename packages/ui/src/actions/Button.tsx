@@ -57,6 +57,11 @@ export type IconButtonProps = Omit<ButtonProps, "children"> & {
   label: string;
 };
 
+export type IconButtonLinkProps = Omit<ButtonLinkProps, "children"> & {
+  children: JSX.Element;
+  label: string;
+};
+
 export function IconButton(props: IconButtonProps): JSX.Element {
   const [local, rest] = splitProps(props, ["children", "class", "label", "loading", "loadingLabel", "variant"]);
 
@@ -71,5 +76,21 @@ export function IconButton(props: IconButtonProps): JSX.Element {
     >
       <Show when={!local.loading}>{local.children}</Show>
     </Button>
+  );
+}
+
+export function IconButtonLink(props: IconButtonLinkProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["children", "class", "label", "variant"]);
+
+  return (
+    <ButtonLink
+      {...rest}
+      variant={local.variant ?? "ghost"}
+      class={`k2b-icon-button ${local.class ?? ""}`}
+      aria-label={local.label}
+      title={rest.title ?? local.label}
+    >
+      {local.children}
+    </ButtonLink>
   );
 }

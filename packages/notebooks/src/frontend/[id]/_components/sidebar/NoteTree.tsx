@@ -384,12 +384,12 @@ function TreeNode(props: {
           <div class="shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 group-focus-within/node:opacity-100">
             <Dropdown
               trigger={
-                <span class="inline-flex h-6 w-6 items-center justify-center rounded-[var(--ui-radius-control)]">
+                <IconButton label={`Actions for ${props.node.title || "Untitled"}`} size="xs">
                   <i class="ti ti-dots text-xs" />
-                </span>
+                </IconButton>
               }
               position="bottom-right"
-              width="w-48"
+              width="12rem"
               elements={noteActionItems(props.node, props.actions)}
             />
           </div>
@@ -451,15 +451,17 @@ export default function NoteTree(props: Props) {
               <SearchButton notebookId={props.notebookId} notebookName={props.notebookName} variant="compact" />
             </Show>
             <Show when={props.canWrite}>
-              <button
-                type="button"
+              <IconButton
+                label="New note"
+                size="xs"
                 onClick={() => actions.handleCreateNote()}
                 disabled={actions.loading()}
-                class="text-dimmed hover:text-primary transition-colors p-0.5"
+                loading={actions.loading()}
+                loadingLabel="Creating note"
                 title="New Note (Mod+Alt+N)"
               >
-                <i class={`ti ${actions.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-xs`} />
-              </button>
+                <i class="ti ti-plus text-xs" />
+              </IconButton>
             </Show>
           </div>
         </div>

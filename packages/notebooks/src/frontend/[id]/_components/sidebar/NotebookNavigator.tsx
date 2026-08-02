@@ -53,9 +53,6 @@ const TREE_MODE_OPTIONS = [
   { value: "level", label: "Children" },
 ] satisfies { value: TreeMode; label: string }[];
 
-const navigatorActionClass =
-  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed transition-colors hover:bg-[var(--ui-hover)] hover:text-primary";
-
 const noteCardClass = (active: boolean) =>
   `group relative rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-surface)] transition-colors hover:bg-[var(--ui-hover)] ${active ? "bg-[var(--ui-selected)]" : ""}`;
 
@@ -166,6 +163,7 @@ export default function NotebookNavigator(props: Props) {
   const allNotes = createMemo(() => flattenTree(props.tree));
   const notesById = createMemo(() => new Map(allNotes().map((note) => [note.id, note])));
   const branchTree = createMemo(() => branchNodes(props.tree));
+  const [expandedTreeIds, setExpandedTreeIds] = createSignal<readonly string[]>(expandedNavigationIds(branchTree()));
   const homepageNote = createMemo(() => (props.notebook.homepageNoteId ? (notesById().get(props.notebook.homepageNoteId) ?? null) : null));
   const selectedRoot = () => selection().root;
   const selectedNoteRootId = () => {
@@ -271,29 +269,33 @@ export default function NotebookNavigator(props: Props) {
     <>
       <AppWorkspace.SidebarBody scrollPreserveKey={`notebooks-navigator-roots-${props.notebook.shortId}`}>
         <AppWorkspace.SidebarSection>
-          <For each={ROOTS}>
-            {(root) => (
-              <AppWorkspace.SidebarItem
-                icon={root.icon}
-                active={selectedRoot() === root.id}
-                meta={root.id === "favorites" ? favoriteIds().size : undefined}
-                onClick={() => select({ root: root.id })}
-              >
-                {root.label}
-              </AppWorkspace.SidebarItem>
-            )}
-          </For>
-          <AppWorkspace.SidebarItem icon="ti ti-home" active={homepageNote()?.id === activeNoteId()} onClick={openHomepage}>
-            Homepage
-          </AppWorkspace.SidebarItem>
-          <SearchButton notebookId={props.notebook.shortId} notebookName={props.notebook.name} variant="workspace-sidebar" />
+          <AppWorkspace.SidebarIconGrid columns={2}>
+            <For each={ROOTS}>
+              {(root) => (
+                <AppWorkspace.SidebarIconAction
+                  icon={root.icon}
+                  label={root.label}
+                  active={selectedRoot() === root.id}
+                  onClick={() => select({ root: root.id })}
+                />
+              )}
+            </For>
+            <AppWorkspace.SidebarIconAction
+              icon="ti ti-home"
+              label="Homepage"
+              active={homepageNote()?.id === activeNoteId()}
+              onClick={openHomepage}
+            />
+            <SearchButton notebookId={props.notebook.shortId} notebookName={props.notebook.name} variant="workspace-icon" />
+          </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarSection>
 
         <AppWorkspace.SidebarSection>
           <AppWorkspace.NavTree
             ariaLabel="Notebook folders and tags"
             selectedId={selectedNavigationId()}
-            defaultExpandedIds={expandedNavigationIds(branchTree())}
+            expandedIds={expandedTreeIds()}
+            onExpandedIdsChange={setExpandedTreeIds}
           >
             <AppWorkspace.NavTree.Item
               id="notes"
@@ -390,12 +392,16 @@ export default function NotebookNavigator(props: Props) {
                       <Show when={props.canWrite}>
                         <Dropdown
                           trigger={
-                            <span class={`${navigatorActionClass} opacity-70 group-hover:opacity-100`}>
+                            <IconButton
+                              label={`Actions for ${note().title || "Untitled"}`}
+                              size="xs"
+                              class="opacity-70 group-hover:opacity-100"
+                            >
                               <i class="ti ti-dots text-xs" />
-                            </span>
+                            </IconButton>
                           }
                           position="bottom-right"
-                          width="w-48"
+                          width="12rem"
                           elements={noteActionItems(note(), actions)}
                         />
                       </Show>
@@ -445,26 +451,30 @@ export default function NotebookNavigator(props: Props) {
                       </div>
                     </a>
                     <div class="absolute right-2 top-2 flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        class={`${navigatorActionClass} opacity-70 group-hover:opacity-100 ${
+                      <IconButton
+                        size="xs"
+                        class={`opacity-70 group-hover:opacity-100 ${
                           favoriteIds().has(note.id) ? "!text-amber-500 hover:!text-amber-500" : ""
                         }`}
                         title={favoriteIds().has(note.id) ? "Remove favorite" : "Add favorite"}
-                        aria-label={favoriteIds().has(note.id) ? "Remove favorite" : "Add favorite"}
+                        label={favoriteIds().has(note.id) ? "Remove favorite" : "Add favorite"}
                         onClick={(event) => void toggleFavorite(note, event)}
                       >
                         <i class="ti ti-star" />
-                      </button>
+                      </IconButton>
                       <Show when={props.canWrite}>
                         <Dropdown
                           trigger={
-                            <span class={`${navigatorActionClass} opacity-70 group-hover:opacity-100`}>
+                            <IconButton
+                              label={`Actions for ${note.title || "Untitled"}`}
+                              size="xs"
+                              class="opacity-70 group-hover:opacity-100"
+                            >
                               <i class="ti ti-dots text-xs" />
-                            </span>
+                            </IconButton>
                           }
                           position="bottom-right"
-                          width="w-48"
+                          width="12rem"
                           elements={noteActionItems(note, actions)}
                         />
                       </Show>

@@ -65,6 +65,10 @@ type SidebarItemSlot =
 type NavTreeItemSlot = AppWorkspaceNavTreeItemProps & { kind: typeof NAV_TREE_ITEM };
 
 const flatten = (value: unknown): unknown[] => {
+  // Solid control-flow components such as <For> expose their rendered value
+  // through an accessor. Compound slots may therefore be nested behind a
+  // function even after `children()` resolves the outer collection.
+  if (typeof value === "function") return flatten(value());
   if (Array.isArray(value)) return value.flatMap(flatten);
   return value === null || value === undefined || typeof value === "boolean" ? [] : [value];
 };
