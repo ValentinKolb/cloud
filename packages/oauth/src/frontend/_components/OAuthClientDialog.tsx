@@ -1,5 +1,6 @@
+import { Button, CheckboxCard, PanelDialog, Select, TextInput } from "@k2b/ui";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createSignal, For, Show } from "solid-js";
-import { CheckboxCard, EntitySearch, type EntitySearchPrincipal, PanelDialog, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { CreateOAuthClient, OAuthClient, UpdateOAuthClient } from "@/contracts";
 
 type AccessChoice = "user" | "everybody" | "specific";
@@ -202,14 +203,14 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
                 </div>
               }
             >
-              <TextInput label="Name" placeholder="My Application" icon="ti ti-tag" value={name} onInput={setName} required />
+              <TextInput label="Name" placeholder="My Application" icon="ti ti-tag" value={name} onValueChange={setName} required />
             </Show>
             <TextInput
               label="Description"
               placeholder="Optional description for this client"
               icon="ti ti-file-description"
               value={description}
-              onInput={setDescription}
+              onValueChange={setDescription}
             />
             <TextInput
               label="Redirect URI"
@@ -217,7 +218,7 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
               placeholder="https://myapp.example.com/callback"
               icon="ti ti-link"
               value={redirectUri}
-              onInput={setRedirectUri}
+              onValueChange={setRedirectUri}
               required
             />
             <TextInput
@@ -226,7 +227,7 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
               placeholder="https://myapp.example.com/logout-callback"
               icon="ti ti-logout"
               value={logoutUri}
-              onInput={setLogoutUri}
+              onValueChange={setLogoutUri}
             />
             <Show when={props.mode === "create"}>
               <CheckboxCard
@@ -235,17 +236,19 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
                 icon="ti ti-world"
                 variant="input"
                 value={isPublic}
-                onChange={setIsPublic}
+                onValueChange={setIsPublic}
               />
             </Show>
           </PanelDialog.Section>
 
           <aside class="flex min-w-0 flex-col gap-3">
             <PanelDialog.Section title="Access" subtitle="Choose who can sign in with this client." icon="ti ti-user-check">
-              <SelectInput
+              <Select
                 label="Who can use this client?"
                 value={accessChoice}
-                onChange={(value) => setAccessChoice(value as AccessChoice)}
+                onValueChange={(value) => {
+                  if (value === "user" || value === "everybody" || value === "specific") setAccessChoice(value);
+                }}
                 selectedLabel={selectedLabel}
                 options={accessChoiceOptions}
                 required
@@ -305,13 +308,20 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
           </Show>
         </div>
         <div class="ml-auto flex flex-wrap justify-end gap-2">
-          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={props.loading()}>
+          <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={props.loading()}>
             Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => void submit()} disabled={props.loading() || !canSubmit()}>
-            <i class={props.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
-            <span>{props.loading() ? "Saving..." : props.mode === "create" ? "Create" : "Save"}</span>
-          </button>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void submit()}
+            disabled={!canSubmit()}
+            loading={props.loading()}
+            loadingLabel="Saving..."
+          >
+            <i class="ti ti-device-floppy" />
+            <span>{props.mode === "create" ? "Create" : "Save"}</span>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -332,7 +342,7 @@ function ScopeToggle(props: {
       icon={props.icon}
       variant="input"
       value={props.checked}
-      onChange={props.onChange}
+      onValueChange={props.onChange}
     />
   );
 }
@@ -351,30 +361,34 @@ function SelectedAccessList(props: {
       >
         <For each={props.users}>
           {(user) => (
-            <button
+            <Button
               type="button"
-              class="btn-input btn-input-sm justify-start"
+              variant="secondary"
+              size="sm"
+              class="w-full justify-start"
               onClick={() => props.setUsers((current) => removeById(user.id, current))}
             >
               <i class="ti ti-user" />
               <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
               <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
               <i class="ti ti-x text-dimmed" />
-            </button>
+            </Button>
           )}
         </For>
         <For each={props.groups}>
           {(group) => (
-            <button
+            <Button
               type="button"
-              class="btn-input btn-input-sm justify-start"
+              variant="secondary"
+              size="sm"
+              class="w-full justify-start"
               onClick={() => props.setGroups((current) => removeById(group.id, current))}
             >
               <i class="ti ti-users-group" />
               <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
               <span class="text-[10px] uppercase text-dimmed">{group.provider}</span>
               <i class="ti ti-x text-dimmed" />
-            </button>
+            </Button>
           )}
         </For>
       </Show>

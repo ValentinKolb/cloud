@@ -1,3 +1,4 @@
+import { ButtonLink } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
@@ -30,10 +31,10 @@ export default ssr<AuthContext>(async (c) => {
             Error code: <code>{error}</code>
           </div>
 
-          <a href="/" class="btn btn-primary">
+          <ButtonLink href="/">
             <i class="ti ti-home" />
             Back to Home
-          </a>
+          </ButtonLink>
         </div>
       </div>
     </Layout>

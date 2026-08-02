@@ -1,18 +1,13 @@
-import { CopyButton, Dropdown, dialogCore, panelDialogOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { clipboard } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { CopyButton, Dropdown, dialogCore, IconButton, panelDialogWideOptions, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { OAuthClient, UpdateOAuthClient } from "@/contracts";
 import OAuthClientDialog from "./OAuthClientDialog";
 
 type ClientActionsProps = {
   client: OAuthClient;
-};
-
-const clientDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(96vw,72rem)]"),
 };
 
 const ClientActions = (props: ClientActionsProps) => {
@@ -104,7 +99,7 @@ const ClientActions = (props: ClientActionsProps) => {
           }}
         />
       ),
-      clientDialogOptions,
+      panelDialogWideOptions,
     );
   };
 
@@ -152,13 +147,13 @@ const ClientActions = (props: ClientActionsProps) => {
     <Dropdown
       trigger={
         <Tooltip content="OAuth client actions">
-          <button type="button" class="icon-btn h-7 w-7" aria-label="OAuth client actions">
+          <IconButton size="xs" label="OAuth client actions">
             <i class="ti ti-dots-vertical text-sm" />
-          </button>
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"
-      width="w-48"
+      width="12rem"
       elements={[
         {
           items: [

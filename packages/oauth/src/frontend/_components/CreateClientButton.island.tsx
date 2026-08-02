@@ -1,14 +1,9 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { dialogCore, panelDialogOptions, prompts, CopyButton } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, CopyButton, dialogCore, panelDialogWideOptions, prompts } from "@k2b/ui";
 import { apiClient } from "@/api/client";
-import type { OAuthClientWithSecret, CreateOAuthClient } from "@/contracts";
+import type { CreateOAuthClient, OAuthClientWithSecret } from "@/contracts";
 import OAuthClientDialog from "./OAuthClientDialog";
-
-const clientDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(96vw,72rem)]"),
-};
 
 const CreateClientButton = () => {
   const mutation = mutations.create<OAuthClientWithSecret, CreateOAuthClient>({
@@ -65,15 +60,15 @@ const CreateClientButton = () => {
           }}
         />
       ),
-      clientDialogOptions,
+      panelDialogWideOptions,
     );
   };
 
   return (
-    <button type="button" class="btn-primary btn-sm" onClick={handleCreate}>
+    <Button type="button" size="sm" onClick={handleCreate}>
       <i class="ti ti-plus" />
       New Client
-    </button>
+    </Button>
   );
 };
 
