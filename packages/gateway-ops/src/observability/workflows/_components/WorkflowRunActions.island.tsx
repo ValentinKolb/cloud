@@ -1,7 +1,7 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
-import type { WorkflowJsonValue, WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, prompts, toast } from "@k2b/ui";
+import type { WorkflowJsonValue, WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import { apiClient } from "../api-client";
 
 type AttentionStep = {
@@ -148,33 +148,35 @@ export default function WorkflowRunActions(props: Props) {
     <div class="flex flex-wrap items-center justify-end gap-1">
       {props.attentionStep ? (
         <>
-          <button
+          <Button
             type="button"
-            class="btn-success btn-sm"
+            variant="success"
+            size="sm"
             disabled={resolveSucceeded.loading() || resolveFailed.loading()}
             onClick={() => resolveSucceeded.mutate()}
             title="Confirm from provider evidence. The effect is not repeated."
           >
             <i class="ti ti-check" />
             Mark succeeded
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            class="btn-danger btn-sm"
+            variant="danger"
+            size="sm"
             disabled={resolveSucceeded.loading() || resolveFailed.loading()}
             onClick={() => resolveFailed.mutate()}
             title="Confirm from provider evidence that the effect did not happen."
           >
             <i class="ti ti-x" />
             Mark failed
-          </button>
+          </Button>
         </>
       ) : null}
       {cancelable() ? (
-        <button type="button" class="btn-danger btn-sm" disabled={cancel.loading()} onClick={() => cancel.mutate()}>
+        <Button type="button" variant="danger" size="sm" disabled={cancel.loading()} onClick={() => cancel.mutate()}>
           <i class={cancel.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-stop"} />
           Cancel run
-        </button>
+        </Button>
       ) : null}
     </div>
   );

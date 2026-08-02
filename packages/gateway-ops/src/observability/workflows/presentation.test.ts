@@ -43,7 +43,7 @@ describe("workflow operator presentation", () => {
   });
 
   test("separates unmatched, retrying and dead-lettered events", () => {
-    expect(eventState(event({ matchedCount: 0 }))).toEqual({ label: "No activation", tone: "warn" });
+    expect(eventState(event({ matchedCount: 0 }))).toEqual({ label: "No activation", tone: "warning" });
     expect(eventState(event({ attempts: 2 }))).toEqual({ label: "Retrying", tone: "degraded" });
     expect(eventState(event({ dispatchFailedAt: new Date("2026-01-01T01:00:00.000Z") }))).toEqual({
       label: "Dead letter",

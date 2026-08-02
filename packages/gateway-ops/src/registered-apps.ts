@@ -13,7 +13,7 @@ type DbRegisteredAppRow = {
   base_url: string;
   routes: unknown;
   nav: unknown;
-  search: unknown;
+  capabilities: unknown;
   legal_links: unknown;
   widgets: unknown;
   openapi: string | null;
@@ -58,7 +58,7 @@ const mapRow = (row: DbRegisteredAppRow): PersistentRegisteredApp => ({
   baseUrl: row.base_url,
   routes: jsonArray<string>(row.routes),
   nav: jsonObject<AppRegistryEntry["nav"]>(row.nav),
-  search: jsonObject<AppRegistryEntry["search"]>(row.search),
+  capabilities: jsonObject<AppRegistryEntry["capabilities"]>(row.capabilities),
   legalLinks: jsonArray<NonNullable<AppRegistryEntry["legalLinks"]>[number]>(row.legal_links),
   widgets: jsonArray<NonNullable<AppRegistryEntry["widgets"]>[number]>(row.widgets),
   openapi: row.openapi ?? undefined,
@@ -73,7 +73,7 @@ export const upsertRegisteredApps = async (apps: readonly AppRegistryEntry[]): P
   for (const app of apps) {
     await sql`
       INSERT INTO gateway.registered_apps (
-        id, name, icon, description, appearance, runtime, base_url, routes, nav, search, legal_links,
+        id, name, icon, description, appearance, runtime, base_url, routes, nav, capabilities, legal_links,
         widgets, openapi, first_seen_at, last_seen_at, updated_at, removed_at
       )
       VALUES (
@@ -86,7 +86,7 @@ export const upsertRegisteredApps = async (apps: readonly AppRegistryEntry[]): P
         ${app.baseUrl},
         ${JSON.stringify(app.routes)}::jsonb,
         ${app.nav ? JSON.stringify(app.nav) : null}::jsonb,
-        ${app.search ? JSON.stringify(app.search) : null}::jsonb,
+        ${app.capabilities ? JSON.stringify(app.capabilities) : null}::jsonb,
         ${app.legalLinks ? JSON.stringify(app.legalLinks) : null}::jsonb,
         ${app.widgets ? JSON.stringify(app.widgets) : null}::jsonb,
         ${app.openapi ?? null},
@@ -104,7 +104,7 @@ export const upsertRegisteredApps = async (apps: readonly AppRegistryEntry[]): P
         base_url = EXCLUDED.base_url,
         routes = EXCLUDED.routes,
         nav = EXCLUDED.nav,
-        search = EXCLUDED.search,
+        capabilities = EXCLUDED.capabilities,
         legal_links = EXCLUDED.legal_links,
         widgets = EXCLUDED.widgets,
         openapi = EXCLUDED.openapi,

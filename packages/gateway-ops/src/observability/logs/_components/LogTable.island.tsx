@@ -1,7 +1,7 @@
-import { CopyButton, DataTable, type DataTableColumn, type LogTableEntry, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { dates } from "@k2b/stdlib";
+import { Button, CopyButton, DataTable, type DataTableColumn, type LogTableEntry, Placeholder, prompts } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
-import LogFilterBar from "./LogFilterBar.island";
+import LogFilterBar from "./LogFilterBar";
 import type { LogFilterState } from "./types";
 
 type Props = {
@@ -67,13 +67,9 @@ function MetadataDetail(props: { metadata: Record<string, unknown> | null }) {
           </div>
         </div>
       </Show>
-      <button
-        type="button"
-        class="text-[10px] text-dimmed hover:text-secondary transition-colors self-start"
-        onClick={() => setShowRaw(!showRaw())}
-      >
+      <Button type="button" variant="ghost" size="xs" class="self-start" onClick={() => setShowRaw(!showRaw())}>
         {showRaw() ? "View formatted" : "View raw"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -104,9 +100,9 @@ function showDetail(entry: LogTableEntry) {
           </div>
         </Show>
         <div class="flex justify-end">
-          <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => close()}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
     ),

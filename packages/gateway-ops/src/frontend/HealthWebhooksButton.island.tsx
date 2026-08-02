@@ -1,5 +1,6 @@
-import { formatDateTime as fmtDateTime } from "@valentinkolb/cloud/shared";
+import { mutation } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   DataTable,
   type DataTableColumn,
@@ -9,11 +10,11 @@ import {
   Placeholder,
   panelDialogOptions,
   prompts,
-  SelectInput,
+  Select,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
-import { mutation } from "@k2b/stdlib/solid";
+} from "@k2b/ui";
+import { formatDateTime as fmtDateTime } from "@valentinkolb/cloud/shared";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
@@ -194,25 +195,25 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
             description="Disabled webhooks stay configured but are skipped by scheduled checks."
             icon="ti ti-power"
             value={() => data().enabled}
-            onChange={(enabled) => setData({ ...data(), enabled })}
+            onValueChange={(enabled) => setData({ ...data(), enabled })}
           />
           <TextInput
             label="Name"
             description="Human-readable label shown on this alerts page."
             icon="ti ti-tag"
             value={() => data().name}
-            onInput={(name) => setData({ ...data(), name })}
+            onValueChange={(name) => setData({ ...data(), name })}
             required
           />
 
           <PanelDialog.Section title="Delivery" subtitle="Where and how this webhook is called." icon="ti ti-send">
             <div class="grid gap-3 md:grid-cols-2">
-              <SelectInput
+              <Select
                 label="Method"
                 description="Choose GET ping or POST JSON delivery."
                 icon="ti ti-send"
                 value={() => data().method}
-                onChange={(method) => setData({ ...data(), method: method as "GET" | "POST" })}
+                onValueChange={(method) => setData({ ...data(), method: method as "GET" | "POST" })}
                 options={methodOptions}
               />
               <TextInput
@@ -221,17 +222,17 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
                 type="url"
                 icon="ti ti-link"
                 value={() => data().url}
-                onInput={(url) => setData({ ...data(), url })}
+                onValueChange={(url) => setData({ ...data(), url })}
                 required
               />
             </div>
             <div class="grid gap-3 md:grid-cols-2">
-              <SelectInput
+              <Select
                 label="Minimum status"
                 description="Lowest scoped health state to deliver."
                 icon="ti ti-activity"
                 value={() => data().minStatus}
-                onChange={(minStatus) => setData({ ...data(), minStatus: minStatus as "ok" | "warn" | "error" })}
+                onValueChange={(minStatus) => setData({ ...data(), minStatus: minStatus as "ok" | "warn" | "error" })}
                 options={statusOptions}
               />
               <NumberInput
@@ -241,7 +242,7 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
                 min={1}
                 suffix="min"
                 value={() => Math.round(data().repeatIntervalMs / 60_000)}
-                onInput={(minutes) => setData({ ...data(), repeatIntervalMs: Math.max(1, minutes ?? 1) * 60_000 })}
+                onValueChange={(minutes) => setData({ ...data(), repeatIntervalMs: Math.max(1, minutes ?? 1) * 60_000 })}
               />
             </div>
           </PanelDialog.Section>
@@ -255,17 +256,17 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
                     description={item.description}
                     icon={item.icon}
                     value={() => data().sendOn.includes(item.id)}
-                    onChange={(checked) => setData({ ...data(), sendOn: toggle(data().sendOn, item.id, checked) })}
+                    onValueChange={(checked) => setData({ ...data(), sendOn: toggle(data().sendOn, item.id, checked) })}
                   />
                 )}
               </For>
             </div>
-            <SelectInput
+            <Select
               label="Scope"
               description="Choose which registered apps this webhook evaluates."
               icon="ti ti-filter"
               value={() => data().scopeKind}
-              onChange={(scopeKind) => setData({ ...data(), scopeKind: scopeKind as "all" | "include" | "exclude" })}
+              onValueChange={(scopeKind) => setData({ ...data(), scopeKind: scopeKind as "all" | "include" | "exclude" })}
               options={scopeOptions}
             />
             <Show when={data().scopeKind !== "all"}>
@@ -277,7 +278,7 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
                       description={appStatusDescription(app)}
                       icon={app.icon}
                       value={() => data().scopeAppIds.includes(app.id)}
-                      onChange={(checked) => setData({ ...data(), scopeAppIds: toggle(data().scopeAppIds, app.id, checked) })}
+                      onValueChange={(checked) => setData({ ...data(), scopeAppIds: toggle(data().scopeAppIds, app.id, checked) })}
                     />
                   )}
                 </For>
@@ -286,13 +287,13 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
           </PanelDialog.Section>
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={save.loading()}>
+          <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={save.loading()}>
             Cancel
-          </button>
-          <button type="submit" class="btn-input btn-input-sm" disabled={save.loading()}>
+          </Button>
+          <Button type="submit" size="sm" disabled={save.loading()}>
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
             Save
-          </button>
+          </Button>
         </PanelDialog.Footer>
       </PanelDialog>
     </form>
@@ -339,17 +340,17 @@ const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () =
         description="Cron expression evaluated in app.timezone."
         icon="ti ti-calendar-time"
         value={scheduleValue}
-        onInput={setScheduleValue}
+        onValueChange={setScheduleValue}
         required
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={props.close} disabled={save.loading()}>
+        <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={save.loading()}>
           Cancel
-        </button>
-        <button type="submit" class="btn-primary btn-sm" disabled={save.loading()}>
+        </Button>
+        <Button type="submit" size="sm" disabled={save.loading()}>
           <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
           Save
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -422,14 +423,14 @@ export default function HealthWebhooksPanel() {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <button type="button" class="btn-input btn-input-sm" onClick={() => openScheduleEditor(schedule(), () => void refetchSettings())}>
-            <i class="ti ti-calendar-time text-sm" />
+          <Button type="button" variant="secondary" size="sm" onClick={() => openScheduleEditor(schedule(), () => void refetchSettings())}>
+            <i class="ti ti-calendar-time" aria-hidden="true" />
             Schedule
-          </button>
-          <button type="button" class="btn-input btn-input-sm" onClick={() => void openEditor()}>
-            <i class="ti ti-plus text-sm" />
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void openEditor()}>
+            <i class="ti ti-plus" aria-hidden="true" />
             Add
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -489,20 +490,15 @@ export default function HealthWebhooksPanel() {
             if (col.id === "actions") {
               return (
                 <div class="flex justify-end gap-1">
-                  <button type="button" class="btn-simple btn-sm" onClick={() => void test.mutate(webhook)} disabled={test.loading()}>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void test.mutate(webhook)} disabled={test.loading()}>
                     Test
-                  </button>
-                  <button type="button" class="btn-simple btn-sm" onClick={() => void openEditor(webhook)}>
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void openEditor(webhook)}>
                     Edit
-                  </button>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-red-500"
-                    onClick={() => void remove.mutate(webhook)}
-                    disabled={remove.loading()}
-                  >
+                  </Button>
+                  <Button type="button" variant="danger" size="sm" onClick={() => void remove.mutate(webhook)} disabled={remove.loading()}>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               );
             }

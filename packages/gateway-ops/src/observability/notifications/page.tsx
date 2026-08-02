@@ -1,10 +1,10 @@
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@k2b/ui";
 import { listApps } from "@valentinkolb/cloud";
 import { createPagination, hasRole, type NotificationDeliveryStatus } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { formatDateTime, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";

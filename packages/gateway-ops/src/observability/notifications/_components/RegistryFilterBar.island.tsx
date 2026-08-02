@@ -1,6 +1,6 @@
-import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
+import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import {
   buildRegistryNotificationsUrl,
   NOTIFICATION_ADMIN_BASE_URL,
@@ -57,7 +57,7 @@ export default function RegistryFilterBar(props: Props) {
           icon="ti ti-filter"
           options={STATUS_OPTIONS}
           value={[props.status]}
-          onChange={(value) => navigate({ status: (value[0] ?? "all") as RegistryStatusFilter })}
+          onValueChange={(value) => navigate({ status: (value[0] ?? "all") as RegistryStatusFilter })}
           isActive={props.status !== "all"}
           defaultValue={["all"]}
         />
@@ -67,7 +67,7 @@ export default function RegistryFilterBar(props: Props) {
             icon="ti ti-apps"
             options={appSections()}
             value={props.appIds}
-            onChange={(appIds) => navigate({ appIds })}
+            onValueChange={(appIds) => navigate({ appIds })}
             isActive={props.appIds.length > 0}
             defaultValue={[]}
           />

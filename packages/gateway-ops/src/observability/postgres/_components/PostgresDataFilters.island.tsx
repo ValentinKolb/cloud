@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type Props = {
   search: string;
@@ -56,7 +56,7 @@ export default function PostgresDataFilters(props: Props) {
         icon="ti ti-database"
         options={schemaOptions()}
         value={[props.schema || "all"]}
-        onChange={(value) => navigate({ schema: value[0] ?? "all" })}
+        onValueChange={(value) => navigate({ schema: value[0] ?? "all" })}
         isActive={props.schema !== "all"}
         defaultValue={["all"]}
       />
@@ -65,7 +65,7 @@ export default function PostgresDataFilters(props: Props) {
         icon="ti ti-sort-descending"
         options={SORT_OPTIONS}
         value={[props.sort || "size-desc"]}
-        onChange={(value) => navigate({ sort: value[0] ?? "size-desc" })}
+        onValueChange={(value) => navigate({ sort: value[0] ?? "size-desc" })}
         isActive={props.sort !== "size-desc"}
         defaultValue={["size-desc"]}
       />

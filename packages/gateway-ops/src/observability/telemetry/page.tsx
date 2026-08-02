@@ -1,3 +1,4 @@
+import { DataTable, type DataTableColumn, IconButtonLink, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import {
@@ -7,7 +8,6 @@ import {
   formatPercent as fmtRatio,
 } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { listAppSloWindows } from "../../grids-operational-health";
@@ -271,13 +271,9 @@ export default ssr<AuthContext>(async (c) => {
                   <code class="block truncate text-[11px] text-primary">{filter.route}</code>
                   <p class="text-[10px] text-dimmed">Last {DRILLDOWN_EVENT_LIMIT} requests in this range</p>
                 </div>
-                <a
-                  href={closeRouteUrl(filter)}
-                  class="btn-simple btn-sm shrink-0 text-dimmed hover:text-primary"
-                  aria-label="Close route detail"
-                >
+                <IconButtonLink href={closeRouteUrl(filter)} size="sm" label="Close route detail">
                   <i class="ti ti-x" />
-                </a>
+                </IconButtonLink>
               </div>
               {events.length === 0 ? (
                 <Placeholder variant="compact" description="No individual requests retained for this range." />

@@ -1,8 +1,8 @@
+import { ButtonLink, DataTable, type DataTableColumn, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { formatBytes, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { getRedisDiagnostics, type RedisPrefixDiagnostic } from "../data/service";
@@ -139,9 +139,15 @@ export default ssr<AuthContext>(async (c) => {
           <ObservabilityChart kind="donut" class="mt-2 h-72 text-dimmed" data={prefixChartData} legend />
           <nav class="mt-2 flex flex-wrap gap-1" aria-label="Filter sampled keys by prefix">
             {prefixChartData.slice(0, 6).map((prefix) => (
-              <a href={redisPrefixHref(prefix.label)} class="btn-input btn-input-sm max-w-full truncate" title={prefix.label}>
+              <ButtonLink
+                href={redisPrefixHref(prefix.label)}
+                variant="secondary"
+                size="sm"
+                class="max-w-full truncate"
+                title={prefix.label}
+              >
                 {prefix.label}
-              </a>
+              </ButtonLink>
             ))}
           </nav>
         </section>

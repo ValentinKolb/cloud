@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type Props = {
   search: string;
@@ -32,7 +32,7 @@ export default function RedisDataFilters(props: Props) {
         icon="ti ti-hierarchy"
         options={DEPTH_OPTIONS}
         value={[String(props.depth)]}
-        onChange={(value) => navigateTo(buildUrl({ search: props.search, depth: Number(value[0] ?? "3") }))}
+        onValueChange={(value) => navigateTo(buildUrl({ search: props.search, depth: Number(value[0] ?? "3") }))}
         isActive={props.depth !== 3}
         defaultValue={["3"]}
       />

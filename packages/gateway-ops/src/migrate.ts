@@ -16,7 +16,7 @@ export const migrate = async (): Promise<void> => {
       base_url TEXT NOT NULL,
       routes JSONB NOT NULL DEFAULT '[]'::jsonb,
       nav JSONB,
-      search JSONB,
+      capabilities JSONB,
       legal_links JSONB,
       widgets JSONB,
       openapi TEXT,
@@ -29,6 +29,7 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`ALTER TABLE gateway.registered_apps ADD COLUMN IF NOT EXISTS appearance JSONB`.simple();
   await sql`ALTER TABLE gateway.registered_apps ADD COLUMN IF NOT EXISTS runtime JSONB`.simple();
+  await sql`ALTER TABLE gateway.registered_apps ADD COLUMN IF NOT EXISTS capabilities JSONB`.simple();
   console.log("  ✓ gateway.registered_apps table");
 
   await sql`

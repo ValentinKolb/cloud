@@ -1,6 +1,6 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts, toast } from "@k2b/ui";
 import { createSignal, onMount } from "solid-js";
 import { apiClient } from "../api-client";
 
@@ -73,10 +73,10 @@ const SendAllPending = () => {
   };
 
   return (
-    <button type="button" class="btn-primary btn-sm" onClick={handleClick} disabled={sendAllMutation.loading() || pendingCount() === 0}>
+    <Button type="button" size="sm" onClick={handleClick} disabled={sendAllMutation.loading() || pendingCount() === 0}>
       {sendAllMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
       <span>Send {pendingCount()} Pending</span>
-    </button>
+    </Button>
   );
 };
 

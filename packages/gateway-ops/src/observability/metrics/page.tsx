@@ -1,7 +1,7 @@
+import { StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { formatDate, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import MetricsCatalogue, { type MetricsCatalogueRow } from "./_components/MetricsCatalogue.island";
 import MetricsTokens from "./_components/MetricsTokens.island";

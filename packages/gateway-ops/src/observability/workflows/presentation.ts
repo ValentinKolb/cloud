@@ -1,4 +1,4 @@
-import type { StatusTone } from "@valentinkolb/cloud/ui";
+import type { StatusTone } from "@k2b/ui";
 import type { WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import type { UndispatchedWorkflowEvent, WorkflowStepSummary } from "@valentinkolb/cloud/workflows/store";
 
@@ -9,7 +9,7 @@ export const RUN_TONE: Record<WorkflowRunState, StatusTone> = {
   succeeded: "ok",
   failed: "error",
   canceled: "neutral",
-  needs_attention: "warn",
+  needs_attention: "warning",
 };
 
 export const RUN_LABEL: Record<WorkflowRunState, string> = {
@@ -29,15 +29,15 @@ export const STEP_TONE: Record<string, StatusTone> = {
   planned: "ok",
   terminal: "ok",
   failed: "error",
-  needs_attention: "warn",
-  unsupported: "warn",
-  indeterminate: "warn",
+  needs_attention: "warning",
+  unsupported: "warning",
+  indeterminate: "warning",
   canceled: "neutral",
 };
 
 export const EFFECT_TONE: Record<string, StatusTone> = {
   executing: "running",
-  ambiguous: "warn",
+  ambiguous: "warning",
   succeeded: "ok",
   failed: "error",
 };
@@ -84,7 +84,7 @@ export const stepDetail = (step: WorkflowStepSummary): string => {
 };
 
 export const eventState = (event: UndispatchedWorkflowEvent): { label: string; tone: StatusTone } => {
-  if (event.matchedCount === 0) return { label: "No activation", tone: "warn" };
+  if (event.matchedCount === 0) return { label: "No activation", tone: "warning" };
   if (event.dispatchFailedAt) return { label: "Dead letter", tone: "error" };
   return { label: "Retrying", tone: "degraded" };
 };

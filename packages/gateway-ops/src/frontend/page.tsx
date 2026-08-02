@@ -15,9 +15,9 @@ const rangeUrl = (url: URL, range: TelemetryRange): string => {
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
 
+import { ButtonLink, DataTable, type DataTableColumn, NoticeCard, StatCell, StatGrid, StatusBadge } from "@k2b/ui";
 import { formatNumber as fmtCount, formatDurationMs as fmtMs } from "@valentinkolb/cloud/shared";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, NoticeCard, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import { type AppRuntimeStatus, buildAppRuntimeStatuses } from "../app-runtime-status";
 import { ssr } from "../config";
 import { getTelemetryAppTotals, getTelemetryPrefixTotals } from "../observability/telemetry/service";
@@ -93,10 +93,10 @@ export default ssr<AuthContext>(async (c) => {
   const visibleApps = registeredApps.filter((a) => a.id !== "gateway" && a.id !== "gateway-router");
 
   const navOf = (app: RegisteredAppStatus) => app.live?.nav ?? app.nav;
-  const searchOf = (app: RegisteredAppStatus) => app.live?.search ?? app.search;
+  const capabilitiesOf = (app: RegisteredAppStatus) => app.live?.capabilities ?? app.capabilities;
   const withNav = visibleApps.filter((a) => navOf(a)?.href);
   const withAdmin = visibleApps.filter((a) => navOf(a)?.adminHref);
-  const withSearch = visibleApps.filter((a) => searchOf(a));
+  const withCapabilities = visibleApps.filter((a) => capabilitiesOf(a));
   const appCount = visibleApps.length;
   const offlineCount = visibleApps.filter((a) => !a.isOnline).length;
 
@@ -139,7 +139,13 @@ export default ssr<AuthContext>(async (c) => {
     { id: "baseUrl", header: "Base URL", value: (app) => app.baseUrl },
     { id: "nav", header: "Nav", value: (app) => app.nav?.href, headerClass: "text-center", cellClass: "text-center" },
     { id: "admin", header: "Admin", value: (app) => app.nav?.adminHref, headerClass: "text-center", cellClass: "text-center" },
-    { id: "search", header: "Search", value: (app) => app.search, headerClass: "text-center", cellClass: "text-center" },
+    {
+      id: "capabilities",
+      header: "Capabilities",
+      value: (app) => app.capabilities,
+      headerClass: "text-center",
+      cellClass: "text-center",
+    },
     {
       id: "heartbeat",
       header: "Heartbeat",
@@ -209,13 +215,14 @@ export default ssr<AuthContext>(async (c) => {
         <nav class="flex flex-wrap items-center gap-1" aria-label="Traffic window">
           <span class="mr-1 text-[10px] text-dimmed">Traffic window</span>
           {TELEMETRY_RANGE_KEYS.map((option) => (
-            <a
+            <ButtonLink
               href={rangeUrl(url, option)}
-              class={`btn-input btn-input-sm ${option === range ? "btn-input-active" : ""}`}
+              variant={option === range ? "primary" : "secondary"}
+              size="sm"
               aria-current={option === range ? "true" : undefined}
             >
               {option}
-            </a>
+            </ButtonLink>
           ))}
         </nav>
 
@@ -234,7 +241,7 @@ export default ssr<AuthContext>(async (c) => {
             href={`/admin/observability/telemetry?range=${range}`}
             accent={unmatchedRequests > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
           />
-          <StatCell value={withSearch.length} label="Search" sub="providers" />
+          <StatCell value={withCapabilities.length} label="Capabilities" sub="providers" />
           <StatCell
             value={routerSnapshot ? fmtUptime(Date.now() - routerSnapshot.startedAt) : "—"}
             label="Uptime"
@@ -259,7 +266,7 @@ export default ssr<AuthContext>(async (c) => {
           <section class="paper overflow-hidden">
             {registry.issues.length > 0 ? (
               <NoticeCard
-                tone="error"
+                tone="danger"
                 title={`${registry.issues.length} invalid app registry ${registry.issues.length === 1 ? "entry" : "entries"}`}
                 detail={registry.issues.map((issue) => `${issue.key}: ${issue.reason}`).join(" · ")}
                 class="m-3"
@@ -310,7 +317,7 @@ export default ssr<AuthContext>(async (c) => {
                   return (
                     <div class="flex max-w-64 flex-col items-center gap-1">
                       <StatusBadge
-                        tone={app.runtimeStatus.status}
+                        tone={app.runtimeStatus.status === "warn" ? "warning" : app.runtimeStatus.status}
                         label={label}
                         title={app.runtimeStatus.signals.join("\n") || undefined}
                       />
@@ -340,7 +347,7 @@ export default ssr<AuthContext>(async (c) => {
                     <Dash />
                   );
                 }
-                if (col.id === "search") return searchOf(app) ? <Check /> : <Dash />;
+                if (col.id === "capabilities") return capabilitiesOf(app) ? <Check /> : <Dash />;
                 if (col.id === "heartbeat") {
                   return (
                     <span class={`text-[10px] ${app.isHealthy ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>

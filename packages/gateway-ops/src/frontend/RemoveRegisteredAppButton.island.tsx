@@ -1,6 +1,6 @@
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -40,15 +40,10 @@ export default function RemoveRegisteredAppButton(props: { id: string; name: str
 
   return (
     <Tooltip content={props.disabled ? "Only offline apps can be removed" : "Remove offline app"}>
-      <button
-        type="button"
-        class="btn-simple btn-sm text-red-500 hover:text-red-600"
-        disabled={props.disabled || removeApp.loading()}
-        onClick={() => removeApp.mutate()}
-      >
+      <Button type="button" variant="danger" size="sm" disabled={props.disabled || removeApp.loading()} onClick={() => removeApp.mutate()}>
         <i class={`ti ${removeApp.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} />
         Remove
-      </button>
+      </Button>
     </Tooltip>
   );
 }

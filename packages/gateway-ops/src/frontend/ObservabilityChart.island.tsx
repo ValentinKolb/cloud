@@ -1,5 +1,5 @@
+import { Chart } from "@k2b/ui";
 import { formatBytes, formatDateTime, formatNumber } from "@valentinkolb/cloud/shared";
-import { Chart } from "@valentinkolb/cloud/ui";
 
 /**
  * Hydrating wrapper around `Chart`.

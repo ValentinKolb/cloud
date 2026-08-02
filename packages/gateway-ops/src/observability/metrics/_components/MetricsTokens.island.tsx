@@ -1,7 +1,7 @@
-import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
-import { CopyButton, Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, CopyButton, IconButton, Placeholder, prompts, Tooltip, toast } from "@k2b/ui";
+import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import type { MetricsToken } from "../service";
 
 type Props = {
@@ -31,7 +31,7 @@ const TokenDialog = (props: { token: string }) => (
       <code class="block break-all text-[11px] text-primary">{props.token}</code>
     </div>
     <div class="flex justify-end">
-      <CopyButton text={props.token} label="Copy token" class="btn-primary btn-sm" />
+      <CopyButton text={props.token} label="Copy token" variant="primary" size="sm" />
     </div>
   </div>
 );
@@ -115,10 +115,10 @@ export default function MetricsTokens(props: Props) {
           <h2 class="text-xs font-semibold text-primary">Bearer tokens</h2>
           <p class="text-[10px] text-dimmed">Resource-bound service account tokens with the metrics:read scope.</p>
         </div>
-        <button type="button" class="btn-primary btn-sm ml-auto" onClick={createToken} disabled={createMutation.loading()}>
+        <Button type="button" size="sm" class="ml-auto" onClick={createToken} disabled={createMutation.loading()}>
           <i class={createMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
           New token
-        </button>
+        </Button>
       </div>
       {props.tokens.length > 0 ? (
         <div class="overflow-x-auto">
@@ -147,15 +147,16 @@ export default function MetricsTokens(props: Props) {
                   <td class="px-3 py-2 text-dimmed">{formatDate(token.lastUsedAt)}</td>
                   <td class="px-3 py-2 text-right">
                     <Tooltip content="Revoke metrics token">
-                      <button
+                      <IconButton
                         type="button"
-                        class="btn-danger btn-sm"
+                        variant="danger"
+                        size="sm"
+                        label={`Revoke metrics token ${token.name}`}
                         onClick={() => revokeToken(token)}
                         disabled={revokeMutation.loading()}
-                        aria-label={`Revoke metrics token ${token.name}`}
                       >
                         <i class={revokeMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-key-off"} />
-                      </button>
+                      </IconButton>
                     </Tooltip>
                   </td>
                 </tr>

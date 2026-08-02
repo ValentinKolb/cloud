@@ -1,5 +1,5 @@
-import { SegmentedControl } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { SegmentedControl } from "@k2b/ui";
 import { buildNotificationViewUrl, type NotificationAdminView } from "./filter-state";
 
 const options = [
@@ -13,7 +13,7 @@ export default function NotificationViewSwitch(props: { view: NotificationAdminV
     <SegmentedControl
       options={options}
       value={() => props.view}
-      onChange={(view) => navigateTo(buildNotificationViewUrl(view))}
+      onValueChange={(view) => navigateTo(buildNotificationViewUrl(view))}
       ariaLabel="Notification observability view"
     />
   );

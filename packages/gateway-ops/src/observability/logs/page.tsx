@@ -1,7 +1,7 @@
+import { ButtonLink, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import LogTable from "./_components/LogTable.island";
@@ -103,13 +103,14 @@ export default ssr<AuthContext>(async (c) => {
         <nav class="flex flex-wrap items-center gap-1" aria-label="Log window">
           <span class="mr-1 text-[10px] text-dimmed">Window</span>
           {LOG_WINDOW_KEYS.map((option) => (
-            <a
+            <ButtonLink
               href={buildLogFilterUrl(LOGS_PAGE_PATH, { window: option, page: 1 }, filter)}
-              class={`btn-input btn-input-sm ${option === filter.window ? "btn-input-active" : ""}`}
+              variant={option === filter.window ? "primary" : "secondary"}
+              size="sm"
               aria-current={option === filter.window ? "true" : undefined}
             >
               {option}
-            </a>
+            </ButtonLink>
           ))}
         </nav>
 

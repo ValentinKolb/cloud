@@ -1,7 +1,7 @@
-import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { FilterChip, type FilterChipSection, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, FilterChip, type FilterChipSection, prompts, Tooltip, toast } from "@k2b/ui";
+import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { apiClient as loggingClient } from "../api-client";
 import { buildLogFilterUrl, defaultLogFilter, hasActiveLogFilters, type LogFilterState } from "./types";
 
@@ -101,7 +101,7 @@ export default function LogFilterBar(props: Props) {
           icon="ti ti-filter"
           options={LEVEL_OPTIONS}
           value={[filter.level]}
-          onChange={(v) => navigate({ level: v[0] ?? "all" })}
+          onValueChange={(v) => navigate({ level: v[0] ?? "all" })}
           isActive={filter.level !== defaultLogFilter.level}
           defaultValue={[defaultLogFilter.level]}
         />
@@ -111,7 +111,7 @@ export default function LogFilterBar(props: Props) {
             icon="ti ti-code"
             options={sourceOptions()}
             value={filter.sources}
-            onChange={(value) => navigate({ sources: value })}
+            onValueChange={(value) => navigate({ sources: value })}
             isActive={filter.sources.length > 0}
             defaultValue={[]}
           />
@@ -123,28 +123,30 @@ export default function LogFilterBar(props: Props) {
         )}
         <div class="ml-auto flex items-center gap-2 shrink-0">
           <Tooltip content="Configure log retention">
-            <button
+            <Button
               type="button"
-              class="btn-input btn-sm"
+              variant="secondary"
+              size="sm"
               onClick={handleSettings}
               disabled={saveMutation.loading()}
               aria-label="Log settings"
             >
               <i class={saveMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"} />
               <span class="hidden sm:inline">Settings</span>
-            </button>
+            </Button>
           </Tooltip>
           <Tooltip content="Delete old log entries">
-            <button
+            <Button
               type="button"
-              class="btn-input btn-sm"
+              variant="secondary"
+              size="sm"
               onClick={handleCleanup}
               disabled={cleanupMutation.loading()}
               aria-label="Clean up logs"
             >
               <i class={cleanupMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
               <span class="hidden sm:inline">Cleanup</span>
-            </button>
+            </Button>
           </Tooltip>
         </div>
       </div>

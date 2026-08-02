@@ -1,8 +1,8 @@
+import { ButtonLink, DataPanel, DataTable, type DataTableColumn, StatCell, StatGrid, StatusBadge } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { formatBytes, formatDateTime as formatDate, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataPanel, DataTable, type DataTableColumn, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 
 /** Seconds to a compact age; sessions report ages, not durations. */
@@ -293,13 +293,14 @@ export default ssr<AuthContext>(async (c) => {
             <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
             <nav class="mt-2 flex flex-wrap gap-1" aria-label="Filter tables by schema">
               {schemaChartData.slice(0, 5).map((schema) => (
-                <a
+                <ButtonLink
                   href={postgresFilterHref({ schema: schema.label })}
-                  class={`btn-input btn-input-sm ${selectedSchema === schema.label ? "btn-input-active" : ""}`}
+                  variant={selectedSchema === schema.label ? "primary" : "secondary"}
+                  size="sm"
                   aria-current={selectedSchema === schema.label ? "true" : undefined}
                 >
                   {schema.label}
-                </a>
+                </ButtonLink>
               ))}
             </nav>
           </article>
@@ -309,13 +310,15 @@ export default ssr<AuthContext>(async (c) => {
             <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
             <nav class="mt-2 flex flex-wrap gap-1" aria-label="Inspect a large table">
               {tableChartData.slice(0, 5).map((table) => (
-                <a
+                <ButtonLink
                   href={postgresFilterHref({ search: table.label })}
-                  class="btn-input btn-input-sm max-w-full truncate"
+                  variant="secondary"
+                  size="sm"
+                  class="max-w-full truncate"
                   title={table.label}
                 >
                   {table.label}
-                </a>
+                </ButtonLink>
               ))}
             </nav>
           </article>

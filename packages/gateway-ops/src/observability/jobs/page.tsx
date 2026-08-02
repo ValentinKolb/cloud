@@ -1,3 +1,15 @@
+import {
+  Button,
+  ButtonLink,
+  DataTable,
+  type DataTableColumn,
+  IconButtonLink,
+  Pagination,
+  Placeholder,
+  StatCell,
+  StatGrid,
+  StructuredDataPreview,
+} from "@k2b/ui";
 import { createPagination } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import {
@@ -16,15 +28,6 @@ import {
   formatDateTime as formatTimestamp,
 } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import {
-  DataTable,
-  type DataTableColumn,
-  Pagination,
-  Placeholder,
-  StatCell,
-  StatGrid,
-  StructuredDataPreview,
-} from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import JobsActionToast from "./_components/JobsActionToast.island";
@@ -276,10 +279,10 @@ const overviewSubtitle = (row: BackgroundJobOverviewRow): string => {
 const DetailLink = (props: { row: BackgroundJobOverviewRow }) => {
   if (!props.row.detailHref) return null;
   return (
-    <a class="btn-simple btn-sm" href={props.row.detailHref} title="Open the owning resource.">
+    <ButtonLink variant="ghost" size="sm" href={props.row.detailHref} title="Open the owning resource.">
       <i class="ti ti-external-link" />
       Open
-    </a>
+    </ButtonLink>
   );
 };
 
@@ -291,15 +294,16 @@ const RunNowButton = (props: { row: BackgroundJobOverviewRow; filter: JobsFilter
       <input type="hidden" name="schedulerId" value={props.row.schedulerId} />
       <input type="hidden" name="scheduleId" value={props.row.scheduleId} />
       <input type="hidden" name="redirectTo" value={buildJobsFilterUrl(baseUrl, { run: null }, props.filter)} />
-      <button
+      <Button
         type="submit"
-        class="btn-simple btn-sm"
+        variant="ghost"
+        size="sm"
         disabled={disabled}
         title={disabled ? props.row.lastError || "No live scheduler handler is available." : "Request a manual scheduler run."}
       >
         <i class="ti ti-player-play" />
         Run now
-      </button>
+      </Button>
     </form>
   );
 };
@@ -388,9 +392,9 @@ const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHre
             <h2 class="truncate text-base font-semibold text-primary">{props.span.name}</h2>
             <p class="mt-1 truncate text-[11px] text-dimmed">{props.span.spanKey ?? props.span.spanId}</p>
           </div>
-          <a href={props.closeHref} class="btn-simple btn-sm shrink-0 text-dimmed hover:text-primary" aria-label="Close run detail panel">
+          <IconButtonLink href={props.closeHref} size="sm" label="Close run detail panel">
             <i class="ti ti-x" />
-          </a>
+          </IconButtonLink>
         </div>
       </section>
 
@@ -598,9 +602,13 @@ export default ssr<AuthContext>(async (c) => {
         <div class="min-w-0" style="view-transition-name: admin-jobs-title">
           <div class="flex items-center gap-2">
             {filter.source ? (
-              <a href={buildJobsFilterUrl(baseUrl, { source: null, run: null, page: 1 }, filter)} class="btn-simple btn-sm text-dimmed">
+              <IconButtonLink
+                href={buildJobsFilterUrl(baseUrl, { source: null, run: null, page: 1 }, filter)}
+                size="sm"
+                label="Back to all job sources"
+              >
                 <i class="ti ti-arrow-left" />
-              </a>
+              </IconButtonLink>
             ) : null}
             <div class="min-w-0">
               <h1 class="truncate text-base font-semibold text-primary">{filter.source ?? "Background Jobs"}</h1>

@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { ButtonLink, FilterChip, type FilterChipSection } from "@k2b/ui";
 import {
   DEFAULT_TELEMETRY_ROUTE_SORT,
   TELEMETRY_RANGES,
@@ -90,7 +90,7 @@ export default function TelemetryFilterBar(props: Props) {
         icon="ti ti-clock"
         options={rangeOptions}
         value={[props.filter.range]}
-        onChange={(value) => {
+        onValueChange={(value) => {
           const range = value[0] as TelemetryRange | undefined;
           if (range) navigateTo(buildTelemetryFilterUrl(props.filter, { range }));
         }}
@@ -102,7 +102,7 @@ export default function TelemetryFilterBar(props: Props) {
         icon="ti ti-apps"
         options={appOptions()}
         value={props.filter.appId ? [props.filter.appId] : []}
-        onChange={(value) => navigateTo(selectAppUrl(props.filter, value[0] ?? ""))}
+        onValueChange={(value) => navigateTo(selectAppUrl(props.filter, value[0] ?? ""))}
         isActive={props.filter.appId.length > 0}
         defaultValue={[]}
       />
@@ -111,7 +111,7 @@ export default function TelemetryFilterBar(props: Props) {
         icon="ti ti-arrows-sort"
         options={sortOptions}
         value={[props.filter.sort]}
-        onChange={(value) => {
+        onValueChange={(value) => {
           const sort = (value[0] ?? DEFAULT_TELEMETRY_ROUTE_SORT) as TelemetryRouteSort;
           navigateTo(buildTelemetryFilterUrl(props.filter, { sort }));
         }}
@@ -123,7 +123,7 @@ export default function TelemetryFilterBar(props: Props) {
         icon="ti ti-filter"
         options={scopeOptions}
         value={activeScope()}
-        onChange={(value) =>
+        onValueChange={(value) =>
           navigateTo(
             buildTelemetryFilterUrl(props.filter, {
               errorsOnly: value.includes("errors"),
@@ -135,9 +135,9 @@ export default function TelemetryFilterBar(props: Props) {
         defaultValue={[]}
       />
       {hasActiveTelemetryFilters(props.filter) ? (
-        <a href={clearTelemetryFiltersUrl(props.filter)} class="btn-input btn-input-sm">
+        <ButtonLink href={clearTelemetryFiltersUrl(props.filter)} variant="secondary" size="sm">
           <i class="ti ti-x" aria-hidden="true" /> Clear
-        </a>
+        </ButtonLink>
       ) : null}
     </div>
   );

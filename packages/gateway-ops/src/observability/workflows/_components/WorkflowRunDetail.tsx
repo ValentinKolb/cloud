@@ -1,5 +1,5 @@
+import { DataPanel, DataTable, type DataTableColumn, NoticeCard, StatusBadge, StructuredDataPreview } from "@k2b/ui";
 import { formatDurationMs, formatNumber, formatRelative } from "@valentinkolb/cloud/shared";
-import { DataPanel, DataTable, type DataTableColumn, NoticeCard, StatusBadge, StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import type { WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import type { WorkflowRunDetail, WorkflowStepSummary } from "@valentinkolb/cloud/workflows/store";
 import type { JSX } from "solid-js";
@@ -181,7 +181,7 @@ const RunOutcome = (props: { detail: WorkflowRunDetail }) => {
   if (attentionStep)
     return (
       <NoticeCard
-        tone="warn"
+        tone="warning"
         title={`${attentionStep.action ?? attentionStep.stepKey} needs an operator decision`}
         detail="Check the external provider before resolving this effect. Marking success resumes the pinned plan without repeating it; marking failure ends the run."
       />
@@ -189,7 +189,7 @@ const RunOutcome = (props: { detail: WorkflowRunDetail }) => {
   if (error)
     return (
       <NoticeCard
-        tone="error"
+        tone="danger"
         title={error.message}
         detail={
           [error.code, error.retryable === null ? null : error.retryable ? "The run can retry." : "The run will not retry."]

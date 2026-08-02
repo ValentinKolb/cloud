@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import {
   buildJobsFilterUrl,
   defaultJobsFilter,
@@ -92,7 +92,7 @@ export default function JobsFilterBar(props: Props) {
           icon="ti ti-clock"
           options={windowOptions}
           value={[props.filter.window]}
-          onChange={(value) => navigate({ window: (value[0] as JobsFilterState["window"]) ?? defaultJobsFilter.window })}
+          onValueChange={(value) => navigate({ window: (value[0] as JobsFilterState["window"]) ?? defaultJobsFilter.window })}
           isActive={props.filter.window !== defaultJobsFilter.window}
           defaultValue={[defaultJobsFilter.window]}
         />
@@ -101,7 +101,7 @@ export default function JobsFilterBar(props: Props) {
           icon="ti ti-filter"
           options={healthOptions}
           value={[props.filter.health]}
-          onChange={(value) => navigate({ health: (value[0] as JobsFilterState["health"]) ?? defaultJobsFilter.health })}
+          onValueChange={(value) => navigate({ health: (value[0] as JobsFilterState["health"]) ?? defaultJobsFilter.health })}
           isActive={props.filter.health !== defaultJobsFilter.health}
           defaultValue={[defaultJobsFilter.health]}
         />
@@ -110,7 +110,7 @@ export default function JobsFilterBar(props: Props) {
           icon="ti ti-stack-2"
           options={typeOptions}
           value={[props.filter.type]}
-          onChange={(value) => navigate({ type: (value[0] as JobsFilterState["type"]) ?? defaultJobsFilter.type })}
+          onValueChange={(value) => navigate({ type: (value[0] as JobsFilterState["type"]) ?? defaultJobsFilter.type })}
           isActive={props.filter.type !== defaultJobsFilter.type}
           defaultValue={[defaultJobsFilter.type]}
         />
@@ -119,7 +119,7 @@ export default function JobsFilterBar(props: Props) {
           icon="ti ti-hourglass"
           options={durationOptions}
           value={[props.filter.duration]}
-          onChange={(value) => navigate({ duration: (value[0] as JobsFilterState["duration"]) ?? defaultJobsFilter.duration })}
+          onValueChange={(value) => navigate({ duration: (value[0] as JobsFilterState["duration"]) ?? defaultJobsFilter.duration })}
           isActive={props.filter.duration !== defaultJobsFilter.duration}
           defaultValue={[defaultJobsFilter.duration]}
         />

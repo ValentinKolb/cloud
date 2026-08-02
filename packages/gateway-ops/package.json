@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
   },
   "dependencies": {
+    "@k2b/ui": "workspace:*",
     "@valentinkolb/cloud": "workspace:*",
     "@k2b/stdlib": "0.17.1",
     "@k2b/sync": "5.9.1",

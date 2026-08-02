@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, FilterChip, type FilterChipSection, TextInput } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, FilterChip, type FilterChipSection, TextInput } from "@k2b/ui";
 import { createMemo, createSignal } from "solid-js";
 
 export type MetricsCatalogueRow = {
@@ -77,11 +77,11 @@ export default function MetricsCatalogue(props: MetricsCatalogueProps) {
           name="metrics-search"
           type="search"
           placeholder="Search metrics..."
-          ariaLabel="Search metrics"
+          aria-label="Search metrics"
           icon="ti ti-search"
           activeIcon="ti ti-search"
           value={search}
-          onInput={setSearch}
+          onValueChange={setSearch}
           clearable
           clearLabel="Clear search"
         />
@@ -91,7 +91,7 @@ export default function MetricsCatalogue(props: MetricsCatalogueProps) {
             icon="ti ti-filter"
             options={sourceOptions()}
             value={source() ? [source()] : []}
-            onChange={(value) => setSource(value[0] ?? "")}
+            onValueChange={(value) => setSource(value[0] ?? "")}
             isActive={source().length > 0}
             defaultValue={[]}
           />
@@ -100,7 +100,7 @@ export default function MetricsCatalogue(props: MetricsCatalogueProps) {
             icon="ti ti-chart-dots"
             options={typeOptions}
             value={type() ? [type()] : []}
-            onChange={(value) => setType(value[0] ?? "")}
+            onValueChange={(value) => setType(value[0] ?? "")}
             isActive={type().length > 0}
             defaultValue={[]}
           />

@@ -1,6 +1,6 @@
-import { Dropdown, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Dropdown, IconButton, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "../api-client";
 
 type NotificationActionsProps = {
@@ -115,9 +115,9 @@ const NotificationActions = (props: NotificationActionsProps) => {
             {props.error}
           </pre>
           <div class="flex justify-end">
-            <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => close()}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       ),
@@ -136,13 +136,13 @@ const NotificationActions = (props: NotificationActionsProps) => {
     <Dropdown
       trigger={
         <Tooltip content="Manage notification">
-          <button type="button" class="icon-btn h-7 w-7" aria-label="Notification actions">
+          <IconButton type="button" size="sm" label="Notification actions">
             <i class="ti ti-dots-vertical text-sm" />
-          </button>
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"
-      width="w-40"
+      width="10rem"
       elements={[
         {
           items: [

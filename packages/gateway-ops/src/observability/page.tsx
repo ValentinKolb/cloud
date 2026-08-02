@@ -10,10 +10,11 @@
  * The page stays deliberately synthetic: source pages own detailed tables and
  * charts, while this entry point turns their aggregates into an operator queue.
  */
+
+import { ButtonLink, Placeholder, StatCell, StatGrid, StatusBadge } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { logging, type TraceWindow, trace } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Placeholder, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import ObservabilityChart from "../frontend/ObservabilityChart.island";
 import { buildGatewayHealth } from "../health";
@@ -105,13 +106,14 @@ export default ssr<AuthContext>(async (c) => {
         <nav class="flex flex-wrap items-center gap-1" aria-label="Traffic window">
           <span class="mr-1 text-[10px] text-dimmed">Traffic window</span>
           {RANGE_KEYS.map((option) => (
-            <a
+            <ButtonLink
               href={rangeUrl(option)}
-              class={`btn-input btn-input-sm ${option === range ? "btn-input-active" : ""}`}
+              variant={option === range ? "primary" : "secondary"}
+              size="sm"
               aria-current={option === range ? "true" : undefined}
             >
               {option}
-            </a>
+            </ButtonLink>
           ))}
         </nav>
 
@@ -202,10 +204,10 @@ export default ssr<AuthContext>(async (c) => {
                 <h2 class="text-xs font-semibold text-primary">Server errors over time</h2>
                 <p class="text-[10px] text-dimmed">5xx responses in the selected traffic window.</p>
               </div>
-              <a href={`/admin/observability/telemetry?range=${range}`} class="btn-input btn-input-sm">
+              <ButtonLink href={`/admin/observability/telemetry?range=${range}`} variant="secondary" size="sm">
                 Open Traffic
                 <i class="ti ti-arrow-up-right" aria-hidden="true" />
-              </a>
+              </ButtonLink>
             </div>
             {telemetryTimeseries.error ? (
               <Placeholder state="error" variant="compact" description={telemetryTimeseries.error} />
@@ -229,10 +231,10 @@ export default ssr<AuthContext>(async (c) => {
                 <h2 class="text-xs font-semibold text-primary">Log severity over time</h2>
                 <p class="text-[10px] text-dimmed">Warnings and errors in the selected traffic window.</p>
               </div>
-              <a href={`/admin/observability/logs?window=${range}`} class="btn-input btn-input-sm">
+              <ButtonLink href={`/admin/observability/logs?window=${range}`} variant="secondary" size="sm">
                 Open Logs
                 <i class="ti ti-arrow-up-right" aria-hidden="true" />
-              </a>
+              </ButtonLink>
             </div>
             {logTimeseries.error ? (
               <Placeholder state="error" variant="compact" description={logTimeseries.error} />

@@ -1,5 +1,5 @@
+import { ButtonLink, DataPanel, DataTable, type DataTableColumn, RangePicker, StatusBadge } from "@k2b/ui";
 import { formatDurationMs, formatNumber, formatPercent, formatRelative } from "@valentinkolb/cloud/shared";
-import { DataPanel, DataTable, type DataTableColumn, RangePicker, StatusBadge } from "@valentinkolb/cloud/ui";
 import type {
   StrandedWorkflowEffect,
   UndispatchedWorkflowEvent,
@@ -8,7 +8,7 @@ import type {
 } from "@valentinkolb/cloud/workflows/store";
 import type { JSX } from "solid-js";
 import { WINDOWS, type WorkflowsFilterState, workflowsFilter } from "../filters";
-import { EFFECT_TONE, eventState, LAG_WARN_MS, RUN_LABEL, runErrorSummary, RUN_TONE } from "../presentation";
+import { EFFECT_TONE, eventState, LAG_WARN_MS, RUN_LABEL, RUN_TONE, runErrorSummary } from "../presentation";
 
 const familyColumns: DataTableColumn<WorkflowFamilySummary>[] = [
   { id: "workflow", header: "Workflow / Trigger", cellClass: "min-w-[280px]" },
@@ -133,9 +133,9 @@ export function WorkflowFamiliesView(props: CommonProps & { families: WorkflowFa
           if (col.id === "activity") return <span class="text-[10px] text-dimmed">{formatRelative(row.latestRunAt)}</span>;
           if (col.id === "open")
             return (
-              <a class="btn-simple btn-sm" href={href}>
+              <ButtonLink variant="ghost" size="sm" href={href}>
                 Open
-              </a>
+              </ButtonLink>
             );
           return "";
         }}
@@ -277,13 +277,13 @@ export function WorkflowEffectsView(props: CommonProps & { effects: StrandedWork
           if (col.id === "step") return <span class="font-mono text-xs">{row.stepKey}</span>;
           if (col.id === "action") return <span class="text-secondary">{row.action ?? "—"}</span>;
           if (col.id === "state")
-            return <StatusBadge tone={EFFECT_TONE[row.effectState] ?? "warn"} label={row.effectState} variant="dot" />;
+            return <StatusBadge tone={EFFECT_TONE[row.effectState] ?? "warning"} label={row.effectState} variant="dot" />;
           if (col.id === "age") return <span class="text-secondary">{formatDurationMs(row.ageMs)}</span>;
           if (col.id === "open")
             return (
-              <a class="btn-simple btn-sm" href={workflowsFilter.build(props.state, { run: row.runId })}>
+              <ButtonLink variant="ghost" size="sm" href={workflowsFilter.build(props.state, { run: row.runId })}>
                 Inspect
-              </a>
+              </ButtonLink>
             );
           return render(value);
         }}

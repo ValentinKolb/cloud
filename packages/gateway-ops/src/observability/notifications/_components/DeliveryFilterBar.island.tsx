@@ -1,6 +1,6 @@
-import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
+import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import {
   buildDeliveryNotificationsUrl,
   type DeliveryStatusFilter,
@@ -71,7 +71,7 @@ export default function DeliveryFilterBar(props: Props) {
           icon="ti ti-filter"
           options={STATUS_OPTIONS}
           value={[props.status]}
-          onChange={(value) => navigate({ status: (value[0] ?? "all") as DeliveryStatusFilter })}
+          onValueChange={(value) => navigate({ status: (value[0] ?? "all") as DeliveryStatusFilter })}
           isActive={props.status !== "all"}
           defaultValue={["all"]}
         />
@@ -81,7 +81,7 @@ export default function DeliveryFilterBar(props: Props) {
             icon="ti ti-route"
             options={channelSections()}
             value={props.channels}
-            onChange={(channels) => navigate({ channels })}
+            onValueChange={(channels) => navigate({ channels })}
             isActive={props.channels.length > 0}
             defaultValue={[]}
           />
@@ -92,7 +92,7 @@ export default function DeliveryFilterBar(props: Props) {
             icon="ti ti-apps"
             options={appSections()}
             value={props.appIds}
-            onChange={(appIds) => navigate({ appIds })}
+            onValueChange={(appIds) => navigate({ appIds })}
             isActive={props.appIds.length > 0}
             defaultValue={[]}
           />

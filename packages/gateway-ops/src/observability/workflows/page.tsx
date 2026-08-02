@@ -6,10 +6,11 @@
  * the two interventions the kernel can perform safely — cancellation and an
  * explicit decision about an ambiguous external effect.
  */
+
+import { ButtonLink, IconButtonLink, NoticeCard, Pagination, Placeholder, RangePicker, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { formatDateTime, formatDurationMs, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { NoticeCard, Pagination, Placeholder, RangePicker, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import {
   getWorkflow,
   getWorkflowRun,
@@ -102,7 +103,7 @@ const FindingNotices = (props: { totals: WorkflowTotals; effectsHref: string; ev
   <>
     {props.totals.stranded > 0 ? (
       <NoticeCard
-        tone="warn"
+        tone="warning"
         title={`${formatNumber(props.totals.stranded)} external effect${props.totals.stranded === 1 ? "" : "s"} require evidence`}
         detail={
           <span>
@@ -117,7 +118,7 @@ const FindingNotices = (props: { totals: WorkflowTotals; effectsHref: string; ev
     ) : null}
     {props.totals.undispatched > 0 ? (
       <NoticeCard
-        tone="warn"
+        tone="warning"
         title={`${formatNumber(props.totals.undispatched)} event${props.totals.undispatched === 1 ? "" : "s"} did not become a run`}
         detail={
           <span>
@@ -287,9 +288,9 @@ export default ssr<AuthContext>(async (c) => {
         <div class="min-w-0" style="view-transition-name: admin-workflows-title">
           <div class="flex items-center gap-2">
             {state.workflow || state.parent ? (
-              <a class="btn-simple btn-sm text-dimmed" href={allWorkflowsHref} aria-label="Back to all workflows">
+              <IconButtonLink href={allWorkflowsHref} label="Back to all workflows" size="sm">
                 <i class="ti ti-arrow-left" />
-              </a>
+              </IconButtonLink>
             ) : null}
             <div class="min-w-0">
               <h1 class="truncate text-base font-semibold text-primary">{title}</h1>
@@ -305,10 +306,10 @@ export default ssr<AuthContext>(async (c) => {
         <WorkflowStats totals={totals} window={state.window} />
         <div class="flex flex-wrap items-center justify-between gap-2">
           <RangePicker label={null} ariaLabel="Workflow observability view" options={viewOptions} value={state.view} />
-          <a class="btn-simple btn-sm" href={workflowsFilter.build(state)}>
+          <ButtonLink variant="ghost" size="sm" href={workflowsFilter.build(state)}>
             <i class="ti ti-refresh" />
             Refresh
-          </a>
+          </ButtonLink>
         </div>
 
         {!detail && state.view === "runs" ? (
@@ -359,7 +360,7 @@ export default ssr<AuthContext>(async (c) => {
 
         {state.run && !detail ? (
           <NoticeCard
-            tone="error"
+            tone="danger"
             title="Workflow run not found"
             detail={
               <a class="font-medium hover:underline" href={workflowsFilter.build(state, { run: "" })}>
@@ -371,7 +372,7 @@ export default ssr<AuthContext>(async (c) => {
           <WorkflowRunDetailView detail={detail} state={state} />
         ) : state.workflow && !selectedWorkflow ? (
           <NoticeCard
-            tone="error"
+            tone="danger"
             title="Workflow not found"
             detail={
               <a class="font-medium hover:underline" href={allWorkflowsHref}>

@@ -1,4 +1,4 @@
-import { toast } from "@valentinkolb/cloud/ui";
+import { toast } from "@k2b/ui";
 import { onMount } from "solid-js";
 
 const ACTION_PARAM = "job_action";

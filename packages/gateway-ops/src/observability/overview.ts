@@ -1,4 +1,4 @@
-import type { StatusTone } from "@valentinkolb/cloud/ui";
+import type { StatusTone } from "@k2b/ui";
 
 export type OverviewSignalSeverity = "critical" | "warning" | "unavailable";
 
@@ -147,7 +147,7 @@ export const overviewVerdict = (signals: OverviewSignal[]): OverviewVerdict => {
   }
   if (warning > 0) {
     return {
-      tone: "warn",
+      tone: "warning",
       label: "Review signals",
       description: `${formatCount(warning, "signal")} may need investigation.`,
     };

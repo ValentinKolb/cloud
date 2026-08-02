@@ -1,5 +1,5 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 
 type Props = {
   apps: string[];
@@ -53,7 +53,7 @@ export default function WorkflowsFilterBar(props: Props) {
         icon="ti ti-apps"
         options={appOptions()}
         value={props.app ? [props.app] : [""]}
-        onChange={(value) => navigateTo(props.hrefFor.app[value[0] ?? ""] ?? props.hrefFor.app[""] ?? "")}
+        onValueChange={(value) => navigateTo(props.hrefFor.app[value[0] ?? ""] ?? props.hrefFor.app[""] ?? "")}
         isActive={Boolean(props.app)}
         defaultValue={[""]}
       />
@@ -64,7 +64,7 @@ export default function WorkflowsFilterBar(props: Props) {
             icon="ti ti-activity"
             options={STATE_OPTIONS}
             value={[props.state]}
-            onChange={(value) => navigateTo(props.hrefFor.state[value[0] ?? "all"] ?? "")}
+            onValueChange={(value) => navigateTo(props.hrefFor.state[value[0] ?? "all"] ?? "")}
             isActive={props.state !== "all"}
             defaultValue={["all"]}
           />
@@ -73,7 +73,7 @@ export default function WorkflowsFilterBar(props: Props) {
             icon="ti ti-arrows-shuffle"
             options={MODE_OPTIONS}
             value={[props.mode]}
-            onChange={(value) => navigateTo(props.hrefFor.mode[value[0] ?? "all"] ?? "")}
+            onValueChange={(value) => navigateTo(props.hrefFor.mode[value[0] ?? "all"] ?? "")}
             isActive={props.mode !== "all"}
             defaultValue={["all"]}
           />
