@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type {
@@ -11,19 +12,43 @@ import { requireMailboxPermission } from "./access";
 import {
   type AppIntegrationRequest,
   buildCalendarInvitationResponse,
+  commitEventInvitation,
   commitCalendarInvitationResponse,
+  createCalendarEvent,
+  getSpacesMailIntegrationAvailability,
+  getCalendarSpace,
   importCalendarInvitation,
+  listCalendarEvents,
   listCalendarDestinations,
+  prepareEventInvitation,
   previewCalendarInvitation,
 } from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import { enqueueDraftProjection } from "./draft-provider-projection";
 import * as drafts from "./drafts";
+import * as draftUploads from "./draft-uploads";
 import { storeReadableBlob } from "./message-blobs";
 import * as messages from "./messages";
 import * as senderIdentities from "./sender-identities";
 
 const MAX_CALENDAR_BYTES = 1_000_000;
+
+export const composerIntegrationAvailable = async (): Promise<boolean> =>
+  (await getSpacesMailIntegrationAvailability()).composer;
+
+export const visibleInvitationAttendees = (
+  draft: Pick<MailDraft, "to" | "cc">,
+  organizerAddress: string,
+): CalendarAddress[] => {
+  const organizer = organizerAddress.trim().toLowerCase();
+  const recipients = new Map<string, CalendarAddress>();
+  for (const recipient of [...draft.to, ...draft.cc]) {
+    const address = recipient.address.trim().toLowerCase();
+    if (address === organizer || recipients.has(address)) continue;
+    recipients.set(address, { name: recipient.name?.trim() || null, address });
+  }
+  return [...recipients.values()];
+};
 
 type IntegrationFailure = { message: string; status: number };
 
@@ -226,6 +251,117 @@ export const setDefaultDestination = async (params: {
   `;
   if (!updated) return fail(err.notFound("Mailbox"));
   return ok({ selectedSpaceId: params.spaceId, items: destinations.data.items });
+};
+
+export const listComposerEvents = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  spaceId: string;
+  query?: string;
+  request: AppIntegrationRequest;
+}) => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
+  if (!allowed.ok) return allowed;
+  const result = await listCalendarEvents(params.spaceId, params.request, params.query);
+  return result.ok ? ok(result.data) : integrationFailure(result);
+};
+
+export const createComposerEvent = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  spaceId: string;
+  title: string;
+  location?: string;
+  startsAt: string;
+  endsAt: string;
+  request: AppIntegrationRequest;
+}) => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
+  if (!allowed.ok) return allowed;
+  const space = await getCalendarSpace(params.spaceId, params.request);
+  if (!space.ok) return integrationFailure(space);
+  const column = space.data.columns.find((candidate) => !candidate.isDone);
+  if (!column) return fail(err.badInput("The selected Space has no active column for a new event"));
+  const result = await createCalendarEvent(
+    {
+      spaceId: params.spaceId,
+      columnId: column.id,
+      title: params.title,
+      location: params.location?.trim() || undefined,
+      startsAt: params.startsAt,
+      endsAt: params.endsAt,
+      allDay: false,
+    },
+    params.request,
+  );
+  return result.ok ? ok(result.data) : integrationFailure(result);
+};
+
+export const attachEventInvitation = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  draftId: string;
+  itemId: string;
+  idempotencyKey: string;
+  request: AppIntegrationRequest;
+}): Promise<Result<MailDraft>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
+  if (!allowed.ok) return allowed;
+  const [current, identities] = await Promise.all([
+    drafts.getDraft(params.context, params.mailboxId, params.draftId),
+    senderIdentities.listSenderIdentities(params.context, params.mailboxId),
+  ]);
+  if (!current.ok) return current;
+  if (!identities.ok) return identities;
+  if (current.data.state !== "draft") return fail(err.conflict("Only an editable draft can receive an invitation"));
+  const identity = identities.data.find(
+    (candidate) => candidate.id === current.data.senderIdentityId && candidate.status === "verified",
+  );
+  if (!identity) return fail(err.badInput("The draft sender identity is no longer verified"));
+
+  const attendees = visibleInvitationAttendees(current.data, identity.fromAddress);
+  if (attendees.length === 0) return fail(err.badInput("Add at least one To or Cc recipient before attaching an invitation"));
+
+  const prepared = await prepareEventInvitation(
+    {
+      itemId: params.itemId,
+      mailboxId: params.mailboxId,
+      draftId: params.draftId,
+      senderIdentityId: identity.id,
+      organizer: { name: identity.displayName?.trim() || null, address: identity.fromAddress },
+      attendees,
+    },
+    params.request,
+    params.idempotencyKey,
+  );
+  if (!prepared.ok) return integrationFailure(prepared);
+
+  const bytes = Buffer.from(prepared.data.calendar, "utf8");
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
+  let updated = current.data;
+  const alreadyAttached = updated.attachments.some(
+    (attachment) => attachment.contentHash === contentHash && attachment.filename === prepared.data.filename,
+  );
+  if (!alreadyAttached) {
+    const uploaded = await draftUploads.uploadDraftAttachmentStream({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      draftId: params.draftId,
+      expectedRevision: updated.revision,
+      filename: prepared.data.filename,
+      contentType: prepared.data.contentType,
+      byteLength: bytes.byteLength,
+      stream: Readable.from(bytes),
+    });
+    if (!uploaded.ok) return uploaded;
+    updated = uploaded.data;
+  }
+
+  const committed = await commitEventInvitation({ deliveryId: prepared.data.deliveryId }, params.request);
+  if (!committed.ok) {
+    return fail(err.internal(`The invitation was attached, but Spaces could not record it: ${committed.message}`));
+  }
+  return ok(updated);
 };
 
 export const preview = async (params: {

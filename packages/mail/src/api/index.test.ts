@@ -58,4 +58,14 @@ describe("Mail API composition", () => {
       ),
     ).toBe(true);
   });
+
+  test("exposes the bounded composer calendar facade", () => {
+    expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/calendar-events")).toBe(true);
+    expect(api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/calendar-events")).toBe(true);
+    expect(
+      api.routes.some(
+        (route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/drafts/:draftId/calendar-invitation",
+      ),
+    ).toBe(true);
+  });
 });

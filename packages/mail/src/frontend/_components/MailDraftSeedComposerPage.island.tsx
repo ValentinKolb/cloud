@@ -13,6 +13,7 @@ export default function MailDraftSeedComposerPage(props: {
   popout?: boolean;
   dateConfig: DateContext;
   canShareAttachments: boolean;
+  calendarIntegrationAvailable: boolean;
 }) {
   const [seed, setSeed] = createSignal<MailDraftSeed | null>();
 
@@ -49,6 +50,7 @@ export default function MailDraftSeedComposerPage(props: {
             popout={props.popout}
             dateConfig={props.dateConfig}
             canShareAttachments={props.canShareAttachments}
+            calendarIntegrationAvailable={props.calendarIntegrationAvailable}
           />
         )}
       </Show>

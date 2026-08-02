@@ -1,7 +1,7 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
-import { drafts, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../service";
+import { calendarInvitations, drafts, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../service";
 import MailComposerPage from "../../../_components/MailComposerPage.island";
 import { mailDraftReturnHref } from "../../../_components/mail-compose-route";
 
@@ -13,11 +13,12 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const [mailbox, permission, identities, draft] = await Promise.all([
+  const [mailbox, permission, identities, draft, calendarIntegrationAvailable] = await Promise.all([
     mailboxes.getMailbox(context, mailboxId),
     mailboxAccess.getMailboxPermission(context, mailboxId),
     senderIdentities.listSenderIdentities(context, mailboxId),
     drafts.getDraft(context, mailboxId, draftId),
+    calendarInvitations.composerIntegrationAvailable(),
   ]);
   if (!mailbox.ok || !draft.ok || (permission !== "write" && permission !== "admin")) return c.redirect(`/app/mail/${mailboxId}`);
   const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxId);
@@ -38,6 +39,7 @@ export default ssr<AuthContext>(async (c) => {
         popout={popout}
         dateConfig={getDateConfig(c)}
         canShareAttachments={permission === "admin"}
+        calendarIntegrationAvailable={calendarIntegrationAvailable}
       />
     </Layout>
   );

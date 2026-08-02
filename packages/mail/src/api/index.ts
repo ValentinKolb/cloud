@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { ErrorResponseSchema, GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { EventDataSchema, EventListDataSchema } from "@valentinkolb/cloud-app-spaces/capability-contracts";
 import {
   CalendarInvitationImportResultSchema,
   CalendarInvitationPreviewSchema,
@@ -198,6 +199,25 @@ const calendarDestinationsResponseSchema = z.object({
   items: SpacesMailDestinationsSchema,
 });
 const calendarImportInputSchema = z.object({ spaceId: z.string().uuid().optional() }).strict();
+const calendarEventsQuerySchema = z
+  .object({ spaceId: z.uuid(), query: z.string().trim().max(500).optional() })
+  .strict();
+const createCalendarEventInputSchema = z
+  .object({
+    spaceId: z.uuid(),
+    title: z.string().trim().min(1).max(200),
+    location: z.string().trim().max(500).optional(),
+    startsAt: z.string().datetime({ offset: true }),
+    endsAt: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .refine((value) => new Date(value.endsAt) > new Date(value.startsAt), {
+    message: "End time must be after start time",
+    path: ["endsAt"],
+  });
+const attachCalendarEventInputSchema = z
+  .object({ itemId: z.uuid(), idempotencyKey: z.uuid() })
+  .strict();
 const calendarResponseInputSchema = z
   .object({
     participationStatus: CalendarParticipationStatusSchema,
@@ -530,6 +550,90 @@ const mailOperationsApi = new Hono<AuthContext>()
         request: integrationRequest(c),
       });
       return respond(c, updated);
+    },
+  )
+  .get(
+    "/mailboxes/:mailboxId/calendar-events",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "List writable Space events for the composer",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(EventListDataSchema, "Calendar events"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    v("param", uuidParamSchema),
+    v("query", calendarEventsQuerySchema),
+    async (c) => {
+      const { mailboxId } = c.req.valid("param");
+      const query = c.req.valid("query");
+      return respond(
+        c,
+        calendarInvitations.listComposerEvents({
+          context: requestContext(c),
+          mailboxId,
+          spaceId: query.spaceId,
+          query: query.query,
+          request: integrationRequest(c),
+        }),
+      );
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/calendar-events",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "Create a Space event for the current composer",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(EventDataSchema, "Created calendar event"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid event"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    v("param", uuidParamSchema),
+    v("json", createCalendarEventInputSchema),
+    async (c) => {
+      const { mailboxId } = c.req.valid("param");
+      return respond(
+        c,
+        calendarInvitations.createComposerEvent({
+          context: requestContext(c),
+          mailboxId,
+          ...c.req.valid("json"),
+          request: integrationRequest(c),
+        }),
+      );
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/calendar-invitation",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "Attach an idempotent Space event invitation to a draft",
+      description: "Derives organizer and visible attendees from the authorized Mail draft; Bcc recipients are never disclosed.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(draftSchema, "Draft with calendar invitation"),
+        400: jsonResponse(ErrorResponseSchema, "Invitation cannot be attached"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        409: jsonResponse(ErrorResponseSchema, "Draft changed"),
+      },
+    }),
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", attachCalendarEventInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; draftId: string };
+      return respond(
+        c,
+        calendarInvitations.attachEventInvitation({
+          context: requestContext(c),
+          ...params,
+          ...c.req.valid("json"),
+          request: integrationRequest(c),
+        }),
+      );
     },
   )
   .get(

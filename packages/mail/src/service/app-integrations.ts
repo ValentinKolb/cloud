@@ -12,6 +12,16 @@ import {
   CalendarInvitationResponseCommitCapabilityInputSchema,
   CalendarInvitationResponsePrepareDataSchema,
   CalendarInvitationResponsePrepareInputSchema,
+  EventCreateInputSchema,
+  EventDataSchema,
+  EventInvitationCommitDataSchema,
+  EventInvitationCommitInputSchema,
+  EventInvitationPrepareDataSchema,
+  EventInvitationPrepareInputSchema,
+  EventListDataSchema,
+  EventListInputSchema,
+  SpaceDetailDataSchema,
+  SpaceGetInputSchema,
 } from "@valentinkolb/cloud-app-spaces/capability-contracts";
 import type {
   CalendarInvitationImportInput,
@@ -30,6 +40,8 @@ const REQUIRED_SPACES_INVITATION_QUERIES = [
 ] as const;
 const REQUIRED_SPACES_INVITATION_ACTIONS = ["calendar-invitation.import", "calendar-invitation.response.commit"] as const;
 const REQUIRED_SPACES_SETTINGS_QUERIES = ["calendar-destination.list"] as const;
+const REQUIRED_SPACES_COMPOSER_QUERIES = ["calendar-destination.list", "space.get", "event.list"] as const;
+const REQUIRED_SPACES_COMPOSER_ACTIONS = ["event.create", "event.invitation.prepare", "event.invitation.commit"] as const;
 
 export type AppIntegrationRequest = {
   cookie?: string | null;
@@ -64,10 +76,10 @@ const readBoundedText = async (response: Response): Promise<string | null> => {
   ).toString("utf8");
 };
 
-export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitations: boolean; settings: boolean }> => {
+export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitations: boolean; settings: boolean; composer: boolean }> => {
   try {
     const app = await getCapability("spaces");
-    if (!app) return { invitations: false, settings: false };
+    if (!app) return { invitations: false, settings: false, composer: false };
     const queries = new Set(app.manifest.queries.map((operation) => operation.localId));
     const actions = new Set(app.manifest.actions.map((operation) => operation.localId));
     const invitations =
@@ -76,9 +88,12 @@ export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitati
     return {
       invitations,
       settings: REQUIRED_SPACES_SETTINGS_QUERIES.every((id) => queries.has(id)),
+      composer:
+        REQUIRED_SPACES_COMPOSER_QUERIES.every((id) => queries.has(id)) &&
+        REQUIRED_SPACES_COMPOSER_ACTIONS.every((id) => actions.has(id)),
     };
   } catch {
-    return { invitations: false, settings: false };
+    return { invitations: false, settings: false, composer: false };
   }
 };
 
@@ -207,6 +222,72 @@ export const listCalendarDestinations = (request: AppIntegrationRequest) =>
     request,
     dataSchema: CalendarDestinationListDataSchema,
     input: CalendarDestinationListInputSchema.parse({}),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const getCalendarSpace = (spaceId: string, request: AppIntegrationRequest) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "queries",
+    capabilityId: "space.get",
+    request,
+    dataSchema: SpaceDetailDataSchema,
+    input: SpaceGetInputSchema.parse({ spaceId }),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const listCalendarEvents = (spaceId: string, request: AppIntegrationRequest, query?: string) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "queries",
+    capabilityId: "event.list",
+    request,
+    dataSchema: EventListDataSchema,
+    input: EventListInputSchema.parse({
+      spaceId,
+      query: query?.trim() || undefined,
+      status: "active",
+      assignedTo: "all",
+      sort: "updated",
+      sortDesc: true,
+      limit: 100,
+    }),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const createCalendarEvent = (input: z.input<typeof EventCreateInputSchema>, request: AppIntegrationRequest) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "actions",
+    capabilityId: "event.create",
+    request,
+    dataSchema: EventDataSchema,
+    input: EventCreateInputSchema.parse(input),
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const prepareEventInvitation = (
+  input: z.input<typeof EventInvitationPrepareInputSchema>,
+  request: AppIntegrationRequest,
+  idempotencyKey: string,
+) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "actions",
+    capabilityId: "event.invitation.prepare",
+    request,
+    dataSchema: EventInvitationPrepareDataSchema,
+    input: EventInvitationPrepareInputSchema.parse(input),
+    idempotencyKey,
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const commitEventInvitation = (
+  input: z.input<typeof EventInvitationCommitInputSchema>,
+  request: AppIntegrationRequest,
+) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "actions",
+    capabilityId: "event.invitation.commit",
+    request,
+    dataSchema: EventInvitationCommitDataSchema,
+    input: EventInvitationCommitInputSchema.parse(input),
   }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const previewCalendarInvitation = (input: CalendarInvitationPreviewInput, request: AppIntegrationRequest) =>

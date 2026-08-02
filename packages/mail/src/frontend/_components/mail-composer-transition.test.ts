@@ -6,6 +6,7 @@ const conflictingTransitions: [MailComposerTransition, MailComposerTransition][]
   ["send", "handoff"],
   ["discard", "send"],
   ["attachment", "send"],
+  ["calendar", "send"],
   ["recovery", "send"],
 ];
 

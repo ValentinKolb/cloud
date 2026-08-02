@@ -137,6 +137,7 @@ describe("spaces capabilities", () => {
     const compiled = compileCapabilities("spaces", spacesCapabilities);
     expect(compiled.manifest.queries.some((query) => query.localId === "calendar-invitation.preview")).toBeTrue();
     expect(compiled.manifest.actions.some((action) => action.localId === "calendar-invitation.import")).toBeTrue();
+    expect(compiled.manifest.actions.some((action) => action.localId === "event.invitation.prepare")).toBeTrue();
   });
 
   test("lists only writable calendar destinations without accepting Mail ownership state", async () => {
@@ -181,6 +182,8 @@ describe("spaces capabilities", () => {
       "comment.delete",
       "comment.update",
       "event.create",
+      "event.invitation.commit",
+      "event.invitation.prepare",
       "event.update",
       "item.delete",
       "task.create",
@@ -200,6 +203,57 @@ describe("spaces capabilities", () => {
       approval: "always",
       idempotency: "none",
       target: { type: "comment", inputField: "commentId" },
+    });
+  });
+
+  test("prepares a draft invitation only after current event write access is rechecked", async () => {
+    spyOn(spacesService.item, "get").mockResolvedValue(event);
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("write");
+    const prepare = spyOn(spacesService.calendarInvitations, "prepareEventInvitationAttachment").mockResolvedValue({
+      ok: true,
+      data: {
+        deliveryId: "88888888-8888-4888-8888-888888888888",
+        itemId,
+        mailboxId: "99999999-9999-4999-8999-999999999999",
+        draftId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        sequence: 0,
+        filename: "invitation.ics",
+        contentType: "text/calendar; method=REQUEST; charset=utf-8",
+        calendar: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+      },
+    });
+    spyOn(audit, "recordResultAfterSideEffect").mockImplementation(async ({ result }) => result);
+    const context = { ...userContext, idempotencyKey: "mail-calendar-test" } satisfies CapabilityExecutionContext;
+
+    const result = await spacesCapabilities.actions["event.invitation.prepare"].run(
+      {
+        itemId,
+        mailboxId: "99999999-9999-4999-8999-999999999999",
+        draftId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        senderIdentityId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        organizer: { name: "Organizer", address: "organizer@example.test" },
+        attendees: [{ name: null, address: "attendee@example.test" }],
+      },
+      context,
+    );
+
+    expect(prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId,
+        itemId,
+        subject: userContext.accessSubject,
+        deliveryId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        refs: [
+          { type: "spaces.item", id: itemId },
+          { type: "mail.draft", id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+        ],
+      },
     });
   });
 

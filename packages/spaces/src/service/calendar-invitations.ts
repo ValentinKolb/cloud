@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
@@ -519,6 +520,7 @@ const buildEventInvitation = (params: {
   method: "request" | "cancel";
   organizer: CalendarAddress;
   attendees: CalendarAddress[];
+  generatedAt?: string;
 }): string => {
   const event = params.item;
   const method = params.method.toUpperCase();
@@ -531,7 +533,7 @@ const buildEventInvitation = (params: {
     "BEGIN:VEVENT",
     `UID:${escapeText(params.uid)}`,
     `SEQUENCE:${params.sequence}`,
-    `DTSTAMP:${icalDate(new Date().toISOString())}`,
+    `DTSTAMP:${icalDate(params.generatedAt ?? new Date().toISOString())}`,
     `DTSTART${dateParameter}:${invitationDate(event.startsAt!, event.allDay)}`,
     `DTEND${dateParameter}:${invitationDate(event.endsAt!, event.allDay)}`,
     `SUMMARY:${escapeText(event.title)}`,
@@ -551,6 +553,172 @@ const buildEventInvitation = (params: {
   return `${lines.map(foldLine).join("\r\n")}\r\n`;
 };
 
+export type PreparedEventInvitationAttachment = {
+  deliveryId: string;
+  itemId: string;
+  mailboxId: string;
+  draftId: string;
+  sequence: number;
+  filename: string;
+  contentType: string;
+  calendar: string;
+};
+
+export const prepareEventInvitationAttachment = async (params: {
+  spaceId: string;
+  itemId: string;
+  subject: AccessSubject;
+  deliveryId: string;
+  mailboxId: string;
+  draftId: string;
+  senderIdentityId: string;
+  organizer: CalendarAddress;
+  attendees: CalendarAddress[];
+}): Promise<Result<PreparedEventInvitationAttachment>> => {
+  const item = await requireWritableEvent(params);
+  if (!item.ok) return item;
+  const organizer: CalendarAddress = {
+    name: params.organizer.name?.trim() || null,
+    address: params.organizer.address.trim().toLowerCase(),
+  };
+  const attendees = normalizeAttendees(params.attendees, organizer.address);
+  if (attendees.length === 0) return fail(err.badInput("Add at least one To or Cc recipient other than the organizer"));
+  const requestFingerprint = createHash("sha256")
+    .update(
+      JSON.stringify({
+        itemId: params.itemId,
+        mailboxId: params.mailboxId,
+        draftId: params.draftId,
+        senderIdentityId: params.senderIdentityId,
+        organizer,
+        attendees,
+      }),
+    )
+    .digest("hex");
+  const filename = "invitation.ics";
+  const contentType = "text/calendar; method=REQUEST; charset=utf-8";
+
+  return sql.begin(async (tx) => {
+    const [existing] = await tx<
+      {
+        item_id: string;
+        mailbox_id: string;
+        draft_id: string | null;
+        request_fingerprint: string | null;
+        sequence: number;
+        calendar_payload: string | null;
+        attachment_filename: string | null;
+      }[]
+    >`
+      SELECT item_id, mailbox_id, draft_id, request_fingerprint, sequence, calendar_payload, attachment_filename
+      FROM spaces.calendar_invitation_deliveries
+      WHERE idempotency_key = ${params.deliveryId}::uuid
+      FOR UPDATE
+    `;
+    if (existing) {
+      if (
+        existing.item_id !== params.itemId ||
+        existing.mailbox_id !== params.mailboxId ||
+        existing.draft_id !== params.draftId ||
+        existing.request_fingerprint !== requestFingerprint
+      ) {
+        return fail(err.conflict("Invitation idempotency key belongs to another request"));
+      }
+      if (!existing.calendar_payload || !existing.attachment_filename) {
+        return fail(err.conflict("Invitation preparation is incomplete; use a new idempotency key"));
+      }
+      return ok({
+        deliveryId: params.deliveryId,
+        itemId: params.itemId,
+        mailboxId: params.mailboxId,
+        draftId: params.draftId,
+        sequence: existing.sequence,
+        filename: existing.attachment_filename,
+        contentType,
+        calendar: existing.calendar_payload,
+      });
+    }
+
+    const [source] = await tx<{ sequence: number }[]>`
+      SELECT sequence
+      FROM spaces.calendar_invitation_sources
+      WHERE item_id = ${params.itemId}::uuid
+      FOR UPDATE
+    `;
+    const sequence = source ? source.sequence + 1 : 0;
+    const calendar = buildEventInvitation({
+      item: item.data,
+      uid: `${params.itemId}@spaces.cloud`,
+      sequence,
+      method: "request",
+      organizer,
+      attendees,
+      generatedAt: new Date().toISOString(),
+    });
+    await tx`
+      INSERT INTO spaces.calendar_invitation_sources (
+        item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
+      ) VALUES (
+        ${params.itemId}::uuid, ${params.mailboxId}::uuid, NULL, ${`${params.itemId}@spaces.cloud`},
+        ${sequence}, 'request', ${organizer}::jsonb, ${attendees}::jsonb
+      )
+      ON CONFLICT (item_id) DO UPDATE SET
+        mailbox_id = EXCLUDED.mailbox_id,
+        calendar_uid = EXCLUDED.calendar_uid,
+        sequence = EXCLUDED.sequence,
+        method = EXCLUDED.method,
+        organizer = EXCLUDED.organizer,
+        attendees = EXCLUDED.attendees,
+        updated_at = now()
+    `;
+    await tx`
+      INSERT INTO spaces.calendar_invitation_deliveries (
+        idempotency_key, item_id, mailbox_id, sender_identity_id, sequence, method, state,
+        draft_id, request_fingerprint, calendar_payload, attachment_filename
+      ) VALUES (
+        ${params.deliveryId}::uuid, ${params.itemId}::uuid, ${params.mailboxId}::uuid,
+        ${params.senderIdentityId}::uuid, ${sequence}, 'request', 'prepared', ${params.draftId}::uuid,
+        ${requestFingerprint}, ${calendar}, ${filename}
+      )
+    `;
+    return ok({
+      deliveryId: params.deliveryId,
+      itemId: params.itemId,
+      mailboxId: params.mailboxId,
+      draftId: params.draftId,
+      sequence,
+      filename,
+      contentType,
+      calendar,
+    });
+  });
+};
+
+export const commitEventInvitationAttachment = async (params: {
+  deliveryId: string;
+  subject: AccessSubject;
+}): Promise<Result<{ deliveryId: string; itemId: string; draftId: string; state: "drafted" }>> => {
+  const [delivery] = await sql<{ item_id: string; draft_id: string | null; state: string }[]>`
+    SELECT item_id, draft_id, state
+    FROM spaces.calendar_invitation_deliveries
+    WHERE idempotency_key = ${params.deliveryId}::uuid
+  `;
+  if (!delivery?.draft_id) return fail(err.notFound("Prepared invitation"));
+  const item = await items.get({ id: delivery.item_id });
+  if (!item) return fail(err.notFound("Event"));
+  const writable = await requireWritableEvent({ spaceId: item.spaceId, itemId: item.id, subject: params.subject });
+  if (!writable.ok) return writable;
+  if (delivery.state !== "prepared" && delivery.state !== "drafted") {
+    return fail(err.conflict("Invitation is not ready to commit"));
+  }
+  await sql`
+    UPDATE spaces.calendar_invitation_deliveries
+    SET state = 'drafted', error_message = NULL, updated_at = now()
+    WHERE idempotency_key = ${params.deliveryId}::uuid
+  `;
+  return ok({ deliveryId: params.deliveryId, itemId: delivery.item_id, draftId: delivery.draft_id, state: "drafted" });
+};
+
 export const getEventInvitationContext = async (params: {
   spaceId: string;
   itemId: string;
@@ -568,7 +736,7 @@ export const getEventInvitationContext = async (params: {
     {
       sequence: number;
       method: "request" | "cancel";
-      state: "preparing" | "drafted" | "failed";
+      state: "preparing" | "prepared" | "drafted" | "failed";
       draft_id: string | null;
       error_message: string | null;
       updated_at: Date | string;
@@ -628,7 +796,7 @@ export const createEventInvitationDraft = async (params: {
         sender_identity_id: string | null;
         sequence: number;
         method: "request" | "cancel";
-        state: "preparing" | "drafted" | "failed";
+        state: "preparing" | "prepared" | "drafted" | "failed";
         draft_id: string | null;
       }[]
     >`

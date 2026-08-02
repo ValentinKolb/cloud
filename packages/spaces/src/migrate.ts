@@ -241,6 +241,34 @@ export const migrate = async (): Promise<void> => {
     ADD COLUMN IF NOT EXISTS sender_identity_id UUID
   `.simple();
   await sql`
+    ALTER TABLE spaces.calendar_invitation_deliveries
+    ADD COLUMN IF NOT EXISTS request_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS calendar_payload TEXT,
+    ADD COLUMN IF NOT EXISTS attachment_filename TEXT
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_deliveries_state_check'
+          AND conrelid = 'spaces.calendar_invitation_deliveries'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_deliveries
+        DROP CONSTRAINT calendar_invitation_deliveries_state_check;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_deliveries_state_v2_check'
+          AND conrelid = 'spaces.calendar_invitation_deliveries'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_deliveries
+        ADD CONSTRAINT calendar_invitation_deliveries_state_v2_check
+        CHECK (state IN ('preparing', 'prepared', 'drafted', 'failed'));
+      END IF;
+    END $$
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_calendar_invitation_deliveries_item
     ON spaces.calendar_invitation_deliveries(item_id, created_at DESC)
   `.simple();

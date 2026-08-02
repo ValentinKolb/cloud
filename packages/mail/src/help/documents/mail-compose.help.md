@@ -70,6 +70,12 @@ does not prevent sending.
 
 When forwarding a message with attachments, Mail includes the original files in the new draft by default. Remove individual attachments in the composer when the forwarded body is enough.
 
+## Add a calendar invitation {icon="calendar-plus"}
+
+Select **Add calendar invitation** beside **Attach files** to choose an existing event or create a small event directly in a writable Space. Spaces owns the event and its invitation sequence; Mail attaches the generated `.ics` file to the current draft. Nothing is sent until you use the normal send action.
+
+Mail derives the organizer from the draft's verified sender identity. **To** and **Cc** recipients become invitation attendees, while **Bcc** recipients are deliberately excluded so hidden addresses are never disclosed through calendar data. If Spaces is unavailable or you cannot write to any Space, the calendar action stays hidden and the rest of the composer keeps working.
+
 ## Review sending warnings {icon="shield-check"}
 
 Before an immediate, delayed, or scheduled send, Mail checks the exact saved draft for common mistakes. It may ask you to review a missing attachment, an unusually large recipient list, external recipients, Reply all, or a suspicious link. The dialog explains each warning and lets you return to the draft. Choose **Send anyway** only after reviewing the current recipients, links, and attachments.

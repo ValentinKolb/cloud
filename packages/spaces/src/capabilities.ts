@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
@@ -33,6 +34,10 @@ import {
   CommentUpdateInputSchema,
   EventCreateInputSchema,
   EventDataSchema,
+  EventInvitationCommitDataSchema,
+  EventInvitationCommitInputSchema,
+  EventInvitationPrepareDataSchema,
+  EventInvitationPrepareInputSchema,
   EventListDataSchema,
   EventListInputSchema,
   EventUpdateInputSchema,
@@ -58,6 +63,11 @@ import { spacesService } from "./service";
 import { isSpaceResourceId, resolveSpaceApiKeyPermission, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "./service/access";
 
 const encodeCursor = (page: number): string => Buffer.from(JSON.stringify({ v: 1, page }), "utf8").toString("base64url");
+
+const stableUuid = (value: string): string => {
+  const hex = createHash("sha256").update(value).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+};
 
 export const decodeSpacesCapabilityCursor = (cursor: string | undefined): Result<number> => {
   if (!cursor) return ok(1);
@@ -597,6 +607,52 @@ const runCalendarInvitationResponseCommit = async (
     return result.ok ? ok({ data: result.data, refs: [{ type: "mail.draft", id: input.draftId }] }) : result;
   });
 
+const runEventInvitationPrepare = async (
+  input: z.infer<typeof EventInvitationPrepareInputSchema>,
+  context: CapabilityExecutionContext,
+) =>
+  audited(actionAudit(context, "event.invitation.prepare", "space_item", input.itemId), async () => {
+    if (!context.idempotencyKey) return fail(err.badInput("An idempotency key is required"));
+    const resolved = await requireItem(input.itemId, context, "write");
+    if (!resolved.ok) return resolved;
+    if (!isEvent(resolved.data.item)) return fail(err.badInput("Item is not an event"));
+    const result = await spacesService.calendarInvitations.prepareEventInvitationAttachment({
+      spaceId: resolved.data.item.spaceId,
+      ...input,
+      deliveryId: stableUuid(context.idempotencyKey),
+      subject: context.accessSubject,
+    });
+    return result.ok
+      ? ok({
+          data: result.data,
+          refs: [
+            { type: "spaces.item", id: result.data.itemId },
+            { type: "mail.draft", id: result.data.draftId },
+          ],
+        })
+      : result;
+  });
+
+const runEventInvitationCommit = async (
+  input: z.infer<typeof EventInvitationCommitInputSchema>,
+  context: CapabilityExecutionContext,
+) =>
+  audited(actionAudit(context, "event.invitation.commit", "calendar_invitation_delivery", input.deliveryId), async () => {
+    const result = await spacesService.calendarInvitations.commitEventInvitationAttachment({
+      deliveryId: input.deliveryId,
+      subject: context.accessSubject,
+    });
+    return result.ok
+      ? ok({
+          data: result.data,
+          refs: [
+            { type: "spaces.item", id: result.data.itemId },
+            { type: "mail.draft", id: result.data.draftId },
+          ],
+        })
+      : result;
+  });
+
 export const spacesCapabilities = defineCapabilities({
   version: 1,
   types: {
@@ -753,6 +809,29 @@ export const spacesCapabilities = defineCapabilities({
       idempotency: "none",
       target: { type: "item", inputField: "itemId" },
       run: runEventUpdate,
+    },
+    "event.invitation.prepare": {
+      title: "Prepare event invitation",
+      description: "Prepare an idempotent iCalendar invitation for an existing Mail draft without sending it.",
+      input: EventInvitationPrepareInputSchema,
+      data: EventInvitationPrepareDataSchema,
+      destructive: false,
+      openWorld: false,
+      approval: "once",
+      idempotency: "required",
+      target: { type: "item", inputField: "itemId" },
+      run: runEventInvitationPrepare,
+    },
+    "event.invitation.commit": {
+      title: "Commit event invitation",
+      description: "Record that a prepared event invitation was attached to its authorized Mail draft.",
+      input: EventInvitationCommitInputSchema,
+      data: EventInvitationCommitDataSchema,
+      destructive: false,
+      openWorld: false,
+      approval: "once",
+      idempotency: "none",
+      run: runEventInvitationCommit,
     },
     "item.delete": {
       title: "Delete Space item",

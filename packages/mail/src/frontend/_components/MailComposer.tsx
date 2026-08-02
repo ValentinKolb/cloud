@@ -33,6 +33,7 @@ import type {
 } from "../../contracts";
 import { readApiError } from "./api-response";
 import MailComposerAttachments from "./MailComposerAttachments";
+import { openMailComposerCalendarDialog } from "./MailComposerCalendarDialog";
 import MailComposerEditor, { mailComposerPaneVisible } from "./MailComposerEditor";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
@@ -70,6 +71,7 @@ export default function MailComposer(props: {
   returnHref: string;
   dateConfig: DateContext;
   canShareAttachments?: boolean;
+  calendarIntegrationAvailable?: boolean;
 }) {
   const initial = props.initialDraft ?? props.initialSeed;
   if (!initial) throw new Error("MailComposer requires a draft or compose seed");
@@ -244,6 +246,29 @@ export default function MailComposer(props: {
     isDisposed: () => disposed,
   });
   const uploads = attachments.uploads;
+
+  const addCalendarInvitation = async () => {
+    const reservation = composerTransition.reserve("calendar");
+    if (!reservation) return;
+    try {
+      const currentDraft = await persist();
+      if (!currentDraft) throw new Error(statusMessage());
+      const updated = await openMailComposerCalendarDialog({
+        mailboxId: props.mailboxId,
+        draftId: currentDraft.id,
+        recipientCount: parseMailRecipients(to()).length + parseMailRecipients(cc()).length,
+        dateConfig: props.dateConfig,
+      });
+      if (updated) {
+        setDraft(updated);
+        toast("The invitation was attached to this draft.", { title: "Calendar invitation added" });
+      }
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Calendar invitation could not be added");
+    } finally {
+      composerTransition.release(reservation);
+    }
+  };
 
   const stopPreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
@@ -995,6 +1020,13 @@ export default function MailComposer(props: {
             void attachments.addFiles(files);
           }}
         />
+        <Show when={props.calendarIntegrationAvailable}>
+          <Tooltip content="Add calendar invitation">
+            <IconButton type="button" label="Add calendar invitation" disabled={!editable()} onClick={() => void addCalendarInvitation()}>
+              <i class="ti ti-calendar-plus" aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        </Show>
         <Select
           placeholder="Message format"
           value={format}

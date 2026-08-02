@@ -1,6 +1,6 @@
 import { createSignal, type Accessor } from "solid-js";
 
-export type MailComposerTransition = "send" | "discard" | "handoff" | "recovery" | "attachment" | "delivery_options";
+export type MailComposerTransition = "send" | "discard" | "handoff" | "recovery" | "attachment" | "calendar" | "delivery_options";
 
 type MailComposerTransitionReservation = Readonly<{
   kind: MailComposerTransition;

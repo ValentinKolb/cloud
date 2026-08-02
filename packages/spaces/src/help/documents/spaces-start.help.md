@@ -41,3 +41,4 @@ Spaces owns imported meeting state, recurrence, organizers, attendees, and invit
 - A cancellation completes the linked event; it cannot create a new one by itself.
 - In an editable event, use **Invitations** to choose a writable mailbox and any currently verified From identity before creating an editable Mail draft. Updates use a newer sequence, cancellation is explicit, and transport failures remain visible in Spaces.
 - If Mail or its required capability surface is unavailable, invitation controls stay hidden and Spaces remains fully usable as a calendar.
+- From a Mail draft, choose an existing event or create a compact event in a writable Space, then attach its invitation. The draft remains editable and Mail sends it only through the normal delivery flow.

@@ -177,7 +177,7 @@ export const EventInvitationContextSchema = z
       .object({
         sequence: z.number().int().nonnegative(),
         method: z.enum(["request", "cancel"]),
-        state: z.enum(["preparing", "drafted", "failed"]),
+        state: z.enum(["preparing", "prepared", "drafted", "failed"]),
         draftId: z.string().uuid().nullable(),
         errorMessage: z.string().max(2_000).nullable(),
         updatedAt: z.string().datetime(),

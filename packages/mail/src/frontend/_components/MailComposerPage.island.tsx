@@ -11,6 +11,7 @@ export default function MailComposerPage(props: {
   popout?: boolean;
   dateConfig: DateContext;
   canShareAttachments: boolean;
+  calendarIntegrationAvailable: boolean;
 }) {
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
@@ -24,6 +25,7 @@ export default function MailComposerPage(props: {
           returnHref={props.returnHref}
           dateConfig={props.dateConfig}
           canShareAttachments={props.canShareAttachments}
+          calendarIntegrationAvailable={props.calendarIntegrationAvailable}
         />
       </div>
     </div>
