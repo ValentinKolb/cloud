@@ -1,3 +1,4 @@
+import { IconButton } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { createLiveWebSocket } from "../browser/live-websocket";
 import { notificationTargetMatchesLocation } from "../browser/notification-target";
@@ -121,15 +122,14 @@ export default function BrowserNotifications(props: { userId: string }) {
               </a>
             )}
           </div>
-          <button
-            type="button"
-            class="btn-icon-ghost btn-xs shrink-0"
-            aria-label="Dismiss notification"
-            title="Dismiss"
+          <IconButton
+            size="xs"
+            class="shrink-0"
+            label="Dismiss notification"
             onClick={() => setNotification(null)}
           >
             <i class="ti ti-x" />
-          </button>
+          </IconButton>
         </aside>
       )}
     </Show>

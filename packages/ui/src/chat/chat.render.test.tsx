@@ -118,7 +118,7 @@ describe("@k2b/ui portable chat family", () => {
   test("renders semantic messages and expandable activity", () => {
     const message = renderToString(() =>
       createComponent(ChatMessage, {
-        role: "assistant",
+        messageRole: "assistant",
         status: "streaming",
         createdAt: "2026-07-28T12:00:00.000Z",
         content: "Working on it",

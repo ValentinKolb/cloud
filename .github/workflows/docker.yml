@@ -13,8 +13,8 @@ env:
 #                             Pushes :v0.1.2 and :latest.
 #   workflow_dispatch       → build everything on demand.
 #
-# Apps ui-lab and pulse are intentionally skipped: ui-lab is dev-only, pulse
-# is not release-ready yet. Everything else in the workspace ships. The expeditions app moved out to the cloud-template
+# Pulse is intentionally skipped because it is not release-ready yet. Everything
+# else in the workspace ships. The expeditions app moved out to the cloud-template
 # repo as the standalone reference app.
 
 on:
@@ -79,7 +79,7 @@ jobs:
             if echo "$changed" | grep -qE '^(packages/cloud/|Dockerfile|\.dockerignore|bun\.lock|package\.json|styles\.css|\.github/workflows/docker\.yml)'; then
               apps="$ALL"
             else
-              # Match packages/<id>/, intersect with ALL (drops ui-lab/pulse).
+              # Match packages/<id>/, intersect with ALL (drops pulse).
               touched=$(echo "$changed" | sed -nE 's|^packages/([^/]+)/.*|\1|p' | sort -u)
               apps=$(jq -nc --argjson all "$ALL" --arg list "$touched" \
                 '[$list | split("\n")[] | select(length > 0)] as $t | $all | map(select(. as $a | $t | index($a)))')

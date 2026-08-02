@@ -29,7 +29,7 @@ The shared dialog core owns focus, Escape, backdrop, and layering.
 ## Collect a small form
 
 ```tsx
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 
 const values = await prompts.form({
   title: "Create item",

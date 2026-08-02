@@ -27,7 +27,7 @@ should use them only when a feature guide gives the exact import.
 | `@valentinkolb/cloud/services` | Supported, server-only | Feature services named by a capability guide |
 | `@valentinkolb/cloud/contracts` | Supported | Browser-safe schemas and shared data contracts |
 | `@valentinkolb/cloud/browser` | Supported, browser | Typed Hono browser clients |
-| `@valentinkolb/cloud/ui` | Supported, SolidJS | Shared SolidJS components |
+| `@k2b/ui` | Supported, SolidJS | Portable SolidJS components and interactions |
 | `@valentinkolb/cloud/ssr` | Supported, server-only | Layouts, runtime context, and URL filters |
 | `@valentinkolb/cloud/workflows` | Supported | Workflow definitions and authoring contracts |
 | `@valentinkolb/cloud/ai` | Supported, server-only | AI APIs named by the AI guides |
@@ -136,6 +136,8 @@ documents all process variables; that larger list is not the shape of `env`.
 | --- | --- | --- | --- |
 | `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](/docs/en/ai/chat-interface) |
 | `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](/docs/en/ai/chat-interface) |
+| `@valentinkolb/cloud/account/ui` | Supported, SolidJS | Cloud account selectors and avatars | [Building blocks](/docs/en/building-blocks) |
+| `@valentinkolb/cloud/access/ui` | Supported, SolidJS | Cloud permission and resource-key controls | [Resource API keys](/docs/en/identity/resource-api-keys) |
 | `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport | [Realtime UI](/docs/en/frontend/realtime-ui) |
 | `@valentinkolb/cloud/browser/notifications` | Supported, browser | Browser notification state | [Notifications](/docs/en/platform/notifications) |
 | `@valentinkolb/cloud/clients/core` | Platform-owned, browser | Typed client for the Core platform API | — |
@@ -145,8 +147,7 @@ documents all process variables; that larger list is not the shape of `env`.
 | `@valentinkolb/cloud/workflows/testing` | Supported, tests | Workflow process fixtures | [Test workflows](/docs/en/automation/workflow-observability-and-testing) |
 | `@valentinkolb/cloud/ssr/islands` | Supported, server-only | Shared SSR island helpers | [In-product help](/docs/en/platform/help) |
 | `@valentinkolb/cloud/ssr/*` | Advanced | Named SSR modules; prefer the barrel | — |
-| `@valentinkolb/cloud/ui/workflow-authoring` | Supported, SolidJS | Workflow authoring controls | [Shared components](/docs/en/frontend#choose-shared-components) |
-| `@valentinkolb/cloud/ui/styles.css` | Supported asset | Shared global stylesheet | [Styling](/docs/en/frontend/styling-and-accessibility) |
+| `@valentinkolb/cloud/workflows/editor` | Supported, SolidJS | Workflow authoring controls | [Shared components](/docs/en/frontend#choose-shared-components) |
 | `@valentinkolb/cloud/styles/global.css` | Supported asset | Alias for the global stylesheet | [Styling](/docs/en/frontend/styling-and-accessibility) |
 | `@valentinkolb/cloud/cli/access` | Supported | Resource access commands | [CLI modules](/docs/en/platform/cli-modules) |
 | `@valentinkolb/cloud/cli/account` | Platform-owned | Built-in account commands | — |

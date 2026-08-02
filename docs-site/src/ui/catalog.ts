@@ -233,7 +233,7 @@ const cloudEntries = cloudPages.map((page, pageIndex) =>
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 97;
+export const portableUiComponentCount = 99;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({
@@ -342,6 +342,8 @@ export const documentedOnlyUiCatalogExports = {
   panelDialogFixedPanelClass: "Documented PanelDialog fixed-mode class helper.",
   panelDialogOptions: "Documented PanelDialog default preset.",
   panelDialogPanelClass: "Documented PanelDialog default class helper.",
+  panelDialogWideOptions: "Documented PanelDialog wide-mode preset.",
+  panelDialogWidePanelClass: "Documented PanelDialog wide-mode class helper.",
   panelDialogWorkspaceOptions: "Documented PanelDialog workspace-mode preset.",
   panelDialogWorkspacePanelClass: "Documented PanelDialog workspace-mode class helper.",
   parseAppWorkspaceLayoutState: "Documented AppWorkspace persisted-state parser.",

@@ -1,4 +1,4 @@
-import { AppWorkspace, DataTable, type DataTableColumn, Pagination, Placeholder, StatusBadge } from "@k2b/ui";
+import { AppWorkspace, DataTable, type DataTableColumn, IconButtonLink, Pagination, Placeholder, StatusBadge } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
@@ -176,10 +176,9 @@ function CapabilityTable(props: {
           }
           if (col.id === "open") {
             return (
-              <a class="btn-input btn-sm btn-icon" href={href} aria-label={`Open ${row.title}`} title={`Open ${row.title}`}>
+              <IconButtonLink href={href} size="sm" label={`Open ${row.title}`}>
                 <i class="ti ti-chevron-right" aria-hidden="true" />
-                <span class="sr-only">Open {row.title}</span>
-              </a>
+              </IconButtonLink>
             );
           }
           return null;

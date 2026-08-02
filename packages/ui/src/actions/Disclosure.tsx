@@ -44,6 +44,7 @@ export function Disclosure(props: DisclosureProps): JSX.Element {
         props.onValueChange?.(next);
       }}
     >
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native interactive trigger for details. */}
       <summary aria-disabled={props.disabled ? "true" : undefined} onClick={(event) => props.disabled && event.preventDefault()}>
         <Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
         <span>{props.summary}</span>

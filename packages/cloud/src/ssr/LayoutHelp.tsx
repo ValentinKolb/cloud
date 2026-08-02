@@ -1,5 +1,5 @@
 import { clipboard, hotkeys } from "@k2b/stdlib/solid";
-import { MarkdownView, prompts } from "@k2b/ui";
+import { Button, IconButton, IconButtonLink, MarkdownView, prompts } from "@k2b/ui";
 import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { appAccentStyle } from "./app-appearance";
@@ -107,9 +107,9 @@ const Shortcuts = (props: { openSearchHelp: () => void }) => {
   return (
     <div class="flex flex-col gap-3">
       <p class="text-sm leading-relaxed text-dimmed">Shortcuts follow the current app and view. This list updates automatically.</p>
-      <button type="button" class="btn-secondary btn-sm self-start" onClick={props.openSearchHelp}>
+      <Button size="sm" variant="secondary" class="self-start" onClick={props.openSearchHelp}>
         <i class="ti ti-search" /> Search help
-      </button>
+      </Button>
       <div class="flex flex-col gap-2">
         <For each={entries()}>
           {(entry) => (
@@ -528,15 +528,14 @@ const HelpShell = (props: {
       <Show when={props.surface === "modal"}>
         <header class="flex min-h-16 shrink-0 items-center gap-2 px-5 py-3">
           <Show when={view() !== "hub"}>
-            <button
-              type="button"
-              class="icon-btn shrink-0"
-              aria-label={view() === "article" ? "Back to help topics" : "Back to help"}
+            <IconButton
+              class="shrink-0"
+              label={view() === "article" ? "Back to help topics" : "Back to help"}
               title="Back"
               onClick={() => (view() === "article" ? goBack() : showHub())}
             >
               <i class="ti ti-arrow-left" />
-            </button>
+            </IconButton>
           </Show>
           <span class="help-topic-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] app-accent-text">
             <i class={`${modalIcon()} text-lg`} />
@@ -551,23 +550,19 @@ const HelpShell = (props: {
           </div>
           <div class="flex shrink-0 items-center gap-1" role="group" aria-label="Help actions">
             <Show when={view() === "hub" && documentTopics().length > 0}>
-              <button
-                type="button"
-                class="icon-btn"
+              <IconButton
                 disabled={copyingAll()}
-                aria-label={allHelpClipboard.wasCopied() ? "Help copied as Markdown" : "Copy all help as Markdown"}
+                label={allHelpClipboard.wasCopied() ? "Help copied as Markdown" : "Copy all help as Markdown"}
                 title={allHelpClipboard.wasCopied() ? "Copied" : "Copy all help as Markdown"}
                 onClick={() => void copyAllHelp()}
               >
                 <i class={copyingAll() ? "ti ti-loader-2 animate-spin" : allHelpClipboard.wasCopied() ? "ti ti-check" : "ti ti-markdown"} />
-              </button>
+              </IconButton>
             </Show>
             <Show when={view() === "article" && activeTopic()?.kind === "document"}>
-              <button
-                type="button"
-                class="icon-btn"
+              <IconButton
                 disabled={!payload()}
-                aria-label={articleClipboard.wasCopied() ? "Article copied as Markdown" : "Copy article as Markdown"}
+                label={articleClipboard.wasCopied() ? "Article copied as Markdown" : "Copy article as Markdown"}
                 title={articleClipboard.wasCopied() ? "Copied" : "Copy article as Markdown"}
                 onClick={() => {
                   const topic = activeTopic();
@@ -575,16 +570,15 @@ const HelpShell = (props: {
                 }}
               >
                 <i class={articleClipboard.wasCopied() ? "ti ti-check" : "ti ti-markdown"} />
-              </button>
+              </IconButton>
             </Show>
             <Show when={props.pageBase}>
               {(pageBase) => (
-                <a
+                <IconButtonLink
                   href={layoutHelpTopicHref(pageBase(), view() === "article" ? activeId() : null)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="icon-btn"
-                  aria-label="Open help in a new browser window"
+                  label="Open help in a new browser window"
                   title="Open full-page help"
                   onClick={(event) => {
                     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -602,12 +596,12 @@ const HelpShell = (props: {
                   }}
                 >
                   <i class="ti ti-app-window" />
-                </a>
+                </IconButtonLink>
               )}
             </Show>
-            <button type="button" class="icon-btn" aria-label="Close help" title="Close" onClick={props.close}>
+            <IconButton label="Close help" title="Close" onClick={props.close}>
               <i class="ti ti-x" />
-            </button>
+            </IconButton>
           </div>
         </header>
       </Show>
@@ -630,10 +624,10 @@ const HelpShell = (props: {
                 <p class="mt-1 text-sm text-dimmed">Find a task, concept, or shortcut for the current app.</p>
               </div>
               <Show when={props.surface !== "modal" && documentTopics().length > 0}>
-                <button type="button" class="btn-secondary btn-sm shrink-0" disabled={copyingAll()} onClick={() => void copyAllHelp()}>
+                <Button size="sm" variant="secondary" class="shrink-0" disabled={copyingAll()} onClick={() => void copyAllHelp()}>
                   <i class={copyingAll() ? "ti ti-loader-2 animate-spin" : allHelpClipboard.wasCopied() ? "ti ti-check" : "ti ti-copy"} />
                   {copyingAll() ? "Preparing…" : allHelpClipboard.wasCopied() ? "Copied" : "Copy all as Markdown"}
-                </button>
+                </Button>
               </Show>
             </div>
             <Show when={copyAllError()}>
@@ -676,9 +670,9 @@ const HelpShell = (props: {
           <div class="mx-auto flex max-w-3xl flex-col gap-4">
             <div class="flex items-center gap-2">
               <Show when={props.surface !== "modal"}>
-                <button type="button" class="icon-btn" aria-label="Back to help" onClick={showHub}>
+                <IconButton label="Back to help" onClick={showHub}>
                   <i class="ti ti-arrow-left" />
-                </button>
+                </IconButton>
               </Show>
               <label class="field flex h-11 flex-1 items-center gap-2 px-3">
                 <i class="ti ti-search text-dimmed" />
@@ -731,14 +725,15 @@ const HelpShell = (props: {
                     </Show>
                   </div>
                   <Show when={topic().kind === "document" && payload()}>
-                    <button
-                      type="button"
-                      class="btn-secondary btn-sm col-start-2 shrink-0 justify-self-start sm:col-start-3 sm:row-start-1 sm:justify-self-auto"
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      class="col-start-2 shrink-0 justify-self-start sm:col-start-3 sm:row-start-1 sm:justify-self-auto"
                       onClick={() => void copyArticle(topic(), payload())}
                     >
                       <i class={articleClipboard.wasCopied() ? "ti ti-check" : "ti ti-markdown"} />
                       {articleClipboard.wasCopied() ? "Copied" : "Copy Markdown"}
-                    </button>
+                    </Button>
                   </Show>
                 </header>
               </Show>
@@ -754,9 +749,9 @@ const HelpShell = (props: {
                     <div class="info-block-danger">
                       <p class="font-medium">Could not load this topic</p>
                       <p class="mt-1 text-sm">{message()}</p>
-                      <button type="button" class="btn-secondary btn-sm mt-3" onClick={() => setLoadAttempt((value) => value + 1)}>
+                      <Button size="sm" variant="secondary" class="mt-3" onClick={() => setLoadAttempt((value) => value + 1)}>
                         Try again
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </Show>

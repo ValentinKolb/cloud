@@ -782,10 +782,7 @@
 /* `data-overflow` is written by `installAppWorkspaceController` once it has
    measured the label, so a label that fits never animates. */
 .k2b-ui .k2b-app-workspace__sidebar-item-label[data-overflow="true"][data-marquee="true"]:hover .k2b-app-workspace__sidebar-item-label-text,
-.k2b-ui
-  .k2b-app-workspace__sidebar-item:focus-within
-  .k2b-app-workspace__sidebar-item-label[data-overflow="true"][data-marquee="true"]
-  .k2b-app-workspace__sidebar-item-label-text {
+.k2b-ui .k2b-app-workspace__sidebar-item:focus-within .k2b-app-workspace__sidebar-item-label[data-overflow="true"][data-marquee="true"] .k2b-app-workspace__sidebar-item-label-text {
   animation: k2b-sidebar-label-marquee 4s ease-in-out 0.2s infinite alternate;
 }
 
@@ -2081,45 +2078,22 @@
   display: none;
 }
 
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  .k2b-app-workspace__sidebar-header {
+.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] .k2b-app-workspace__sidebar-header {
   justify-content: center;
   padding-inline: 0;
 }
 
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  .k2b-app-workspace__sidebar-header
-  > :not(.k2b-app-workspace__sidebar-header-icon),
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  :is(
-    .k2b-app-workspace__sidebar-section > h2,
-    .k2b-app-workspace__sidebar-icon-grid-wrap > h2,
-    .k2b-app-workspace__sidebar-item-label,
-    .k2b-app-workspace__sidebar-item-meta,
-    .k2b-app-workspace__sidebar-item-action,
-    .k2b-app-workspace__nav-tree-toggle
-  ) {
+.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] .k2b-app-workspace__sidebar-header > :not(.k2b-app-workspace__sidebar-header-icon),
+.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] :is(.k2b-app-workspace__sidebar-section > h2, .k2b-app-workspace__sidebar-icon-grid-wrap > h2, .k2b-app-workspace__sidebar-item-label, .k2b-app-workspace__sidebar-item-meta, .k2b-app-workspace__sidebar-item-action, .k2b-app-workspace__nav-tree-toggle) {
   display: none !important;
 }
 
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  :is(.k2b-app-workspace__sidebar-item, .k2b-app-workspace__sidebar-item-main) {
+.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] :is(.k2b-app-workspace__sidebar-item, .k2b-app-workspace__sidebar-item-main) {
   justify-content: center;
   padding-inline: 0;
 }
 
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  .k2b-app-workspace__sidebar-icon-grid {
+.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] .k2b-app-workspace__sidebar-icon-grid {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -2224,9 +2198,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .k2b-ui
-    .k2b-app-workspace:not(:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar))
-    > .k2b-app-workspace__content {
+  .k2b-ui .k2b-app-workspace:not(:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar)) > .k2b-app-workspace__content {
     grid-column: 1;
   }
 

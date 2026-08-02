@@ -18,13 +18,15 @@ Use `ResourceApiKeys` for integrations that need machine access to one resource.
 
 ```tsx
 import {
-  EntitySearch,
-  type EntitySearchPrincipal,
   PermissionEditor,
   ResourceApiKeys,
   type ResourceApiKey,
   type ResourceApiKeyPermissionOption,
-} from "@valentinkolb/cloud/ui";
+} from "@valentinkolb/cloud/access/ui";
+import {
+  EntitySearch,
+  type EntitySearchPrincipal,
+} from "@valentinkolb/cloud/account/ui";
 ```
 
 ## Edit direct grants

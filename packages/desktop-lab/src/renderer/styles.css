@@ -1,4 +1,4 @@
-@import "@valentinkolb/cloud/ui/styles.css";
+@import "@k2b/ui/styles.css";
 @source "./**/*.{ts,tsx}";
 
 html,
@@ -12,6 +12,17 @@ body,
 
 .desktop-lab-root {
   min-width: 780px;
+}
+
+.desktop-surface {
+  border: 1px solid rgb(228 228 231);
+  border-radius: 0.5rem;
+  background: white;
+}
+
+.dark .desktop-surface {
+  border-color: rgb(39 39 42);
+  background: rgb(9 9 11);
 }
 
 .dark,

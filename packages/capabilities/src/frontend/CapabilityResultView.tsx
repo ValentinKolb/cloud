@@ -1,4 +1,4 @@
-import { CopyButton, Disclosure, Placeholder, StructuredDataPreview } from "@k2b/ui";
+import { CopyButton, Disclosure, IconButtonLink, Placeholder, StructuredDataPreview } from "@k2b/ui";
 import type {
   CapabilityPage,
   CapabilitySemanticLink,
@@ -53,17 +53,14 @@ function SearchResultRow(props: { item: CloudResourceView }) {
               {(preview) => <p class="mt-0.5 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-secondary">{preview()}</p>}
             </Show>
           </div>
-          <a
+          <IconButtonLink
             href={primary.href}
-            class="icon-btn h-8 w-8 shrink-0"
-            aria-label={`${linkLabel(primary)} ${props.item.title}`}
-            title={linkLabel(primary)}
+            class="shrink-0"
+            size="sm"
+            label={`${linkLabel(primary)} ${props.item.title}`}
           >
             <i class={linkIcon(primary)} aria-hidden="true" />
-            <span class="k2b-sr-only">
-              {linkLabel(primary)} {props.item.title}
-            </span>
-          </a>
+          </IconButtonLink>
         </div>
 
         <Show when={props.item.metadata?.length}>

@@ -79,7 +79,7 @@ const portableBoundaryViolations = uiCatalogEntries
     (entry) =>
       entry.scope === "portable" &&
       (!entry.context.includes("@k2b/ui") ||
-        entry.context.includes("@valentinkolb/cloud/ui") ||
+        entry.context.includes("@valentinkolb/cloud/") ||
         entry.context.includes("@valentinkolb/cloud/ai")),
   )
   .map((entry) => entry.id);

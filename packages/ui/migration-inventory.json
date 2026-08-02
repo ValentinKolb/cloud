@@ -98,6 +98,8 @@
         { "name": "AiComposerAttachment", "status": "cloud-owned" },
         { "name": "AiComposerFileResult", "status": "cloud-owned" },
         { "name": "AiComposerSendInput", "status": "cloud-owned" },
+        { "name": "AiSkillsManagerBody", "status": "cloud-owned" },
+        { "name": "AiSkillsManagerBodyProps", "status": "cloud-owned" },
         { "name": "AiChatActions", "status": "cloud-owned" },
         { "name": "AiChatActionsProvider", "status": "cloud-owned" },
         { "name": "AiChatProjection", "status": "cloud-owned" },
@@ -117,6 +119,7 @@
         { "name": "aiLatestUsage", "status": "cloud-owned" },
         { "name": "aiLatestUsageSnapshot", "status": "cloud-owned" },
         { "name": "aiMessageText", "status": "cloud-owned" },
+        { "name": "openAiSkillsManager", "status": "cloud-owned" },
         { "name": "readAiComposerFiles", "status": "cloud-owned" }
       ]
     }

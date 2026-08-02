@@ -1,4 +1,4 @@
-import { Avatar, Dropdown } from "@k2b/ui";
+import { Avatar, Dropdown, IconButton } from "@k2b/ui";
 import type { Role } from "../contracts/shared";
 
 /**
@@ -60,9 +60,9 @@ export default function NavMenu(props: NavMenuProps) {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn inline items-center justify-center" aria-label="Menu">
+        <IconButton label="Menu">
           <i class="ti ti-menu-2 text-lg" />
-        </button>
+        </IconButton>
       }
       position="bottom-left"
       width="16rem"

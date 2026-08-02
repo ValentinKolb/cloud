@@ -1520,7 +1520,7 @@ const StatWidgetSchema = z.object({
 /**
  * Chart widget — visualizes a GQL source's bucketed output as a
  * donut, bar, line, sparkline, or scatter SVG via the `<Chart>` primitive from
- * `cloud/ui`.
+ * `@k2b/ui`.
  *
  * **Source:** either a saved view or GQL stored directly in the widget.
  * It supplies the filter, sort, groupBy (with optional granularity),

@@ -75,6 +75,7 @@ export const DocCode = (props: DocCodeProps) => {
         class="k2b-content-doc-code__body"
         data-header={hasHeader() ? "true" : undefined}
         tabIndex={0}
+        role="region"
         aria-label={props.title ? `${props.title} code` : "Code"}
       >
         <div class="k2b-content-doc-code__lines">

@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppOverview } from "@valentinkolb/cloud/ui";
+import { AppOverview } from "@k2b/ui";
 
 export default ssr<AuthContext>((c) => {
   return () => (

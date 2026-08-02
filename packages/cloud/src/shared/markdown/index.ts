@@ -138,7 +138,7 @@ const sanitizeRenderedHtml = (html: string): string =>
  * const html = renderMarkdown(markdownContent);
  *
  * // Pass to MarkdownView component:
- * import MarkdownView from "@/ui/misc/MarkdownView";
+ * import { MarkdownView } from "@k2b/ui";
  * <MarkdownView html={html} />
  * ```
  *

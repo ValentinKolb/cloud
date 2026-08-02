@@ -11,8 +11,6 @@ import {
   WidgetPills,
   WidgetStat,
   WidgetStatus,
-} from "@valentinkolb/cloud/ui";
-import {
   ChatComposer,
   ChatContextUsage,
   ChatTimeline,
@@ -136,12 +134,12 @@ const BackendRequiredNote = (props: { title: string; children: string }) => (
 const AiSkillsReference = () => (
   <DemoCard
     id="ai-skills-manager"
-    chip={{ kind: "component", name: "AiSkillsManagerBody", from: "@valentinkolb/cloud/ui" }}
+    chip={{ kind: "component", name: "AiSkillsManagerBody", from: "@valentinkolb/cloud/ai/ui" }}
     description="Backend-required integration reference. The catalog does not replace the global fetch implementation."
     code={`import {
   AiSkillsManagerBody,
   openAiSkillsManager,
-} from "@valentinkolb/cloud/ui";
+} from "@valentinkolb/cloud/ai/ui";
 
 // Authenticated Cloud page with /api/ai/skills available:
 <AiSkillsManagerBody isAdmin={false} />;
@@ -159,16 +157,13 @@ const PermissionsReference = () => (
   <DemoCard
     id="permission-editor"
     chip={[
-      { kind: "component", name: "PermissionEditor", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "EntitySearch", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "ResourceApiKeys", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "PermissionEditor", from: "@valentinkolb/cloud/access/ui" },
+      { kind: "component", name: "EntitySearch", from: "@valentinkolb/cloud/account/ui" },
+      { kind: "component", name: "ResourceApiKeys", from: "@valentinkolb/cloud/access/ui" },
     ]}
     description="Backend-required access integration reference with no simulated grants, directory, or credentials."
-    code={`import {
-  EntitySearch,
-  PermissionEditor,
-  ResourceApiKeys,
-} from "@valentinkolb/cloud/ui";
+    code={`import { PermissionEditor, ResourceApiKeys } from "@valentinkolb/cloud/access/ui";
+import { EntitySearch } from "@valentinkolb/cloud/account/ui";
 
 <PermissionEditor
   initialEntries={entries}
@@ -195,16 +190,16 @@ const DashboardWidgetsDemo = () => (
   <DemoCard
     id="dashboard-widget-composition"
     chip={[
-      { kind: "component", name: "Widget", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "WidgetStat", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "WidgetList", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "WidgetPills", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "WidgetStatus", from: "@valentinkolb/cloud/ui" },
-      { kind: "component", name: "WidgetHero", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "Widget", from: "@k2b/ui" },
+      { kind: "component", name: "WidgetStat", from: "@k2b/ui" },
+      { kind: "component", name: "WidgetList", from: "@k2b/ui" },
+      { kind: "component", name: "WidgetPills", from: "@k2b/ui" },
+      { kind: "component", name: "WidgetStatus", from: "@k2b/ui" },
+      { kind: "component", name: "WidgetHero", from: "@k2b/ui" },
     ]}
     description="Public Cloud widget primitives rendered from bounded fixture data; endpoint discovery remains a server concern."
     code={`<Widget title="Service health" icon="ti ti-heartbeat" size="compact">
-  <WidgetStatus tone="ok" title="All systems operational" />
+  <WidgetStatus tone="success" title="All systems operational" />
   <WidgetPills pills={[{ label: "Healthy", value: 8, tone: "emerald" }]} />
 </Widget>`}
   >
@@ -228,7 +223,7 @@ const DashboardWidgetsDemo = () => (
         />
       </Widget>
       <Widget title="Service health" icon="ti ti-heartbeat" size="compact">
-        <WidgetStatus tone="ok" title="All systems operational" message="8 services report healthy." />
+        <WidgetStatus tone="success" title="All systems operational" message="8 services report healthy." />
         <WidgetHero title="No active incidents" icon="ti ti-circle-check" tone="emerald" />
       </Widget>
     </div>

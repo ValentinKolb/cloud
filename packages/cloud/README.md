@@ -59,7 +59,10 @@ A standard app declares four prefixes (`/api/<id>`, `/app/<id>`, `/admin/<id>`, 
 |---|---|
 | `@valentinkolb/cloud` | `defineApp`, common types |
 | `@valentinkolb/cloud/server` | server context, auth, route helpers |
-| `@valentinkolb/cloud/ui` | UI kit (Layout, AdminLayout, primitives) |
+| `@k2b/ui` | Portable UI components and application layouts |
+| `@valentinkolb/cloud/access/ui` | Cloud access and resource-key controls |
+| `@valentinkolb/cloud/account/ui` | Cloud account selectors and avatars |
+| `@valentinkolb/cloud/ai/ui` | Cloud AI protocol adapters |
 | `@valentinkolb/cloud/ssr` | SSR helpers, islands, plugin registration |
 | `@valentinkolb/cloud/services` | settings, logging, notifications, search |
 | `@valentinkolb/cloud/api` | typed clients for the platform's own APIs |

@@ -1,4 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
+import { Button } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { isRecord, jsonPreview } from "./message-utils";
 
@@ -138,14 +139,15 @@ export function CloudSurveyBlock(props: {
                       <div class="mt-1 flex flex-wrap gap-1.5">
                         <For each={options()}>
                           {(option) => (
-                            <button
+                            <Button
                               type="button"
-                              class={`btn-input btn-input-sm ${answers()[id()] === option.value ? "border-cyan-300 bg-cyan-50 text-cyan-700 dark:border-cyan-800 dark:bg-cyan-950/40 dark:text-cyan-200" : ""}`}
+                              size="xs"
+                              variant={answers()[id()] === option.value ? "primary" : "secondary"}
                               disabled={disabled()}
                               onClick={() => setAnswer(id(), option.value)}
                             >
                               {String(option.label ?? option.value ?? "")}
-                            </button>
+                            </Button>
                           )}
                         </For>
                       </div>
@@ -204,12 +206,12 @@ export function CloudSurveyBlock(props: {
               </p>
             }
           >
-            <button type="button" class="btn-ai btn-sm mt-3" disabled={submission.loading()} onClick={() => void submit()}>
+            <Button variant="ai" size="sm" class="mt-3" disabled={submission.loading()} onClick={() => void submit()}>
               <Show when={submission.loading()}>
                 <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
               </Show>
               {submission.loading() ? "Submitting" : String(survey()?.submitLabel ?? "Submit")}
-            </button>
+            </Button>
           </Show>
         </div>
       </div>

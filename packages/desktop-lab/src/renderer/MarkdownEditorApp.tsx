@@ -1,7 +1,7 @@
 import { desktop } from "@valentinkolb/cloud/desktop";
 import { DesktopWorkspace, workspace as desktopWorkspace } from "@valentinkolb/cloud/desktop/solid";
 import { formatBytes } from "@valentinkolb/cloud/shared";
-import { AppWorkspace, Chart, MarkdownEditor, MarkdownView, SegmentedControl, StatCell, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Button, Chart, MarkdownEditor, MarkdownView, SegmentedControl, StatCell, Tag, toast } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type {
   DesktopLabBridge,
@@ -167,7 +167,7 @@ function FileTreeNode(props: {
         onClick={() => props.onToggle(props.node.id)}
       >
         <span class="inline-flex min-w-0 items-center gap-1">
-          <i class="ti ti-folder text-sm text-dimmed" />
+          <i class="ti ti-folder text-sm text-zinc-500 dark:text-zinc-400" />
           <span class="truncate">{props.node.name}</span>
         </span>
       </AppWorkspace.SidebarItem>
@@ -486,7 +486,7 @@ export function MarkdownEditorApp(props: Props) {
               <Show
                 when={workspace().folders.length > 0}
                 fallback={
-                  <div class="px-2 py-8 text-center text-xs text-dimmed">
+                  <div class="px-2 py-8 text-center text-xs text-zinc-500 dark:text-zinc-400">
                     <i class="ti ti-folder-plus mb-2 block text-lg" />
                     Add a local folder.
                   </div>
@@ -499,11 +499,11 @@ export function MarkdownEditorApp(props: Props) {
                         <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => toggle(folder.id)}>
                           <i class={`${expanded().has(folder.id) ? "ti ti-chevron-down" : "ti ti-chevron-right"} text-sm`} />
                           <span class="inline-flex min-w-0 items-center gap-1">
-                            <i class="ti ti-folder text-sm text-dimmed" />
+                            <i class="ti ti-folder text-sm text-zinc-500 dark:text-zinc-400" />
                             <span class="truncate">{folder.name}</span>
                           </span>
                         </button>
-                        <span class="shrink-0 text-dimmed tabular-nums">{folder.fileCount}</span>
+                        <span class="shrink-0 text-zinc-500 tabular-nums dark:text-zinc-400">{folder.fileCount}</span>
                         <span class="ml-auto inline-flex shrink-0 items-center gap-1">
                           <button
                             type="button"
@@ -613,7 +613,7 @@ export function MarkdownEditorApp(props: Props) {
 
       <DesktopWorkspace.TopBar drag>
         <div class="flex h-full min-w-0 items-center gap-3 px-3 pr-1">
-          <p class="min-w-0 translate-y-px truncate text-sm font-semibold leading-none text-primary">Markdown Desk</p>
+          <p class="min-w-0 translate-y-px truncate text-sm font-semibold leading-none text-zinc-900 dark:text-zinc-100">Markdown Desk</p>
           <DesktopWorkspace.NoDrag class="ml-auto flex items-center gap-2">
             <SegmentedControl<Mode>
               options={[
@@ -621,13 +621,13 @@ export function MarkdownEditorApp(props: Props) {
                 { value: "preview", label: "Preview", icon: "ti ti-eye" },
               ]}
               value={mode}
-              onChange={setMode}
+              onValueChange={setMode}
               disabled={!selectedFile()}
             />
-            <button type="button" class="btn-segment shrink-0" disabled={!dirty() || saving()} onClick={() => void save()}>
+            <Button variant="secondary" size="sm" class="shrink-0" disabled={!dirty() || saving()} onClick={() => void save()}>
               <i class={saving() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
               Save
-            </button>
+            </Button>
             <span class="ml-2 flex items-center gap-1">
               <button
                 type="button"
@@ -659,10 +659,10 @@ export function MarkdownEditorApp(props: Props) {
           <Show
             when={selectedFile()}
             fallback={
-              <section class="paper flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
-                <i class="ti ti-file-type-md text-2xl text-dimmed" />
-                <h2 class="text-sm font-semibold text-primary">No markdown file selected</h2>
-                <p class="max-w-sm text-xs text-dimmed">
+              <section class="desktop-surface flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
+                <i class="ti ti-file-type-md text-2xl text-zinc-500 dark:text-zinc-400" />
+                <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">No markdown file selected</h2>
+                <p class="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
                   Add one or more local folders in the sidebar. Files stay on disk; folder state is local SQLite.
                 </p>
               </section>
@@ -674,7 +674,7 @@ export function MarkdownEditorApp(props: Props) {
                 fallback={<MarkdownView html={previewHtml()} class="markdown-preview-pane h-full overflow-auto" />}
               >
                 <div class="markdown-editor-pane h-full min-h-0">
-                  <MarkdownEditor value={draft} onInput={setDraft} lines={26} placeholder="Write markdown..." variant="paper" />
+                  <MarkdownEditor value={draft} onValueChange={setDraft} lines={26} placeholder="Write markdown..." variant="paper" />
                 </div>
               </Show>
             </section>
@@ -684,43 +684,45 @@ export function MarkdownEditorApp(props: Props) {
 
       <DesktopWorkspace.Right defaultSize={330} minSize={260} maxSize={540} resizable railAt={220} restoreSize={330}>
         <div class="flex h-full min-h-0 flex-col gap-2 overflow-auto">
-          <section class="paper p-3">
+          <section class="desktop-surface p-3">
             <div class="flex items-center justify-between gap-2">
-              <h2 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Document</h2>
+              <h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Document</h2>
               <Show when={dirty()}>
-                <span class="tag bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200">unsaved</span>
+                <Tag color="#d97706" size="sm">unsaved</Tag>
               </Show>
             </div>
-            <button
+            <Button
               type="button"
-              class="btn-secondary btn-sm mt-3 w-full justify-start"
+              variant="secondary"
+              size="sm"
+              class="mt-3 w-full justify-start"
               disabled={!selectedFile()}
               onClick={() => void openSelectedFileWindow()}
             >
               <i class="ti ti-window" />
               Open in window
-            </button>
+            </Button>
             <dl class="mt-3 grid grid-cols-2 gap-3 text-xs">
               <div>
-                <dt class="text-dimmed">Words</dt>
-                <dd class="mt-0.5 font-medium text-primary">{wordCount()}</dd>
+                <dt class="text-zinc-500 dark:text-zinc-400">Words</dt>
+                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">{wordCount()}</dd>
               </div>
               <div>
-                <dt class="text-dimmed">Size</dt>
-                <dd class="mt-0.5 font-medium text-primary">{selectedFile() ? formatBytes(selectedFile()!.size) : "-"}</dd>
+                <dt class="text-zinc-500 dark:text-zinc-400">Size</dt>
+                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">{selectedFile() ? formatBytes(selectedFile()!.size) : "-"}</dd>
               </div>
               <div class="col-span-2">
-                <dt class="text-dimmed">Modified</dt>
-                <dd class="mt-0.5 font-medium text-primary">{selectedFile() ? formatTime(selectedFile()!.updatedAt) : "-"}</dd>
+                <dt class="text-zinc-500 dark:text-zinc-400">Modified</dt>
+                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">{selectedFile() ? formatTime(selectedFile()!.updatedAt) : "-"}</dd>
               </div>
             </dl>
           </section>
-          <section class="paper min-h-0 p-3">
-            <h2 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Path</h2>
-            <p class="mt-3 break-all text-xs text-primary">{selectedFile()?.path ?? "No file selected."}</p>
+          <section class="desktop-surface min-h-0 p-3">
+            <h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Path</h2>
+            <p class="mt-3 break-all text-xs text-zinc-900 dark:text-zinc-100">{selectedFile()?.path ?? "No file selected."}</p>
           </section>
-          <section class="paper p-3">
-            <div class="flex items-start gap-2 text-xs text-dimmed">
+          <section class="desktop-surface p-3">
+            <div class="flex items-start gap-2 text-xs text-zinc-500 dark:text-zinc-400">
               <i class="ti ti-database mt-0.5 text-sm" />
               <p>Folders and the last opened file are local SQLite data. Markdown content is read from and saved to the original files.</p>
             </div>
@@ -729,7 +731,7 @@ export function MarkdownEditorApp(props: Props) {
       </DesktopWorkspace.Right>
 
       <DesktopWorkspace.RightRail size={54}>
-        <nav class="paper flex h-full min-h-0 flex-col items-center gap-2 p-2">
+        <nav class="desktop-surface flex h-full min-h-0 flex-col items-center gap-2 p-2">
           <button
             type="button"
             class="desktop-panel-toggle"
@@ -761,25 +763,24 @@ export function MarkdownEditorApp(props: Props) {
       </DesktopWorkspace.RightRail>
 
       <DesktopWorkspace.Bottom defaultSize={180} minSize={140} maxSize={360} resizable railAt={96} restoreSize={180}>
-        <section class="markdown-bottom-analytics paper h-full min-h-0 overflow-hidden">
+        <section class="markdown-bottom-analytics desktop-surface h-full min-h-0 overflow-hidden">
           <div class="grid h-full min-h-0 grid-cols-[1.2fr_1.8fr]">
             <div class="flex min-h-0 flex-col gap-2 p-3">
               <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[10px] font-semibold uppercase tracking-wider text-dimmed">Note size distribution</h2>
-                <span class="tag bg-zinc-100 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                  <i class="ti ti-chart-bar" />
+                <h2 class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Note size distribution</h2>
+                <Tag icon="ti ti-chart-bar" size="sm">
                   {fileCount()} notes
-                </span>
+                </Tag>
               </div>
               <Show
                 when={fileCount() > 4}
                 fallback={
-                  <div class="flex min-h-0 flex-1 items-center justify-center rounded bg-zinc-50 px-3 text-center text-xs text-dimmed dark:bg-zinc-950">
+                  <div class="flex min-h-0 flex-1 items-center justify-center rounded bg-zinc-50 px-3 text-center text-xs text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
                     Add five or more markdown files to compare character counts.
                   </div>
                 }
               >
-                <Chart kind="bar" class="min-h-0 flex-1 text-dimmed" data={noteSizeData()} showValues />
+                <Chart kind="bar" class="min-h-0 flex-1 text-zinc-500 dark:text-zinc-400" data={noteSizeData()} showValues />
               </Show>
             </div>
             <div class="markdown-bottom-stats grid min-h-0 grid-cols-2 gap-px bg-zinc-100 dark:bg-zinc-800">
@@ -807,7 +808,7 @@ export function MarkdownEditorApp(props: Props) {
       </DesktopWorkspace.Bottom>
 
       <DesktopWorkspace.BottomRail size={42}>
-        <section class="paper flex h-full min-h-0 items-center gap-3 px-3 text-xs text-dimmed">
+        <section class="desktop-surface flex h-full min-h-0 items-center gap-3 px-3 text-xs text-zinc-500 dark:text-zinc-400">
           <button
             type="button"
             class="desktop-panel-toggle"

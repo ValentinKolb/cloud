@@ -11,10 +11,11 @@ Use `AiSkillsManagerDialog` and `AiSkillDetailDialog` only when a host needs dir
 ## Import
 
 ```tsx
+import { Button } from "@k2b/ui";
 import {
   AiSkillsManagerBody,
   openAiSkillsManager,
-} from "@valentinkolb/cloud/ui";
+} from "@valentinkolb/cloud/ai/ui";
 ```
 
 ## User and admin modes
@@ -62,13 +63,9 @@ networking for the entire page and can intercept unrelated requests.
 
 ```tsx
 // User-facing dialog
-<button
-  type="button"
-  class="btn-input"
-  onClick={() => void openAiSkillsManager()}
->
+<Button variant="secondary" onClick={() => void openAiSkillsManager()}>
   Manage AI skills
-</button>
+</Button>
 
 // Workspace administration page
 <AiSkillsManagerBody isAdmin fixedHeight />

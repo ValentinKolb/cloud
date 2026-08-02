@@ -31,7 +31,7 @@ Find the task in the table. Use the listed import and reference.
 | Run jobs or coordinate instances | Jobs, queues, schedulers, topics, and mutexes | `@k2b/sync` | [Automation](/docs/en/automation) |
 | Add durable workflows | Workflow definitions and runtime adapters | `@valentinkolb/cloud/workflows` | [Workflow overview](/docs/en/automation/workflow-overview) |
 | Render application pages | SSR shells, islands, and navigation | `@valentinkolb/cloud/ssr`, `@k2b/ssr` | [Frontend](/docs/en/frontend) |
-| Use shared components | Cloud UI package | `@valentinkolb/cloud/ui` | [UI catalog](/ui) |
+| Use shared components | Portable UI package | `@k2b/ui` | [UI catalog](/ui) |
 | Add AI features | AI resources, models, tools, and streaming | `@valentinkolb/cloud/ai` | [AI](/docs/en/ai) |
 
 The [API surface](/docs/en/reference/api-surface) lists every supported import.

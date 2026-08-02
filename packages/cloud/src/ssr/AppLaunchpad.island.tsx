@@ -1,4 +1,4 @@
-import { prompts } from "@k2b/ui";
+import { IconButton, prompts } from "@k2b/ui";
 import { createEffect, For, Show } from "solid-js";
 
 export type AppLaunchpadApp = {
@@ -151,9 +151,9 @@ export function AppLaunchpadButton(props: AppLaunchpadContext & { variant: "rail
 
   if (props.variant === "header") {
     return (
-      <button type="button" class="icon-btn inline items-center justify-center" aria-label={props.label ?? "Open apps"} onClick={open}>
+      <IconButton label={props.label ?? "Open apps"} onClick={open}>
         <i class="ti ti-grid-dots text-lg" />
-      </button>
+      </IconButton>
     );
   }
 

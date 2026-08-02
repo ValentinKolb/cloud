@@ -14,7 +14,7 @@ type Props = {
 };
 
 /**
- * Renders a chart widget — pairs `<Chart>` from cloud/ui with the
+ * Renders a chart widget — pairs `<Chart>` from @k2b/ui with the
  * `buildChartRenderData` transform that turns resolved buckets into
  * the per-kind shape stdlib charts expect.
  *

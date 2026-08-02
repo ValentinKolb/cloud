@@ -13,7 +13,7 @@ export type ChatUsage = {
 };
 
 export type ChatMessageProps = {
-  role: ChatRole;
+  messageRole: ChatRole;
   content: JSX.Element;
   label?: string;
   createdAt?: string | Date;
@@ -94,12 +94,12 @@ export function ChatMessage(props: ChatMessageProps): JSX.Element {
   return (
     <article
       class={`k2b-chat-message ${props.class ?? ""}`}
-      data-role={props.role}
+      data-role={props.messageRole}
       data-status={props.status ?? "complete"}
       aria-busy={props.status === "pending" || props.status === "streaming" ? "true" : undefined}
     >
       <header class="k2b-chat-message__meta">
-        <strong>{props.label ?? roleLabel(props.role)}</strong>
+        <strong>{props.label ?? roleLabel(props.messageRole)}</strong>
         <Show when={status()}>
           {(label) => (
             <span class="k2b-chat-message__status" role={props.status === "error" ? "alert" : "status"}>

@@ -20,8 +20,6 @@
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./ui": "./src/ui/index.ts",
-    "./ui/styles.css": "./src/styles/global.css",
     "./desktop": "./src/desktop/index.ts",
     "./desktop/solid": "./src/desktop/solid.tsx",
     "./server": "./src/server/index.ts",

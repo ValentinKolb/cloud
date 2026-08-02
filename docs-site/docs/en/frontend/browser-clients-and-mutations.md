@@ -44,7 +44,7 @@ available.
 
 ```tsx
 import { mutation } from "@k2b/stdlib/solid";
-import { toast } from "@valentinkolb/cloud/ui";
+import { toast } from "@k2b/ui";
 
 const archive = mutation.create<void, { itemId: string }>({
   mutation: async ({ itemId }, { abortSignal }) => {

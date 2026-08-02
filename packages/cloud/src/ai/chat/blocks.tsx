@@ -1,4 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
+import { Button } from "@k2b/ui";
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
@@ -176,16 +177,16 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                   }
                 >
                   <div class="flex flex-wrap gap-1">
-                    <button type="button" class="btn-input btn-input-sm" onClick={() => submit({ approved: false })}>
+                    <Button size="xs" variant="secondary" onClick={() => submit({ approved: false })}>
                       Reject
-                    </button>
-                    <button type="button" class="btn-ai btn-sm" onClick={() => submit({ approved: true })}>
+                    </Button>
+                    <Button size="xs" variant="ai" onClick={() => submit({ approved: true })}>
                       Approve
-                    </button>
+                    </Button>
                     <Show when={props.block.approval?.allowAlways}>
-                      <button type="button" class="btn-input btn-input-sm" onClick={() => submit({ approved: true, remember: "always" })}>
+                      <Button size="xs" variant="secondary" onClick={() => submit({ approved: true, remember: "always" })}>
                         Always allow
-                      </button>
+                      </Button>
                     </Show>
                   </div>
                 </Show>

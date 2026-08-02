@@ -284,7 +284,7 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
                   }
                 >
                   <ChatMessage
-                    role={(item as ChatMessageItem).role}
+                    messageRole={(item as ChatMessageItem).role}
                     content={(item as ChatMessageItem).content}
                     label={(item as ChatMessageItem).label}
                     createdAt={(item as ChatMessageItem).createdAt}

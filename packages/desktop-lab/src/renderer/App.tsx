@@ -1,7 +1,7 @@
 import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { desktop } from "@valentinkolb/cloud/desktop";
 import { defineDesktopWindows, DesktopWindowHost, DesktopWorkspace } from "@valentinkolb/cloud/desktop/solid";
-import { MarkdownEditor, MarkdownView, SegmentedControl, toast } from "@valentinkolb/cloud/ui";
+import { Button, MarkdownEditor, MarkdownView, SegmentedControl, toast } from "@k2b/ui";
 import type { DesktopEnvironment, DesktopLabBridge } from "../bridge/types";
 import { getDesktopBridge } from "./bridge";
 import { MarkdownEditorApp, renderMarkdown } from "./MarkdownEditorApp";
@@ -60,7 +60,7 @@ function DocumentWindow(props: { bridge: DesktopLabBridge; filePath: string; fil
     <DesktopWorkspace storageKey={`document-window:${props.filePath}`}>
       <DesktopWorkspace.TopBar drag>
         <DesktopWorkspace.DragRegion class="flex h-full min-w-0 select-none items-center gap-3 pl-24 pr-2">
-          <p class="min-w-0 truncate text-sm font-semibold text-primary">{props.fileName}</p>
+          <p class="min-w-0 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{props.fileName}</p>
           <DesktopWorkspace.NoDrag class="ml-auto flex items-center gap-2">
             <SegmentedControl<Mode>
               options={[
@@ -68,12 +68,12 @@ function DocumentWindow(props: { bridge: DesktopLabBridge; filePath: string; fil
                 { value: "preview", label: "Preview", icon: "ti ti-eye" },
               ]}
               value={mode}
-              onChange={setMode}
+              onValueChange={setMode}
             />
-            <button type="button" class="btn-segment shrink-0" disabled={!dirty() || saving()} onClick={() => void save()}>
+            <Button variant="secondary" size="sm" class="shrink-0" disabled={!dirty() || saving()} onClick={() => void save()}>
               <i class={saving() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
               Save
-            </button>
+            </Button>
             <button
               type="button"
               class="desktop-panel-toggle"
@@ -90,7 +90,7 @@ function DocumentWindow(props: { bridge: DesktopLabBridge; filePath: string; fil
         <Show
           when={loaded()}
           fallback={
-            <section class="paper flex h-full items-center justify-center text-xs text-dimmed">
+            <section class="desktop-surface flex h-full items-center justify-center text-xs text-zinc-500 dark:text-zinc-400">
               <i class="ti ti-loader-2 mr-2 animate-spin" />
               Loading document
             </section>
@@ -101,7 +101,7 @@ function DocumentWindow(props: { bridge: DesktopLabBridge; filePath: string; fil
             fallback={<MarkdownView html={previewHtml()} class="markdown-preview-pane h-full overflow-auto" />}
           >
             <div class="markdown-editor-pane h-full min-h-0">
-              <MarkdownEditor value={draft} onInput={setDraft} lines={26} placeholder="Write markdown..." variant="paper" />
+              <MarkdownEditor value={draft} onValueChange={setDraft} lines={26} placeholder="Write markdown..." variant="paper" />
             </div>
           </Show>
         </Show>

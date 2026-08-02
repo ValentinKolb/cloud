@@ -1,7 +1,7 @@
 import { defineApp } from "@valentinkolb/cloud";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { createUrlFilter, Layout, oneOf, page, text } from "@valentinkolb/cloud/ssr";
-import { StatusBadge } from "@valentinkolb/cloud/ui";
+import { StatusBadge } from "@k2b/ui";
 import { Hono } from "hono";
 
 export const inventoryRoutes = new Hono().get("/items/:id", (c) => c.json({ id: c.req.param("id"), name: "Example" }));

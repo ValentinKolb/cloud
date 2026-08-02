@@ -1,6 +1,13 @@
 import type { AiPublicModelProfile } from "@valentinkolb/cloud/ai";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
-import { AiComposer, AiMessageList } from "@valentinkolb/cloud/ai/ui";
+import {
+  AiChatActionsProvider,
+  AiChatProjection,
+  aiChatModelOptions,
+  aiComposerSendInput,
+} from "@valentinkolb/cloud/ai/ui";
+import { ChatComposer, ChatContextUsage, ChatTimeline } from "@k2b/ui";
+import { createSignal } from "solid-js";
 
 export function ItemChat(props: {
   itemId: string;
@@ -12,34 +19,56 @@ export function ItemChat(props: {
     baseUrl: `/api/inventory/ai/items/${props.itemId}`,
     trackViewedState: true,
   });
+  const [draft, setDraft] = createSignal("");
 
   return (
-    <>
-      <AiMessageList
-        session={{
-          messages: chat.messages,
-          activeTurn: chat.activeTurn,
-          loading: chat.loadingConversation,
-        }}
-      />
-      <AiComposer
-        models={{
-          profiles: () => props.models,
-          selectedId: props.selectedModelId,
-          onSelect: props.selectModel,
-        }}
-        state={{
-          disabled: () => false,
-          running: chat.running,
-          canStop: () => Boolean(chat.activeTurn()),
-          stopping: () => chat.runStatus() === "stopping",
-        }}
+    <div class="k2b-ui">
+      <AiChatActionsProvider
         actions={{
-          send: chat.send,
-          steer: chat.steer,
-          stop: chat.abort,
+          onApproval: async (request, input) => {
+            await chat.respondToApproval(request, input);
+          },
+          onFrontendToolResult: async (request, result) => {
+            await chat.submitFrontendToolResult(request, result);
+          },
+          fileUrl: chat.fileContentUrl,
         }}
+      >
+        <AiChatProjection
+          messages={chat.messages()}
+          activeTurn={chat.activeTurn()}
+          render={(items) => (
+            <ChatTimeline
+              items={items()}
+              loading={chat.loadingConversation()}
+              hasMore={chat.hasMoreHistory()}
+              loadingOlder={chat.loadingOlder()}
+              onLoadOlder={chat.loadOlderMessages}
+            />
+          )}
+        />
+      </AiChatActionsProvider>
+
+      <ChatComposer
+        value={draft()}
+        onValueChange={setDraft}
+        models={aiChatModelOptions(props.models)}
+        selectedModelId={props.selectedModelId()}
+        onModelChange={props.selectModel}
+        running={chat.running()}
+        stopping={chat.runStatus() === "stopping"}
+        onSend={(input) =>
+          chat.send({
+            ...aiComposerSendInput(input),
+            modelProfileId: props.selectedModelId(),
+          })
+        }
+        onSteer={chat.steer}
+        onStop={async () => {
+          await chat.abort();
+        }}
+        context={<ChatContextUsage contextWindow={128_000} />}
       />
-    </>
+    </div>
   );
 }

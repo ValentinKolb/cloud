@@ -1,7 +1,7 @@
 /**
  * Widget JSON contract — what an app's widget endpoint must return when the
  * dashboard fetches it. Each block maps 1:1 to a `<Widget*>` SolidJS component
- * (see `packages/cloud/src/ui/widgets/`).
+ * (see the portable `@k2b/ui` widget primitives).
  *
  * The dashboard fetches each widget endpoint with the user's cookie forwarded;
  * the endpoint is responsible for permission gating:

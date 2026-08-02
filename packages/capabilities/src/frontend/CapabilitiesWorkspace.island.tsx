@@ -4,6 +4,7 @@ import {
   Checkbox,
   CodeDisplay,
   Disclosure,
+  IconButtonLink,
   NumberInput,
   Placeholder,
   prompts,
@@ -332,10 +333,9 @@ function CapabilityRunner(props: Props) {
             <Button size="sm" variant="secondary" onClick={reset}>
               <i class="ti ti-refresh" aria-hidden="true" /> Reset
             </Button>
-            <a class="icon-btn h-8 w-8" href={props.closeHref} aria-label="Close capability details" title="Close">
+            <IconButtonLink href={props.closeHref} size="sm" label="Close capability details">
               <i class="ti ti-x" aria-hidden="true" />
-              <span class="sr-only">Close capability details</span>
-            </a>
+            </IconButtonLink>
           </div>
         </div>
         <h2 class="mt-3 text-lg font-semibold text-primary">{props.selection.operation.title}</h2>

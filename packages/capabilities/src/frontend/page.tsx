@@ -1,4 +1,4 @@
-import { AppOverview, LinkCard } from "@k2b/ui";
+import { AppOverview, ButtonLink, LinkCard } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { For, Show } from "solid-js";
@@ -52,15 +52,15 @@ export default ssr<AuthContext>(async (c) => {
               <Show when={catalog.cursor || catalog.nextCursor}>
                 <nav class="mt-4 flex items-center gap-2" aria-label="Capability app pages">
                   <Show when={catalog.cursor}>
-                    <a class="btn-input btn-sm" href={capabilityHref({})}>
+                    <ButtonLink variant="secondary" size="sm" href={capabilityHref({})}>
                       <i class="ti ti-chevrons-left" aria-hidden="true" /> First page
-                    </a>
+                    </ButtonLink>
                   </Show>
                   <Show when={catalog.nextCursor}>
                     {(cursor) => (
-                      <a class="btn-input btn-sm" href={capabilityHref({ cursor: cursor() })}>
+                      <ButtonLink variant="secondary" size="sm" href={capabilityHref({ cursor: cursor() })}>
                         Next page <i class="ti ti-chevron-right" aria-hidden="true" />
-                      </a>
+                      </ButtonLink>
                     )}
                   </Show>
                 </nav>

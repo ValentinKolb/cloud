@@ -27,7 +27,7 @@ const ACCENT_TONE: Record<NonNullable<StatWidget["tone"]>, "zinc" | "blue" | "em
 };
 
 /**
- * One stat cell inside a dashboard row. Renders the cloud/ui StatCell
+ * One stat cell inside a dashboard row. Renders the @k2b/ui StatCell
  * with values pulled from a resolved StatWidget's WidgetData.
  *
  * Mapping rules:

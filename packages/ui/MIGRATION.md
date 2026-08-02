@@ -1,11 +1,9 @@
 # Cloud UI migration inventory
 
-Cloud apps migrate one at a time through the hard cut described in
-[`APP_MIGRATION.md`](./APP_MIGRATION.md). Migrated apps import `@k2b/ui`
-directly; remaining apps stay on `@valentinkolb/cloud/ui` until their own cut.
-Weather completed the first app pilot. Chat completed an earlier hard cut
-because its generic package contract and Cloud protocol boundary are explicit.
-There are no compatibility re-exports.
+Cloud apps migrated one at a time through the hard cut described in
+[`APP_MIGRATION.md`](./APP_MIGRATION.md). All consumers now import `@k2b/ui`
+directly or use a focused Cloud adapter. The legacy Cloud UI package export is
+retired and there are no compatibility re-exports.
 
 [`migration-inventory.json`](./migration-inventory.json) covers the public
 exports of both `packages/cloud/src/ui/index.ts` and

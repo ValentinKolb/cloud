@@ -16,9 +16,6 @@
       "@valentinkolb/cloud": [
         "../cloud/src/index.ts"
       ],
-      "@valentinkolb/cloud/ui": [
-        "../cloud/src/ui/index.ts"
-      ],
       "@valentinkolb/cloud/server": [
         "../cloud/src/server/index.ts"
       ],

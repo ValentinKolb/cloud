@@ -209,7 +209,7 @@ export default function StandaloneUi() {
             ]}
           />
 
-          <ChatMessage role="assistant" content="Rendered by the generic chat family." timeLabel="09:20" />
+          <ChatMessage messageRole="assistant" content="Rendered by the generic chat family." timeLabel="09:20" />
 
           <Widget title="Platform health" icon="ti ti-heartbeat">
             <WidgetStatus tone="success" title="Operational" />

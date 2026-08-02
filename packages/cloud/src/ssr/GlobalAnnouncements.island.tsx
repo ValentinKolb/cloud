@@ -1,4 +1,4 @@
-import { dialogCore, MarkdownView, PanelDialog, panelDialogOptions } from "@k2b/ui";
+import { Button, dialogCore, MarkdownView, PanelDialog, panelDialogOptions } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import {
   ANNOUNCEMENTS_COOKIE,
@@ -94,9 +94,9 @@ export default function GlobalAnnouncements(props: Props) {
             </PanelDialog.Body>
             <PanelDialog.Footer>
               <span />
-              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+              <Button size="sm" onClick={() => close()}>
                 Got it
-              </button>
+              </Button>
             </PanelDialog.Footer>
           </PanelDialog>
         ),

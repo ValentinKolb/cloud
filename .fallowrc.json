@@ -13,7 +13,6 @@
     "packages/cloud/src/server/services/index.ts",
     "packages/cloud/src/server/services/freeipa/index.ts",
     "packages/cloud/src/server/middleware/index.ts",
-    "packages/cloud/src/ui/index.ts",
     "packages/cloud/src/ssr/index.ts",
     "packages/cloud/src/ssr/islands/index.ts",
     "packages/cloud/src/contracts/index.ts",

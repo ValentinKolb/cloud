@@ -51,7 +51,8 @@ a server callback as a prop.
 
 An island may import:
 
-- `@valentinkolb/cloud/ui`;
+- `@k2b/ui`;
+- focused browser-safe Cloud adapters such as `@valentinkolb/cloud/access/ui`;
 - `@valentinkolb/cloud/browser`;
 - browser-safe shared contracts;
 - SolidJS and browser utilities.
