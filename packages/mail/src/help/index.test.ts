@@ -17,8 +17,8 @@ const expectedIds = [
 ];
 
 describe("mailHelp", () => {
-  test("serves the task-oriented Mail help collection", async () => {
-    expect(mailHelp.manifest.map((document) => document.id)).toEqual(expectedIds);
+  test("owns the task-oriented Mail help collection", () => {
+    expect(mailHelp.documents.map((document) => document.id)).toEqual(expectedIds);
 
     const expectedContent = new Map([
       ["mail-start", "Mail organizes email around **mailboxes**"],
@@ -32,10 +32,7 @@ describe("mailHelp", () => {
     ]);
 
     for (const [id, text] of expectedContent) {
-      const response = await mailHelp.router.request(`/${id}`);
-      const payload = await response.json();
-      expect(response.status).toBe(200);
-      expect(payload.markdown).toContain(text);
+      expect(mailHelp.getMarkdown(id)).toContain(text);
     }
   });
 
@@ -58,7 +55,7 @@ describe("mailHelp", () => {
     }
   });
 
-  test("registers the same help on every Mail workspace route", async () => {
+  test("registers Help once at the Mail app boundary", async () => {
     const routes = [
       "../frontend/page.tsx",
       "../frontend/compose/page.tsx",
@@ -71,19 +68,18 @@ describe("mailHelp", () => {
       "../frontend/[mailboxId]/compose/[draftId]/page.tsx",
     ];
 
+    const entry = await Bun.file(new URL("../index.ts", import.meta.url)).text();
+    expect(entry).toContain("help: mailHelp");
     for (const route of routes) {
       const source = await Bun.file(new URL(route, import.meta.url)).text();
-      expect(source).toContain("<MailLayoutHelp documents={mailHelp.manifest} />");
+      expect(source).not.toContain("MailLayoutHelp");
     }
   });
 
-  test("finds operational recovery topics through help search", async () => {
-    const response = await mailHelp.router.request("/search?q=paused");
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.ids).toContain("mail-admin");
-    expect(payload.ids).toContain("mail-troubleshooting");
+  test("indexes operational recovery topics for registered Help search", () => {
+    const ids = mailHelp.documents.filter((document) => document.searchText.includes("paused")).map((document) => document.id);
+    expect(ids).toContain("mail-admin");
+    expect(ids).toContain("mail-troubleshooting");
   });
 
   test("documents public-link controls and queued storage snapshots", () => {

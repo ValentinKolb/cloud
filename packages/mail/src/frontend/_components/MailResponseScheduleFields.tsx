@@ -69,14 +69,14 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
               maxLength={5}
               monospace
             />
-            <button
+            <IconButton
               type="button"
-              class={`icon-btn ${props.compact ? "" : "mb-0.5"}`}
-              aria-label={`Remove window ${index() + 1}`}
+              class={props.compact ? undefined : "mb-0.5"}
+              label={`Remove window ${index() + 1}`}
               onClick={() => props.onChange(props.windows().filter((_, position) => position !== index()))}
             >
               <i class="ti ti-x" aria-hidden="true" />
-            </button>
+            </IconButton>
           </div>
         )}
       </For>

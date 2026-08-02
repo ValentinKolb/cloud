@@ -58,7 +58,7 @@ export default function MailAutomationActivityTable(props: { items: MailAutomati
       empty={props.empty ?? "No automation activity in the last 30 days."}
       class="overflow-x-auto"
       renderCell={({ row, col, render }) => {
-        if (col.id === "kind") return <span class="badge">{kindLabels[row.kind]}</span>;
+        if (col.id === "kind") return <StatusBadge tone="neutral" label={kindLabels[row.kind]} icon={null} />;
         if (col.id === "name")
           return (
             <a class="block truncate font-medium text-primary hover:underline" href={row.href}>

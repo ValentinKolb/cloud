@@ -1,10 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
-import { mailHelp } from "../../../../help";
 import type { MailRequestContext } from "../../../../service";
 import { loadMailAutomaticRepliesWorkspace } from "../../../../service/automation-workspace";
-import MailLayoutHelp from "../../../_components/help/MailLayoutHelp.island";
 import { isAutomaticReplyPresetId } from "../../../_components/MailAutomaticReplySettings";
 import MailAutomaticRepliesPage from "../../../MailAutomaticRepliesPage.island";
 
@@ -34,7 +32,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Automatic replies" },
       ]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailAutomaticRepliesPage
         data={result.data}
         currentUserEmail={user.mail}

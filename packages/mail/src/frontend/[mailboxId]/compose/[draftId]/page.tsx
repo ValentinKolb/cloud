@@ -1,9 +1,7 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
-import { mailHelp } from "../../../../help";
 import { drafts, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../service";
-import MailLayoutHelp from "../../../_components/help/MailLayoutHelp.island";
 import MailComposerPage from "../../../_components/MailComposerPage.island";
 import { mailDraftReturnHref } from "../../../_components/mail-compose-route";
 
@@ -32,7 +30,6 @@ export default ssr<AuthContext>(async (c) => {
       flushCanvas={popout}
       title={[{ title: "Mail", href: returnHref }, { title: draft.data.subject || "Draft" }]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailComposerPage
         mailboxId={mailboxId}
         identities={identities.ok ? identities.data : []}

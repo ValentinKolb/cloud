@@ -116,7 +116,7 @@ export default function MailCalendarInvitation(props: {
         {(value) => (
           <div class="flex flex-col gap-3">
             <div class="flex items-start gap-3">
-              <span class={`icon-badge shrink-0 ${isCancelled() ? "text-danger" : "text-accent"}`}>
+              <span class={`mail-calendar-invitation-icon shrink-0 ${isCancelled() ? "text-danger" : "text-accent"}`}>
                 <i class={`ti ${isCancelled() ? "ti-calendar-cancel" : "ti-calendar-event"}`} aria-hidden="true" />
               </span>
               <div class="min-w-0 flex-1">

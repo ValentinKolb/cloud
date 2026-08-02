@@ -277,15 +277,15 @@ export default function MailConversationList(props: {
                 ]}
               />
               <Tooltip content="Search filters">
-                <button
+                <IconButton
                   type="button"
-                  class={structuredSummary() ? "icon-btn text-[var(--app-accent)]" : "icon-btn"}
-                  aria-label="Search filters"
+                  class={structuredSummary() ? "text-[var(--app-accent)]" : undefined}
+                  label="Search filters"
                   aria-pressed={Boolean(structuredSummary())}
                   onClick={openAdvancedSearch}
                 >
                   <i class="ti ti-adjustments-search" aria-hidden="true" />
-                </button>
+                </IconButton>
               </Tooltip>
               <Show when={props.selectedConversationId || props.selectedMessageId}>
                 <Tooltip content="Hide conversation list">

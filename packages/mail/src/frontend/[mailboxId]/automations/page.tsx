@@ -1,10 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import { mailHelp } from "../../../help";
 import type { MailRequestContext } from "../../../service";
 import { loadMailAutomationOverview } from "../../../service/automation-workspace";
-import MailLayoutHelp from "../../_components/help/MailLayoutHelp.island";
 import MailAutomationOverview from "../../MailAutomationOverview.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -33,7 +31,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Automations" },
       ]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailAutomationOverview data={result.data} currentUserEmail={user.mail} />
     </Layout>
   );

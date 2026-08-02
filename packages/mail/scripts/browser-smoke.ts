@@ -311,13 +311,26 @@ const clickHydratedDropdownTrigger = async (page: Page, locator: Locator) => {
   await locator.click();
 };
 
+const waitForWidth = async (page: Page, locator: Locator, width: number, label: string) => {
+  const deadline = Date.now() + TIMEOUT;
+  while (Date.now() < deadline) {
+    const current = await locator.evaluate((element) => Math.round(element.getBoundingClientRect().width)).catch(() => null);
+    if (current === width) return;
+    await page.waitForTimeout(50);
+  }
+  const current = await locator.evaluate((element) => Math.round(element.getBoundingClientRect().width)).catch(() => null);
+  fail(`timed out waiting for ${label} to reach ${width}px; current width is ${current ?? "unavailable"}`);
+};
+
 const continueDraft = async (page: Page) => {
   const dialog = page.getByRole("dialog").filter({ hasText: "Continue a draft?" });
   await dialog.getByText("Continue", { exact: true }).first().click();
 };
 
 const assertMailboxToolsMenu = async (menu: Locator) => {
-  const sectionLabels = (await menu.locator(".menu-label").allTextContents()).map((label) => label.trim());
+  const sectionLabels = await menu
+    .getByRole("group")
+    .evaluateAll((groups) => groups.map((group) => group.getAttribute("aria-label") ?? ""));
   const expectedSections = ["Mailbox", "Automation", "Manage", "This browser"];
   if (JSON.stringify(sectionLabels) !== JSON.stringify(expectedSections)) {
     fail(`mailbox tools sections are not stable: ${JSON.stringify(sectionLabels)}`);
@@ -376,21 +389,19 @@ const runSmoke = async (fixture: Fixture) => {
     ok("mailbox search uses server-owned literal matching");
 
     await addStaleCollapsedMailWorkspaceCookie(context);
-    await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
-    const desktopSidebar = page.locator(".workspace-sidebar");
+    await page.goto(mailboxPath, { waitUntil: "load" });
+    const desktopSidebar = page.locator(".mail-workspace-navigation:visible");
     await desktopSidebar.waitFor();
-    if ((await desktopSidebar.getAttribute("data-workspace-collapsible")) !== "false") {
-      fail("Mail desktop navigation still opts into sidebar collapse");
+    if ((await desktopSidebar.getByRole("button", { name: /^(Collapse|Expand) navigation$/ }).count()) !== 0) {
+      fail("Mail desktop navigation still exposes sidebar collapse");
     }
-    if (Math.round(await desktopSidebar.evaluate((element) => element.getBoundingClientRect().width)) !== 248) {
-      fail("Mail desktop navigation shifted away from its SSR-restored expanded width");
-    }
+    await waitForWidth(page, desktopSidebar, 248, "Mail desktop navigation after CSS load");
     const sidebarResizeHandle = page.getByRole("separator", { name: "Resize navigation" });
     await sidebarResizeHandle.focus();
     await page.keyboard.press("Home");
-    await page.waitForFunction(() => Math.round(document.querySelector(".workspace-sidebar")?.getBoundingClientRect().width ?? 0) === 176);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => Math.round(document.querySelector(".workspace-sidebar")?.getBoundingClientRect().width ?? 0) === 176);
+    await waitForWidth(page, desktopSidebar, 176, "Mail desktop navigation");
+    await page.reload({ waitUntil: "load" });
+    await waitForWidth(page, desktopSidebar, 176, "Mail desktop navigation after reload");
     ok("Mail sidebar stays expanded, keyboard-resizable, and SSR-stable");
 
     await clickHydratedDropdownTrigger(page, page.getByRole("button", { name: "Choose list view", exact: true }));
@@ -409,8 +420,8 @@ const runSmoke = async (fixture: Fixture) => {
     await page.locator('[role="list"][aria-label$=" conversations"]').waitFor();
     ok("message list mode survives SSR reload and returns to conversation view");
 
-    const desktopDirectActions = (await desktopSidebar.locator(".sidebar-footer > button, .sidebar-footer > a").allTextContents()).map(
-      (label) => label.trim(),
+    const desktopDirectActions = (await desktopSidebar.locator("footer > button, footer > a").allTextContents()).map((label) =>
+      label.trim(),
     );
     if (desktopDirectActions.some((label) => label.includes("Sync mailbox") || label.includes("Automations"))) {
       fail(`desktop sidebar still exposes standalone mailbox tools: ${JSON.stringify(desktopDirectActions)}`);
@@ -444,11 +455,11 @@ const runSmoke = async (fixture: Fixture) => {
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
 
     await page.setViewportSize({ width: 390, height: 812 });
-    const mobileSidebar = page.locator(".workspace-sidebar-mobile");
-    await mobileSidebar.locator("summary.sidebar-mobile-toggle").click();
-    const mobileDirectActions = (
-      await mobileSidebar.locator(".sidebar-mobile-actions > button, .sidebar-mobile-actions > a").allTextContents()
-    ).map((label) => label.trim());
+    const mobileSidebar = page.locator("nav:has(details)").filter({ hasText: fixture.mailboxName });
+    await mobileSidebar.locator("summary").click();
+    const mobileDirectActions = (await mobileSidebar.locator("details > div > button, details > div > a").allTextContents()).map((label) =>
+      label.trim(),
+    );
     if (mobileDirectActions.some((label) => label.includes("Automations"))) {
       fail(`mobile sidebar still exposes standalone Automations: ${JSON.stringify(mobileDirectActions)}`);
     }
@@ -458,7 +469,7 @@ const runSmoke = async (fixture: Fixture) => {
     await assertMailboxToolsMenu(page.locator('[role="menu"]:popover-open'));
     await page.evaluate(() => document.documentElement.classList.remove("dark"));
     await page.keyboard.press("Escape");
-    await mobileSidebar.locator("summary.sidebar-mobile-toggle").click();
+    await mobileSidebar.locator("summary").click();
     await page.setViewportSize({ width: 1440, height: 900 });
     ok("mailbox tools consolidate sync and automation navigation on desktop and mobile");
 
@@ -478,7 +489,7 @@ const runSmoke = async (fixture: Fixture) => {
     await settings.getByRole("button", { name: "Close settings", exact: true }).click();
     ok("mailbox health explains the runtime problem in the workspace, diagnostics, and settings");
 
-    const conversation = page.getByTitle(new RegExp(`${fixture.subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+    const conversation = page.getByRole("link").filter({ hasText: fixture.subject });
     await conversation.waitFor({ state: "visible" });
     await conversation.click();
     await expectUrl(
@@ -606,7 +617,7 @@ const runSmoke = async (fixture: Fixture) => {
     if (untouchedDraftCount?.count !== 0) {
       fail(`opening an untouched reply persisted ${untouchedDraftCount?.count ?? "unknown"} drafts`);
     }
-    const body = page.getByRole("combobox", { name: "Message body" });
+    const body = page.getByRole("textbox", { name: "Message body" });
     await body.waitFor({ state: "visible" }).catch(async () => {
       fail(`reply composer did not open\n${errors.join("\n")}\n${(await page.locator("body").innerText()).slice(-2_000)}`);
     });

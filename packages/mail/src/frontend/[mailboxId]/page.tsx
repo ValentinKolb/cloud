@@ -2,12 +2,10 @@ import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { mailHelp } from "../../help";
 import type { MailRequestContext } from "../../service";
 import { loadMailboxPageData } from "../../service/workspace";
-import MailLayoutHelp from "../_components/help/MailLayoutHelp.island";
-import { readMailWorkspacePreferences } from "../_components/mail-workspace-preferences";
 import { readMailUserPreferencesFromCookieHeader } from "../_components/mail-user-preferences";
+import { readMailWorkspacePreferences } from "../_components/mail-workspace-preferences";
 import MailWorkspace from "../MailWorkspace.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -37,7 +35,6 @@ export default ssr<AuthContext>(async (c) => {
       workspaceSidebarCollapsible={false}
       title={[{ title: "Start", href: "/" }, { title: "Mail", href: "/app/mail" }, { title: data.mailbox.name }]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailWorkspace
         data={data}
         requestUrl={requestUrl.toString()}

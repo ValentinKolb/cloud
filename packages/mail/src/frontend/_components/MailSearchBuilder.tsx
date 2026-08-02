@@ -102,16 +102,16 @@ function MailSearchConditionEditor(props: {
       class={`rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] ${isGroup() ? "bg-[var(--ui-surface-subtle)] p-2" : "p-2"}`}
     >
       <div class="flex min-w-0 items-start gap-2">
-        <button
+        <IconButton
           type="button"
-          class={`icon-btn shrink-0 ${state().negated ? "text-red-600 dark:text-red-300" : ""}`}
-          aria-label={state().negated ? "Include this condition" : "Exclude this condition"}
+          class={`shrink-0 ${state().negated ? "text-red-600 dark:text-red-300" : ""}`}
+          label={state().negated ? "Include this condition" : "Exclude this condition"}
           title={state().negated ? "Currently excluded. Click to include." : "Exclude this condition"}
           disabled={!canToggleNot()}
           onClick={() => props.onToggleNot(props.path)}
         >
           <i class={`ti ${state().negated ? "ti-circle-minus" : "ti-circle-plus"}`} aria-hidden="true" />
-        </button>
+        </IconButton>
 
         <div class="min-w-0 flex-1">
           <Show

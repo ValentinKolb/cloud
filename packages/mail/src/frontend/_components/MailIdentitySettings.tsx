@@ -6,6 +6,8 @@ import {
   Placeholder,
   prompts,
   Select,
+  StatusBadge,
+  type StatusTone,
   Switch,
   TextInput,
   toast,
@@ -22,6 +24,13 @@ import { EditorHeading, type ProviderSettingsProps } from "./mail-provider-setti
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
 type IdentityEditor = { kind: "create" } | { kind: "edit"; identity: SenderIdentity } | { kind: "verify"; identity: SenderIdentity };
+
+const identityStatusTone = (status: SenderIdentity["status"]): StatusTone => {
+  if (status === "verified") return "ok";
+  if (status === "unverified") return "warning";
+  if (status === "rejected") return "error";
+  return "neutral";
+};
 
 export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSignatures: ComposeTemplate[] }) {
   const [editor, setEditor] = createSignal<IdentityEditor | null>(null);
@@ -427,11 +436,15 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                       <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
                     </span>
                     <Show when={identity.isDefault}>
-                      <span class="badge">Default</span>
+                      <StatusBadge tone="neutral" label="Default" icon={null} />
                     </Show>
-                    <span class="badge capitalize">{identity.status === "verified" ? "Ready" : identity.status.replaceAll("_", " ")}</span>
+                    <StatusBadge
+                      class="capitalize"
+                      tone={identityStatusTone(identity.status)}
+                      label={identity.status === "verified" ? "Ready" : identity.status.replaceAll("_", " ")}
+                    />
                     <Show when={identity.authenticationPolicy.automation === "mailbox"}>
-                      <span class="badge">Automatic replies</span>
+                      <StatusBadge tone="neutral" label="Automatic replies" icon={null} />
                     </Show>
                     <Show when={identity.status === "unverified" || identity.status === "rejected"}>
                       <Button

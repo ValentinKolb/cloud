@@ -8,6 +8,8 @@ import {
   Placeholder,
   prompts,
   Select,
+  StatusBadge,
+  type StatusTone,
   Switch,
   TextInput,
   toast,
@@ -17,11 +19,17 @@ import {
 import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { MailOAuthProviderId, ProviderConnectionDetails, SenderIdentity } from "../../contracts";
+import type { MailOAuthProviderId, ProviderConnection, ProviderConnectionDetails, SenderIdentity } from "../../contracts";
 import type { DiscoveredMailConfiguration } from "../../service/onboarding-discovery";
 import { readApiError } from "./api-response";
 import { connectionEditorDialogOptions, type ProviderSettingsProps } from "./mail-provider-settings-shared";
 import { deriveDefaultSenderSetupState } from "./mail-provider-setup";
+
+const connectionStatusTone = (status: ProviderConnection["status"]): StatusTone => {
+  if (status === "active") return "ok";
+  if (status === "degraded") return "warning";
+  return "error";
+};
 
 export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [editing, setEditing] = createSignal(false);
@@ -603,7 +611,11 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 <Show when={currentBinding()}> {` · mailbox ${currentBinding()?.state.replaceAll("_", " ")}`}</Show>
               </span>
             </span>
-            <span class="badge capitalize">{connection().status.replaceAll("_", " ")}</span>
+            <StatusBadge
+              class="capitalize"
+              tone={connectionStatusTone(connection().status)}
+              label={connection().status.replaceAll("_", " ")}
+            />
             <Show when={!currentBinding()}>
               <Button
                 variant="secondary"

@@ -380,7 +380,7 @@ export default function MailSidebar(props: {
   );
 
   return (
-    <AppWorkspace.Sidebar>
+    <AppWorkspace.Sidebar class="mail-workspace-navigation">
       <AppWorkspace.SidebarHeader
         title={props.mailboxName}
         subtitle="Mailbox"

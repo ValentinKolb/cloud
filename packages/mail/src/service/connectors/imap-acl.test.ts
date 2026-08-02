@@ -36,6 +36,7 @@ describe("IMAP ACL rights", () => {
   test("reads MYRIGHTS through the connector-contained raw command adapter", async () => {
     let advanced = false;
     const client = {
+      capabilities: new Map<string, boolean | number>(),
       enabled: new Set<string>(),
       exec: async (_command: string, _attributes: unknown, options: { untagged: Record<string, (value: unknown) => void> }) => {
         options.untagged.MYRIGHTS?.({ attributes: [{ value: "INBOX" }, { value: "lrswite" }] });

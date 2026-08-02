@@ -1,17 +1,22 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid, ButtonLink } from "@k2b/ui";
+import { ButtonLink, DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid, StatusBadge, type StatusTone } from "@k2b/ui";
 import { dates } from "@k2b/stdlib";
 import { ssr } from "../config";
 import type { PlatformMailboxOperationSummary } from "../contracts";
-import { mailHelp } from "../help";
 import { type MailRequestContext, operations, storageObservability } from "../service";
-import MailLayoutHelp from "./_components/help/MailLayoutHelp.island";
 import MailAdminMailboxActions from "./_components/MailAdminMailboxActions.island";
 import MailAdminStorageActions from "./_components/MailAdminStorageActions.island";
 
 const PAGE_SIZE = 50;
+
+const healthTone = (health: PlatformMailboxOperationSummary["health"]): StatusTone => {
+  if (health === "active") return "ok";
+  if (health === "paused") return "neutral";
+  if (health === "degraded" || health === "reconnecting" || health === "verifying" || health === "bootstrapping") return "warning";
+  return "error";
+};
 
 const formatBytes = (value: number): string => {
   if (value < 1024) return `${value} B`;
@@ -64,7 +69,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Mail">
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <div class="app-rows" data-scroll-preserve="mail-admin">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -147,7 +151,14 @@ export default ssr<AuthContext>(async (c) => {
                       </div>
                     </div>
                   );
-                if (col.id === "health") return <span class="badge whitespace-nowrap">{row.health.replaceAll("_", " ")}</span>;
+                if (col.id === "health")
+                  return (
+                    <StatusBadge
+                      class="whitespace-nowrap capitalize"
+                      tone={healthTone(row.health)}
+                      label={row.health.replaceAll("_", " ")}
+                    />
+                  );
                 if (col.id === "sync")
                   return row.sync.lastAt ? (
                     <time

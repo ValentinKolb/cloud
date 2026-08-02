@@ -1,10 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import { mailHelp } from "../../../help";
 import type { MailRequestContext } from "../../../service";
 import { loadMailSubscriptionWorkspace } from "../../../service/subscription-workspace";
-import MailLayoutHelp from "../../_components/help/MailLayoutHelp.island";
 import MailSubscriptionWorkspace from "../../MailSubscriptionWorkspace.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -33,7 +31,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Subscriptions" },
       ]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailSubscriptionWorkspace data={result.data} initialListKey={initialListKey} />
     </Layout>
   );

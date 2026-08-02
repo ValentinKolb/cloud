@@ -10,12 +10,9 @@ import draftSeedComposePage from "./[mailboxId]/compose/local/[seedId]/page";
 import mailboxPage from "./[mailboxId]/page";
 import subscriptionsPage from "./[mailboxId]/subscriptions/page";
 import composePage from "./compose/page";
-import helpPage from "./help/page";
 import page from "./page";
 
 export default new Hono<AuthContext>()
-  .get("/help", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
-  .get("/help/:topic", auth.requireRole("user", auth.redirectToLogin), ...helpPage)
   .get("/compose", auth.requireRole("user", auth.redirectToLogin), ...composePage)
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...page)
   .get("/:mailboxId/compose/local/:seedId", auth.requireRole("user", auth.redirectToLogin), ...draftSeedComposePage)

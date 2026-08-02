@@ -150,7 +150,9 @@ export default function MailRecipientInput(props: {
   return (
     <div class="relative min-w-0">
       <div
-        class="input no-scrollbar mail-recipient-input flex h-[var(--ui-control-md)] w-full flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden px-2 py-1"
+        class="no-scrollbar mail-recipient-control mail-recipient-input flex h-[var(--ui-control-md)] w-full flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden px-2 py-1"
+        data-disabled={props.disabled ? "true" : undefined}
+        data-invalid={validationError() ? "true" : undefined}
         data-editing={editingIndex() === null ? undefined : "true"}
       >
         <i class="ti ti-at shrink-0 text-dimmed" aria-hidden="true" />
@@ -257,7 +259,7 @@ export default function MailRecipientInput(props: {
         )}
       </Show>
       <Show when={suggestions().length > 0}>
-        <div class="dropdown-menu-surface absolute inset-x-0 top-full z-30 mt-1 max-h-60 overflow-y-auto p-1" role="listbox">
+        <div class="mail-recipient-suggestions absolute inset-x-0 top-full z-30 mt-1 max-h-60 overflow-y-auto p-1" role="listbox">
           <For each={suggestions()}>
             {(suggestion) => (
               <button

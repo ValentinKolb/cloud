@@ -10,6 +10,7 @@ import {
   Placeholder,
   prompts,
   Select,
+  StatusBadge,
   TextInput,
   Tooltip,
   toast,
@@ -491,7 +492,11 @@ export default function MailDetailsPanel(props: {
                   <div class="flex items-center gap-2">
                     <Avatar name={participant.displayName} src={avatarSource(participant.userId, participant.avatarHash)} size="sm" />
                     <span class="min-w-0 flex-1 truncate text-sm text-primary">{participant.displayName}</span>
-                    <span class="badge">{participant.mode === "composing" ? "Composing" : "Viewing"}</span>
+                    <StatusBadge
+                      tone={participant.mode === "composing" ? "running" : "neutral"}
+                      label={participant.mode === "composing" ? "Composing" : "Viewing"}
+                      icon={participant.mode === "composing" ? "ti ti-pencil" : "ti ti-eye"}
+                    />
                   </div>
                 )}
               </For>
@@ -534,9 +539,7 @@ export default function MailDetailsPanel(props: {
           <div class="mb-3 flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Workflow</h3>
             <Show when={props.flagged}>
-              <span class="badge text-orange-600 dark:text-orange-400">
-                <i class={getMailAction("flag").icon} aria-hidden="true" /> Flagged
-              </span>
+              <StatusBadge tone="warning" label="Flagged" icon={getMailAction("flag").icon} />
             </Show>
           </div>
           <div class="flex flex-col gap-2">

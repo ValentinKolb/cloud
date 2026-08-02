@@ -1,6 +1,18 @@
 import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
-import { CheckboxCard, Dropdown, type DropdownItem, Placeholder, prompts, Select, Tooltip, toast, Button, IconButton } from "@k2b/ui";
+import {
+  Button,
+  CheckboxCard,
+  Dropdown,
+  type DropdownItem,
+  IconButton,
+  IconButtonLink,
+  Placeholder,
+  prompts,
+  Select,
+  toast,
+  Tooltip,
+} from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -851,16 +863,16 @@ export default function MailConversationReader(props: {
       >
         <header class="detail-header flex shrink-0 flex-col gap-2">
           <div class="flex min-w-0 items-start gap-2">
-            <Link
+            <IconButtonLink
               href={closeHref()}
-              class="icon-btn lg:hidden"
-              aria-label="Back to conversation list"
+              class="lg:hidden"
+              label="Back to conversation list"
+              navigation="enhanced"
               onNavigate={props.onClose}
               scroll="preserve"
             >
               <i class="ti ti-arrow-left" aria-hidden="true" />
-              <span class="sr-only">Back to conversation list</span>
-            </Link>
+            </IconButtonLink>
             <Show when={props.listCollapsed}>
               <Tooltip content="Show conversation list">
                 <IconButton type="button" class="hidden lg:inline-flex" label="Show conversation list" onClick={props.onRestoreList}>

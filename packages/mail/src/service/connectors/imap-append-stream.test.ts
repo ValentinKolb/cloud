@@ -8,6 +8,7 @@ const mockClient = (options: { requestContinuation?: boolean; swallowContinuatio
   let nextCalled = false;
   let attributes: unknown[] = [];
   const client = {
+    capabilities: new Map<string, boolean | number>(),
     enabled: new Set<string>(),
     writeBytesCounter: 0,
     writeSocket: new Writable({

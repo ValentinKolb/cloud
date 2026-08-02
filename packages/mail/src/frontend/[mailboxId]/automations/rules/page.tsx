@@ -1,10 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
-import { mailHelp } from "../../../../help";
 import type { MailRequestContext } from "../../../../service";
 import { loadMailRulesWorkspace } from "../../../../service/automation-workspace";
-import MailLayoutHelp from "../../../_components/help/MailLayoutHelp.island";
 import MailRulesPage from "../../../MailRulesPage.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -32,7 +30,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Mail rules" },
       ]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailRulesPage data={result.data} currentUserEmail={user.mail} openNew={c.req.query("new") === "1"} />
     </Layout>
   );

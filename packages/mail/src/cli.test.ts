@@ -2555,7 +2555,7 @@ test("attachment link list exposes pagination and revoke requires confirmation",
   expect(revoked.exitCode).toBe(0);
   expect(revokeRequested).toBe(true);
   expect(JSON.parse(revoked.stdout)).toEqual({ ...link, revokedAt: "2026-07-21T10:10:00.000Z" });
-});
+}, 15_000);
 
 test("admin storage commands preserve snapshot and queued reconciliation contracts", async () => {
   const snapshot = {

@@ -14,7 +14,6 @@ import { createMailNotificationService } from "./notifications";
 import { commandRuntime, mailRuntime, workflowRuntime } from "./service";
 
 const mailNotifications = createMailNotificationService(app.notifications);
-const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("user")).route("/", mailHelp.router);
 
 const stopMailRuntimes = (): Promise<void> =>
   stopRuntimeResources([
@@ -27,7 +26,6 @@ const stopMailRuntimes = (): Promise<void> =>
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
-  .route("/api/mail/help", helpRoutes)
   .route("/api/mail", apiRoutes)
   .route("/app/mail", pageRoutes)
   .get("/admin/mail", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
@@ -36,6 +34,7 @@ const router = new Hono<AuthContext>()
 const result = await app.start({
   capabilities: mailCapabilities,
   fetch: router.fetch,
+  help: mailHelp,
   openapi: apiRoutes,
   lifecycle: {
     setup: migrate,

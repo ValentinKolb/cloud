@@ -1,9 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
-import { mailHelp } from "../../help";
 import { type MailRequestContext, mailboxes } from "../../service";
-import MailLayoutHelp from "../_components/help/MailLayoutHelp.island";
 import MailComposeIntentPage from "../_components/MailComposeIntentPage.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -31,7 +29,6 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage focusMode title={[{ title: "Mail", href: "/app/mail" }, { title: "New message" }]}>
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailComposeIntentPage
         mailboxes={writableMailboxes}
         initialMailboxId={initialMailboxId}

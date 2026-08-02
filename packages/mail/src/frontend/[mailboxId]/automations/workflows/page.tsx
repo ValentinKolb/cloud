@@ -1,10 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
-import { mailHelp } from "../../../../help";
 import type { MailRequestContext } from "../../../../service";
 import { loadMailWorkflowsWorkspace } from "../../../../service/automation-workspace";
-import MailLayoutHelp from "../../../_components/help/MailLayoutHelp.island";
 import MailWorkflowsPage from "../../../MailWorkflowsPage.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -32,7 +30,6 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Workflows" },
       ]}
     >
-      <MailLayoutHelp documents={mailHelp.manifest} />
       <MailWorkflowsPage data={result.data} currentUserEmail={user.mail} openNew={c.req.query("new") === "1"} />
     </Layout>
   );
