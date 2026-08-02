@@ -1,6 +1,7 @@
-import { CopyButton, EntitySearch, type EntitySearchPrincipal, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, CopyButton, prompts, Tag, TextInput } from "@k2b/ui";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CreateProxyAuthClient, ProxyAuthAllowedGroup, ProxyAuthClient } from "@/contracts";
@@ -67,14 +68,14 @@ const CreateProxyClient = () => {
 
         return (
           <div class="flex flex-col gap-4">
-            <TextInput label="Name" placeholder="Client name" icon="ti ti-tag" value={name} onChange={setName} required />
+            <TextInput label="Name" placeholder="Client name" icon="ti ti-tag" value={name} onValueChange={setName} required />
 
             <TextInput
               label="Description"
               placeholder="Optional description"
               icon="ti ti-file-description"
               value={description}
-              onChange={setDescription}
+              onValueChange={setDescription}
             />
 
             <div class="flex flex-col gap-1">
@@ -83,20 +84,14 @@ const CreateProxyClient = () => {
                 <div class="flex flex-wrap gap-1 mb-1">
                   <For each={groups()}>
                     {(group) => (
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-400">
-                        <i class="ti ti-users-group text-[10px]" />
+                      <Tag
+                        icon="ti ti-users-group"
+                        size="sm"
+                        onRemove={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
+                        removeLabel={`Remove ${group.name}`}
+                      >
                         {group.name}
-                        <Tooltip content={`Remove ${group.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
-                            class="hover:text-red-500 ml-0.5"
-                            aria-label={`Remove ${group.name}`}
-                          >
-                            <i class="ti ti-x text-[10px]" />
-                          </button>
-                        </Tooltip>
-                      </span>
+                      </Tag>
                     )}
                   </For>
                 </div>
@@ -110,13 +105,13 @@ const CreateProxyClient = () => {
             </div>
 
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+              <Button variant="secondary" size="sm" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={handleSubmit}>
+              </Button>
+              <Button size="sm" onClick={handleSubmit}>
                 <i class="ti ti-plus" />
                 Create
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -130,10 +125,10 @@ const CreateProxyClient = () => {
   };
 
   return (
-    <button type="button" class="btn-primary btn-sm" onClick={handleCreate}>
+    <Button size="sm" onClick={handleCreate}>
       <i class="ti ti-plus" />
       New Client
-    </button>
+    </Button>
   );
 };
 

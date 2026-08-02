@@ -1,8 +1,8 @@
+import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { formatDate } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { proxyAuthService } from "../service";
 import CreateProxyClient from "./_components/CreateProxyClient.island";

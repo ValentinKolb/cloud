@@ -1,7 +1,8 @@
-import { Dropdown, EntitySearch, type EntitySearchPrincipal, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { clipboard } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Dropdown, IconButton, prompts, Tag, TextInput, toast } from "@k2b/ui";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ProxyAuthAllowedGroup, ProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
@@ -84,7 +85,7 @@ const ProxyClientActions = (props: Props) => {
               placeholder="Optional description"
               icon="ti ti-file-description"
               value={description}
-              onChange={setDescription}
+              onValueChange={setDescription}
             />
 
             <div class="flex flex-col gap-1">
@@ -93,20 +94,14 @@ const ProxyClientActions = (props: Props) => {
                 <div class="flex flex-wrap gap-1 mb-1">
                   <For each={groups()}>
                     {(group) => (
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-400">
-                        <i class="ti ti-users-group text-[10px]" />
+                      <Tag
+                        icon="ti ti-users-group"
+                        size="sm"
+                        onRemove={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
+                        removeLabel={`Remove ${group.name}`}
+                      >
                         {group.name}
-                        <Tooltip content={`Remove ${group.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
-                            class="hover:text-red-500 ml-0.5"
-                            aria-label={`Remove ${group.name}`}
-                          >
-                            <i class="ti ti-x text-[10px]" />
-                          </button>
-                        </Tooltip>
-                      </span>
+                      </Tag>
                     )}
                   </For>
                 </div>
@@ -120,13 +115,13 @@ const ProxyClientActions = (props: Props) => {
             </div>
 
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+              <Button variant="secondary" size="sm" onClick={() => close(null)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={handleSubmit}>
+              </Button>
+              <Button size="sm" onClick={handleSubmit}>
                 <i class="ti ti-check" />
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -165,14 +160,12 @@ const ProxyClientActions = (props: Props) => {
   return (
     <Dropdown
       trigger={
-        <Tooltip content="Proxy auth client actions">
-          <button type="button" class="icon-btn h-7 w-7" aria-label="Proxy auth client actions">
-            <i class="ti ti-dots-vertical text-sm" />
-          </button>
-        </Tooltip>
+        <IconButton label="Proxy auth client actions" size="sm">
+          <i class="ti ti-dots-vertical" />
+        </IconButton>
       }
       position="bottom-left"
-      width="w-48"
+      width="12rem"
       elements={[
         {
           items: [
