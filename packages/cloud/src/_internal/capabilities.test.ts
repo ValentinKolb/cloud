@@ -31,6 +31,7 @@ const example = () =>
         description: "Loads one item by its stable id.",
         input: z.object({ id: z.string().max(100).describe("Stable item id.") }).strict(),
         data: z.object({ id: z.string(), name: z.string() }).strict(),
+        openWorld: false,
         run: async (input) =>
           ok({
             data: { id: input.id, name: "Example" },
@@ -72,6 +73,7 @@ describe("capability v1 compilation", () => {
     expect(first.manifest).toEqual(second.manifest);
     expect(first.manifest.types[0]?.id).toBe("example.item");
     expect(first.manifest.queries[0]?.id).toBe("example.get");
+    expect(first.manifest.queries[0]?.openWorld).toBe(false);
     expect(first.manifest.actions[0]?.target?.type).toBe("example.item");
     expect(first.manifest.actions[0]?.review).toBe(true);
     expect(first.manifest.manifestHash).toHaveLength(64);
@@ -96,6 +98,7 @@ describe("capability v1 compilation", () => {
                 })
                 .strict(),
               data: z.string(),
+              openWorld: false,
               run: async () => ok({ data: "" }),
             },
           },
@@ -114,6 +117,7 @@ describe("capability v1 compilation", () => {
               description: "Open input.",
               input: z.looseObject({ value: z.string().describe("Value.") }),
               data: z.string(),
+              openWorld: false,
               run: async () => ok({ data: "" }),
             },
           },
@@ -132,6 +136,7 @@ describe("capability v1 compilation", () => {
               description: "Undocumented input.",
               input: z.object({ value: z.string() }).strict(),
               data: z.string(),
+              openWorld: false,
               run: async () => ok({ data: "" }),
             },
           },
@@ -168,6 +173,7 @@ describe("capability v1 compilation", () => {
       description: "Finds items for the global search surface.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [{ tag: "item", title: "Items", description: "Search test items." }],
       },
@@ -225,6 +231,7 @@ describe("capability v1 compilation", () => {
               description: "Find items.",
               input: z.object({ query: z.string().describe("Search text.") }).strict(),
               data: UniversalSearchDataSchema,
+              openWorld: false,
               universalSearch: { tags: [{ tag: "item", title: "Items", description: "Show items." }] },
               run: async () => ok({ data: [] }),
             },
@@ -246,6 +253,7 @@ describe("capability v1 compilation", () => {
             description: "Lists navigable item cards.",
             input: z.object({}).strict(),
             data: UniversalSearchDataSchema,
+            openWorld: false,
             run: async () =>
               ok({
                 data: [
@@ -300,6 +308,7 @@ describe("capability v1 compilation", () => {
           description: `A deliberately large public query ${index}.`,
           input: z.object(fields).strict(),
           data: z.object({ id: z.string() }).strict(),
+          openWorld: false,
           run: async () => ok({ data: { id: "one" } }),
         },
       ]),

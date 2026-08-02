@@ -18,6 +18,7 @@ const compiled = compileCapabilities(
         description: "Get one item by its stable id.",
         input: z.object({ id: z.string().describe("Stable item id.") }).strict(),
         data: z.object({ id: z.string() }).strict(),
+        openWorld: true,
         run: async ({ id }) => ok({ data: { id } }),
       },
     },
@@ -32,6 +33,17 @@ const compiled = compileCapabilities(
         approval: "once",
         idempotency: "required",
         run: async () => ok({ data: { id: "created" } }),
+      },
+      update: {
+        title: "Update item",
+        description: "Update one demo item.",
+        input: z.object({ id: z.string().describe("Stable item id.") }).strict(),
+        data: z.object({ id: z.string() }).strict(),
+        destructive: true,
+        openWorld: false,
+        approval: "once",
+        idempotency: "optional",
+        run: async ({ id }) => ok({ data: { id } }),
       },
     },
   }),
@@ -101,20 +113,30 @@ describe("capability MCP projection", () => {
         result: { tools: Array<Record<string, any>> };
       }
     ).result;
-    expect(result.tools.map((tool) => tool.name)).toEqual(["demo__action__create", "demo__query__get"]);
+    expect(result.tools.map((tool) => tool.name)).toEqual(["demo__action__create", "demo__action__update", "demo__query__get"]);
     expect(result.tools[0]?.inputSchema.required).toContain("idempotencyKey");
     expect(result.tools[0]?.annotations).toMatchObject({
       readOnlyHint: false,
       idempotentHint: true,
       destructiveHint: false,
+      openWorldHint: false,
     });
     expect(result.tools[0]?._meta).toMatchObject({
       "cloud/approval": "once",
       "cloud/schemaHash": expect.any(String),
     });
+    expect(result.tools[1]?.inputSchema.properties).toHaveProperty("idempotencyKey");
+    expect(result.tools[1]?.inputSchema.required ?? []).not.toContain("idempotencyKey");
     expect(result.tools[1]?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
+    expect(result.tools[2]?.annotations).toMatchObject({
       readOnlyHint: true,
       idempotentHint: true,
+      openWorldHint: true,
     });
   });
 

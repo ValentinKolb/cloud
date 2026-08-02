@@ -17,6 +17,7 @@ const compiled = compileCapabilities(
         description: "Return one demo item.",
         input: z.object({ id: z.string().describe("Stable item id.") }).strict(),
         data: z.object({ id: z.string() }).strict(),
+        openWorld: false,
         run: async ({ id }) => ok({ data: { id } }),
       },
     },

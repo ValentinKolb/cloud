@@ -468,6 +468,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Find accessible notebooks by name or description.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [{ tag: "notebook", title: "Notebooks", description: "Show notebooks only.", aliases: ["notebooks"] }],
       },
@@ -478,6 +479,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Find accessible Markdown notes by title or content.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [{ tag: "note", title: "Notes", description: "Show notes only.", aliases: ["notes", "markdown"] }],
       },
@@ -488,6 +490,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "List accessible notebooks with effective permission and bounded pagination.",
       input: NotebookListInputSchema,
       data: NotebookListDataSchema,
+      openWorld: false,
       run: runNotebookList,
     },
     "notebook.get": {
@@ -495,6 +498,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Read one accessible notebook and its homepage reference.",
       input: NotebookGetInputSchema,
       data: NotebookDataSchema,
+      openWorld: false,
       run: runNotebookGet,
     },
     "note.tree": {
@@ -502,6 +506,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Traverse a large notebook as a compact flat adjacency index without loading Markdown.",
       input: NoteTreeInputSchema,
       data: NoteTreeDataSchema,
+      openWorld: false,
       run: runNoteTree,
     },
     "note.get": {
@@ -509,6 +514,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Read a bounded Markdown window plus hashes, tags, and named-block summaries.",
       input: NoteGetInputSchema,
       data: NoteDetailDataSchema,
+      openWorld: false,
       run: runNoteGet,
     },
     "note.links": {
@@ -516,6 +522,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "List bounded incoming and outgoing note links without revealing inaccessible targets.",
       input: NoteLinksInputSchema,
       data: NoteLinksDataSchema,
+      openWorld: false,
       run: runNoteLinks,
     },
     "tag.list": {
@@ -523,6 +530,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "List the bounded tag vocabulary and note counts of one readable notebook.",
       input: TagListInputSchema,
       data: TagListDataSchema,
+      openWorld: false,
       run: runTagList,
     },
     "tag.notes": {
@@ -530,6 +538,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "List a bounded page of notes carrying one dynamic notebook tag.",
       input: TagNotesInputSchema,
       data: TagNotesDataSchema,
+      openWorld: false,
       run: runTagNotes,
     },
   },
@@ -551,7 +560,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Apply conflict-aware structural Markdown edits through the collaborative note service.",
       input: NoteEditInputSchema,
       data: NoteEditDataSchema,
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "once",
       idempotency: "none",
@@ -563,7 +572,7 @@ export const notebooksCapabilities = defineCapabilities({
       description: "Move one note inside its notebook while rejecting invalid parents and cycles.",
       input: NoteMoveInputSchema,
       data: NoteSummaryDataSchema,
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "once",
       idempotency: "none",

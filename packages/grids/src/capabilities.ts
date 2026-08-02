@@ -530,6 +530,7 @@ export const gridsCapabilities = defineCapabilities({
       description: "Find accessible Grids Bases by name, description, or short ID.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: { tags: [{ tag: "grid", title: "Grids", description: "Show Grids Bases only.", aliases: ["grids", "base"] }] },
       run: runBaseSearch,
     },
@@ -538,6 +539,7 @@ export const gridsCapabilities = defineCapabilities({
       description: "Start here to list accessible Grids Bases and obtain a baseId for schema or GQL calls.",
       input: BaseListInputSchema,
       data: BaseListDataSchema,
+      openWorld: false,
       run: runBaseList,
     },
     "base.get": {
@@ -545,6 +547,7 @@ export const gridsCapabilities = defineCapabilities({
       description: "Read one accessible Grids Base by stable ID.",
       input: BaseGetInputSchema,
       data: BaseCapabilityDataSchema,
+      openWorld: false,
       run: runBaseGet,
     },
     "gql.context": {
@@ -553,6 +556,7 @@ export const gridsCapabilities = defineCapabilities({
         "Discover a Base in steps: list Tables, then Fields and paginated select option IDs, or saved Views. Field results include effective write and audit requirements.",
       input: GqlContextInputSchema,
       data: GqlContextDataSchema,
+      openWorld: false,
       run: runGqlContext,
     },
     "gql.preview": {
@@ -561,6 +565,7 @@ export const gridsCapabilities = defineCapabilities({
         "Validate permission-safe GQL before execution and return actionable parser or resolver diagnostics without mutating data.",
       input: GqlPreviewInputSchema,
       data: GqlResultDataSchema,
+      openWorld: false,
       run: runGqlPreview,
     },
     "gql.execute": {
@@ -568,6 +573,7 @@ export const gridsCapabilities = defineCapabilities({
       description: "Execute permission-safe GQL after loading context; follow nextCursor for more rows, up to a 1,000-row logical ceiling.",
       input: GqlExecuteInputSchema,
       data: GqlResultDataSchema,
+      openWorld: false,
       run: runGqlExecute,
     },
     "gql.view.execute": {
@@ -575,6 +581,7 @@ export const gridsCapabilities = defineCapabilities({
       description: "Execute the exact stored GQL for a viewId returned by gql.context kind views; follow nextCursor for more rows.",
       input: GqlViewExecuteInputSchema,
       data: GqlResultDataSchema,
+      openWorld: false,
       run: runGqlViewExecute,
     },
     "record.get": {
@@ -582,6 +589,7 @@ export const gridsCapabilities = defineCapabilities({
       description: "Read one live record and obtain its current version for a conflict-safe record.update call.",
       input: RecordGetInputSchema,
       data: RecordCapabilityDataSchema,
+      openWorld: false,
       run: runRecordGet,
     },
   },
@@ -605,7 +613,7 @@ export const gridsCapabilities = defineCapabilities({
         "Load fields for value and audit requirements, then record.get for ifVersion. Only supplied Field UUIDs change; stale versions are rejected.",
       input: RecordUpdateInputSchema,
       data: RecordCapabilityDataSchema,
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "once",
       idempotency: "none",

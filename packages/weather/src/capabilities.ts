@@ -304,6 +304,7 @@ export const weatherCapabilities = defineCapabilities({
       description: "Find saved weather locations owned by the current user by name or state.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [
           {
@@ -321,6 +322,7 @@ export const weatherCapabilities = defineCapabilities({
       description: "List the current user's saved weather locations with bounded pagination.",
       input: LocationListInputSchema,
       data: z.array(LocationSchema).max(100),
+      openWorld: false,
       run: runLocationList,
     },
     "location.get": {
@@ -328,6 +330,7 @@ export const weatherCapabilities = defineCapabilities({
       description: "Read one saved weather location owned by the current user by stable UUID.",
       input: LocationGetInputSchema,
       data: LocationSchema,
+      openWorld: false,
       run: runLocationGet,
     },
     "forecast.current": {
@@ -335,6 +338,7 @@ export const weatherCapabilities = defineCapabilities({
       description: "Get current weather for one owned saved location or explicit coordinates.",
       input: ForecastInputSchema,
       data: CurrentWeatherSchema,
+      openWorld: true,
       run: runCurrentForecast,
     },
     "forecast.get": {
@@ -343,6 +347,7 @@ export const weatherCapabilities = defineCapabilities({
         "Get current conditions plus up to 12 hourly and 7 daily forecasts for one owned saved location or explicit coordinates.",
       input: ForecastInputSchema,
       data: WeatherDataSchema,
+      openWorld: true,
       run: runForecast,
     },
     "city.search": {
@@ -350,6 +355,7 @@ export const weatherCapabilities = defineCapabilities({
       description: "Find bounded German city candidates and coordinates for forecasts or saved locations.",
       input: CitySearchInputSchema,
       data: CitySearchDataSchema,
+      openWorld: true,
       run: runCitySearch,
     },
   },

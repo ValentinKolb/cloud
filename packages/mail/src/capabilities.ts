@@ -204,6 +204,7 @@ const queryDefinitions = {
     description: "Search messages across mailboxes the current actor can read.",
     input: UniversalSearchInputSchema,
     data: UniversalSearchDataSchema,
+    openWorld: true,
     universalSearch: { tags: [{ tag: "mail", title: "Mail", description: "Search mail messages.", aliases: ["email", "message"] }] },
     run: runSearch,
   },
@@ -212,6 +213,7 @@ const queryDefinitions = {
     description: "List accessible mailboxes with permission and operational health.",
     input: c.MailboxListInputSchema,
     data: c.MailboxListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.MailboxListInputSchema>, context: CapabilityExecutionContext) => {
       const result = await mailboxes.listMailboxes(
         requestContext(context),
@@ -230,6 +232,7 @@ const queryDefinitions = {
     description: "Read one accessible mailbox without exposing connector credentials.",
     input: c.MailboxGetInputSchema,
     data: c.MailboxDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.MailboxGetInputSchema>, context: CapabilityExecutionContext) => {
       const mailContext = requestContext(context);
       const mailbox = await mailboxes.getMailbox(mailContext, input.mailboxId);
@@ -243,6 +246,7 @@ const queryDefinitions = {
     description: "List verified or configured From identities for one mailbox.",
     input: c.SenderIdentityListInputSchema,
     data: c.SenderIdentityListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.SenderIdentityListInputSchema>, context: CapabilityExecutionContext) =>
       mapBoundedList(await senderIdentities.listSenderIdentities(requestContext(context), input.mailboxId), (item) => ({
         id: item.id, mailboxId: item.mailboxId, label: item.label, displayName: item.displayName, fromAddress: item.fromAddress,
@@ -257,6 +261,7 @@ const queryDefinitions = {
     description: "List people eligible for assignment in a mailbox.",
     input: c.MailboxMemberListInputSchema,
     data: c.MailboxMemberListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.MailboxMemberListInputSchema>, context: CapabilityExecutionContext) =>
       mapResult(await collaboration.listAssignableUsers({ context: requestContext(context), mailboxId: input.mailboxId, search: input.query, limit: input.limit }), (items) => items),
   },
@@ -265,6 +270,7 @@ const queryDefinitions = {
     description: "List selectable folders and their visible counts.",
     input: c.FolderListInputSchema,
     data: c.FolderListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.FolderListInputSchema>, context: CapabilityExecutionContext) =>
       mapBoundedList(
         await messages.listFolders(requestContext(context), input.mailboxId),
@@ -285,6 +291,7 @@ const queryDefinitions = {
     description: "List bounded conversation summaries for a mailbox view or folder.",
     input: c.ConversationListInputSchema,
     data: c.ConversationListDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.ConversationListInputSchema>, context: CapabilityExecutionContext) =>
       mapPage(await messages.listConversations({ context: requestContext(context), mailboxId: input.mailboxId, folderId: input.folderId, status: input.workStatus, view: input.view, cursor: input.cursor, limit: input.limit }), (item) => mapConversation(input.mailboxId, item)),
   },
@@ -293,6 +300,7 @@ const queryDefinitions = {
     description: "Search a whole mailbox using structured sender, recipient, subject, body, date, flag, folder, or attachment expressions.",
     input: c.ConversationSearchInputSchema,
     data: c.ConversationSearchDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.ConversationSearchInputSchema>, context: CapabilityExecutionContext) => {
       const result = await search.searchMessages({ context: requestContext(context), mailboxId: input.mailboxId, request: { expression: input.expression, sort: input.sort, cursor: input.cursor, limit: input.limit } });
       if (!result.ok) return result;
@@ -313,6 +321,7 @@ const queryDefinitions = {
     description: "Read collaboration state, tags, and up to 100 message summaries for one conversation.",
     input: c.ConversationGetInputSchema,
     data: c.ConversationGetDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.ConversationGetInputSchema>, context: CapabilityExecutionContext) => {
       const mailContext = requestContext(context);
       const [state, tags, page] = await Promise.all([
@@ -331,6 +340,7 @@ const queryDefinitions = {
     description: "List bounded message summaries in chronological conversation order.",
     input: c.MessageListInputSchema,
     data: c.MessageListDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.MessageListInputSchema>, context: CapabilityExecutionContext) =>
       mapPage(await messages.listConversationMessages({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId, cursor: input.cursor, limit: input.limit }), (item) => mapMessageSummary(input.mailboxId, input.conversationId, item)),
   },
@@ -339,6 +349,7 @@ const queryDefinitions = {
     description: "Read safe plain-text message content and bounded attachment metadata. Raw source and HTML are excluded.",
     input: c.MessageGetInputSchema,
     data: c.MessageDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.MessageGetInputSchema>, context: CapabilityExecutionContext) => {
       const result = await messages.getMessage({ context: requestContext(context), mailboxId: input.mailboxId, messageId: input.messageId });
       if (!result.ok) return result;
@@ -398,6 +409,7 @@ const queryDefinitions = {
     description: "List active user drafts for one mailbox.",
     input: c.DraftListInputSchema,
     data: c.DraftListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.DraftListInputSchema>, context: CapabilityExecutionContext) => mapResult(await drafts.listDrafts(requestContext(context), input.mailboxId, input.limit), (items) => items.map(mapDraft)),
   },
   "draft.get": {
@@ -405,6 +417,7 @@ const queryDefinitions = {
     description: "Read one editable or scheduled draft.",
     input: c.DraftGetInputSchema,
     data: c.DraftDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.DraftGetInputSchema>, context: CapabilityExecutionContext) => mapResult(await drafts.getDraft(requestContext(context), input.mailboxId, input.draftId), mapDraft),
   },
   "draft.send.review": {
@@ -412,6 +425,7 @@ const queryDefinitions = {
     description: "Return the current bounded safety warnings and approval fingerprint required by draft.send.",
     input: c.DraftSendReviewInputSchema,
     data: c.DraftSendReviewDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.DraftSendReviewInputSchema>, context: CapabilityExecutionContext) => mapResult(await composeSafety.reviewDraftComposeSafety({ context: requestContext(context), ...input }), (item) => item),
   },
   "mailbox.tag.list": {
@@ -419,6 +433,7 @@ const queryDefinitions = {
     description: "List Cloud-local collaboration tags for a mailbox.",
     input: c.TagListInputSchema,
     data: c.TagListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.TagListInputSchema>, context: CapabilityExecutionContext) =>
       mapBoundedList(await localTags.listLocalTags(requestContext(context), input.mailboxId), (item) => item),
   },
@@ -427,6 +442,7 @@ const queryDefinitions = {
     description: "List bounded internal team comments for a conversation.",
     input: c.CommentListInputSchema,
     data: c.CommentListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.CommentListInputSchema>, context: CapabilityExecutionContext) => mapPage(await collaboration.listConversationComments({ context: requestContext(context), ...input }), (item) => item),
   },
   "conversation.activity.list": {
@@ -434,6 +450,7 @@ const queryDefinitions = {
     description: "List bounded mailbox or conversation collaboration activity.",
     input: c.ActivityListInputSchema,
     data: c.ActivityListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.ActivityListInputSchema>, context: CapabilityExecutionContext) => mapPage(await collaboration.listActivity({ context: requestContext(context), ...input }), (item) => item),
   },
   "conversation.reminder.get": {
@@ -441,6 +458,7 @@ const queryDefinitions = {
     description: "Read the current user's personal reminder for one conversation.",
     input: c.ReminderGetInputSchema,
     data: c.ReminderGetDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.ReminderGetInputSchema>, context: CapabilityExecutionContext) =>
       mapResult(await reminders.getConversationReminder({ context: requestContext(context), ...input }), (item) => item),
   },
@@ -449,6 +467,7 @@ const queryDefinitions = {
     description: "List messages still in an undo window or scheduled for later delivery.",
     input: c.DeliveryListInputSchema,
     data: c.DeliveryListDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.DeliveryListInputSchema>, context: CapabilityExecutionContext) => {
       const result = await scheduledSends.listScheduledSends({ context: requestContext(context), ...input });
       if (!result.ok) return result;
@@ -460,6 +479,7 @@ const queryDefinitions = {
     description: "Read one scheduled delivery by identifier.",
     input: c.DeliveryGetInputSchema,
     data: c.DeliveryDataSchema,
+    openWorld: false,
     run: async (input: z.output<typeof c.DeliveryGetInputSchema>, context: CapabilityExecutionContext) =>
       mapResult(
         await scheduledSends.getScheduledSend({
@@ -487,6 +507,7 @@ const queryDefinitions = {
     description: "List mailing lists detected from standards-based message headers.",
     input: c.SubscriptionListInputSchema,
     data: c.SubscriptionListDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.SubscriptionListInputSchema>, context: CapabilityExecutionContext) => mapPage(await listSubscriptions.listSubscriptions({ context: requestContext(context), ...input }), (item) => item),
   },
   "mailing-list.subscription.get": {
@@ -494,6 +515,7 @@ const queryDefinitions = {
     description: "Read current unsubscribe information for one detected mailing list.",
     input: c.SubscriptionGetInputSchema,
     data: c.SubscriptionGetDataSchema,
+    openWorld: true,
     run: async (input: z.output<typeof c.SubscriptionGetInputSchema>, context: CapabilityExecutionContext) => mapResult(await listSubscriptions.getSubscription(requestContext(context), input.mailboxId, input.listKey), (item) => item),
   },
 };
@@ -532,7 +554,7 @@ const actionDefinitions = {
   },
   "draft.update": {
     title: "Update draft", description: "Replace editable draft content using an optimistic revision.", input: c.DraftUpdateInputSchema, data: c.DraftDataSchema,
-    destructive: false, openWorld: false, approval: "once", idempotency: "none", target: { type: "draft", inputField: "draftId" },
+    destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "draft", inputField: "draftId" },
     run: async (input: z.output<typeof c.DraftUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await drafts.updateDraft({ context: requestContext(context), mailboxId: input.mailboxId, draftId: input.draftId, expectedRevision: input.expectedRevision, input: input.draft }), mapDraft),
   },
   "draft.discard": {
@@ -573,7 +595,7 @@ const actionDefinitions = {
   },
   "conversation.mark": {
     title: "Mark conversations", description: "Mark up to 100 conversations read or flagged in their source folder.", input: c.ConversationMarkInputSchema, data: c.ConversationMutationDataSchema,
-    destructive: false, openWorld: false, approval: "once", idempotency: "required",
+    destructive: true, openWorld: false, approval: "once", idempotency: "required",
     run: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context); if (!key.ok) return key;
       const data = [];
@@ -614,7 +636,7 @@ const actionDefinitions = {
   },
   "conversation.tag.update": {
     title: "Update conversation tags", description: "Add and remove Cloud-local tags with optimistic concurrency.", input: c.ConversationTagUpdateInputSchema, data: c.ConversationTagDataSchema,
-    destructive: false, openWorld: false, approval: "once", idempotency: "none", target: { type: "conversation", inputField: "conversationId" },
+    destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "conversation", inputField: "conversationId" },
     run: async (input: z.output<typeof c.ConversationTagUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const current = await localTags.getConversationLocalTags({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId });
       if (!current.ok) return current;
@@ -625,7 +647,7 @@ const actionDefinitions = {
   },
   "conversation.collaboration.update": {
     title: "Update collaboration", description: "Assign, snooze, or change the work status of a conversation.", input: c.CollaborationUpdateInputSchema, data: c.CollaborationDataSchema,
-    destructive: false, openWorld: false, approval: "once", idempotency: "none", target: { type: "conversation", inputField: "conversationId" },
+    destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "conversation", inputField: "conversationId" },
     run: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await collaboration.updateConversationCollaboration({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId, input: { expectedRevision: input.expectedRevision, assigneeUserId: input.assigneeUserId, workStatus: input.workStatus, snoozedUntil: input.snoozedUntil } }), (item) => item),
   },
   "conversation.reminder.set": {
@@ -633,7 +655,7 @@ const actionDefinitions = {
     description: "Create or reschedule the current user's personal conversation reminder.",
     input: c.ReminderSetInputSchema,
     data: c.ReminderDataSchema,
-    destructive: false,
+    destructive: true,
     openWorld: false,
     approval: "once",
     idempotency: "none",
@@ -677,7 +699,7 @@ const actionDefinitions = {
   },
   "conversation.comment.update": {
     title: "Update internal comment", description: "Edit an owned internal comment using an optimistic revision.", input: c.CommentUpdateInputSchema, data: c.CommentDataSchema,
-    destructive: false, openWorld: false, approval: "once", idempotency: "none", target: { type: "comment", inputField: "commentId" },
+    destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "comment", inputField: "commentId" },
     run: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await collaboration.updateConversationComment({ context: requestContext(context), mailboxId: input.mailboxId, conversationId: input.conversationId, commentId: input.commentId, input: { expectedRevision: input.expectedRevision, body: input.body } }), (item) => item),
   },
   "conversation.comment.delete": {
@@ -692,7 +714,7 @@ const actionDefinitions = {
   },
   "mailbox.tag.update": {
     title: "Update mailbox tag", description: "Rename or recolor a mailbox tag using an optimistic revision.", input: c.TagUpdateInputSchema, data: c.TagDataSchema,
-    destructive: false, openWorld: false, approval: "once", idempotency: "none", target: { type: "tag", inputField: "tagId" },
+    destructive: true, openWorld: false, approval: "once", idempotency: "none", target: { type: "tag", inputField: "tagId" },
     run: async (input: z.output<typeof c.TagUpdateInputSchema>, context: CapabilityExecutionContext) => mapResult(await localTags.updateLocalTag({ context: requestContext(context), mailboxId: input.mailboxId, tagId: input.tagId, input: { expectedRevision: input.expectedRevision, name: input.name, color: input.color } }), (item) => item),
   },
   "mailbox.tag.delete": {

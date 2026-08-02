@@ -640,6 +640,7 @@ export const contactsCapabilities = defineCapabilities({
         "Find, show, or open permission-filtered contacts by name, email, phone, or address-book facet. Returns navigable contact cards.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [
           { tag: "contact", title: "Contacts", description: "Show contact cards.", aliases: ["addressbook"] },
@@ -655,6 +656,7 @@ export const contactsCapabilities = defineCapabilities({
         "Autocomplete readable email recipients while composing mail by matching names, organizations, email addresses, phone numbers, and addresses.",
       input: ContactSuggestInputSchema,
       data: ContactSuggestDataSchema,
+      openWorld: false,
       run: runContactSuggest,
     },
     "contact.resolve": {
@@ -662,6 +664,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "Resolve up to 100 known exact email addresses to every readable matching contact with bounded contact details.",
       input: ContactResolveInputSchema,
       data: ContactResolveDataSchema,
+      openWorld: false,
       run: runContactResolve,
     },
     "contact.list": {
@@ -670,6 +673,7 @@ export const contactsCapabilities = defineCapabilities({
         "List contacts in one already selected readable address book with bounded filters, stable pagination, and navigable contact cards.",
       input: ContactListInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       run: runContactList,
     },
     "contact.get": {
@@ -677,6 +681,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "Read one contact by stable UUID after resolving and checking its owning address book.",
       input: ContactGetInputSchema,
       data: ContactDetailDataSchema,
+      openWorld: false,
       run: runContactGet,
     },
     "book.list": {
@@ -684,6 +689,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "List address books the current actor may read, including effective permissions for choosing action targets.",
       input: ContactBookListInputSchema,
       data: ContactBookListDataSchema,
+      openWorld: false,
       run: runBookList,
     },
     "tag.list": {
@@ -691,6 +697,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "List the bounded tag vocabulary for one readable address book.",
       input: ContactTagListInputSchema,
       data: ContactTagListDataSchema,
+      openWorld: false,
       run: runTagList,
     },
     "note.list": {
@@ -698,6 +705,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "List notes for one readable contact, newest first.",
       input: ContactNoteListInputSchema,
       data: ContactNoteListDataSchema,
+      openWorld: false,
       run: runNoteList,
     },
   },
@@ -719,7 +727,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "Update selected contact fields; provided collection fields replace their current values.",
       input: ContactUpdateInputSchema,
       data: ContactMutationDataSchema,
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "once",
       idempotency: "none",
@@ -755,7 +763,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "Set or clear the current user's favorite state for one readable contact.",
       input: FavoriteSetInputSchema,
       data: FavoriteSetDataSchema,
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "never",
       idempotency: "none",
@@ -767,7 +775,7 @@ export const contactsCapabilities = defineCapabilities({
       description: "Atomically add and remove book-scoped tags on one writable contact.",
       input: ContactTagChangeInputSchema,
       data: ContactTagChangeDataSchema,
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "once",
       idempotency: "none",

@@ -122,7 +122,7 @@ describe("notebooks capabilities", () => {
     ]);
     expect(Object.keys(notebooksCapabilities.actions).sort()).toEqual(["note.create", "note.edit", "note.move"]);
     expect(notebooksCapabilities.actions["note.edit"]).toMatchObject({
-      destructive: false,
+      destructive: true,
       openWorld: false,
       approval: "once",
       idempotency: "none",

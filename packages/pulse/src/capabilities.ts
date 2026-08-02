@@ -349,6 +349,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Find accessible Pulse Bases by name or description.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: { tags: [{ tag: "pulse", title: "Pulse", description: "Show Pulse Bases only.", aliases: ["base", "telemetry"] }] },
       run: runBaseSearch,
     },
@@ -357,6 +358,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Start here to list accessible Pulse Bases and obtain a baseId for catalog or query calls.",
       input: BaseListInputSchema,
       data: BaseListDataSchema,
+      openWorld: false,
       run: runBaseList,
     },
     "source.list": {
@@ -364,6 +366,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "List bounded source health for one readable Base without exposing credentials.",
       input: SourceListInputSchema,
       data: SourceListDataSchema,
+      openWorld: false,
       run: runSourceList,
     },
     "resource.search": {
@@ -371,6 +374,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Find observed resources across accessible Pulse Bases.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [
           { tag: "pulse-resource", title: "Pulse resources", description: "Show observed Pulse resources only.", aliases: ["resource"] },
@@ -383,6 +387,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Discover metric names and types in one readable Base before authoring a query.",
       input: MetricSearchInputSchema,
       data: MetricSearchDataSchema,
+      openWorld: false,
       run: runMetricSearch,
     },
     "field.search": {
@@ -390,6 +395,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Discover dimension or attribute keys for metrics, events, and states without exposing sensitive values.",
       input: FieldSearchInputSchema,
       data: FieldSearchDataSchema,
+      openWorld: false,
       run: runFieldSearch,
     },
     "query.compile": {
@@ -397,6 +403,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Validate Pulse query DSL and return its kind and actionable diagnostics without reading telemetry rows.",
       input: QueryTextInputSchema,
       data: QueryCompileDataSchema,
+      openWorld: false,
       run: runQueryCompile,
     },
     "query.execute": {
@@ -404,6 +411,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Execute validated Pulse query DSL with at most 500 points or 100 compact rows; raw event payloads are omitted.",
       input: QueryTextInputSchema,
       data: QueryExecutionDataSchema,
+      openWorld: false,
       run: executeQuery,
     },
     "saved_query.list": {
@@ -411,6 +419,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "List bounded named queries in one readable Base.",
       input: SavedQueryListInputSchema,
       data: SavedQueryListDataSchema,
+      openWorld: false,
       run: runSavedQueryList,
     },
     "saved_query.execute": {
@@ -418,6 +427,7 @@ export const pulseCapabilities = defineCapabilities({
       description: "Load and execute the exact stored query with the same compact limits as query.execute.",
       input: SavedQueryExecuteInputSchema,
       data: QueryExecutionDataSchema,
+      openWorld: false,
       run: runSavedQueryExecute,
     },
   },

@@ -106,6 +106,7 @@ export const filesCapabilities = defineCapabilities({
       description: "Find permission-filtered files and directories across accessible storage bases.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [
           { tag: "file", title: "Files", description: "Show files only." },

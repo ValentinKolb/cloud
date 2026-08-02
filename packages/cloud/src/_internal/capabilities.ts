@@ -183,6 +183,7 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       inputSchema: schemas.inputSchema,
       resultSchema: schemas.resultSchema,
       schemaHash: schemas.schemaHash,
+      openWorld: definition.openWorld,
       universalSearch: normalizeSearchTags(definition, label),
     } satisfies CapabilityQueryManifest;
     queries.set(localId, {

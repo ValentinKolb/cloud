@@ -68,8 +68,8 @@ const projectTool = (
         title: operation.title,
         readOnlyHint: !isAction,
         destructiveHint: action?.destructive ?? false,
-        idempotentHint: action ? action.idempotency !== "none" : true,
-        openWorldHint: action?.openWorld ?? false,
+        idempotentHint: action ? action.idempotency === "required" : true,
+        openWorldHint: operation.openWorld,
       },
       _meta: {
         "cloud/appId": app.appId,

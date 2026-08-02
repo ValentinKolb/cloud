@@ -179,6 +179,7 @@ export type CapabilityQueryDefinition<Input extends z.ZodType = z.ZodType<any>, 
   description: string;
   input: Input;
   data: Data;
+  openWorld: boolean;
   universalSearch?: CapabilityUniversalSearchDefinition;
   run: (
     input: z.output<Input>,
@@ -257,6 +258,7 @@ const CapabilityOperationManifestBaseSchema = z
   .strict();
 
 export const CapabilityQueryManifestSchema = CapabilityOperationManifestBaseSchema.extend({
+  openWorld: z.boolean(),
   universalSearch: z
     .object({ tags: z.array(CapabilitySearchTagManifestSchema).max(100) })
     .strict()

@@ -38,6 +38,7 @@ const capabilityApp = (appId: string, appName = appId): CapabilityRegistryEntry 
             })
             .strict(),
           data: z.array(z.object({ id: z.string() }).strict()),
+          openWorld: false,
           run: async () => ok({ data: [] }),
         },
       },

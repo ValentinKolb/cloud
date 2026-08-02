@@ -18,6 +18,7 @@ const capabilities = defineCapabilities({
       description: "Find test items by text and facets.",
       input: UniversalSearchInputSchema,
       data: UniversalSearchDataSchema,
+      openWorld: false,
       universalSearch: {
         tags: [{ tag: "item", title: "Items", description: "Show test items.", aliases: ["thing"] }],
       },

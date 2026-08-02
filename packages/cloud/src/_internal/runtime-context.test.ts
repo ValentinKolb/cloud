@@ -77,6 +77,7 @@ describe("buildRuntimeFromRegistry", () => {
             description: "Find visible examples.",
             input: UniversalSearchInputSchema,
             data: UniversalSearchDataSchema,
+            openWorld: false,
             universalSearch: {
               tags: [
                 {
@@ -94,6 +95,7 @@ describe("buildRuntimeFromRegistry", () => {
             description: "Read one example outside Universal Search.",
             input: z.object({ id: z.string().describe("Stable example id.") }).strict(),
             data: z.object({ id: z.string() }).strict(),
+            openWorld: false,
             run: async ({ id }) => ok({ data: { id } }),
           },
         },
