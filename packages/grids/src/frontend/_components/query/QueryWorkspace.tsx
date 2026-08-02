@@ -1,5 +1,5 @@
-import { Panes, type PanesValue, prompts, TextInput, Tooltip, Button } from "@k2b/ui";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
+import { Button, Panes, type PanesValue, prompts, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
@@ -621,11 +621,11 @@ export default function QueryWorkspace(props: Props) {
                                 <Tooltip content={field.description || `${field.name} (${field.type})`}>
                                   <button
                                     type="button"
-                                    class="inline-flex max-w-full items-baseline gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[10px] leading-tight text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
+                                    class="inline-flex max-w-full items-baseline gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] leading-4 text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
                                     onClick={() => insertField(field)}
                                   >
-                                    <span class="truncate">{formatIdentifierRef(field.name)}</span>
-                                    <span class="text-[9px] text-dimmed">{field.type}</span>
+                                    <span class="truncate">{field.name}</span>
+                                    <span class="text-dimmed">{field.type}</span>
                                   </button>
                                 </Tooltip>
                               )}

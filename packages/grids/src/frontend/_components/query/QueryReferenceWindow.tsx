@@ -1,6 +1,6 @@
-import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import {
   AppWorkspace,
+  ButtonLink,
   CopyButton,
   DataTable,
   type DataTableColumn,
@@ -11,9 +11,9 @@ import {
   DocPage,
   DocRows,
   DocSection,
-  ButtonLink,
   Tag,
 } from "@k2b/ui";
+import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { GQL_EXAMPLES } from "../../../help/gql-examples";
@@ -435,6 +435,24 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
   const shownFields = (table: SourceRow) => fieldsForTable(table).slice(0, 8);
   const hiddenFieldCount = (table: SourceRow) => Math.max(0, fieldsForTable(table).length - shownFields(table).length);
   const fieldReason = (field: FieldRow) => field.description || field.typeLabel;
+  const fieldColumns: DataTableColumn<FieldRow>[] = [
+    {
+      id: "field",
+      header: "Field",
+      value: (field) => field.name,
+      class: "w-[30%]",
+      cellClass: "min-w-56",
+    },
+    { id: "type", header: "Type", value: (field) => field.typeLabel, class: "w-[14%]", cellClass: "text-dimmed" },
+    {
+      id: "description",
+      header: "Description",
+      value: fieldReason,
+      class: "w-[40%]",
+      cellClass: "min-w-72 leading-relaxed text-dimmed",
+    },
+    { id: "use", header: "Use as", value: (field) => field.ref, class: "w-[16%]", align: "right" },
+  ];
 
   const SourceRef = (source: SourceRow) => (
     <div class="inline-flex min-w-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs">
@@ -560,48 +578,37 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
             </DocSection>
 
             <DocSection title="Fields">
-              <div class="paper overflow-auto">
-                <table class="min-w-[820px] w-full table-fixed text-sm">
-                  <colgroup>
-                    <col class="w-[30%]" />
-                    <col class="w-[14%]" />
-                    <col class="w-[40%]" />
-                    <col class="w-[16%]" />
-                  </colgroup>
-                  <thead class="bg-[var(--ui-data-header)] text-xs font-medium uppercase tracking-wide text-dimmed">
-                    <tr class="border-b border-[var(--ui-data-divider)]">
-                      <th class="px-4 py-2 text-left font-medium">Field</th>
-                      <th class="px-4 py-2 text-left font-medium">Type</th>
-                      <th class="px-4 py-2 text-left font-medium">Description</th>
-                      <th class="px-4 py-2 text-right font-medium">Use as</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-[var(--ui-data-row-divider)]">
-                    <For each={inspectedFields()}>
-                      {(field) => (
-                        <tr>
-                          <td class="px-4 py-3 align-middle">
-                            <h3 class="flex min-w-0 items-center gap-2 font-semibold text-primary">
-                              <i class={`${fieldTypeIcon(field.type)} shrink-0 text-dimmed`} />
-                              <span class="truncate">{field.name}</span>
-                            </h3>
-                          </td>
-                          <td class="px-4 py-3 align-middle text-dimmed">{field.typeLabel}</td>
-                          <td class="px-4 py-3 align-middle leading-relaxed text-dimmed">{fieldReason(field)}</td>
-                          <td class="px-4 py-3 align-middle">
-                            <div class="flex items-center justify-end gap-2">
-                              <code class="inline-flex rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-primary">
-                                {field.ref}
-                              </code>
-                              <CopyButton text={field.ref} class="h-8 w-8" />
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                ariaLabel={`${source().name} fields`}
+                rows={inspectedFields()}
+                columns={fieldColumns}
+                getRowId={(field) => field.id}
+                class="paper overflow-auto"
+                tableClass="min-w-[820px] table-fixed"
+                verticalAlign="middle"
+                hoverRows={false}
+                renderCell={({ row: field, col, value, render }) => {
+                  if (col.id === "field") {
+                    return (
+                      <span class="flex min-w-0 items-center gap-2 font-semibold text-primary">
+                        <i class={`${fieldTypeIcon(field.type)} shrink-0 text-dimmed`} aria-hidden="true" />
+                        <span class="truncate">{field.name}</span>
+                      </span>
+                    );
+                  }
+                  if (col.id === "use") {
+                    return (
+                      <span class="flex items-center justify-end gap-2">
+                        <code class="inline-flex rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-primary">
+                          {field.ref}
+                        </code>
+                        <CopyButton text={field.ref} class="h-8 w-8" />
+                      </span>
+                    );
+                  }
+                  return render(value);
+                }}
+              />
             </DocSection>
 
             <DocNote title="Back to all sources">
@@ -704,6 +711,7 @@ function FormulasTab(props: { functionRows: FunctionRow[] }) {
 
       <DocSection title="Full function reference">
         <DataTable
+          ariaLabel="GQL function reference"
           rows={props.functionRows}
           columns={functionColumns}
           getRowId={(row) => row.name}

@@ -1,5 +1,5 @@
-import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { AggregationSpec, GroupBySpec } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -141,6 +141,7 @@ export default function GroupedTable(props: Props) {
         </div>
       </Show>
       <DataTable
+        ariaLabel="Grouped records"
         rows={props.buckets}
         columns={columns()}
         scrollPreserveKey={props.scrollPreserveKey}

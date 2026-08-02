@@ -13,10 +13,7 @@
 
 .grids-record-card-grid {
   --grids-record-card-width: 13rem;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(min(100%, var(--grids-record-card-width)), var(--grids-record-card-width))
-  );
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--grids-record-card-width)), var(--grids-record-card-width)));
   gap: 0.625rem;
 }
 

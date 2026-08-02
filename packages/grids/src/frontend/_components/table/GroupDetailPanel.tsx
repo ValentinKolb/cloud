@@ -239,16 +239,13 @@ export default function GroupDetailPanel(props: Props) {
             <Show
               when={items().length > 0}
               fallback={
-                <Placeholder align="left" class="py-3">
-                  <Show when={fetchMut.error()} fallback={fetchMut.loading() ? "Loading records..." : "No records in this group."}>
-                    {(err) => (
-                      <span>
-                        Could not load records.
-                        <span class="block text-xs">{err().message}</span>
-                      </span>
-                    )}
-                  </Show>
-                </Placeholder>
+                <Placeholder
+                  state={fetchMut.error() ? "error" : fetchMut.loading() ? "loading" : "empty"}
+                  align="left"
+                  class="py-3"
+                  title={fetchMut.error() ? "Could not load records" : fetchMut.loading() ? "Loading records" : "No records in this group"}
+                  description={fetchMut.error()?.message}
+                />
               }
             >
               <For each={items()}>

@@ -1,4 +1,6 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   DataTable,
   type DataTableColumn,
   dialogCore,
@@ -12,10 +14,8 @@ import {
   StatGrid,
   StatusBadge,
   Tag,
-  Button,
 } from "@k2b/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Table } from "../../../service";
@@ -186,6 +186,7 @@ function EmailDeliveryTable(props: {
   return (
     <section class="flex min-h-0 flex-1 flex-col">
       <DataTable
+        ariaLabel="Workflow email deliveries"
         rows={props.deliveries}
         columns={columns()}
         getRowId={(delivery) => delivery.id}
@@ -527,7 +528,7 @@ export default function WorkflowsPage(props: Props) {
             close={() => close()}
           />
           <PanelDialog.Body>
-            <Suspense fallback={<Placeholder>Loading scanner...</Placeholder>}>
+            <Suspense fallback={<Placeholder state="loading" title="Loading scanner" />}>
               <WorkflowScannerSurface
                 mode="dialog"
                 state={
@@ -843,6 +844,7 @@ export default function WorkflowsPage(props: Props) {
               </Button>
             </div>
             <DataTable
+              ariaLabel="Workflow runs"
               rows={runs()}
               columns={runColumns()}
               getRowId={(run) => run.id}

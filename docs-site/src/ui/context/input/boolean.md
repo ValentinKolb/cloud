@@ -28,6 +28,10 @@ both `onValueChange` and `onValueCommit`.
 All three support the shared `label`, `description`, reactive `error`,
 `required`, and `disabled` field state.
 
+For partial bulk selections, pass `indeterminate`. A checkbox without a visible
+`label` or `description` renders as a compact control; give that form an
+accessible name with `aria-label`.
+
 `CheckboxCard` takes a text or JSX `label`. Add either `icon` or a valid three-
 or six-digit hex `color` as supporting context. `variant="input"` uses the
 denser input surface; the default is `"card"`.
@@ -60,5 +64,12 @@ const [review, setReview] = createSignal(false);
   icon="ti ti-eye-check"
   value={review}
   onValueChange={setReview}
+/>;
+
+<Checkbox
+  aria-label="Select visible records"
+  value={allSelected()}
+  indeterminate={someSelected() && !allSelected()}
+  onValueChange={setAllSelected}
 />;
 ```

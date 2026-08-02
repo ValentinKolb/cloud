@@ -1,7 +1,7 @@
+import { ButtonLink, DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, ButtonLink } from "@k2b/ui";
 import { ssr } from "../config";
 import { gridsService } from "../service";
 import AdminGridsActions from "./_components/AdminGridsActions.island";
@@ -206,6 +206,7 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           </div>
           <DataTable
+            ariaLabel="Grids bases"
             rows={list.items}
             columns={columns}
             getRowId={(base) => base.id}

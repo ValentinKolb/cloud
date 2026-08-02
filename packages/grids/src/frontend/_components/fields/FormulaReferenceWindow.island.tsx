@@ -244,6 +244,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
               <i class="ti ti-columns" /> Fields <span class="text-dimmed">{fieldsCount()}</span>
             </h2>
             <DataTable
+              ariaLabel="Formula fields"
               rows={fieldRows()}
               columns={fieldColumns}
               getRowId={(row) => row.field.id}
@@ -272,6 +273,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
               <i class="ti ti-function" /> Functions <span class="text-dimmed">{functionsCount()}</span>
             </h2>
             <DataTable
+              ariaLabel="Formula functions"
               rows={functionRows()}
               columns={functionColumns}
               getRowId={(row) => row.fn.name}

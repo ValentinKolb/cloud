@@ -88,6 +88,22 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(toggle).toContain("checked");
   });
 
+  test("renders a control-only mixed checkbox for bulk selection", () => {
+    const html = renderToString(() =>
+      createComponent(Checkbox, {
+        "aria-label": "Select visible records",
+        indeterminate: true,
+        value: () => false,
+      }),
+    );
+
+    expect(html).toContain('aria-label="Select visible records"');
+    expect(html).toContain('aria-checked="mixed"');
+    expect(html).toContain('data-indeterminate="true"');
+    expect(html).toContain("ti ti-minus");
+    expect(html).not.toContain("k2b-check__content");
+  });
+
   test("renders a searchable select with descriptions, disabled options, and clear state", () => {
     const html = renderToString(() =>
       createComponent(Select, {

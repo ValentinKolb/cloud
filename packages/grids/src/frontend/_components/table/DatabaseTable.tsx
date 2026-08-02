@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
-import { DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
-import { createEffect, For, type JSX, Show } from "solid-js";
+import { Checkbox, DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
+import { For, type JSX, Show } from "solid-js";
 import type { AggregationSpec, ColumnSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord, RecordList } from "../../../service";
@@ -110,22 +110,7 @@ const columnId = (column: ColumnSpec): string => (isComputedColumn(column) ? col
 const BULK_SELECTION_COLUMN_ID = "__bulk_selection";
 
 const SelectionCheckbox = (props: { checked: boolean; indeterminate?: boolean; label: string; onChange: (checked: boolean) => void }) => {
-  let inputRef: HTMLInputElement | undefined;
-  createEffect(() => {
-    if (inputRef) inputRef.indeterminate = !!props.indeterminate;
-  });
-  return (
-    <input
-      ref={inputRef}
-      type="checkbox"
-      class="h-4 w-4 rounded border-zinc-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)] dark:border-zinc-700 dark:bg-zinc-900"
-      style={{ "accent-color": "var(--app-accent)" }}
-      checked={props.checked}
-      aria-label={props.label}
-      onClick={(event) => event.stopPropagation()}
-      onChange={(event) => props.onChange(event.currentTarget.checked)}
-    />
-  );
+  return <Checkbox value={props.checked} indeterminate={props.indeterminate} aria-label={props.label} onValueChange={props.onChange} />;
 };
 
 export default function DatabaseTable(props: Props) {
@@ -306,6 +291,7 @@ export default function DatabaseTable(props: Props) {
   return (
     <Show when={visibleFields().length > 0} fallback={<Placeholder surface="paper">No visible fields.</Placeholder>}>
       <DataTable
+        ariaLabel="Records"
         rows={props.result.items}
         columns={columns()}
         class={shellClass()}

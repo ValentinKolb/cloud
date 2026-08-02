@@ -1,5 +1,5 @@
-import { Button, IconButton, Placeholder, Tag } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, IconButton, Placeholder, Tag } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
 import { documentRunActionState } from "./document-browser-model";
@@ -97,10 +97,20 @@ export default function DocumentBrowser(props: Props) {
 
   return (
     <section class="paper min-h-0 flex-1 overflow-hidden">
-      <Show when={!props.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading documents...</div>}>
+      <Show
+        when={!props.loading}
+        fallback={<Placeholder state="loading" class="h-full" title="Loading documents" description="Reading generated documents." />}
+      >
         <Show
           when={!props.error}
-          fallback={<Placeholder class="h-full">{props.error?.message ?? "Could not load generated documents."}</Placeholder>}
+          fallback={
+            <Placeholder
+              state="error"
+              class="h-full"
+              title="Could not load generated documents"
+              description={props.error?.message ?? "Try again in a moment."}
+            />
+          }
         >
           <div class="flex h-full min-h-0 flex-col overflow-hidden">
             <Show when={props.mode === "folders" && !props.searching}>
@@ -128,7 +138,7 @@ export default function DocumentBrowser(props: Props) {
             <div class="min-h-0 flex-1 overflow-auto p-1">
               <Show
                 when={props.folders.length > 0 || props.runs.length > 0}
-                fallback={<Placeholder class="h-full">{props.emptyText}</Placeholder>}
+                fallback={<Placeholder class="h-full" title={props.emptyText} />}
               >
                 <Show when={props.mode === "folders" && !props.searching && props.folders.length > 0}>
                   <For each={props.folders}>

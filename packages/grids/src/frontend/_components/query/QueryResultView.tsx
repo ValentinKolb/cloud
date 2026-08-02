@@ -1,5 +1,5 @@
-import { Placeholder, prompts, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Placeholder, prompts } from "@k2b/ui";
 import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";
@@ -97,7 +97,7 @@ export default function QueryResultView(props: {
       </Show>
       <Show
         when={result()}
-        fallback={<Placeholder surface="paper" title="Loading view" description="The query result is being prepared." />}
+        fallback={<Placeholder state="loading" surface="paper" title="Loading view" description="The query result is being prepared." />}
       >
         <Show
           when={success()}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createComponent, createSignal, type Component } from "solid-js";
+import { type Component, createComponent, createSignal } from "solid-js";
 import { isServer, render } from "solid-js/web";
 import type { TagEditorItem, TagEditorProps, TagEditorValue } from "../src/inputs/TagEditor";
 import { createDomTestHarness } from "./dom";
@@ -14,6 +14,37 @@ describe("@k2b/ui new primitive behavior", () => {
     test.skip("runs in the dedicated browser-conditions test process", () => {});
     return;
   }
+
+  test("keeps a mixed checkbox synchronized with its native control", async () => {
+    const dom = createDomTestHarness();
+    const { Checkbox } = await import("../src/inputs/Checkbox");
+    let setMixed: (value: boolean) => void = () => {};
+
+    const dispose = render(() => {
+      const [mixed, updateMixed] = createSignal(true);
+      setMixed = updateMixed;
+      return createComponent(Checkbox, {
+        "aria-label": "Select visible records",
+        value: false,
+        get indeterminate() {
+          return mixed();
+        },
+      });
+    }, dom.root);
+
+    const input = dom.root.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(input?.indeterminate).toBe(true);
+    expect(input?.getAttribute("aria-checked")).toBe("mixed");
+
+    setMixed(false);
+    await flush();
+
+    expect(input?.indeterminate).toBe(false);
+    expect(input?.getAttribute("aria-checked")).toBe("false");
+
+    dispose();
+    dom.cleanup();
+  });
 
   test("moves tabs with the keyboard and skips disabled options", async () => {
     const dom = createDomTestHarness();
@@ -52,11 +83,12 @@ describe("@k2b/ui new primitive behavior", () => {
     const { Disclosure } = await import("../src/actions/Disclosure");
     const changes: boolean[] = [];
     const dispose = render(
-      () => createComponent(Disclosure, {
-        summary: "Advanced options",
-        children: "Details",
-        onValueChange: (value) => changes.push(value),
-      }),
+      () =>
+        createComponent(Disclosure, {
+          summary: "Advanced options",
+          children: "Details",
+          onValueChange: (value) => changes.push(value),
+        }),
       dom.root,
     );
 
@@ -108,12 +140,19 @@ describe("@k2b/ui new primitive behavior", () => {
     const item = { id: "design", name: "Design", color: "#2563eb" };
 
     const dispose = render(
-      () => createComponent(TagEditor as Component<TagEditorProps>, {
-        items: [item],
-        onCreate: (value: TagEditorValue) => { created.push(value.name); },
-        onUpdate: (_item: TagEditorItem, value: TagEditorValue) => { updated.push(value.name); },
-        onDelete: (value: TagEditorItem) => { removed.push(value.id); },
-      }),
+      () =>
+        createComponent(TagEditor as Component<TagEditorProps>, {
+          items: [item],
+          onCreate: (value: TagEditorValue) => {
+            created.push(value.name);
+          },
+          onUpdate: (_item: TagEditorItem, value: TagEditorValue) => {
+            updated.push(value.name);
+          },
+          onDelete: (value: TagEditorItem) => {
+            removed.push(value.id);
+          },
+        }),
       dom.root,
     );
 

@@ -281,9 +281,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
       <PanelDialog.Body>
         <Show
           when={!loading()}
-          fallback={
-            <Placeholder icon="ti ti-loader-2 animate-spin" title="Loading combined table" description="Reading sources and mappings." />
-          }
+          fallback={<Placeholder state="loading" title="Loading combined table" description="Reading sources and mappings." />}
         >
           <PanelDialog.Section title="Sources" subtitle="Only tables where you are an admin can be published." icon="ti ti-database-share">
             <TextInput
@@ -300,6 +298,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
               when={candidates().length > 0}
               fallback={
                 <Placeholder
+                  state={candidateLoading() ? "loading" : "empty"}
                   icon={candidateLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-database-off"}
                   title={candidateLoading() ? "Loading source tables" : "No source tables available"}
                   description={

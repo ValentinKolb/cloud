@@ -1,5 +1,5 @@
-import { AutocompleteEditor, DataTable, type DataTableColumn, Button } from "@k2b/ui";
 import { timed } from "@k2b/stdlib/solid";
+import { AutocompleteEditor, Button, DataTable, type DataTableColumn } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Field } from "../../../service";
@@ -77,6 +77,7 @@ function FormulaPreview(props: { preview: FormulaPreviewResponse | null; loading
                 fallback={<Show when={preview().ok}>{<p class="text-dimmed">No records to preview yet.</p>}</Show>}
               >
                 <DataTable
+                  ariaLabel="Formula preview"
                   rows={preview().rows}
                   columns={columns()}
                   getRowId={(row) => row.recordId}

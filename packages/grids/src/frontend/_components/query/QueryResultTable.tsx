@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Button } from "@k2b/ui";
+import { Button, DataTable, type DataTableColumn } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -59,6 +59,7 @@ export default function QueryResultTable(props: {
   return (
     <div class={`${props.surface === "flat" ? "" : "paper"} flex h-full min-h-0 flex-1 flex-col overflow-hidden`}>
       <DataTable
+        ariaLabel="Query results"
         rows={rows()}
         columns={columns()}
         getRowId={(row) => row.__rowKey}

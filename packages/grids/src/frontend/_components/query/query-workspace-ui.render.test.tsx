@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
+import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table } from "../../../service";
 import { QUERY_PANEL_DIALOG_OPTIONS } from "../records-view/RecordsView";
 import SearchBar from "../toolbar/SearchBar";
@@ -45,8 +46,15 @@ const field: Field = {
   deletedAt: null,
 };
 
+const quotedField: Field = {
+  ...field,
+  id: "44444444-4444-4444-8444-444444444444",
+  shortId: "asset-id",
+  name: "Asset ID",
+};
+
 describe("query workspace UI contracts", () => {
-  test("keeps the fill editor tall and source fields compact", () => {
+  test("keeps the fill editor tall and source fields compact without showing identifier quotes", () => {
     const html = renderToString(() =>
       createComponent(QueryWorkspace, {
         baseId: table.baseId,
@@ -54,14 +62,17 @@ describe("query workspace UI contracts", () => {
         initialQuery: "",
         queryPath: "/app/grids/inventory/query",
         tables: [table],
-        fieldsByTable: { [table.id]: [field] },
+        fieldsByTable: { [table.id]: [quotedField] },
         viewsByTable: {},
       }),
     );
 
     expect(html).toContain('class="k2b-field " data-fill="true"');
-    expect(html).toContain("text-[10px] leading-tight");
-    expect(html).toContain("text-[9px] text-dimmed");
+    expect(html).toContain("text-[11px] leading-4");
+    expect(html).toContain('<span class="truncate">Asset ID</span>');
+    expect(html).not.toContain('<span class="truncate">&quot;Asset ID&quot;</span>');
+    expect(html).toContain('<span class="text-dimmed">text</span>');
+    expect(formatIdentifierRef(quotedField.name)).toBe('"Asset ID"');
   });
 
   test("uses the semantic wide panel dialog contract", () => {

@@ -1,14 +1,17 @@
-import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   createTemplateEditorPanesValue,
   dialogCore,
+  IconButton,
   PanelDialog,
   Panes,
   Placeholder,
   panelDialogWorkspaceOptions,
   prompts,
+  StatusBadge,
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,
@@ -16,12 +19,9 @@ import {
   TextInput,
   Tooltip,
   toast,
-  Button,
-  IconButton,
-  StatusBadge,
 } from "@k2b/ui";
+import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { EmailTemplate, EmailTemplateDependencyMap } from "../../../contracts";
@@ -369,9 +369,19 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
           <For
             each={templates()}
             fallback={
-              <Placeholder align="left" class="py-8">
-                {loadMut.loading() ? "Loading email templates..." : "No email templates yet."}
-              </Placeholder>
+              <Placeholder
+                state={loadMut.error() ? "error" : loadMut.loading() ? "loading" : "empty"}
+                align="left"
+                class="py-8"
+                title={
+                  loadMut.error()
+                    ? "Could not load email templates"
+                    : loadMut.loading()
+                      ? "Loading email templates"
+                      : "No email templates yet"
+                }
+                description={loadMut.error()?.message}
+              />
             }
           >
             {(template) => (

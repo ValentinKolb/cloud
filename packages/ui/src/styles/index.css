@@ -1,5 +1,7 @@
 @reference "tailwindcss";
 
+@layer theme, base, components, utilities;
+
 .k2b-ui {
   --k2b-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --k2b-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -133,19 +135,21 @@
   color-scheme: dark;
 }
 
-.k2b-ui,
-.k2b-ui *,
-.k2b-ui *::before,
-.k2b-ui *::after {
-  box-sizing: border-box;
-}
+@layer base {
+  .k2b-ui,
+  .k2b-ui *,
+  .k2b-ui *::before,
+  .k2b-ui *::after {
+    box-sizing: border-box;
+  }
 
-.k2b-ui :where(button, input, select, textarea) {
-  font: inherit;
-}
+  .k2b-ui :where(button, input, select, textarea) {
+    font: inherit;
+  }
 
-.k2b-ui :where(button, a) {
-  -webkit-tap-highlight-color: transparent;
+  .k2b-ui :where(button, a) {
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 
 .k2b-ui .k2b-sr-only {
@@ -1295,7 +1299,8 @@
   font-size: 0.6875rem;
 }
 
-.k2b-ui .k2b-check > input:checked + .k2b-check__control {
+.k2b-ui .k2b-check > input:checked + .k2b-check__control,
+.k2b-ui .k2b-check[data-indeterminate="true"] .k2b-check__control {
   border-color: var(--k2b-action-solid);
   color: #ffffff;
   background: var(--k2b-action-solid);

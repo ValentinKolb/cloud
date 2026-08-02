@@ -1,6 +1,6 @@
 # Theme and styles
 
-`@k2b/ui` ships precompiled component CSS without a global reset. Every selector is scoped below `.k2b-ui`, so the package can be embedded in an existing SSR application.
+`@k2b/ui` ships precompiled component CSS without a page-global reset. Every selector is scoped below `.k2b-ui`, so the package can be embedded in an existing SSR application. Its small scoped normalization lives in the CSS `base` layer, allowing consumer utilities to override native control typography and sizing normally.
 
 ## Use theme and styles
 
