@@ -7,23 +7,25 @@ export type ConversationCursorScope = {
   folderId: string | null;
   status: ConversationWorkStatus | null;
   view: ConversationView | null;
+  unread: boolean | null;
   userId: string | null;
 };
 
 type ConversationCursor = {
-  version: 2;
+  version: 3;
   scope: ConversationCursorScope;
   date: string;
   id: string;
 };
 
 const conversationCursorSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(3),
   scope: z.object({
     mailboxId: z.uuid(),
     folderId: z.uuid().nullable(),
     status: conversationWorkStatusSchema.nullable(),
     view: conversationViewSchema.nullable(),
+    unread: z.boolean().nullable(),
     userId: z.uuid().nullable(),
   }),
   date: z.iso.datetime({ offset: true }),
@@ -35,10 +37,11 @@ const sameScope = (left: ConversationCursorScope, right: ConversationCursorScope
   left.folderId === right.folderId &&
   left.status === right.status &&
   left.view === right.view &&
+  left.unread === right.unread &&
   left.userId === right.userId;
 
 export const encodeConversationCursor = (cursor: Omit<ConversationCursor, "version">): string =>
-  Buffer.from(JSON.stringify({ version: 2, ...cursor })).toString("base64url");
+  Buffer.from(JSON.stringify({ version: 3, ...cursor })).toString("base64url");
 
 export const decodeConversationCursor = (
   value: string | undefined,

@@ -123,24 +123,52 @@ export const listAiCapabilities = (
   };
 };
 
+const normalizeSearchText = (value: string): string =>
+  value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+const searchTerms = (value: string): string[] => {
+  const terms = normalizeSearchText(value).split(" ").filter(Boolean);
+  const meaningful = terms.filter((term) => term.length >= 2);
+  return [...new Set(meaningful.length > 0 ? meaningful : terms)];
+};
+
+const includesSearchTerm = (text: string, term: string): boolean =>
+  text.includes(term) || (term.length > 3 && term.endsWith("s") && text.includes(term.slice(0, -1)));
+
 export const searchAiCapabilities = (
   catalog: readonly AiCapabilityCatalogEntry[],
   input: { query: string; appId?: string; kind?: AiCapabilityKind; limit?: number },
 ): { capabilities: AiCapabilityCatalogItem[] } => {
-  const query = input.query.trim().toLowerCase();
-  if (!query) return { capabilities: [] };
+  const phrase = normalizeSearchText(input.query);
+  const terms = searchTerms(input.query);
+  if (!phrase || terms.length === 0) return { capabilities: [] };
   const limit = boundedLimit(input.limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
   const matches = filteredCatalog(catalog, input)
     .flatMap((entry) => {
-      const name = entry.name.toLowerCase();
-      const title = entry.title.toLowerCase();
-      const appName = entry.appName.toLowerCase();
-      const haystack = `${name} ${entry.appId.toLowerCase()} ${appName} ${title} ${entry.description.toLowerCase()}`;
-      if (!haystack.includes(query)) return [];
-      const rank = name === query ? 0 : name.includes(query) ? 1 : title.startsWith(query) || appName.startsWith(query) ? 2 : 3;
-      return [{ entry, rank }];
+      const name = normalizeSearchText(entry.name);
+      const title = normalizeSearchText(entry.title);
+      const identity = `${name} ${title}`;
+      const app = normalizeSearchText(`${entry.appId} ${entry.appName}`);
+      const description = normalizeSearchText(entry.description);
+      let score = 0;
+      if (name === phrase || title === phrase) score += 100;
+      else if (identity.includes(phrase)) score += 50;
+      if (app === phrase) score += 40;
+      else if (app.includes(phrase)) score += 20;
+      if (description.includes(phrase)) score += 15;
+      for (const term of terms) {
+        if (includesSearchTerm(identity, term)) score += 8;
+        if (includesSearchTerm(app, term)) score += 6;
+        if (includesSearchTerm(description, term)) score += 4;
+      }
+      return score > 0 ? [{ entry, score }] : [];
     })
-    .sort((left, right) => left.rank - right.rank || left.entry.name.localeCompare(right.entry.name))
+    .sort((left, right) => right.score - left.score || left.entry.name.localeCompare(right.entry.name))
     .slice(0, limit);
   return { capabilities: matches.map(({ entry }) => catalogItem(entry)) };
 };
@@ -321,7 +349,7 @@ export const createAiCapabilityMetaTools = (input: {
 }): AiRuntimeTool[] => {
   const search = defineAiTool({
     name: "search_capabilities",
-    description: "Search installed Cloud app capabilities by task, app, or name. Returns compact exact names for loading.",
+    description: "Search installed Cloud app capabilities by concise task terms, app, or name. Returns compact exact names for loading.",
     inputSchema: z
       .object({
         query: z.string().trim().min(1).max(200).describe("What the capability should do."),
@@ -396,7 +424,7 @@ export const createLoadedAiCapabilityTools = (input: {
     return [
       defineAiTool({
         name: entry.name,
-        description: `${entry.title}. ${entry.description}`,
+        description: `${entry.title}. ${entry.description} Do not retry unchanged after INTERNAL or INVALID_APP_RESPONSE; report the provider error.`,
         inputSchema: aiCapabilityInputSchema(entry.operation.inputSchema),
         outputSchema: z.unknown(),
         // Capability Actions request a custom, non-rememberable approval after

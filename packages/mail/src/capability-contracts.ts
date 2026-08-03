@@ -189,6 +189,7 @@ export const ConversationListInputSchema = z
     mailboxId: MailboxIdInputSchema,
     folderId: UuidSchema.nullable().optional().describe("Optional provider folder UUID filter."),
     workStatus: z.enum(["needs_action", "waiting", "done"]).nullable().optional().describe("Optional collaboration work-status filter."),
+    unread: z.boolean().nullable().optional().describe("Optional unread-state filter; true returns only conversations with unread mail."),
     view: z
       .enum(["needs_action", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"])
       .nullable()

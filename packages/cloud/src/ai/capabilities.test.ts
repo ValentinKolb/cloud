@@ -21,7 +21,11 @@ import {
 } from "./capabilities";
 import { prepareAiTools } from "./tools";
 
-const capabilityApp = (appId: string, appName = appId): CapabilityRegistryEntry => {
+const capabilityApp = (
+  appId: string,
+  appName = appId,
+  query = { title: "List items", description: "List the items this user can read." },
+): CapabilityRegistryEntry => {
   const compiled = compileCapabilities(
     appId,
     defineCapabilities({
@@ -29,8 +33,8 @@ const capabilityApp = (appId: string, appName = appId): CapabilityRegistryEntry 
       types: { item: { title: "Item", description: "One item." } },
       queries: {
         list: {
-          title: "List items",
-          description: "List the items this user can read.",
+          title: query.title,
+          description: query.description,
           input: z
             .object({
               query: z.string().min(2).max(80).describe("Optional title text.").optional(),
@@ -214,6 +218,28 @@ describe("AI capability catalog", () => {
     ]);
     expect(JSON.stringify(page)).not.toContain("inputSchema");
     expect(JSON.stringify(page)).not.toContain("appIcon");
+  });
+
+  test("ranks natural-language task terms without requiring one contiguous phrase", () => {
+    const mail = capabilityApp("mail", "Mail", {
+      title: "List conversations",
+      description: "List bounded conversations and emails for a mailbox, inbox, folder, work view, or unread state.",
+    });
+    const contacts = capabilityApp("contacts", "Contacts");
+    const catalog = buildAiCapabilityCatalog([contacts, mail]);
+
+    expect(searchAiCapabilities(catalog, { query: "unread emails inbox", kind: "query" }).capabilities[0]).toMatchObject({
+      name: "mail__query__list",
+      appId: "mail",
+      title: "List conversations",
+    });
+    expect(searchAiCapabilities(catalog, { query: "read email messages", appId: "mail" }).capabilities).toEqual([
+      expect.objectContaining({ name: "mail__query__list" }),
+    ]);
+    expect(searchAiCapabilities(catalog, { query: "missing phrase" }).capabilities).toEqual([]);
+    expect(searchAiCapabilities(catalog, { query: "create items", appId: "contacts", kind: "action" }).capabilities).toEqual([
+      expect.objectContaining({ name: "contacts__action__create" }),
+    ]);
   });
 
   test("removes validation-only schema noise and round-trips through Zod", () => {

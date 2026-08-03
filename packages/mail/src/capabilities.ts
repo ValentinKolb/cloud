@@ -220,7 +220,7 @@ const queryDefinitions = {
   },
   "mailbox.list": {
     title: "List mailboxes",
-    description: "List accessible mailboxes with permission and operational health.",
+    description: "Start here to list accessible mailboxes and obtain a mailboxId for folder, conversation, message, or draft operations.",
     input: c.MailboxListInputSchema,
     data: c.MailboxListDataSchema,
     openWorld: false,
@@ -311,7 +311,7 @@ const queryDefinitions = {
   },
   "conversation.list": {
     title: "List conversations",
-    description: "List bounded conversation summaries for a mailbox view or folder.",
+    description: "List bounded conversations and emails for a mailbox, inbox, folder, work view, or unread state.",
     input: c.ConversationListInputSchema,
     data: c.ConversationListDataSchema,
     openWorld: true,
@@ -323,6 +323,7 @@ const queryDefinitions = {
           folderId: input.folderId,
           status: input.workStatus,
           view: input.view,
+          unread: input.unread,
           cursor: input.cursor,
           limit: input.limit,
         }),
@@ -371,7 +372,7 @@ const queryDefinitions = {
   },
   "conversation.get": {
     title: "Get conversation",
-    description: "Read collaboration state, tags, and up to 100 message summaries for one conversation.",
+    description: "Read collaboration state, tags, and message IDs for one conversation; call message.get for safe plain-text bodies.",
     input: c.ConversationGetInputSchema,
     data: c.ConversationGetDataSchema,
     openWorld: true,
@@ -397,7 +398,12 @@ const queryDefinitions = {
       return ok({
         data: {
           conversationId: input.conversationId,
-          collaboration: state.data,
+          collaboration: {
+            assignee: state.data.assignee,
+            workStatus: state.data.workStatus,
+            snoozedUntil: state.data.snoozedUntil,
+            revision: state.data.revision,
+          },
           tags: tags.data.tags,
           messages: page.data.items.map((item) => mapMessageSummary(input.mailboxId, input.conversationId, item)),
           messagesTruncated: page.data.nextCursor !== null,

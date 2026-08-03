@@ -127,6 +127,12 @@ Capability-enabled chats always expose three small discovery tools:
   and kind;
 - `load_capabilities` retains exact names returned by discovery.
 
+Capability search matches and ranks individual normalized task terms; callers
+do not need to reproduce one contiguous title or description phrase. Prefer a
+few concrete product terms and scope the exact `appId` when it is already
+known. Use the paginated list only for browsing, not as a fallback dump after a
+natural-language search.
+
 A loaded capability becomes an ordinary named tool on the next model turn.
 Cloud sends the model a reduced input schema that keeps structure, required
 fields, descriptions, enums, and useful formats. Output schemas, schema hashes,
@@ -149,6 +155,11 @@ When a capability returns a semantic Cloud `open` or `edit` link, the model
 renders that exact path as a Markdown link when directing the user to the
 resource. It does not infer routes from refs or IDs, and it prefers the Cloud
 resource link over secondary protocol actions such as `mailto:` or `tel:`.
+
+`INVALID_APP_RESPONSE` and `INTERNAL` indicate a provider defect. Do not retry
+the same capability with unchanged arguments; report the failure so the app can
+be fixed. Input validation and schema mismatch errors may be corrected or
+refreshed according to their structured error code.
 
 ### Approve every Capability Action
 

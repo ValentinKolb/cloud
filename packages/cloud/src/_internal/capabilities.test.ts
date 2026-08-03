@@ -385,7 +385,7 @@ describe("capability v1 compilation", () => {
     });
     expect(local).toMatchObject({
       ok: false,
-      error: { code: "INTERNAL", message: "Capability returned undeclared resource type example.missing" },
+      error: { code: "INVALID_APP_RESPONSE", message: "Capability returned undeclared resource type example.missing", status: 500 },
     });
   });
 
@@ -428,7 +428,7 @@ describe("capability v1 compilation", () => {
     });
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "INTERNAL", message: "Universal Search results must include an open link" },
+      error: { code: "INVALID_APP_RESPONSE", message: "Universal Search results must include an open link", status: 500 },
     });
   });
 
@@ -654,7 +654,7 @@ describe("capability v1 compilation", () => {
       }),
     ).toEqual({
       ok: false,
-      error: { code: "INTERNAL", message: "Capability review returned an invalid result", status: 500 },
+      error: { code: "INVALID_APP_RESPONSE", message: "Capability review returned an invalid result", status: 500 },
     });
   });
 
@@ -688,6 +688,42 @@ describe("capability v1 compilation", () => {
     expect(JSON.stringify(result)).not.toContain("password");
   });
 
+  test("reports invalid provider results internally without exposing schema details", async () => {
+    const base = example();
+    const definitions = {
+      ...base,
+      queries: {
+        ...base.queries,
+        get: {
+          ...base.queries!.get!,
+          run: async () => ok({ data: { id: "one", name: "Example", privateToken: "must-not-leak" } }),
+        },
+      },
+    };
+    const compiled = compileCapabilities("example", definitions);
+    const errors: unknown[] = [];
+    const result = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "get",
+      input: { id: "one" },
+      expectedSchemaHash: compiled.manifest.queries[0]!.schemaHash,
+      context,
+      onUnexpectedError: (error) => errors.push(error),
+    });
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(Error);
+    expect((errors[0] as Error).message).toContain('"path":["data"]');
+    expect((errors[0] as Error).message).toContain("privateToken");
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "INVALID_APP_RESPONSE", message: "Capability returned an invalid result", status: 500 },
+    });
+    expect(JSON.stringify(result)).not.toContain("privateToken");
+    expect(JSON.stringify(result)).not.toContain("must-not-leak");
+  });
+
   test("rejects undeclared refs returned by a handler", async () => {
     const base = example();
     const definitions = {
@@ -715,7 +751,7 @@ describe("capability v1 compilation", () => {
     });
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "INTERNAL", status: 500 },
+      error: { code: "INVALID_APP_RESPONSE", status: 500 },
     });
   });
 });

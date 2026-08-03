@@ -497,6 +497,9 @@ Framework errors include `VALIDATION_FAILED`, `SCHEMA_MISMATCH`,
 own domain error codes. `DEADLINE_EXCEEDED` is retry-safe for Queries and
 required-idempotency Actions. `ACTION_OUTCOME_UNKNOWN` means a non-idempotent
 Action may already have taken effect and must not be retried automatically.
+`INVALID_APP_RESPONSE` means the provider returned data outside its registered
+contract; callers must not retry the same request unchanged. The provider logs
+the validation path while the public error omits returned values.
 
 ## Invoke capabilities
 

@@ -417,13 +417,25 @@ export const validateCapabilityResult = (
   compiled: CompiledCapabilities,
   operation: CompiledCapabilityQuery | CompiledCapabilityAction,
   result: unknown,
+  onInvalidResult?: (error: unknown) => void,
 ): Result<unknown, ServiceError> => {
   const parsed = operation.resultSchema.safeParse(result);
   if (!parsed.success) {
+    try {
+      onInvalidResult?.(
+        new Error(
+          `Capability ${operation.manifest.localId} returned data outside its registered schema: ${JSON.stringify(
+            parsed.error.issues.map(({ code, path, message }) => ({ code, path, message })),
+          )}`,
+        ),
+      );
+    } catch {
+      // Observability must not change the public failure contract.
+    }
     return {
       ok: false,
       error: {
-        code: "INTERNAL",
+        code: CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse,
         message: "Capability returned an invalid result",
         status: 500,
       },
@@ -434,7 +446,7 @@ export const validateCapabilityResult = (
       return {
         ok: false,
         error: {
-          code: "INTERNAL",
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse,
           message: `Capability returned undeclared resource type ${ref.type}`,
           status: 500,
         },
@@ -447,7 +459,7 @@ export const validateCapabilityResult = (
       return {
         ok: false,
         error: {
-          code: "INTERNAL",
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse,
           message: "Universal Search results must include an open link",
           status: 500,
         },
@@ -551,7 +563,7 @@ export const invokeCompiledCapability = async (params: {
   try {
     const invoked = await operation.definition.run(input.data, context);
     if (!invoked.ok) return invoked;
-    const validated = validateCapabilityResult(params.compiled, operation, invoked.data);
+    const validated = validateCapabilityResult(params.compiled, operation, invoked.data, params.onUnexpectedError);
     return validated.ok
       ? ({
           ok: true,
@@ -632,12 +644,25 @@ export const reviewCompiledCapability = async (params: {
     const reviewed = await operation.definition.review(input.data, params.context);
     if (!reviewed.ok) return reviewed;
     const parsed = CapabilityActionReviewSchema.safeParse(reviewed.data);
+    if (!parsed.success) {
+      try {
+        params.onUnexpectedError?.(
+          new Error(
+            `Capability ${operation.manifest.localId} review returned data outside its registered schema: ${JSON.stringify(
+              parsed.error.issues.map(({ code, path, message }) => ({ code, path, message })),
+            )}`,
+          ),
+        );
+      } catch {
+        // Observability must not change the public failure contract.
+      }
+    }
     return parsed.success
       ? { ok: true, data: parsed.data }
       : {
           ok: false,
           error: {
-            code: "INTERNAL",
+            code: CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse,
             message: "Capability review returned an invalid result",
             status: 500,
           },

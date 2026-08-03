@@ -205,6 +205,7 @@ export const listConversations = async (params: {
   folderId?: string | null;
   status?: ConversationWorkStatus | null;
   view?: ConversationView | null;
+  unread?: boolean | null;
   cursor?: string;
   limit?: number;
 }): Promise<Result<{ items: ConversationSummary[]; nextCursor: string | null }>> => {
@@ -219,6 +220,7 @@ export const listConversations = async (params: {
     folderId,
     status: params.status ?? null,
     view,
+    unread: params.unread ?? null,
     userId: currentUserId,
   };
   const cursor = decodeConversationCursor(params.cursor, cursorScope);
@@ -368,6 +370,10 @@ export const listConversations = async (params: {
             AND folder_mp.folder_id = ${folderId}::uuid
             AND folder_mp.deleted_at IS NULL
         )
+      )
+      AND (
+        ${params.unread ?? null}::boolean IS NULL
+        OR (cardinality(unread_state.folder_ids) > 0) = ${params.unread ?? null}
       )
       AND EXISTS (
         SELECT 1

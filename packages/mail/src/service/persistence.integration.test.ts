@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
 import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { mailCapabilities } from "../capabilities";
+import { ConversationGetDataSchema } from "../capability-contracts";
 import { unavailableProviderLimitSnapshot } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./access";
@@ -637,6 +639,32 @@ suite("mail PostgreSQL foundation", () => {
     expect(unreadConversation?.unread).toBe(true);
     expect(Array.isArray(unreadConversation?.unreadFolderIds)).toBe(true);
     expect(unreadConversation?.unreadFolderIds).toContain(folder!.id);
+
+    const filteredUnreadConversations = await listConversations({
+      context,
+      mailboxId: mailbox.data.id,
+      unread: true,
+      limit: 100,
+    });
+    expect(filteredUnreadConversations.ok).toBe(true);
+    if (!filteredUnreadConversations.ok) return;
+    expect(filteredUnreadConversations.data.items.length).toBeGreaterThan(0);
+    expect(filteredUnreadConversations.data.items.every((item) => item.unread)).toBe(true);
+    expect(filteredUnreadConversations.data.items.some((item) => item.id === orderedConversation!.id)).toBe(true);
+
+    const conversationCapability = mailCapabilities.queries["conversation.get"];
+    const capabilityResult = await conversationCapability.run(
+      { mailboxId: mailbox.data.id, conversationId: orderedConversation!.id },
+      {
+        actor: context.actor,
+        accessSubject: context.accessSubject,
+        user: context.actor.kind === "user" ? context.actor.user : context.actor.delegatedUser,
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    expect(capabilityResult.ok).toBe(true);
+    if (!capabilityResult.ok) return;
+    expect(ConversationGetDataSchema.safeParse(capabilityResult.data.data).success).toBe(true);
 
     const conversationRead = await createConversationTriageCommands({
       context,

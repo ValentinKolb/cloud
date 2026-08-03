@@ -6,6 +6,7 @@ const scope: ConversationCursorScope = {
   folderId: "00000000-0000-4000-8000-000000000002",
   status: "needs_action",
   view: "needs_action",
+  unread: true,
   userId: "00000000-0000-4000-8000-000000000003",
 };
 
@@ -20,7 +21,7 @@ describe("conversation pagination cursor", () => {
     const decoded = decodeConversationCursor(encoded, scope);
 
     expect(decoded.ok).toBe(true);
-    if (decoded.ok) expect(decoded.data).toMatchObject({ version: 2, scope, date: "2026-07-22T10:15:00.000Z" });
+    if (decoded.ok) expect(decoded.data).toMatchObject({ version: 3, scope, date: "2026-07-22T10:15:00.000Z" });
   });
 
   test("rejects cursors reused for another mailbox, filter, or user", () => {
@@ -32,6 +33,7 @@ describe("conversation pagination cursor", () => {
 
     expect(decodeConversationCursor(encoded, { ...scope, mailboxId: "00000000-0000-4000-8000-000000000005" }).ok).toBe(false);
     expect(decodeConversationCursor(encoded, { ...scope, view: "done" }).ok).toBe(false);
+    expect(decodeConversationCursor(encoded, { ...scope, unread: false }).ok).toBe(false);
     expect(decodeConversationCursor(encoded, { ...scope, userId: "00000000-0000-4000-8000-000000000006" }).ok).toBe(false);
   });
 
@@ -41,7 +43,7 @@ describe("conversation pagination cursor", () => {
     ).toString("base64url");
     const invalidDate = Buffer.from(
       JSON.stringify({
-        version: 2,
+        version: 3,
         scope,
         date: "not-a-date",
         id: "00000000-0000-4000-8000-000000000004",
