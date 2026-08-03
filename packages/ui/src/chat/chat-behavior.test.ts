@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChatAttachment, ChatCommand } from "./ChatComposer";
+import type { ChatCommand } from "./ChatComposer";
 import {
   filterChatCommands,
   isChatNearBottom,
@@ -8,6 +8,7 @@ import {
   restoredChatScrollTop,
   runChatSubmission,
 } from "./chat-behavior";
+import type { ChatAttachment } from "./types";
 
 const commands: ChatCommand[] = [
   { name: "clear", description: "Clear the conversation", action: () => undefined },
@@ -22,11 +23,7 @@ const composerDraft = (): Draft => ({
   attachments: [{ id: "notes", name: "notes.md" }],
 });
 
-const submission = (
-  draft: Draft,
-  perform: () => boolean | void | Promise<boolean | void>,
-  onError?: (error: unknown) => void,
-) => {
+const submission = (draft: Draft, perform: () => boolean | void | Promise<boolean | void>, onError?: (error: unknown) => void) => {
   const previous = { ...draft };
   return runChatSubmission({
     clear: () => {
@@ -45,9 +42,7 @@ const submission = (
 describe("@k2b/ui chat behavior", () => {
   test("matches only a single slash command token", () => {
     expect(filterChatCommands("/", commands)).toHaveLength(3);
-    expect(filterChatCommands("/co", commands).map((command) => command.name)).toEqual([
-      "compact",
-    ]);
+    expect(filterChatCommands("/co", commands).map((command) => command.name)).toEqual(["compact"]);
     expect(filterChatCommands("/unknown", commands)).toEqual([]);
     expect(filterChatCommands("/clear now", commands)).toEqual([]);
     expect(filterChatCommands("clear", commands)).toEqual([]);
@@ -158,10 +153,7 @@ describe("@k2b/ui chat behavior", () => {
     );
     await Promise.resolve();
 
-    expect(errors.map((error) => (error as Error).message)).toEqual([
-      "sync stop failure",
-      "async stop failure",
-    ]);
+    expect(errors.map((error) => (error as Error).message)).toEqual(["sync stop failure", "async stop failure"]);
     expect(() => reportChatFailure(() => undefined)).not.toThrow();
   });
 });

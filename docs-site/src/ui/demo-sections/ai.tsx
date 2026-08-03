@@ -1,10 +1,4 @@
-import {
-  ChatComposer,
-  ChatContextUsage,
-  ChatTimeline,
-  CodeDisplay,
-  type ChatTimelineItem,
-} from "@k2b/ui";
+import { Chat, CodeDisplay, type ChatTimelineItem } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
@@ -14,8 +8,25 @@ const initialItems = (): ChatTimelineItem[] => [
     kind: "message",
     id: "question",
     role: "user",
-    content: "Which component should own the empty state?",
+    content: <p>Which component should own the empty state?</p>,
     timeLabel: "09:41",
+    attachments: [
+      {
+        id: "wireframe",
+        name: "empty-state.png",
+        kind: "image",
+        previewUrl: "/assets/logo.svg",
+        alt: "Example attachment",
+      },
+    ],
+    actions: [
+      {
+        id: "copy-question",
+        label: "Copy",
+        icon: "ti ti-copy",
+        copyText: "Which component should own the empty state?",
+      },
+    ],
   },
   {
     kind: "activity",
@@ -64,8 +75,16 @@ const initialItems = (): ChatTimelineItem[] => [
     kind: "message",
     id: "answer",
     role: "assistant",
-    content: "Keep the state in the application and render it with the portable Placeholder.",
+    content: <p>Keep the state in the application and render it with the portable Placeholder.</p>,
     timeLabel: "09:42",
+    actions: [
+      {
+        id: "copy-answer",
+        label: "Copy",
+        icon: "ti ti-copy",
+        copyText: "Keep the state in the application and render it with the portable Placeholder.",
+      },
+    ],
   },
 ];
 
@@ -77,31 +96,37 @@ const ChatDemo = () => {
     <DemoCard
       id="chat"
       chip={[
-        { kind: "component", name: "ChatTimeline", from: "@k2b/ui" },
-        { kind: "component", name: "ChatComposer", from: "@k2b/ui" },
+        { kind: "component", name: "Chat", from: "@k2b/ui" },
+        { kind: "component", name: "Chat.Timeline", from: "@k2b/ui" },
+        { kind: "component", name: "Chat.Composer", from: "@k2b/ui" },
       ]}
       description="Portable, controlled chat presentation with generic tool activity. The host owns protocol, persistence, uploads, and model execution."
-      code={`<ChatTimeline items={items()} />
-<ChatComposer
-  value={draft()}
-  onValueChange={setDraft}
-  onSend={({ text }) => sendMessage(text)}
-  context={<ChatContextUsage usage={usage()} contextWindow={128_000} />}
-/>`}
+      code={`<Chat>
+  <Chat.Timeline items={items()} />
+  <Chat.Composer
+    value={draft()}
+    onValueChange={setDraft}
+    onSubmit={sendMessage}
+    state={runState()}
+    models={models}
+    contextUsage={{ usage: usage(), contextWindow: 128_000 }}
+  />
+</Chat>`}
     >
-      <div class="ui-chat-demo">
-        <ChatTimeline items={messages()} conversationKey="fibel-demo" />
-        <ChatComposer
+      <Chat class="ui-chat-demo">
+        <Chat.Timeline items={messages()} conversationKey="fibel-demo" />
+        <Chat.Composer
           value={draft()}
           onValueChange={setDraft}
           placeholder="Write a message…"
           models={[
-            { id: "fast", label: "Fast" },
+            { id: "fast", label: "Fast", image: "/assets/logo.svg" },
             { id: "deep", label: "Deep", description: "More reasoning" },
           ]}
           selectedModelId={model()}
           onModelChange={setModel}
           fileSelection={{ onSelect: () => undefined }}
+          menuActions={[{ id: "new-chat", label: "New chat", icon: "ti ti-message-plus" }]}
           commands={[
             {
               name: "summarize",
@@ -109,14 +134,12 @@ const ChatDemo = () => {
               action: ({ setValue }) => setValue("Summarize this conversation"),
             },
           ]}
-          context={
-            <ChatContextUsage
-              modelLabel={model() === "fast" ? "Fast" : "Deep"}
-              usage={{ input: 3_040, output: 180, total: 3_220 }}
-              contextWindow={128_000}
-            />
-          }
-          onSend={({ text }) => {
+          contextUsage={{
+            modelLabel: model() === "fast" ? "Fast" : "Deep",
+            usage: { input: 3_040, output: 180, total: 3_220 },
+            contextWindow: 128_000,
+          }}
+          onSubmit={({ text }) => {
             if (!text) return false;
             setMessages((current) => [
               ...current,
@@ -130,7 +153,7 @@ const ChatDemo = () => {
             ]);
           }}
         />
-      </div>
+      </Chat>
     </DemoCard>
   );
 };
@@ -138,15 +161,15 @@ const ChatDemo = () => {
 const ContextUsageDemo = () => (
   <DemoCard
     id="context-usage"
-    chip={{ kind: "component", name: "ChatContextUsage", from: "@k2b/ui" }}
-    description="A compact button with an accessible summary and detailed token disclosure in its tooltip."
-    code={`<ChatContextUsage
+    chip={{ kind: "component", name: "Chat.ContextUsage", from: "@k2b/ui" }}
+    description="A compact percentage with an accessible summary and detailed token disclosure in its tooltip."
+    code={`<Chat.ContextUsage
   modelLabel="Deep"
   usage={{ input: 18_420, output: 2_140, total: 20_560 }}
   contextWindow={128_000}
 />`}
   >
-    <ChatContextUsage
+    <Chat.ContextUsage
       modelLabel="Deep"
       usage={{ input: 18_420, output: 2_140, total: 20_560 }}
       loopUsage={{ total: 31_800 }}

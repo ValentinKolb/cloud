@@ -83,8 +83,8 @@ standalone SSR, behavior, styling, and migration checks:
   `ProgressBar`, `NoticeCard` (with `NoticeCard.Grid`), `Tag`,
   `DescriptionList`, `Placeholder`, and `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
-- AI: controlled `ChatComposer`, scrolling `ChatTimeline`, `ChatMessage`,
-  `ChatActivity`, and compact `ChatContextUsage`
+- AI: the controlled compound `Chat` surface with timeline, messages,
+  activity, composer, and compact context usage
 - Content: data and log tables, charts and interactive state timelines,
   calendars, file trees/browsers/previews, lightboxes, PDF previews,
   documentation primitives, pagination, range navigation, code and Markdown
@@ -171,28 +171,31 @@ protocol, persistence, tool rendering, approvals, and file storage:
 ```tsx
 const [draft, setDraft] = createSignal("");
 
-<ChatTimeline
-  items={items()}
-  hasMore={hasMore()}
-  onLoadOlder={loadOlder}
-/>
-<ChatComposer
-  value={draft()}
-  onValueChange={setDraft}
-  onSend={({ text, attachments }) => sendMessage(text, attachments)}
-  models={models}
-  selectedModelId={modelId()}
-  onModelChange={setModelId}
-  context={<ChatContextUsage usage={usage()} contextWindow={128_000} />}
-/>;
+<Chat>
+  <Chat.Timeline
+    items={items()}
+    hasMore={hasMore()}
+    onLoadOlder={loadOlder}
+  />
+  <Chat.Composer
+    value={draft()}
+    onValueChange={setDraft}
+    onSubmit={sendMessage}
+    state={runState()}
+    models={models}
+    selectedModelId={modelId()}
+    onModelChange={setModelId}
+    contextUsage={{ usage: usage(), contextWindow: 128_000 }}
+  />
+</Chat>;
 ```
 
-Return `false` or throw from `onSend` to restore the controlled draft and
-attachments; `onSteer` restores the draft it consumed. A synchronous throw and
-a rejected promise are treated identically, and the failure is handed to
+Return `false` or throw from `onSubmit` to restore the controlled draft and
+attachments. A synchronous throw and a rejected promise are treated identically,
+and the failure is handed to
 `onError` for user-facing reporting. Raw selected files are handed to
 `fileSelection.onSelect`; storage and upload policy remain application-owned.
-`ChatTimeline` requests older items through `hasMore`/`onLoadOlder` and keeps
+`Chat.Timeline` requests older items through `hasMore`/`onLoadOlder` and keeps
 the reader's position once they are prepended.
 
 `Panes` is a controlled, serializable layout for IDE-like workspaces. The

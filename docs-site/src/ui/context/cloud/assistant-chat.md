@@ -1,90 +1,84 @@
 # Cloud assistant chat
 
-Cloud does not ship a second chat component set. It adapts Cloud AI sessions,
-turns, tools, attachments, retries, forks, and usage snapshots to the portable
-chat components in `@k2b/ui`.
+Cloud does not ship a second chat component set. It adapts Cloud AI sessions, turns, tools, attachments, retries, forks, and usage snapshots to `Chat` from `@k2b/ui`.
 
 ## Use Cloud assistant chat
 
-Use the Cloud adapters only inside applications that speak the platform AI
-protocol. For a standalone Solid application or a different backend, use the
-generic components directly.
+Use the Cloud adapter only for the platform AI protocol. Standalone Solid applications and other backends use `Chat` directly.
 
 ## Import
 
 ```tsx
 import {
   AiChatActionsProvider,
-  AiChatProjection,
   aiChatAttachments,
   aiChatModelOptions,
   aiComposerSendInput,
+  createAiChatTimeline,
 } from "@valentinkolb/cloud/ai/ui";
-import {
-  ChatComposer,
-  ChatContextUsage,
-  ChatTimeline,
-} from "@k2b/ui";
+import { Chat } from "@k2b/ui";
 ```
 
 ## Cloud ownership
 
-The adapters understand Cloud message records, active turns, tool blocks,
-stored attachments, model profiles, retries, forks, and steering. Those
-contracts intentionally remain outside `@k2b/ui`.
+- `createAiChatTimeline` reactively maps persisted messages and the active turn to `ChatTimelineItem[]`.
+- `AiChatActionsProvider` binds approval, frontend-tool, retry, fork, and file behavior to rich Cloud blocks.
+- `aiChatModelOptions` and `aiChatAttachments` map Cloud records into portable values.
+- `aiComposerSendInput` maps `ChatSubmitInput` back to the Cloud controller input.
 
-Applications still own the current session and pass the callbacks that perform mutations.
-
-- `AiChatProjection` reactively projects persisted messages and the active turn
-  into `ChatTimelineItem[]` below the Cloud action provider.
-- `AiChatActionsProvider` binds Cloud approval, frontend-tool, retry, fork, and
-  file behavior to rich timeline blocks.
-- `aiChatModelOptions` and `aiChatAttachments` map Cloud records into generic
-  composer values; `aiComposerAttachmentRecords` restores the application
-  records after generic controlled-state updates.
-- `aiComposerSendInput` maps a generic composer submission back to the Cloud
-  controller input.
+The application still owns the current controller and mutation callbacks. Cloud persistence, streaming, tools, approvals, and files remain outside `@k2b/ui`.
 
 ## Accessibility
 
-`ChatComposer`, `ChatTimeline`, and `ChatContextUsage` own the common keyboard,
-focus, status, and accessible-name behavior. Cloud renderers must preserve
-accessible names and visible status text for domain-specific tools.
+`Chat` owns common keyboard, focus, status, and accessible-name behavior. Cloud renderers preserve visible status and accessible names for domain-specific tool blocks.
 
 ## Runtime
 
-The generic components can render bounded fixtures without Cloud. Real
-messages, turns, attachments, retries, and mutations require the platform AI
-routes and controller.
+The generic shell can render bounded fixtures without Cloud. Persisted messages, live turns, attachments, retries, tools, and mutations require the Cloud AI controller and authenticated platform routes.
 
 ## Example
 
 ```tsx
-<AiChatActionsProvider actions={messageActions}>
-  <AiChatProjection
-    messages={messages()}
-    activeTurn={activeTurn()}
-    render={(items) => (
-      <ChatTimeline items={items()} loading={loadingHistory()} />
-    )}
-  />
-</AiChatActionsProvider>
+const Conversation = () => {
+  const items = createAiChatTimeline({
+    messages: chat.messages,
+    activeTurn: chat.activeTurn,
+  });
 
-<ChatComposer
-  value={draft()}
-  onValueChange={setDraft}
-  models={aiChatModelOptions(availableModels())}
-  selectedModelId={selectedModelId()}
-  onModelChange={setSelectedModelId}
-  attachments={aiChatAttachments(attachments())}
-  onSend={(input) => sendMessage(aiComposerSendInput(input))}
-  context={
-    <ChatContextUsage
-      usage={latestUsage()}
-      loopUsage={latestLoopUsage()}
-      contextWindow={selectedContextWindow()}
-      modelLabel={selectedModelLabel()}
-    />
-  }}
-/>
+  return (
+    <Chat>
+      <Chat.Timeline
+        items={items()}
+        loading={chat.loadingConversation()}
+        hasMore={chat.hasMoreHistory()}
+        onLoadOlder={chat.loadOlderMessages}
+      />
+      <Chat.Composer
+        value={draft()}
+        onValueChange={setDraft}
+        state={chat.runStatus() === "stopping" ? "stopping" : chat.running() ? "running" : "idle"}
+        models={aiChatModelOptions(availableModels())}
+        selectedModelId={selectedModelId()}
+        onModelChange={setSelectedModelId}
+        attachments={aiChatAttachments(attachments())}
+        onSubmit={(input) =>
+          input.intent === "steer"
+            ? chat.steer(input.text)
+            : chat.send(aiComposerSendInput(input))
+        }
+        onStop={chat.abort}
+        contextUsage={{
+          usage: latestUsage(),
+          loopUsage: latestLoopUsage(),
+          contextWindow: selectedContextWindow(),
+          modelLabel: selectedModelLabel(),
+        }}
+      />
+    </Chat>
+  );
+};
+
+<AiChatActionsProvider actions={messageActions}>
+  <Conversation />
+</AiChatActionsProvider>;
 ```

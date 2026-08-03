@@ -23,8 +23,8 @@ export type {
 } from "./chat/message-utils";
 export {
   AiChatActionsProvider,
-  AiChatProjection,
-  type AiChatProjectionProps,
+  createAiChatTimeline,
+  type AiChatTimelineSource,
   type AiChatTimelineSession,
   AiChatTurnNavigator,
   type AiChatTurnNavigatorProps,

@@ -1,7 +1,7 @@
 import {
   Button,
   Calendar,
-  ChatMessage,
+  Chat,
   CodeDisplay,
   DataTable,
   DocNote,
@@ -21,10 +21,10 @@ import {
   StructuredDataPreview,
   TextInput,
   Tooltip,
+  toast,
   Widget,
   WidgetPills,
   WidgetStatus,
-  toast,
 } from "@k2b/ui";
 import { createSignal } from "solid-js";
 
@@ -209,7 +209,10 @@ export default function StandaloneUi() {
             ]}
           />
 
-          <ChatMessage messageRole="assistant" content="Rendered by the generic chat family." timeLabel="09:20" />
+          {/* biome-ignore lint/a11y/useValidAriaRole: Chat.Message maps chat roles to accessible markup. */}
+          <Chat.Message role="assistant" timeLabel="09:20">
+            Rendered by the generic chat family.
+          </Chat.Message>
 
           <Widget title="Platform health" icon="ti ti-heartbeat">
             <WidgetStatus tone="success" title="Operational" />

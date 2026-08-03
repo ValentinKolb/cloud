@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
@@ -11,40 +11,43 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const {
-  ChatActivity,
-  ChatComposer,
-  ChatContextUsage,
-  ChatMessage,
-  ChatTimeline,
-  formatChatTokens,
-} = await import("../index");
+const publicUi = await import("../index");
+const { Chat, formatChatTokens } = publicUi;
 
 describe("@k2b/ui portable chat family", () => {
+  test("exposes one compound chat API without legacy runtime exports", () => {
+    expect(Object.keys(Chat)).toEqual(["Timeline", "Message", "Activity", "Composer", "ContextUsage"]);
+    for (const legacyExport of ["ChatTimeline", "ChatMessage", "ChatActivity", "ChatComposer", "ChatContextUsage"]) {
+      expect(legacyExport in publicUi).toBe(false);
+    }
+  });
+
   test("renders controlled composition, commands, attachments, models, and runtime actions", () => {
     const html = renderToString(() =>
-      createComponent(ChatComposer, {
+      createComponent(Chat.Composer, {
         value: "/",
         onValueChange: () => undefined,
-        onSend: () => undefined,
-        onSteer: () => undefined,
+        onSubmit: () => undefined,
         onStop: () => undefined,
-        running: true,
-        attachments: [
-          { id: "brief", name: "brief.pdf", size: 12_000, kind: "file" },
-        ],
+        state: "running",
+        attachments: [{ id: "brief", name: "brief.pdf", size: 12_000, kind: "file" }],
         onAttachmentsChange: () => undefined,
         fileSelection: { onSelect: () => undefined },
-        models: [{ id: "fast", label: "Fast model", description: "Low latency" }],
+        models: [
+          {
+            id: "fast",
+            label: "Fast model",
+            description: "Low latency",
+            image: "https://example.test/provider.svg",
+          },
+        ],
         selectedModelId: "fast",
         onModelChange: () => undefined,
-        commands: [
-          { name: "clear", description: "Clear the conversation", action: () => undefined },
-        ],
-        context: createComponent(ChatContextUsage, {
+        commands: [{ name: "clear", description: "Clear the conversation", action: () => undefined }],
+        contextUsage: {
           usage: { input: 1_000, output: 200 },
           contextWindow: 8_000,
-        }),
+        },
       }),
     );
 
@@ -54,31 +57,29 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain("brief.pdf");
     expect(html).toContain("12 KB");
     expect(html).toContain("Fast model");
-    expect(html).toContain('aria-label="Stop"');
+    expect(html).toContain('src="https://example.test/provider.svg"');
     expect(html).toContain('aria-label="Steer response"');
     expect(html).toContain("15%");
-    expect(html).toContain('aria-label="Attach files"');
+    expect(html).toContain('aria-label="Add to chat"');
     expect(html).toContain('aria-label="Remove brief.pdf"');
     expect(html).toContain('role="option"');
   });
 
   test("exposes the open command list as a combobox popup owned by the textarea", () => {
-    const commands = [
-      { name: "clear", description: "Clear the conversation", action: () => undefined },
-    ];
+    const commands = [{ name: "clear", description: "Clear the conversation", action: () => undefined }];
     const withCommands = renderToString(() =>
-      createComponent(ChatComposer, {
+      createComponent(Chat.Composer, {
         value: "/cl",
         onValueChange: () => undefined,
-        onSend: () => undefined,
+        onSubmit: () => undefined,
         commands,
       }),
     );
     const withoutCommands = renderToString(() =>
-      createComponent(ChatComposer, {
+      createComponent(Chat.Composer, {
         value: "hello",
         onValueChange: () => undefined,
-        onSend: () => undefined,
+        onSubmit: () => undefined,
         commands,
       }),
     );
@@ -98,10 +99,10 @@ describe("@k2b/ui portable chat family", () => {
 
   test("labels the composer and disables submission without a draft or attachments", () => {
     const html = renderToString(() =>
-      createComponent(ChatComposer, {
+      createComponent(Chat.Composer, {
         value: "",
         onValueChange: () => undefined,
-        onSend: () => undefined,
+        onSubmit: () => undefined,
         label: "Support composer",
         inputLabel: "Support message",
         error: "Model unavailable",
@@ -115,18 +116,34 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toMatch(/class="k2b-chat-composer__send"[^>]*disabled/);
   });
 
+  test("shows only stop while a response is running without a new draft", () => {
+    const html = renderToString(() =>
+      createComponent(Chat.Composer, {
+        value: "",
+        onValueChange: () => undefined,
+        onSubmit: () => undefined,
+        onStop: () => undefined,
+        state: "running",
+      }),
+    );
+
+    expect(html).toContain('aria-label="Stop response"');
+    expect(html).not.toContain('aria-label="Send message"');
+    expect(html).not.toContain('aria-label="Steer response"');
+  });
+
   test("renders semantic messages and expandable activity", () => {
     const message = renderToString(() =>
-      createComponent(ChatMessage, {
-        messageRole: "assistant",
+      createComponent(Chat.Message, {
+        role: "assistant",
         status: "streaming",
         createdAt: "2026-07-28T12:00:00.000Z",
-        content: "Working on it",
-        actions: "Retry",
+        children: "Working on it",
+        actions: [{ id: "retry", label: "Retry", icon: "ti ti-refresh" }],
       }),
     );
     const activity = renderToString(() =>
-      createComponent(ChatActivity, {
+      createComponent(Chat.Activity, {
         label: "Looked up documentation",
         description: "2 sources",
         defaultOpen: true,
@@ -143,9 +160,22 @@ describe("@k2b/ui portable chat family", () => {
     expect(activity).toContain("Source details");
   });
 
+  test("does not render an empty bubble for attachment-only messages", () => {
+    const html = renderToString(() =>
+      createComponent(Chat.Message, {
+        role: "user",
+        attachments: [{ id: "image", name: "image.png", kind: "image" }],
+      }),
+    );
+
+    expect(html).toContain("k2b-chat-message__attachments");
+    expect(html).toContain("User: ");
+    expect(html).not.toContain("k2b-chat-message__bubble");
+  });
+
   test("renders a generic timeline without application protocols", () => {
     const html = renderToString(() =>
-      createComponent(ChatTimeline, {
+      createComponent(Chat.Timeline, {
         label: "Support conversation",
         items: [
           { kind: "message", id: "one", role: "user", content: "Hello" },
@@ -171,7 +201,7 @@ describe("@k2b/ui portable chat family", () => {
 
   test("renders application navigation outside the conversation live region", () => {
     const html = renderToString(() =>
-      createComponent(ChatTimeline, {
+      createComponent(Chat.Timeline, {
         items: [{ kind: "message", id: "one", role: "user", content: "Hello" }],
         navigation: "Turn navigation",
       }),
@@ -183,7 +213,7 @@ describe("@k2b/ui portable chat family", () => {
 
   test("renders the empty state and formats compact token values", () => {
     const html = renderToString(() =>
-      createComponent(ChatTimeline, {
+      createComponent(Chat.Timeline, {
         items: [],
         emptyTitle: "Ask the workspace",
         emptyDescription: "Messages stay in this project.",
@@ -197,47 +227,41 @@ describe("@k2b/ui portable chat family", () => {
   });
 
   test("keeps the context trigger honest when no usage was reported", () => {
-    const withoutUsage = renderToString(() =>
-      createComponent(ChatContextUsage, { contextWindow: 128_000 }),
-    );
+    const withoutUsage = renderToString(() => createComponent(Chat.ContextUsage, { contextWindow: 128_000 }));
     const withUsage = renderToString(() =>
-      createComponent(ChatContextUsage, {
+      createComponent(Chat.ContextUsage, {
         usage: { input: 120_000, output: 4_000 },
         contextWindow: 128_000,
       }),
     );
 
     expect(withoutUsage).toContain("Context usage unavailable, 128,000 token context window");
-    expect(withoutUsage).toContain("<span>Context</span>");
-    expect(withoutUsage).not.toContain("<small>");
+    expect(withoutUsage).toContain("<span>–</span>");
+    expect(withoutUsage).not.toContain("Remaining");
     expect(withoutUsage).not.toContain('data-warning="true"');
     expect(withUsage).toContain('data-warning="true"');
     expect(withUsage).toContain("124,000 tokens used, 97% of the context window");
   });
 
   test("offers a keyboard reachable history control only while more history exists", () => {
-    const items = [
-      { kind: "message" as const, id: "one", role: "user" as const, content: "Hello" },
-    ];
+    const items = [{ kind: "message" as const, id: "one", role: "user" as const, content: "Hello" }];
     const withHistory = renderToString(() =>
-      createComponent(ChatTimeline, {
+      createComponent(Chat.Timeline, {
         items,
         hasMore: true,
         onLoadOlder: () => undefined,
       }),
     );
     const loadingHistory = renderToString(() =>
-      createComponent(ChatTimeline, {
+      createComponent(Chat.Timeline, {
         items,
         hasMore: true,
         loadingOlder: true,
         onLoadOlder: () => undefined,
       }),
     );
-    const exhausted = renderToString(() =>
-      createComponent(ChatTimeline, { items, hasMore: false, onLoadOlder: () => undefined }),
-    );
-    const uncontrolled = renderToString(() => createComponent(ChatTimeline, { items }));
+    const exhausted = renderToString(() => createComponent(Chat.Timeline, { items, hasMore: false, onLoadOlder: () => undefined }));
+    const uncontrolled = renderToString(() => createComponent(Chat.Timeline, { items }));
 
     expect(withHistory).toContain("Load older messages");
     expect(withHistory).toContain('class="k2b-chat-timeline__viewport"');
@@ -253,7 +277,7 @@ describe("@k2b/ui portable chat family", () => {
 
   test("keeps history controls out of the conversation live region announcements", () => {
     const html = renderToString(() =>
-      createComponent(ChatTimeline, {
+      createComponent(Chat.Timeline, {
         items: [{ kind: "message" as const, id: "one", role: "user" as const, content: "Hi" }],
         hasMore: true,
         onLoadOlder: () => undefined,
@@ -266,9 +290,16 @@ describe("@k2b/ui portable chat family", () => {
   });
 
   test("keeps the chat family free of application protocol vocabulary", async () => {
-    const sources = ["ChatComposer.tsx", "ChatPrimitives.tsx", "ChatTimeline.tsx", "chat-behavior.ts", "index.ts"];
-    const forbidden =
-      /\b(session|approval|permission|persistence|persisted|AiStoredMessage|AiActiveTurn|useNavigate)\b/i;
+    const sources = [
+      "ChatComposer.tsx",
+      "ChatPrimitives.tsx",
+      "ChatRoot.tsx",
+      "ChatTimeline.tsx",
+      "chat-behavior.ts",
+      "index.ts",
+      "types.ts",
+    ];
+    const forbidden = /\b(session|approval|permission|persistence|persisted|AiStoredMessage|AiActiveTurn|useNavigate)\b/i;
 
     for (const file of sources) {
       const source = await Bun.file(resolve(import.meta.dir, file)).text();

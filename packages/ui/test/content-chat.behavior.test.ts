@@ -87,11 +87,11 @@ describe("@k2b/ui content and chat behavior", () => {
 
   test("names the focusable ChatTimeline viewport as a scroll region", async () => {
     const dom = createDomTestHarness();
-    const { ChatTimeline } = await import("../src/chat/ChatTimeline");
+    const { Chat } = await import("../src/chat");
 
     const dispose = render(
       () =>
-        createComponent(ChatTimeline, {
+        createComponent(Chat.Timeline, {
           label: "Support conversation",
           items: [{ kind: "message", id: "one", role: "user", content: "Hello" }],
         }),
@@ -109,19 +109,19 @@ describe("@k2b/ui content and chat behavior", () => {
 
   test("restores composer focus after a run without stealing another editor", async () => {
     const dom = createDomTestHarness();
-    const { ChatComposer } = await import("../src/chat/ChatComposer");
+    const { Chat } = await import("../src/chat");
     const [running, setRunning] = createSignal(true);
     const externalInput = dom.document.createElement("input");
     dom.document.body.append(externalInput);
 
     const dispose = render(
       () =>
-        createComponent(ChatComposer, {
+        createComponent(Chat.Composer, {
           value: "",
           onValueChange: () => undefined,
-          onSend: () => undefined,
-          get running() {
-            return running();
+          onSubmit: () => undefined,
+          get state() {
+            return running() ? "running" : "idle";
           },
         }),
       dom.root,
@@ -140,6 +140,38 @@ describe("@k2b/ui content and chat behavior", () => {
 
     dispose();
     externalInput.remove();
+    dom.cleanup();
+  });
+
+  test("replaces stop with steer as soon as the user types during a run", async () => {
+    const dom = createDomTestHarness();
+    const { Chat } = await import("../src/chat");
+    const [draft, setDraft] = createSignal("");
+
+    const dispose = render(
+      () =>
+        createComponent(Chat.Composer, {
+          get value() {
+            return draft();
+          },
+          onValueChange: setDraft,
+          onSubmit: () => undefined,
+          onStop: () => undefined,
+          state: "running",
+        }),
+      dom.root,
+    );
+
+    expect(dom.root.querySelector('[aria-label="Stop response"]')).not.toBeNull();
+    expect(dom.root.querySelector('[aria-label="Steer response"]')).toBeNull();
+
+    setDraft("One more detail");
+    await Promise.resolve();
+
+    expect(dom.root.querySelector('[aria-label="Stop response"]')).toBeNull();
+    expect(dom.root.querySelector('[aria-label="Steer response"]')).not.toBeNull();
+
+    dispose();
     dom.cleanup();
   });
 });

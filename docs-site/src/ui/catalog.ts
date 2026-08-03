@@ -233,7 +233,7 @@ const cloudEntries = cloudPages.map((page, pageIndex) =>
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 99;
+export const portableUiComponentCount = 95;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({
@@ -268,7 +268,7 @@ export const hiddenUiCatalogExports = {
   detectQuery: "Internal completion-engine query detector.",
   displayLabel: "Internal completion-engine display helper.",
   dropdownPosition: "Low-level Dropdown geometry primitive.",
-  formatChatTokens: "Low-level ChatContextUsage formatter.",
+  formatChatTokens: "Low-level Chat.ContextUsage formatter.",
   getInitialImageCropRect: "Low-level ImageCropper geometry primitive.",
   imageCropRectToPixels: "Low-level ImageCropper geometry primitive.",
   normalizeImageCropRotation: "Low-level ImageCropper geometry primitive.",
@@ -305,8 +305,6 @@ export const documentedOnlyUiCatalogExports = {
   APP_WORKSPACE_SIDEBAR_DEFAULT: "Documented AppWorkspace sidebar sizing constant.",
   APP_WORKSPACE_SIDEBAR_MAX: "Documented AppWorkspace sidebar sizing constant.",
   APP_WORKSPACE_SIDEBAR_MIN: "Documented AppWorkspace sidebar sizing constant.",
-  ChatActivity: "Documented ChatTimeline item component rendered through the timeline demo.",
-  ChatMessage: "Documented ChatTimeline item component rendered through the timeline demo.",
   DEFAULT_ICON_OPTIONS: "Documented default option set used by the IconInput demo.",
   DialogHeader: "Documented prompt composition helper.",
   DocInlineCode: "Documented inline member of the documentation component family.",

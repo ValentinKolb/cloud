@@ -1,44 +1,8 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  createUniqueId,
-  For,
-  type JSX,
-  onMount,
-  Show,
-} from "solid-js";
-import { Select, type SelectOption } from "../inputs/Select";
-import {
-  filterChatCommands,
-  nextChatCommandIndex,
-  reportChatFailure,
-  runChatSubmission,
-} from "./chat-behavior";
-
-export type ChatModelOption = {
-  id: string;
-  label: string;
-  description?: string;
-  icon?: string;
-  capabilities?: readonly string[];
-};
-
-export type ChatAttachment = {
-  id: string;
-  name: string;
-  size?: number;
-  kind?: "file" | "image";
-  icon?: string;
-  previewUrl?: string;
-  /** Opaque application-owned payload returned unchanged with ChatSendInput. */
-  data?: unknown;
-};
-
-export type ChatSendInput = {
-  text: string;
-  attachments: readonly ChatAttachment[];
-};
+import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, onMount, Show } from "solid-js";
+import { Dropdown, DropdownItem, type DropdownItem as DropdownItemData } from "../actions/Dropdown";
+import { ChatContextUsage as ContextUsage } from "./ChatPrimitives";
+import { filterChatCommands, nextChatCommandIndex, reportChatFailure, runChatSubmission } from "./chat-behavior";
+import type { ChatAction, ChatAttachment, ChatComposerState, ChatContextUsageData, ChatModelOption, ChatSubmitInput } from "./types";
 
 export type ChatCommandContext = {
   setValue: (value: string) => void;
@@ -65,33 +29,31 @@ export type ChatFileSelection = {
 export type ChatComposerProps = {
   value: string;
   onValueChange: (value: string) => void;
-  onSend: (input: ChatSendInput) => boolean | void | Promise<boolean | void>;
-  onSteer?: (text: string) => boolean | void | Promise<boolean | void>;
+  onSubmit: (input: ChatSubmitInput) => boolean | void | Promise<boolean | void>;
   onStop?: () => void | Promise<void>;
   onError?: (error: unknown) => void;
+  state?: ChatComposerState;
   attachments?: readonly ChatAttachment[];
   onAttachmentsChange?: (attachments: readonly ChatAttachment[]) => void;
   fileSelection?: ChatFileSelection;
+  menuActions?: readonly ChatAction[];
   models?: readonly ChatModelOption[];
   selectedModelId?: string | null;
   onModelChange?: (modelId: string) => void;
   commands?: readonly ChatCommand[];
-  context?: JSX.Element;
-  actions?: JSX.Element;
+  contextUsage?: ChatContextUsageData;
+  contextActions?: readonly ChatAction[];
   placeholder?: string;
   label?: string;
   inputLabel?: string;
   disabled?: boolean;
-  running?: boolean;
-  stopping?: boolean;
-  error?: JSX.Element;
+  error?: string;
   focusToken?: unknown;
   class?: string;
 };
 
 const attachmentIcon = (attachment: ChatAttachment): string =>
-  attachment.icon ??
-  (attachment.kind === "image" ? "ti ti-photo" : "ti ti-file");
+  attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : "ti ti-file");
 
 const formatBytes = (bytes: number | undefined): string | null => {
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) return null;
@@ -109,29 +71,44 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   let composerRef: HTMLElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
-  let sawRunning = Boolean(props.running);
+  let sawRunning = props.state === "running";
 
+  const state = () => props.state ?? "idle";
+  const running = () => state() === "running";
+  const stopping = () => state() === "stopping";
   const attachments = () => props.attachments ?? [];
   const commands = () => props.commands ?? [];
   const commandMatches = createMemo(() => filterChatCommands(props.value, commands()));
   const commandsOpen = () => commandMatches().length > 0;
   const selectedCommand = () => commandMatches()[selectedCommandIndex()];
-  const blocked = () => Boolean(props.disabled || props.stopping || addingFiles() || submitting());
-  const canSubmit = () =>
-    !blocked() &&
-    (props.running
-      ? Boolean(props.onSteer && props.value.trim())
-      : Boolean(props.value.trim() || attachments().length > 0));
-  const canSelectFiles = () =>
-    Boolean(props.fileSelection && !props.fileSelection.disabled && !props.running && !blocked());
+  const blocked = () => Boolean(props.disabled || stopping() || state() === "submitting" || addingFiles() || submitting());
+  const hasDraft = () => Boolean(props.value.trim() || (!running() && attachments().length > 0));
+  const canSubmit = () => !blocked() && hasDraft();
+  const canSelectFiles = () => Boolean(props.fileSelection && !props.fileSelection.disabled && !running() && !blocked());
+  const selectedModel = () => (props.models ?? []).find((model) => model.id === props.selectedModelId) ?? null;
+  const hasAddMenu = () => Boolean(props.fileSelection || props.menuActions?.length);
 
-  const modelOptions = (): SelectOption[] =>
-    (props.models ?? []).map((model) => ({
-      value: model.id,
-      label: model.label,
-      description: model.description,
-      icon: model.icon,
-    }));
+  const menuItems = (): readonly DropdownItemData[] => {
+    const items: DropdownItemData[] = [];
+    if (props.fileSelection) {
+      items.push({
+        icon: addingFiles() ? "ti ti-loader-2 k2b-spin" : "ti ti-paperclip",
+        label: props.fileSelection.label ?? "Attach files",
+        disabled: !canSelectFiles(),
+        action: () => fileInputRef?.click(),
+      });
+    }
+    for (const action of props.menuActions ?? []) {
+      items.push({
+        icon: action.icon,
+        label: action.label,
+        variant: action.variant,
+        disabled: action.disabled,
+        action: () => reportChatFailure(() => action.onSelect?.(), props.onError),
+      });
+    }
+    return items;
+  };
 
   const autoResize = () => {
     if (!textareaRef) return;
@@ -157,25 +134,22 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   });
 
   createEffect(() => {
-    const running = Boolean(props.running);
-    if (sawRunning && !running && !props.disabled && typeof document !== "undefined") {
-      const active = document.activeElement as HTMLElement | null;
-      const insideComposer = Boolean(active && composerRef?.contains(active));
+    const active = running();
+    if (sawRunning && !active && !props.disabled && typeof document !== "undefined") {
+      const focused = document.activeElement as HTMLElement | null;
+      const insideComposer = Boolean(focused && composerRef?.contains(focused));
       const editingElsewhere = Boolean(
-        active &&
-          active !== document.body &&
+        focused &&
+          focused !== document.body &&
           !insideComposer &&
-          (active.matches("input, textarea, select") ||
-            active.isContentEditable ||
-            active.closest("[role='dialog'], [popover]")),
+          (focused.matches("input, textarea, select") || focused.isContentEditable || focused.closest("[role='dialog'], [popover]")),
       );
       if (!editingElsewhere) queueMicrotask(focus);
     }
-    sawRunning = running;
+    sawRunning = active;
   });
 
-  const setAttachments = (next: readonly ChatAttachment[]) =>
-    props.onAttachmentsChange?.(next);
+  const setAttachments = (next: readonly ChatAttachment[]) => props.onAttachmentsChange?.(next);
 
   const runFiles = async (files: FileList | readonly File[]) => {
     if (!canSelectFiles()) return;
@@ -185,8 +159,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     try {
       await props.fileSelection?.onSelect(selected);
     } catch (error) {
-      const report = props.fileSelection?.onError ?? props.onError;
-      report?.(error);
+      (props.fileSelection?.onError ?? props.onError)?.(error);
     } finally {
       setAddingFiles(false);
       if (fileInputRef) fileInputRef.value = "";
@@ -196,27 +169,28 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
   const submit = async () => {
     if (!canSubmit()) return;
-    const steering = Boolean(props.running && props.onSteer);
+    const intent = running() ? "steer" : "send";
     const previousValue = props.value;
     const previousAttachments = attachments();
-    const text = previousValue.trim();
+    const input: ChatSubmitInput = {
+      intent,
+      text: previousValue.trim(),
+      attachments: intent === "send" ? previousAttachments : [],
+    };
 
     setSubmitting(true);
     try {
       await runChatSubmission({
         clear: () => {
           props.onValueChange("");
-          if (!steering) setAttachments([]);
+          if (intent === "send") setAttachments([]);
         },
-        perform: () =>
-          steering
-            ? props.onSteer?.(text)
-            : props.onSend({ text, attachments: previousAttachments }),
+        perform: () => props.onSubmit(input),
         restore: () => {
           props.onValueChange(previousValue);
-          if (!steering) setAttachments(previousAttachments);
+          if (intent === "send") setAttachments(previousAttachments);
         },
-        onError: (error) => props.onError?.(error),
+        onError: props.onError,
       });
     } finally {
       setSubmitting(false);
@@ -249,10 +223,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     if (matches.length > 0) {
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         event.preventDefault();
-        const direction = event.key === "ArrowUp" ? -1 : 1;
-        setSelectedCommandIndex((index) =>
-          nextChatCommandIndex(index, matches.length, direction),
-        );
+        setSelectedCommandIndex((index) => nextChatCommandIndex(index, matches.length, event.key === "ArrowUp" ? -1 : 1));
         return;
       }
       if (event.key === "Enter" || event.key === "Tab") {
@@ -267,7 +238,6 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         return;
       }
     }
-
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void submit();
@@ -278,7 +248,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     <section
       ref={composerRef}
       class={`k2b-chat-composer ${props.class ?? ""}`}
-      data-running={props.running ? "true" : undefined}
+      data-running={running() ? "true" : undefined}
       data-drag-active={dragActive() ? "true" : undefined}
       role="group"
       aria-label={props.label ?? "Message composer"}
@@ -317,22 +287,18 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                   when={attachment.kind === "image" && attachment.previewUrl}
                   fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
                 >
-                  <img src={attachment.previewUrl} alt="" />
+                  <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
                 </Show>
                 <span>
                   <strong title={attachment.name}>{attachment.name}</strong>
-                  <Show when={formatBytes(attachment.size)}>
-                    {(size) => <small>{size()}</small>}
-                  </Show>
+                  <Show when={formatBytes(attachment.size)}>{(size) => <small>{size()}</small>}</Show>
                 </span>
                 <Show when={props.onAttachmentsChange}>
                   <button
                     type="button"
                     aria-label={`Remove ${attachment.name}`}
                     disabled={blocked()}
-                    onClick={() =>
-                      setAttachments(attachments().filter((candidate) => candidate.id !== attachment.id))
-                    }
+                    onClick={() => setAttachments(attachments().filter((candidate) => candidate.id !== attachment.id))}
                   >
                     <i class="ti ti-x" aria-hidden="true" />
                   </button>
@@ -364,9 +330,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           if (!event.dataTransfer?.types.includes("Files")) return;
           event.preventDefault();
           setDragActive(false);
-          if (canSelectFiles() && event.dataTransfer.files.length) {
-            void runFiles(event.dataTransfer.files);
-          }
+          if (canSelectFiles() && event.dataTransfer.files.length) void runFiles(event.dataTransfer.files);
         }}
       >
         <Show when={dragActive()}>
@@ -374,22 +338,19 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
             Drop files to attach
           </div>
         </Show>
-        {/* Biome cannot infer that the ARIA popup attributes disappear together with the conditional combobox role. */}
-        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the rendered DOM only receives these attributes while role=combobox */}
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: popup attributes are conditional with the combobox role */}
         <textarea
           ref={textareaRef}
           rows={1}
           value={props.value}
           disabled={blocked()}
-          placeholder={props.placeholder ?? "Write a message or type / for commands"}
+          placeholder={props.placeholder ?? (running() ? "Add guidance..." : "Write a message or type / ...")}
           aria-label={props.inputLabel ?? "Message"}
           role={commandsOpen() ? "combobox" : undefined}
           aria-autocomplete={commandsOpen() ? "list" : undefined}
           aria-controls={commandsOpen() ? commandListId : undefined}
           aria-expanded={commandsOpen() ? "true" : undefined}
-          aria-activedescendant={
-            selectedCommand() ? `${commandListId}-${selectedCommandIndex()}` : undefined
-          }
+          aria-activedescendant={selectedCommand() ? `${commandListId}-${selectedCommandIndex()}` : undefined}
           onInput={(event) => {
             props.onValueChange(event.currentTarget.value);
             autoResize();
@@ -407,17 +368,21 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
       <footer class="k2b-chat-composer__footer">
         <div class="k2b-chat-composer__tools">
+          <Show when={hasAddMenu()}>
+            <Dropdown
+              position="top-right"
+              width="12rem"
+              label="Add to chat"
+              elements={menuItems()}
+              disabled={blocked()}
+              trigger={
+                <button type="button" class="k2b-chat-composer__icon-action" aria-label="Add to chat" title="Add to chat">
+                  <i class="ti ti-plus" aria-hidden="true" />
+                </button>
+              }
+            />
+          </Show>
           <Show when={props.fileSelection}>
-            <button
-              type="button"
-              class="k2b-chat-composer__icon-action"
-              disabled={!canSelectFiles()}
-              aria-label={props.fileSelection?.label ?? "Attach files"}
-              title={props.fileSelection?.label ?? "Attach files"}
-              onClick={() => fileInputRef?.click()}
-            >
-              <i class={addingFiles() ? "ti ti-loader-2 k2b-spin" : "ti ti-paperclip"} aria-hidden="true" />
-            </button>
             <input
               ref={fileInputRef}
               class="k2b-sr-only"
@@ -432,67 +397,90 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
             />
           </Show>
           <Show when={(props.models?.length ?? 0) > 0}>
-            <Select
+            <Dropdown
+              position="top-right"
               class="k2b-chat-composer__model"
-              label={false}
-              options={modelOptions()}
-              value={props.selectedModelId ?? null}
-              onValueChange={(value) => {
-                if (!value) return;
-                props.onModelChange?.(value);
-                queueMicrotask(focus);
-              }}
-              disabled={blocked() || props.running || !props.onModelChange}
-              placeholder="Model"
-            />
+              width="15rem"
+              label="Choose model"
+              disabled={blocked() || running() || !props.onModelChange}
+              trigger={
+                <button type="button" class="k2b-chat-composer__model-trigger">
+                  <Show when={selectedModel()?.image} fallback={<i class={selectedModel()?.icon ?? "ti ti-sparkles"} aria-hidden="true" />}>
+                    {(image) => <img src={image()} alt="" />}
+                  </Show>
+                  <span>{selectedModel()?.label ?? "Model"}</span>
+                </button>
+              }
+            >
+              <For each={props.models}>
+                {(model) => (
+                  <DropdownItem
+                    class="k2b-chat-composer__model-item"
+                    onSelect={() => {
+                      props.onModelChange?.(model.id);
+                      queueMicrotask(focus);
+                    }}
+                  >
+                    <Show when={model.image} fallback={<i class={model.icon ?? "ti ti-sparkles"} aria-hidden="true" />}>
+                      {(image) => <img src={image()} alt="" />}
+                    </Show>
+                    <span>
+                      <strong>{model.label}</strong>
+                      <Show when={model.description}>{(description) => <small>{description()}</small>}</Show>
+                    </span>
+                    <Show when={model.id === props.selectedModelId}>
+                      <i class="ti ti-check" aria-hidden="true" />
+                    </Show>
+                  </DropdownItem>
+                )}
+              </For>
+            </Dropdown>
           </Show>
-          {props.actions}
         </div>
 
         <div class="k2b-chat-composer__submit">
-          {props.context}
-          <Show when={props.running && props.onStop}>
+          <For each={props.contextActions}>
+            {(action) => (
+              <button
+                type="button"
+                class="k2b-chat-composer__icon-action"
+                data-tone={action.variant === "danger" ? "danger" : undefined}
+                disabled={action.disabled}
+                aria-label={action.label}
+                title={action.label}
+                onClick={() => reportChatFailure(() => action.onSelect?.(), props.onError)}
+              >
+                <i class={action.icon ?? "ti ti-dots"} aria-hidden="true" />
+              </button>
+            )}
+          </For>
+          <Show when={props.contextUsage}>{(usage) => <ContextUsage {...usage()} />}</Show>
+          <Show
+            when={running() && !hasDraft() && props.onStop}
+            fallback={
+              <button
+                type="button"
+                class="k2b-chat-composer__send"
+                disabled={!canSubmit()}
+                aria-label={submitting() ? (running() ? "Steering" : "Sending") : running() ? "Steer response" : "Send message"}
+                title={running() ? "Steer response" : "Send message"}
+                onClick={() => void submit()}
+              >
+                <i class={submitting() ? "ti ti-loader-2 k2b-spin" : "ti ti-arrow-up"} aria-hidden="true" />
+              </button>
+            }
+          >
             <button
               type="button"
-              class="k2b-chat-composer__icon-action"
-              data-tone="danger"
-              disabled={props.stopping}
-              aria-label={props.stopping ? "Stopping" : "Stop"}
-              title={props.stopping ? "Stopping" : "Stop"}
+              class="k2b-chat-composer__stop"
+              disabled={stopping()}
+              aria-label={stopping() ? "Stopping" : "Stop response"}
+              title={stopping() ? "Stopping" : "Stop response"}
               onClick={() => reportChatFailure(() => props.onStop?.(), props.onError)}
             >
-              <i class={props.stopping ? "ti ti-loader-2 k2b-spin" : "ti ti-player-stop"} aria-hidden="true" />
+              <i class={stopping() ? "ti ti-loader-2 k2b-spin" : "ti ti-player-stop-filled"} aria-hidden="true" />
             </button>
           </Show>
-          <button
-            type="button"
-            class="k2b-chat-composer__send"
-            disabled={!canSubmit()}
-            aria-label={
-              addingFiles()
-                ? "Adding files"
-                : submitting()
-                  ? props.running
-                    ? "Steering"
-                    : "Sending"
-                  : props.running
-                    ? "Steer response"
-                    : "Send message"
-            }
-            title={props.running ? "Steer response" : "Send message"}
-            onClick={() => void submit()}
-          >
-            <i
-              class={
-                addingFiles() || submitting()
-                  ? "ti ti-loader-2 k2b-spin"
-                  : props.running
-                    ? "ti ti-route"
-                    : "ti ti-arrow-up"
-              }
-              aria-hidden="true"
-            />
-          </button>
         </div>
       </footer>
     </section>

@@ -21,6 +21,7 @@ describe("Cloud chat composer adapter", () => {
           capabilities: ["streaming", "vision"],
           dataBoundary: "private",
           contextWindow: 128_000,
+          image: "https://example.test/provider.svg",
         },
       ]),
     ).toEqual([
@@ -28,6 +29,7 @@ describe("Cloud chat composer adapter", () => {
         id: "vision",
         label: "Vision",
         description: "test/vision",
+        image: "https://example.test/provider.svg",
         icon: "ti ti-photo-spark",
         capabilities: ["streaming", "vision"],
       },
@@ -55,13 +57,11 @@ describe("Cloud chat composer adapter", () => {
     };
     const attachments = aiChatAttachments([image, uploaded]);
 
-    expect(attachments.map((attachment) => attachment.data)).toEqual([
-      image,
-      uploaded,
-    ]);
+    expect(attachments.map((attachment) => attachment.data)).toEqual([image, uploaded]);
     expect(aiComposerAttachmentRecords(attachments)).toEqual([image, uploaded]);
     expect(
       aiComposerSendInput({
+        intent: "send",
         text: "Review these",
         attachments,
       }),
@@ -76,15 +76,10 @@ describe("Cloud chat composer adapter", () => {
   });
 
   test("keeps file policy in Cloud and rejects images for text-only models", async () => {
-    const result = await readAiComposerFiles(
-      [new File(["image"], "photo.png", { type: "image/png" })],
-      { supportsVision: false },
-    );
+    const result = await readAiComposerFiles([new File(["image"], "photo.png", { type: "image/png" })], { supportsVision: false });
 
     expect(aiComposerFileAccept).toContain("image/png");
     expect(result.attachments).toEqual([]);
-    expect(result.errors).toEqual([
-      "photo.png: choose a vision-capable model before attaching images.",
-    ]);
+    expect(result.errors).toEqual(["photo.png: choose a vision-capable model before attaching images."]);
   });
 });

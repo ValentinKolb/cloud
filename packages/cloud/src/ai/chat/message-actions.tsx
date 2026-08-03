@@ -1,6 +1,5 @@
 import type { Message, Usage } from "@k2b/nessi";
-import { clipboard, mutation } from "@k2b/stdlib/solid";
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, StatCell, StatGrid } from "@k2b/ui";
+import { type ChatAction, dialogCore, PanelDialog, panelDialogFixedOptions, prompts, StatCell, StatGrid } from "@k2b/ui";
 import { createContext, For, type JSX, Show, useContext } from "solid-js";
 import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage } from "../types";
@@ -194,10 +193,7 @@ const openAssistantResponseInfo = (entries: AiStoredMessage[]) => {
         </PanelDialog.Body>
       </PanelDialog>
     ),
-    {
-      ...panelDialogOptions,
-      panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(94vw,36rem)]"),
-    },
+    panelDialogFixedOptions,
   );
 };
 
@@ -234,56 +230,36 @@ const openForkMessageDialog = async (
   if (title) await onForkMessage(entry, { title });
 };
 
-export function AssistantMessageActions(props: { entry: AiStoredMessage; entries: AiStoredMessage[]; copyText: string }) {
-  const actions = useAiChatActions();
-  const { copy, wasCopied } = clipboard.create(1400);
-  const fork = mutation.create<void, void>({
-    mutation: async () => {
-      if (actions.onForkMessage) await openForkMessageDialog(props.entry, props.copyText, actions.onForkMessage);
+export function createAssistantMessageActions(props: {
+  entry: AiStoredMessage;
+  entries: AiStoredMessage[];
+  copyText: string;
+  actions: AiChatActions;
+}): ChatAction[] {
+  const actions = props.actions;
+  const result: ChatAction[] = [
+    {
+      id: "info",
+      label: "Message info",
+      icon: "ti ti-info-circle",
+      onSelect: () => openAssistantResponseInfo(props.entries),
     },
-  });
-  const forkFailed = () => Boolean(fork.error());
-
-  return (
-    <div class="pointer-events-auto flex items-center gap-0.5 text-dimmed">
-      <button
-        type="button"
-        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
-        aria-label="Message info"
-        title="Info"
-        onClick={() => openAssistantResponseInfo(props.entries)}
-      >
-        <i class="ti ti-info-circle text-sm" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary disabled:opacity-40 dark:hover:bg-zinc-900"
-        aria-label="Copy assistant message"
-        title="Copy"
-        disabled={!props.copyText}
-        onClick={() => void copy(props.copyText)}
-      >
-        <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
-      </button>
-      <Show when={actions.onForkMessage}>
-        <button
-          type="button"
-          class={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 disabled:opacity-40 dark:hover:bg-zinc-900 ${
-            forkFailed() ? "text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" : "hover:text-primary"
-          }`}
-          aria-label={forkFailed() ? "Fork failed. Try again" : "Fork conversation"}
-          title={forkFailed() ? "Fork failed. Try again" : "Fork"}
-          disabled={fork.loading()}
-          onClick={() => {
-            if (!fork.loading()) void fork.mutate();
-          }}
-        >
-          <i
-            class={`ti ${fork.loading() ? "ti-loader-2 animate-spin" : forkFailed() ? "ti-alert-circle" : "ti-git-fork"} text-sm`}
-            aria-hidden="true"
-          />
-        </button>
-      </Show>
-    </div>
-  );
+  ];
+  if (props.copyText) {
+    result.push({
+      id: "copy",
+      label: "Copy",
+      icon: "ti ti-copy",
+      copyText: props.copyText,
+    });
+  }
+  if (actions.onForkMessage) {
+    result.push({
+      id: "fork",
+      label: "Fork conversation",
+      icon: "ti ti-git-fork",
+      onSelect: () => openForkMessageDialog(props.entry, props.copyText, actions.onForkMessage!),
+    });
+  }
+  return result;
 }

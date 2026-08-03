@@ -1,33 +1,22 @@
-import {
-  createEffect,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-  untrack,
-} from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show, untrack } from "solid-js";
 import Placeholder from "../surfaces/Placeholder";
+import { ChatActivity, ChatMessage } from "./ChatPrimitives";
 import { isChatNearBottom, restoredChatScrollTop } from "./chat-behavior";
-import {
-  ChatActivity,
-  type ChatActivityTone,
-  ChatMessage,
-  type ChatMessageStatus,
-  type ChatRole,
-} from "./ChatPrimitives";
+import type { ChatAction, ChatActivityTone, ChatAttachment, ChatMessageStatus, ChatRole } from "./types";
 
 export type ChatMessageItem = {
   kind: "message";
   id: string;
   role: ChatRole;
-  content: JSX.Element;
+  content?: JSX.Element;
   label?: string;
   createdAt?: string | Date;
   timeLabel?: string;
   status?: ChatMessageStatus;
-  actions?: JSX.Element;
+  attachments?: readonly ChatAttachment[];
+  actions?: readonly ChatAction[];
+  actionDisplay?: "auto" | "inline" | "menu";
+  anchorId?: string | number;
   class?: string;
 };
 
@@ -40,6 +29,7 @@ export type ChatActivityItem = {
   tone?: ChatActivityTone;
   trailing?: JSX.Element;
   defaultOpen?: boolean;
+  anchorId?: string | number;
   content?: JSX.Element;
   class?: string;
 };
@@ -53,9 +43,10 @@ export type ChatTimelineProps = {
   hasMore?: boolean;
   loadingOlder?: boolean;
   onLoadOlder?: () => boolean | void | Promise<boolean | void>;
-  emptyTitle?: JSX.Element;
-  emptyDescription?: JSX.Element;
+  emptyTitle?: string;
+  emptyDescription?: string;
   navigation?: JSX.Element;
+  onActionError?: (error: unknown) => void;
   viewportRef?: (element: HTMLDivElement) => void;
   contentRef?: (element: HTMLDivElement) => void;
   label?: string;
@@ -75,8 +66,7 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
 
   const loadingOlder = () => Boolean(props.loadingOlder || loadingOlderInternally());
   const canLoadOlder = () => Boolean(props.onLoadOlder && props.hasMore && !loadingOlder());
-  const hasHistoryControls = () =>
-    loadingOlder() || historyError() !== null || canLoadOlder();
+  const hasHistoryControls = () => loadingOlder() || historyError() !== null || canLoadOlder();
   const hasContent = () => props.items.length > 0;
   const threshold = () => Math.max(0, props.followThreshold ?? 96);
 
@@ -119,34 +109,20 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
     queueMicrotask(() => {
       requestAnimationFrame(() => {
         if (viewportRef !== viewport) return;
-        viewport.scrollTop = restoredChatScrollTop(
-          previousScrollTop,
-          previousScrollHeight,
-          viewport.scrollHeight,
-        );
+        viewport.scrollTop = restoredChatScrollTop(previousScrollTop, previousScrollHeight, viewport.scrollHeight);
       });
     });
   };
 
   const updatePinned = () => {
     if (!viewportRef) return;
-    setPinned(
-      isChatNearBottom(
-        viewportRef.scrollHeight,
-        viewportRef.scrollTop,
-        viewportRef.clientHeight,
-        threshold(),
-      ),
-    );
+    setPinned(isChatNearBottom(viewportRef.scrollHeight, viewportRef.scrollTop, viewportRef.clientHeight, threshold()));
     if (viewportRef.scrollTop <= threshold()) void loadOlder();
   };
 
   onMount(() => {
     scrollToLatest();
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => scheduleFollow());
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => scheduleFollow());
     if (contentRef) resizeObserver?.observe(contentRef);
 
     const historyObserver =
@@ -215,11 +191,7 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
           <Show when={hasHistoryControls()}>
             <div class="k2b-chat-timeline__history" aria-live="off">
               <Show when={canLoadOlder()}>
-                <button
-                  type="button"
-                  class="k2b-chat-timeline__older"
-                  onClick={() => void loadOlder()}
-                >
+                <button type="button" class="k2b-chat-timeline__older" onClick={() => void loadOlder()}>
                   <i class="ti ti-history" aria-hidden="true" />
                   Load older messages
                 </button>
@@ -277,6 +249,7 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
                       tone={(item as ChatActivityItem).tone}
                       trailing={(item as ChatActivityItem).trailing}
                       defaultOpen={(item as ChatActivityItem).defaultOpen}
+                      anchorId={(item as ChatActivityItem).anchorId}
                       class={(item as ChatActivityItem).class}
                     >
                       {(item as ChatActivityItem).content}
@@ -284,15 +257,20 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
                   }
                 >
                   <ChatMessage
-                    messageRole={(item as ChatMessageItem).role}
-                    content={(item as ChatMessageItem).content}
+                    role={(item as ChatMessageItem).role}
                     label={(item as ChatMessageItem).label}
                     createdAt={(item as ChatMessageItem).createdAt}
                     timeLabel={(item as ChatMessageItem).timeLabel}
                     status={(item as ChatMessageItem).status}
+                    attachments={(item as ChatMessageItem).attachments}
                     actions={(item as ChatMessageItem).actions}
+                    actionDisplay={(item as ChatMessageItem).actionDisplay}
+                    anchorId={(item as ChatMessageItem).anchorId}
+                    onActionError={props.onActionError}
                     class={(item as ChatMessageItem).class}
-                  />
+                  >
+                    {(item as ChatMessageItem).content}
+                  </ChatMessage>
                 </Show>
               )}
             </For>
@@ -300,11 +278,7 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
         </div>
       </div>
       <Show when={!pinned() && hasContent()}>
-        <button
-          type="button"
-          class="k2b-chat-timeline__latest"
-          onClick={scrollToLatest}
-        >
+        <button type="button" class="k2b-chat-timeline__latest" onClick={scrollToLatest}>
           <i class="ti ti-arrow-down" aria-hidden="true" />
           Jump to latest
         </button>

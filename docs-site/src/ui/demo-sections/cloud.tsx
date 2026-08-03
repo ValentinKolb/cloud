@@ -1,21 +1,6 @@
 import type { AiPublicModelProfile } from "@valentinkolb/cloud/ai";
-import {
-  AiChatActionsProvider,
-  AiChatProjection,
-  aiChatModelOptions,
-} from "@valentinkolb/cloud/ai/ui";
-import {
-  Widget,
-  WidgetHero,
-  WidgetList,
-  WidgetPills,
-  WidgetStat,
-  WidgetStatus,
-  ChatComposer,
-  ChatContextUsage,
-  ChatTimeline,
-  type ChatCommand,
-} from "@k2b/ui";
+import { AiChatActionsProvider, aiChatModelOptions, createAiChatTimeline } from "@valentinkolb/cloud/ai/ui";
+import { Chat, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus, type ChatCommand } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
@@ -41,6 +26,11 @@ const cloudComposerModels: AiPublicModelProfile[] = [
   },
 ];
 
+const EmptyCloudTimeline = () => {
+  const items = createAiChatTimeline({ messages: () => [], activeTurn: () => null });
+  return <Chat.Timeline items={items()} emptyTitle="Start a conversation" />;
+};
+
 const AssistantDemo = () => {
   const [draft, setDraft] = createSignal("");
   const [selectedModelId, setSelectedModelId] = createSignal(cloudComposerModels[0]!.id);
@@ -57,29 +47,17 @@ const AssistantDemo = () => {
       <DemoCard
         id="ai-message-list"
         chip={[
-          { kind: "component", name: "ChatTimeline", from: "@k2b/ui" },
-          { kind: "component", name: "AiChatProjection", from: "@valentinkolb/cloud/ai/ui" },
+          { kind: "component", name: "Chat.Timeline", from: "@k2b/ui" },
+          { kind: "component", name: "createAiChatTimeline", from: "@valentinkolb/cloud/ai/ui" },
         ]}
         description="The generic timeline owns chat presentation. Cloud projects its persisted messages and active turn into that contract."
         code={`<AiChatActionsProvider actions={messageActions}>
-  <AiChatProjection
-    messages={session.messages}
-    activeTurn={session.activeTurn}
-    render={(items) => (
-      <ChatTimeline items={items()} emptyTitle="Start a conversation" />
-    )}
-  />
+  <Conversation />
 </AiChatActionsProvider>`}
       >
         <div class="k2b-ui h-48 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
           <AiChatActionsProvider>
-            <AiChatProjection
-              messages={[]}
-              activeTurn={null}
-              render={(items) => (
-                <ChatTimeline items={items()} emptyTitle="Start a conversation" />
-              )}
-            />
+            <EmptyCloudTimeline />
           </AiChatActionsProvider>
         </div>
       </DemoCard>
@@ -87,36 +65,34 @@ const AssistantDemo = () => {
       <DemoCard
         id="ai-composer"
         chip={[
-          { kind: "component", name: "ChatComposer", from: "@k2b/ui" },
+          { kind: "component", name: "Chat.Composer", from: "@k2b/ui" },
           { kind: "component", name: "aiChatModelOptions", from: "@valentinkolb/cloud/ai/ui" },
         ]}
         description="The generic composer owns interaction and accessibility. Cloud only adapts model profiles and outgoing payloads."
-        code={`<ChatComposer
+        code={`<Chat.Composer
   value={draft()}
   onValueChange={setDraft}
   models={aiChatModelOptions(models)}
   selectedModelId={selectedModelId()}
   onModelChange={setSelectedModelId}
-  onSend={(input) => sendMessage(aiComposerSendInput(input))}
+  onSubmit={(input) => sendMessage(aiComposerSendInput(input))}
 />`}
       >
         <div class="k2b-ui rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <ChatComposer
+          <Chat.Composer
             value={draft()}
             onValueChange={setDraft}
             models={aiChatModelOptions(cloudComposerModels)}
             selectedModelId={selectedModelId()}
             onModelChange={setSelectedModelId}
             commands={commands}
-            onSend={() => true}
-            context={
-              <ChatContextUsage
-                usage={{ input: 15_876, output: 32, total: 15_908 }}
-                loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
-                contextWindow={262_000}
-                modelLabel="vLLM Qwen 3.6"
-              />
-            }
+            onSubmit={() => true}
+            contextUsage={{
+              usage: { input: 15_876, output: 32, total: 15_908 },
+              loopUsage: { input: 69_944, output: 819, total: 70_763 },
+              contextWindow: 262_000,
+              modelLabel: "vLLM Qwen 3.6",
+            }}
           />
         </div>
       </DemoCard>

@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { AppWorkspace, type ChatCommand, ChatComposer, ChatContextUsage, ChatTimeline, prompts } from "@k2b/ui";
+import { AppWorkspace, Chat, type ChatCommand, prompts } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationTimelineEntry,
@@ -11,7 +11,6 @@ import type {
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
   AiChatActionsProvider,
-  AiChatProjection,
   AiChatTurnNavigator,
   type AiComposerAttachment,
   type AiComposerSendInput,
@@ -21,6 +20,7 @@ import {
   aiComposerFileAccept,
   aiComposerSendInput,
   aiLatestUsageSnapshot,
+  createAiChatTimeline,
   readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
@@ -387,6 +387,35 @@ export default function AssistantWorkspace(props: Props) {
     if (archived.id === chat.activeConversationId()) navigateTo("/app/assistant");
   };
 
+  const ConversationTimeline = () => {
+    const items = createAiChatTimeline({ messages: chat.messages, activeTurn: chat.activeTurn });
+
+    return (
+      <Chat.Timeline
+        class="ai-message-list-container h-full"
+        conversationKey={chat.activeConversationId()}
+        items={items()}
+        loading={chat.loadingConversation()}
+        hasMore={chat.hasMoreHistory()}
+        loadingOlder={chat.loadingOlder()}
+        onLoadOlder={chat.loadOlderMessages}
+        emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
+        viewportRef={setTimelineViewport}
+        contentRef={setTimelineContent}
+        onActionError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
+        navigation={
+          <AiChatTurnNavigator
+            entries={chat.timeline()}
+            loading={chat.timelineLoading()}
+            viewport={timelineViewport}
+            content={timelineContent}
+            loadThrough={chat.loadHistoryThroughSeq}
+          />
+        }
+      />
+    );
+  };
+
   return (
     <AppWorkspace class="flex-1 min-h-0">
       <AssistantSidebar
@@ -403,152 +432,127 @@ export default function AssistantWorkspace(props: Props) {
 
       <AppWorkspace.Content>
         <AppWorkspace.Main>
-          <section class="min-h-0 flex-1 overflow-hidden" data-scroll-preserve="assistant-messages">
-            <AiChatActionsProvider
-              actions={{
-                actionDisabled: () => chat.runStatus() === "stopping",
-                onApproval: async (request, input) => {
-                  if (!(await chat.respondToApproval(request, input))) throw new Error("Could not submit approval.");
-                },
-                onFrontendToolResult: async (request, result) => {
-                  if (!(await chat.submitFrontendToolResult(request, result))) throw new Error("Could not submit tool response.");
-                },
-                onForkMessage: async (entry, input) => {
-                  const conversation = await chat.forkMessage(entry.id, input);
-                  if (!conversation) throw new Error("Could not fork conversation.");
-                  if (chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
-                },
-                onRetryMessage: async (entry, input) => {
-                  const retried = await chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
-                  if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
-                },
-                onRetrySteer: (block) => {
-                  void chat.retrySteer(block);
-                },
-                onOpenFile: (path) => void openFiles(path),
-                fileUrl: chat.fileContentUrl,
-              }}
-            >
-              <AiChatProjection
-                messages={chat.messages()}
-                activeTurn={chat.activeTurn()}
-                render={(items) => (
-                  <ChatTimeline
-                    class="ai-message-list-container h-full"
-                    conversationKey={chat.activeConversationId()}
-                    items={items()}
-                    loading={chat.loadingConversation()}
-                    hasMore={chat.hasMoreHistory()}
-                    loadingOlder={chat.loadingOlder()}
-                    onLoadOlder={chat.loadOlderMessages}
-                    emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
-                    viewportRef={setTimelineViewport}
-                    contentRef={setTimelineContent}
-                    navigation={
-                      <AiChatTurnNavigator
-                        entries={chat.timeline()}
-                        loading={chat.timelineLoading()}
-                        viewport={timelineViewport}
-                        content={timelineContent}
-                        loadThrough={chat.loadHistoryThroughSeq}
-                      />
-                    }
-                  />
-                )}
-              />
-            </AiChatActionsProvider>
-          </section>
-
-          <div class="shrink-0 px-[var(--ui-space-section)] pb-[var(--ui-space-section)] pt-2">
-            <div class="mx-auto flex max-w-4xl flex-col gap-2">
-              <Show when={chat.error()}>
-                <p class="inline-flex items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">
-                  <i class="ti ti-alert-circle mt-0.5 text-sm" aria-hidden="true" />
-                  <span>{chat.error()}</span>
-                </p>
-              </Show>
-
-              <Show when={chat.streamStatus() === "reconnecting"}>
-                <div class="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
-                  <i class="ti ti-refresh text-sm animate-spin" aria-hidden="true" />
-                  <span class="truncate">Reconnecting…</span>
-                </div>
-              </Show>
-
-              <ChatComposer
-                value={composerDraft()}
-                onValueChange={setComposerDraft}
-                attachments={aiChatAttachments(activeComposerAttachments())}
-                onAttachmentsChange={(next) => setActiveComposerAttachments(aiComposerAttachmentRecords(next))}
-                fileSelection={{
-                  onSelect: addComposerFiles,
-                  accept: aiComposerFileAccept,
-                  disabled: chat.running(),
-                  label: "Attach files",
+          <Chat class="min-h-0 flex-1">
+            <section class="min-h-0 flex-1 overflow-hidden" data-scroll-preserve="assistant-messages">
+              <AiChatActionsProvider
+                actions={{
+                  actionDisabled: () => chat.runStatus() === "stopping",
+                  onApproval: async (request, input) => {
+                    if (!(await chat.respondToApproval(request, input))) throw new Error("Could not submit approval.");
+                  },
+                  onFrontendToolResult: async (request, result) => {
+                    if (!(await chat.submitFrontendToolResult(request, result))) throw new Error("Could not submit tool response.");
+                  },
+                  onForkMessage: async (entry, input) => {
+                    const conversation = await chat.forkMessage(entry.id, input);
+                    if (!conversation) throw new Error("Could not fork conversation.");
+                    if (chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
+                  },
+                  onRetryMessage: async (entry, input) => {
+                    const retried = await chat.retryUserMessage(entry.id, {
+                      ...input,
+                      modelProfileId: selectedModelId() || undefined,
+                    });
+                    if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
+                  },
+                  onRetrySteer: async (block) => {
+                    if (!(await chat.retrySteer(block))) throw new Error(chat.error() ?? "Could not retry steer message.");
+                  },
+                  onOpenFile: (path) => void openFiles(path),
+                  fileUrl: chat.fileContentUrl,
                 }}
-                models={aiChatModelOptions(props.models)}
-                selectedModelId={selectedModelId()}
-                onModelChange={setSelectedModelId}
-                commands={slashCommands()}
-                disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
-                running={chat.running()}
-                stopping={chat.runStatus() === "stopping"}
-                focusToken={composerFocusToken()}
-                placeholder={
-                  props.status.enabled
-                    ? chat.runStatus() === "stopping"
-                      ? "Stopping response"
-                      : chat.running()
-                        ? "Steer the current response"
-                        : "Ask Assistant anything or type / ..."
-                    : "AI is not configured"
-                }
-                onSend={(input) => send(aiComposerSendInput(input))}
-                onSteer={steer}
-                onStop={
-                  chat.activeTurn()
-                    ? async () => {
-                        await chat.abort();
-                      }
-                    : undefined
-                }
-                onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
-                actions={
-                  <button
-                    type="button"
-                    class="k2b-chat-composer__icon-action"
-                    aria-label="New chat"
-                    title="New chat"
-                    disabled={newConversation.loading()}
-                    onClick={() => void createAndFocusConversation()}
-                  >
-                    <i class="ti ti-message-plus" aria-hidden="true" />
-                  </button>
-                }
-                context={
-                  <>
-                    <Show when={chat.vfsFileCount() > 0}>
-                      <button
-                        type="button"
-                        class="k2b-chat-composer__icon-action"
-                        aria-label={`${chat.vfsFileCount()} files in this chat`}
-                        title="Files in this chat"
-                        onClick={() => void openFiles("/")}
-                      >
-                        <i class="ti ti-files" aria-hidden="true" />
-                      </button>
-                    </Show>
-                    <ChatContextUsage
-                      usage={usageSnapshot()?.request ?? null}
-                      loopUsage={usageSnapshot()?.loop ?? null}
-                      contextWindow={usageModel()?.contextWindow}
-                      modelLabel={usageModel()?.label}
-                    />
-                  </>
-                }
-              />
+              >
+                <ConversationTimeline />
+              </AiChatActionsProvider>
+            </section>
+
+            <div class="shrink-0 px-[var(--ui-space-section)] pb-[var(--ui-space-section)] pt-2">
+              <div class="mx-auto flex max-w-4xl flex-col gap-2">
+                <Show when={chat.error()}>
+                  <p class="inline-flex items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">
+                    <i class="ti ti-alert-circle mt-0.5 text-sm" aria-hidden="true" />
+                    <span>{chat.error()}</span>
+                  </p>
+                </Show>
+
+                <Show when={chat.streamStatus() === "reconnecting"}>
+                  <div class="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
+                    <i class="ti ti-refresh text-sm animate-spin" aria-hidden="true" />
+                    <span class="truncate">Reconnecting…</span>
+                  </div>
+                </Show>
+
+                <Chat.Composer
+                  value={composerDraft()}
+                  onValueChange={setComposerDraft}
+                  attachments={aiChatAttachments(activeComposerAttachments())}
+                  onAttachmentsChange={(next) => setActiveComposerAttachments(aiComposerAttachmentRecords(next))}
+                  fileSelection={{
+                    onSelect: addComposerFiles,
+                    accept: aiComposerFileAccept,
+                    disabled: chat.running(),
+                    label: "Attach files",
+                  }}
+                  models={aiChatModelOptions(props.models)}
+                  selectedModelId={selectedModelId()}
+                  onModelChange={setSelectedModelId}
+                  commands={slashCommands()}
+                  disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
+                  state={chat.runStatus() === "stopping" ? "stopping" : chat.running() ? "running" : "idle"}
+                  focusToken={composerFocusToken()}
+                  placeholder={
+                    props.status.enabled
+                      ? chat.runStatus() === "stopping"
+                        ? "Stopping response"
+                        : chat.running()
+                          ? "Steer the current response"
+                          : "Ask Assistant anything or type / ..."
+                      : "AI is not configured"
+                  }
+                  onSubmit={(input) => (input.intent === "steer" ? steer(input.text) : send(aiComposerSendInput(input)))}
+                  onStop={
+                    chat.activeTurn()
+                      ? async () => {
+                          await chat.abort();
+                        }
+                      : undefined
+                  }
+                  onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
+                  menuActions={[
+                    {
+                      id: "new-chat",
+                      label: "New chat",
+                      icon: "ti ti-message-plus",
+                      disabled: newConversation.loading(),
+                      onSelect: async () => {
+                        await createAndFocusConversation();
+                      },
+                    },
+                  ]}
+                  contextActions={
+                    chat.vfsFileCount() > 0
+                      ? [
+                          {
+                            id: "files",
+                            label: `${chat.vfsFileCount()} files in this chat`,
+                            icon: "ti ti-files",
+                            onSelect: async () => {
+                              await openFiles("/");
+                            },
+                          },
+                        ]
+                      : []
+                  }
+                  contextUsage={{
+                    usage: usageSnapshot()?.request ?? null,
+                    loopUsage: usageSnapshot()?.loop ?? null,
+                    contextWindow: usageModel()?.contextWindow,
+                    modelLabel: usageModel()?.label,
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          </Chat>
         </AppWorkspace.Main>
       </AppWorkspace.Content>
     </AppWorkspace>

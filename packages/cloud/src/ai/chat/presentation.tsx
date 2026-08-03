@@ -1,45 +1,21 @@
 import type { ChatTimelineItem } from "@k2b/ui";
-import {
-  type Accessor,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  Show,
-  type JSX,
-} from "solid-js";
+import { type Accessor, createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import type { AiActiveTurn } from "../client/projection";
-import {
-  type AiActiveTurnSegment,
-  isRenderableTurnBlock,
-  splitActiveTurnBlocks,
-} from "../protocol";
-import {
-  type AiAssistantTimelineItem,
-  buildAiMessageTimeline,
-  copyTextFromAssistantEntries,
-} from "../timeline";
+import { type AiActiveTurnSegment, isRenderableTurnBlock, splitActiveTurnBlocks } from "../protocol";
+import { type AiAssistantTimelineItem, buildAiMessageTimeline, copyTextFromAssistantEntries } from "../timeline";
 import type { AiConversationTimelineEntry, AiStoredMessage } from "../types";
 import { AiTurnBlockList } from "./blocks";
-import {
-  AiChatActionsProvider,
-  type AiChatActions,
-  AssistantMessageActions,
-} from "./message-actions";
-import {
-  formatWorkedDuration,
-  isCardToolName,
-  isSurveyToolName,
-  textFromMessage,
-} from "./message-utils";
+import { AiChatActionsProvider, type AiChatActions, createAssistantMessageActions, useAiChatActions } from "./message-actions";
+import { formatWorkedDuration, isCardToolName, isSurveyToolName, textFromMessage } from "./message-utils";
 import { ChatUtilityDisclosure, PulseDots } from "./primitives";
 import { TurnNavigator } from "./turn-navigator";
 import { activeTimelineSeq } from "./turn-navigator-utils";
 import {
-  AiSteerMessageActions,
-  AiSteerMessageContent,
-  AiUserMessageActions,
-  AiUserMessageContent,
+  aiSteerMessageText,
+  aiUserMessageAttachments,
+  aiUserMessageText,
+  createAiSteerMessageActions,
+  createAiUserMessageActions,
 } from "./user-message";
 
 export type AiChatTimelineSession = {
@@ -50,23 +26,12 @@ export type AiChatTimelineSession = {
 export { AiChatActionsProvider, type AiChatActions };
 
 const isShowcaseBlock = (block: AiAssistantTimelineItem["blocks"][number]) =>
-  block.kind === "tool" &&
-  (isCardToolName(block.name) ||
-    isSurveyToolName(block.name) ||
-    block.name === "present");
+  block.kind === "tool" && (isCardToolName(block.name) || isSurveyToolName(block.name) || block.name === "present");
 
 function AiAssistantContent(props: { item: AiAssistantTimelineItem }): JSX.Element {
-  const renderable = createMemo(() =>
-    props.item.blocks.filter(isRenderableTurnBlock),
-  );
-  const worked = () =>
-    renderable().filter(
-      (block) => block.kind !== "text" && !isShowcaseBlock(block),
-    );
-  const visible = () =>
-    renderable().filter(
-      (block) => block.kind === "text" || isShowcaseBlock(block),
-    );
+  const renderable = createMemo(() => props.item.blocks.filter(isRenderableTurnBlock));
+  const worked = () => renderable().filter((block) => block.kind !== "text" && !isShowcaseBlock(block));
+  const visible = () => renderable().filter((block) => block.kind === "text" || isShowcaseBlock(block));
   const turnId = () => props.item.loopId ?? props.item.id;
 
   return (
@@ -86,16 +51,20 @@ function AiAssistantContent(props: { item: AiAssistantTimelineItem }): JSX.Eleme
   );
 }
 
-const storedItems = (messages: readonly AiStoredMessage[]): ChatTimelineItem[] =>
+const storedItems = (messages: readonly AiStoredMessage[], actions: AiChatActions): ChatTimelineItem[] =>
   buildAiMessageTimeline([...messages]).map((item): ChatTimelineItem => {
     if (item.type === "user") {
+      const text = aiUserMessageText(item.entry);
       return {
         kind: "message",
         id: item.id,
         role: "user",
         createdAt: item.entry.createdAt,
-        content: <AiUserMessageContent entry={item.entry} />,
-        actions: <AiUserMessageActions entry={item.entry} />,
+        content: text ? <p class="whitespace-pre-wrap">{text}</p> : undefined,
+        attachments: aiUserMessageAttachments(item.entry),
+        actions: createAiUserMessageActions(item.entry, actions),
+        actionDisplay: "menu",
+        anchorId: item.entry.seq,
       };
     }
 
@@ -106,49 +75,41 @@ const storedItems = (messages: readonly AiStoredMessage[]): ChatTimelineItem[] =
         kind: "activity",
         id: item.id,
         label: "Context compacted",
-        description: count
-          ? `${count} message${count === 1 ? "" : "s"} summarized · ${date}`
-          : date,
+        description: count ? `${count} message${count === 1 ? "" : "s"} summarized · ${date}` : date,
         icon: "ti ti-brain",
         tone: "ai",
         content: (
-          <div data-ai-turn-seq={item.entry.seq}>
+          <div>
             <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">
               The model now sees this summary instead of the messages above
             </p>
-            <p class="whitespace-pre-wrap">
-              {textFromMessage(item.entry.message) || "No visible content"}
-            </p>
+            <p class="whitespace-pre-wrap">{textFromMessage(item.entry.message) || "No visible content"}</p>
           </div>
         ),
       };
     }
 
-    const actionEntry = item.actionEntry?.compactedAt
-      ? null
-      : item.actionEntry;
+    const actionEntry = item.actionEntry?.compactedAt ? null : item.actionEntry;
     const copyText = copyTextFromAssistantEntries(item.entries);
     return {
       kind: "message",
       id: item.id,
       role: "assistant",
       createdAt: actionEntry?.createdAt ?? item.entries.at(-1)?.createdAt,
-      content: (
-        <div data-ai-turn-seq={actionEntry?.seq ?? item.entries.at(-1)?.seq}>
-          <AiAssistantContent item={item} />
-        </div>
-      ),
-      actions: actionEntry ? (
-        <AssistantMessageActions
-          entry={actionEntry}
-          entries={item.entries}
-          copyText={copyText}
-        />
-      ) : undefined,
+      content: <AiAssistantContent item={item} />,
+      actions: actionEntry
+        ? createAssistantMessageActions({
+            entry: actionEntry,
+            entries: item.entries,
+            copyText,
+            actions,
+          })
+        : undefined,
+      actionDisplay: "inline",
     };
   });
 
-const activeItems = (turn: AiActiveTurn | null): ChatTimelineItem[] => {
+const activeItems = (turn: AiActiveTurn | null, actions: AiChatActions): ChatTimelineItem[] => {
   if (!turn) return [];
   const segments = splitActiveTurnBlocks(turn.blocks);
   if (segments.length === 0) {
@@ -160,83 +121,65 @@ const activeItems = (turn: AiActiveTurn | null): ChatTimelineItem[] => {
         icon: "ti ti-sparkles",
         tone: "ai",
         trailing: <PulseDots />,
+        anchorId: turn.seq,
       },
     ];
   }
 
   return segments.map((segment, index): ChatTimelineItem => {
     if (segment.type === "steer") {
-      const block = (
-        segment as Extract<AiActiveTurnSegment, { type: "steer" }>
-      ).block;
+      const block = (segment as Extract<AiActiveTurnSegment, { type: "steer" }>).block;
       return {
         kind: "message",
         id: `${turn.turnId}-steer-${block.id}`,
         role: "user",
-        status:
-          block.status === "pending"
-            ? "pending"
-            : block.status === "failed"
-              ? "error"
-              : "complete",
-        content: (
-          <div data-ai-turn-seq={turn.seq}>
-            <AiSteerMessageContent block={block} />
-          </div>
-        ),
-        actions: <AiSteerMessageActions block={block} />,
+        status: block.status === "pending" ? "pending" : block.status === "failed" ? "error" : "complete",
+        content: <p class="whitespace-pre-wrap">{aiSteerMessageText(block)}</p>,
+        actions: createAiSteerMessageActions(block, actions),
+        actionDisplay: "menu",
+        anchorId: turn.seq,
       };
     }
 
-    const blocks = (
-      segment as Extract<AiActiveTurnSegment, { type: "assistant" }>
-    ).blocks;
+    const blocks = (segment as Extract<AiActiveTurnSegment, { type: "assistant" }>).blocks;
     return {
       kind: "message",
       id: `${turn.turnId}-assistant-${index}`,
       role: "assistant",
-      status:
-        turn.status === "running" && index === segments.length - 1
-          ? "streaming"
-          : "complete",
+      status: turn.status === "running" && index === segments.length - 1 ? "streaming" : "complete",
       content: (
-        <div data-ai-turn-seq={turn.seq}>
-          <AiTurnBlockList
-            blocks={blocks}
-            turnId={turn.turnId}
-            streaming={
-              turn.status === "running" && index === segments.length - 1
-            }
-          />
-        </div>
+        <AiTurnBlockList blocks={blocks} turnId={turn.turnId} streaming={turn.status === "running" && index === segments.length - 1} />
       ),
     };
   });
 };
 
-const aiChatTimelineItems = (
-  session: AiChatTimelineSession,
-): ChatTimelineItem[] => [
-  ...storedItems(session.messages),
-  ...activeItems(session.activeTurn),
+const aiChatTimelineItems = (session: AiChatTimelineSession, actions: AiChatActions): ChatTimelineItem[] => [
+  ...storedItems(session.messages, actions),
+  ...activeItems(session.activeTurn, actions),
 ];
 
-export type AiChatProjectionProps = AiChatTimelineSession & {
-  render: (items: Accessor<readonly ChatTimelineItem[]>) => JSX.Element;
+export type AiChatTimelineSource = {
+  messages: Accessor<readonly AiStoredMessage[]>;
+  activeTurn: Accessor<AiActiveTurn | null>;
 };
 
 /**
- * Keeps Cloud's rich renderers below the action provider while exposing only
- * the portable timeline items to the host application's @k2b/ui surface.
+ * Adapts Cloud's stored/live conversation domain into portable chat items.
+ * Call below AiChatActionsProvider so rich tool blocks receive the current
+ * action context.
  */
-export function AiChatProjection(props: AiChatProjectionProps): JSX.Element {
-  const items = createMemo(() =>
-    aiChatTimelineItems({
-      messages: props.messages,
-      activeTurn: props.activeTurn,
-    }),
+export function createAiChatTimeline(source: AiChatTimelineSource): Accessor<readonly ChatTimelineItem[]> {
+  const actions = useAiChatActions();
+  return createMemo(() =>
+    aiChatTimelineItems(
+      {
+        messages: source.messages(),
+        activeTurn: source.activeTurn(),
+      },
+      actions,
+    ),
   );
-  return props.render(items);
 }
 
 export type AiChatTurnNavigatorProps = {
@@ -247,13 +190,12 @@ export type AiChatTurnNavigatorProps = {
   loadThrough: (seq: number) => Promise<boolean>;
 };
 
-export function AiChatTurnNavigator(
-  props: AiChatTurnNavigatorProps,
-): JSX.Element {
+export function AiChatTurnNavigator(props: AiChatTurnNavigatorProps): JSX.Element {
   const [activeSeq, setActiveSeq] = createSignal<number | null>(null);
   const [loadingSeq, setLoadingSeq] = createSignal<number | null>(null);
   const [height, setHeight] = createSignal(0);
   let navigationRevision = 0;
+  let updateFrame: number | undefined;
 
   const update = () => {
     const viewport = props.viewport();
@@ -263,22 +205,24 @@ export function AiChatTurnNavigator(
       return;
     }
     setHeight(viewport.clientHeight);
-    if (
-      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 8
-    ) {
+    if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 8) {
       setActiveSeq(props.entries.at(-1)?.seq ?? null);
       return;
     }
-    const anchors = Array.from(
-      content.querySelectorAll<HTMLElement>("[data-ai-turn-seq]"),
-    ).flatMap((node) => {
-      const seq = Number(node.dataset.aiTurnSeq);
-      return Number.isFinite(seq)
-        ? [{ seq, top: node.getBoundingClientRect().top }]
-        : [];
+    const anchors = Array.from(content.querySelectorAll<HTMLElement>("[data-chat-anchor]")).flatMap((node) => {
+      const seq = Number(node.dataset.chatAnchor);
+      return Number.isFinite(seq) ? [{ seq, top: node.getBoundingClientRect().top }] : [];
     });
     const rect = viewport.getBoundingClientRect();
     setActiveSeq(activeTimelineSeq(anchors, rect.top, rect.height));
+  };
+
+  const scheduleUpdate = () => {
+    if (updateFrame !== undefined) return;
+    updateFrame = requestAnimationFrame(() => {
+      updateFrame = undefined;
+      update();
+    });
   };
 
   createEffect(() => {
@@ -286,26 +230,22 @@ export function AiChatTurnNavigator(
     const content = props.content();
     if (!viewport || !content) return;
     update();
-    viewport.addEventListener("scroll", update, { passive: true });
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(update);
+    viewport.addEventListener("scroll", scheduleUpdate, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleUpdate);
     observer?.observe(viewport);
     observer?.observe(content);
     onCleanup(() => {
-      viewport.removeEventListener("scroll", update);
+      viewport.removeEventListener("scroll", scheduleUpdate);
       observer?.disconnect();
+      if (updateFrame !== undefined) cancelAnimationFrame(updateFrame);
+      updateFrame = undefined;
     });
   });
 
   const select = async (entry: AiConversationTimelineEntry) => {
     const revision = ++navigationRevision;
     const content = props.content();
-    let anchor =
-      content?.querySelector<HTMLElement>(
-        `[data-ai-turn-seq="${entry.seq}"]`,
-      ) ?? null;
+    let anchor = content?.querySelector<HTMLElement>(`[data-chat-anchor="${entry.seq}"]`) ?? null;
     if (!anchor) {
       setLoadingSeq(entry.seq);
       const loaded = await props.loadThrough(entry.seq);
@@ -313,39 +253,21 @@ export function AiChatTurnNavigator(
         setLoadingSeq(null);
         return;
       }
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
-      anchor =
-        props
-          .content()
-          ?.querySelector<HTMLElement>(
-            `[data-ai-turn-seq="${entry.seq}"]`,
-          ) ?? null;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      anchor = props.content()?.querySelector<HTMLElement>(`[data-chat-anchor="${entry.seq}"]`) ?? null;
     }
     const viewport = props.viewport();
     if (!viewport || !anchor || revision !== navigationRevision) return;
     const viewportRect = viewport.getBoundingClientRect();
-    viewport.scrollTop = Math.max(
-      0,
-      viewport.scrollTop +
-        anchor.getBoundingClientRect().top -
-        viewportRect.top -
-        16,
-    );
+    viewport.scrollTop = Math.max(0, viewport.scrollTop + anchor.getBoundingClientRect().top - viewportRect.top - 16);
     setActiveSeq(entry.seq);
     setLoadingSeq(null);
   };
 
   return (
-    <Show
-      when={props.entries.length >= 5 && height() > 0 && !props.loading}
-    >
+    <Show when={props.entries.length >= 5 && height() > 0 && !props.loading}>
       <div class="ai-turn-navigator-shell pointer-events-none relative h-0">
-        <div
-          class="absolute top-0"
-          style={{ left: "max(0.5rem, calc(50% - 30rem))" }}
-        >
+        <div class="absolute top-0" style={{ left: "max(0.5rem, calc(50% - 30rem))" }}>
           <TurnNavigator
             entries={[...props.entries]}
             activeSeq={activeSeq()}
