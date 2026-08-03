@@ -1564,6 +1564,12 @@
   padding: 0.75rem 1rem;
 }
 
+/* A dialog body owns overflow. Its sections keep their natural height instead
+   of shrinking until descendants (for example stat grids) clip internally. */
+.k2b-ui .k2b-panel-dialog__body > * {
+  flex-shrink: 0;
+}
+
 .k2b-ui .k2b-panel-dialog__body[data-surface="floating"] {
   gap: 0.5rem;
   padding: 0;

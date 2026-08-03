@@ -191,6 +191,12 @@ describe("@k2b/ui Cloud feedback parity", () => {
     expect(baseRule).not.toContain("max-height:");
   });
 
+  test("scrolls panel dialog bodies instead of shrinking their content", () => {
+    const bodyChildrenRule =
+      indexCss.match(/\.k2b-ui \.k2b-panel-dialog__body > \* \{([^}]*)\}/)?.[1] ?? "";
+    expect(bodyChildrenRule).toContain("flex-shrink: 0");
+  });
+
   test("renders the dialog header contract on the server", () => {
     const titled = renderToString(() => createComponent(DialogHeader, { title: "Rename", icon: "ti ti-pencil", close: () => {} }));
     expect(titled).toContain('class="k2b-dialog__header"');
