@@ -160,7 +160,8 @@ describe("@k2b/ui complete advanced input migrations", () => {
     expect(dropzone).toContain('accept="image/*"');
     expect(dropzone).not.toContain(" multiple");
     expect(image).toContain('data-variant="small"');
-    expect(image).toContain("Remove");
+    expect(image).toContain('aria-label="Remove image"');
+    expect(image).toContain("ti ti-pencil");
     expect(cropper).toContain("k2b-image-cropper");
     expect(icon).toContain('role="combobox"');
     expect(icon).toContain("Home");

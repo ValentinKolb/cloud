@@ -21,9 +21,14 @@ Pass a data URL, image URL, or `null` directly or through a Solid accessor.
 After a successful transform or removal, the component reports the new value
 through both `onValueChange` and `onValueCommit`.
 
-The default transform uses the avatar preset and produces a square 512×512 WebP. Pass `transform(file)` for banners or other images that must preserve a different aspect ratio. `accept` controls the file-picker filter.
+The default transform accepts JPEG, PNG, GIF, WebP, and SVG, then uses the
+avatar preset to produce a square 512×512 WebP. SVG files are decoded by the
+browser and rasterized before export. Pass `transform(file)` for banners or
+other images that must preserve a different aspect ratio. `accept` overrides
+the default file-picker filter.
 
-`variant="default"` renders a large preview. `variant="small"` renders compact preview, change, and remove controls. `round` changes the preview shape.
+`variant="default"` renders a large preview. `variant="small"` renders a compact
+preview with square, borderless icon actions. `round` changes the preview shape.
 
 The input is read-only when `onValueChange` is absent. URLs containing the
 configured `fallbackMarker` are treated as an unset value.
@@ -46,7 +51,6 @@ const [image, setImage] = createSignal<string | null>(null);
 
 <ImageInput
   label="Project image"
-  accept="image/png,image/jpeg"
   value={image}
   onValueChange={setImage}
 />;

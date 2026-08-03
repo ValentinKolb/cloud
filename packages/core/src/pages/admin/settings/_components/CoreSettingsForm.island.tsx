@@ -28,7 +28,9 @@ import {
   prompts,
   readSettingsError,
   Select,
+  SettingsPage,
   SettingsPanelFooter,
+  StatusBadge,
   Switch,
   sameSettingValue,
   TagsInput,
@@ -442,56 +444,51 @@ export default function CoreSettingsForm(props: Props) {
     ));
 
   return (
-    <div class="flex h-full min-h-0 flex-col overflow-hidden">
-      <PanelDialog surface="floating">
-        <PanelDialog.Header
-          title={props.title}
-          subtitle={props.subtitle}
-          icon={props.icon}
-          actions={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction ? headerActions() : undefined}
+    <SettingsPage
+      title={props.title}
+      subtitle={props.subtitle}
+      icon={props.icon}
+      actions={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction ? headerActions() : undefined}
+      footer={
+        <SettingsPanelFooter
+          changeCount={() => changedKeys().length}
+          loading={() => save.loading()}
+          onDiscard={discardAll}
+          onSave={() => save.mutate()}
+          saveVariant={props.icon === "ti ti-sparkles" ? "ai" : "primary"}
         />
-        <PanelDialog.Body>
-          <Show when={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction}>
-            <p class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-              Test actions use the saved settings. Save or discard pending changes before running a test.
-            </p>
-          </Show>
+      }
+    >
+      <Show when={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction}>
+        <p class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+          Test actions use the saved settings. Save or discard pending changes before running a test.
+        </p>
+      </Show>
 
-          <Show
-            when={isAiSettings()}
-            fallback={
-              <>
-                {renderFieldSections(genericEntries())}
-                <Show when={props.showLegacySettings}>
-                  <LegacySettingsSection />
-                </Show>
-              </>
-            }
-          >
-            <AiSettingsPanel
-              entries={props.entries}
-              valueOf={valueOf}
-              errorFor={(key) => fieldErrors()[key]}
-              onChange={setDraft}
-              enrichmentOverview={props.aiEnrichmentOverview ?? null}
-              credentialProfileIds={props.aiCredentialProfileIds ?? []}
-              section={props.aiSection ?? "general"}
-              showJobsLink={props.showAiJobsLink}
-            />
-            <Show when={(props.aiSection ?? "general") === "general"}>{renderFieldSections(genericEntries())}</Show>
-          </Show>
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <SettingsPanelFooter
-            changeCount={() => changedKeys().length}
-            loading={() => save.loading()}
-            onDiscard={discardAll}
-            onSave={() => save.mutate()}
-            saveVariant={props.icon === "ti ti-sparkles" ? "ai" : "primary"}
-          />
-        </PanelDialog.Footer>
-      </PanelDialog>
-    </div>
+      <Show
+        when={isAiSettings()}
+        fallback={
+          <>
+            {renderFieldSections(genericEntries())}
+            <Show when={props.showLegacySettings}>
+              <LegacySettingsSection />
+            </Show>
+          </>
+        }
+      >
+        <AiSettingsPanel
+          entries={props.entries}
+          valueOf={valueOf}
+          errorFor={(key) => fieldErrors()[key]}
+          onChange={setDraft}
+          enrichmentOverview={props.aiEnrichmentOverview ?? null}
+          credentialProfileIds={props.aiCredentialProfileIds ?? []}
+          section={props.aiSection ?? "general"}
+          showJobsLink={props.showAiJobsLink}
+        />
+        <Show when={(props.aiSection ?? "general") === "general"}>{renderFieldSections(genericEntries())}</Show>
+      </Show>
+    </SettingsPage>
   );
 }
 
@@ -1250,12 +1247,8 @@ function AiSettingsPanel(props: {
       </Show>
 
       <Show when={props.section === "providers"}>
-        <PanelDialog.Section
-          title="Providers"
-          subtitle="Choose a provider type, then adjust model, credentials, base URL, data boundary, and capabilities."
-          icon="ti ti-sparkles"
-        >
-          <div class="flex flex-wrap justify-end gap-2">
+        <section class="flex min-h-0 flex-col gap-3" aria-label="AI providers">
+          <div class="flex flex-wrap items-center justify-end gap-2">
             <Tooltip content="API keys are never exported">
               <Button type="button" variant="secondary" size="sm" onClick={exportJson}>
                 <i class="ti ti-file-export" /> Export JSON
@@ -1300,7 +1293,7 @@ function AiSettingsPanel(props: {
             </div>
             <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
           </Show>
-        </PanelDialog.Section>
+        </section>
       </Show>
     </div>
   );
@@ -1329,41 +1322,38 @@ function AiProfileCard(props: {
   const dataBoundary = () => dataBoundaryOption(props.profile.dataBoundary);
 
   return (
-    <article class="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-2">
-            <Show when={props.profile.image}>
-              <img src={props.profile.image} alt="" class="h-5 w-5 shrink-0 rounded" aria-hidden="true" />
-            </Show>
-            <h3 class="truncate text-sm font-semibold text-primary">{props.profile.label}</h3>
-            <Show when={props.isDefault()}>
-              <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                Default
+    <article class="flex min-w-0 flex-col gap-3 rounded-lg border border-default bg-surface p-3">
+      <div class="flex min-w-0 items-start justify-between gap-3">
+        <div class="flex min-w-0 flex-1 items-start gap-2.5">
+          <Show
+            when={props.profile.image}
+            fallback={
+              <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-surface-muted text-dimmed">
+                <i class="ti ti-sparkles" aria-hidden="true" />
               </span>
-            </Show>
-            <span
-              class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                props.profile.enabled
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-              }`}
-            >
-              {props.profile.enabled ? "Enabled" : "Disabled"}
-            </span>
-            <Show when={props.hasCredential()}>
-              <span class="rounded bg-cyan-100 px-1.5 py-0.5 text-[10px] font-medium text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
-                Key configured
-              </span>
-            </Show>
+            }
+          >
+            {(source) => <img src={source()} alt="" class="h-8 w-8 shrink-0 rounded-md object-cover" aria-hidden="true" />}
+          </Show>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <h3 class="truncate text-sm font-semibold text-primary">{props.profile.label}</h3>
+              <Show when={props.isDefault()}>
+                <StatusBadge tone="running" label="Default" icon={null} />
+              </Show>
+              <StatusBadge
+                tone={props.profile.enabled ? "ok" : "neutral"}
+                label={props.profile.enabled ? "Enabled" : "Disabled"}
+                icon={null}
+              />
+              <Show when={props.hasCredential()}>
+                <StatusBadge tone="running" label="Key configured" icon={null} />
+              </Show>
+            </div>
+            <p class="mt-1 truncate text-xs text-dimmed" title={`${provider().label} · ${props.profile.model}`}>
+              {provider().label} · <code>{props.profile.model}</code>
+            </p>
           </div>
-          <p class="mt-1 text-xs text-dimmed">
-            {provider().label} · <code>{props.profile.model}</code>
-          </p>
-          <p class="mt-1 text-[11px] text-dimmed">
-            <code>{props.profile.id}</code>
-            <Show when={props.profile.baseURL}> · {props.profile.baseURL}</Show>
-          </p>
         </div>
         <div class="flex shrink-0 gap-1">
           <Tooltip content="Edit profile">
@@ -1377,20 +1367,39 @@ function AiProfileCard(props: {
             </IconButton>
           </Tooltip>
           <Tooltip content="Remove profile">
-            <IconButton label="Remove profile" size="sm" variant="danger" onClick={props.onRemove}>
+            <IconButton label="Remove profile" size="sm" class="text-danger" onClick={props.onRemove}>
               <i class="ti ti-trash" aria-hidden="true" />
             </IconButton>
           </Tooltip>
         </div>
       </div>
 
-      <div class="mt-3 flex flex-wrap gap-1">
+      <dl class="grid min-w-0 gap-2 text-[11px] sm:grid-cols-2">
+        <div class="min-w-0">
+          <dt class="text-dimmed">Profile ID</dt>
+          <dd class="m-0 truncate text-primary" title={props.profile.id}>
+            <code>{props.profile.id}</code>
+          </dd>
+        </div>
+        <Show when={props.profile.baseURL}>
+          {(baseURL) => (
+            <div class="min-w-0">
+              <dt class="text-dimmed">Base URL</dt>
+              <dd class="m-0 truncate text-primary" title={baseURL()}>
+                {baseURL()}
+              </dd>
+            </div>
+          )}
+        </Show>
+      </dl>
+
+      <div class="flex flex-wrap gap-1">
         {[dataBoundary().label, ...props.profile.capabilities.map((capability) => `supports ${capability}`)].map((label) => (
-          <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{label}</span>
+          <StatusBadge tone="neutral" label={label} icon={null} />
         ))}
       </div>
 
-      <div class="mt-3 flex justify-between gap-2">
+      <div class="flex justify-start border-t border-default pt-3">
         <Button
           type="button"
           variant="secondary"
@@ -1400,7 +1409,6 @@ function AiProfileCard(props: {
         >
           <i class="ti ti-star" /> Set default
         </Button>
-        <span class="text-[11px] text-dimmed">{dataBoundary().label}</span>
       </div>
     </article>
   );

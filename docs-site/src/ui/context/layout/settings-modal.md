@@ -1,4 +1,8 @@
-# SettingsModal
+# Settings
+
+`SettingsPage` is the flat shell for a dedicated settings route. It owns one
+page heading, a scrolling content region, optional header actions, and an
+optional fixed footer. It deliberately adds no outer card or dialog frame.
 
 `SettingsModal` is a portable tabbed settings surface. It owns category
 navigation, keyboard behavior, and the active panel. The application owns
@@ -7,8 +11,9 @@ page.
 
 ## Use SettingsModal
 
-Use it when one resource has several settings categories. Use `PanelDialog`
-for one complex editor and `prompts.form` for a small prompt.
+Use `SettingsPage` for a full settings route. Use `SettingsModal` when one
+resource has several settings categories. Use `PanelDialog` for an actual
+dialog or complex embedded editor and `prompts.form` for a small prompt.
 
 ## Import
 
@@ -18,10 +23,31 @@ import {
   sameSettingValue,
   SettingsField,
   SettingsModal,
+  SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
   TextInput,
 } from "@k2b/ui";
+```
+
+## Compose a full settings page
+
+Keep the page flat: place section cards directly in `SettingsPage`, and put
+save state in `footer`. Do not wrap a dedicated route in `PanelDialog` merely
+to create another outer surface.
+
+```tsx
+<SettingsPage
+  title="Project settings"
+  subtitle="Identity and defaults"
+  icon="ti ti-settings"
+  actions={<Button variant="secondary">Test connection</Button>}
+  footer={<SettingsPanelFooter {...saveState} />}
+>
+  <PanelDialog.Section title="Identity" icon="ti ti-id">
+    <SettingsField {...fieldProps}>…</SettingsField>
+  </PanelDialog.Section>
+</SettingsPage>
 ```
 
 ## Compose controlled tabs

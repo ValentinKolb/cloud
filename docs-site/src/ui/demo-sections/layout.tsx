@@ -11,6 +11,7 @@ import {
   Panes,
   SettingsField,
   SettingsModal,
+  SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
   TextInput,
@@ -230,10 +231,10 @@ const SettingsDemo = () => {
   const loading = () => false;
   return (
     <DemoCard id="settings-modal" chip={[
-      { kind: "component", name: "SettingsModal", from: "@k2b/ui" },
-      { kind: "component", name: "SettingsField", from: "@k2b/ui" },
-      { kind: "component", name: "SettingsSaveBar", from: "@k2b/ui" },
-      { kind: "component", name: "SettingsPanelFooter", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsModal", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsField", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsSaveBar", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsPanelFooter", from: "@k2b/ui" },
     ]} description="Compound settings tabs plus field, sticky-save, and panel-footer helpers, without a persistence backend." code={`<SettingsModal title="Settings" activeTab={active()} onTabChange={setActive}>
   <SettingsModal.Tab id="general" title="General" icon="ti ti-adjustments">
     <SettingsField
@@ -255,7 +256,7 @@ const SettingsDemo = () => {
               error={() => undefined}
               changed={changed}
             >
-            <TextInput aria-label="Endpoint" value={endpoint()} onValueChange={setEndpoint} />
+              <TextInput aria-label="Endpoint" value={endpoint()} onValueChange={setEndpoint} />
             </SettingsField>
           </SettingsModal.Tab>
           <SettingsModal.Tab
@@ -281,6 +282,54 @@ const SettingsDemo = () => {
             onSave={() => {}}
           />
         </div>
+      </div>
+    </DemoCard>
+  );
+};
+
+const SettingsPageDemo = () => {
+  const [endpoint, setEndpoint] = createSignal("https://example.test");
+  const changed = () => endpoint() !== "https://example.test";
+  return (
+    <DemoCard
+      id="settings-page"
+      chip={{ kind: "component", name: "SettingsPage", from: "@k2b/ui" }}
+      description="A flat full-page settings shell with one heading, a scrolling body, optional actions, and a fixed save footer."
+      code={`<SettingsPage
+  title="Project settings"
+  subtitle="Identity and defaults"
+  icon="ti ti-settings"
+  actions={<Button>Test connection</Button>}
+  footer={<SettingsPanelFooter … />}
+>
+  <PanelDialog.Section title="Identity">…</PanelDialog.Section>
+</SettingsPage>`}
+    >
+      <div style="height: 22rem">
+        <SettingsPage
+          title="Project settings"
+          subtitle="Identity and defaults"
+          icon="ti ti-settings"
+          actions={
+            <Button size="sm" variant="secondary">
+              Test connection
+            </Button>
+          }
+          footer={
+            <SettingsPanelFooter
+              changeCount={() => (changed() ? 1 : 0)}
+              loading={() => false}
+              onDiscard={() => setEndpoint("https://example.test")}
+              onSave={() => {}}
+            />
+          }
+        >
+          <PanelDialog.Section title="Identity" subtitle="Public service details" icon="ti ti-id">
+            <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
+              <TextInput value={endpoint()} onValueChange={setEndpoint} />
+            </SettingsField>
+          </PanelDialog.Section>
+        </SettingsPage>
       </div>
     </DemoCard>
   );
@@ -348,7 +397,12 @@ const demos: DemoSection = {
   workspace: () => <DemoGrid columns="one"><WorkspaceDemo /></DemoGrid>,
   panes: () => <DemoGrid columns="one"><PanesDemo /></DemoGrid>,
   overview: () => <DemoGrid columns="one"><OverviewDemo /><DataPanelDemo /></DemoGrid>,
-  "settings-modal": () => <DemoGrid columns="one"><SettingsDemo /></DemoGrid>,
+  "settings-modal": () => (
+    <DemoGrid columns="one">
+      <SettingsPageDemo />
+      <SettingsDemo />
+    </DemoGrid>
+  ),
   "panel-dialog": () => <DemoGrid columns="one"><PanelDemo /></DemoGrid>,
   "floating-window": () => <DemoGrid columns="one"><FloatingDemo /></DemoGrid>,
 };

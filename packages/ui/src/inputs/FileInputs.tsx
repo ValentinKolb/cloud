@@ -1,6 +1,9 @@
 import { dropzone } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { Button, IconButton } from "../actions";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
+import type { FieldProps, ValueFieldProps } from "./field-contract";
+import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
 import {
   clampImageCropRect,
   getInitialImageCropRect,
@@ -13,9 +16,6 @@ import {
   resizeImageCropFromCorner,
   rotateImageCropRight,
 } from "./image-crop";
-import type { FieldProps, ValueFieldProps } from "./field-contract";
-import { commitFieldValue } from "./field-contract";
-import { resolveMaybeAccessor } from "./field-contract";
 
 export type FileDropzoneProps = FieldProps & {
   accept?: string;
@@ -93,8 +93,7 @@ export function FileDropzone(props: FileDropzoneProps): JSX.Element {
         class="k2b-sr-only"
         type="file"
         aria-label={
-          props["aria-label"] ??
-          (typeof props.label === "string" ? props.label : props.multiple === false ? "Choose file" : "Choose files")
+          props["aria-label"] ?? (typeof props.label === "string" ? props.label : props.multiple === false ? "Choose file" : "Choose files")
         }
         accept={props.accept}
         multiple={props.multiple ?? true}
@@ -120,6 +119,8 @@ export type ImageInputProps = ValueFieldProps<string | null> & {
   fallbackMarker?: string;
 };
 
+const DEFAULT_IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/svg+xml,.jpg,.jpeg,.png,.gif,.webp,.svg";
+
 const defaultImageTransform = async (file: File): Promise<string> => {
   const { img } = await import("@k2b/stdlib/browser");
   return img.presets.avatar(file);
@@ -136,9 +137,9 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
     const current = resolveMaybeAccessor(props.value);
     return current && !current.includes(props.fallbackMarker ?? "?fallback") ? current : null;
   };
-  // The compact variant hides the button text, so it carries the same edit glyph
-  // Cloud used there; the default variant keeps the labelled add glyph.
-  const changeIcon = () => (props.variant === "small" && value() ? "ti ti-edit" : "ti ti-photo-plus");
+  const compact = () => props.variant === "small";
+  const changeLabel = () => (value() ? "Change image" : "Add image");
+  const changeIcon = () => (value() ? "ti ti-pencil" : "ti ti-photo-plus");
   const select = async (file: File | undefined) => {
     if (!file || disabled()) return;
     setBusy(true);
@@ -175,31 +176,48 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
       >
         <div class="k2b-image-input__preview">
           <Show when={value()} fallback={<i class="ti ti-photo-off" aria-hidden="true" />}>
-            {(source) => (
-              <img
-                src={source()}
-                alt={typeof props.label === "string" ? props.label : "Selected image"}
-              />
-            )}
+            {(source) => <img src={source()} alt={typeof props.label === "string" ? props.label : "Selected image"} />}
           </Show>
         </div>
         <div class="k2b-image-input__actions">
-          <button type="button" class="k2b-button" data-variant="secondary" disabled={disabled()} onClick={() => input?.click()}>
-            <i class={busy() ? "ti ti-loader-2 k2b-spin" : changeIcon()} aria-hidden="true" />
-            {value() ? "Change" : "Add"}
-          </button>
-          <Show when={value()}>
-            <button
-              type="button"
-              class="k2b-button"
-              data-variant="ghost"
+          <Show
+            when={compact()}
+            fallback={
+              <Button
+                variant="secondary"
+                loading={busy()}
+                loadingLabel="Processing image"
+                disabled={disabled()}
+                onClick={() => input?.click()}
+              >
+                <i class={changeIcon()} aria-hidden="true" />
+                {value() ? "Change" : "Add"}
+              </Button>
+            }
+          >
+            <IconButton
+              label={changeLabel()}
+              loading={busy()}
+              loadingLabel="Processing image"
               disabled={disabled()}
-              onClick={() => {
-                commitFieldValue(props, null);
-              }}
+              onClick={() => input?.click()}
             >
-              <i class="ti ti-trash" aria-hidden="true" /> Remove
-            </button>
+              <i class={changeIcon()} aria-hidden="true" />
+            </IconButton>
+          </Show>
+          <Show when={value()}>
+            <Show
+              when={compact()}
+              fallback={
+                <Button variant="ghost" disabled={disabled()} onClick={() => commitFieldValue(props, null)}>
+                  <i class="ti ti-trash" aria-hidden="true" /> Remove
+                </Button>
+              }
+            >
+              <IconButton label="Remove image" disabled={disabled()} onClick={() => commitFieldValue(props, null)}>
+                <i class="ti ti-trash" aria-hidden="true" />
+              </IconButton>
+            </Show>
           </Show>
         </div>
         <input
@@ -207,7 +225,7 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
           id={meta.controlId}
           class="k2b-sr-only"
           type="file"
-          accept={props.accept ?? ".jpg,.jpeg,.png,.gif,.webp"}
+          accept={props.accept ?? DEFAULT_IMAGE_ACCEPT}
           disabled={disabled()}
           required={props.required && !value()}
           {...fieldControlAria(meta, { ...props, error })}

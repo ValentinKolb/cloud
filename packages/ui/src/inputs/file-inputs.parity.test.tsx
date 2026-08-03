@@ -12,8 +12,14 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { FileDropzone, ImageCropper, ImageInput } = await import("./FileInputs");
-const { clampImageCropRect, getInitialImageCropRect, imageCropRectToPixels, normalizeImageCropRotation, resizeImageCropAroundCenter, rotateImageCropRight } =
-  await import("./image-crop");
+const {
+  clampImageCropRect,
+  getInitialImageCropRect,
+  imageCropRectToPixels,
+  normalizeImageCropRotation,
+  resizeImageCropAroundCenter,
+  rotateImageCropRight,
+} = await import("./image-crop");
 
 describe("@k2b/ui file input parity", () => {
   test("keeps dropzone single-file and busy semantics", () => {
@@ -69,8 +75,11 @@ describe("@k2b/ui file input parity", () => {
     expect(html).toContain('data-round="true"');
     expect(html).toContain('aria-labelledby="k2b-field-00-label"');
     expect(html).not.toContain('aria-label="Profile avatar"');
-    expect(html).toContain("Change");
-    expect(html).toContain("Remove");
+    expect(html).toContain('aria-label="Change image"');
+    expect(html).toContain('aria-label="Remove image"');
+    expect(html).toContain("ti ti-pencil");
+    expect(html).toContain("k2b-icon-button");
+    expect(html).toContain("image/svg+xml");
   });
 
   test("renders cropper loading state safely during SSR", () => {

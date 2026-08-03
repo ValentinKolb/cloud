@@ -4,7 +4,7 @@
  * Edits the 9 `legal.<kind>.{mode,content,url}` settings (3 kinds: terms,
  * privacy, imprint) in one bulk-PUT to `/api/admin/core/settings`.
  *
- * Layout: one PanelDialog section per legal page. The Content textarea and URL
+ * Layout: one section per legal page. The Content textarea and URL
  * input show/hide based on the mode toggle to keep the form scannable.
  */
 
@@ -16,6 +16,7 @@ import {
   prompts,
   readSettingsError,
   Select,
+  SettingsPage,
   SettingsPanelFooter,
   sameSettingValue,
   TextInput,
@@ -174,97 +175,96 @@ export default function LegalSettingsForm(props: Props) {
   };
 
   return (
-    <div class="flex h-full min-h-0 flex-col overflow-hidden">
-      <PanelDialog surface="floating">
-        <PanelDialog.Header title={props.title} subtitle={props.subtitle} icon={props.icon} />
-        <PanelDialog.Body>
-          {KINDS.map((kind) => {
-            const modeKey = `legal.${kind.id}.mode` as const;
-            const contentKey = `legal.${kind.id}.content` as const;
-            const urlKey = `legal.${kind.id}.url` as const;
-            const currentMode = () => draft()[modeKey];
+    <SettingsPage
+      title={props.title}
+      subtitle={props.subtitle}
+      icon={props.icon}
+      footer={
+        <SettingsPanelFooter
+          changeCount={() => changedKeys().length}
+          loading={() => save.loading()}
+          onDiscard={discardAll}
+          onSave={() => save.mutate()}
+        />
+      }
+    >
+      {KINDS.map((kind) => {
+        const modeKey = `legal.${kind.id}.mode` as const;
+        const contentKey = `legal.${kind.id}.content` as const;
+        const urlKey = `legal.${kind.id}.url` as const;
+        const currentMode = () => draft()[modeKey];
 
-            return (
-              <PanelDialog.Section
-                title={kind.label}
-                subtitle={kind.description}
-                icon={kind.icon}
-                actions={
-                  <ButtonLink href={kind.path} target="_blank" variant="secondary" size="sm" rel="noreferrer">
-                    <i class="ti ti-external-link" /> Open
-                  </ButtonLink>
-                }
+        return (
+          <PanelDialog.Section
+            title={kind.label}
+            subtitle={kind.description}
+            icon={kind.icon}
+            actions={
+              <ButtonLink href={kind.path} target="_blank" variant="secondary" size="sm" rel="noreferrer">
+                <i class="ti ti-external-link" /> Open
+              </ButtonLink>
+            }
+          >
+            <LegalField
+              label="Source"
+              description="Choose between editing markdown directly or redirecting to an external URL."
+              entry={entryMap()[modeKey]}
+              error={() => fieldErrors()[modeKey]}
+              changed={() => isChanged(modeKey)}
+              resetPending={() => isResetPending(modeKey)}
+              canUseDefault={() => canUseDefault(modeKey)}
+              onUseDefault={() => stageDefault(modeKey)}
+            >
+              <Select
+                value={() => currentMode()}
+                onValueChange={(value) => value !== null && update(modeKey, value as LegalMode)}
+                options={MODE_OPTIONS}
+              />
+            </LegalField>
+
+            <Show when={currentMode() === "local"}>
+              <LegalField
+                label="Content"
+                description="Markdown. Supports headings, lists, links, and code blocks."
+                entry={entryMap()[contentKey]}
+                error={() => fieldErrors()[contentKey]}
+                changed={() => isChanged(contentKey)}
+                resetPending={() => isResetPending(contentKey)}
+                canUseDefault={() => canUseDefault(contentKey)}
+                onUseDefault={() => stageDefault(contentKey)}
               >
-                <LegalField
-                  label="Source"
-                  description="Choose between editing markdown directly or redirecting to an external URL."
-                  entry={entryMap()[modeKey]}
-                  error={() => fieldErrors()[modeKey]}
-                  changed={() => isChanged(modeKey)}
-                  resetPending={() => isResetPending(modeKey)}
-                  canUseDefault={() => canUseDefault(modeKey)}
-                  onUseDefault={() => stageDefault(modeKey)}
-                >
-                  <Select
-                    value={() => currentMode()}
-                    onValueChange={(value) => value !== null && update(modeKey, value as LegalMode)}
-                    options={MODE_OPTIONS}
-                  />
-                </LegalField>
+                <TextInput
+                  multiline
+                  value={() => draft()[contentKey]}
+                  onValueChange={(v) => update(contentKey, v)}
+                  placeholder={`# ${kind.label}\n\n...`}
+                />
+              </LegalField>
+            </Show>
 
-                <Show when={currentMode() === "local"}>
-                  <LegalField
-                    label="Content"
-                    description="Markdown. Supports headings, lists, links, and code blocks."
-                    entry={entryMap()[contentKey]}
-                    error={() => fieldErrors()[contentKey]}
-                    changed={() => isChanged(contentKey)}
-                    resetPending={() => isResetPending(contentKey)}
-                    canUseDefault={() => canUseDefault(contentKey)}
-                    onUseDefault={() => stageDefault(contentKey)}
-                  >
-                    <TextInput
-                      multiline
-                      value={() => draft()[contentKey]}
-                      onValueChange={(v) => update(contentKey, v)}
-                      placeholder={`# ${kind.label}\n\n...`}
-                    />
-                  </LegalField>
-                </Show>
-
-                <Show when={currentMode() === "external"}>
-                  <LegalField
-                    label="URL"
-                    description="The /legal/* request will 302-redirect here."
-                    entry={entryMap()[urlKey]}
-                    error={() => fieldErrors()[urlKey]}
-                    changed={() => isChanged(urlKey)}
-                    resetPending={() => isResetPending(urlKey)}
-                    canUseDefault={() => canUseDefault(urlKey)}
-                    onUseDefault={() => stageDefault(urlKey)}
-                  >
-                    <TextInput
-                      type="url"
-                      value={() => draft()[urlKey]}
-                      onValueChange={(v) => update(urlKey, v)}
-                      placeholder="https://example.org/..."
-                    />
-                  </LegalField>
-                </Show>
-              </PanelDialog.Section>
-            );
-          })}
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <SettingsPanelFooter
-            changeCount={() => changedKeys().length}
-            loading={() => save.loading()}
-            onDiscard={discardAll}
-            onSave={() => save.mutate()}
-          />
-        </PanelDialog.Footer>
-      </PanelDialog>
-    </div>
+            <Show when={currentMode() === "external"}>
+              <LegalField
+                label="URL"
+                description="The /legal/* request will 302-redirect here."
+                entry={entryMap()[urlKey]}
+                error={() => fieldErrors()[urlKey]}
+                changed={() => isChanged(urlKey)}
+                resetPending={() => isResetPending(urlKey)}
+                canUseDefault={() => canUseDefault(urlKey)}
+                onUseDefault={() => stageDefault(urlKey)}
+              >
+                <TextInput
+                  type="url"
+                  value={() => draft()[urlKey]}
+                  onValueChange={(v) => update(urlKey, v)}
+                  placeholder="https://example.org/..."
+                />
+              </LegalField>
+            </Show>
+          </PanelDialog.Section>
+        );
+      })}
+    </SettingsPage>
   );
 }
 

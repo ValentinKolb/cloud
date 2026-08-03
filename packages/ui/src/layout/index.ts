@@ -1,11 +1,13 @@
 export type {
   SettingsFieldProps,
+  SettingsPageProps,
   SettingsPanelFooterProps,
   SettingsSaveBarProps,
 } from "./Settings";
 export {
   readSettingsError,
   SettingsField,
+  SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
   sameSettingValue,

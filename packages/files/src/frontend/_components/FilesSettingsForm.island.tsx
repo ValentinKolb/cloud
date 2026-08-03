@@ -5,18 +5,19 @@
  * app's own /api/files/admin/settings endpoint.
  */
 
+import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   PanelDialog,
   prompts,
   readSettingsError,
   SettingsField,
+  SettingsPage,
   SettingsPanelFooter,
   sameSettingValue,
   TextInput,
   toast,
 } from "@k2b/ui";
-import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 
@@ -83,138 +84,139 @@ export default function FilesSettingsForm(props: Props) {
   const isChanged = (key: keyof Initial) => !sameSettingValue(draft()[key], props.initial[key]);
 
   return (
-    <div class="flex h-full min-h-0 flex-col overflow-hidden" style="view-transition-name: admin-files-settings">
-      <PanelDialog surface="floating">
-        <PanelDialog.Header title="Files" subtitle="Storage defaults and file system integration." icon="ti ti-folder" />
-        <PanelDialog.Body scrollPreserveKey="files-admin">
-          <PanelDialog.Section title="Filegate" subtitle="Storage backend and provider-bound credential." icon="ti ti-server">
-            <p class="text-xs text-dimmed">
-              The file manager uses <strong>Filegate</strong> as its storage backend. The token is stored as an encrypted setting and is
-              never rendered back into the page.
-            </p>
-            <SettingsField
-              label="Filegate URL"
-              description="URL of the Filegate storage backend"
-              error={() => fieldErrors()["files.filegate_url"]}
-              changed={() => isChanged("files.filegate_url")}
-            >
-              <TextInput
-                value={() => draft()["files.filegate_url"]}
-                onValueChange={(v) => update("files.filegate_url", v)}
-                placeholder="e.g. http://filegate:4000"
-                type="url"
-              />
-            </SettingsField>
-
-            <SettingsField
-              label="Filegate Token"
-              description="Authentication token for Filegate. The current value is hidden — leave empty to keep it unchanged."
-              error={() => fieldErrors()["files.filegate_token"]}
-              changed={() => isChanged("files.filegate_token")}
-            >
-              <TextInput
-                value={() => draft()["files.filegate_token"]}
-                onValueChange={(v) => update("files.filegate_token", v)}
-                password
-                placeholder="Leave empty to keep current value"
-              />
-            </SettingsField>
-          </PanelDialog.Section>
-
-          <PanelDialog.Section title="Base Paths" subtitle="Filesystem roots for user homes and shared group folders." icon="ti ti-folders">
-            <SettingsField
-              label="Base Homes"
-              description="Filesystem base path for user home directories"
-              error={() => fieldErrors()["files.base_homes"]}
-              changed={() => isChanged("files.base_homes")}
-            >
-              <TextInput
-                value={() => draft()["files.base_homes"]}
-                onValueChange={(v) => update("files.base_homes", v)}
-                placeholder="e.g. /data/homes"
-              />
-            </SettingsField>
-
-            <SettingsField
-              label="Base Groups"
-              description="Filesystem base path for group shared directories"
-              error={() => fieldErrors()["files.base_groups"]}
-              changed={() => isChanged("files.base_groups")}
-            >
-              <TextInput
-                value={() => draft()["files.base_groups"]}
-                onValueChange={(v) => update("files.base_groups", v)}
-                placeholder="e.g. /data/groups"
-              />
-            </SettingsField>
-          </PanelDialog.Section>
-
-          <PanelDialog.Section title="Unix Permissions" subtitle="Default octal modes for created directories and files." icon="ti ti-lock">
-            <p class="text-xs text-dimmed">
-              Use Unix octal notation such as <code>700</code> or <code>2770</code>.
-            </p>
-            <SettingsField
-              label="Home Dir Mode"
-              description="Octal Unix permissions for user home directories (e.g. 700)"
-              error={() => fieldErrors()["files.home_dir_mode"]}
-              changed={() => isChanged("files.home_dir_mode")}
-            >
-              <TextInput
-                value={() => draft()["files.home_dir_mode"]}
-                onValueChange={(v) => update("files.home_dir_mode", v)}
-                placeholder="700"
-              />
-            </SettingsField>
-
-            <SettingsField
-              label="Home File Mode"
-              description="Octal Unix permissions for files in home directories (e.g. 600)"
-              error={() => fieldErrors()["files.home_file_mode"]}
-              changed={() => isChanged("files.home_file_mode")}
-            >
-              <TextInput
-                value={() => draft()["files.home_file_mode"]}
-                onValueChange={(v) => update("files.home_file_mode", v)}
-                placeholder="600"
-              />
-            </SettingsField>
-
-            <SettingsField
-              label="Group Dir Mode"
-              description="Octal Unix permissions for group directories (2770 enables SGID)"
-              error={() => fieldErrors()["files.group_dir_mode"]}
-              changed={() => isChanged("files.group_dir_mode")}
-            >
-              <TextInput
-                value={() => draft()["files.group_dir_mode"]}
-                onValueChange={(v) => update("files.group_dir_mode", v)}
-                placeholder="2770"
-              />
-            </SettingsField>
-
-            <SettingsField
-              label="Group File Mode"
-              description="Octal Unix permissions for files in group directories (e.g. 660)"
-              error={() => fieldErrors()["files.group_file_mode"]}
-              changed={() => isChanged("files.group_file_mode")}
-            >
-              <TextInput
-                value={() => draft()["files.group_file_mode"]}
-                onValueChange={(v) => update("files.group_file_mode", v)}
-                placeholder="660"
-              />
-            </SettingsField>
-          </PanelDialog.Section>
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <SettingsPanelFooter
-            changeCount={() => changedKeys().length}
-            loading={() => save.loading()}
-            onDiscard={discardAll}
-            onSave={() => save.mutate()}
+    <SettingsPage
+      style="view-transition-name: admin-files-settings"
+      title="Files"
+      subtitle="Storage defaults and file system integration."
+      icon="ti ti-folder"
+      scrollPreserveKey="files-admin"
+      footer={
+        <SettingsPanelFooter
+          changeCount={() => changedKeys().length}
+          loading={() => save.loading()}
+          onDiscard={discardAll}
+          onSave={() => save.mutate()}
+        />
+      }
+    >
+      <PanelDialog.Section title="Filegate" subtitle="Storage backend and provider-bound credential." icon="ti ti-server">
+        <p class="text-xs text-dimmed">
+          The file manager uses <strong>Filegate</strong> as its storage backend. The token is stored as an encrypted setting and is never
+          rendered back into the page.
+        </p>
+        <SettingsField
+          label="Filegate URL"
+          description="URL of the Filegate storage backend"
+          error={() => fieldErrors()["files.filegate_url"]}
+          changed={() => isChanged("files.filegate_url")}
+        >
+          <TextInput
+            value={() => draft()["files.filegate_url"]}
+            onValueChange={(v) => update("files.filegate_url", v)}
+            placeholder="e.g. http://filegate:4000"
+            type="url"
           />
-        </PanelDialog.Footer>
-      </PanelDialog>
-    </div>
+        </SettingsField>
+
+        <SettingsField
+          label="Filegate Token"
+          description="Authentication token for Filegate. The current value is hidden — leave empty to keep it unchanged."
+          error={() => fieldErrors()["files.filegate_token"]}
+          changed={() => isChanged("files.filegate_token")}
+        >
+          <TextInput
+            value={() => draft()["files.filegate_token"]}
+            onValueChange={(v) => update("files.filegate_token", v)}
+            password
+            placeholder="Leave empty to keep current value"
+          />
+        </SettingsField>
+      </PanelDialog.Section>
+
+      <PanelDialog.Section title="Base Paths" subtitle="Filesystem roots for user homes and shared group folders." icon="ti ti-folders">
+        <SettingsField
+          label="Base Homes"
+          description="Filesystem base path for user home directories"
+          error={() => fieldErrors()["files.base_homes"]}
+          changed={() => isChanged("files.base_homes")}
+        >
+          <TextInput
+            value={() => draft()["files.base_homes"]}
+            onValueChange={(v) => update("files.base_homes", v)}
+            placeholder="e.g. /data/homes"
+          />
+        </SettingsField>
+
+        <SettingsField
+          label="Base Groups"
+          description="Filesystem base path for group shared directories"
+          error={() => fieldErrors()["files.base_groups"]}
+          changed={() => isChanged("files.base_groups")}
+        >
+          <TextInput
+            value={() => draft()["files.base_groups"]}
+            onValueChange={(v) => update("files.base_groups", v)}
+            placeholder="e.g. /data/groups"
+          />
+        </SettingsField>
+      </PanelDialog.Section>
+
+      <PanelDialog.Section title="Unix Permissions" subtitle="Default octal modes for created directories and files." icon="ti ti-lock">
+        <p class="text-xs text-dimmed">
+          Use Unix octal notation such as <code>700</code> or <code>2770</code>.
+        </p>
+        <SettingsField
+          label="Home Dir Mode"
+          description="Octal Unix permissions for user home directories (e.g. 700)"
+          error={() => fieldErrors()["files.home_dir_mode"]}
+          changed={() => isChanged("files.home_dir_mode")}
+        >
+          <TextInput
+            value={() => draft()["files.home_dir_mode"]}
+            onValueChange={(v) => update("files.home_dir_mode", v)}
+            placeholder="700"
+          />
+        </SettingsField>
+
+        <SettingsField
+          label="Home File Mode"
+          description="Octal Unix permissions for files in home directories (e.g. 600)"
+          error={() => fieldErrors()["files.home_file_mode"]}
+          changed={() => isChanged("files.home_file_mode")}
+        >
+          <TextInput
+            value={() => draft()["files.home_file_mode"]}
+            onValueChange={(v) => update("files.home_file_mode", v)}
+            placeholder="600"
+          />
+        </SettingsField>
+
+        <SettingsField
+          label="Group Dir Mode"
+          description="Octal Unix permissions for group directories (2770 enables SGID)"
+          error={() => fieldErrors()["files.group_dir_mode"]}
+          changed={() => isChanged("files.group_dir_mode")}
+        >
+          <TextInput
+            value={() => draft()["files.group_dir_mode"]}
+            onValueChange={(v) => update("files.group_dir_mode", v)}
+            placeholder="2770"
+          />
+        </SettingsField>
+
+        <SettingsField
+          label="Group File Mode"
+          description="Octal Unix permissions for files in group directories (e.g. 660)"
+          error={() => fieldErrors()["files.group_file_mode"]}
+          changed={() => isChanged("files.group_file_mode")}
+        >
+          <TextInput
+            value={() => draft()["files.group_file_mode"]}
+            onValueChange={(v) => update("files.group_file_mode", v)}
+            placeholder="660"
+          />
+        </SettingsField>
+      </PanelDialog.Section>
+    </SettingsPage>
   );
 }

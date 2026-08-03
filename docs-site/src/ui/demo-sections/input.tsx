@@ -594,18 +594,22 @@ const FileDemo = (props: { image?: boolean }) => {
       description="The package owns file selection and accessible interaction state; validation, upload, persistence, and transformed image ownership stay with the application."
       code={
         props.image
-          ? `<ImageInput label="Avatar" value={image} onValueChange={setImage} round />`
+          ? `<ImageInput label="Avatar" value={image} onValueChange={setImage} round />
+<ImageInput aria-label="Compact logo" value={image} onValueChange={setImage} variant="small" />`
           : `<FileDropzone label="Attachment" accept="image/*" multiple={false} onDrop={upload} />`
       }
     >
       {props.image ? (
-        <ImageInput
-          label="Avatar"
-          description="Square WebP preview with replace and remove actions."
-          value={image}
-          onValueChange={setImage}
-          round
-        />
+        <>
+          <ImageInput
+            label="Avatar"
+            description="Square WebP preview with replace and remove actions."
+            value={image}
+            onValueChange={setImage}
+            round
+          />
+          <ImageInput aria-label="Compact logo" value={image} onValueChange={setImage} variant="small" />
+        </>
       ) : (
         <FileDropzone
           label="Attachment"

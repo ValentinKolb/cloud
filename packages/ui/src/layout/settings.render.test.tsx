@@ -11,10 +11,32 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { readSettingsError, sameSettingValue, SettingsField, SettingsModal, SettingsPanelFooter, SettingsSaveBar } =
+const { readSettingsError, sameSettingValue, SettingsField, SettingsModal, SettingsPage, SettingsPanelFooter, SettingsSaveBar } =
   await import("../index");
 
 describe("@k2b/ui complete settings surfaces", () => {
+  test("renders a flat full-page settings shell", () => {
+    const html = renderToString(() =>
+      createComponent(SettingsPage, {
+        title: "AI providers",
+        subtitle: "Models and credentials",
+        icon: "ti ti-sparkles",
+        actions: "toolbar",
+        footer: "save controls",
+        scrollPreserveKey: "providers",
+        children: "provider cards",
+      }),
+    );
+
+    expect(html).toContain('class="k2b-settings-page"');
+    expect(html).toContain("<h1>AI providers</h1>");
+    expect(html).toContain("Models and credentials");
+    expect(html).toContain('data-scroll-preserve="providers"');
+    expect(html).toContain("provider cards");
+    expect(html).toContain("save controls");
+    expect(html).not.toContain("k2b-panel-dialog");
+  });
+
   test("renders an accessible controlled tab surface", () => {
     const html = renderToString(() =>
       createComponent(SettingsModal, {
