@@ -58,11 +58,51 @@ The sidebar compound members cover these jobs:
   compact navigation;
 - `SidebarDesktop`, `SidebarBody`, `SidebarSection`, and `SidebarFooter`
   compose the persistent navigation;
-- `SidebarItem`, `SidebarItemIcon`, `SidebarItemLabel`, `SidebarItemMeta`, and
-  `SidebarItemAction` compose a navigation row;
+- `SidebarItem`, `SidebarItemIcon`, `SidebarItemLabel`, `SidebarItemMeta`,
+  `SidebarItemAction`, and `SidebarItemActions` compose a navigation row;
 - `NavTree` and `NavTree.Item` compose nested folder, mailbox, category, or tag
   navigation with automatic indentation and keyboard interaction;
 - `SidebarIconGrid` and `SidebarIconAction` provide compact icon-only actions.
+
+### Row metadata and actions
+
+Use `SidebarItemMeta` for passive trailing information such as counts and
+status icons. Use `SidebarItemAction` for one labelled button or link. For two
+or more controls, pass `SidebarItemActions` through the row's `actions` prop so
+the controls remain siblings of the row link or button instead of invalid
+nested interactive content.
+
+Set `visibility="hover"` on metadata or actions only when the information is
+optional. On fine pointers it consumes no space until the row is hovered or
+keyboard-focused. It remains visible on touch devices. Keep errors, unread
+counts, and other important state visible with the default `"always"` value.
+
+```tsx
+<AppWorkspace.SidebarItem href="/app/inventory/alerts">
+  <AppWorkspace.SidebarItemIcon icon="ti ti-bell" />
+  <AppWorkspace.SidebarItemLabel>Alerts</AppWorkspace.SidebarItemLabel>
+  <AppWorkspace.SidebarItemMeta>
+    <span class="tabular-nums">3</span>
+  </AppWorkspace.SidebarItemMeta>
+  <AppWorkspace.SidebarItemAction
+    icon="ti ti-settings"
+    label="Alert settings"
+    visibility="hover"
+    onSelect={openAlertSettings}
+  />
+</AppWorkspace.SidebarItem>
+
+<AppWorkspace.NavTree.Item
+  id="drafts"
+  label="Drafts"
+  actions={
+    <AppWorkspace.SidebarItemActions visibility="hover">
+      <IconButton size="xs" label="Pin draft">…</IconButton>
+      <Dropdown trigger={…} elements={draftActions} />
+    </AppWorkspace.SidebarItemActions>
+  }
+/>
+```
 
 ### Nested navigation
 
@@ -97,6 +137,8 @@ const [expanded, setExpanded] = createSignal<readonly string[]>(["mail"]);
 ## Accessibility
 
 `MainPane.label` names the region. Sidebar icon actions and item actions require a clear `label`.
+Every control inside `SidebarItemActions` must also provide its own accessible
+name.
 Every `NavTree` requires `ariaLabel`; each item requires a stable `id` and a
 human-readable `label`. Arrow keys move through visible rows, Right and Left
 expand, collapse, or move between parent and child, and Home and End jump to

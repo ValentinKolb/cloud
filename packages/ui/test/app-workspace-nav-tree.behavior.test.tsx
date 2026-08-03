@@ -14,6 +14,12 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
     const { default: AppWorkspace } = await import("../src/layout/AppWorkspace");
     const [selectedId, setSelectedId] = createSignal("notes");
     const [expandedIds, setExpandedIds] = createSignal<readonly string[]>(["notes", "tags"]);
+    let actionCount = 0;
+    const recipeAction = dom.document.createElement("button");
+    recipeAction.type = "button";
+    recipeAction.setAttribute("aria-label", "Recipe actions");
+    recipeAction.textContent = "Actions";
+    recipeAction.addEventListener("click", () => actionCount++);
     const dispose = render(
       () => (
         <>
@@ -25,7 +31,12 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
             onExpandedIdsChange={setExpandedIds}
           >
             <AppWorkspace.NavTree.Item id="notes" label="All notes" icon="ti ti-folder">
-              <AppWorkspace.NavTree.Item id="recipes" label="Recipes" icon="ti ti-folder" />
+              <AppWorkspace.NavTree.Item
+                id="recipes"
+                label="Recipes"
+                icon="ti ti-folder"
+                actions={<AppWorkspace.SidebarItemActions visibility="hover">{recipeAction}</AppWorkspace.SidebarItemActions>}
+              />
             </AppWorkspace.NavTree.Item>
             <AppWorkspace.NavTree.Item id="tags" label="Tags" icon="ti ti-tags">
               <AppWorkspace.NavTree.Item id="recipe-tag" label="#recipe" icon="ti ti-tag" meta={3} />
@@ -69,6 +80,18 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
     notes()?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event);
     expect(expandedIds()).toEqual(["tags", "notes"]);
     expect(recipes()).not.toBeNull();
+
+    const recipeActions = recipes()?.querySelector<HTMLButtonElement>('[aria-label="Recipe actions"]');
+    expect(recipes()?.querySelector(".k2b-app-workspace__nav-tree-row-shell")).not.toBeNull();
+    recipeActions?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+    expect(selectedId()).toBe("notes");
+    recipeActions?.click();
+    expect(actionCount).toBe(1);
+    expect(selectedId()).toBe("notes");
+
+    recipes()?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
+    expect(selectedId()).toBe("recipes");
+    setSelectedId("notes");
 
     notes()?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event);
     await Promise.resolve();

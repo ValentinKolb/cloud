@@ -1,7 +1,6 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import type { DropdownItem } from "@k2b/ui";
-import { Button, Dropdown, IconButton, Placeholder, prompts } from "@k2b/ui";
+import { AppWorkspace, Button, Dropdown, type DropdownItem, IconButton, Placeholder, prompts } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
@@ -318,102 +317,81 @@ export const noteActionItems = (node: NoteTreeNode, actions: ReturnType<typeof u
   },
 ];
 
-// =============================================================================
-// Tree Node
-// =============================================================================
-
-function TreeNode(props: {
-  node: NoteTreeNode;
-  depth: number;
-  selectedNoteId: () => string | null;
+function NoteTreeItems(props: {
+  nodes: NoteTreeNode[];
   notebookId: string;
   canWrite: boolean;
   actions: ReturnType<typeof useNoteActions>;
   favoriteNoteIds?: () => Set<string>;
   onToggleFavorite?: (node: NoteTreeNode, event: MouseEvent) => void;
 }) {
-  const [expanded, setExpanded] = createSignal(true);
-  const isSelected = () => props.node.id === props.selectedNoteId();
-  const hasChildren = () => props.node.children.length > 0;
-  const href = () => buildNoteUrl(props.notebookId, props.node.shortId);
-
   return (
-    <div>
-      <div
-        class={`group/node flex min-h-8 items-center gap-1 rounded-[var(--ui-radius-control)] pr-1 text-xs ${isSelected() ? "bg-[var(--ui-selected)] app-accent-text" : ""}`}
-        style={`padding-left:${0.25 + props.depth * 0.75}rem`}
-      >
-        {/* Expand/collapse toggle or leaf dot */}
-        {hasChildren() ? (
-          <IconButton label={expanded() ? "Collapse note" : "Expand note"} size="xs" onClick={() => setExpanded((v) => !v)}>
-            <i class={`ti ti-chevron-right text-xs transition-transform ${expanded() ? "rotate-90" : ""}`} />
-          </IconButton>
-        ) : (
-          <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center">
-            <i class="ti ti-file-text text-[10px] text-dimmed" />
-          </span>
-        )}
-
-        {/* Note link */}
-        <a href={href()} class="flex-1 min-w-0 no-underline py-1">
-          <span class="flex min-w-0 items-center gap-1.5">
-            <span class="truncate">{props.node.title || "Untitled"}</span>
-            <Show when={props.node.lockedAt}>
-              <i class="ti ti-lock shrink-0 text-xs text-amber-500" title="Locked" />
-            </Show>
-          </span>
-        </a>
-
-        {/* Context menu */}
-        <Show when={props.onToggleFavorite}>
-          {(toggleFavorite) => (
-            <IconButton
-              label={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
-              size="xs"
-              class={`opacity-0 group-hover/node:opacity-100 group-focus-within/node:opacity-100 ${
-                props.favoriteNoteIds?.().has(props.node.id) ? "opacity-100 !text-amber-500 hover:!text-amber-500" : ""
-              }`}
-              title={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
-              onClick={(event) => toggleFavorite()(props.node, event)}
-            >
-              <i class="ti ti-star text-xs" />
-            </IconButton>
-          )}
-        </Show>
-        <Show when={props.canWrite}>
-          <div class="shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 group-focus-within/node:opacity-100">
-            <Dropdown
-              trigger={
-                <IconButton label={`Actions for ${props.node.title || "Untitled"}`} size="xs">
-                  <i class="ti ti-dots text-xs" />
-                </IconButton>
-              }
-              position="bottom-right"
-              width="12rem"
-              elements={noteActionItems(props.node, props.actions)}
-            />
-          </div>
-        </Show>
-      </div>
-
-      {/* Children */}
-      {expanded() && hasChildren() && (
-        <For each={props.node.children}>
-          {(child) => (
-            <TreeNode
-              node={child}
-              depth={props.depth + 1}
-              selectedNoteId={props.selectedNoteId}
+    <For each={props.nodes}>
+      {(node) => {
+        const favorite = () => props.favoriteNoteIds?.().has(node.id) ?? false;
+        const label = () => node.title || "Untitled";
+        return (
+          <AppWorkspace.NavTree.Item
+            id={node.id}
+            label={
+              <span class="flex min-w-0 items-center gap-1.5">
+                <span class="truncate">{label()}</span>
+                <Show when={node.lockedAt}>
+                  <i class="ti ti-lock shrink-0 text-xs text-amber-500" title="Locked" />
+                </Show>
+              </span>
+            }
+            icon="ti ti-file-text"
+            href={buildNoteUrl(props.notebookId, node.shortId)}
+            navigation="document"
+            actions={
+              props.onToggleFavorite || props.canWrite ? (
+                <>
+                  <Show when={props.onToggleFavorite}>
+                    {(toggleFavorite) => (
+                      <AppWorkspace.SidebarItemActions visibility={favorite() ? "always" : "hover"}>
+                        <IconButton
+                          label={favorite() ? "Remove favorite" : "Add favorite"}
+                          size="xs"
+                          class={favorite() ? "!text-amber-500 hover:!text-amber-500" : undefined}
+                          title={favorite() ? "Remove favorite" : "Add favorite"}
+                          onClick={(event) => toggleFavorite()(node, event)}
+                        >
+                          <i class="ti ti-star text-xs" />
+                        </IconButton>
+                      </AppWorkspace.SidebarItemActions>
+                    )}
+                  </Show>
+                  <Show when={props.canWrite}>
+                    <AppWorkspace.SidebarItemActions visibility="hover">
+                      <Dropdown
+                        trigger={
+                          <IconButton label={`Actions for ${label()}`} size="xs">
+                            <i class="ti ti-dots text-xs" />
+                          </IconButton>
+                        }
+                        position="bottom-right"
+                        width="12rem"
+                        elements={noteActionItems(node, props.actions)}
+                      />
+                    </AppWorkspace.SidebarItemActions>
+                  </Show>
+                </>
+              ) : undefined
+            }
+          >
+            <NoteTreeItems
+              nodes={node.children}
               notebookId={props.notebookId}
               canWrite={props.canWrite}
               actions={props.actions}
               favoriteNoteIds={props.favoriteNoteIds}
               onToggleFavorite={props.onToggleFavorite}
             />
-          )}
-        </For>
-      )}
-    </div>
+          </AppWorkspace.NavTree.Item>
+        );
+      }}
+    </For>
   );
 }
 
@@ -468,20 +446,22 @@ export default function NoteTree(props: Props) {
       </Show>
 
       <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={props.scrollPreserveKey}>
-        <For each={props.tree}>
-          {(node) => (
-            <TreeNode
-              node={node}
-              depth={0}
-              selectedNoteId={selectedNoteId}
-              notebookId={props.notebookId}
-              canWrite={props.canWrite ?? false}
-              actions={actions}
-              favoriteNoteIds={favoriteNoteIds}
-              onToggleFavorite={toggleFavorite}
-            />
-          )}
-        </For>
+        <AppWorkspace.NavTree
+          ariaLabel="Notes"
+          selectedId={selectedNoteId()}
+          defaultExpandedIds={flattenTree(props.tree)
+            .filter((node) => node.children.length > 0)
+            .map((node) => node.id)}
+        >
+          <NoteTreeItems
+            nodes={props.tree}
+            notebookId={props.notebookId}
+            canWrite={props.canWrite ?? false}
+            actions={actions}
+            favoriteNoteIds={favoriteNoteIds}
+            onToggleFavorite={toggleFavorite}
+          />
+        </AppWorkspace.NavTree>
       </div>
 
       {props.tree.length === 0 && (

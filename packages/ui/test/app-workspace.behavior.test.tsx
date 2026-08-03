@@ -59,4 +59,35 @@ describe("@k2b/ui AppWorkspace behavior", () => {
     dispose();
     dom.cleanup();
   });
+
+  test("renders grouped actions beside the row control", async () => {
+    const dom = createDomTestHarness();
+    const { default: AppWorkspace } = await import("../src/layout/AppWorkspace");
+    let actionClicks = 0;
+    const action = dom.document.createElement("button");
+    action.type = "button";
+    action.setAttribute("aria-label", "Grouped action");
+    action.addEventListener("click", () => actionClicks++);
+
+    const dispose = render(
+      () => (
+        <AppWorkspace.SidebarItem actions={<AppWorkspace.SidebarItemActions visibility="hover">{action}</AppWorkspace.SidebarItemActions>}>
+          Item
+        </AppWorkspace.SidebarItem>
+      ),
+      dom.root,
+    );
+
+    const row = dom.root.querySelector<HTMLButtonElement>(".k2b-app-workspace__sidebar-item-main");
+    const group = dom.root.querySelector<HTMLElement>(".k2b-app-workspace__sidebar-item-actions");
+    expect(row).not.toBeNull();
+    expect(group?.getAttribute("data-visibility")).toBe("hover");
+    expect(row?.contains(action)).toBe(false);
+
+    action.click();
+    expect(actionClicks).toBe(1);
+
+    dispose();
+    dom.cleanup();
+  });
 });

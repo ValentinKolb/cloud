@@ -49,11 +49,17 @@ describe("@k2b/ui complete advanced layout migrations", () => {
                               href: "/items",
                               active: true,
                               depth: 2,
+                              get actions() {
+                                return createComponent(AppWorkspace.SidebarItemActions, {
+                                  visibility: "hover",
+                                  children: "Custom actions",
+                                });
+                              },
                               get children() {
                                 return [
                                   createComponent(AppWorkspace.SidebarItemIcon, { icon: "ti ti-list" }),
                                   createComponent(AppWorkspace.SidebarItemLabel, { children: "Items" }),
-                                  createComponent(AppWorkspace.SidebarItemMeta, { children: "12" }),
+                                  createComponent(AppWorkspace.SidebarItemMeta, { children: "12", visibility: "hover" }),
                                   createComponent(AppWorkspace.SidebarItemAction, {
                                     icon: "ti ti-dots",
                                     label: "Row action",
@@ -76,6 +82,13 @@ describe("@k2b/ui complete advanced layout migrations", () => {
                                       id: "available",
                                       label: "Available",
                                       meta: "8",
+                                      metaVisibility: "hover",
+                                      get actions() {
+                                        return createComponent(AppWorkspace.SidebarItemActions, {
+                                          visibility: "hover",
+                                          children: "Tree actions",
+                                        });
+                                      },
                                       href: "/items/available",
                                       navigation: "document",
                                     });
@@ -135,6 +148,8 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(html).toContain('aria-label="Row action"');
     expect(html).toContain('data-action-visibility="hover"');
     expect(html).toContain('data-visibility="hover"');
+    expect(html).toContain("k2b-app-workspace__sidebar-item-actions");
+    expect(html).toContain("k2b-app-workspace__nav-tree-row-shell");
     expect(html).toContain('role="tree"');
     expect(html).toContain('aria-label="Inventory navigation"');
     expect(html).toContain('role="treeitem"');
@@ -186,10 +201,25 @@ describe("@k2b/ui complete advanced layout migrations", () => {
 
     expect(css).toContain("@media (hover: hover) and (pointer: fine)");
     expect(css).toContain('.k2b-app-workspace__sidebar-item-action[data-visibility="hover"]');
+    expect(css).toContain('.k2b-app-workspace__sidebar-item-meta[data-visibility="hover"]');
+    expect(css).toContain('.k2b-app-workspace__sidebar-item-actions[data-visibility="hover"]');
     expect(css).toContain(":is(:hover, :focus-within)");
     expect(css).toContain("gap: 0");
     expect(css).toContain("pointer-events: none");
     expect(css).toContain("pointer-events: auto");
+  });
+
+  test("aligns sidebar metadata and actions on one inherited icon line box", async () => {
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const metaRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-item-meta \{([^}]*)\}/)?.[1];
+    const actionRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-item-action \{([^}]*)\}/)?.[1];
+
+    expect(metaRule).toContain("inline-flex");
+    expect(metaRule).toContain("items-center");
+    expect(metaRule).toContain("line-height: 1");
+    expect(actionRule).toContain("place-items: center");
+    expect(actionRule).toContain("font: inherit");
+    expect(actionRule).toContain("line-height: 1");
   });
 
   // FloatingWindow portals its frame, so SSR yields no markup to assert on.

@@ -5,6 +5,7 @@ import {
   createPanesValue,
   DataPanel,
   FloatingWindow,
+  IconButton,
   Pagination,
   PanelDialog,
   PanelHeader,
@@ -39,6 +40,19 @@ const WorkspaceDemo = () => {
         <AppWorkspace.SidebarHeader title="Inventory" subtitle="12 items" icon="ti ti-box" />
         <AppWorkspace.SidebarDesktop>
           <AppWorkspace.SidebarBody>
+            <AppWorkspace.SidebarSection title="Status">
+              <AppWorkspace.SidebarItem>
+                <AppWorkspace.SidebarItemIcon icon="ti ti-message" />
+                <AppWorkspace.SidebarItemLabel>Processing issue</AppWorkspace.SidebarItemLabel>
+                <AppWorkspace.SidebarItemMeta>
+                  <span class="inline-flex items-center" title="Processing failed">
+                    <i class="ti ti-alert-circle text-red-500" aria-hidden="true" />
+                    <span class="sr-only">Processing failed</span>
+                  </span>
+                </AppWorkspace.SidebarItemMeta>
+                <AppWorkspace.SidebarItemAction icon="ti ti-settings" label="Issue settings" visibility="hover" />
+              </AppWorkspace.SidebarItem>
+            </AppWorkspace.SidebarSection>
             <AppWorkspace.NavTree
               ariaLabel="Inventory navigation"
               selectedId={activeView()}
@@ -47,7 +61,22 @@ const WorkspaceDemo = () => {
               onExpandedIdsChange={setExpandedNavigation}
             >
               <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-box" meta={12}>
-                <AppWorkspace.NavTree.Item id="available" label="Available" icon="ti ti-circle-check" meta={8} />
+                <AppWorkspace.NavTree.Item
+                  id="available"
+                  label="Available"
+                  icon="ti ti-circle-check"
+                  meta={8}
+                  actions={
+                    <AppWorkspace.SidebarItemActions visibility="hover">
+                      <IconButton size="xs" label="Pin available items">
+                        <i class="ti ti-pin" />
+                      </IconButton>
+                      <IconButton size="xs" label="Available item actions">
+                        <i class="ti ti-dots" />
+                      </IconButton>
+                    </AppWorkspace.SidebarItemActions>
+                  }
+                />
                 <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" icon="ti ti-tool" meta={4} />
               </AppWorkspace.NavTree.Item>
               <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />

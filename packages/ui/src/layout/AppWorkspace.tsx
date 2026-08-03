@@ -233,6 +233,7 @@ export type AppWorkspaceSidebarMobileItemsProps = {
   scrollPreserveKey?: string | false;
 };
 export type AppWorkspaceSidebarVisibility = "always" | "expanded" | "collapsed";
+export type AppWorkspaceSidebarAccessoryVisibility = "always" | "hover";
 export type AppWorkspaceSidebarBodyProps = {
   children: JSX.Element;
   class?: string;
@@ -255,6 +256,8 @@ export type AppWorkspaceSidebarItemProps = {
   disabled?: boolean;
   icon?: string;
   meta?: JSX.Element;
+  metaVisibility?: AppWorkspaceSidebarAccessoryVisibility;
+  actions?: JSX.Element;
   tone?: AppWorkspaceSidebarItemTone;
   title?: string;
   viewTransitionName?: string;
@@ -284,16 +287,23 @@ export type AppWorkspaceSidebarIconActionProps = {
 };
 export type AppWorkspaceSidebarItemIconProps = { icon?: string; children?: JSX.Element };
 export type AppWorkspaceSidebarItemLabelProps = { children: JSX.Element; marquee?: boolean };
-export type AppWorkspaceSidebarItemMetaProps = { children: JSX.Element };
+export type AppWorkspaceSidebarItemMetaProps = {
+  children: JSX.Element;
+  visibility?: AppWorkspaceSidebarAccessoryVisibility;
+};
 export type AppWorkspaceSidebarItemActionProps = {
   icon?: string;
   label: string;
   /** Hide the action on fine pointers until the row is hovered or keyboard-focused. */
-  visibility?: "always" | "hover";
+  visibility?: AppWorkspaceSidebarAccessoryVisibility;
   href?: string;
   navigation?: "enhanced" | "document";
   onSelect?: (event: MouseEvent) => void;
   children?: JSX.Element;
+};
+export type AppWorkspaceSidebarItemActionsProps = {
+  children: JSX.Element;
+  visibility?: AppWorkspaceSidebarAccessoryVisibility;
 };
 export type AppWorkspaceNavTreeProps = {
   children: JSX.Element;
@@ -319,6 +329,8 @@ export type AppWorkspaceNavTreeItemProps = {
   disabled?: boolean;
   icon?: string;
   meta?: JSX.Element;
+  metaVisibility?: AppWorkspaceSidebarAccessoryVisibility;
+  actions?: JSX.Element;
   tone?: AppWorkspaceSidebarItemTone;
   title?: string;
   viewTransitionName?: string;
@@ -650,10 +662,16 @@ const AppWorkspaceSidebarItemMeta = (props: AppWorkspaceSidebarItemMetaProps): J
   ({ kind: SIDEBAR_ITEM_META, ...props }) as unknown as JSX.Element;
 const AppWorkspaceSidebarItemAction = (props: AppWorkspaceSidebarItemActionProps): JSX.Element =>
   ({ kind: SIDEBAR_ITEM_ACTION, ...props }) as unknown as JSX.Element;
+const AppWorkspaceSidebarItemActions = (props: AppWorkspaceSidebarItemActionsProps): JSX.Element => (
+  <div class="k2b-app-workspace__sidebar-item-actions" data-visibility={props.visibility === "hover" ? "hover" : undefined}>
+    {props.children}
+  </div>
+);
 
 function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Element {
   const mode = useContext(SidebarModeContext);
   const resolved = children(() => props.children);
+  const resolvedActions = children(() => props.actions);
   const values = createMemo(() => flatten(resolved()));
   const slots = createMemo(() => values().filter(sidebarItemSlot));
   const iconSlot = createMemo(
@@ -685,7 +703,10 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
   const icon = () => iconSlot()?.icon ?? props.icon;
   const iconContent = () => iconSlot()?.children;
   const meta = () => metaSlot()?.children ?? props.meta;
-  const hasAction = () => Boolean(actionSlot() || props.actionIcon);
+  const metaVisibility = () => metaSlot()?.visibility ?? props.metaVisibility;
+  const customActions = () => resolvedActions();
+  const hasCustomActions = () => Boolean(customActions());
+  const hasAction = () => Boolean(actionSlot() || props.actionIcon || hasCustomActions());
   const className = () =>
     `k2b-app-workspace__sidebar-item ${hasAction() ? "has-action" : ""} ${props.active ? (props.activeClass ?? "is-active") : ""} ${props.class ?? ""}`;
   const data = () =>
@@ -706,12 +727,18 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       <span class="k2b-app-workspace__sidebar-item-label" data-marquee={labelSlot()?.marquee === false ? undefined : "true"}>
         <span class="k2b-app-workspace__sidebar-item-label-text">{label() as JSX.Element}</span>
       </span>
-      <Show when={meta()}>{(value) => <span class="k2b-app-workspace__sidebar-item-meta">{value()}</span>}</Show>
+      <Show when={meta()}>
+        {(value) => (
+          <span class="k2b-app-workspace__sidebar-item-meta" data-visibility={metaVisibility() === "hover" ? "hover" : undefined}>
+            {value()}
+          </span>
+        )}
+      </Show>
     </>
   );
-  const action = () => {
+  const singleAction = () => {
     const slot = actionSlot();
-    if (!hasAction()) return null;
+    if (!slot && !props.actionIcon) return null;
     const content = slot?.children ?? <i class={iconClass(slot?.icon ?? props.actionIcon, "ti-dots")} />;
     const label = slot?.label ?? props.actionLabel ?? "Row action";
     const select = (event: MouseEvent) => {
@@ -749,11 +776,18 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       </button>
     );
   };
+  const actions = () => (
+    <>
+      {customActions()}
+      {singleAction()}
+    </>
+  );
   const common = () => ({
     class: className(),
     title: props.title,
     "data-tone": props.tone,
     "data-mode": mode,
+    "data-has-actions": hasCustomActions() ? "true" : undefined,
     "data-action-visibility": actionSlot()?.visibility === "hover" ? "hover" : undefined,
     style: {
       "view-transition-name": props.viewTransitionName,
@@ -771,7 +805,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
           <button type="button" class="k2b-app-workspace__sidebar-item-main" disabled={props.disabled} onClick={props.onClick}>
             {mainContent}
           </button>
-          {action()}
+          {actions()}
         </div>
       );
     }
@@ -781,7 +815,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
           <a href={props.href} class="k2b-app-workspace__sidebar-item-main" aria-current={current()} onClick={props.onClick}>
             {mainContent}
           </a>
-          {action()}
+          {actions()}
         </div>
       );
     }
@@ -798,7 +832,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
         >
           {mainContent}
         </Link>
-        {action()}
+        {actions()}
       </div>
     );
   }
@@ -917,7 +951,13 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
           }
           activate(event);
         };
+        const rowControl = () => {
+          const firstChild = treeItem?.firstElementChild as HTMLElement | null | undefined;
+          if (!firstChild?.classList.contains("k2b-app-workspace__nav-tree-row-shell")) return firstChild;
+          return firstChild.firstElementChild as HTMLElement | null;
+        };
         const onKeyDown = (event: KeyboardEvent) => {
+          if (event.target !== event.currentTarget) return;
           if (event.altKey || event.ctrlKey || event.metaKey) return;
           const items = treeItemElements();
           const index = items.indexOf(event.currentTarget as HTMLElement);
@@ -955,7 +995,7 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
           }
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            (treeItem?.firstElementChild as HTMLElement | null)?.click();
+            rowControl()?.click();
           }
         };
         const rowContent = (
@@ -971,6 +1011,7 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
             <Show when={item.meta !== undefined}>
               <span
                 class={`k2b-app-workspace__sidebar-item-meta ${hasChildren() ? "" : "k2b-app-workspace__nav-tree-leaf-meta"}`}
+                data-visibility={item.metaVisibility === "hover" ? "hover" : undefined}
               >
                 {item.meta}
               </span>
@@ -1055,7 +1096,14 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
             onFocus={() => setFocusedId(item.id)}
             onKeyDown={onKeyDown}
           >
-            {row()}
+            <Show when={item.actions} fallback={row()}>
+              {(actions) => (
+                <div class="k2b-app-workspace__nav-tree-row-shell">
+                  {row()}
+                  {actions()}
+                </div>
+              )}
+            </Show>
             <Show when={hasChildren() && isExpanded(item.id)}>
               <div class="k2b-app-workspace__nav-tree-group" role="group">
                 {renderItems(nested(), depth + 1, item.id)}
@@ -1142,6 +1190,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   SidebarItemLabel: (props: AppWorkspaceSidebarItemLabelProps) => JSX.Element;
   SidebarItemMeta: (props: AppWorkspaceSidebarItemMetaProps) => JSX.Element;
   SidebarItemAction: (props: AppWorkspaceSidebarItemActionProps) => JSX.Element;
+  SidebarItemActions: (props: AppWorkspaceSidebarItemActionsProps) => JSX.Element;
   NavTree: AppWorkspaceNavTreeComponent;
   SidebarIconGrid: (props: AppWorkspaceSidebarIconGridProps) => JSX.Element;
   SidebarIconAction: (props: AppWorkspaceSidebarIconActionProps) => JSX.Element;
@@ -1208,6 +1257,7 @@ AppWorkspace.SidebarItemIcon = AppWorkspaceSidebarItemIcon;
 AppWorkspace.SidebarItemLabel = AppWorkspaceSidebarItemLabel;
 AppWorkspace.SidebarItemMeta = AppWorkspaceSidebarItemMeta;
 AppWorkspace.SidebarItemAction = AppWorkspaceSidebarItemAction;
+AppWorkspace.SidebarItemActions = AppWorkspaceSidebarItemActions;
 AppWorkspace.NavTree = AppWorkspaceNavTree;
 AppWorkspace.SidebarIconGrid = AppWorkspaceSidebarIconGrid;
 AppWorkspace.SidebarIconAction = AppWorkspaceSidebarIconAction;

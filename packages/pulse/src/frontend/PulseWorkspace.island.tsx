@@ -597,6 +597,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <AppWorkspace.SidebarItemAction
           icon="ti ti-code"
           label={`Edit ${dashboard.name} dashboard DSL`}
+          visibility="hover"
           onSelect={() => openDashboardEditor(dashboard.id)}
         />
       </AppWorkspace.SidebarItem>

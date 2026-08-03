@@ -1,7 +1,7 @@
+import { AppWorkspace, Button, Chart, IconButton, MarkdownEditor, MarkdownView, SegmentedControl, StatCell, Tag, toast } from "@k2b/ui";
 import { desktop } from "@valentinkolb/cloud/desktop";
 import { DesktopWorkspace, workspace as desktopWorkspace } from "@valentinkolb/cloud/desktop/solid";
 import { formatBytes } from "@valentinkolb/cloud/shared";
-import { AppWorkspace, Button, Chart, MarkdownEditor, MarkdownView, SegmentedControl, StatCell, Tag, toast } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type {
   DesktopLabBridge,
@@ -117,45 +117,32 @@ function FileTreeNode(props: {
   onRenameFile: (file: MarkdownFileNode) => void;
   onDeleteFile: (file: MarkdownFileNode) => void;
 }) {
-  const paddingClass = () => {
-    if (props.level >= 4) return "pl-10";
-    if (props.level === 3) return "pl-8";
-    if (props.level === 2) return "pl-6";
-    return "pl-4";
-  };
-
   if (props.node.kind === "file") {
     return (
-      <div
-        class={`sidebar-item group text-xs ${props.selectedPath === props.node.path ? "sidebar-item-active" : ""} ${paddingClass()}`}
+      <AppWorkspace.SidebarItem
+        active={props.selectedPath === props.node.path}
+        depth={props.level}
+        icon="ti ti-file-type-md"
         title={props.node.path}
-      >
-        <button
-          type="button"
-          class="flex min-w-0 flex-1 items-center gap-2 text-left"
-          onClick={() => props.onOpenFile(props.node as MarkdownFileNode)}
-          onDblClick={(event) => {
+        onClick={(event) => {
+          if (event.detail === 2) {
             event.preventDefault();
             props.onRenameFile(props.node as MarkdownFileNode);
-          }}
-        >
-          <i class="ti ti-file-type-md text-sm" />
-          <span class="min-w-0 flex-1 truncate">{props.node.name}</span>
-        </button>
-        <button
-          type="button"
-          class="sidebar-item-action opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-          aria-label={`Delete ${props.node.name}`}
-          title="Delete file"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onDeleteFile(props.node as MarkdownFileNode);
-          }}
-        >
-          <i class="ti ti-trash text-xs" />
-        </button>
-      </div>
+            return;
+          }
+          props.onOpenFile(props.node as MarkdownFileNode);
+        }}
+      >
+        <AppWorkspace.SidebarItemLabel>
+          <span class="truncate">{props.node.name}</span>
+        </AppWorkspace.SidebarItemLabel>
+        <AppWorkspace.SidebarItemAction
+          icon="ti ti-trash"
+          label={`Delete ${props.node.name}`}
+          visibility="hover"
+          onSelect={() => props.onDeleteFile(props.node as MarkdownFileNode)}
+        />
+      </AppWorkspace.SidebarItem>
     );
   }
 
@@ -163,7 +150,7 @@ function FileTreeNode(props: {
     <>
       <AppWorkspace.SidebarItem
         icon={props.expanded.has(props.node.id) ? "ti ti-chevron-down" : "ti ti-chevron-right"}
-        class={paddingClass()}
+        depth={props.level}
         onClick={() => props.onToggle(props.node.id)}
       >
         <span class="inline-flex min-w-0 items-center gap-1">
@@ -495,44 +482,31 @@ export function MarkdownEditorApp(props: Props) {
                 <For each={workspace().folders}>
                   {(folder) => (
                     <>
-                      <div class="sidebar-item group text-xs" title={folder.path}>
-                        <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => toggle(folder.id)}>
-                          <i class={`${expanded().has(folder.id) ? "ti ti-chevron-down" : "ti ti-chevron-right"} text-sm`} />
+                      <AppWorkspace.SidebarItem
+                        icon={expanded().has(folder.id) ? "ti ti-chevron-down" : "ti ti-chevron-right"}
+                        title={folder.path}
+                        onClick={() => toggle(folder.id)}
+                        actions={
+                          <AppWorkspace.SidebarItemActions visibility="hover">
+                            <IconButton size="xs" label={`New file in ${folder.name}`} onClick={() => void createFile(folder)}>
+                              <i class="ti ti-plus text-xs" />
+                            </IconButton>
+                            <IconButton size="xs" label={`Remove ${folder.name}`} onClick={() => void removeFolder(folder)}>
+                              <i class="ti ti-x text-xs" />
+                            </IconButton>
+                          </AppWorkspace.SidebarItemActions>
+                        }
+                      >
+                        <AppWorkspace.SidebarItemLabel>
                           <span class="inline-flex min-w-0 items-center gap-1">
                             <i class="ti ti-folder text-sm text-zinc-500 dark:text-zinc-400" />
                             <span class="truncate">{folder.name}</span>
                           </span>
-                        </button>
-                        <span class="shrink-0 text-zinc-500 tabular-nums dark:text-zinc-400">{folder.fileCount}</span>
-                        <span class="ml-auto inline-flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            class="sidebar-item-action"
-                            aria-label={`New file in ${folder.name}`}
-                            title="New file"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              void createFile(folder);
-                            }}
-                          >
-                            <i class="ti ti-plus text-xs" />
-                          </button>
-                          <button
-                            type="button"
-                            class="sidebar-item-action"
-                            aria-label={`Remove ${folder.name}`}
-                            title="Remove folder"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              void removeFolder(folder);
-                            }}
-                          >
-                            <i class="ti ti-x text-xs" />
-                          </button>
-                        </span>
-                      </div>
+                        </AppWorkspace.SidebarItemLabel>
+                        <AppWorkspace.SidebarItemMeta>
+                          <span class="tabular-nums">{folder.fileCount}</span>
+                        </AppWorkspace.SidebarItemMeta>
+                      </AppWorkspace.SidebarItem>
                       <Show when={expanded().has(folder.id)}>
                         <For each={folder.tree}>
                           {(node) => (

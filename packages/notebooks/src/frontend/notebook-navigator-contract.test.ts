@@ -32,4 +32,13 @@ describe("Notebooks navigator hydration contract", () => {
     expect(source).toContain('variant="workspace-icon"');
     expect(source).not.toContain('meta={root.id === "favorites"');
   });
+
+  test("uses shared tree rows and action visibility for note navigation", async () => {
+    const source = await Bun.file(resolve(import.meta.dir, "[id]/_components/sidebar/NoteTree.tsx")).text();
+
+    expect(source).toContain("<AppWorkspace.NavTree");
+    expect(source).toContain("<AppWorkspace.SidebarItemActions");
+    expect(source).toContain('visibility="hover"');
+    expect(source).not.toContain("group-hover/node");
+  });
 });

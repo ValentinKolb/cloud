@@ -136,6 +136,7 @@ export default function ContactsSidebar(props: Props) {
                       navigation="document"
                       icon="ti ti-settings"
                       label={`Open settings for ${book.name}`}
+                      visibility="hover"
                     />
                   )}
                 </AppWorkspace.SidebarItem>
