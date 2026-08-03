@@ -26,6 +26,7 @@ import {
   SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
+  SettingsSection,
   TextInput,
 } from "@k2b/ui";
 ```
@@ -44,11 +45,16 @@ to create another outer surface.
   actions={<Button variant="secondary">Test connection</Button>}
   footer={<SettingsPanelFooter {...saveState} />}
 >
-  <PanelDialog.Section title="Identity" icon="ti ti-id">
+  <SettingsSection title="Identity" icon="ti ti-id">
     <SettingsField {...fieldProps}>…</SettingsField>
-  </PanelDialog.Section>
+  </SettingsSection>
 </SettingsPage>
 ```
+
+`SettingsSection` is the page-level paper surface for a coherent settings
+group. It provides one accessible section heading, optional actions, and the
+same compact rhythm as Cloud admin data panels. Keep `PanelDialog.Section`
+inside dialogs; it intentionally has a different containment contract.
 
 ## Compose controlled tabs
 

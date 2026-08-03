@@ -81,6 +81,8 @@ export type DataTableProps<T> = {
   verticalAlign?: "top" | "middle" | "bottom";
   cellContentClass?: string;
   fillHeight?: boolean;
+  /** Visual frame for a standalone table. Defaults preserve the legacy class-based behavior. */
+  surface?: "paper" | "plain";
   class?: string;
   /** Additional classes for the table element. Core table geometry is always retained. */
   tableClass?: string;
@@ -324,7 +326,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
         class={`k2b-table-wrap ${props.class ?? ""}`}
         data-density={props.density === "compact" ? "compact" : undefined}
         data-has-footer={props.footer ? "true" : undefined}
-        data-surface={props.class ? undefined : "paper"}
+        data-surface={props.surface ?? (props.class ? "plain" : "paper")}
         data-scroll-preserve={props.scrollPreserveKey || undefined}
         onScroll={maybeLoadMore}
         onMouseLeave={() => setHoveredColumn(null)}

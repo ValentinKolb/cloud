@@ -2,12 +2,12 @@ import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   NumberInput,
-  PanelDialog,
   prompts,
   readSettingsError,
   SettingsField,
   SettingsPage,
   SettingsPanelFooter,
+  SettingsSection,
   sameSettingValue,
   TextInput,
   toast,
@@ -87,7 +87,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
         />
       }
     >
-      <PanelDialog.Section title="Forecast Source" subtitle="External forecast and location lookup services." icon="ti ti-info-circle">
+      <SettingsSection title="Forecast Source" subtitle="External forecast and location lookup services." icon="ti ti-info-circle">
         <div class="flex flex-col gap-2 text-xs text-dimmed">
           <p>
             The weather app uses <strong>Bright Sky</strong> for forecast data. Set the default coordinates shown to users and tune the
@@ -101,9 +101,9 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             .
           </p>
         </div>
-      </PanelDialog.Section>
+      </SettingsSection>
 
-      <PanelDialog.Section title="Default Location" subtitle="Fallback coordinates shown in weather widgets." icon="ti ti-map-pin">
+      <SettingsSection title="Default Location" subtitle="Fallback coordinates shown in weather widgets." icon="ti ti-map-pin">
         <SettingsField
           label="Default Latitude"
           description="Default latitude shown in weather widgets"
@@ -128,9 +128,9 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             placeholder="e.g. 9.987608"
           />
         </SettingsField>
-      </PanelDialog.Section>
+      </SettingsSection>
 
-      <PanelDialog.Section title="Refresh" subtitle="How long forecast data can be reused before refetching." icon="ti ti-clock">
+      <SettingsSection title="Refresh" subtitle="How long forecast data can be reused before refetching." icon="ti ti-clock">
         <SettingsField
           label="Cache TTL (minutes)"
           description="How long weather data is cached before fetching fresh data"
@@ -146,9 +146,9 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             max={1440}
           />
         </SettingsField>
-      </PanelDialog.Section>
+      </SettingsSection>
 
-      <PanelDialog.Section title="Location Search" subtitle="Geocoding endpoint used by the app search UI." icon="ti ti-search">
+      <SettingsSection title="Location Search" subtitle="Geocoding endpoint used by the app search UI." icon="ti ti-search">
         <SettingsField
           label="Geo API URL"
           description="Geocoding API URL for location search"
@@ -162,7 +162,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             placeholder="e.g. https://geocoding.example.com/search"
           />
         </SettingsField>
-      </PanelDialog.Section>
+      </SettingsSection>
     </SettingsPage>
   );
 }

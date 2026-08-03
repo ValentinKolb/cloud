@@ -8,12 +8,12 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  PanelDialog,
   prompts,
   readSettingsError,
   SettingsField,
   SettingsPage,
   SettingsPanelFooter,
+  SettingsSection,
   sameSettingValue,
   TextInput,
   toast,
@@ -99,7 +99,7 @@ export default function FilesSettingsForm(props: Props) {
         />
       }
     >
-      <PanelDialog.Section title="Filegate" subtitle="Storage backend and provider-bound credential." icon="ti ti-server">
+      <SettingsSection title="Filegate" subtitle="Storage backend and provider-bound credential." icon="ti ti-server">
         <p class="text-xs text-dimmed">
           The file manager uses <strong>Filegate</strong> as its storage backend. The token is stored as an encrypted setting and is never
           rendered back into the page.
@@ -131,9 +131,9 @@ export default function FilesSettingsForm(props: Props) {
             placeholder="Leave empty to keep current value"
           />
         </SettingsField>
-      </PanelDialog.Section>
+      </SettingsSection>
 
-      <PanelDialog.Section title="Base Paths" subtitle="Filesystem roots for user homes and shared group folders." icon="ti ti-folders">
+      <SettingsSection title="Base Paths" subtitle="Filesystem roots for user homes and shared group folders." icon="ti ti-folders">
         <SettingsField
           label="Base Homes"
           description="Filesystem base path for user home directories"
@@ -159,9 +159,9 @@ export default function FilesSettingsForm(props: Props) {
             placeholder="e.g. /data/groups"
           />
         </SettingsField>
-      </PanelDialog.Section>
+      </SettingsSection>
 
-      <PanelDialog.Section title="Unix Permissions" subtitle="Default octal modes for created directories and files." icon="ti ti-lock">
+      <SettingsSection title="Unix Permissions" subtitle="Default octal modes for created directories and files." icon="ti ti-lock">
         <p class="text-xs text-dimmed">
           Use Unix octal notation such as <code>700</code> or <code>2770</code>.
         </p>
@@ -216,7 +216,7 @@ export default function FilesSettingsForm(props: Props) {
             placeholder="660"
           />
         </SettingsField>
-      </PanelDialog.Section>
+      </SettingsSection>
     </SettingsPage>
   );
 }

@@ -628,6 +628,12 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-settings-field__error")).toContain("font-size:.75rem");
       // Cloud's save bar is `z-10`; sticky alone does not raise it.
       expect(rule(".k2b-settings-save-bar")).toContain("z-index:10");
+      const pageFooter = rule(".k2b-settings-page__footer");
+      expect(pageFooter).toContain("position:sticky");
+      expect(pageFooter).toContain("bottom:0");
+      expect(pageFooter).toContain("z-index:20");
+      expect(pageFooter).not.toContain("background");
+      expect(pageFooter).not.toContain("border-top");
     });
 
     test("does not restyle consumer content inside a settings tab panel", () => {

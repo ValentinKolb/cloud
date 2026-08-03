@@ -1,4 +1,4 @@
-import { type JSX, Show } from "solid-js";
+import { createUniqueId, type JSX, Show } from "solid-js";
 import { Button, type ButtonVariant } from "../actions";
 import type { MaybeAccessor } from "../inputs/field-contract";
 
@@ -37,6 +37,40 @@ export function SettingsPage(props: SettingsPageProps): JSX.Element {
       <Show when={props.footer}>
         <footer class="k2b-settings-page__footer">{props.footer}</footer>
       </Show>
+    </section>
+  );
+}
+
+export type SettingsSectionProps = {
+  title: JSX.Element;
+  subtitle?: JSX.Element;
+  icon?: string;
+  actions?: JSX.Element;
+  children: JSX.Element;
+  class?: string;
+};
+
+/**
+ * A full-page settings group. Dialogs keep using PanelDialog.Section; this
+ * component owns the quieter, observability-style paper used on admin pages.
+ */
+export function SettingsSection(props: SettingsSectionProps): JSX.Element {
+  const headingId = `k2b-settings-section-${createUniqueId()}`;
+  return (
+    <section class={`k2b-settings-section${props.class ? ` ${props.class}` : ""}`} aria-labelledby={headingId}>
+      <header class="k2b-settings-section__header">
+        <Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+        <div class="k2b-settings-section__heading">
+          <h2 id={headingId}>{props.title}</h2>
+          <Show when={props.subtitle}>
+            <p>{props.subtitle}</p>
+          </Show>
+        </div>
+        <Show when={props.actions}>
+          <div class="k2b-settings-section__actions">{props.actions}</div>
+        </Show>
+      </header>
+      <div class="k2b-settings-section__body">{props.children}</div>
     </section>
   );
 }
@@ -118,7 +152,7 @@ const SettingsActions = (
         onClick={props.onSave}
       >
         <i class="ti ti-device-floppy" aria-hidden="true" />
-        {props.saveLabel ?? "Save all"}
+        {props.saveLabel ?? "Save changes"}
       </Button>
     </div>
   );

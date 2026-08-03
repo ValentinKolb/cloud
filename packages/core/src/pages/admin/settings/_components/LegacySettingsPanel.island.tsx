@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, DataTable, type DataTableColumn, PanelDialog, prompts, toast } from "@k2b/ui";
+import { Button, DataTable, type DataTableColumn, prompts, SettingsSection, toast } from "@k2b/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { createResource, Show } from "solid-js";
@@ -70,7 +70,7 @@ export function LegacySettingsSection() {
   });
 
   return (
-    <PanelDialog.Section
+    <SettingsSection
       title="Legacy Settings"
       subtitle="Persisted settings that are no longer registered by the running Cloud version. Cleanup never deletes active registered keys."
       icon="ti ti-database-off"
@@ -117,7 +117,7 @@ export function LegacySettingsSection() {
           }}
         />
       </Show>
-    </PanelDialog.Section>
+    </SettingsSection>
   );
 }
 

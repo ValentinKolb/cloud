@@ -110,7 +110,9 @@ describe("@k2b/ui complete action migrations", () => {
     expect(button).toContain('type="button"');
     expect(rule('.k2b-ui .k2b-button[data-size="xs"]')).toContain("min-height: 1.5rem");
     expect(rule('.k2b-ui .k2b-button[data-variant="subtle"]')).toContain("background: var(--k2b-surface-muted)");
-    expect(rule('.k2b-ui .k2b-button[data-variant="ai"]')).toContain("var(--k2b-ai-border)");
+    const aiRule = rule('.k2b-ui .k2b-button[data-variant="ai"]');
+    expect(aiRule).toContain("color: var(--k2b-ai-on-solid)");
+    expect(aiRule).toContain("background: var(--k2b-ai-solid)");
   });
 
   test("renders navigational actions as styled links", () => {

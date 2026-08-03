@@ -14,6 +14,7 @@ import {
   SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
+  SettingsSection,
   TextInput,
 } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
@@ -293,8 +294,11 @@ const SettingsPageDemo = () => {
   return (
     <DemoCard
       id="settings-page"
-      chip={{ kind: "component", name: "SettingsPage", from: "@k2b/ui" }}
-      description="A flat full-page settings shell with one heading, a scrolling body, optional actions, and a fixed save footer."
+      chip={[
+        { kind: "component", name: "SettingsPage", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsSection", from: "@k2b/ui" },
+      ]}
+      description="A flat full-page settings shell with accessible paper sections, one heading, a scrolling body, optional actions, and a fixed save footer."
       code={`<SettingsPage
   title="Project settings"
   subtitle="Identity and defaults"
@@ -302,7 +306,7 @@ const SettingsPageDemo = () => {
   actions={<Button>Test connection</Button>}
   footer={<SettingsPanelFooter … />}
 >
-  <PanelDialog.Section title="Identity">…</PanelDialog.Section>
+  <SettingsSection title="Identity">…</SettingsSection>
 </SettingsPage>`}
     >
       <div style="height: 22rem">
@@ -324,11 +328,11 @@ const SettingsPageDemo = () => {
             />
           }
         >
-          <PanelDialog.Section title="Identity" subtitle="Public service details" icon="ti ti-id">
+          <SettingsSection title="Identity" subtitle="Public service details" icon="ti ti-id">
             <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
               <TextInput value={endpoint()} onValueChange={setEndpoint} />
             </SettingsField>
-          </PanelDialog.Section>
+          </SettingsSection>
         </SettingsPage>
       </div>
     </DemoCard>

@@ -1,39 +1,35 @@
 # Context usage
 
-`ChatContextUsage` discloses request tokens and context-window pressure in a compact control that can sit beside a composer.
+`Chat.ContextUsage` shows the latest request's context pressure as a compact percentage with a detailed tooltip.
 
 ## Use Context usage
 
-Show it when a model reports token usage or when users need to understand why a long conversation may be compacted. Omit it when the provider exposes no meaningful usage data.
+Usually pass `contextUsage` to `Chat.Composer`. Render `Chat.ContextUsage` directly only when the indicator belongs elsewhere. Omit usage when the provider reports no meaningful values; the control then displays an honest unavailable state instead of `0%`.
 
-The component is informational. Context limits, billing, compaction, and model selection remain application behavior.
+The application owns limits, billing, compaction, and model selection.
 
 ## Import
 
 ```tsx
-import { ChatContextUsage } from "@k2b/ui";
+import { Chat } from "@k2b/ui";
 ```
 
 ## Values
 
-Pass the latest request through `usage`, an optional multi-step total through `loopUsage`, and the configured model limit through `contextWindow`.
-
-The component derives the percentage and remaining tokens. It warns at high usage without claiming that the request failed.
+Pass the latest request through `usage`, an optional multi-step total through `loopUsage`, and the configured limit through `contextWindow`. The compact trigger shows only the percentage; the tooltip exposes model, input, output, loop total, window, and remaining tokens.
 
 ## Accessibility
 
-The trigger has a complete accessible label with used tokens and percentage. The tooltip repeats the values as text and uses a labeled progress bar, so the state does not depend on color.
+The trigger has a complete accessible label. The tooltip repeats values as text and uses a labeled progress bar, so the state does not depend on color.
 
 ## Runtime
 
-The compact trigger renders on the server. Opening and positioning the tooltip requires hydration.
-
-Token counts are display data. The package does not query a provider or infer a model limit.
+The trigger renders on the server. Opening and positioning the tooltip requires hydration. The package never queries a provider or infers a model limit.
 
 ## Example
 
 ```tsx
-<ChatContextUsage
+<Chat.ContextUsage
   modelLabel="Deep"
   usage={{ input: 18_420, output: 2_140, total: 20_560 }}
   loopUsage={{ total: 31_800 }}

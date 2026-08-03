@@ -92,6 +92,12 @@ Do not filter or sort a paginated result in the browser. The client does not own
 
 Use `density="compact"` for dense operational tables. Headers are sticky unless `stickyHeader={false}`. `footer` accepts values and an optional cell renderer for server-computed totals.
 
+Use `surface="paper"` for a standalone bordered table and `surface="plain"`
+when a surrounding section owns the border. Set it explicitly whenever the
+table also has a custom `class`; this keeps geometry such as
+`overflow-x-auto` independent from the intended visual frame while legacy
+callers retain their existing appearance.
+
 `hasMore`, `loadingMore`, and `onLoadMore` add an infinite-load sentinel. The owning island still fetches the next server page and appends its rows.
 
 ## Accessibility

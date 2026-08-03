@@ -11,7 +11,7 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { readSettingsError, sameSettingValue, SettingsField, SettingsModal, SettingsPage, SettingsPanelFooter, SettingsSaveBar } =
+const { readSettingsError, sameSettingValue, SettingsField, SettingsModal, SettingsPage, SettingsPanelFooter, SettingsSaveBar, SettingsSection } =
   await import("../index");
 
 describe("@k2b/ui complete settings surfaces", () => {
@@ -68,6 +68,25 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(html).not.toContain("General content");
   });
 
+  test("separates full-page settings sections from dialog sections", () => {
+    const html = renderToString(() =>
+      createComponent(SettingsSection, {
+        title: "Identity",
+        subtitle: "Workspace name and URL",
+        icon: "ti ti-id",
+        actions: "section action",
+        children: "settings fields",
+      }),
+    );
+
+    expect(html).toContain('class="k2b-settings-section"');
+    expect(html).toContain(">Identity</h2>");
+    expect(html).toMatch(/aria-labelledby="k2b-settings-section-[^"]+"/);
+    expect(html).toContain("Workspace name and URL");
+    expect(html).toContain("section action");
+    expect(html).not.toContain("k2b-panel-dialog");
+  });
+
   test("renders changed fields and sticky or fixed save controls", () => {
     const field = renderToString(() =>
       createComponent(SettingsField, {
@@ -102,6 +121,8 @@ describe("@k2b/ui complete settings surfaces", () => {
     // port rendered a bare text button.
     expect(bar).toContain("ti ti-device-floppy");
     expect(footer).toContain("ti ti-device-floppy");
+    expect(bar).toContain("Save changes");
+    expect(footer).toContain("Save changes");
   });
 
   test("compares setting values and safely parses API failures", async () => {

@@ -190,6 +190,28 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain('aria-label="Project orders"');
   });
 
+  test("lets callers choose table surface independently from geometry classes", () => {
+    const paper = renderToString(() =>
+      DataTable({
+        surface: "paper",
+        class: "overflow-x-auto",
+        rows: [{ id: "one" }],
+        columns: [{ id: "id", header: "ID", value: "id" }],
+      }),
+    );
+    const plain = renderToString(() =>
+      DataTable({
+        surface: "plain",
+        rows: [{ id: "one" }],
+        columns: [{ id: "id", header: "ID", value: "id" }],
+      }),
+    );
+
+    expect(paper).toContain('data-surface="paper"');
+    expect(paper).toContain("overflow-x-auto");
+    expect(plain).toContain('data-surface="plain"');
+  });
+
   test("keeps SSR navigation and observability content defaults", () => {
     const pagination = renderToString(() =>
       createComponent(Pagination, { currentPage: 5, totalPages: 10, baseUrl: "/items?page=" }),

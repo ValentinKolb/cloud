@@ -240,11 +240,86 @@
 }
 
 .k2b-ui .k2b-settings-page__footer {
+  position: sticky;
+  z-index: 20;
+  bottom: 0;
   flex-shrink: 0;
   justify-content: space-between;
   padding: 0.75rem 1rem;
+}
+
+.k2b-ui .k2b-settings-section {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+.k2b-ui .k2b-settings-section__header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--k2b-border);
+}
+
+.k2b-ui .k2b-settings-section__header > i {
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.9375rem;
+}
+
+.k2b-ui .k2b-settings-section__heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.k2b-ui .k2b-settings-section__heading h2,
+.k2b-ui .k2b-settings-section__heading p {
+  margin: 0;
+}
+
+.k2b-ui .k2b-settings-section__heading h2 {
+  color: var(--k2b-text);
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.k2b-ui .k2b-settings-section__heading p {
+  margin-top: 0.125rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.k2b-ui .k2b-settings-section__actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.k2b-ui .k2b-settings-section__body {
+  min-width: 0;
+}
+
+.k2b-ui .k2b-settings-section__body > .k2b-settings-field + .k2b-settings-field {
   border-top: 1px solid var(--k2b-border);
-  background: var(--k2b-surface-muted);
+}
+
+.k2b-ui .k2b-settings-section__body > :not(.k2b-settings-field) {
+  margin: 0.75rem;
+}
+
+.k2b-ui .k2b-settings-section__body > :not(.k2b-settings-field) + .k2b-settings-field {
+  border-top: 1px solid var(--k2b-border);
 }
 
 .k2b-ui .k2b-settings {
@@ -735,6 +810,18 @@
 
   .k2b-ui .k2b-app-overview__toolbar {
     width: 20rem;
+  }
+}
+
+@media (max-width: 39.999rem) {
+  .k2b-ui .k2b-settings-page__actions,
+  .k2b-ui .k2b-settings-section__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .k2b-ui .k2b-settings-page__footer {
+    align-items: flex-start;
   }
 }
 

@@ -1,11 +1,13 @@
 import {
   Button,
+  ButtonLink,
   ContextMenu,
   CopyButton,
   Disclosure,
   Dropdown,
   FilterChip,
   IconButton,
+  IconButtonLink,
   openSpotlightSearch,
   RemoveButton,
   SegmentedControl,
@@ -23,7 +25,9 @@ const ButtonsDemo = () => (
     id="buttons"
     chip={[
       { kind: "component", name: "Button", from: "@k2b/ui" },
+      { kind: "component", name: "ButtonLink", from: "@k2b/ui" },
       { kind: "component", name: "IconButton", from: "@k2b/ui" },
+      { kind: "component", name: "IconButtonLink", from: "@k2b/ui" },
     ]}
     description="Package-native buttons share one variant and size contract. Button defaults to primary, IconButton defaults to ghost, and subtle xs actions suit dense contextual surfaces without masquerading as status badges."
     code={`<Button variant="primary">Save</Button>
@@ -38,7 +42,13 @@ const ButtonsDemo = () => (
 </IconButton>
 <IconButton label="Delete" variant="danger">
   <i class="ti ti-trash" />
-</IconButton>`}
+</IconButton>
+
+{/* Navigational counterparts render anchors */}
+<ButtonLink href="/settings" variant="secondary">Settings</ButtonLink>
+<IconButtonLink href="/settings" label="Open settings">
+  <i class="ti ti-external-link" />
+</IconButtonLink>`}
   >
     <div class="ui-demo-row">
       <Button variant="primary">Save</Button>
@@ -57,6 +67,8 @@ const ButtonsDemo = () => (
       <IconButton label="Refresh" variant="secondary"><i class="ti ti-refresh" aria-hidden="true" /></IconButton>
       <IconButton label="Delete" variant="danger"><i class="ti ti-trash" aria-hidden="true" /></IconButton>
       <IconButton label="Saving" loading loadingLabel="Saving"><i class="ti ti-device-floppy" aria-hidden="true" /></IconButton>
+      <ButtonLink href="#buttons" variant="secondary">Button links</ButtonLink>
+      <IconButtonLink href="#buttons" label="Open button links"><i class="ti ti-external-link" aria-hidden="true" /></IconButtonLink>
     </div>
   </DemoCard>
 );

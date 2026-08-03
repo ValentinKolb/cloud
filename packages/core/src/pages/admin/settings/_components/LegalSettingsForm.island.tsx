@@ -12,12 +12,12 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Button,
   ButtonLink,
-  PanelDialog,
   prompts,
   readSettingsError,
   Select,
   SettingsPage,
   SettingsPanelFooter,
+  SettingsSection,
   sameSettingValue,
   TextInput,
   Tooltip,
@@ -195,7 +195,7 @@ export default function LegalSettingsForm(props: Props) {
         const currentMode = () => draft()[modeKey];
 
         return (
-          <PanelDialog.Section
+          <SettingsSection
             title={kind.label}
             subtitle={kind.description}
             icon={kind.icon}
@@ -261,7 +261,7 @@ export default function LegalSettingsForm(props: Props) {
                 />
               </LegalField>
             </Show>
-          </PanelDialog.Section>
+          </SettingsSection>
         );
       })}
     </SettingsPage>

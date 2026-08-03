@@ -17,10 +17,12 @@ import {
   ButtonLink,
   CheckboxCard,
   createTemplateEditorPanesValue,
+  DataTable,
   dialogCore,
   IconButton,
   ImageInput,
   MultiSelectInput,
+  NoticeCard,
   NumberInput,
   PanelDialog,
   Panes,
@@ -30,6 +32,9 @@ import {
   Select,
   SettingsPage,
   SettingsPanelFooter,
+  SettingsSection,
+  StatCell,
+  StatGrid,
   StatusBadge,
   Switch,
   sameSettingValue,
@@ -37,6 +42,7 @@ import {
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,
+  type DataTableColumn,
   type TemplateVariable,
   type TemplateVariableKind,
   TextInput,
@@ -438,9 +444,9 @@ export default function CoreSettingsForm(props: Props) {
 
   const renderFieldSections = (entries: SettingFieldDef[]) =>
     groupSettingEntries(entries).map((section) => (
-      <PanelDialog.Section title={section.title} subtitle={section.subtitle} icon={section.icon}>
+      <SettingsSection title={section.title} subtitle={section.subtitle} icon={section.icon}>
         {renderFieldRows(section.entries)}
-      </PanelDialog.Section>
+      </SettingsSection>
     ));
 
   return (
@@ -460,9 +466,11 @@ export default function CoreSettingsForm(props: Props) {
       }
     >
       <Show when={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction}>
-        <p class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-          Test actions use the saved settings. Save or discard pending changes before running a test.
-        </p>
+        <NoticeCard
+          tone="info"
+          title="Tests use saved settings"
+          detail="Save or discard pending changes before running a connection or delivery test."
+        />
       </Show>
 
       <Show
@@ -492,7 +500,7 @@ export default function CoreSettingsForm(props: Props) {
   );
 }
 
-type SettingsSection = {
+type SettingSectionGroup = {
   id: string;
   title: string;
   subtitle: string;
@@ -616,8 +624,8 @@ const sectionIdForEntry = (entry: SettingFieldDef): string => {
   return "default";
 };
 
-const groupSettingEntries = (entries: SettingFieldDef[]): SettingsSection[] => {
-  const sections = new Map<string, SettingsSection>();
+const groupSettingEntries = (entries: SettingFieldDef[]): SettingSectionGroup[] => {
+  const sections = new Map<string, SettingSectionGroup>();
   for (const entry of entries) {
     const id = sectionIdForEntry(entry);
     const def = SECTION_DEFS[id] ?? SECTION_DEFS.default!;
@@ -839,32 +847,21 @@ function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview; show
   const statusClass = (status: string) => (status === "ok" ? "badge-success" : status === "failed" ? "badge-danger" : "badge-neutral");
   return (
     <div class="flex flex-col gap-2">
-      <div class="grid gap-2 md:grid-cols-4">
-        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
-          <p class="text-[10px] uppercase tracking-wider text-dimmed">Dirty chats</p>
-          <p class="mt-1 text-lg font-semibold text-primary">{props.overview.dirtyConversations}</p>
-          <p class="mt-0.5 truncate text-[11px] text-dimmed">Oldest {formatAiDate(props.overview.oldestDirtyAt)}</p>
-        </div>
-        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
-          <p class="text-[10px] uppercase tracking-wider text-dimmed">Failed chats</p>
-          <p class="mt-1 text-lg font-semibold text-primary">{props.overview.failedConversations}</p>
-          <p class="mt-0.5 truncate text-[11px] text-dimmed">{props.overview.totalConversations} active total</p>
-        </div>
-        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
-          <p class="text-[10px] uppercase tracking-wider text-dimmed">Error rate 24h</p>
-          <p class={`mt-1 text-lg font-semibold ${props.overview.failedRuns24h > 0 ? "text-red-600 dark:text-red-400" : "text-primary"}`}>
-            {formatAiPercent(props.overview.errorRate24h)}
-          </p>
-          <p class="mt-0.5 truncate text-[11px] text-dimmed">
-            {props.overview.failedRuns24h} / {props.overview.totalRuns24h} failed
-          </p>
-        </div>
-        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
-          <p class="text-[10px] uppercase tracking-wider text-dimmed">Avg runtime</p>
-          <p class="mt-1 text-lg font-semibold text-primary">{formatAiDuration(props.overview.avgDurationMs)}</p>
-          <p class="mt-0.5 truncate text-[11px] text-dimmed">Last run {formatAiDate(props.overview.lastRunAt)}</p>
-        </div>
-      </div>
+      <StatGrid columns={4} size="sm" surface="muted">
+        <StatCell
+          label="Dirty chats"
+          value={props.overview.dirtyConversations}
+          sub={`Oldest ${formatAiDate(props.overview.oldestDirtyAt)}`}
+        />
+        <StatCell label="Failed chats" value={props.overview.failedConversations} sub={`${props.overview.totalConversations} active total`} />
+        <StatCell
+          label="Error rate 24h"
+          value={formatAiPercent(props.overview.errorRate24h)}
+          sub={`${props.overview.failedRuns24h} / ${props.overview.totalRuns24h} failed`}
+          accent={props.overview.failedRuns24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+        />
+        <StatCell label="Avg runtime" value={formatAiDuration(props.overview.avgDurationMs)} sub={`Last run ${formatAiDate(props.overview.lastRunAt)}`} />
+      </StatGrid>
 
       <div class="flex flex-wrap items-center justify-between gap-2">
         <p class="text-xs text-dimmed">Runtime traces live on the generic jobs page; a manual run enriches up to 25 dirty chats.</p>
@@ -1077,7 +1074,7 @@ function AiSettingsPanel(props: {
   return (
     <div class="flex flex-col gap-2">
       <Show when={props.section === "general"}>
-        <PanelDialog.Section
+        <SettingsSection
           title="Cloud AI"
           subtitle="Global switch, default model, and workspace-wide instructions."
           icon="ti ti-sparkles"
@@ -1142,9 +1139,9 @@ function AiSettingsPanel(props: {
               </pre>
             </div>
           </details>
-        </PanelDialog.Section>
+        </SettingsSection>
 
-        <PanelDialog.Section
+        <SettingsSection
           title="Context"
           subtitle="Compaction behavior for long conversations and large tool outputs."
           icon="ti ti-package"
@@ -1174,11 +1171,11 @@ function AiSettingsPanel(props: {
             showSteppers={false}
             error={() => props.errorFor(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY)}
           />
-        </PanelDialog.Section>
+        </SettingsSection>
       </Show>
 
       <Show when={props.section === "jobs"}>
-        <PanelDialog.Section
+        <SettingsSection
           title="Background jobs"
           subtitle="Model and schedule for background AI work like chat summaries, keywords, and titles."
           icon="ti ti-clock-bolt"
@@ -1216,11 +1213,11 @@ function AiSettingsPanel(props: {
           <Show when={props.enrichmentOverview}>
             {(overview) => <AiEnrichmentOverviewPanel overview={overview()} showJobsLink={props.showJobsLink} />}
           </Show>
-        </PanelDialog.Section>
+        </SettingsSection>
       </Show>
 
       <Show when={props.section === "general"}>
-        <PanelDialog.Section
+        <SettingsSection
           title="Web tools"
           subtitle="Firecrawl-backed search and page extraction for AI tools."
           icon="ti ti-world-search"
@@ -1243,57 +1240,56 @@ function AiSettingsPanel(props: {
             password
             error={() => props.errorFor(AI_FIRECRAWL_API_KEY_SETTING_KEY)}
           />
-        </PanelDialog.Section>
+        </SettingsSection>
       </Show>
 
       <Show when={props.section === "providers"}>
-        <section class="flex min-h-0 flex-col gap-3" aria-label="AI providers">
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <Tooltip content="API keys are never exported">
-              <Button type="button" variant="secondary" size="sm" onClick={exportJson}>
-                <i class="ti ti-file-export" /> Export JSON
+        <DataTable.Panel>
+          <DataTable.Header title="Model profiles" subtitle="Models, credentials, capabilities, and endpoint policy.">
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <Tooltip content="API keys are never exported">
+                <Button type="button" variant="secondary" size="sm" onClick={exportJson}>
+                  <i class="ti ti-file-export" /> Export JSON
+                </Button>
+              </Tooltip>
+              <Button type="button" variant="secondary" size="sm" onClick={() => void importJson()}>
+                <i class="ti ti-file-import" /> Import JSON
               </Button>
-            </Tooltip>
-            <Button type="button" variant="secondary" size="sm" onClick={() => void importJson()}>
-              <i class="ti ti-file-import" /> Import JSON
-            </Button>
-            <Button type="button" variant="ai" size="sm" onClick={() => void addProvider()}>
-              <i class="ti ti-plus" /> Add provider
-            </Button>
-          </div>
-
+              <Button type="button" variant="ai" size="sm" onClick={() => void addProvider()}>
+                <i class="ti ti-plus" /> Add provider
+              </Button>
+            </div>
+          </DataTable.Header>
           <Show
             when={!profilesState().error && profiles().length > 0}
             fallback={
-              <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-6 text-center text-sm text-red-800 dark:border-red-900/70 dark:bg-red-950/35 dark:text-red-200">
-                <p class="flex items-center justify-center gap-2 font-medium">
-                  <i class="ti ti-alert-circle text-base" />
-                  {profilesState().error ? "Model profiles need attention" : "No providers configured"}
-                </p>
-                <p class="mx-auto mt-2 max-w-xl text-red-700/80 dark:text-red-200/80">
-                  {profilesState().error ??
-                    "You need at least one provider profile to start chatting. Add OpenRouter, OpenAI, Ollama, or any OpenAI-compatible endpoint."}
-                </p>
-                <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
-              </div>
+              <NoticeCard
+                class="m-3"
+                tone={profilesState().error ? "danger" : "info"}
+                title={profilesState().error ? "Model profiles need attention" : "No providers configured"}
+                detail={
+                  profilesState().error ??
+                  "Add a hosted or private model profile before Cloud AI can start conversations."
+                }
+              />
             }
           >
-            <div class="grid gap-3 lg:grid-cols-2">
-              {profiles().map((profile) => (
-                <AiProfileCard
-                  profile={profile}
-                  hasCredential={() => hasCredential(profile)}
-                  isDefault={() => profile.id === defaultModelId()}
-                  onSetDefault={() => setDefaultModel(profile.id)}
-                  onEdit={() => void editProfile(profile)}
-                  onDuplicate={() => duplicateProfile(profile)}
-                  onRemove={() => void removeProfile(profile)}
-                />
-              ))}
-            </div>
-            <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
+            <AiProfilesTable
+              profiles={profiles()}
+              hasCredential={hasCredential}
+              defaultModelId={defaultModelId()}
+              onSetDefault={setDefaultModel}
+              onEdit={(profile) => void editProfile(profile)}
+              onDuplicate={duplicateProfile}
+              onRemove={(profile) => void removeProfile(profile)}
+            />
           </Show>
-        </section>
+          <Show when={props.errorFor(AI_PROFILE_SETTING_KEY)}>
+            <div class="px-3 pb-3">
+              <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
+            </div>
+          </Show>
+        </DataTable.Panel>
       </Show>
     </div>
   );
@@ -1309,108 +1305,138 @@ const AI_PROMPT_TEMPLATE_VARIABLES: readonly TemplateVariable[] = [
   { name: "time" },
 ];
 
-function AiProfileCard(props: {
-  profile: AiModelProfileDraft;
-  hasCredential: () => boolean;
-  isDefault: () => boolean;
-  onSetDefault: () => void;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onRemove: () => void;
-}) {
-  const provider = () => providerOption(props.profile.provider);
-  const dataBoundary = () => dataBoundaryOption(props.profile.dataBoundary);
+const AI_PROFILE_COLUMNS: readonly DataTableColumn<AiModelProfileDraft>[] = [
+  { id: "provider", header: "Provider", cellClass: "min-w-64" },
+  { id: "status", header: "Status", cellClass: "min-w-40" },
+  { id: "endpoint", header: "Endpoint", cellClass: "min-w-56" },
+  { id: "policy", header: "Policy", cellClass: "min-w-64" },
+  { id: "actions", header: "Actions", align: "right", cellClass: "w-px" },
+];
 
+function AiProfilesTable(props: {
+  profiles: readonly AiModelProfileDraft[];
+  hasCredential: (profile: AiModelProfileDraft) => boolean;
+  defaultModelId: string;
+  onSetDefault: (profileId: string) => void;
+  onEdit: (profile: AiModelProfileDraft) => void;
+  onDuplicate: (profile: AiModelProfileDraft) => void;
+  onRemove: (profile: AiModelProfileDraft) => void;
+}) {
   return (
-    <article class="flex min-w-0 flex-col gap-3 rounded-lg border border-default bg-surface p-3">
-      <div class="flex min-w-0 items-start justify-between gap-3">
-        <div class="flex min-w-0 flex-1 items-start gap-2.5">
-          <Show
-            when={props.profile.image}
-            fallback={
-              <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-surface-muted text-dimmed">
-                <i class="ti ti-sparkles" aria-hidden="true" />
-              </span>
-            }
-          >
-            {(source) => <img src={source()} alt="" class="h-8 w-8 shrink-0 rounded-md object-cover" aria-hidden="true" />}
-          </Show>
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <h3 class="truncate text-sm font-semibold text-primary">{props.profile.label}</h3>
-              <Show when={props.isDefault()}>
+    <DataTable
+      ariaLabel="AI providers"
+      rows={props.profiles}
+      columns={AI_PROFILE_COLUMNS}
+      getRowId={(profile) => profile.id}
+      density="compact"
+      verticalAlign="top"
+      highlightColumns={false}
+      tableClass="w-full"
+      renderCell={({ row: profile, col }) => {
+        if (col.id === "provider") {
+          const provider = providerOption(profile.provider);
+          return (
+            <div class="flex min-w-0 items-center gap-2.5">
+              <Show
+                when={profile.image}
+                fallback={
+                  <span class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-surface-muted text-dimmed">
+                    <i class="ti ti-sparkles" aria-hidden="true" />
+                  </span>
+                }
+              >
+                {(source) => <img src={source()} alt="" class="h-8 w-8 shrink-0 rounded-md object-cover" aria-hidden="true" />}
+              </Show>
+              <div class="min-w-0">
+                <p class="truncate text-xs font-semibold text-primary">{profile.label}</p>
+                <p class="mt-0.5 truncate text-[10px] text-dimmed" title={`${provider.label} · ${profile.model}`}>
+                  {provider.label} · <code>{profile.model}</code>
+                </p>
+              </div>
+            </div>
+          );
+        }
+        if (col.id === "status") {
+          return (
+            <div class="flex flex-wrap gap-1">
+              <Show when={profile.id === props.defaultModelId}>
                 <StatusBadge tone="running" label="Default" icon={null} />
               </Show>
-              <StatusBadge
-                tone={props.profile.enabled ? "ok" : "neutral"}
-                label={props.profile.enabled ? "Enabled" : "Disabled"}
-                icon={null}
-              />
-              <Show when={props.hasCredential()}>
+              <StatusBadge tone={profile.enabled ? "ok" : "neutral"} label={profile.enabled ? "Enabled" : "Disabled"} icon={null} />
+              <Show when={props.hasCredential(profile)}>
                 <StatusBadge tone="running" label="Key configured" icon={null} />
               </Show>
             </div>
-            <p class="mt-1 truncate text-xs text-dimmed" title={`${provider().label} · ${props.profile.model}`}>
-              {provider().label} · <code>{props.profile.model}</code>
-            </p>
-          </div>
-        </div>
-        <div class="flex shrink-0 gap-1">
-          <Tooltip content="Edit profile">
-            <IconButton label="Edit profile" size="sm" onClick={props.onEdit}>
-              <i class="ti ti-pencil" aria-hidden="true" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip content="Duplicate profile">
-            <IconButton label="Duplicate profile" size="sm" onClick={props.onDuplicate}>
-              <i class="ti ti-copy" aria-hidden="true" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip content="Remove profile">
-            <IconButton label="Remove profile" size="sm" class="text-danger" onClick={props.onRemove}>
-              <i class="ti ti-trash" aria-hidden="true" />
-            </IconButton>
-          </Tooltip>
-        </div>
-      </div>
-
-      <dl class="grid min-w-0 gap-2 text-[11px] sm:grid-cols-2">
-        <div class="min-w-0">
-          <dt class="text-dimmed">Profile ID</dt>
-          <dd class="m-0 truncate text-primary" title={props.profile.id}>
-            <code>{props.profile.id}</code>
-          </dd>
-        </div>
-        <Show when={props.profile.baseURL}>
-          {(baseURL) => (
-            <div class="min-w-0">
-              <dt class="text-dimmed">Base URL</dt>
-              <dd class="m-0 truncate text-primary" title={baseURL()}>
-                {baseURL()}
-              </dd>
+          );
+        }
+        if (col.id === "endpoint") {
+          return (
+            <dl class="grid min-w-0 gap-1 text-[10px]">
+              <div class="min-w-0">
+                <dt class="text-dimmed">Profile ID</dt>
+                <dd class="m-0 truncate text-primary" title={profile.id}>
+                  <code>{profile.id}</code>
+                </dd>
+              </div>
+              <Show when={profile.baseURL} fallback={<span class="text-dimmed">Provider default</span>}>
+                {(baseURL) => (
+                  <div class="min-w-0">
+                    <dt class="text-dimmed">Base URL</dt>
+                    <dd class="m-0 truncate text-primary" title={baseURL()}>
+                      {baseURL()}
+                    </dd>
+                  </div>
+                )}
+              </Show>
+            </dl>
+          );
+        }
+        if (col.id === "policy") {
+          const boundary = dataBoundaryOption(profile.dataBoundary);
+          return (
+            <div class="flex flex-wrap gap-1">
+              <StatusBadge tone="neutral" label={boundary.label} icon={null} />
+              {profile.capabilities.map((capability) => (
+                <StatusBadge tone="neutral" label={`supports ${capability}`} icon={null} />
+              ))}
             </div>
-          )}
-        </Show>
-      </dl>
-
-      <div class="flex flex-wrap gap-1">
-        {[dataBoundary().label, ...props.profile.capabilities.map((capability) => `supports ${capability}`)].map((label) => (
-          <StatusBadge tone="neutral" label={label} icon={null} />
-        ))}
-      </div>
-
-      <div class="flex justify-start border-t border-default pt-3">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={props.onSetDefault}
-          disabled={props.isDefault() || !props.profile.enabled}
-        >
-          <i class="ti ti-star" /> Set default
-        </Button>
-      </div>
-    </article>
+          );
+        }
+        if (col.id === "actions") {
+          const isDefault = profile.id === props.defaultModelId;
+          return (
+            <div class="flex items-center justify-end gap-1">
+              <Tooltip content={isDefault ? "Default provider" : "Set as default"}>
+                <IconButton
+                  label={isDefault ? "Default provider" : "Set as default"}
+                  size="sm"
+                  disabled={isDefault || !profile.enabled}
+                  onClick={() => props.onSetDefault(profile.id)}
+                >
+                  <i class="ti ti-star" aria-hidden="true" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip content="Edit profile">
+                <IconButton label="Edit profile" size="sm" onClick={() => props.onEdit(profile)}>
+                  <i class="ti ti-pencil" aria-hidden="true" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip content="Duplicate profile">
+                <IconButton label="Duplicate profile" size="sm" onClick={() => props.onDuplicate(profile)}>
+                  <i class="ti ti-copy" aria-hidden="true" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip content="Remove profile">
+                <IconButton label="Remove profile" size="sm" class="text-danger" onClick={() => props.onRemove(profile)}>
+                  <i class="ti ti-trash" aria-hidden="true" />
+                </IconButton>
+              </Tooltip>
+            </div>
+          );
+        }
+        return "";
+      }}
+    />
   );
 }
 
@@ -1697,7 +1723,7 @@ async function openAiProfileDialog(input: {
                 Cancel
               </Button>
               <Button type="submit" variant="ai" size="sm">
-                <i class="ti ti-check" /> Save
+                <i class="ti ti-check" /> Apply changes
               </Button>
             </div>
           </PanelDialog.Footer>

@@ -3,6 +3,7 @@ export type {
   SettingsPageProps,
   SettingsPanelFooterProps,
   SettingsSaveBarProps,
+  SettingsSectionProps,
 } from "./Settings";
 export {
   readSettingsError,
@@ -10,6 +11,7 @@ export {
   SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
+  SettingsSection,
   sameSettingValue,
 } from "./Settings";
 export type { SettingsModalProps, SettingsModalTabProps, SettingsModalTabTone } from "./SettingsModal";

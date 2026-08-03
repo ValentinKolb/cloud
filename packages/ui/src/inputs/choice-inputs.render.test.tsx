@@ -84,6 +84,8 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(checkbox).toContain("k2b-field__required");
     expect(card).toContain('data-state="checked"');
     expect(card).toContain("ti ti-flask");
+    expect(cssRule('.k2b-ui .k2b-checkbox-card[data-state="checked"]')).toContain("border-color: var(--k2b-action)");
+    expect(cssRule('.k2b-ui .k2b-checkbox-card[data-state="checked"]')).not.toContain("background");
     expect(toggle).toContain('role="switch"');
     expect(toggle).toContain("checked");
   });
