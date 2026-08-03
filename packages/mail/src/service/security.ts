@@ -1,6 +1,6 @@
 import { domainToASCII } from "node:url";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
-import { audit, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { audit, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type {
   CreateMailProtectedIdentityInput,
@@ -452,13 +452,13 @@ export const createProtectedIdentity = async (params: {
   const allowed = await requirePlatformAdmin(params.context);
   if (!allowed.ok) return allowed;
   const domains = [...new Set(params.input.allowedDomains.map(normalizeDomain))];
-  if (domains.some((domain) => !domain)) return fail(err.badInput("Enter valid allowed domains"));
+  if (!domains.every((domain): domain is string => domain !== null)) return fail(err.badInput("Enter valid allowed domains"));
   const creator = userBackedActor(params.context)?.id ?? null;
   try {
     const [row] = await sql<DbIdentity[]>`
       INSERT INTO mail.protected_identities (name, normalized_name, allowed_domains, note, enabled, created_by_user_id)
       VALUES (
-        ${params.input.name}, ${normalizeIdentityName(params.input.name)}, ${domains as string[]}::text[],
+        ${params.input.name}, ${normalizeIdentityName(params.input.name)}, ${toPgTextArray(domains)}::text[],
         ${params.input.note ?? null}, ${params.input.enabled}, ${creator}::uuid
       )
       RETURNING id, name, allowed_domains, note, enabled, created_at, updated_at
