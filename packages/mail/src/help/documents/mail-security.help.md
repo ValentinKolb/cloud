@@ -35,8 +35,8 @@ Open **Administration > Mail > Security** to review reports and manage organizat
 
 - **Block** rules may target one exact sender address, or a sender or link destination domain including its subdomains.
 - **Trust** rules accept one sender address or sender domain only when trusted mail-server authentication also passes. Trust never overrides an explicit block.
-- **Protected identities** connect an exact visible sender name, such as a company or service, to its allowed domains.
-- **Trusted authentication sources** lists the receiving mail servers whose sender-verification results Mail may trust. Leave this empty until your mail administrator supplies the correct server name.
+- **Protected identities** connect an exact visible sender name, such as a company or service, to its allowed domains. A mismatch creates a warning; it does not delete or move the message.
+- **Trusted authentication sources** lists the receiving mail servers whose sender-verification results Mail may trust. These are server names from `Authentication-Results`, not sender domains. Leave this empty until your mail administrator supplies the correct value.
 
 Keep rules narrow and include a short reason for other administrators. Review reports before adding organization-wide blocks. Mail deliberately does not import public reputation lists or automatically report mail to your provider.
 

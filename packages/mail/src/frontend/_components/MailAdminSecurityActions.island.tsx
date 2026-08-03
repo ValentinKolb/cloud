@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, IconButton, prompts } from "@k2b/ui";
+import { Button, IconButton, NoticeCard, prompts } from "@k2b/ui";
 import { apiClient } from "../../api/client";
 import type { MailProtectedIdentity, MailSecurityPolicy, MailSecurityReport } from "../../security-contracts";
 import { readApiError } from "./api-response";
@@ -24,6 +24,16 @@ function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }
         title: "Add Mail security rule",
         icon: "ti ti-shield-plus",
         fields: {
+          guidance: {
+            type: "info",
+            content: () => (
+              <NoticeCard
+                tone="info"
+                title="Rules affect every mailbox"
+                detail="Block only a known bad address or domain. Trust only a known sender that also passes authentication from a configured receiving server; trust never overrides a block."
+              />
+            ),
+          },
           disposition: {
             type: "select",
             label: "Rule",
@@ -80,6 +90,16 @@ function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }
         title: "Protect a sender identity",
         icon: "ti ti-user-shield",
         fields: {
+          guidance: {
+            type: "info",
+            content: () => (
+              <NoticeCard
+                tone="info"
+                title="Visible sender names can be copied"
+                detail="Enter the exact name readers normally see and the domains that may legitimately use it. Mail warns on a mismatch but does not delete or move the message."
+              />
+            ),
+          },
           name: { type: "text", label: "Visible sender name", required: true },
           domains: {
             type: "tags",
@@ -109,6 +129,16 @@ function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }
         title: "Trusted authentication results",
         icon: "ti ti-certificate",
         fields: {
+          guidance: {
+            type: "info",
+            content: () => (
+              <NoticeCard
+                tone="info"
+                title="These are receiving-server names, not sender domains"
+                detail="Add only the Authentication-Results server names confirmed by your mail administrator. An incorrect value could make legitimate verification evidence unavailable."
+              />
+            ),
+          },
           servers: {
             type: "tags",
             label: "Authentication server names",
