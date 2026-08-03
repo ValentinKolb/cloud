@@ -5,12 +5,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import type { MailProtectedIdentity, MailSecurityPolicy, MailSecurityReport } from "../security-contracts";
 import { type MailRequestContext, security } from "../service";
-import {
-  MailAdminPolicyActions,
-  MailAdminProtectedIdentityActions,
-  MailAdminReportActions,
-  MailAdminSecurityToolbar,
-} from "./_components/MailAdminSecurityActions.island";
+import MailAdminSecurityActions from "./_components/MailAdminSecurityActions.island";
 
 export default ssr<AuthContext>(async (c) => {
   const context: MailRequestContext = {
@@ -65,7 +60,7 @@ export default ssr<AuthContext>(async (c) => {
               Review user reports and maintain narrow, explainable protection rules. Message bodies stay out of this page.
             </p>
           </div>
-          <MailAdminSecurityToolbar trustedAuthservIds={settingsResult.ok ? settingsResult.data.trustedAuthservIds : null} />
+          <MailAdminSecurityActions kind="toolbar" trustedAuthservIds={settingsResult.ok ? settingsResult.data.trustedAuthservIds : null} />
         </div>
 
         <StatGrid columns={4}>
@@ -141,7 +136,7 @@ export default ssr<AuthContext>(async (c) => {
                       {dates.formatDateTimeRelative(row.updatedAt, dateConfig)}
                     </time>
                   );
-                if (col.id === "actions") return <MailAdminReportActions report={row} />;
+                if (col.id === "actions") return <MailAdminSecurityActions kind="report" report={row} />;
                 return "";
               }}
             />
@@ -180,7 +175,7 @@ export default ssr<AuthContext>(async (c) => {
                   );
                 if (col.id === "state")
                   return <StatusBadge tone={row.enabled ? "ok" : "neutral"} label={row.enabled ? "Active" : "Paused"} />;
-                if (col.id === "actions") return <MailAdminPolicyActions policy={row} />;
+                if (col.id === "actions") return <MailAdminSecurityActions kind="policy" policy={row} />;
                 return "";
               }}
             />
@@ -204,7 +199,7 @@ export default ssr<AuthContext>(async (c) => {
               renderCell={({ row, col }) => {
                 if (col.id === "name") return <span class="font-medium text-primary">{row.name}</span>;
                 if (col.id === "domains") return <span class="font-mono text-xs text-secondary">{row.allowedDomains.join(", ")}</span>;
-                if (col.id === "actions") return <MailAdminProtectedIdentityActions identity={row} />;
+                if (col.id === "actions") return <MailAdminSecurityActions kind="protected-identity" identity={row} />;
                 return "";
               }}
             />

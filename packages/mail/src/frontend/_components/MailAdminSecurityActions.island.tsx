@@ -17,7 +17,7 @@ type ProtectedIdentityForm = { name: string; domains: string[]; note?: string };
 type AuthenticationForm = { servers?: string[] };
 type ResolutionForm = { note?: string };
 
-export function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }) {
+function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }) {
   const createPolicy = mutation.create<boolean, void>({
     mutation: async (_, { abortSignal }) => {
       const values = (await prompts.form({
@@ -152,7 +152,7 @@ export function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] |
   );
 }
 
-export function MailAdminReportActions(props: { report: MailSecurityReport }) {
+function MailAdminReportActions(props: { report: MailSecurityReport }) {
   const resolve = mutation.create<boolean, MailSecurityReport["status"]>({
     mutation: async (status, { abortSignal }) => {
       const values = (await prompts.form({
@@ -228,7 +228,7 @@ export function MailAdminReportActions(props: { report: MailSecurityReport }) {
   );
 }
 
-export function MailAdminPolicyActions(props: { policy: MailSecurityPolicy }) {
+function MailAdminPolicyActions(props: { policy: MailSecurityPolicy }) {
   const update = mutation.create<boolean, "toggle" | "delete">({
     mutation: async (operation, { abortSignal }) => {
       if (operation === "delete") {
@@ -267,7 +267,7 @@ export function MailAdminPolicyActions(props: { policy: MailSecurityPolicy }) {
   );
 }
 
-export function MailAdminProtectedIdentityActions(props: { identity: MailProtectedIdentity }) {
+function MailAdminProtectedIdentityActions(props: { identity: MailProtectedIdentity }) {
   const remove = mutation.create<boolean, void>({
     mutation: async (_, { abortSignal }) => {
       const confirmed = await prompts.confirm("Mail will stop checking this visible sender name.", {
@@ -291,4 +291,23 @@ export function MailAdminProtectedIdentityActions(props: { identity: MailProtect
       <i class="ti ti-trash" aria-hidden="true" />
     </IconButton>
   );
+}
+
+type MailAdminSecurityActionsProps =
+  | { kind: "toolbar"; trustedAuthservIds: string[] | null }
+  | { kind: "report"; report: MailSecurityReport }
+  | { kind: "policy"; policy: MailSecurityPolicy }
+  | { kind: "protected-identity"; identity: MailProtectedIdentity };
+
+export default function MailAdminSecurityActions(props: MailAdminSecurityActionsProps) {
+  if (props.kind === "toolbar") {
+    return <MailAdminSecurityToolbar trustedAuthservIds={props.trustedAuthservIds} />;
+  }
+  if (props.kind === "report") {
+    return <MailAdminReportActions report={props.report} />;
+  }
+  if (props.kind === "policy") {
+    return <MailAdminPolicyActions policy={props.policy} />;
+  }
+  return <MailAdminProtectedIdentityActions identity={props.identity} />;
 }
