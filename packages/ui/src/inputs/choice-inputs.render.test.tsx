@@ -347,11 +347,14 @@ describe("@k2b/ui complete choice input migrations", () => {
   test("sizes a multiline text input from its lines prop", () => {
     const two = renderToString(() => createComponent(TextInput, { label: "Notes", multiline: true, lines: 2 }));
     const fallback = renderToString(() => createComponent(TextInput, { label: "Notes", multiline: true }));
+    const multilineIcon = cssRule('.k2b-ui .k2b-text-input[data-multiline="true"] .k2b-text-input__icon');
 
     expect(two).toContain("--k2b-editor-lines:2");
     expect(two).toContain('rows="2"');
     expect(fallback).toContain("--k2b-editor-lines:3");
     expect(cssRule(".k2b-ui .k2b-text-input__textarea")).toContain("var(--k2b-editor-lines, 3)");
+    expect(multilineIcon).toContain("height: 1.25rem");
+    expect(multilineIcon).toContain("margin-top: 0.375rem");
   });
 
   test("keeps checkbox, switch and colour geometry aligned with the Cloud controls", () => {
