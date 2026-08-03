@@ -52,10 +52,10 @@ const INTEGER_FREEIPA_SETTINGS = new Set(["freeipa.sync_guard.max_user_changes",
  * Doing this in the route rather than the settings service keeps the generic
  * store free of AI knowledge, and keeps the admin page at a single save request.
  */
-const storeAiCredentials = async (split: NonNullable<ReturnType<typeof splitAiProfileCredentials>>): Promise<void> => {
-  for (const { profileId, secret } of split.credentials) await setAiCredential(profileId, secret);
+const storeAiCredentials = async (split: NonNullable<ReturnType<typeof splitAiProfileCredentials>>, db: typeof sql): Promise<void> => {
+  for (const { profileId, secret } of split.credentials) await setAiCredential(profileId, secret, db);
   // A profile deleted in this save must not leave its key behind.
-  await pruneAiCredentials(split.profileIds);
+  await pruneAiCredentials(split.profileIds, db);
 };
 const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app.settingKeys ?? [])]);
 
@@ -166,9 +166,8 @@ const app = new Hono<AuthContext>()
 
     const fieldErrors: FieldErrors = {};
     try {
-      // Every write runs on the transaction's own connection, so a failure
-      // rolls the whole save back rather than leaving the keys ahead of it
-      // applied.
+      // Every settings and AI credential write runs on the transaction's own
+      // connection, so a failure rolls the whole save back.
       await sql.begin(async (tx) => {
         for (const [key, value] of Object.entries(finalValues)) {
           try {
@@ -186,11 +185,11 @@ const app = new Hono<AuthContext>()
             throw error;
           }
         }
+        if (aiSplit) await storeAiCredentials(aiSplit, tx);
       });
       // Only now: dropping the cache before the commit would let another
       // container miss, read the pre-commit row and cache it for the full TTL.
       await settings.invalidateSettingsCache(keys);
-      if (aiSplit) await storeAiCredentials(aiSplit);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Save failed";
       return c.json(

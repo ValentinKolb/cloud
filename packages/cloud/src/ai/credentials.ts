@@ -1,5 +1,8 @@
 import { sql } from "bun";
+import { toPgTextArray } from "../services/postgres";
 import { decryptValue, encryptValue } from "../services/settings/crypto";
+
+type SqlClient = typeof sql;
 
 /**
  * Provider API keys, one per model profile.
@@ -27,9 +30,9 @@ export const getAiCredential = async (profileId: string): Promise<string | null>
 };
 
 /** Store or replace a profile's key. */
-export const setAiCredential = async (profileId: string, secret: string): Promise<void> => {
+export const setAiCredential = async (profileId: string, secret: string, db: SqlClient = sql): Promise<void> => {
   const encrypted = await encryptValue(secret);
-  await sql`
+  await db`
     INSERT INTO ai.model_credentials (profile_id, secret)
     VALUES (${profileId}, ${encrypted})
     ON CONFLICT (profile_id) DO UPDATE
@@ -52,12 +55,12 @@ export const listAiCredentialProfileIds = async (): Promise<string[]> => {
  * key behind, and makes recreating an id a clean slate rather than a silent
  * inheritance.
  */
-export const pruneAiCredentials = async (keepProfileIds: readonly string[]): Promise<void> => {
+export const pruneAiCredentials = async (keepProfileIds: readonly string[], db: SqlClient = sql): Promise<void> => {
   if (keepProfileIds.length === 0) {
-    await sql`DELETE FROM ai.model_credentials`;
+    await db`DELETE FROM ai.model_credentials`;
     return;
   }
-  await sql`DELETE FROM ai.model_credentials WHERE profile_id <> ALL(${[...keepProfileIds]}::text[])`;
+  await db`DELETE FROM ai.model_credentials WHERE profile_id <> ALL(${toPgTextArray([...keepProfileIds])}::text[])`;
 };
 
 /**

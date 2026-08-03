@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { splitAiProfileCredentials } from "./credentials";
+import type { sql } from "bun";
+import { pruneAiCredentials, splitAiProfileCredentials } from "./credentials";
+
+const recordingSql = () => {
+  const calls: Array<{ text: string; values: unknown[] }> = [];
+  const db = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    calls.push({ text: strings.join("?"), values });
+    return Promise.resolve([]);
+  }) as unknown as typeof sql;
+  return { calls, db };
+};
 
 const profile = (extra: Record<string, unknown> = {}) => ({
   id: "openrouter-fast",
@@ -51,5 +61,17 @@ describe("splitAiProfileCredentials", () => {
 
     expect(split?.credentials).toEqual([]);
     expect(split?.profileIds).toEqual([]);
+  });
+});
+
+describe("pruneAiCredentials", () => {
+  test("uses the provided transaction client and a valid Postgres text array literal", async () => {
+    const { calls, db } = recordingSql();
+
+    await pruneAiCredentials(["qwen3.6", "cortecs-glm-5.2"], db);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.text).toContain("profile_id <> ALL(?::text[])");
+    expect(calls[0]?.values).toEqual(['{"qwen3.6","cortecs-glm-5.2"}']);
   });
 });
