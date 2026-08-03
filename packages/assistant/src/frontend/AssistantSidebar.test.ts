@@ -14,6 +14,7 @@ const conversation = (id: string, updatedAt: string, pinnedAt: string | null = n
   pinnedAt,
   archivedAt: null,
   runStatus: "idle",
+  runError: null,
   unreadCompletion: false,
   resource: { kind: "direct" },
   createdByUserId: "user-1",

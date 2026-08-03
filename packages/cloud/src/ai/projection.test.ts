@@ -16,6 +16,7 @@ const conversation: AiConversation = {
   pinnedAt: null,
   archivedAt: null,
   runStatus: "idle",
+  runError: null,
   unreadCompletion: false,
   resource: { kind: "direct" },
   createdByUserId: "user-1",

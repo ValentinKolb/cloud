@@ -142,6 +142,8 @@ export type AiConversation = {
   pinnedAt: string | null;
   archivedAt: string | null;
   runStatus: AiConversationRunStatus;
+  /** Error from the latest turn when `runStatus` is `failed`. */
+  runError: string | null;
   unreadCompletion: boolean;
   resource: AiConversationResource;
   createdByUserId: string | null;

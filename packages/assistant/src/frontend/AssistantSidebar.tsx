@@ -112,6 +112,7 @@ function ConversationSidebarItem(props: {
       <AppWorkspace.SidebarItemAction
         icon="ti ti-settings"
         label={`Edit ${props.conversation.title}`}
+        visibility="hover"
         onSelect={() => props.edit(props.conversation)}
       />
     </AppWorkspace.SidebarItem>

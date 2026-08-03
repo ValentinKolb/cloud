@@ -882,22 +882,29 @@ suite("AI conversation store integration", () => {
       // (store.ts sets `completed_at = now()`). Stamping it from the Bun clock
       // instead compares two clocks in the unreadCompletion check, and a
       // millisecond of skew makes a viewed conversation stay unread.
-      const insertTurn = async (conversationId: string, status: string, completed = false) => {
+      const insertTurn = async (conversationId: string, status: string, completed = false, error: string | null = null) => {
         await sql`
-          INSERT INTO ai.turns (conversation_id, status, completed_at)
-          VALUES (${conversationId}::uuid, ${status}, CASE WHEN ${completed} THEN now() ELSE NULL END)
+          INSERT INTO ai.turns (conversation_id, status, completed_at, error)
+          VALUES (${conversationId}::uuid, ${status}, CASE WHEN ${completed} THEN now() ELSE NULL END, ${error})
         `;
       };
       await insertTurn(running.id, "running");
       await insertTurn(attention.id, "waiting_for_action");
-      await insertTurn(failed.id, "failed", true);
+      await insertTurn(failed.id, "failed", true, "Provider unavailable");
       await insertTurn(done.id, "completed", true);
 
       const summaries = await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId });
       expect(summaries.find((item) => item.id === running.id)?.runStatus).toBe("running");
       expect(summaries.find((item) => item.id === attention.id)?.runStatus).toBe("needs_attention");
-      expect(summaries.find((item) => item.id === failed.id)?.runStatus).toBe("failed");
-      expect(summaries.find((item) => item.id === done.id)).toMatchObject({ runStatus: "idle", unreadCompletion: true });
+      expect(summaries.find((item) => item.id === failed.id)).toMatchObject({
+        runStatus: "failed",
+        runError: "Provider unavailable",
+      });
+      expect(summaries.find((item) => item.id === done.id)).toMatchObject({
+        runStatus: "idle",
+        runError: null,
+        unreadCompletion: true,
+      });
       expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "running" })).toHaveLength(1);
       expect(
         await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "needs_attention" }),

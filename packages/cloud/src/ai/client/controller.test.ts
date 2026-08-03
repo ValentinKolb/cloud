@@ -1,15 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { AiTurnBlock } from "../protocol";
+import type { AiStreamSseEvent, AiTurnBlock } from "../protocol";
 import type { AiConversation } from "../types";
 import { __aiControllerTest } from "./controller";
 import type { AiChatProjection } from "./projection";
 
 const {
   claimFrontendCall,
+  conversationRunError,
   failSteerBlock,
   isCurrentStreamSession,
   projectionForConversationOpen,
   reconcileSteerBlocks,
+  runErrorFromEvent,
   settleFrontendCall,
 } = __aiControllerTest;
 
@@ -25,6 +27,7 @@ const conversation = (id: string): AiConversation => ({
   pinnedAt: null,
   archivedAt: null,
   runStatus: "idle",
+  runError: null,
   unreadCompletion: false,
   resource: { kind: "direct" },
   createdByUserId: "user-1",
@@ -54,6 +57,38 @@ describe("AI controller stream sessions", () => {
     expect(isCurrentStreamSession(b, firstA)).toBe(false);
     expect(isCurrentStreamSession(secondA, firstA)).toBe(false);
     expect(isCurrentStreamSession(secondA, secondA)).toBe(true);
+  });
+});
+
+describe("AI controller turn failures", () => {
+  test("restores the durable latest-turn error from a state snapshot", () => {
+    const failed = { ...conversation("failed"), runStatus: "failed" as const, runError: "Provider unavailable" };
+    const event: AiStreamSseEvent = { type: "state", conversation: failed, messages: [], activeTurn: null };
+
+    expect(conversationRunError(failed)).toBe("Provider unavailable");
+    expect(runErrorFromEvent(event, null)).toBe("Provider unavailable");
+  });
+
+  test("uses the current finished turn and ignores stale turn events", () => {
+    const failed: AiStreamSseEvent = {
+      v: 1,
+      type: "turn_finished",
+      conversationId: "chat",
+      turnId: "turn-1",
+      attempt: 1,
+      seq: 2,
+      status: "failed",
+      error: "Unauthorized",
+    };
+
+    expect(runErrorFromEvent(failed, "turn-1")).toBe("Unauthorized");
+    expect(runErrorFromEvent(failed, "older-turn")).toBeUndefined();
+    expect(runErrorFromEvent({ ...failed, status: "completed", error: null }, "turn-1")).toBeNull();
+  });
+
+  test("falls back to stable user-facing copy when no error was persisted", () => {
+    const failed = { ...conversation("failed"), runStatus: "failed" as const, runError: null };
+    expect(conversationRunError(failed)).toBe("Assistant response failed.");
   });
 });
 

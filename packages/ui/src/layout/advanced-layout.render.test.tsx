@@ -57,6 +57,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
                                   createComponent(AppWorkspace.SidebarItemAction, {
                                     icon: "ti ti-dots",
                                     label: "Row action",
+                                    visibility: "hover",
                                   }),
                                 ];
                               },
@@ -132,6 +133,8 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(html).toContain('data-width="lg"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('aria-label="Row action"');
+    expect(html).toContain('data-action-visibility="hover"');
+    expect(html).toContain('data-visibility="hover"');
     expect(html).toContain('role="tree"');
     expect(html).toContain('aria-label="Inventory navigation"');
     expect(html).toContain('role="treeitem"');
@@ -176,6 +179,17 @@ describe("@k2b/ui complete advanced layout migrations", () => {
 
     expect(rule).toContain("resize: none");
     expect(rule).not.toContain("resize: both");
+  });
+
+  test("reveals hover sidebar actions for pointer and keyboard users without hiding them on touch", async () => {
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+
+    expect(css).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(css).toContain('.k2b-app-workspace__sidebar-item-action[data-visibility="hover"]');
+    expect(css).toContain(":is(:hover, :focus-within)");
+    expect(css).toContain("gap: 0");
+    expect(css).toContain("pointer-events: none");
+    expect(css).toContain("pointer-events: auto");
   });
 
   // FloatingWindow portals its frame, so SSR yields no markup to assert on.

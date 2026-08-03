@@ -47,6 +47,7 @@ type ConversationRow = {
   archived_at: Date | string | null;
   last_viewed_at: Date | string | null;
   latest_turn_status?: AiTurnStatus | null;
+  latest_turn_error?: string | null;
   latest_turn_completed_at?: Date | string | null;
   enrich_fail_count: number | null;
   created_by_user_id: string | null;
@@ -189,6 +190,7 @@ const rowToConversation = (row: ConversationRow): AiConversation => ({
   pinnedAt: row.pinned_at ? iso(row.pinned_at) : null,
   archivedAt: row.archived_at ? iso(row.archived_at) : null,
   runStatus: conversationRunStatus(row.latest_turn_status),
+  runError: row.latest_turn_status === "failed" ? row.latest_turn_error?.trim() || "Assistant response failed." : null,
   unreadCompletion:
     row.latest_turn_status === "completed" &&
     Boolean(row.latest_turn_completed_at) &&
@@ -369,10 +371,11 @@ const loadConversationSummary = async (input: {
     SELECT
       conversation.*,
       latest.status AS latest_turn_status,
+      latest.error AS latest_turn_error,
       latest.completed_at AS latest_turn_completed_at
     FROM ai.conversations conversation
     LEFT JOIN LATERAL (
-      SELECT status, completed_at
+      SELECT status, error, completed_at
       FROM ai.turns
       WHERE conversation_id = conversation.id
       ORDER BY created_at DESC, id DESC
@@ -581,10 +584,14 @@ export const aiConversationStore: AiConversationStore = {
     const status = input.status ?? null;
     const limit = input.limit && input.limit > 0 ? Math.min(input.limit, 500) : 100;
     const rows = await sql<ConversationRow[]>`
-      SELECT conversation.*, latest.status AS latest_turn_status, latest.completed_at AS latest_turn_completed_at
+      SELECT
+        conversation.*,
+        latest.status AS latest_turn_status,
+        latest.error AS latest_turn_error,
+        latest.completed_at AS latest_turn_completed_at
       FROM ai.conversations conversation
       LEFT JOIN LATERAL (
-        SELECT status, completed_at
+        SELECT status, error, completed_at
         FROM ai.turns
         WHERE conversation_id = conversation.id
         ORDER BY created_at DESC, id DESC
@@ -619,10 +626,14 @@ export const aiConversationStore: AiConversationStore = {
     const status = input.status ?? null;
     const { page, perPage, offset } = sanitizePagination(input);
     const rows = await sql<ConversationRow[]>`
-      SELECT conversation.*, latest.status AS latest_turn_status, latest.completed_at AS latest_turn_completed_at
+      SELECT
+        conversation.*,
+        latest.status AS latest_turn_status,
+        latest.error AS latest_turn_error,
+        latest.completed_at AS latest_turn_completed_at
       FROM ai.conversations conversation
       LEFT JOIN LATERAL (
-        SELECT status, completed_at
+        SELECT status, error, completed_at
         FROM ai.turns
         WHERE conversation_id = conversation.id
         ORDER BY created_at DESC, id DESC

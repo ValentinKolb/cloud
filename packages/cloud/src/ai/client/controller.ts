@@ -51,6 +51,20 @@ const settleFrontendCall = (handled: Set<string>, inFlight: Set<string>, key: st
 const isCurrentStreamSession = (current: AiStreamSession | null, candidate: AiStreamSession): boolean =>
   current?.conversationId === candidate.conversationId && current.generation === candidate.generation;
 
+const DEFAULT_RUN_ERROR = "Assistant response failed.";
+
+const conversationRunError = (conversation: AiConversation | null | undefined): string | null =>
+  conversation?.runStatus === "failed" ? conversation.runError?.trim() || DEFAULT_RUN_ERROR : null;
+
+const runErrorFromEvent = (
+  event: AiStreamSseEvent,
+  activeTurnId: string | null | undefined,
+): string | null | undefined => {
+  if (event.type === "state") return conversationRunError(event.conversation);
+  if (event.type !== "turn_finished" || event.turnId !== activeTurnId) return undefined;
+  return event.status === "failed" ? event.error?.trim() || DEFAULT_RUN_ERROR : null;
+};
+
 export type CreateAiChatControllerOptions = {
   /** API base path, e.g. "/api/assistant". */
   baseUrl: string;
@@ -94,6 +108,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   };
   const [activeConversationId, setActiveConversationIdSignal] = createSignal<string | null>(options.initialConversationId ?? null);
   const [globalError, setGlobalError] = createSignal<string | null>(options.initialError ?? null);
+  const [runError, setRunError] = createSignal<string | null>(conversationRunError(options.initialDetail?.conversation));
   const [runStatusRaw, setRunStatusRaw] = createSignal<AiChatRunStatus | null>(null);
   const [streamStatus, setStreamStatus] = createSignal<AiStreamStatus>("idle");
   const initialProjection = options.initialDetail ? detailToProjection(options.initialDetail) : emptyProjection();
@@ -155,7 +170,11 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     if (activeConversationId()) setGlobalError(message);
     else setGlobalError(message);
   };
-  const error = () => globalError();
+  const clearErrors = () => {
+    setGlobalError(null);
+    setRunError(null);
+  };
+  const error = () => globalError() ?? runError();
 
   const activeTurn = () => state.activeTurn;
   const messages = createMemo(() => visibleMessages(state));
@@ -202,6 +221,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     const conversationId = session.conversationId;
 
     if (event.type === "state") setHasMore(conversationId, event.hasMoreMessages ?? false);
+    const nextRunError = runErrorFromEvent(event, state.activeTurn?.turnId);
+    if (nextRunError !== undefined) setRunError(nextRunError);
 
     if (
       event.type === "turn_finished" &&
@@ -379,6 +400,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
     const cached = cache.get(conversationId);
     const conversation = conversations().find((item) => item.id === conversationId) ?? null;
+    setRunError(conversationRunError(cached?.conversation ?? conversation));
     setActiveConversationIdSignal(conversationId);
     setState(reconcile(projectionForConversationOpen(cached, conversation), { key: "id", merge: true }));
     setLoadingConversationId(cached ? null : conversationId);
@@ -392,6 +414,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     );
     if (detail && activeConversationId() === conversationId && generation === conversationOpenGeneration) {
       const viewedDetail = { ...detail, conversation: { ...detail.conversation, unreadCompletion: false } };
+      setRunError(conversationRunError(viewedDetail.conversation));
       setConversations((current) => [viewedDetail.conversation, ...current.filter((item) => item.id !== conversationId)]);
       // A cached view may hold history the fresh window doesn't — preserve it
       // (same rule as the SSE state snapshot) so the scrollback never shrinks.
@@ -494,7 +517,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     if (conversationId) void openConversation(conversationId);
     else {
       conversationOpenGeneration += 1;
-      setGlobalError(null);
+      clearErrors();
       setActiveConversationIdSignal(null);
       historyTargetSeq = null;
       setLoadingConversationId(null);
@@ -506,7 +529,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
   const createConversation = async (input: { title?: string } = {}) => {
     const generation = ++conversationOpenGeneration;
-    setGlobalError(null);
+    clearErrors();
     try {
       const conversation = await request<AiConversation>(
         `/conversations`,
@@ -554,7 +577,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     if (!conversationId) return false;
     if (isActiveConversation(conversationId) && running()) return false;
 
-    if (isActiveConversation(conversationId)) setGlobalError(null);
+    if (isActiveConversation(conversationId)) clearErrors();
     const baseProjection = isActiveConversation(conversationId)
       ? { conversation: state.conversation, messages: [...state.messages], activeTurn: state.activeTurn }
       : (cache.get(conversationId) ?? emptyProjection(conversations().find((item) => item.id === conversationId) ?? null));
@@ -684,7 +707,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     const text = message.trim();
     const turn = state.activeTurn;
     if (!text || !turn || runStatus() === "stopping") return false;
-    setGlobalError(null);
+    clearErrors();
     const clientRequestId =
       typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
     const blockId = `steer-request-${clientRequestId}`;
@@ -707,7 +730,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
   const retrySteer = async (block: Extract<AiTurnSnapshot["blocks"][number], { kind: "steer_message" }>) => {
     if (block.status !== "failed") return false;
-    setGlobalError(null);
+    clearErrors();
     setState("activeTurn", (current) =>
       current
         ? {
@@ -762,7 +785,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     const inFlight = abortRequests.get(key);
     if (inFlight) return inFlight;
 
-    setGlobalError(null);
+    clearErrors();
     setRunStatusRaw("stopping");
     const requestPromise = request(
       `/conversations/${conversationId}/turns/${turn.turnId}/abort`,
@@ -799,7 +822,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       setGlobalError("Stop the current response before compacting context.");
       return false;
     }
-    setGlobalError(null);
+    clearErrors();
     setRunStatusRaw("streaming");
     try {
       await request(`/conversations/${conversationId}/compact`, { method: "POST", body: JSON.stringify(input) }, "AI compaction failed");
@@ -819,7 +842,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     const conversationId = activeConversationId();
     if (!conversationId || running()) return false;
     setRunStatusRaw("streaming");
-    setGlobalError(null);
+    clearErrors();
     try {
       const result = await request<SubmitTurnResult>(
         `/conversations/${conversationId}/messages/${messageId}/retry`,
@@ -847,7 +870,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     const conversationId = activeConversationId();
     if (!conversationId) return null;
     const generation = ++conversationOpenGeneration;
-    setGlobalError(null);
+    clearErrors();
     try {
       const detail = await request<AiConversationDetail>(
         `/conversations/${conversationId}/messages/${messageId}/fork`,
@@ -861,6 +884,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       if (detail.timeline) setTimeline(detail.conversation.id, detail.timeline);
       if (!isActiveConversation(conversationId) || generation !== conversationOpenGeneration) return detail.conversation;
       setState(reconcile(projection, { key: "id", merge: true }));
+      setRunError(conversationRunError(detail.conversation));
       setActiveConversationIdSignal(detail.conversation.id);
       setLoadingConversationId(null);
       setVfsFileCount(0);
@@ -900,7 +924,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   ) => {
     const conversationId = activeConversationId();
     if (!conversationId) return Promise.resolve(false);
-    setGlobalError(null);
+    clearErrors();
     return submitTurnActionForConversation(conversationId, turnId, callId, action);
   };
 
@@ -967,9 +991,11 @@ export type AiChatController = ReturnType<typeof createAiChatController>;
 
 export const __aiControllerTest = {
   claimFrontendCall,
+  conversationRunError,
   failSteerBlock,
   projectionForConversationOpen,
   reconcileSteerBlocks,
+  runErrorFromEvent,
   isCurrentStreamSession,
   settleFrontendCall,
 };

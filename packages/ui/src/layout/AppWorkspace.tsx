@@ -288,6 +288,8 @@ export type AppWorkspaceSidebarItemMetaProps = { children: JSX.Element };
 export type AppWorkspaceSidebarItemActionProps = {
   icon?: string;
   label: string;
+  /** Hide the action on fine pointers until the row is hovered or keyboard-focused. */
+  visibility?: "always" | "hover";
   href?: string;
   navigation?: "enhanced" | "document";
   onSelect?: (event: MouseEvent) => void;
@@ -726,11 +728,23 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       props.onActionClick?.(event);
     };
     return slot?.href ? (
-      <a href={slot.href} class="k2b-app-workspace__sidebar-item-action" aria-label={label} onClick={follow}>
+      <a
+        href={slot.href}
+        class="k2b-app-workspace__sidebar-item-action"
+        data-visibility={slot.visibility === "hover" ? "hover" : undefined}
+        aria-label={label}
+        onClick={follow}
+      >
         {content}
       </a>
     ) : (
-      <button type="button" class="k2b-app-workspace__sidebar-item-action" aria-label={label} onClick={select}>
+      <button
+        type="button"
+        class="k2b-app-workspace__sidebar-item-action"
+        data-visibility={slot?.visibility === "hover" ? "hover" : undefined}
+        aria-label={label}
+        onClick={select}
+      >
         {content}
       </button>
     );
@@ -740,6 +754,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     title: props.title,
     "data-tone": props.tone,
     "data-mode": mode,
+    "data-action-visibility": actionSlot()?.visibility === "hover" ? "hover" : undefined,
     style: {
       "view-transition-name": props.viewTransitionName,
       "--k2b-sidebar-item-depth": props.depth === undefined ? undefined : String(Math.max(0, props.depth)),

@@ -23,6 +23,7 @@ const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichm
   pinnedAt: null,
   archivedAt: null,
   runStatus: "idle",
+  runError: null,
   unreadCompletion: false,
   resource: { kind: "direct" },
   createdByUserId: null,
