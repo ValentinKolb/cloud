@@ -45,6 +45,11 @@ export default ssr<AuthContext>(async (c) => {
   const storage = storageResult.ok ? storageResult.data : null;
   const logicalStorage = storage?.mailboxes.reduce((total, mailbox) => total + mailbox.logicalTotalBytes, 0) ?? null;
   const mailboxes = operationsResult.ok ? operationsResult.data.mailboxes : [];
+  const loadErrors = [!operationsResult.ok ? operationsResult.error : null, !storageResult.ok ? storageResult.error : null].filter(
+    (error): error is NonNullable<typeof error> => error !== null,
+  );
+  const accessDenied = loadErrors.some((error) => error.code === "FORBIDDEN");
+  const loadErrorDescription = [...new Set(loadErrors.map((error) => error.message))].join(" ");
   const columns: DataTableColumn<PlatformMailboxOperationSummary>[] = [
     { id: "mailbox", header: "Mailbox", value: (row) => row.mailboxName },
     { id: "health", header: "Health", value: (row) => row.health },
@@ -85,141 +90,164 @@ export default ssr<AuthContext>(async (c) => {
           </div>
         </div>
 
-        <StatGrid columns={6}>
-          <StatCell
-            label="Mailboxes"
-            value={operationsResult.ok ? operationsResult.data.mailboxCount : "Unavailable"}
-            sub="active"
-            accent={{ tone: "blue", icon: "ti ti-mail" }}
+        {accessDenied ? (
+          <Placeholder
+            state="error"
+            variant="panel"
+            title="Mail administration is unavailable"
+            description={loadErrorDescription || "Cloud administration access is required"}
           />
-          <StatCell
-            label="Need owner"
-            value={operationsResult.ok ? operationsResult.data.withoutAdministratorCount : "Unavailable"}
-            sub="no administrator"
-            valueClass={operationsResult.ok && operationsResult.data.withoutAdministratorCount > 0 ? "text-red-500" : "text-primary"}
-            accent={
-              operationsResult.ok && operationsResult.data.withoutAdministratorCount > 0
-                ? { tone: "red", icon: "ti ti-user-exclamation" }
-                : undefined
-            }
-          />
-          <StatCell
-            label="Need attention"
-            value={operationsResult.ok ? operationsResult.data.attentionCount : "Unavailable"}
-            sub="failed or ambiguous commands"
-            accent={{ tone: "amber", icon: "ti ti-alert-triangle" }}
-          />
-          <StatCell
-            label="Logical storage"
-            value={logicalStorage == null ? "Unavailable" : formatBytes(logicalStorage)}
-            sub={storage?.calculatedAt ? `updated ${dates.formatDateTimeRelative(storage.calculatedAt, dateConfig)}` : "not reconciled"}
-            accent={{ tone: "zinc", icon: "ti ti-database" }}
-          />
-          <StatCell
-            label="Mail relations"
-            value={storage ? formatBytes(storage.physicalDatabaseBytes) : "Unavailable"}
-            sub="physical database"
-          />
-          <StatCell
-            label="Blob bytes"
-            value={storage ? formatBytes(storage.physicalBlobBytes) : "Unavailable"}
-            sub="physical content store"
-          />
-        </StatGrid>
-
-        {operationsResult.ok ? (
-          <section class="paper overflow-hidden">
-            <div class="flex flex-col gap-2 px-3 py-3">
-              <div>
-                <h2 class="text-xs font-semibold text-primary">Active mailboxes</h2>
-                <p class="text-[10px] text-dimmed">
-                  {mailboxes.length} of {operationsResult.data.mailboxCount} mailboxes
-                </p>
-              </div>
-              <SearchBar action="/admin/mail" value={query} placeholder="Search mailboxes by name or id..." ariaLabel="Search mailboxes" />
-            </div>
-            <DataTable
-              rows={mailboxes}
-              columns={columns}
-              getRowId={(row) => row.mailboxId}
-              hoverRows
-              class="overflow-x-auto"
-              empty={query ? `No mailboxes matching "${query}".` : "No active Mail mailboxes."}
-              renderCell={({ row, col }) => {
-                if (col.id === "mailbox")
-                  return (
-                    <div class="flex min-w-52 items-center gap-2">
-                      <i class="ti ti-mail text-dimmed" aria-hidden="true" />
-                      <div class="min-w-0">
-                        <p class="truncate font-medium text-primary">{row.mailboxName}</p>
-                        <p class="truncate font-mono text-[10px] text-dimmed">{row.mailboxId}</p>
-                      </div>
-                    </div>
-                  );
-                if (col.id === "health")
-                  return (
-                    <StatusBadge
-                      class="whitespace-nowrap capitalize"
-                      tone={healthTone(row.health)}
-                      label={row.health.replaceAll("_", " ")}
-                    />
-                  );
-                if (col.id === "sync")
-                  return row.sync.lastAt ? (
-                    <time
-                      class="whitespace-nowrap text-secondary"
-                      dateTime={row.sync.lastAt}
-                      title={dates.formatDateTime(row.sync.lastAt, dateConfig)}
-                    >
-                      {dates.formatDateTimeRelative(row.sync.lastAt, dateConfig)}
-                    </time>
-                  ) : (
-                    <span class="text-dimmed">Never</span>
-                  );
-                if (col.id === "access")
-                  return (
-                    <span
-                      class={`whitespace-nowrap text-xs ${row.access.administrators === 0 ? "font-medium text-red-500" : "text-secondary"}`}
-                    >
-                      {row.access.administrators} admin · {row.access.total} total
-                    </span>
-                  );
-                if (col.id === "storage")
-                  return <span class="tabular-nums text-secondary">{row.storage ? formatBytes(row.storage.logicalTotalBytes) : "—"}</span>;
-                if (col.id === "attention")
-                  return (
-                    <span
-                      class={`tabular-nums ${row.attentionCount > 0 ? "font-medium text-amber-600 dark:text-amber-400" : "text-secondary"}`}
-                    >
-                      {row.attentionCount}
-                    </span>
-                  );
-                if (col.id === "actions") return <MailAdminMailboxActions mailboxId={row.mailboxId} mailboxName={row.mailboxName} />;
-                return "";
-              }}
-            />
-            {operationsResult.data.nextCursor ? (
-              <div class="flex justify-center px-3 py-3">
-                <ButtonLink
-                  variant="secondary"
-                  size="sm"
-                  href={`/admin/mail?${new URLSearchParams({
-                    ...(query ? { q: query } : {}),
-                    cursor: operationsResult.data.nextCursor,
-                  }).toString()}`}
-                >
-                  Next page
-                </ButtonLink>
-              </div>
-            ) : null}
-          </section>
         ) : (
-          <Placeholder state="error" variant="panel" title="Could not load Mail operations" description={operationsResult.error.message} />
-        )}
+          <>
+            <StatGrid columns={6}>
+              <StatCell
+                label="Mailboxes"
+                value={operationsResult.ok ? operationsResult.data.mailboxCount : "Unavailable"}
+                sub="active"
+                accent={{ tone: "blue", icon: "ti ti-mail" }}
+              />
+              <StatCell
+                label="Need owner"
+                value={operationsResult.ok ? operationsResult.data.withoutAdministratorCount : "Unavailable"}
+                sub="no administrator"
+                valueClass={operationsResult.ok && operationsResult.data.withoutAdministratorCount > 0 ? "text-red-500" : "text-primary"}
+                accent={
+                  operationsResult.ok && operationsResult.data.withoutAdministratorCount > 0
+                    ? { tone: "red", icon: "ti ti-user-exclamation" }
+                    : undefined
+                }
+              />
+              <StatCell
+                label="Need attention"
+                value={operationsResult.ok ? operationsResult.data.attentionCount : "Unavailable"}
+                sub="failed or ambiguous commands"
+                accent={{ tone: "amber", icon: "ti ti-alert-triangle" }}
+              />
+              <StatCell
+                label="Logical storage"
+                value={logicalStorage == null ? "Unavailable" : formatBytes(logicalStorage)}
+                sub={storage?.calculatedAt ? `updated ${dates.formatDateTimeRelative(storage.calculatedAt, dateConfig)}` : "not reconciled"}
+                accent={{ tone: "zinc", icon: "ti ti-database" }}
+              />
+              <StatCell
+                label="Mail relations"
+                value={storage ? formatBytes(storage.physicalDatabaseBytes) : "Unavailable"}
+                sub="physical database"
+              />
+              <StatCell
+                label="Blob bytes"
+                value={storage ? formatBytes(storage.physicalBlobBytes) : "Unavailable"}
+                sub="physical content store"
+              />
+            </StatGrid>
 
-        {!storageResult.ok ? (
-          <Placeholder state="error" variant="panel" title="Could not load Mail storage" description={storageResult.error.message} />
-        ) : null}
+            {operationsResult.ok ? (
+              <section class="paper overflow-hidden">
+                <div class="flex flex-col gap-2 px-3 py-3">
+                  <div>
+                    <h2 class="text-xs font-semibold text-primary">Active mailboxes</h2>
+                    <p class="text-[10px] text-dimmed">
+                      {mailboxes.length} of {operationsResult.data.mailboxCount} mailboxes
+                    </p>
+                  </div>
+                  <SearchBar
+                    action="/admin/mail"
+                    value={query}
+                    placeholder="Search mailboxes by name or id..."
+                    ariaLabel="Search mailboxes"
+                  />
+                </div>
+                <DataTable
+                  rows={mailboxes}
+                  columns={columns}
+                  getRowId={(row) => row.mailboxId}
+                  hoverRows
+                  class="overflow-x-auto"
+                  empty={query ? `No mailboxes matching "${query}".` : "No active Mail mailboxes."}
+                  renderCell={({ row, col }) => {
+                    if (col.id === "mailbox")
+                      return (
+                        <div class="flex min-w-52 items-center gap-2">
+                          <i class="ti ti-mail text-dimmed" aria-hidden="true" />
+                          <div class="min-w-0">
+                            <p class="truncate font-medium text-primary">{row.mailboxName}</p>
+                            <p class="truncate font-mono text-[10px] text-dimmed">{row.mailboxId}</p>
+                          </div>
+                        </div>
+                      );
+                    if (col.id === "health")
+                      return (
+                        <StatusBadge
+                          class="whitespace-nowrap capitalize"
+                          tone={healthTone(row.health)}
+                          label={row.health.replaceAll("_", " ")}
+                        />
+                      );
+                    if (col.id === "sync")
+                      return row.sync.lastAt ? (
+                        <time
+                          class="whitespace-nowrap text-secondary"
+                          dateTime={row.sync.lastAt}
+                          title={dates.formatDateTime(row.sync.lastAt, dateConfig)}
+                        >
+                          {dates.formatDateTimeRelative(row.sync.lastAt, dateConfig)}
+                        </time>
+                      ) : (
+                        <span class="text-dimmed">Never</span>
+                      );
+                    if (col.id === "access")
+                      return (
+                        <span
+                          class={`whitespace-nowrap text-xs ${row.access.administrators === 0 ? "font-medium text-red-500" : "text-secondary"}`}
+                        >
+                          {row.access.administrators} admin · {row.access.total} total
+                        </span>
+                      );
+                    if (col.id === "storage")
+                      return (
+                        <span class="tabular-nums text-secondary">{row.storage ? formatBytes(row.storage.logicalTotalBytes) : "—"}</span>
+                      );
+                    if (col.id === "attention")
+                      return (
+                        <span
+                          class={`tabular-nums ${row.attentionCount > 0 ? "font-medium text-amber-600 dark:text-amber-400" : "text-secondary"}`}
+                        >
+                          {row.attentionCount}
+                        </span>
+                      );
+                    if (col.id === "actions") return <MailAdminMailboxActions mailboxId={row.mailboxId} mailboxName={row.mailboxName} />;
+                    return "";
+                  }}
+                />
+                {operationsResult.data.nextCursor ? (
+                  <div class="flex justify-center px-3 py-3">
+                    <ButtonLink
+                      variant="secondary"
+                      size="sm"
+                      href={`/admin/mail?${new URLSearchParams({
+                        ...(query ? { q: query } : {}),
+                        cursor: operationsResult.data.nextCursor,
+                      }).toString()}`}
+                    >
+                      Next page
+                    </ButtonLink>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {loadErrors.length > 0 ? (
+              <Placeholder
+                state="error"
+                variant="compact"
+                surface="paper"
+                align="left"
+                title="Could not load all Mail administration data"
+                description={loadErrorDescription}
+              />
+            ) : null}
+          </>
+        )}
       </div>
     </AdminLayout>
   );

@@ -43,7 +43,8 @@ import {
 
 An error state uses `role="alert"`. A loading state uses `role="status"`,
 `aria-live="polite"`, and `aria-busy="true"`. The loading icon stops spinning
-when reduced motion is requested.
+when reduced motion is requested. Placeholder icons use color to communicate
+state and never render a decorative background or border.
 
 ### NotFoundState
 

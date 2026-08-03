@@ -240,21 +240,14 @@
 .k2b-ui .k2b-placeholder[data-variant="panel"] .k2b-placeholder__icon {
   width: 2.5rem;
   height: 2.5rem;
-  border: 1px solid var(--k2b-border);
-  border-radius: var(--k2b-radius-control);
-  background: var(--k2b-surface-muted);
   font-size: 1.25rem;
 }
-/* The glyph spins, not the framed tile. */
+/* Loading animates the glyph without adding a decorative frame. */
 .k2b-ui .k2b-placeholder[data-state="loading"] .k2b-placeholder__icon i { display: inline-block; animation: k2b-parity-spin 900ms linear infinite; }
 .k2b-ui .k2b-placeholder[data-state="error"] .k2b-placeholder__icon { color: var(--k2b-danger-600); }
 .k2b-ui[data-theme="dark"] .k2b-placeholder[data-state="error"] .k2b-placeholder__icon,
 .k2b-ui.k2b-dark .k2b-placeholder[data-state="error"] .k2b-placeholder__icon,
 .dark .k2b-ui .k2b-placeholder[data-state="error"] .k2b-placeholder__icon { color: #f87171; }
-.k2b-ui .k2b-placeholder[data-variant="panel"][data-state="error"] .k2b-placeholder__icon {
-  border-color: color-mix(in srgb, var(--k2b-danger-500) 18%, var(--k2b-border));
-  background: color-mix(in srgb, var(--k2b-danger-500) 8%, var(--k2b-surface));
-}
 .k2b-ui .k2b-placeholder__title,
 .k2b-ui .k2b-placeholder__description { margin: 0; }
 .k2b-ui .k2b-placeholder__title { color: var(--k2b-text-secondary); font-size: 0.75rem; font-weight: 500; line-height: 1rem; }

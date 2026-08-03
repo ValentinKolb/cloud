@@ -144,6 +144,17 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(error).toContain("Try again.");
   });
 
+  test("keeps placeholder icons free of decorative frames", () => {
+    const iconDeclarations = [...parityCss.matchAll(/[^{}]*\.k2b-placeholder__icon[^{}]*\{([^}]*)\}/g)].map(
+      (match) => match[1] ?? "",
+    );
+
+    expect(iconDeclarations.length).toBeGreaterThan(0);
+    for (const declarations of iconDeclarations) {
+      expect(declarations).not.toMatch(/(?:^|;)\s*(?:background|border(?:-[\w-]+)?):/);
+    }
+  });
+
   test("rounds and clamps determinate progress", () => {
     const progress = renderToString(() =>
       createComponent(ProgressBar, { value: 41.6, label: "Upload", size: "xs", tone: "success", showValue: true }),

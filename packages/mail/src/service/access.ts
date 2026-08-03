@@ -10,7 +10,7 @@ import {
   resolveDisplayNames,
   updateAccess,
 } from "@valentinkolb/cloud/server";
-import { audit } from "@valentinkolb/cloud/services";
+import { accounts, audit } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result, tryCatch, unwrap } from "@k2b/stdlib";
 import { sql } from "bun";
 import { auditActorFromRequest, capByCredentialScopes, isResourceBoundToMailbox, type MailRequestContext, userBackedActor } from "./auth";
@@ -111,16 +111,16 @@ export const isCurrentActorActive = async (context: MailRequestContext, db: SqlC
   return row?.active === true;
 };
 
-export const isCurrentPlatformAdmin = async (context: MailRequestContext, db: SqlClient = sql): Promise<boolean> => {
+type CurrentUserLoader = typeof accounts.users.get;
+
+export const isCurrentPlatformAdmin = async (
+  context: MailRequestContext,
+  loadCurrentUser: CurrentUserLoader = accounts.users.get,
+): Promise<boolean> => {
   const user = userBackedActor(context);
   if (!user) return false;
-  const [row] = await db<{ admin: boolean }[]>`
-    SELECT admin
-    FROM auth.users
-    WHERE id = ${user.id}::uuid
-      AND (account_expires IS NULL OR account_expires > now())
-  `;
-  return row?.admin === true;
+  const currentUser = await loadCurrentUser({ id: user.id });
+  return currentUser?.roles.includes("admin") === true && !accounts.model.isAccountExpired(currentUser.accountExpires);
 };
 
 const getPrincipalGrant = async (mailboxId: string, principal: Principal, db: SqlClient): Promise<DbAccess | null> => {
@@ -209,7 +209,7 @@ export const requireMailboxLifecycleAdmin = async (
 ): Promise<Result<"admin">> => {
   const permission = await getMailboxPermissionForLifecycle(context, mailboxId, true, db);
   if (permission === "admin") return ok("admin");
-  if (capByCredentialScopes(context, "admin") === "admin" && (await isCurrentPlatformAdmin(context, db))) return ok("admin");
+  if (capByCredentialScopes(context, "admin") === "admin" && (await isCurrentPlatformAdmin(context))) return ok("admin");
   return fail(err.forbidden("Access denied"));
 };
 
@@ -235,7 +235,7 @@ const authorizeAccessManagement = async (
     const allowed = await requireMailboxPermission(context, mailboxId, "admin", db);
     return allowed.ok ? ok() : fail(allowed.error);
   }
-  return (await isCurrentPlatformAdmin(context, db)) ? ok() : fail(err.forbidden("Cloud administration access is required"));
+  return (await isCurrentPlatformAdmin(context)) ? ok() : fail(err.forbidden("Cloud administration access is required"));
 };
 
 const listMailboxAccessWithAuthority = async (
