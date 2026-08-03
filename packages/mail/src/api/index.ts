@@ -72,6 +72,14 @@ import {
   updateSenderIdentityTransportInputSchema,
 } from "../contracts";
 import {
+  createMailProtectedIdentityInputSchema,
+  createMailSecurityPolicyInputSchema,
+  mailSecurityListQuerySchema,
+  resolveMailSecurityReportInputSchema,
+  updateMailSecurityPolicyInputSchema,
+  updateMailSecuritySettingsInputSchema,
+} from "../security-contracts";
+import {
   attachmentLinks,
   bindings,
   calendarInvitations,
@@ -101,6 +109,7 @@ import {
   savedViews,
   scheduledSends,
   search,
+  security,
   senderIdentities,
   senderIdentityTransports,
   settingsContext,
@@ -200,9 +209,7 @@ const calendarDestinationsResponseSchema = z.object({
   items: spacesMailDestinationsSchema,
 });
 const calendarImportInputSchema = z.object({ spaceId: z.string().uuid().optional() }).strict();
-const calendarEventsQuerySchema = z
-  .object({ spaceId: z.uuid(), query: z.string().trim().max(500).optional() })
-  .strict();
+const calendarEventsQuerySchema = z.object({ spaceId: z.uuid(), query: z.string().trim().max(500).optional() }).strict();
 const createCalendarEventInputSchema = z
   .object({
     spaceId: z.uuid(),
@@ -216,9 +223,7 @@ const createCalendarEventInputSchema = z
     message: "End time must be after start time",
     path: ["endsAt"],
   });
-const attachCalendarEventInputSchema = z
-  .object({ itemId: z.uuid(), idempotencyKey: z.uuid() })
-  .strict();
+const attachCalendarEventInputSchema = z.object({ itemId: z.uuid(), idempotencyKey: z.uuid() }).strict();
 const calendarResponseInputSchema = z
   .object({
     participationStatus: calendarParticipationStatusSchema,
@@ -1444,6 +1449,15 @@ const mailOperationsApi = new Hono<AuthContext>()
     };
     return respond(c, messages.getMessage({ context: requestContext(c), ...params }));
   })
+  .post("/mailboxes/:mailboxId/messages/:messageId/security-report", v("param", mailboxAndIdParamSchema("messageId")), async (c) =>
+    respond(
+      c,
+      security.reportMessage({
+        context: requestContext(c),
+        ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
+      }),
+    ),
+  )
   .post(
     "/mailboxes/:mailboxId/messages/:messageId/derive-draft",
     v("param", mailboxAndIdParamSchema("messageId")),
@@ -2286,7 +2300,52 @@ const adminApi = new Hono<AuthContext>()
     );
   })
   .get("/admin/storage", async (c) => respond(c, storageObservability.getMailStorageSummary(requestContext(c))))
-  .post("/admin/storage/reconcile", async (c) => respond(c, storageObservability.requestMailStorageReconciliation(requestContext(c))));
+  .post("/admin/storage/reconcile", async (c) => respond(c, storageObservability.requestMailStorageReconciliation(requestContext(c))))
+  .get("/admin/security/reports", v("query", mailSecurityListQuerySchema), async (c) =>
+    respond(c, security.listReports(requestContext(c), c.req.valid("query"))),
+  )
+  .patch(
+    "/admin/security/reports/:reportId",
+    v("param", z.object({ reportId: z.string().uuid() })),
+    v("json", resolveMailSecurityReportInputSchema),
+    async (c) =>
+      respond(
+        c,
+        security.resolveReport({
+          context: requestContext(c),
+          reportId: c.req.valid("param").reportId,
+          ...c.req.valid("json"),
+        }),
+      ),
+  )
+  .get("/admin/security/policies", async (c) => respond(c, security.listPolicies(requestContext(c))))
+  .post("/admin/security/policies", v("json", createMailSecurityPolicyInputSchema), async (c) =>
+    respond(c, security.createPolicy({ context: requestContext(c), input: c.req.valid("json") })),
+  )
+  .patch(
+    "/admin/security/policies/:policyId",
+    v("param", z.object({ policyId: z.string().uuid() })),
+    v("json", updateMailSecurityPolicyInputSchema),
+    async (c) =>
+      respond(
+        c,
+        security.updatePolicy({ context: requestContext(c), policyId: c.req.valid("param").policyId, input: c.req.valid("json") }),
+      ),
+  )
+  .delete("/admin/security/policies/:policyId", v("param", z.object({ policyId: z.string().uuid() })), async (c) =>
+    respond(c, security.deletePolicy(requestContext(c), c.req.valid("param").policyId)),
+  )
+  .get("/admin/security/protected-identities", async (c) => respond(c, security.listProtectedIdentities(requestContext(c))))
+  .post("/admin/security/protected-identities", v("json", createMailProtectedIdentityInputSchema), async (c) =>
+    respond(c, security.createProtectedIdentity({ context: requestContext(c), input: c.req.valid("json") })),
+  )
+  .delete("/admin/security/protected-identities/:identityId", v("param", z.object({ identityId: z.string().uuid() })), async (c) =>
+    respond(c, security.deleteProtectedIdentity(requestContext(c), c.req.valid("param").identityId)),
+  )
+  .get("/admin/security/settings", async (c) => respond(c, security.getSettings(requestContext(c))))
+  .patch("/admin/security/settings", v("json", updateMailSecuritySettingsInputSchema), async (c) =>
+    respond(c, security.updateSettings({ context: requestContext(c), ...c.req.valid("json") })),
+  );
 
 const authenticatedApi = new Hono<AuthContext>()
   .route("/", providerOAuthApi)

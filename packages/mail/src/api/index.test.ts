@@ -63,9 +63,28 @@ describe("Mail API composition", () => {
     expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/calendar-events")).toBe(true);
     expect(api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/calendar-events")).toBe(true);
     expect(
-      api.routes.some(
-        (route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/drafts/:draftId/calendar-invitation",
-      ),
+      api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/drafts/:draftId/calendar-invitation"),
     ).toBe(true);
+  });
+
+  test("exposes user reporting and platform-admin Mail security operations", () => {
+    expect(
+      api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/messages/:messageId/security-report"),
+    ).toBe(true);
+    for (const [method, path] of [
+      ["GET", "/admin/security/reports"],
+      ["PATCH", "/admin/security/reports/:reportId"],
+      ["GET", "/admin/security/policies"],
+      ["POST", "/admin/security/policies"],
+      ["PATCH", "/admin/security/policies/:policyId"],
+      ["DELETE", "/admin/security/policies/:policyId"],
+      ["GET", "/admin/security/protected-identities"],
+      ["POST", "/admin/security/protected-identities"],
+      ["DELETE", "/admin/security/protected-identities/:identityId"],
+      ["GET", "/admin/security/settings"],
+      ["PATCH", "/admin/security/settings"],
+    ] as const) {
+      expect(api.routes.some((route) => route.method === method && route.path === path)).toBe(true);
+    }
   });
 });

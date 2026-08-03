@@ -144,6 +144,8 @@ The CLI provides the same mailbox-admin operations through `cld mail attachment 
 
 Cloud **Admin** access, which is separate from mailbox Admin access, is required for **Administration > Mail**. The page lists every active mailbox with redacted health, synchronization, storage, access-count, and attention data. It never exposes message or attachment content.
 
+Open **Security** from this page to review reported suspicious messages and maintain exact organization-wide protection rules. See **Recognize and report suspicious mail** for the user-facing behavior and safe rule guidance.
+
 Use **Permissions** on a mailbox to recover an orphaned mailbox or correct an accidental grant. This is an explicit, audited access change; Cloud administrators do not implicitly receive mailbox-content access. Add a replacement administrator before removing the last existing administrator.
 
 The CLI exposes the same recovery surface:

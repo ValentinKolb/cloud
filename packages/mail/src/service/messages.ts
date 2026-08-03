@@ -3,12 +3,14 @@ import { sql } from "bun";
 import { convert } from "html-to-text";
 import { z } from "zod";
 import type { ConversationView, ConversationWorkStatus } from "../contracts";
+import type { MailSecurityAssessment } from "../security-contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { type ConversationCursorScope, decodeConversationCursor, encodeConversationCursor } from "./conversation-cursor";
 import { resolveMailExecution } from "./execution";
 import { mailingListMetadata } from "./mailing-list-metadata";
 import { parseMessageProtocolFacts } from "./message-protocol";
 import { type MessageRemoteContent, resolveMessagesRemoteContent } from "./remote-content";
+import { assessMessages } from "./security";
 
 type DateCursor = { version: 1; date: string; id: string };
 
@@ -636,6 +638,7 @@ export type MessageDetail = MessageSummary & {
   sourceAvailable: boolean;
   mailingList: ReturnType<typeof mailingListMetadata>;
   remoteContent: MessageRemoteContent;
+  security?: MailSecurityAssessment;
   delivery: {
     submissionId: string;
     state: MessageDeliveryState;
@@ -735,6 +738,29 @@ const attachRemoteContent = async (
   );
 };
 
+const attachSecurity = async (mailboxId: string, messages: MessageDetail[]): Promise<Result<MessageDetail[]>> => {
+  const assessments = await assessMessages(
+    mailboxId,
+    messages.map((message) => message.id),
+  );
+  if (!assessments.ok) return assessments;
+  return ok(
+    messages.map((message) => ({
+      ...message,
+      security: assessments.data.get(message.id) ?? message.security,
+    })),
+  );
+};
+
+const attachMessageMetadata = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  messages: MessageDetail[],
+): Promise<Result<MessageDetail[]>> => {
+  const remote = await attachRemoteContent(context, mailboxId, messages);
+  return remote.ok ? attachSecurity(mailboxId, remote.data) : remote;
+};
+
 const messageDetailSelect = sql`
   ${messageSummarySelect},
   NULLIF(mc.protocol_facts->>'contentType', '') AS content_type,
@@ -826,7 +852,7 @@ export const listConversationMessageDetails = async (params: {
     ${messageDetailDeliveryJoin}
     ORDER BY mc.internal_date, mc.id
   `;
-  return attachRemoteContent(params.context, params.mailboxId, rows.map(mapMessageDetail));
+  return attachMessageMetadata(params.context, params.mailboxId, rows.map(mapMessageDetail));
 };
 
 export const getMessage = async (params: {
@@ -846,7 +872,7 @@ export const getMessage = async (params: {
     WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!row) return fail(err.notFound("Message"));
-  const resolved = await attachRemoteContent(params.context, params.mailboxId, [mapMessageDetail(row)]);
+  const resolved = await attachMessageMetadata(params.context, params.mailboxId, [mapMessageDetail(row)]);
   return resolved.ok ? ok(resolved.data[0]!) : resolved;
 };
 

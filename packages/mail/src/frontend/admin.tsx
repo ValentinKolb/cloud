@@ -1,8 +1,8 @@
+import { dates } from "@k2b/stdlib";
+import { ButtonLink, DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid, StatusBadge, type StatusTone } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { ButtonLink, DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid, StatusBadge, type StatusTone } from "@k2b/ui";
-import { dates } from "@k2b/stdlib";
 import { ssr } from "../config";
 import type { PlatformMailboxOperationSummary } from "../contracts";
 import { type MailRequestContext, operations, storageObservability } from "../service";
@@ -77,7 +77,12 @@ export default ssr<AuthContext>(async (c) => {
               Recover access and inspect redacted operational status without opening message or attachment content.
             </p>
           </div>
-          <MailAdminStorageActions />
+          <div class="flex flex-wrap gap-2">
+            <ButtonLink href="/admin/mail/security" variant="secondary" size="sm">
+              <i class="ti ti-shield-lock" aria-hidden="true" /> Security
+            </ButtonLink>
+            <MailAdminStorageActions />
+          </div>
         </div>
 
         <StatGrid columns={6}>

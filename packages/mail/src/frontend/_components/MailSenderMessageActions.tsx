@@ -217,7 +217,27 @@ export default function MailSenderMessageActions(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const pending = () => messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading();
+  const reportPhishing = mutation.create<boolean, SelectionContext>({
+    mutation: async (_, { abortSignal }) => {
+      const confirmed = await prompts.confirm(
+        "Mail administrators will receive the sender address, message ID, and any warning reasons. The subject and message body are not copied into the report.",
+        { title: "Report this message as phishing?", confirmText: "Report message" },
+      );
+      if (!confirmed || abortSignal.aborted) return false;
+      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["security-report"].$post(
+        { param: { mailboxId: props.mailboxId, messageId: props.message.id } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not report this message"));
+      return true;
+    },
+    onSuccess: (reported) => {
+      if (reported) toast.success("Message reported for review");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const pending = () => messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading() || reportPhishing.loading();
   const sender = () => props.message.from[0] ?? null;
   const findSenderHref = () => (sender() ? buildExactSenderSearchHref(new URL(props.requestUrl), sender()!.address) : null);
   const actionVisibility = () =>
@@ -240,6 +260,7 @@ export default function MailSenderMessageActions(props: {
         messageKeywords.abort();
         conversationKeyword.abort();
         markSenderRead.abort();
+        reportPhishing.abort();
       },
       { defer: true },
     ),
@@ -248,6 +269,7 @@ export default function MailSenderMessageActions(props: {
     messageKeywords.abort();
     conversationKeyword.abort();
     markSenderRead.abort();
+    reportPhishing.abort();
   });
 
   return (
@@ -317,6 +339,11 @@ export default function MailSenderMessageActions(props: {
                         },
                       ]
                     : []),
+                  {
+                    label: "Report phishing",
+                    icon: "ti ti-shield-exclamation",
+                    action: () => void reportPhishing.mutate({ selectionKey: props.selectionKey }),
+                  },
                 ],
               },
             ]

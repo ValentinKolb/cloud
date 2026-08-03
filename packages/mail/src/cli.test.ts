@@ -30,6 +30,8 @@ const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
 const REMOTE_CONTENT_RULE_ID = "00000000-0000-4000-8000-000000000027";
 const MAIL_RULE_ID = "00000000-0000-4000-8000-000000000028";
+const SECURITY_REPORT_ID = "00000000-0000-4000-8000-000000000029";
+const SECURITY_POLICY_ID = "00000000-0000-4000-8000-000000000030";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -111,6 +113,149 @@ const withMailbox = (handler: (request: Request) => Response | Promise<Response>
       return handler(request);
     },
   });
+
+test("message report-phishing submits an explicit confirmed report", async () => {
+  const received: Array<{ method: string; path: string; body: unknown }> = [];
+  const report = {
+    id: SECURITY_REPORT_ID,
+    mailboxId: MAILBOX_ID,
+    messageId: MESSAGE_ID,
+    status: "new",
+    reportCount: 1,
+    assessment: { risk: "none", verdict: "clear", findings: [], linksDisabled: false, evaluatedAt: "2026-08-03T10:00:00.000Z" },
+    resolutionNote: null,
+    createdAt: "2026-08-03T10:00:00.000Z",
+    updatedAt: "2026-08-03T10:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/messages/${MESSAGE_ID}/security-report`) {
+      received.push({ method: request.method, path: url.pathname, body: await request.json() });
+      return api(report);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "message",
+    "report-phishing",
+    MESSAGE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--yes",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual(report);
+  expect(received).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/messages/${MESSAGE_ID}/security-report`,
+      body: {},
+    },
+  ]);
+});
+
+test("admin security commands expose report and policy management", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const policy = {
+    id: SECURITY_POLICY_ID,
+    disposition: "deny",
+    target: "sender_domain",
+    value: "lookalike.example",
+    note: "Confirmed phishing",
+    enabled: true,
+    createdAt: "2026-08-03T10:00:00.000Z",
+    updatedAt: "2026-08-03T10:00:00.000Z",
+  };
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (request) => {
+      const url = new URL(request.url);
+      if (request.method === "POST" && url.pathname === "/api/mail/admin/security/policies") {
+        requests.push({ method: request.method, path: url.pathname, body: await request.json() });
+        return api(policy);
+      }
+      if (request.method === "PATCH" && url.pathname === `/api/mail/admin/security/reports/${SECURITY_REPORT_ID}`) {
+        requests.push({ method: request.method, path: url.pathname, body: await request.json() });
+        return api({
+          id: SECURITY_REPORT_ID,
+          mailboxId: MAILBOX_ID,
+          messageId: MESSAGE_ID,
+          status: "confirmed",
+          reportCount: 1,
+          assessment: {
+            risk: "warning",
+            verdict: "suspicious",
+            findings: [],
+            linksDisabled: false,
+            evaluatedAt: "2026-08-03T10:00:00.000Z",
+          },
+          resolutionNote: "Reviewed",
+          createdAt: "2026-08-03T10:00:00.000Z",
+          updatedAt: "2026-08-03T10:01:00.000Z",
+        });
+      }
+      return api({ message: "unexpected" }, { status: 500 });
+    },
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const add = await runCli(origin, [
+    "--json",
+    "mail",
+    "admin",
+    "security",
+    "rule",
+    "add",
+    "lookalike.example",
+    "--disposition",
+    "deny",
+    "--target",
+    "sender_domain",
+    "--note",
+    "Confirmed phishing",
+  ]);
+  const resolve = await runCli(origin, [
+    "--json",
+    "mail",
+    "admin",
+    "security",
+    "report",
+    "resolve",
+    SECURITY_REPORT_ID,
+    "--status",
+    "confirmed",
+    "--note",
+    "Reviewed",
+  ]);
+
+  expect([add.exitCode, resolve.exitCode]).toEqual([0, 0]);
+  expect(JSON.parse(add.stdout)).toEqual(policy);
+  expect(JSON.parse(resolve.stdout)).toMatchObject({ id: SECURITY_REPORT_ID, status: "confirmed" });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: "/api/mail/admin/security/policies",
+      body: {
+        disposition: "deny",
+        target: "sender_domain",
+        value: "lookalike.example",
+        note: "Confirmed phishing",
+        enabled: true,
+      },
+    },
+    {
+      method: "PATCH",
+      path: `/api/mail/admin/security/reports/${SECURITY_REPORT_ID}`,
+      body: { status: "confirmed", resolutionNote: "Reviewed" },
+    },
+  ]);
+}, 20_000);
 
 test("conversation context commands use the Contacts integration API", async () => {
   const server = withMailbox(async (request) => {

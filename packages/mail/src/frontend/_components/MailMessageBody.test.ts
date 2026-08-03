@@ -50,4 +50,12 @@ describe("MailMessageBody sizing", () => {
     expect(document).toContain(":root { color-scheme: only light; }");
     expect(document).toContain("background: #fff; color: #18181b;");
   });
+
+  test("disables navigation inside contained messages", () => {
+    const document = buildMessageDocument('<a href="https://lookalike.example">Open</a>', "test-channel", true);
+
+    expect(document).toContain("const linksDisabled = true");
+    expect(document).toContain('link.removeAttribute("href")');
+    expect(document).toContain('link.setAttribute("aria-disabled", "true")');
+  });
 });

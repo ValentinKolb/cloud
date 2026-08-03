@@ -223,6 +223,9 @@ const selectedHeaders = (headers: Headers | null): Record<string, unknown> => {
     "x-spam-flag",
     "x-spam-status",
     "x-spam-score",
+    "authentication-results",
+    "arc-authentication-results",
+    "received-spf",
   ];
   return Object.fromEntries(
     names.flatMap((name) => {

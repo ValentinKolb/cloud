@@ -1,5 +1,5 @@
-import { prompts, Button } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, prompts } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MessageRemoteContent, RemoteContentRule } from "../../service/remote-content";
@@ -31,6 +31,7 @@ export default function MailMessageBody(props: {
   plainText: string | null;
   attachments: Array<{ id: string; contentId: string | null; contentType: string; sizeBytes: number }>;
   remoteContent: MessageRemoteContent;
+  linksDisabled?: boolean;
   onSelectionChange: (value: string) => void;
 }) {
   // These values are serialized into the SSR markup. Keep them deterministic
@@ -48,14 +49,14 @@ export default function MailMessageBody(props: {
   const remoteObjectUrls = new Set<string>();
   const plainSegments = createMemo(() => splitPlainMessageSegments(props.plainText ?? ""));
   const remoteImageIds = createMemo(() => {
-    if (props.format !== "html") return [];
+    if (props.format !== "html" || props.linksDisabled) return [];
     const stored = new Set(props.remoteContent.imageIds.map((id) => id.toLowerCase()));
     return referencedRemoteImageIds(props.html ?? "").filter((id) => stored.has(id));
   });
   const remoteImagesRemaining = createMemo(() => remoteImageIds().filter((id) => !remoteUrls().has(id)).length);
   const documentSource = createMemo(() => {
     const withCidImages = rewriteCidSources(props.format === "html" ? (props.html ?? "") : "", cidUrls());
-    return buildMessageDocument(rewriteRemoteImageSources(withCidImages, remoteUrls()), channel);
+    return buildMessageDocument(rewriteRemoteImageSources(withCidImages, remoteUrls()), channel, props.linksDisabled);
   });
   let plainBody: HTMLDivElement | undefined;
 
@@ -203,7 +204,7 @@ export default function MailMessageBody(props: {
       }
       if (!disposed) setCidUrls(new Map(entries));
     };
-    if (props.format === "html") {
+    if (props.format === "html" && !props.linksDisabled) {
       void loadCidImages().catch((error) => {
         if (!controller.signal.aborted) console.warn("Could not load inline email image", error);
       });

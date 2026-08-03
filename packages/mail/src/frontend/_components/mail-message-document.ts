@@ -29,8 +29,9 @@ export const estimateInitialMessageBodyHeight = (plainText: string | null, html:
   );
 };
 
-export const buildMessageDocument = (html: string, channel: string): string => {
+export const buildMessageDocument = (html: string, channel: string, linksDisabled = false): string => {
   const channelLiteral = JSON.stringify(channel).replaceAll("<", "\\u003c");
+  const linksDisabledLiteral = linksDisabled ? "true" : "false";
   const scriptNonce = channel.replace(/[^a-zA-Z0-9]/gu, "") || "mailbridge";
   return `<!doctype html>
 <html>
@@ -59,6 +60,7 @@ export const buildMessageDocument = (html: string, channel: string): string => {
     (() => {
       "use strict";
       const channel = ${channelLiteral};
+      const linksDisabled = ${linksDisabledLiteral};
       const post = (type, value) => parent.postMessage({ source: "cloud-mail-message", channel, type, value }, "*");
       const quoteSelectors = 'blockquote[type="cite"], .gmail_quote, .yahoo_quoted';
       const candidates = [...document.querySelectorAll(quoteSelectors)].filter((node) => !node.parentElement?.closest("details.mail-quoted-history"));
@@ -72,6 +74,12 @@ export const buildMessageDocument = (html: string, channel: string): string => {
         details.append(summary, node);
       }
       for (const link of document.querySelectorAll("a[href]")) {
+        if (linksDisabled) {
+          link.removeAttribute("href");
+          link.setAttribute("aria-disabled", "true");
+          link.style.cursor = "not-allowed";
+          continue;
+        }
         link.target = "_blank";
         link.rel = "noopener noreferrer";
       }

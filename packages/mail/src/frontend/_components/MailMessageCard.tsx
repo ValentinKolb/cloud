@@ -59,6 +59,14 @@ export default function MailMessageCard(props: {
 }) {
   let messageBody!: HTMLDivElement;
   const [bodyFormatOverride, setBodyFormatOverride] = createSignal<MessageBodyFormat | null>(null);
+  const security = () =>
+    props.message.security ?? {
+      risk: "none" as const,
+      verdict: "clear" as const,
+      findings: [],
+      linksDisabled: false,
+      evaluatedAt: new Date(0).toISOString(),
+    };
   const controllableDelivery = () => {
     const delivery = props.message.delivery;
     return delivery && messageDeliveryControlLabel(delivery.state, props.context.canWrite) ? delivery : null;
@@ -250,6 +258,37 @@ export default function MailMessageCard(props: {
       </Show>
       <Show when={props.expanded}>
         <div class="px-3 pb-3 pt-2">
+          <Show when={security().risk !== "none"}>
+            <div
+              class={`mb-3 flex gap-2 rounded-[var(--ui-radius-control)] border px-3 py-2 text-xs ${
+                security().risk === "danger"
+                  ? "border-red-300/70 bg-red-50/70 text-red-950 dark:border-red-900 dark:bg-red-950/25 dark:text-red-100"
+                  : "border-amber-300/70 bg-amber-50/70 text-amber-950 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-100"
+              }`}
+              role="status"
+            >
+              <i
+                class={`ti ${security().risk === "danger" ? "ti-shield-x" : "ti-shield-exclamation"} mt-0.5 shrink-0`}
+                aria-hidden="true"
+              />
+              <div class="min-w-0">
+                <p class="font-semibold">
+                  {security().verdict === "quarantined" ? "This message was blocked" : "Check this message carefully"}
+                </p>
+                <ul class="mt-1 list-disc space-y-0.5 pl-4 text-current/80">
+                  {security().findings.map((finding) => (
+                    <li title={finding.explanation}>{finding.title}</li>
+                  ))}
+                </ul>
+                <Show when={security().linksDisabled}>
+                  <p class="mt-1 text-current/80">Links are disabled. An administrator can review the report.</p>
+                </Show>
+                <a class="mt-1 inline-block font-medium underline underline-offset-2" href="/app/mail/help/mail-security">
+                  How Mail protects you
+                </a>
+              </div>
+            </div>
+          </Show>
           <div ref={messageBody} class="mail-message-body min-w-0 overflow-x-auto text-sm text-primary">
             {props.message.sanitizedHtml || props.message.plainText ? (
               <Show keyed when={bodyFormat()}>
@@ -262,6 +301,7 @@ export default function MailMessageCard(props: {
                     plainText={props.message.plainText}
                     attachments={props.message.attachments}
                     remoteContent={props.message.remoteContent}
+                    linksDisabled={security().linksDisabled}
                     onSelectionChange={(value) => props.actions.selectionChange(props.message.id, value)}
                   />
                 )}
@@ -274,7 +314,7 @@ export default function MailMessageCard(props: {
               <Placeholder state="loading" title="Body is still synchronizing" />
             )}
           </div>
-          <Show when={hasCalendarInvitation() && props.context.calendarIntegrationAvailable}>
+          <Show when={hasCalendarInvitation() && props.context.calendarIntegrationAvailable && !security().linksDisabled}>
             <MailCalendarInvitation
               mailboxId={props.context.mailboxId}
               messageId={props.message.id}
@@ -283,7 +323,7 @@ export default function MailMessageCard(props: {
               dateConfig={props.context.dateConfig}
             />
           </Show>
-          <Show when={props.message.attachments.length > 0}>
+          <Show when={props.message.attachments.length > 0 && !security().linksDisabled}>
             <MailMessageAttachments
               mailboxId={props.context.mailboxId}
               messageId={props.message.id}

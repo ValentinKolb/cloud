@@ -1301,4 +1301,47 @@ suite("mail migrations", () => {
       legacy_machine_headers: 0,
     });
   });
+
+  test("installs durable Mail security operations once", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        operations_applied: number;
+        hardening_applied: number;
+        policies_present: boolean;
+        reports_present: boolean;
+        report_sources_present: boolean;
+        sender_snapshot_columns: boolean;
+        read_cache_absent: boolean;
+      }[]
+    >`
+      SELECT
+        (SELECT count(*)::int FROM mail.schema_migrations WHERE version = 106 AND name = 'mail_security_operations')
+          AS operations_applied,
+        (SELECT count(*)::int FROM mail.schema_migrations WHERE version = 107 AND name = 'mail_security_operations_hardening')
+          AS hardening_applied,
+        to_regclass('mail.security_policies') IS NOT NULL AS policies_present,
+        to_regclass('mail.security_reports') IS NOT NULL AS reports_present,
+        to_regclass('mail.security_report_sources') IS NOT NULL AS report_sources_present,
+        (
+          SELECT count(*) = 2
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'security_reports'
+            AND column_name IN ('sender_address', 'sender_domain')
+        ) AS sender_snapshot_columns,
+        to_regclass('mail.message_security_assessments') IS NULL AS read_cache_absent
+    `;
+
+    expect(shape).toEqual({
+      operations_applied: 1,
+      hardening_applied: 1,
+      policies_present: true,
+      reports_present: true,
+      report_sources_present: true,
+      sender_snapshot_columns: true,
+      read_cache_absent: true,
+    });
+  });
 });

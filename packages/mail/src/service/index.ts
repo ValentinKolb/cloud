@@ -40,6 +40,7 @@ import * as savedViews from "./saved-views";
 import * as scheduledSends from "./scheduled-sends";
 import { cancelSendCommand } from "./scheduled-sends";
 import * as search from "./search";
+import * as security from "./security";
 import * as senderIdentities from "./sender-identities";
 import * as senderIdentityTransports from "./sender-identity-transports";
 import * as settingsContext from "./settings-context";
@@ -105,6 +106,7 @@ export {
   savedViews,
   scheduledSends,
   search,
+  security,
   senderIdentities,
   senderIdentityTransports,
   settingsContext,
@@ -153,6 +155,7 @@ export const mailService = {
   savedViews,
   scheduledSends,
   search,
+  security,
   senderIdentities,
   senderIdentityTransports,
   mailRules,

@@ -2,6 +2,39 @@
 
 Use `cld mail` to configure Cloud mailboxes and operate mirrored provider mail through the same permission-checked APIs as the Mail app.
 
+## Phishing protection
+
+Read a message with its current explainable security assessment or report a suspicious incoming message:
+
+```bash
+cld mail message get <message-id> --mailbox <mailbox>
+cld mail message report-phishing <message-id> --mailbox <mailbox> --yes
+```
+
+The report contains identifiers and security evidence, not a copied message body. Repeated reports update the same report.
+
+Platform administrators can manage the same redacted report inbox and exact rules as **Administration > Mail > Security**:
+
+```bash
+cld mail admin security reports --status new
+cld mail admin security report resolve <report-id> --status in_review --note "Checking with the sender"
+cld mail admin security report resolve <report-id> --status confirmed
+
+cld mail admin security rule list
+cld mail admin security rule add suspicious.example --disposition deny --target sender_domain --note "Confirmed campaign"
+cld mail admin security rule set <rule-id> --enabled off
+cld mail admin security rule delete <rule-id> --yes
+
+cld mail admin security identity list
+cld mail admin security identity add "Squarespace" --domain squarespace.com --domain squarespace-mail.com
+cld mail admin security identity delete <identity-id> --yes
+
+cld mail admin security authentication show
+cld mail admin security authentication set --server mx.example.org
+```
+
+Domain rules include subdomains. Trust rules support sender addresses and sender domains only. They suppress heuristic warnings only when a trusted receiving mail server also reports successful sender authentication. An explicit block always wins.
+
 Start here for mailbox setup, search, and collaboration. Continue with:
 
 - [Mail compose and drafts](mail-compose.md) for templates, signatures, shared drafts, attachments, immediate or scheduled delivery, and durable send commands.

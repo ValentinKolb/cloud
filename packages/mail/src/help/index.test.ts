@@ -9,6 +9,7 @@ const expectedIds = [
   "mail-start",
   "mail-work",
   "mail-compose",
+  "mail-security",
   "mail-collaboration",
   "mail-admin",
   "mail-automation",
@@ -25,6 +26,7 @@ describe("mailHelp", () => {
       ["mail-work", "Use **Search mailbox** for a quick search"],
       ["mail-compose", "Only one editing session holds the draft lease"],
       ["mail-collaboration", "Internal comments are visible to people who can read the mailbox"],
+      ["mail-security", "Mail keeps uncertain signals quiet"],
       ["mail-admin", "Pause mailbox** stops incoming synchronization"],
       ["mail-automation", "Reference-number settings define the format"],
       ["mail-workflows", "Mail workflow YAML has three top-level keys"],
@@ -119,6 +121,15 @@ describe("mailHelp", () => {
     expect(work).toContain("Settings > Reading > Default message format");
     expect(work).toContain("Scripts, forms, embedded objects, external stylesheets");
     expect(admin).toContain("Reading** is available to every mailbox reader");
+  });
+
+  test("explains phishing protection without requiring protocol knowledge", () => {
+    const security = mailHelp.getMarkdown("mail-security");
+
+    expect(security).toContain("Report phishing");
+    expect(security).toContain("Mail keeps uncertain signals quiet");
+    expect(security).toContain("does not upload or copy the subject or message body");
+    expect(security).toContain("Trusted authentication sources");
   });
 
   test("documents guided mail rules and resumable existing-message backfills", () => {

@@ -5333,6 +5333,84 @@ const addMailboxCalendarDestination = async (db: SqlClient): Promise<void> => {
   await db`ALTER TABLE mail.mailboxes ADD COLUMN calendar_space_id UUID`;
 };
 
+const addMailSecurityOperations = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.security_settings (
+      singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+      trusted_authserv_ids TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+      updated_by_user_id UUID,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  await db`INSERT INTO mail.security_settings (singleton) VALUES (true)`;
+  await db`
+    CREATE TABLE mail.security_policies (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      disposition TEXT NOT NULL CHECK (disposition IN ('deny', 'trust')),
+      target TEXT NOT NULL CHECK (target IN ('sender_address', 'sender_domain', 'link_domain')),
+      value TEXT NOT NULL CHECK (char_length(value) BETWEEN 1 AND 320 AND value = lower(value)),
+      note TEXT CHECK (note IS NULL OR char_length(note) <= 500),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      created_by_user_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (disposition, target, value),
+      CHECK (disposition = 'deny' OR target IN ('sender_address', 'sender_domain'))
+    )
+  `;
+  await db`CREATE INDEX security_policies_active_idx ON mail.security_policies (disposition, target, value) WHERE enabled`;
+  await db`
+    CREATE TABLE mail.protected_identities (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL CHECK (char_length(name) BETWEEN 2 AND 160),
+      normalized_name TEXT NOT NULL CHECK (char_length(normalized_name) BETWEEN 1 AND 160),
+      allowed_domains TEXT[] NOT NULL CHECK (cardinality(allowed_domains) BETWEEN 1 AND 20),
+      note TEXT CHECK (note IS NULL OR char_length(note) <= 500),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      created_by_user_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (normalized_name)
+    )
+  `;
+  await db`
+    CREATE TABLE mail.security_reports (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      message_id UUID NOT NULL REFERENCES mail.message_contents(id) ON DELETE CASCADE,
+      sender_address TEXT CHECK (sender_address IS NULL OR char_length(sender_address) <= 320),
+      sender_domain TEXT CHECK (sender_domain IS NULL OR char_length(sender_domain) <= 253),
+      status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'in_review', 'confirmed', 'dismissed')),
+      report_count INTEGER NOT NULL DEFAULT 1 CHECK (report_count > 0),
+      assessment JSONB NOT NULL CHECK (jsonb_typeof(assessment) = 'object'),
+      resolution_note TEXT CHECK (resolution_note IS NULL OR char_length(resolution_note) <= 1000),
+      reviewed_by_user_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, message_id)
+    )
+  `;
+  await db`CREATE INDEX security_reports_status_idx ON mail.security_reports (status, updated_at DESC, id DESC)`;
+  await db`
+    CREATE TABLE mail.security_report_sources (
+      report_id UUID NOT NULL REFERENCES mail.security_reports(id) ON DELETE CASCADE,
+      actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'service_account')),
+      actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (report_id, actor_kind, actor_id)
+    )
+  `;
+};
+
+const hardenMailSecurityOperations = async (db: SqlClient): Promise<void> => {
+  await db`DROP TABLE IF EXISTS mail.message_security_assessments`;
+  await db`
+    ALTER TABLE mail.security_reports
+      ADD COLUMN IF NOT EXISTS sender_address TEXT CHECK (sender_address IS NULL OR char_length(sender_address) <= 320),
+      ADD COLUMN IF NOT EXISTS sender_domain TEXT CHECK (sender_domain IS NULL OR char_length(sender_domain) <= 253)
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -5438,6 +5516,8 @@ const migrations: readonly MailMigration[] = [
   { version: 103, name: "generalized_mail_rules", run: generalizeMailRules },
   { version: 104, name: "canonical_mail_rule_object_names", run: canonicalizeMailRuleObjectNames },
   { version: 105, name: "mailbox_calendar_destination", run: addMailboxCalendarDestination },
+  { version: 106, name: "mail_security_operations", run: addMailSecurityOperations },
+  { version: 107, name: "mail_security_operations_hardening", run: hardenMailSecurityOperations },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

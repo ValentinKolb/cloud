@@ -18,11 +18,7 @@ import {
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
-import type {
-  CalendarInvitationImportResult,
-  CalendarInvitationPreview,
-  SpacesMailDestinationContext,
-} from "./app-integration-contracts";
+import type { CalendarInvitationImportResult, CalendarInvitationPreview, SpacesMailDestinationContext } from "./app-integration-contracts";
 import {
   type AcquiredDraftLease,
   type AttachmentLink,
@@ -87,6 +83,7 @@ import {
   type WorkflowEffectBudget,
   type WorkflowValidation,
 } from "./contracts";
+import type { MailProtectedIdentity, MailSecurityPolicy, MailSecurityReport, MailSecuritySettings } from "./security-contracts";
 import type { AutomaticReplyConfiguration, AutomaticReplySetup } from "./service/automatic-reply-configuration";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
 import type {
@@ -2329,6 +2326,200 @@ export default defineCliCommands({
         ctx.print("Queued Mail storage reconciliation. The current snapshot remains visible until the job finishes.");
       },
     }),
+    command("admin security reports", {
+      summary: "List reported suspicious messages without message content",
+      flags: {
+        status: flag.enum(["new", "in_review", "confirmed", "dismissed"] as const),
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+      },
+      run: async ({ ctx, flags }) => {
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.status) query.set("status", flags.status);
+        const reports = await readApi<MailSecurityReport[]>(ctx, `/admin/security/reports?${query}`);
+        if (printStructured(ctx, reports)) return;
+        ctx.table(
+          reports.map((report) => ({
+            status: report.status,
+            sender: report.senderAddress ?? "unknown",
+            evidence: report.assessment.findings.map((finding) => finding.title).join("; ") || "user report",
+            reports: report.reportCount,
+            mailbox: report.mailboxId,
+            message: report.messageId,
+            id: report.id,
+          })),
+          [
+            { key: "status", label: "STATUS" },
+            { key: "sender", label: "SENDER" },
+            { key: "evidence", label: "EVIDENCE" },
+            { key: "reports", label: "REPORTS" },
+            { key: "mailbox", label: "MAILBOX" },
+            { key: "message", label: "MESSAGE" },
+            { key: "id", label: "REPORT" },
+          ],
+        );
+      },
+    }),
+    command("admin security report resolve", {
+      summary: "Start, confirm, or dismiss a phishing-report review",
+      args: { reportId: arg.required({ description: "Security report id" }) },
+      flags: {
+        status: flag.enum(["in_review", "confirmed", "dismissed"] as const, { required: true }),
+        note: flag.string({ description: "Optional internal resolution note" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const report = await readApi<MailSecurityReport>(
+          ctx,
+          `/admin/security/reports/${args.reportId}`,
+          jsonRequest("PATCH", { status: flags.status, resolutionNote: flags.note ?? null }),
+        );
+        if (printStructured(ctx, report)) return;
+        ctx.print(`Report ${report.id}: ${report.status}.`);
+      },
+    }),
+    command("admin security rule list", {
+      summary: "List organization-wide Mail protection rules",
+      run: async ({ ctx }) => {
+        const policies = await readApi<MailSecurityPolicy[]>(ctx, "/admin/security/policies");
+        if (printStructured(ctx, policies)) return;
+        ctx.table(
+          policies.map((policy) => ({
+            rule: policy.disposition,
+            target: policy.target,
+            value: policy.value,
+            active: policy.enabled ? "yes" : "no",
+            note: policy.note ?? "",
+            id: policy.id,
+          })),
+          [
+            { key: "rule", label: "RULE" },
+            { key: "target", label: "MATCH" },
+            { key: "value", label: "VALUE" },
+            { key: "active", label: "ACTIVE" },
+            { key: "note", label: "NOTE" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("admin security rule add", {
+      summary: "Add an exact blocking or authenticated-trust rule",
+      args: { value: arg.required({ description: "Exact sender address or domain" }) },
+      flags: {
+        disposition: flag.enum(["deny", "trust"] as const, { required: true }),
+        target: flag.enum(["sender_address", "sender_domain", "link_domain"] as const, { required: true }),
+        note: flag.string({ description: "Optional internal reason" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const policy = await readApi<MailSecurityPolicy>(
+          ctx,
+          "/admin/security/policies",
+          jsonRequest("POST", {
+            disposition: flags.disposition,
+            target: flags.target,
+            value: args.value,
+            note: flags.note ?? null,
+            enabled: true,
+          }),
+        );
+        if (printStructured(ctx, policy)) return;
+        ctx.print(`Added ${policy.disposition} rule for ${policy.target} ${policy.value} (${policy.id}).`);
+      },
+    }),
+    command("admin security rule set", {
+      summary: "Enable or disable a Mail protection rule",
+      args: { policyId: arg.required({ description: "Security rule id" }) },
+      flags: {
+        enabled: flag.enum(["on", "off"] as const, { required: true }),
+        note: flag.string({ description: "Optional replacement note" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const policy = await readApi<MailSecurityPolicy>(
+          ctx,
+          `/admin/security/policies/${args.policyId}`,
+          jsonRequest("PATCH", { enabled: flags.enabled === "on", ...(flags.note === undefined ? {} : { note: flags.note }) }),
+        );
+        if (printStructured(ctx, policy)) return;
+        ctx.print(`${policy.enabled ? "Enabled" : "Disabled"} ${policy.value}.`);
+      },
+    }),
+    command("admin security rule delete", {
+      summary: "Delete a Mail protection rule",
+      args: { policyId: arg.required({ description: "Security rule id" }) },
+      flags: { yes: confirmFlag("Confirm security rule deletion") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to delete the security rule.");
+        const result = await readApi<{ deleted: true }>(ctx, `/admin/security/policies/${args.policyId}`, { method: "DELETE" });
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Deleted security rule ${args.policyId}.`);
+      },
+    }),
+    command("admin security identity list", {
+      summary: "List visible sender identities protected against impersonation",
+      run: async ({ ctx }) => {
+        const identities = await readApi<MailProtectedIdentity[]>(ctx, "/admin/security/protected-identities");
+        if (printStructured(ctx, identities)) return;
+        ctx.table(
+          identities.map((identity) => ({ name: identity.name, domains: identity.allowedDomains.join(","), id: identity.id })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "domains", label: "ALLOWED DOMAINS" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("admin security identity add", {
+      summary: "Protect an exact visible sender name",
+      args: { name: arg.required({ description: "Visible sender name" }) },
+      flags: {
+        domain: flag.stringList({ description: "Allowed sender domain; repeatable" }),
+        note: flag.string({ description: "Optional internal reason" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.domain.length === 0) throw new Error("Pass at least one --domain.");
+        const identity = await readApi<MailProtectedIdentity>(
+          ctx,
+          "/admin/security/protected-identities",
+          jsonRequest("POST", { name: args.name, allowedDomains: flags.domain, note: flags.note ?? null, enabled: true }),
+        );
+        if (printStructured(ctx, identity)) return;
+        ctx.print(`Protected ${identity.name} for ${identity.allowedDomains.join(", ")} (${identity.id}).`);
+      },
+    }),
+    command("admin security identity delete", {
+      summary: "Remove a protected visible sender identity",
+      args: { identityId: arg.required({ description: "Protected identity id" }) },
+      flags: { yes: confirmFlag("Confirm protected identity removal") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to remove the protected identity.");
+        const result = await readApi<{ deleted: true }>(ctx, `/admin/security/protected-identities/${args.identityId}`, {
+          method: "DELETE",
+        });
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Removed protected identity ${args.identityId}.`);
+      },
+    }),
+    command("admin security authentication show", {
+      summary: "Show trusted Authentication-Results server names",
+      run: async ({ ctx }) => {
+        const settings = await readApi<MailSecuritySettings>(ctx, "/admin/security/settings");
+        if (printStructured(ctx, settings)) return;
+        ctx.print(settings.trustedAuthservIds.length ? settings.trustedAuthservIds.join("\n") : "No authentication servers are trusted.");
+      },
+    }),
+    command("admin security authentication set", {
+      summary: "Replace trusted Authentication-Results server names",
+      flags: { server: flag.stringList({ description: "Trusted authserv-id; repeatable. Omit all to clear." }) },
+      run: async ({ ctx, flags }) => {
+        const settings = await readApi<MailSecuritySettings>(
+          ctx,
+          "/admin/security/settings",
+          jsonRequest("PATCH", { trustedAuthservIds: flags.server }),
+        );
+        if (printStructured(ctx, settings)) return;
+        ctx.print(`Saved ${settings.trustedAuthservIds.length} trusted authentication server name(s).`);
+      },
+    }),
     command("folders", {
       summary: "List canonical folders",
       flags: mailboxFlag,
@@ -2762,9 +2953,29 @@ export default defineCliCommands({
           ctx.print(`Subject: ${message.subject}`);
           ctx.print(`From: ${message.from.map((address) => address.address).join(", ")}`);
           ctx.print(`To: ${message.to.map((address) => address.address).join(", ")}`);
+          if (message.security && message.security.risk !== "none") {
+            ctx.print(`Security: ${message.security.verdict}`);
+            for (const finding of message.security.findings) ctx.print(`- ${finding.title}: ${finding.explanation}`);
+          }
           ctx.print("");
           ctx.print(message.plainText ?? "[Body not hydrated]");
         }
+      },
+    }),
+    command("message report-phishing", {
+      summary: "Report a suspicious message to Mail administrators",
+      args: { messageId: arg.required({ description: "Message content id" }) },
+      flags: { ...mailboxFlag, yes: confirmFlag("Confirm phishing report") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to report the message.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const report = await readApi<MailSecurityReport>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/security-report`,
+          jsonRequest("POST", {}),
+        );
+        if (printStructured(ctx, report)) return;
+        ctx.print(`Reported message ${args.messageId} for administrator review (${report.id}).`);
       },
     }),
     command("calendar destinations", {
