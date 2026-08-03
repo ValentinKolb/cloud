@@ -1,5 +1,5 @@
 import type { Input } from "@k2b/nessi";
-import { readAiSettingsState, resolveAiModel } from "./settings";
+import { readAiSettingsState, resolveAiModelFromState } from "./settings";
 import type { AiModelPolicy, AiSettingsError, AiSettingsState } from "./types";
 
 export const isAiSettingsError = (error: unknown): error is Error & { aiError: AiSettingsError } =>
@@ -16,7 +16,7 @@ export type ValidateAiTurnInput = {
 
 export const validateAiTurnRequest = async (
   input: ValidateAiTurnInput,
-): Promise<{ settings: Extract<AiSettingsState, { ok: true }>; resolved: Awaited<ReturnType<typeof resolveAiModel>> }> => {
+): Promise<{ settings: Extract<AiSettingsState, { ok: true }>; resolved: Awaited<ReturnType<typeof resolveAiModelFromState>> }> => {
   const settings = await readAiSettingsState();
   if (!settings.ok) throw Object.assign(new Error(settings.error.message), { aiError: settings.error });
   if (!settings.enabled) {
@@ -25,7 +25,7 @@ export const validateAiTurnRequest = async (
     });
   }
 
-  const resolved = await resolveAiModel(input.modelPolicy ?? { kind: "platform-default" }, input.requestedModelId);
+  const resolved = await resolveAiModelFromState(settings, input.modelPolicy ?? { kind: "platform-default" }, input.requestedModelId);
   if (inputIncludesFiles(input.input) && !resolved.profile.capabilities.includes("vision")) {
     throw Object.assign(new Error(`AI model "${resolved.profile.id}" does not support image input.`), {
       aiError: {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { coreSettings } from "../services";
-import { getAiCredential } from "./credentials";
+import { getAiCredential, listAiCredentialProfileIds } from "./credentials";
 import { AI_FIRECRAWL_API_KEY_SETTING_KEY } from "./firecrawl-tools";
 import { createAiProvider } from "./provider";
 import {
@@ -20,9 +20,20 @@ import {
 const PROVIDERS = ["openai", "openrouter", "anthropic", "mistral", "gemini", "ollama", "vllm", "openai-compatible"] as const;
 const LEGACY_DATA_BOUNDARIES = ["local", "internal"] as const;
 const DATA_BOUNDARY_INPUTS = [...AI_DATA_BOUNDARIES, ...LEGACY_DATA_BOUNDARIES] as const;
+const HttpUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine((value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  }, "Provider endpoints must use HTTP or HTTPS.");
 
-const providerRequiresCredential = (provider: AiProviderId): boolean =>
+export const providerRequiresCredential = (provider: AiProviderId): boolean =>
   provider === "openai" || provider === "openrouter" || provider === "anthropic" || provider === "mistral" || provider === "gemini";
+
+export const providerSupportsCredential = (provider: AiProviderId): boolean =>
+  providerRequiresCredential(provider) || provider === "vllm" || provider === "openai-compatible";
 
 const defaultDataBoundary = (provider: AiProviderId): AiDataBoundary =>
   provider === "ollama" || provider === "vllm" || provider === "openai-compatible" ? "private" : "hosted";
@@ -52,38 +63,44 @@ const normalizeCapabilities = (values: string[] | undefined): AiModelCapability[
   return [...new Set(capabilities)];
 };
 
-const ModelProfileSchema = z.object({
-  id: z
-    .string()
-    .trim()
-    .min(1)
-    .regex(/^[a-z0-9][a-z0-9._-]*$/),
-  label: z.string().trim().min(1),
-  provider: z.enum(PROVIDERS),
-  model: z.string().trim().min(1),
-  enabled: z.boolean().default(true),
-  // Small logo shown in the admin card and the composer model picker. Hard cap:
-  // it ships to every user via the public model list (64x64 webp ≈ a few KB).
-  image: z
-    .string()
-    .trim()
-    .regex(/^data:image\//)
-    .max(28_000)
-    .optional(),
-  // Legacy/advanced metadata is tolerated but no longer used for model selection.
-  tags: z.array(z.string()).optional(),
-  capabilities: z.array(z.string()).optional(),
-  dataBoundary: z.enum(DATA_BOUNDARY_INPUTS).optional(),
-  // Legacy name accepted for stored profiles created before dataBoundary.
-  dataPolicy: z.enum(DATA_BOUNDARY_INPUTS).optional(),
-  baseURL: z.string().trim().url().optional(),
-  contextWindow: z.number().int().positive().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  maxOutputTokens: z.number().int().positive().optional(),
-  maxLoadedCapabilities: z.number().int().optional(),
-  creditsPerInputToken: z.number().nonnegative().optional(),
-  creditsPerOutputToken: z.number().nonnegative().optional(),
-});
+const ModelProfileSchema = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(/^[a-z0-9][a-z0-9._-]*$/),
+    label: z.string().trim().min(1),
+    provider: z.enum(PROVIDERS),
+    model: z.string().trim().min(1),
+    enabled: z.boolean().default(true),
+    // Small logo shown in the admin card and the composer model picker. Hard cap:
+    // it ships to every user via the public model list (64x64 webp ≈ a few KB).
+    image: z
+      .string()
+      .trim()
+      .regex(/^data:image\//)
+      .max(28_000)
+      .optional(),
+    // Legacy/advanced metadata is tolerated but no longer used for model selection.
+    tags: z.array(z.string()).optional(),
+    capabilities: z.array(z.string()).optional(),
+    dataBoundary: z.enum(DATA_BOUNDARY_INPUTS).optional(),
+    // Legacy name accepted for stored profiles created before dataBoundary.
+    dataPolicy: z.enum(DATA_BOUNDARY_INPUTS).optional(),
+    baseURL: HttpUrlSchema.optional(),
+    contextWindow: z.number().int().positive().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    maxOutputTokens: z.number().int().positive().optional(),
+    maxLoadedCapabilities: z.number().int().optional(),
+    creditsPerInputToken: z.number().nonnegative().optional(),
+    creditsPerOutputToken: z.number().nonnegative().optional(),
+  })
+  .superRefine((profile, ctx) => {
+    if (profile.provider === "openai-compatible" && !profile.baseURL) {
+      ctx.addIssue({ code: "custom", path: ["baseURL"], message: "OpenAI-compatible profiles require a base URL." });
+    }
+  });
 
 const profileToPublic = (profile: AiModelProfile): AiPublicModelProfile => ({
   id: profile.id,
@@ -105,7 +122,7 @@ const normalizeProfile = (raw: z.infer<typeof ModelProfileSchema>): AiModelProfi
   };
 };
 
-const parseProfiles = (rawJson: string): { profiles: AiModelProfile[]; error?: AiSettingsError } => {
+export const parseAiModelProfiles = (rawJson: string): { profiles: AiModelProfile[]; error?: AiSettingsError } => {
   let raw: unknown;
   try {
     raw = rawJson.trim() ? JSON.parse(rawJson) : [];
@@ -154,6 +171,66 @@ const parseProfiles = (rawJson: string): { profiles: AiModelProfile[]; error?: A
   return { profiles };
 };
 
+export const validateAiSettingsConfiguration = (input: {
+  enabled: boolean;
+  defaultModelId: string;
+  backgroundModelId: string;
+  profiles: readonly AiModelProfile[];
+  credentialProfileIds: readonly string[];
+}): Record<string, string> => {
+  if (!input.enabled) return {};
+
+  const errors: Record<string, string> = {};
+  const enabledProfiles = input.profiles.filter((profile) => profile.enabled);
+  const defaultProfile = input.profiles.find((profile) => profile.id === input.defaultModelId);
+  if (!input.defaultModelId || !defaultProfile?.enabled) {
+    errors["ai.default_model_id"] = "Choose an enabled model profile.";
+  }
+
+  if (input.backgroundModelId) {
+    const backgroundProfile = input.profiles.find((profile) => profile.id === input.backgroundModelId);
+    if (!backgroundProfile?.enabled) errors["ai.background_model_id"] = "Choose an enabled model profile or use the platform default.";
+  }
+
+  const configured = new Set(input.credentialProfileIds);
+  const missingCredentials = enabledProfiles.filter(
+    (profile) => providerRequiresCredential(profile.provider) && !configured.has(profile.id),
+  );
+  if (missingCredentials.length > 0) {
+    errors["ai.model_profiles_json"] = `Enter a provider API key for: ${missingCredentials.map((profile) => profile.label).join(", ")}.`;
+  }
+
+  return errors;
+};
+
+export const planAiProfileCredentials = (input: {
+  currentProfiles: readonly AiModelProfile[];
+  nextProfiles: readonly AiModelProfile[];
+  existingCredentialProfileIds: readonly string[];
+  submittedCredentialProfileIds: readonly string[];
+}): { keepCredentialProfileIds: string[]; unsupportedCredentialProfileId?: string } => {
+  const nextProfilesById = new Map(input.nextProfiles.map((profile) => [profile.id, profile]));
+  const unsupportedCredentialProfileId = input.submittedCredentialProfileIds.find((profileId) => {
+    const profile = nextProfilesById.get(profileId);
+    return !profile || !providerSupportsCredential(profile.provider);
+  });
+  if (unsupportedCredentialProfileId) return { keepCredentialProfileIds: [], unsupportedCredentialProfileId };
+
+  const existingCredentials = new Set(input.existingCredentialProfileIds);
+  const submittedCredentials = new Set(input.submittedCredentialProfileIds);
+  const currentProfilesById = new Map(input.currentProfiles.map((profile) => [profile.id, profile]));
+  const keepCredentialProfileIds = input.nextProfiles
+    .filter((profile) => {
+      if (!providerSupportsCredential(profile.provider)) return false;
+      if (submittedCredentials.has(profile.id)) return true;
+      const current = currentProfilesById.get(profile.id);
+      return current?.provider === profile.provider && existingCredentials.has(profile.id);
+    })
+    .map((profile) => profile.id);
+
+  return { keepCredentialProfileIds };
+};
+
 export const resolveAiSettingsStateFromRaw = async (input: {
   enabled: boolean;
   defaultModelId: string;
@@ -162,9 +239,10 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   compactionPrompt?: string;
   maxToolResultChars?: unknown;
   firecrawlApiKey?: string;
+  credentialProfileIds?: readonly string[];
   readCredential?: (profileId: string) => Promise<string | null | undefined>;
 }): Promise<AiSettingsState> => {
-  const parsed = parseProfiles(input.profilesJson ?? "[]");
+  const parsed = parseAiModelProfiles(input.profilesJson ?? "[]");
   const baseState = {
     enabled: Boolean(input.enabled),
     defaultModelId: input.defaultModelId ?? "",
@@ -220,9 +298,16 @@ export const resolveAiSettingsStateFromRaw = async (input: {
     };
   }
 
-  const credential = await input.readCredential?.(defaultProfile.id);
   if (providerRequiresCredential(defaultProfile.provider)) {
-    if (!credential?.trim()) {
+    let credentialConfigured = input.credentialProfileIds?.includes(defaultProfile.id) ?? false;
+    if (!input.credentialProfileIds && input.readCredential) {
+      try {
+        credentialConfigured = Boolean((await input.readCredential(defaultProfile.id))?.trim());
+      } catch {
+        credentialConfigured = false;
+      }
+    }
+    if (!credentialConfigured) {
       return {
         ok: false,
         ...baseState,
@@ -245,7 +330,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   };
 };
 
-export const readAiSettingsState = async (): Promise<AiSettingsState> => {
+const readAiSettingsSnapshot = async (): Promise<{ state: AiSettingsState; credentialProfileIds: string[] }> => {
   const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars, firecrawlApiKey] =
     await Promise.all([
       coreSettings.get<boolean>("ai.enabled"),
@@ -257,7 +342,16 @@ export const readAiSettingsState = async (): Promise<AiSettingsState> => {
       coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
     ]);
 
-  return resolveAiSettingsStateFromRaw({
+  const parsed = parseAiModelProfiles(profilesJson ?? "[]");
+  const defaultProfile = parsed.profiles.find((profile) => profile.id === defaultModelId);
+  const needsCredentials =
+    Boolean(enabled) &&
+    !parsed.error &&
+    Boolean(defaultProfile?.enabled) &&
+    parsed.profiles.some((profile) => profile.enabled && providerRequiresCredential(profile.provider));
+  const credentialProfileIds = needsCredentials ? await listAiCredentialProfileIds() : [];
+
+  const state = await resolveAiSettingsStateFromRaw({
     enabled: Boolean(enabled),
     defaultModelId: defaultModelId ?? "",
     profilesJson: profilesJson ?? "[]",
@@ -265,9 +359,12 @@ export const readAiSettingsState = async (): Promise<AiSettingsState> => {
     compactionPrompt: compactionPrompt ?? "",
     maxToolResultChars,
     firecrawlApiKey: firecrawlApiKey ?? "",
-    readCredential: getAiCredential,
+    credentialProfileIds,
   });
+  return { state, credentialProfileIds };
 };
+
+export const readAiSettingsState = async (): Promise<AiSettingsState> => (await readAiSettingsSnapshot()).state;
 
 const hasAll = <T extends string>(values: readonly T[], required: readonly T[] | undefined): boolean =>
   !required || required.every((requiredValue) => values.includes(requiredValue));
@@ -309,6 +406,14 @@ export const resolveAiModel = async (
   requestedModelId?: string,
 ): Promise<AiResolvedModel> => {
   const state = await readAiSettingsState();
+  return resolveAiModelFromState(state, policy, requestedModelId);
+};
+
+export const resolveAiModelFromState = async (
+  state: AiSettingsState,
+  policy: AiModelPolicy = { kind: "platform-default" },
+  requestedModelId?: string,
+): Promise<AiResolvedModel> => {
   if (!state.ok) throw Object.assign(new Error(state.error.message), { aiError: state.error });
   if (!state.enabled) {
     throw Object.assign(new Error("AI is disabled."), {
@@ -318,7 +423,7 @@ export const resolveAiModel = async (
 
   const profile = selectAiModelProfile(state, policy, requestedModelId);
 
-  const credential = await getAiCredential(profile.id);
+  const credential = providerSupportsCredential(profile.provider) ? await getAiCredential(profile.id) : null;
   if (providerRequiresCredential(profile.provider) && !credential?.trim()) {
     throw Object.assign(new Error(`AI model "${profile.id}" is missing provider credentials.`), {
       aiError: {
@@ -332,21 +437,29 @@ export const resolveAiModel = async (
   return { profile, provider: createAiProvider(profile, credential?.trim() || undefined) };
 };
 
+const isUsableProfile = (profile: AiModelProfile, credentialProfileIds: ReadonlySet<string>): boolean =>
+  !providerRequiresCredential(profile.provider) || credentialProfileIds.has(profile.id);
+
 export const listAiModels = async (policy: AiModelPolicy = { kind: "selectable" }): Promise<AiPublicModelProfile[]> => {
-  const state = await readAiSettingsState();
+  const { state, credentialProfileIds } = await readAiSettingsSnapshot();
   if (!state.ok || !state.enabled) return [];
-  return state.profiles.filter((profile) => matchesPolicy(profile, policy)).map(profileToPublic);
+  const configured = new Set(credentialProfileIds);
+  return state.profiles.filter((profile) => matchesPolicy(profile, policy) && isUsableProfile(profile, configured)).map(profileToPublic);
 };
 
 export const toPublicAiSettingsState = async () => {
-  const state = await readAiSettingsState();
+  const { state, credentialProfileIds } = await readAiSettingsSnapshot();
+  const configured = new Set(credentialProfileIds);
   return {
     ok: state.ok,
     enabled: state.enabled,
     defaultModelId: state.defaultModelId,
     error: state.ok ? null : state.error,
     firecrawlConfigured: state.firecrawlConfigured,
-    models: state.ok && state.enabled ? state.profiles.filter((profile) => profile.enabled).map(profileToPublic) : [],
+    models:
+      state.ok && state.enabled
+        ? state.profiles.filter((profile) => profile.enabled && isUsableProfile(profile, configured)).map(profileToPublic)
+        : [],
   };
 };
 

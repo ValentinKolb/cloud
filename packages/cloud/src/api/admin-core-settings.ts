@@ -9,8 +9,9 @@ import { sql } from "bun";
 import { Hono } from "hono";
 import { z } from "zod";
 import { listApps } from "../_internal/registry";
-import { pruneAiCredentials, setAiCredential, splitAiProfileCredentials } from "../ai/credentials";
+import { listAiCredentialProfileIds, pruneAiCredentials, setAiCredential, splitAiProfileCredentials } from "../ai/credentials";
 import { enrichDirtyAiConversations } from "../ai/enrich";
+import { parseAiModelProfiles, planAiProfileCredentials, validateAiSettingsConfiguration } from "../ai/settings";
 import { type AuthContext, auth, v } from "../server";
 import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
 import { validateFreeIpaCaCert } from "../services/freeipa-config";
@@ -38,6 +39,10 @@ type FieldErrors = Record<string, string>;
 const isKnownSetting = (key: string): boolean => SETTINGS_MAP.has(key);
 
 const AI_PROFILES_KEY = "ai.model_profiles_json";
+const AI_ENABLED_KEY = "ai.enabled";
+const AI_DEFAULT_MODEL_KEY = "ai.default_model_id";
+const AI_BACKGROUND_MODEL_KEY = "ai.background_model_id";
+const AI_CONFIGURATION_KEYS = new Set([AI_ENABLED_KEY, AI_DEFAULT_MODEL_KEY, AI_BACKGROUND_MODEL_KEY, AI_PROFILES_KEY]);
 const INTEGER_FREEIPA_SETTINGS = new Set(["freeipa.sync_guard.max_user_changes", "freeipa.sync_guard.max_group_deletions"]);
 
 /**
@@ -52,10 +57,88 @@ const INTEGER_FREEIPA_SETTINGS = new Set(["freeipa.sync_guard.max_user_changes",
  * Doing this in the route rather than the settings service keeps the generic
  * store free of AI knowledge, and keeps the admin page at a single save request.
  */
-const storeAiCredentials = async (split: NonNullable<ReturnType<typeof splitAiProfileCredentials>>, db: typeof sql): Promise<void> => {
+const storeAiCredentials = async (
+  split: NonNullable<ReturnType<typeof splitAiProfileCredentials>>,
+  keepCredentialProfileIds: readonly string[],
+  db: typeof sql,
+): Promise<void> => {
   for (const { profileId, secret } of split.credentials) await setAiCredential(profileId, secret, db);
-  // A profile deleted in this save must not leave its key behind.
-  await pruneAiCredentials(split.profileIds, db);
+  await pruneAiCredentials(keepCredentialProfileIds, db);
+};
+
+type AiSettingsMutationPlan = {
+  errors: FieldErrors;
+  keepCredentialProfileIds?: string[];
+};
+
+const valueAfterMutation = <T>(key: string, current: T, updates: Record<string, unknown>, resets: readonly string[]): T => {
+  if (key in updates) return updates[key] as T;
+  if (resets.includes(key)) return SETTINGS_MAP.get(key)?.default as T;
+  return current;
+};
+
+const prepareAiSettingsMutation = async (
+  updates: Record<string, unknown>,
+  resets: readonly string[],
+  aiSplit: ReturnType<typeof splitAiProfileCredentials>,
+): Promise<AiSettingsMutationPlan> => {
+  const keys = [...Object.keys(updates), ...resets];
+  if (!keys.some((key) => AI_CONFIGURATION_KEYS.has(key))) return { errors: {} };
+
+  const [currentEnabled, currentDefaultModelId, currentBackgroundModelId, currentProfilesJson] = await Promise.all([
+    settings.get<boolean>(AI_ENABLED_KEY),
+    settings.get<string>(AI_DEFAULT_MODEL_KEY),
+    settings.get<string>(AI_BACKGROUND_MODEL_KEY),
+    settings.get<string>(AI_PROFILES_KEY),
+  ]);
+
+  const currentParsed = parseAiModelProfiles(currentProfilesJson ?? "[]");
+  const profilesUpdated = AI_PROFILES_KEY in updates;
+  const profilesReset = resets.includes(AI_PROFILES_KEY);
+  const nextParsed: ReturnType<typeof parseAiModelProfiles> = profilesUpdated
+    ? parseAiModelProfiles(aiSplit?.profilesJson ?? "[]")
+    : profilesReset
+      ? { profiles: [] }
+      : currentParsed;
+  if (nextParsed.error) return { errors: nextParsed.error.fields ?? { [AI_PROFILES_KEY]: nextParsed.error.message } };
+
+  const nextEnabled = Boolean(valueAfterMutation(AI_ENABLED_KEY, currentEnabled, updates, resets));
+  const existingCredentialProfileIds = profilesUpdated || (!profilesReset && nextEnabled) ? await listAiCredentialProfileIds() : [];
+
+  let keepCredentialProfileIds: string[] | undefined;
+  if (profilesUpdated || profilesReset) {
+    const credentialPlan = planAiProfileCredentials({
+      currentProfiles: currentParsed.profiles,
+      nextProfiles: nextParsed.profiles,
+      existingCredentialProfileIds,
+      submittedCredentialProfileIds: aiSplit?.credentials.map(({ profileId }) => profileId) ?? [],
+    });
+    if (credentialPlan.unsupportedCredentialProfileId) {
+      return {
+        errors: {
+          [AI_PROFILES_KEY]: `Profile "${credentialPlan.unsupportedCredentialProfileId}" does not support provider credentials.`,
+        },
+      };
+    }
+    keepCredentialProfileIds = credentialPlan.keepCredentialProfileIds;
+  }
+
+  const errors = validateAiSettingsConfiguration({
+    enabled: nextEnabled,
+    defaultModelId: String(valueAfterMutation(AI_DEFAULT_MODEL_KEY, currentDefaultModelId ?? "", updates, resets)),
+    backgroundModelId: String(valueAfterMutation(AI_BACKGROUND_MODEL_KEY, currentBackgroundModelId ?? "", updates, resets)),
+    profiles: nextParsed.profiles,
+    credentialProfileIds: keepCredentialProfileIds ?? existingCredentialProfileIds,
+  });
+  return { errors, keepCredentialProfileIds };
+};
+
+const invalidateCommittedSettings = async (keys: readonly string[]): Promise<void> => {
+  try {
+    await settings.invalidateSettingsCache(keys);
+  } catch (error) {
+    console.error("[settings] committed values but failed to invalidate the shared cache; TTL recovery remains active", error);
+  }
 };
 const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app.settingKeys ?? [])]);
 
@@ -147,11 +230,13 @@ const app = new Hono<AuthContext>()
     // single bad field used to leave the earlier keys already saved — with the
     // AI profiles among them, whose save also prunes credentials.
     const invalid: FieldErrors = {};
+    const validatedValues: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(finalValues)) {
       const def = SETTINGS_MAP.get(key);
       if (!def) continue;
       const validated = validateSettingValue(def, value);
-      if (!validated.ok) invalid[key] = validated.error;
+      if (validated.ok) validatedValues[key] = validated.value;
+      else invalid[key] = validated.error;
       if (key === "freeipa.ca_cert") {
         const certificate = validateFreeIpaCaCert(value);
         if (!certificate.ok) invalid[key] = certificate.error;
@@ -164,16 +249,27 @@ const app = new Hono<AuthContext>()
       return c.json({ message: "Invalid values", errors: invalid }, 400);
     }
 
+    let aiPlan: AiSettingsMutationPlan;
+    try {
+      aiPlan = await prepareAiSettingsMutation(validatedValues, resets, aiSplit);
+    } catch (error) {
+      console.error("[settings] failed to validate the prospective AI configuration", error);
+      return c.json({ message: "Failed to validate AI settings" }, 500);
+    }
+    if (Object.keys(aiPlan.errors).length > 0) {
+      return c.json({ message: "Invalid AI configuration", errors: aiPlan.errors }, 400);
+    }
+
     const fieldErrors: FieldErrors = {};
     try {
       // Every settings and AI credential write runs on the transaction's own
       // connection, so a failure rolls the whole save back.
       await sql.begin(async (tx) => {
-        for (const [key, value] of Object.entries(finalValues)) {
+        for (const [key, value] of Object.entries(validatedValues)) {
           try {
             await settings.set(key, value, tx);
           } catch (error) {
-            fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
+            fieldErrors[key] = `Failed to update ${key}`;
             throw error;
           }
         }
@@ -181,25 +277,30 @@ const app = new Hono<AuthContext>()
           try {
             await settings.remove(key, tx);
           } catch (error) {
-            fieldErrors[key] = error instanceof Error ? error.message : `Failed to reset ${key}`;
+            fieldErrors[key] = `Failed to reset ${key}`;
             throw error;
           }
         }
-        if (aiSplit) await storeAiCredentials(aiSplit, tx);
+        if (aiSplit && aiPlan.keepCredentialProfileIds) {
+          await storeAiCredentials(aiSplit, aiPlan.keepCredentialProfileIds, tx);
+        } else if (aiPlan.keepCredentialProfileIds) {
+          await pruneAiCredentials(aiPlan.keepCredentialProfileIds, tx);
+        }
       });
-      // Only now: dropping the cache before the commit would let another
-      // container miss, read the pre-commit row and cache it for the full TTL.
-      await settings.invalidateSettingsCache(keys);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Save failed";
+      console.error("[settings] failed to commit settings update", error);
       return c.json(
         {
-          message,
-          errors: Object.keys(fieldErrors).length > 0 ? fieldErrors : { _form: message },
+          message: "Save failed",
+          errors: Object.keys(fieldErrors).length > 0 ? fieldErrors : { _form: "The settings could not be saved." },
         },
-        400,
+        500,
       );
     }
+
+    // Only now: dropping the cache before the commit would let another
+    // container miss, read the pre-commit row and cache it for the full TTL.
+    await invalidateCommittedSettings(keys);
 
     return c.body(null, 204);
   })
@@ -208,13 +309,29 @@ const app = new Hono<AuthContext>()
     if (!isKnownSetting(key)) {
       return c.json({ message: `Unknown setting "${key}"` }, 400);
     }
+
+    let aiPlan: AiSettingsMutationPlan;
     try {
-      await settings.remove(key);
-      return c.body(null, 204);
+      aiPlan = await prepareAiSettingsMutation({}, [key], null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Reset failed";
-      return c.json({ message }, 500);
+      console.error("[settings] failed to validate the prospective AI configuration", error);
+      return c.json({ message: "Failed to validate AI settings" }, 500);
     }
+    if (Object.keys(aiPlan.errors).length > 0) {
+      return c.json({ message: "Invalid AI configuration", errors: aiPlan.errors }, 400);
+    }
+
+    try {
+      await sql.begin(async (tx) => {
+        await settings.remove(key, tx);
+        if (aiPlan.keepCredentialProfileIds) await pruneAiCredentials(aiPlan.keepCredentialProfileIds, tx);
+      });
+    } catch (error) {
+      console.error(`[settings] failed to reset "${key}"`, error);
+      return c.json({ message: "Reset failed" }, 500);
+    }
+    await invalidateCommittedSettings([key]);
+    return c.body(null, 204);
   });
 
 export default app;

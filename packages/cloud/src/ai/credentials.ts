@@ -20,13 +20,18 @@ type SqlClient = typeof sql;
  */
 
 /** The key for a profile, or null when none is stored. */
-export const getAiCredential = async (profileId: string): Promise<string | null> => {
-  const [row] = await sql<{ secret: string }[]>`
+export const getAiCredential = async (profileId: string, db: SqlClient = sql): Promise<string | null> => {
+  const [row] = await db<{ secret: string }[]>`
     SELECT secret FROM ai.model_credentials WHERE profile_id = ${profileId}
   `;
   if (!row) return null;
-  const value = await decryptValue(row.secret);
-  return typeof value === "string" && value.trim() ? value : null;
+  try {
+    const value = await decryptValue(row.secret);
+    return typeof value === "string" && value.trim() ? value : null;
+  } catch {
+    console.warn(`[ai] ignoring unreadable provider credential for profile ${JSON.stringify(profileId)}`);
+    return null;
+  }
 };
 
 /** Store or replace a profile's key. */
@@ -41,10 +46,19 @@ export const setAiCredential = async (profileId: string, secret: string, db: Sql
   `;
 };
 
-/** Profile ids that currently have a key — what the admin UI renders as "stored". */
-export const listAiCredentialProfileIds = async (): Promise<string[]> => {
-  const rows = await sql<{ profile_id: string }[]>`SELECT profile_id FROM ai.model_credentials`;
-  return rows.map((row) => row.profile_id);
+/** Profile ids whose stored key can currently be decrypted and used. */
+export const listAiCredentialProfileIds = async (db: SqlClient = sql): Promise<string[]> => {
+  const rows = await db<{ profile_id: string; secret: string }[]>`SELECT profile_id, secret FROM ai.model_credentials`;
+  const usable: string[] = [];
+  for (const row of rows) {
+    try {
+      const value = await decryptValue(row.secret);
+      if (typeof value === "string" && value.trim()) usable.push(row.profile_id);
+    } catch {
+      console.warn(`[ai] ignoring unreadable provider credential for profile ${JSON.stringify(row.profile_id)}`);
+    }
+  }
+  return usable;
 };
 
 /**
@@ -77,7 +91,8 @@ export const pruneAiCredentials = async (keepProfileIds: readonly string[], db: 
 export const splitAiProfileCredentials = (
   rawValue: unknown,
 ): { profilesJson: string; credentials: Array<{ profileId: string; secret: string }>; profileIds: string[] } | null => {
-  const text = typeof rawValue === "string" ? rawValue : JSON.stringify(rawValue ?? []);
+  if (typeof rawValue !== "string") return null;
+  const text = rawValue;
   let parsed: unknown;
   try {
     parsed = JSON.parse(text || "[]");
@@ -96,9 +111,11 @@ export const splitAiProfileCredentials = (
       continue;
     }
     const { apiKey, credentialSetting: _legacy, ...profile } = entry as Record<string, unknown>;
-    if (typeof profile.id === "string" && profile.id) {
-      profileIds.push(profile.id);
-      if (typeof apiKey === "string" && apiKey.trim()) credentials.push({ profileId: profile.id, secret: apiKey.trim() });
+    const profileId = typeof profile.id === "string" ? profile.id.trim() : "";
+    if (profileId) {
+      profile.id = profileId;
+      profileIds.push(profileId);
+      if (typeof apiKey === "string" && apiKey.trim()) credentials.push({ profileId, secret: apiKey.trim() });
     }
     profiles.push(profile);
   }
