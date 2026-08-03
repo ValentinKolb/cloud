@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CAPABILITY_MAX_RESULT_BYTES } from "@valentinkolb/cloud/contracts";
 import { readCapabilityOutcome } from "./invocation";
 
 describe("capability invocation responses", () => {
@@ -32,7 +33,7 @@ describe("capability invocation responses", () => {
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
-      expect(outcome.error.code).toBe("REQUEST_FAILED");
+      expect(outcome.error.code).toBe("INVALID_APP_RESPONSE");
       expect(outcome.error.message).toBe("The capability request failed with HTTP 502.");
     }
   });
@@ -40,6 +41,12 @@ describe("capability invocation responses", () => {
   test("rejects malformed success payloads", async () => {
     const outcome = await readCapabilityOutcome(new Response(JSON.stringify({ unexpected: true }), { status: 200 }), 2);
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.error.code).toBe("INVALID_RESPONSE");
+    if (!outcome.ok) expect(outcome.error.code).toBe("INVALID_APP_RESPONSE");
+  });
+
+  test("rejects an oversized response before parsing it", async () => {
+    const outcome = await readCapabilityOutcome(new Response("x".repeat(CAPABILITY_MAX_RESULT_BYTES + 1)), 2);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error.code).toBe("RESPONSE_TOO_LARGE");
   });
 });

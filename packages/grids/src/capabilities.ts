@@ -1,6 +1,7 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
+  capabilityPage,
   type CloudResourceRef,
   type CloudResourceView,
   defineCapabilities,
@@ -145,7 +146,7 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
   return ok({
     data,
     refs: data.map((base) => ({ type: "grids.base", id: base.id })),
-    page: { hasMore, ...(hasMore ? { nextCursor: encodeCursor(nextOffset) } : {}) },
+    page: capabilityPage(hasMore ? encodeCursor(nextOffset) : undefined),
   });
 };
 
@@ -282,7 +283,7 @@ const pageContextItems = (items: GqlContextItem[], offset: number, limit: number
   const data = items.slice(offset, offset + limit);
   const nextOffset = offset + data.length;
   const hasMore = nextOffset < items.length;
-  return { data, page: { hasMore, ...(hasMore ? { nextCursor: encodeCursor(nextOffset) } : {}) } };
+  return { data, page: capabilityPage(hasMore ? encodeCursor(nextOffset) : undefined) };
 };
 
 const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, context: CapabilityExecutionContext) => {
@@ -385,7 +386,7 @@ const gqlCapabilityResult = (response: DslQueryPreviewResponse) => {
   return ok({
     data,
     refs,
-    page: { hasMore: Boolean(nextCursor), ...(nextCursor ? { nextCursor } : {}) },
+    page: capabilityPage(nextCursor),
   });
 };
 
@@ -517,7 +518,7 @@ const runRecordUpdate = async (input: z.infer<typeof RecordUpdateInputSchema>, c
 };
 
 export const gridsCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     base: { title: "Grids Base", description: "A permission-scoped Grids workspace.", icon: "ti ti-table" },
     table: { title: "Grids Table", description: "A readable stored or Combined table in a Base.", icon: "ti ti-table-column" },
@@ -602,9 +603,7 @@ export const gridsCapabilities = defineCapabilities({
       data: RecordCapabilityDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "table", inputField: "tableId" },
       run: runRecordCreate,
     },
     "record.update": {
@@ -615,9 +614,7 @@ export const gridsCapabilities = defineCapabilities({
       data: RecordCapabilityDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "record", inputField: "recordId" },
       review: async (input, context) => {
         if (Object.keys(input.values).length === 0) return fail(err.badInput("values must contain at least one field"));
         const access = accessContext(context);

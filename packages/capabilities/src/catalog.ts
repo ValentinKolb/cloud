@@ -1,6 +1,6 @@
-import { getCapability, listApps } from "@valentinkolb/cloud";
+import { getCapabilityCatalogApp, listCapabilityCatalog } from "@valentinkolb/cloud/capabilities/server";
 import type { CapabilityActionManifest, CapabilityManifest, CapabilityQueryManifest } from "@valentinkolb/cloud/contracts";
-import { CAPABILITY_PROTOCOL_VERSION } from "@valentinkolb/cloud/contracts";
+import type { CapabilityCatalogApp } from "@valentinkolb/cloud/capabilities/server";
 
 const CATALOG_PAGE_SIZE = 25;
 
@@ -30,17 +30,12 @@ export type SelectedCapability =
   | (SelectedCapabilityBase & { kind: "query"; operation: CapabilityQueryManifest })
   | (SelectedCapabilityBase & { kind: "action"; operation: CapabilityActionManifest });
 
-const summary = (entry: Awaited<ReturnType<typeof listApps>>[number]): CapabilityAppSummary => ({
-  id: entry.id,
-  name: entry.name,
-  icon: entry.icon,
-  description: entry.description,
+const summary = (entry: CapabilityCatalogApp): CapabilityAppSummary => ({
+  id: entry.appId,
+  name: entry.appName,
+  icon: entry.appIcon,
+  description: entry.appDescription,
 });
-
-const liveCapabilityApps = async () =>
-  (await listApps())
-    .filter((entry) => entry.capabilities?.protocolVersion === CAPABILITY_PROTOCOL_VERSION)
-    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 
 const parseCursor = (url: URL): string | undefined => {
   const value = url.searchParams.get("cursor")?.trim();
@@ -49,15 +44,13 @@ const parseCursor = (url: URL): string | undefined => {
 
 export async function loadCapabilityApps(url: URL): Promise<CapabilityAppsPage> {
   const cursor = parseCursor(url);
-  const entries = await liveCapabilityApps();
-  const start = cursor ? Math.max(0, entries.findIndex((entry) => entry.id === cursor) + 1) : 0;
-  const pageEntries = entries.slice(start, start + CATALOG_PAGE_SIZE + 1);
-  const visibleEntries = pageEntries.slice(0, CATALOG_PAGE_SIZE);
+  const catalog = await listCapabilityCatalog({ cursor, limit: CATALOG_PAGE_SIZE });
+  if (!catalog.ok) return { apps: [], cursor };
 
   return {
-    apps: visibleEntries.map(summary),
+    apps: catalog.data.apps.map(summary),
     cursor,
-    nextCursor: pageEntries.length > CATALOG_PAGE_SIZE ? visibleEntries.at(-1)?.id : undefined,
+    nextCursor: catalog.data.page.hasMore ? catalog.data.page.nextCursor : undefined,
   };
 }
 
@@ -67,18 +60,24 @@ export type LoadedCapabilityWorkspace = {
 };
 
 export async function loadCapabilityWorkspace(appId: string): Promise<LoadedCapabilityWorkspace> {
-  const entries = await liveCapabilityApps();
-  const apps = entries.map(summary);
-  const entry = entries.find((candidate) => candidate.id === appId);
-  if (!entry) return { apps, selected: { kind: "not-found" } };
-
-  const app = summary(entry);
-  const capability = await getCapability(entry.id);
-  if (!capability || capability.manifest.manifestHash !== entry.capabilities?.manifestHash) {
-    return { apps, selected: { kind: "unavailable", app } };
+  const [catalog, selectedCatalog] = await Promise.all([
+    listCapabilityCatalog({ limit: CATALOG_PAGE_SIZE }),
+    getCapabilityCatalogApp(appId),
+  ]);
+  const catalogApps = catalog.ok ? catalog.data.apps : [];
+  const selectedEntry = selectedCatalog.ok ? selectedCatalog.data : null;
+  const apps = [...catalogApps, ...(selectedEntry && !catalogApps.some((entry) => entry.appId === appId) ? [selectedEntry] : [])]
+    .sort((left, right) => left.appName.localeCompare(right.appName, undefined, { sensitivity: "base" }))
+    .map(summary);
+  if (!selectedCatalog.ok) {
+    return {
+      apps,
+      selected: { kind: "unavailable", app: { id: appId, name: appId, icon: "ti ti-apps", description: "" } },
+    };
   }
-
-  return { apps, selected: { kind: "ready", app, manifest: capability.manifest } };
+  if (!selectedEntry) return { apps, selected: { kind: "not-found" } };
+  const app = summary(selectedEntry);
+  return { apps, selected: { kind: "ready", app, manifest: selectedEntry.manifest } };
 }
 
 export const selectCapability = (

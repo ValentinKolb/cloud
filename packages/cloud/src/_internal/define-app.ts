@@ -12,9 +12,9 @@ import { type Context, Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
 import { env } from "../config/env";
 import type { AppAdminNavigationGroup, AppAppearance, AppLifecycle, AppMeta, CloudContext, WidgetEndpoint } from "../contracts/app";
-import type { CapabilityDefinitions } from "../contracts/capabilities";
+import { CAPABILITY_FRAMEWORK_ERROR_CODES, CAPABILITY_MAX_REQUEST_BYTES, type CapabilityDefinitions } from "../contracts/capabilities";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
-import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
 import type { HelpDefinition } from "../server/help";
@@ -31,7 +31,7 @@ import { appRuntimeMetadata } from "./build-metadata";
 import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability } from "./capabilities";
 import { createHeartbeat } from "./heartbeat";
 import { compileHelp } from "./help";
-import { capabilityRegistry, helpRegistry } from "./registry";
+import { capabilityRegistry, type CapabilityRegistryRecord, helpRegistry } from "./registry";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
 import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
@@ -333,7 +333,6 @@ export const defineApp = <
           definition: startOpts.help,
         })
       : undefined;
-    const capabilityEndpoint = `${baseUrl}/api/_internal/capabilities/v1`;
 
     // Registry entry
     const entry: AppRegistryEntry = {
@@ -388,12 +387,9 @@ export const defineApp = <
         process.exit(1);
       },
     });
-    const capabilityEntry: CapabilityRegistryEntry | undefined = compiledCapabilities
+    const capabilityEntry: CapabilityRegistryRecord | undefined = compiledCapabilities
       ? {
           appId: meta.id,
-          appName: meta.name,
-          appIcon: meta.icon,
-          endpoint: capabilityEndpoint,
           manifest: compiledCapabilities.manifest,
         }
       : undefined;
@@ -477,10 +473,10 @@ export const defineApp = <
 
     if (compiledCapabilities) {
       const invoke = async (c: Context<AuthContext>, kind: "query" | "action" | "review") => {
-        const parsedBody = await readBoundedJson(c.req.raw, 256 * 1024);
+        const parsedBody = await readBoundedJson(c.req.raw, CAPABILITY_MAX_REQUEST_BYTES);
         if (!parsedBody.ok) {
           const message = parsedBody.reason === "too_large" ? "Capability request is too large" : "Capability request body must be JSON";
-          return c.json({ code: "BAD_INPUT", message }, 400);
+          return c.json({ code: CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed, message }, 400);
         }
         if (
           typeof parsedBody.data !== "object" ||
@@ -491,7 +487,7 @@ export const defineApp = <
         ) {
           return c.json(
             {
-              code: "BAD_INPUT",
+              code: CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed,
               message: "Capability request must contain only an input field",
             },
             400,
@@ -500,16 +496,7 @@ export const defineApp = <
         const body = parsedBody.data as { input: unknown };
         const actor = c.get("actor");
         const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
-        const idempotencyKey = c.req.header("idempotency-key")?.trim() || undefined;
-        if (idempotencyKey && idempotencyKey.length > 300) {
-          return c.json(
-            {
-              code: "BAD_INPUT",
-              message: "Idempotency-Key must be at most 300 characters",
-            },
-            400,
-          );
-        }
+        const idempotencyKey = c.req.header("idempotency-key") || undefined;
         const invocation = {
           compiled: compiledCapabilities,
           localId: c.req.param("capabilityId") ?? "",

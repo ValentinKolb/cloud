@@ -25,7 +25,7 @@ const capabilityApp = (appId: string, appName = appId): CapabilityRegistryEntry 
   const compiled = compileCapabilities(
     appId,
     defineCapabilities({
-      version: 1,
+      protocolVersion: 1,
       types: { item: { title: "Item", description: "One item." } },
       queries: {
         list: {
@@ -50,7 +50,6 @@ const capabilityApp = (appId: string, appName = appId): CapabilityRegistryEntry 
           data: z.object({ id: z.string() }).strict(),
           destructive: false,
           openWorld: false,
-          approval: "once",
           idempotency: "none",
           run: async () => ok({ data: { id: "created" } }),
         },
@@ -61,6 +60,7 @@ const capabilityApp = (appId: string, appName = appId): CapabilityRegistryEntry 
     appId,
     appName,
     appIcon: "ti ti-box",
+    appDescription: "",
     endpoint: `http://${appId}:3000/api/_internal/capabilities/v1`,
     manifest: compiled.manifest,
   };
@@ -277,6 +277,7 @@ describe("AI capability catalog", () => {
     });
     const loadedPrepared = prepareAiTools({ tools: loaded, actor, conversationId: "conversation-1" });
     expect(loadedPrepared.tools.map((tool) => tool.def.name)).toEqual(["contacts__query__list"]);
+    expect(loadedPrepared.approvalPolicies.get("contacts__query__list")).toBe("never");
     const tool = loadedPrepared.tools[0];
     if (!tool || tool.kind !== "server") throw new Error("loaded tool missing");
     expect(
@@ -288,6 +289,54 @@ describe("AI capability catalog", () => {
       data: [],
     });
     expect(called).toBe("contacts__query__list");
+
+    const approvalMessages: string[] = [];
+    let actionExecutions = 0;
+    const actionPrepared = prepareAiTools({
+      tools: createLoadedAiCapabilityTools({
+        catalog,
+        loadedNames: ["contacts__action__create"],
+        review: async () => ({
+          message: "Create a contact.",
+          details: [{ label: "Name", value: "Ada" }],
+          links: [{ rel: "open", href: "/app/contacts" }],
+        }),
+        execute: async () => {
+          actionExecutions += 1;
+          return { data: { id: "created" } };
+        },
+      }),
+      actor,
+      conversationId: "conversation-1",
+    });
+    expect(actionPrepared.approvalPolicies.get("contacts__action__create")).toBe("never");
+    const action = actionPrepared.tools[0];
+    if (!action || action.kind !== "server") throw new Error("loaded Action missing");
+    await action.execute(
+      { title: "Ada" },
+      {
+        signal: AbortSignal.timeout(1_000),
+        requestApproval: async (message) => {
+          approvalMessages.push(message);
+          return true;
+        },
+        requestClientTool: async <T>() => undefined as T,
+      },
+    );
+    expect(approvalMessages).toEqual(["Create a contact.\nName: Ada\nopen: /app/contacts"]);
+    expect(actionExecutions).toBe(1);
+
+    await expect(
+      action.execute(
+        { title: "Rejected" },
+        {
+          signal: AbortSignal.timeout(1_000),
+          requestApproval: async () => false,
+          requestClientTool: async <T>() => undefined as T,
+        },
+      ),
+    ).rejects.toThrow("rejected by the user");
+    expect(actionExecutions).toBe(1);
   });
 
   test("resolves a fresh immutable registry and loaded-tool snapshot for every provider turn", async () => {

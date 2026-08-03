@@ -96,9 +96,9 @@ export const TaskDataSchema = z
 
 const RecurrenceDataSchema = z
   .object({
-    rrule: z.string().min(1).max(2000),
-    dtstart: TimestampSchema.nullable().optional(),
-    exdate: z.array(TimestampSchema).max(1000).default([]),
+    rrule: z.string().min(1).max(2000).describe("RFC 5545 recurrence rule without the RRULE prefix."),
+    dtstart: TimestampSchema.nullable().optional().describe("Optional recurrence anchor timestamp."),
+    exdate: z.array(TimestampSchema).max(1000).default([]).describe("Excluded recurrence timestamps."),
   })
   .strict();
 
@@ -272,7 +272,11 @@ export const CalendarInvitationPreviewCapabilityInputSchema = z
   .object({
     mailboxId: z.uuid().describe("Source Mail mailbox UUID."),
     messageId: z.uuid().describe("Source Mail message UUID."),
-    calendar: z.string().min(1).max(1_000_000).describe("Raw iCalendar invitation content."),
+    calendar: z
+      .string()
+      .min(1)
+      .max(96 * 1024)
+      .describe("Raw iCalendar invitation content, limited to 96 KiB."),
   })
   .strict();
 export const CalendarInvitationPreviewCapabilityDataSchema = CalendarInvitationPreviewSchema;
@@ -303,11 +307,7 @@ export const EventInvitationPrepareInputSchema = z
     draftId: z.uuid().describe("Existing Mail draft that will receive the invitation."),
     senderIdentityId: z.uuid().describe("Verified Mail sender identity used as organizer."),
     organizer: CalendarAddressSchema.describe("Organizer derived from the verified Mail sender identity."),
-    attendees: z
-      .array(CalendarAddressSchema)
-      .min(1)
-      .max(200)
-      .describe("Visible To and Cc recipients derived from the current Mail draft."),
+    attendees: z.array(CalendarAddressSchema).min(1).max(200).describe("Visible To and Cc recipients derived from the current Mail draft."),
   })
   .strict();
 export const EventInvitationPrepareDataSchema = z
@@ -319,12 +319,13 @@ export const EventInvitationPrepareDataSchema = z
     sequence: z.number().int().nonnegative(),
     filename: z.string().min(1).max(255),
     contentType: z.string().min(1).max(255),
-    calendar: z.string().min(1).max(1_000_000),
+    calendar: z
+      .string()
+      .min(1)
+      .max(96 * 1024),
   })
   .strict();
-export const EventInvitationCommitInputSchema = z
-  .object({ deliveryId: z.uuid().describe("Prepared invitation delivery UUID.") })
-  .strict();
+export const EventInvitationCommitInputSchema = z.object({ deliveryId: z.uuid().describe("Prepared invitation delivery UUID.") }).strict();
 export const EventInvitationCommitDataSchema = z
   .object({ deliveryId: z.uuid(), itemId: z.uuid(), draftId: z.uuid(), state: z.literal("drafted") })
   .strict();

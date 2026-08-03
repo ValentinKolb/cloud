@@ -210,16 +210,12 @@ describe("spaces capabilities", () => {
     expect(spacesCapabilities.actions["task.create"]).toMatchObject({
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "space", inputField: "spaceId" },
     });
     expect(spacesCapabilities.actions["comment.delete"]).toMatchObject({
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "comment", inputField: "commentId" },
     });
   });
 

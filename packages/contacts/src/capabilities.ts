@@ -4,6 +4,7 @@ import {
   type CapabilityActionReview,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
+  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
   defineCapabilities,
@@ -171,7 +172,7 @@ const pageResult = <T>(page: Paginated<unknown>, data: T, refs?: CapabilityResul
   ok({
     data,
     ...(refs ? { refs } : {}),
-    page: { hasMore: page.hasNext, ...(page.hasNext ? { nextCursor: encodeCursor(page.page + 1) } : {}) },
+    page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1) : undefined),
   });
 
 const permissionFromScopes = (scopes: readonly string[]): PermissionLevel => {
@@ -275,7 +276,9 @@ const audited = async <T>(
 };
 
 const actorKey = (context: CapabilityExecutionContext): string =>
-  context.actor.kind === "user" ? `user:${context.actor.user.id}` : `service_account:${context.actor.serviceAccount.id}`;
+  context.accessSubject.type === "user"
+    ? `user:${context.accessSubject.userId}:${context.accessSubject.delegatedByServiceAccountId ?? "direct"}`
+    : `service_account:${context.accessSubject.serviceAccountId}`;
 const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -341,7 +344,7 @@ const runContactResolve = async (input: z.infer<typeof ContactResolveInputSchema
   return ok({
     data,
     refs: data.items.map((contact) => ({ type: "contacts.contact", id: contact.contactId })),
-    page: { hasMore: nextCursor !== null, ...(nextCursor ? { nextCursor } : {}) },
+    page: capabilityPage(nextCursor),
   });
 };
 
@@ -638,7 +641,7 @@ const runNoteCreate = async (input: z.infer<typeof ContactNoteCreateInputSchema>
 };
 
 export const contactsCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     contact: { title: "Contact", description: "A person or organization in an address book.", icon: "ti ti-address-book" },
     book: { title: "Address book", description: "A permission-scoped collection of contacts.", icon: "ti ti-book" },
@@ -729,9 +732,7 @@ export const contactsCapabilities = defineCapabilities({
       data: ContactMutationDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "required",
-      target: { type: "book", inputField: "bookId" },
       run: runContactCreate,
     },
     "contact.update": {
@@ -741,9 +742,7 @@ export const contactsCapabilities = defineCapabilities({
       data: ContactMutationDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "contact", inputField: "contactId" },
       review: (input, context) =>
         reviewContactAction(input.contactId, context, "write", (contact) => ({
           message: `Update ${resolveContactName(contact)}.`,
@@ -766,9 +765,7 @@ export const contactsCapabilities = defineCapabilities({
       data: ContactMutationDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "contact", inputField: "contactId" },
       review: async (input, context) => {
         const target = await requireBookPermission(input.targetBookId, context, "write");
         if (!target.ok) return target;
@@ -790,9 +787,7 @@ export const contactsCapabilities = defineCapabilities({
       data: ContactDeleteDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "contact", inputField: "contactId" },
       review: (input, context) =>
         reviewContactAction(input.contactId, context, "write", (contact) => ({
           message: `Permanently delete ${resolveContactName(contact)}.`,
@@ -807,9 +802,7 @@ export const contactsCapabilities = defineCapabilities({
       data: FavoriteSetDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "never",
       idempotency: "none",
-      target: { type: "contact", inputField: "contactId" },
       review: async (input, context) => {
         if (!userBacked(context)) return fail(err.forbidden("Favorites require a user-backed actor"));
         return reviewContactAction(input.contactId, context, "read", (contact) => ({
@@ -826,9 +819,7 @@ export const contactsCapabilities = defineCapabilities({
       data: ContactTagChangeDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "contact", inputField: "contactId" },
       review: async (input, context) => {
         const resolved = await resolveContact(input.contactId, context, "write");
         if (!resolved.ok) return resolved;
@@ -853,9 +844,7 @@ export const contactsCapabilities = defineCapabilities({
       data: ContactNoteCreateDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "required",
-      target: { type: "contact", inputField: "contactId" },
       run: runNoteCreate,
     },
   },

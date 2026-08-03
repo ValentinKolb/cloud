@@ -3,19 +3,42 @@ import { z } from "zod";
 import type { AccessSubject, RequestActor, User } from "./shared";
 
 export const CAPABILITY_PROTOCOL_VERSION = 1 as const;
+export const CAPABILITY_MAX_REQUEST_BYTES = 256 * 1024;
+export const CAPABILITY_MAX_RESULT_BYTES = 256 * 1024;
+
+export const CAPABILITY_FRAMEWORK_ERROR_CODES = {
+  appUnavailable: "APP_UNAVAILABLE",
+  capabilityNotFound: "CAPABILITY_NOT_FOUND",
+  validationFailed: "VALIDATION_FAILED",
+  schemaMismatch: "SCHEMA_MISMATCH",
+  idempotencyKeyRequired: "IDEMPOTENCY_KEY_REQUIRED",
+  idempotencyKeyNotAllowed: "IDEMPOTENCY_KEY_NOT_ALLOWED",
+  idempotencyConflict: "IDEMPOTENCY_CONFLICT",
+  deadlineExceeded: "DEADLINE_EXCEEDED",
+  actionOutcomeUnknown: "ACTION_OUTCOME_UNKNOWN",
+  requestCancelled: "REQUEST_CANCELLED",
+  invalidAppResponse: "INVALID_APP_RESPONSE",
+  responseTooLarge: "RESPONSE_TOO_LARGE",
+  internal: "INTERNAL",
+} as const;
+
+export const capabilityIdempotencyConflict = (message: string, details?: Record<string, unknown>): CapabilityError => ({
+  code: CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyConflict,
+  message,
+  status: 409,
+  ...(details ? { details } : {}),
+});
+
+export const CapabilityIdempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^[\x21-\x7e]+$/, "Idempotency keys must contain only visible ASCII characters");
 
 const CAPABILITY_LOCAL_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const CAPABILITY_QUALIFIED_ID_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
-const CLOUD_LINK_BASE_URL = "https://cloud.invalid";
-
-const isSameOriginCloudPath = (value: string): boolean => {
-  if (!value.startsWith("/")) return false;
-  try {
-    return new URL(value, CLOUD_LINK_BASE_URL).origin === CLOUD_LINK_BASE_URL;
-  } catch {
-    return false;
-  }
-};
+const CLOUD_PATH_PATTERN = /^\/(?![\\/])[^\\\u0000-\u001f\u007f]*$/;
 
 export const CapabilityLocalIdSchema = z
   .string()
@@ -45,7 +68,7 @@ export const CapabilitySemanticLinkSchema = z
       .string()
       .min(1)
       .max(2048)
-      .refine(isSameOriginCloudPath, "Capability links must be root-relative same-origin Cloud paths")
+      .regex(CLOUD_PATH_PATTERN, "Capability links must be root-relative same-origin Cloud paths")
       .describe("Root-relative Cloud URL."),
     title: z.string().min(1).max(120).optional().describe("Optional human-readable link label."),
   })
@@ -73,24 +96,24 @@ export const CapabilityActionReviewSchema = z
 
 export type CapabilityActionReview = z.infer<typeof CapabilityActionReviewSchema>;
 
-export const CapabilityPageSchema = z
-  .object({
-    nextCursor: z.string().min(1).max(2048).optional().describe("Opaque cursor for the next page."),
-    hasMore: z.boolean().describe("Whether another page is available."),
-  })
-  .strict();
+export const CapabilityPageSchema = z.discriminatedUnion("hasMore", [
+  z
+    .object({
+      hasMore: z.literal(true).describe("Another page is available."),
+      nextCursor: z.string().min(1).max(2048).describe("Opaque cursor for the next page."),
+    })
+    .strict(),
+  z
+    .object({
+      hasMore: z.literal(false).describe("This is the final page."),
+    })
+    .strict(),
+]);
 
 export type CapabilityPage = z.infer<typeof CapabilityPageSchema>;
 
-export const capabilityResultSchema = <T extends z.ZodType>(data: T) =>
-  z
-    .object({
-      data,
-      refs: z.array(CloudResourceRefSchema).max(100).optional(),
-      page: CapabilityPageSchema.optional(),
-      links: z.array(CapabilitySemanticLinkSchema).max(20).optional(),
-    })
-    .strict();
+export const capabilityPage = (nextCursor?: string | null): CapabilityPage =>
+  nextCursor === undefined || nextCursor === null ? { hasMore: false } : { hasMore: true, nextCursor };
 
 export type CapabilityResult<T> = {
   data: T;
@@ -98,6 +121,19 @@ export type CapabilityResult<T> = {
   page?: CapabilityPage;
   links?: CapabilitySemanticLink[];
 };
+
+export const capabilityResultSchema = <T extends z.ZodType>(data: T): z.ZodType<CapabilityResult<z.output<T>>> =>
+  z
+    .object({
+      data,
+      refs: z.array(CloudResourceRefSchema).max(100).optional(),
+      page: CapabilityPageSchema.optional(),
+      links: z.array(CapabilitySemanticLinkSchema).max(20).optional(),
+    })
+    .strict() as unknown as z.ZodType<CapabilityResult<z.output<T>>>;
+
+export const capabilityResultJsonSchema = (dataSchema: Record<string, unknown>): Record<string, unknown> =>
+  z.toJSONSchema(capabilityResultSchema(z.fromJSONSchema(structuredClone(dataSchema))), { io: "output" }) as Record<string, unknown>;
 
 export const CapabilityErrorSchema = z
   .object({
@@ -187,8 +223,7 @@ export type CapabilityQueryDefinition<Input extends z.ZodType = z.ZodType<any>, 
   ) => CapabilityInvocationResult<z.output<Data>> | Promise<CapabilityInvocationResult<z.output<Data>>>;
 };
 
-export type CapabilityApprovalPolicy = "never" | "once" | "always";
-export type CapabilityIdempotencyPolicy = "none" | "optional" | "required";
+export type CapabilityIdempotencyPolicy = "none" | "required";
 
 export type CapabilityActionDefinition<Input extends z.ZodType = z.ZodType<any>, Data extends z.ZodType = z.ZodType<any>> = {
   title: string;
@@ -197,10 +232,7 @@ export type CapabilityActionDefinition<Input extends z.ZodType = z.ZodType<any>,
   data: Data;
   destructive: boolean;
   openWorld: boolean;
-  /** Uses the same never/once/always semantics as Cloud AI tool approval. */
-  approval: CapabilityApprovalPolicy;
   idempotency: CapabilityIdempotencyPolicy;
-  target?: { type: string; inputField: string };
   review?: (
     input: z.output<Input>,
     context: CapabilityExecutionContext,
@@ -211,13 +243,13 @@ export type CapabilityActionDefinition<Input extends z.ZodType = z.ZodType<any>,
   ) => CapabilityInvocationResult<z.output<Data>> | Promise<CapabilityInvocationResult<z.output<Data>>>;
 };
 
-type CapabilityCatalog<T> = Readonly<Record<string, T>>;
+type CapabilityDefinitionCatalog<T> = Readonly<Record<string, T>>;
 
 export type CapabilityDefinitions = {
-  version: typeof CAPABILITY_PROTOCOL_VERSION;
-  types?: CapabilityCatalog<CapabilityResourceTypeDefinition>;
-  queries?: CapabilityCatalog<CapabilityQueryDefinition>;
-  actions?: CapabilityCatalog<CapabilityActionDefinition>;
+  protocolVersion: typeof CAPABILITY_PROTOCOL_VERSION;
+  types?: CapabilityDefinitionCatalog<CapabilityResourceTypeDefinition>;
+  queries?: CapabilityDefinitionCatalog<CapabilityQueryDefinition>;
+  actions?: CapabilityDefinitionCatalog<CapabilityActionDefinition>;
 };
 
 /**
@@ -228,7 +260,6 @@ export const defineCapabilities = <const T extends CapabilityDefinitions>(defini
 
 export const CapabilityResourceTypeManifestSchema = z
   .object({
-    id: CapabilityQualifiedIdSchema,
     localId: CapabilityLocalIdSchema,
     title: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
@@ -247,12 +278,11 @@ export const CapabilitySearchTagManifestSchema = z
 
 const CapabilityOperationManifestBaseSchema = z
   .object({
-    id: CapabilityQualifiedIdSchema,
     localId: CapabilityLocalIdSchema,
     title: z.string().min(1).max(120),
     description: z.string().min(1).max(1000),
     inputSchema: z.record(z.string(), z.unknown()),
-    resultSchema: z.record(z.string(), z.unknown()),
+    dataSchema: z.record(z.string(), z.unknown()),
     schemaHash: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();
@@ -268,12 +298,7 @@ export const CapabilityQueryManifestSchema = CapabilityOperationManifestBaseSche
 export const CapabilityActionManifestSchema = CapabilityOperationManifestBaseSchema.extend({
   destructive: z.boolean(),
   openWorld: z.boolean(),
-  approval: z.enum(["never", "once", "always"]),
-  idempotency: z.enum(["none", "optional", "required"]),
-  target: z
-    .object({ type: CapabilityQualifiedIdSchema, inputField: z.string().min(1).max(100) })
-    .strict()
-    .optional(),
+  idempotency: z.enum(["none", "required"]),
   review: z.literal(true).optional(),
 }).strict();
 
@@ -293,3 +318,23 @@ export type CapabilityQueryManifest = z.infer<typeof CapabilityQueryManifestSche
 export type CapabilityActionManifest = z.infer<typeof CapabilityActionManifestSchema>;
 export type CapabilitySearchTagManifest = z.infer<typeof CapabilitySearchTagManifestSchema>;
 export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
+
+export const CapabilityCatalogAppSchema = z
+  .object({
+    appId: z.string().min(1).max(80),
+    appName: z.string().min(1).max(200),
+    appIcon: z.string().min(1).max(120),
+    appDescription: z.string().max(1000),
+    manifest: CapabilityManifestSchema,
+  })
+  .strict();
+
+export const CapabilityCatalogSchema = z
+  .object({
+    protocolVersion: z.literal(CAPABILITY_PROTOCOL_VERSION),
+    apps: z.array(CapabilityCatalogAppSchema).max(25),
+    page: CapabilityPageSchema,
+  })
+  .strict();
+
+export type CapabilityCatalog = z.infer<typeof CapabilityCatalogSchema>;

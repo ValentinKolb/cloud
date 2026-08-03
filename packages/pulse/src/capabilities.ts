@@ -1,6 +1,7 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
+  capabilityPage,
   type CloudResourceView,
   defineCapabilities,
   UniversalSearchDataSchema,
@@ -84,7 +85,7 @@ const mapSavedQuery = (query: PulseSavedQuery) => ({
 const pageResult = <T>(items: T[], offset: number, limit: number) => {
   const data = items.slice(0, limit);
   const hasMore = items.length > limit;
-  return { data, page: { hasMore, ...(hasMore ? { nextCursor: encodeCursor(offset + data.length) } : {}) } };
+  return { data, page: capabilityPage(hasMore ? encodeCursor(offset + data.length) : undefined) };
 };
 
 const runBaseSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -336,7 +337,7 @@ const runSavedQueryExecute = async (input: z.infer<typeof SavedQueryExecuteInput
 };
 
 export const pulseCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     base: { title: "Pulse Base", description: "A permission-scoped Pulse telemetry workspace.", icon: "ti ti-activity-heartbeat" },
     source: { title: "Pulse Source", description: "A telemetry source and its current ingest or scrape health.", icon: "ti ti-plug" },

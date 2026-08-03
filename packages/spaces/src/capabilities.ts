@@ -3,6 +3,7 @@ import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
+  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
   defineCapabilities,
@@ -69,6 +70,14 @@ const stableUuid = (value: string): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 };
 
+const eventInvitationIdempotencyId = (context: CapabilityExecutionContext, key: string): string => {
+  const subject =
+    context.accessSubject.type === "user"
+      ? `user:${context.accessSubject.userId}:${context.accessSubject.delegatedByServiceAccountId ?? "direct"}`
+      : `service_account:${context.accessSubject.serviceAccountId}`;
+  return stableUuid(`spaces:event.invitation.prepare:${subject}:${key}`);
+};
+
 export const decodeSpacesCapabilityCursor = (cursor: string | undefined): Result<number> => {
   if (!cursor) return ok(1);
   try {
@@ -85,7 +94,7 @@ const pageResult = <T>(page: Paginated<unknown>, data: T, refs?: CapabilityResul
   ok({
     data,
     ...(refs ? { refs } : {}),
-    page: { hasMore: page.hasNext, ...(page.hasNext ? { nextCursor: encodeCursor(page.page + 1) } : {}) },
+    page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1) : undefined),
   });
 
 const permissionFromScopes = (scopes: string[]): PermissionLevel => resolveSpaceApiKeyPermission("admin", scopes);
@@ -597,10 +606,7 @@ const runCalendarInvitationResponseCommit = async (
     return result.ok ? ok({ data: result.data, refs: [{ type: "mail.draft", id: input.draftId }] }) : result;
   });
 
-const runEventInvitationPrepare = async (
-  input: z.infer<typeof EventInvitationPrepareInputSchema>,
-  context: CapabilityExecutionContext,
-) =>
+const runEventInvitationPrepare = async (input: z.infer<typeof EventInvitationPrepareInputSchema>, context: CapabilityExecutionContext) =>
   audited(actionAudit(context, "event.invitation.prepare", "space_item", input.itemId), async () => {
     if (!context.idempotencyKey) return fail(err.badInput("An idempotency key is required"));
     const resolved = await requireItem(input.itemId, context, "write");
@@ -609,7 +615,7 @@ const runEventInvitationPrepare = async (
     const result = await spacesService.calendarInvitations.prepareEventInvitationAttachment({
       spaceId: resolved.data.item.spaceId,
       ...input,
-      deliveryId: stableUuid(context.idempotencyKey),
+      deliveryId: eventInvitationIdempotencyId(context, context.idempotencyKey),
       subject: context.accessSubject,
     });
     return result.ok
@@ -623,10 +629,7 @@ const runEventInvitationPrepare = async (
       : result;
   });
 
-const runEventInvitationCommit = async (
-  input: z.infer<typeof EventInvitationCommitInputSchema>,
-  context: CapabilityExecutionContext,
-) =>
+const runEventInvitationCommit = async (input: z.infer<typeof EventInvitationCommitInputSchema>, context: CapabilityExecutionContext) =>
   audited(actionAudit(context, "event.invitation.commit", "calendar_invitation_delivery", input.deliveryId), async () => {
     const result = await spacesService.calendarInvitations.commitEventInvitationAttachment({
       deliveryId: input.deliveryId,
@@ -644,7 +647,7 @@ const runEventInvitationCommit = async (
   });
 
 export const spacesCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     space: { title: "Space", description: "A permission-scoped collaboration space.", icon: "ti ti-layout-kanban" },
     item: { title: "Space item", description: "A task or event inside a space.", icon: "ti ti-checkbox" },
@@ -768,9 +771,7 @@ export const spacesCapabilities = defineCapabilities({
       data: TaskDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "space", inputField: "spaceId" },
       run: runTaskCreate,
     },
     "task.update": {
@@ -780,9 +781,7 @@ export const spacesCapabilities = defineCapabilities({
       data: TaskDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -810,9 +809,7 @@ export const spacesCapabilities = defineCapabilities({
       data: TaskDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -832,9 +829,7 @@ export const spacesCapabilities = defineCapabilities({
       data: EventDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "space", inputField: "spaceId" },
       run: runEventCreate,
     },
     "event.update": {
@@ -844,9 +839,7 @@ export const spacesCapabilities = defineCapabilities({
       data: EventDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -874,9 +867,7 @@ export const spacesCapabilities = defineCapabilities({
       data: EventInvitationPrepareDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "required",
-      target: { type: "item", inputField: "itemId" },
       run: runEventInvitationPrepare,
     },
     "event.invitation.commit": {
@@ -886,7 +877,6 @@ export const spacesCapabilities = defineCapabilities({
       data: EventInvitationCommitDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
       review: async (input, context) => {
         const delivery = await spacesService.calendarInvitations.getEventInvitationCommitContext({
@@ -912,9 +902,7 @@ export const spacesCapabilities = defineCapabilities({
       data: ItemDeleteDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -933,9 +921,7 @@ export const spacesCapabilities = defineCapabilities({
       data: CommentDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       run: runCommentCreate,
     },
     "comment.update": {
@@ -945,9 +931,7 @@ export const spacesCapabilities = defineCapabilities({
       data: CommentDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "comment", inputField: "commentId" },
       review: async (input, context) => {
         if (!context.user) return fail(err.forbidden("Comments require a user-backed actor"));
         const resolved = await resolveComment(input.commentId, context, "write");
@@ -971,9 +955,7 @@ export const spacesCapabilities = defineCapabilities({
       data: CommentDeleteDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "comment", inputField: "commentId" },
       review: async (input, context) => {
         if (!context.user) return fail(err.forbidden("Comments require a user-backed actor"));
         const resolved = await resolveComment(input.commentId, context, "write");
@@ -997,9 +979,7 @@ export const spacesCapabilities = defineCapabilities({
       data: CalendarInvitationImportCapabilityDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "space", inputField: "spaceId" },
       review: async (input, context) => {
         if (!context.user) return fail(err.forbidden("Importing an invitation requires a user-backed actor"));
         const access = await requireSpace(input.spaceId, context, "write");
@@ -1036,7 +1016,6 @@ export const spacesCapabilities = defineCapabilities({
       data: CalendarInvitationResponseCommitCapabilityDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
       review: async (input, context) => {
         const source = await spacesService.calendarInvitations.getCalendarResponseCommitContext({

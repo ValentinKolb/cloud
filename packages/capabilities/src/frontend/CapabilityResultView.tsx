@@ -53,12 +53,7 @@ function SearchResultRow(props: { item: CloudResourceView }) {
               {(preview) => <p class="mt-0.5 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-secondary">{preview()}</p>}
             </Show>
           </div>
-          <IconButtonLink
-            href={primary.href}
-            class="shrink-0"
-            size="sm"
-            label={`${linkLabel(primary)} ${props.item.title}`}
-          >
+          <IconButtonLink href={primary.href} class="shrink-0" size="sm" label={`${linkLabel(primary)} ${props.item.title}`}>
             <i class={linkIcon(primary)} aria-hidden="true" />
           </IconButtonLink>
         </div>
@@ -159,11 +154,13 @@ function PageSummary(props: { page: CapabilityPage }) {
       <i class={`ti ${props.page.hasMore ? "ti-list-details" : "ti-check"} mt-0.5 text-dimmed`} aria-hidden="true" />
       <div class="min-w-0 flex-1">
         <p class="text-xs font-medium text-secondary">{props.page.hasMore ? "More results are available" : "This is the final page"}</p>
-        <Show when={props.page.nextCursor}>
+        <Show when={props.page.hasMore ? props.page.nextCursor : undefined}>
           {(cursor) => <code class="mt-0.5 block truncate text-[10px] text-dimmed">Cursor: {cursor()}</code>}
         </Show>
       </div>
-      <Show when={props.page.nextCursor}>{(cursor) => <CopyButton text={cursor()} label="Copy cursor" />}</Show>
+      <Show when={props.page.hasMore ? props.page.nextCursor : undefined}>
+        {(cursor) => <CopyButton text={cursor()} label="Copy cursor" />}
+      </Show>
     </div>
   );
 }

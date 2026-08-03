@@ -11,6 +11,14 @@ export const validateAppRegistryEntry = (value: unknown): string | null => {
   for (const field of ["id", "name", "icon", "description", "baseUrl"] as const) {
     if (!isString(value[field]) || value[field].length === 0) return invalid(field, "a non-empty string");
   }
+  try {
+    const baseUrl = new URL(value.baseUrl as string);
+    if (!(["http:", "https:"] as const).includes(baseUrl.protocol as "http:" | "https:") || baseUrl.username || baseUrl.password) {
+      return invalid("baseUrl", "an HTTP(S) URL without embedded credentials");
+    }
+  } catch {
+    return invalid("baseUrl", "an HTTP(S) URL without embedded credentials");
+  }
   if (!isStringArray(value.routes) || value.routes.some((route) => !route.startsWith("/"))) {
     return invalid("routes", "an array of absolute paths");
   }

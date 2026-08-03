@@ -10,7 +10,7 @@ import { createMcpRoutes } from "./mcp";
 const compiled = compileCapabilities(
   "demo",
   defineCapabilities({
-    version: 1,
+    protocolVersion: 1,
     types: { item: { title: "Item", description: "One demo item." } },
     queries: {
       get: {
@@ -30,7 +30,6 @@ const compiled = compileCapabilities(
         data: z.object({ id: z.string() }).strict(),
         destructive: false,
         openWorld: false,
-        approval: "once",
         idempotency: "required",
         run: async () => ok({ data: { id: "created" } }),
       },
@@ -41,8 +40,7 @@ const compiled = compileCapabilities(
         data: z.object({ id: z.string() }).strict(),
         destructive: true,
         openWorld: false,
-        approval: "once",
-        idempotency: "optional",
+        idempotency: "none",
         run: async ({ id }) => ok({ data: { id } }),
       },
     },
@@ -53,6 +51,7 @@ const app: CapabilityRegistryEntry = {
   appId: "demo",
   appName: "Demo",
   appIcon: "ti ti-box",
+  appDescription: "",
   endpoint: "http://demo:3000/api/_internal/capabilities/v1",
   manifest: compiled.manifest,
 };
@@ -122,15 +121,15 @@ describe("capability MCP projection", () => {
       openWorldHint: false,
     });
     expect(result.tools[0]?._meta).toMatchObject({
-      "cloud/approval": "once",
+      "cloud/capabilityId": "demo.create",
+      "cloud/idempotency": "required",
       "cloud/schemaHash": expect.any(String),
     });
-    expect(result.tools[1]?.inputSchema.properties).toHaveProperty("idempotencyKey");
-    expect(result.tools[1]?.inputSchema.required ?? []).not.toContain("idempotencyKey");
+    expect(result.tools[1]?.inputSchema.properties).not.toHaveProperty("idempotencyKey");
     expect(result.tools[1]?.annotations).toMatchObject({
       readOnlyHint: false,
-      destructiveHint: true,
       idempotentHint: false,
+      destructiveHint: true,
       openWorldHint: false,
     });
     expect(result.tools[2]?.annotations).toMatchObject({
@@ -244,7 +243,7 @@ describe("capability MCP projection", () => {
     const result = ((await response.json()) as { result: Record<string, any> }).result;
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toEqual({
-      code: "TOOL_UNAVAILABLE",
+      code: "CAPABILITY_NOT_FOUND",
       message: "Tool demo__query__get is not in the current live capability catalog",
     });
   });

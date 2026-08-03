@@ -212,32 +212,45 @@ export const ContactNoteListInputSchema = z
   .object({ contactId: z.uuid().describe("Contact whose notes should be listed."), ...CapabilityPageInputShape })
   .strict();
 
-const EmailInputSchema = z.object({ label: z.string().trim().max(100).nullable().optional(), email: z.email().max(320) }).strict();
-const PhoneInputSchema = z
-  .object({ label: z.string().trim().max(100).nullable().optional(), phone: z.string().trim().min(1).max(100) })
+const EmailInputSchema = z
+  .object({
+    label: z.string().trim().max(100).nullable().optional().describe("Optional email label."),
+    email: z.email().max(320).describe("Email address."),
+  })
   .strict();
-const WebsiteInputSchema = z.object({ label: z.string().trim().max(100).nullable().optional(), url: z.string().url().max(2048) }).strict();
+const PhoneInputSchema = z
+  .object({
+    label: z.string().trim().max(100).nullable().optional().describe("Optional phone label."),
+    phone: z.string().trim().min(1).max(100).describe("Phone number."),
+  })
+  .strict();
+const WebsiteInputSchema = z
+  .object({
+    label: z.string().trim().max(100).nullable().optional().describe("Optional website label."),
+    url: z.string().url().max(2048).describe("Website URL."),
+  })
+  .strict();
 const AddressInputSchema = z
   .object({
-    label: z.string().trim().max(100).nullable().optional(),
-    recipientName: z.string().trim().max(200).nullable().optional(),
-    companyName: z.string().trim().max(200).nullable().optional(),
-    line1: z.string().trim().min(1).max(300),
-    line2: z.string().trim().max(300).nullable().optional(),
-    postalCode: z.string().trim().max(50),
-    city: z.string().trim().max(200),
-    stateRegion: z.string().trim().max(200).nullable().optional(),
-    countryCode: z.string().trim().length(2),
+    label: z.string().trim().max(100).nullable().optional().describe("Optional address label."),
+    recipientName: z.string().trim().max(200).nullable().optional().describe("Optional recipient name."),
+    companyName: z.string().trim().max(200).nullable().optional().describe("Optional company name."),
+    line1: z.string().trim().min(1).max(300).describe("Primary street address line."),
+    line2: z.string().trim().max(300).nullable().optional().describe("Optional secondary address line."),
+    postalCode: z.string().trim().max(50).describe("Postal code."),
+    city: z.string().trim().max(200).describe("City or locality."),
+    stateRegion: z.string().trim().max(200).nullable().optional().describe("Optional state or region."),
+    countryCode: z.string().trim().length(2).describe("Two-letter country code."),
   })
   .strict();
 const BankAccountInputSchema = z
   .object({
-    label: z.string().trim().max(100).nullable().optional(),
-    accountHolderName: z.string().trim().min(1).max(200),
-    iban: z.string().trim().min(1).max(80),
-    bic: z.string().trim().max(40).nullable().optional(),
-    bankName: z.string().trim().max(200).nullable().optional(),
-    note: z.string().trim().max(1000).nullable().optional(),
+    label: z.string().trim().max(100).nullable().optional().describe("Optional bank-account label."),
+    accountHolderName: z.string().trim().min(1).max(200).describe("Account holder name."),
+    iban: z.string().trim().min(1).max(80).describe("IBAN or local account identifier."),
+    bic: z.string().trim().max(40).nullable().optional().describe("Optional BIC."),
+    bankName: z.string().trim().max(200).nullable().optional().describe("Optional bank name."),
+    note: z.string().trim().max(1000).nullable().optional().describe("Optional account note."),
   })
   .strict();
 

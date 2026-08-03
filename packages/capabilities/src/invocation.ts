@@ -1,4 +1,4 @@
-import { CapabilityErrorSchema, capabilityResultSchema } from "@valentinkolb/cloud/contracts";
+import { CAPABILITY_MAX_RESULT_BYTES, CapabilityErrorSchema, capabilityResultSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const ResultSchema = capabilityResultSchema(z.unknown());
@@ -23,8 +23,41 @@ const safeTextMessage = (text: string): string | undefined => {
   return compact.slice(0, 500);
 };
 
+const readBoundedText = async (response: Response): Promise<string | null> => {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > CAPABILITY_MAX_RESULT_BYTES) return null;
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let text = "";
+  let total = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) return text + decoder.decode();
+      total += chunk.value.byteLength;
+      if (total > CAPABILITY_MAX_RESULT_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return "";
+  }
+};
+
 export async function readCapabilityOutcome(response: Response, durationMs: number): Promise<CapabilityInvocationOutcome> {
-  const text = await response.text();
+  const text = await readBoundedText(response);
+  if (text === null) {
+    return {
+      ok: false,
+      status: response.status,
+      durationMs,
+      error: { code: "RESPONSE_TOO_LARGE", message: "The capability response exceeded the shared size limit." },
+    };
+  }
   let body: unknown;
   try {
     body = text ? JSON.parse(text) : null;
@@ -39,7 +72,7 @@ export async function readCapabilityOutcome(response: Response, durationMs: numb
       ok: false,
       status: response.status,
       durationMs,
-      error: { code: "INVALID_RESPONSE", message: "The app returned an invalid capability result." },
+      error: { code: "INVALID_APP_RESPONSE", message: "The app returned an invalid capability result." },
     };
   }
 
@@ -50,7 +83,7 @@ export async function readCapabilityOutcome(response: Response, durationMs: numb
     status: response.status,
     durationMs,
     error: {
-      code: "REQUEST_FAILED",
+      code: "INVALID_APP_RESPONSE",
       message: safeTextMessage(text) ?? `The capability request failed with HTTP ${response.status}.`,
     },
   };

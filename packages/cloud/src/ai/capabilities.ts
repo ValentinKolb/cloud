@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Tool, ToolContext, ToolResolver } from "@k2b/nessi";
 import { z } from "zod";
-import type { CapabilityActionManifest, CapabilityQueryManifest } from "../contracts/capabilities";
+import type { CapabilityActionManifest, CapabilityActionReview, CapabilityQueryManifest } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
 import { markdownToPlainText } from "../shared/markdown";
@@ -386,21 +386,36 @@ export const createAiCapabilityMetaTools = (input: {
 export const createLoadedAiCapabilityTools = (input: {
   catalog: readonly AiCapabilityCatalogEntry[];
   loadedNames: readonly string[];
+  review?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<CapabilityActionReview | null>;
   execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
 }): AiRuntimeTool[] => {
   const byName = new Map(input.catalog.map((entry) => [entry.name, entry]));
   return input.loadedNames.flatMap((name) => {
     const entry = byName.get(name);
     if (!entry) return [];
-    const approval = entry.kind === "action" ? (entry.operation as CapabilityActionManifest).approval : "never";
     return [
       defineAiTool({
         name: entry.name,
         description: `${entry.title}. ${entry.description}`,
         inputSchema: aiCapabilityInputSchema(entry.operation.inputSchema),
         outputSchema: z.unknown(),
-        approval,
-      }).server((args, context) => input.execute(entry, args, context)),
+        // Capability Actions request a custom, non-rememberable approval after
+        // their optional live review has resolved.
+        approval: "never",
+      }).server(async (args, context) => {
+        if (entry.kind === "action") {
+          const review = (await input.review?.(entry, args, context)) ?? null;
+          const message = review
+            ? [
+                review.message,
+                ...(review.details ?? []).map((detail) => `${detail.label}: ${detail.value}`),
+                ...(review.links ?? []).map((link) => `${link.title ?? link.rel}: ${link.href}`),
+              ].join("\n")
+            : `${entry.appName}: ${entry.title}\nReview the validated arguments below before running this Action.`;
+          if (!(await context.requestApproval(message))) throw new Error("Capability Action was rejected by the user.");
+        }
+        return input.execute(entry, args, context);
+      }),
     ];
   });
 };
@@ -417,6 +432,7 @@ export const createAiCapabilityToolResolver =
     onHelpRegistryError?: (error: unknown) => void;
     maxLoadedCapabilities?: number;
     execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
+    review?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<CapabilityActionReview | null>;
     onPrepared?: (snapshot: { prepared: PreparedAiTools; presentations: Map<string, AiToolPresentation> }) => void;
   }): ToolResolver =>
   async (): Promise<Tool[]> => {
@@ -443,7 +459,7 @@ export const createAiCapabilityToolResolver =
         maxLoadedCapabilities: input.maxLoadedCapabilities,
       }),
       ...(input.listHelpRegistry ? createAiHelpTools(helpRegistry) : []),
-      ...createLoadedAiCapabilityTools({ catalog, loadedNames, execute: input.execute }),
+      ...createLoadedAiCapabilityTools({ catalog, loadedNames, review: input.review, execute: input.execute }),
     ];
     const prepared = prepareAiTools({
       tools: [...input.staticTools, ...capabilityTools],

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { AccessSubject } from "@valentinkolb/cloud/server";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import type { User } from "../contracts";
 import {
@@ -637,7 +638,7 @@ export const prepareEventInvitationAttachment = async (params: {
         existing.draft_id !== params.draftId ||
         existing.request_fingerprint !== requestFingerprint
       ) {
-        return fail(err.conflict("Invitation idempotency key belongs to another request"));
+        return fail(capabilityIdempotencyConflict("Invitation idempotency key belongs to another request"));
       }
       if (!existing.calendar_payload || !existing.attachment_filename) {
         return fail(err.conflict("Invitation preparation is incomplete; use a new idempotency key"));
@@ -848,7 +849,7 @@ export const createEventInvitationDraft = async (params: {
         (delivery.sender_identity_id !== null && delivery.sender_identity_id !== identity.id) ||
         delivery.method !== params.input.method
       ) {
-        return fail(err.conflict("Invitation idempotency key belongs to another request"));
+        return fail(capabilityIdempotencyConflict("Invitation idempotency key belongs to another request"));
       }
       if (delivery.state === "drafted" && delivery.draft_id) {
         return ok({ sequence: delivery.sequence, draftId: delivery.draft_id, alreadyDrafted: true });

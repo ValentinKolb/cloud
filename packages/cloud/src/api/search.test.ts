@@ -8,7 +8,7 @@ import type { AuthContext } from "../server";
 import { createSearchRoutes } from "./search";
 
 const capabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     item: { title: "Item", description: "A searchable test item." },
   },
@@ -32,6 +32,7 @@ const app: CapabilityRegistryEntry = {
   appId: "demo",
   appName: "Demo",
   appIcon: "ti ti-box",
+  appDescription: "",
   endpoint: "http://demo:3000/api/_internal/capabilities/v1",
   manifest,
 };
@@ -49,7 +50,7 @@ describe("global capability search", () => {
     const multiManifest = compileCapabilities(
       "demo",
       defineCapabilities({
-        version: 1,
+        protocolVersion: 1,
         types: { item: { title: "Item", description: "One search result." } },
         queries: {
           first: {
@@ -88,7 +89,7 @@ describe("global capability search", () => {
     const multiManifest = compileCapabilities(
       "demo",
       defineCapabilities({
-        version: 1,
+        protocolVersion: 1,
         types: { item: { title: "Item", description: "One search result." } },
         queries: {
           first: capabilities.queries.search,

@@ -142,7 +142,10 @@ export const calendarInvitationResponseSchema = z
     to: calendarAddressSchema,
     subject: z.string().min(1).max(998),
     body: z.string().max(20_000),
-    calendar: z.string().min(1).max(1_000_000),
+    calendar: z
+      .string()
+      .min(1)
+      .max(96 * 1024),
   })
   .passthrough();
 export const calendarResponseStateDataSchema = calendarResponseStateSchema;
@@ -213,7 +216,10 @@ export const eventInvitationPrepareDataSchema = z
     sequence: z.number().int().nonnegative(),
     filename: z.string().min(1).max(255),
     contentType: z.string().min(1).max(255),
-    calendar: z.string().min(1).max(1_000_000),
+    calendar: z
+      .string()
+      .min(1)
+      .max(96 * 1024),
   })
   .passthrough();
 export const eventInvitationCommitDataSchema = z

@@ -1,4 +1,5 @@
 import { logger } from "@valentinkolb/cloud/services";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { convert } from "html-to-text";
@@ -279,14 +280,16 @@ const validateIdentity = async (params: {
     defaultReadReceipt: boolean;
   }>
 > => {
-  const [identity] = await params.db<{
-    default_cc: MailAddress[] | string;
-    default_bcc: MailAddress[] | string;
-    default_format: MailComposeFormat;
-    default_priority: MailPriority;
-    default_delivery_receipt: boolean;
-    default_read_receipt: boolean;
-  }[]>`
+  const [identity] = await params.db<
+    {
+      default_cc: MailAddress[] | string;
+      default_bcc: MailAddress[] | string;
+      default_format: MailComposeFormat;
+      default_priority: MailPriority;
+      default_delivery_receipt: boolean;
+      default_read_receipt: boolean;
+    }[]
+  >`
     SELECT
       default_cc,
       default_bcc,
@@ -311,12 +314,7 @@ const validateIdentity = async (params: {
   });
 };
 
-const mergeDefaultCc = (params: {
-  to: MailAddress[];
-  cc: MailAddress[];
-  bcc: MailAddress[];
-  defaultCc: MailAddress[];
-}): MailAddress[] => {
+const mergeDefaultCc = (params: { to: MailAddress[]; cc: MailAddress[]; bcc: MailAddress[]; defaultCc: MailAddress[] }): MailAddress[] => {
   const blocked = new Set([...params.to, ...params.bcc].map((recipient) => recipient.address.trim().toLowerCase()));
   const merged = new Map<string, MailAddress>();
   for (const recipient of [...params.cc, ...params.defaultCc]) {
@@ -1074,7 +1072,7 @@ export const materializeDraftSeed = async (params: {
       if (existing) {
         return existing.request_hash === requestHash
           ? ok(mapDraft(existing))
-          : fail(err.conflict("Compose idempotency key conflicts with a different request"));
+          : fail(capabilityIdempotencyConflict("Compose idempotency key conflicts with a different request"));
       }
       const validationOrigin: DraftSeedOrigin =
         parsed.data.origin.kind === "compose"
@@ -1178,7 +1176,7 @@ export const deriveDraftFromMessage = async (params: {
       if (existing) {
         return existing.derivation_request_hash === requestHash
           ? ok(mapDraft(existing))
-          : fail(err.conflict("Draft derivation idempotency key conflicts with a different request"));
+          : fail(capabilityIdempotencyConflict("Draft derivation idempotency key conflicts with a different request"));
       }
       const prepared = await prepareDerivedDraftInTransaction({
         db: tx,

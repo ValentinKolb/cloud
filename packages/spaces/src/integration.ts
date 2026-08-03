@@ -2,8 +2,8 @@ import { z } from "zod";
 
 export const CalendarAddressSchema = z
   .object({
-    name: z.string().max(500).nullable(),
-    address: z.string().email().max(320),
+    name: z.string().max(500).nullable().describe("Optional calendar participant display name."),
+    address: z.string().email().max(320).describe("Calendar participant email address."),
   })
   .strict();
 export type CalendarAddress = z.infer<typeof CalendarAddressSchema>;

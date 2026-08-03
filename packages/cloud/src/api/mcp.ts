@@ -2,17 +2,23 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, type CallToolResult, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Hono, type MiddlewareHandler } from "hono";
-import { getCapability, listApps } from "..";
+import { getCapability, listApps } from "../_internal/registry";
 import { readBoundedJson } from "../_internal/bounded-json";
-import { CAPABILITY_PROTOCOL_VERSION, type CapabilityActionManifest, type CapabilityQueryManifest } from "../contracts/capabilities";
+import {
+  CAPABILITY_PROTOCOL_VERSION,
+  CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CAPABILITY_MAX_REQUEST_BYTES,
+  CAPABILITY_MAX_RESULT_BYTES,
+  type CapabilityActionManifest,
+  type CapabilityQueryManifest,
+  capabilityResultJsonSchema,
+} from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { type AuthContext, auth } from "../server";
 import { type CapabilityDispatchDependencies, dispatchCapability } from "./capabilities";
 
 const MCP_TOOL_PAGE_SIZE = 100;
 const MCP_TOOL_PAGE_BYTES = 1024 * 1024;
-const MCP_REQUEST_LIMIT_BYTES = 256 * 1024;
-const MCP_RESULT_LIMIT_BYTES = 256 * 1024;
 const IDEMPOTENCY_KEY_FIELD = "idempotencyKey";
 
 type McpRouteDependencies = CapabilityDispatchDependencies & {
@@ -36,7 +42,8 @@ const actionInputSchema = (operation: CapabilityActionManifest): Tool["inputSche
   properties[IDEMPOTENCY_KEY_FIELD] = {
     type: "string",
     minLength: 1,
-    maxLength: 300,
+    maxLength: 200,
+    pattern: "^[!-~]+$",
     description: "Stable key that makes retries of this action safe.",
   };
   const required = new Set(schema.required ?? []);
@@ -63,7 +70,7 @@ const projectTool = (
       title: `${app.appName}: ${operation.title}`,
       description: operation.description,
       inputSchema: action ? actionInputSchema(action) : cloneObjectSchema(operation.inputSchema),
-      outputSchema: cloneObjectSchema(operation.resultSchema),
+      outputSchema: cloneObjectSchema(capabilityResultJsonSchema(operation.dataSchema)),
       annotations: {
         title: operation.title,
         readOnlyHint: !isAction,
@@ -73,10 +80,10 @@ const projectTool = (
       },
       _meta: {
         "cloud/appId": app.appId,
-        "cloud/capabilityId": operation.id,
+        "cloud/capabilityId": `${app.appId}.${operation.localId}`,
         "cloud/kind": isAction ? "action" : "query",
         "cloud/schemaHash": operation.schemaHash,
-        ...(action ? { "cloud/approval": action.approval, "cloud/idempotency": action.idempotency } : {}),
+        ...(action ? { "cloud/idempotency": action.idempotency } : {}),
       },
     },
   };
@@ -141,14 +148,14 @@ const parseResponse = async (response: Response): Promise<Record<string, unknown
   const value = (await response.json()) as unknown;
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
-    : { code: "INVALID_CAPABILITY_RESULT", message: "Capability returned a non-object result" };
+    : { code: CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse, message: "Capability returned a non-object result" };
 };
 
 const boundedToolResult = (body: Record<string, unknown>, isError: boolean): CallToolResult => {
   const text = JSON.stringify(body);
-  if (new TextEncoder().encode(text).byteLength > MCP_RESULT_LIMIT_BYTES) {
+  if (new TextEncoder().encode(text).byteLength > CAPABILITY_MAX_RESULT_BYTES) {
     const error = {
-      code: "RESULT_TOO_LARGE",
+      code: CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge,
       message: "Capability result is too large for an MCP tool response; narrow the query and retry",
     };
     return { isError: true, structuredContent: error, content: [{ type: "text", text: JSON.stringify(error) }] };
@@ -180,7 +187,8 @@ const createMcpServer = (request: Request, dependencies: McpRouteDependencies): 
     { name: "cloud-capabilities", version: "1.0.0" },
     {
       capabilities: { tools: {} },
-      instructions: "Use the live namespaced tools. Query tools are read-only. Action tools may require approval and an idempotencyKey.",
+      instructions:
+        "Use the live namespaced tools. Query tools are read-only. Actions are mutations; the client owns approval and required idempotencyKey values make retries safe.",
     },
   );
 
@@ -192,7 +200,10 @@ const createMcpServer = (request: Request, dependencies: McpRouteDependencies): 
     const selected = await findCapabilityTool(message.params.name, capabilityLookup);
     if (!selected) {
       return boundedToolResult(
-        { code: "TOOL_UNAVAILABLE", message: `Tool ${message.params.name} is not in the current live capability catalog` },
+        {
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.capabilityNotFound,
+          message: `Tool ${message.params.name} is not in the current live capability catalog`,
+        },
         true,
       );
     }
@@ -224,7 +235,7 @@ export const createMcpRoutes = (dependencies: McpRouteDependencies = {}) =>
   new Hono<AuthContext>().use(dependencies.authenticate ?? auth.requireRole("authenticated")).all("/mcp/v1", async (c) => {
     let request = c.req.raw;
     if (request.method === "POST") {
-      const parsed = await readBoundedJson(request, MCP_REQUEST_LIMIT_BYTES);
+      const parsed = await readBoundedJson(request, CAPABILITY_MAX_REQUEST_BYTES);
       if (!parsed.ok) {
         return c.json(
           {

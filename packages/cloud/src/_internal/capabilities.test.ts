@@ -2,12 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { fail, ok } from "@k2b/stdlib";
 import { z } from "zod";
 import {
+  CapabilityPageSchema,
   CapabilitySemanticLinkSchema,
   defineCapabilities,
   UniversalSearchDataSchema,
   UniversalSearchInputSchema,
 } from "../contracts/capabilities";
-import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability } from "./capabilities";
+import {
+  capabilityManifestEvolutionIssues,
+  compileCapabilities,
+  invokeCompiledCapability,
+  parseCapabilityManifest,
+  reviewCompiledCapability,
+} from "./capabilities";
 
 const context = {
   actor: {
@@ -21,7 +28,7 @@ const context = {
 
 const example = () =>
   defineCapabilities({
-    version: 1,
+    protocolVersion: 1,
     types: {
       item: { title: "Item", description: "One test item." },
     },
@@ -52,9 +59,7 @@ const example = () =>
         data: z.object({ id: z.string(), name: z.string() }).strict(),
         destructive: false,
         openWorld: false,
-        approval: "once",
         idempotency: "required",
-        target: { type: "item", inputField: "id" },
         review: async (input) =>
           ok({
             message: "This item will be renamed.",
@@ -71,46 +76,49 @@ describe("capability v1 compilation", () => {
     const first = compileCapabilities("example", example());
     const second = compileCapabilities("example", example());
     expect(first.manifest).toEqual(second.manifest);
-    expect(first.manifest.types[0]?.id).toBe("example.item");
-    expect(first.manifest.queries[0]?.id).toBe("example.get");
+    expect(first.manifest.types[0]?.localId).toBe("item");
+    expect(first.manifest.queries[0]?.localId).toBe("get");
     expect(first.manifest.queries[0]?.openWorld).toBe(false);
-    expect(first.manifest.actions[0]?.target?.type).toBe("example.item");
+    expect(first.manifest.queries[0]?.dataSchema).toBeDefined();
     expect(first.manifest.actions[0]?.review).toBe(true);
     expect(first.manifest.manifestHash).toHaveLength(64);
   });
 
-  test("rejects transforms, open inputs, and undocumented fields", () => {
+  test("requires one globally unique local id across all capability kinds", () => {
     expect(() =>
       compileCapabilities(
         "example",
         defineCapabilities({
-          version: 1,
+          protocolVersion: 1,
+          types: { item: { title: "Item", description: "One item." } },
           queries: {
-            bad: {
-              title: "Bad",
-              description: "Non-projectable input.",
-              input: z
-                .object({
-                  value: z
-                    .string()
-                    .describe("Value.")
-                    .transform((value) => value.trim()),
-                })
-                .strict(),
-              data: z.string(),
+            item: {
+              title: "Get item",
+              description: "Loads one item.",
+              input: z.object({}).strict(),
+              data: z.object({}).strict(),
               openWorld: false,
-              run: async () => ok({ data: "" }),
+              run: async () => ok({ data: {} }),
             },
           },
         }),
       ),
-    ).toThrow("not JSON-Schema-projectable");
+    ).toThrow("declared more than once across Types, Queries, and Actions");
+  });
 
+  test("requires a cursor exactly when another page exists", () => {
+    expect(CapabilityPageSchema.safeParse({ hasMore: true, nextCursor: "next" }).success).toBe(true);
+    expect(CapabilityPageSchema.safeParse({ hasMore: false }).success).toBe(true);
+    expect(CapabilityPageSchema.safeParse({ hasMore: true }).success).toBe(false);
+    expect(CapabilityPageSchema.safeParse({ hasMore: false, nextCursor: "next" }).success).toBe(false);
+  });
+
+  test("rejects open inputs and undocumented fields", () => {
     expect(() =>
       compileCapabilities(
         "example",
         defineCapabilities({
-          version: 1,
+          protocolVersion: 1,
           queries: {
             bad: {
               title: "Bad",
@@ -129,7 +137,7 @@ describe("capability v1 compilation", () => {
       compileCapabilities(
         "example",
         defineCapabilities({
-          version: 1,
+          protocolVersion: 1,
           queries: {
             bad: {
               title: "Bad",
@@ -148,7 +156,7 @@ describe("capability v1 compilation", () => {
       compileCapabilities(
         "example",
         defineCapabilities({
-          version: 1,
+          protocolVersion: 1,
           actions: {
             bad: {
               title: "Bad",
@@ -157,7 +165,6 @@ describe("capability v1 compilation", () => {
               data: z.object({}).strict(),
               destructive: false,
               openWorld: false,
-              approval: "never",
               idempotency: "required",
               run: async () => ok({ data: {} }),
             },
@@ -165,6 +172,81 @@ describe("capability v1 compilation", () => {
         }),
       ),
     ).toThrow('input field "idempotencyKey" is reserved');
+  });
+
+  test("projects the caller side of input normalization", () => {
+    const compiled = compileCapabilities(
+      "example",
+      defineCapabilities({
+        protocolVersion: 1,
+        queries: {
+          normalize: {
+            title: "Normalize",
+            description: "Normalizes caller input before execution.",
+            input: z
+              .object({
+                value: z
+                  .string()
+                  .describe("Value to normalize.")
+                  .transform((value) => value.trim()),
+              })
+              .strict(),
+            data: z.string(),
+            openWorld: false,
+            run: async ({ value }) => ok({ data: value }),
+          },
+        },
+      }),
+    );
+    expect(z.fromJSONSchema(compiled.manifest.queries[0]!.inputSchema).parse({ value: " value " })).toEqual({
+      value: " value ",
+    });
+  });
+
+  test("publishes defaulted inputs as optional and applies defaults in Core", () => {
+    const definitions = defineCapabilities({
+      protocolVersion: 1,
+      queries: {
+        list: {
+          title: "List items",
+          description: "Lists items with a bounded default.",
+          input: z.object({ limit: z.number().int().min(1).max(100).default(25).describe("Maximum number of items.") }).strict(),
+          data: z.array(z.string()).max(100),
+          openWorld: false,
+          run: async ({ limit }) => ok({ data: [String(limit)] }),
+        },
+      },
+    });
+    const compiled = compileCapabilities("example", definitions);
+    const query = compiled.manifest.queries[0]!;
+    expect(query.inputSchema.required).toBeUndefined();
+    const reconstructed = z.fromJSONSchema(query.inputSchema);
+    expect(reconstructed.parse({})).toEqual({ limit: 25 });
+  });
+
+  test("requires descriptions on nested input properties", () => {
+    expect(() =>
+      compileCapabilities(
+        "example",
+        defineCapabilities({
+          protocolVersion: 1,
+          queries: {
+            bad: {
+              title: "Bad",
+              description: "Contains an undocumented nested field.",
+              input: z
+                .object({
+                  filter: z.object({ value: z.string() }).strict().describe("Filter values."),
+                })
+                .strict(),
+              data: z.object({}).strict(),
+              openWorld: false,
+              run: async () => ok({ data: {} }),
+            },
+          },
+        }),
+      ),
+    ).toThrow("input.filter.value needs a concise Zod description");
   });
 
   test("allows multiple Universal Search queries per app", () => {
@@ -182,7 +264,7 @@ describe("capability v1 compilation", () => {
     const compiled = compileCapabilities(
       "example",
       defineCapabilities({
-        version: 1,
+        protocolVersion: 1,
         queries: {
           first: searchQuery,
           second: {
@@ -206,7 +288,7 @@ describe("capability v1 compilation", () => {
       compileCapabilities(
         "example",
         defineCapabilities({
-          version: 1,
+          protocolVersion: 1,
           queries: {
             first: searchQuery,
             local_only: {
@@ -224,7 +306,7 @@ describe("capability v1 compilation", () => {
       compileCapabilities(
         "example",
         defineCapabilities({
-          version: 1,
+          protocolVersion: 1,
           queries: {
             search: {
               title: "Search items",
@@ -241,11 +323,11 @@ describe("capability v1 compilation", () => {
     ).toThrow("must use UniversalSearchInputSchema");
   });
 
-  test("validates resource refs embedded in ordinary query result views", async () => {
+  test("allows opaque foreign refs and rejects undeclared refs owned by the provider", async () => {
     const compiled = compileCapabilities(
       "example",
       defineCapabilities({
-        version: 1,
+        protocolVersion: 1,
         types: { item: { title: "Item", description: "One test item." } },
         queries: {
           list: {
@@ -269,7 +351,7 @@ describe("capability v1 compilation", () => {
       }),
     );
     const query = compiled.manifest.queries[0]!;
-    const result = await invokeCompiledCapability({
+    const foreign = await invokeCompiledCapability({
       compiled,
       kind: "query",
       localId: "list",
@@ -278,22 +360,76 @@ describe("capability v1 compilation", () => {
       context,
     });
 
-    expect(result).toMatchObject({
+    expect(foreign).toMatchObject({
+      ok: true,
+      data: { data: [{ ref: { type: "other.item", id: "one" } }] },
+    });
+
+    compiled.queries.get("list")!.definition.run = async () =>
+      ok({
+        data: [
+          {
+            ref: { type: "example.missing", id: "one" },
+            title: "One",
+            links: [{ rel: "open", href: "/app/example/one" }],
+          },
+        ],
+      });
+    const local = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "list",
+      input: {},
+      expectedSchemaHash: query.schemaHash,
+      context,
+    });
+    expect(local).toMatchObject({
       ok: false,
-      error: { code: "INTERNAL", message: "Capability returned undeclared resource type other.item" },
+      error: { code: "INTERNAL", message: "Capability returned undeclared resource type example.missing" },
     });
   });
 
-  test("rejects action targets that are absent from the input", () => {
-    const base = example();
-    const definitions = {
-      ...base,
-      actions: {
-        ...base.actions,
-        rename: { ...base.actions!.rename!, target: { type: "item", inputField: "missing" } },
-      },
-    };
-    expect(() => compileCapabilities("example", definitions)).toThrow('target input field "missing" is not declared');
+  test("requires every Universal Search result to provide an open link", async () => {
+    const compiled = compileCapabilities(
+      "example",
+      defineCapabilities({
+        protocolVersion: 1,
+        types: { item: { title: "Item", description: "One item." } },
+        queries: {
+          search: {
+            title: "Search items",
+            description: "Finds items.",
+            input: UniversalSearchInputSchema,
+            data: UniversalSearchDataSchema,
+            openWorld: false,
+            universalSearch: { tags: [{ tag: "item", title: "Items", description: "Search items." }] },
+            run: async () =>
+              ok({
+                data: [
+                  {
+                    ref: { type: "example.item", id: "one" },
+                    title: "One",
+                    links: [{ rel: "preview", href: "/app/example/one/preview" }],
+                  },
+                ],
+              }),
+          },
+        },
+      }),
+    );
+    const query = compiled.manifest.queries[0]!;
+    const result = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "search",
+      input: { query: "one", tags: ["item"], limit: 10 },
+      expectedSchemaHash: query.schemaHash,
+      context,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INTERNAL", message: "Universal Search results must include an open link" },
+    });
   });
 
   test("rejects manifests that are too large for the bounded live registry", () => {
@@ -314,7 +450,74 @@ describe("capability v1 compilation", () => {
       ]),
     );
 
-    expect(() => compileCapabilities("example", defineCapabilities({ version: 1, queries }))).toThrow("manifest exceeds the 262144-byte");
+    expect(() => compileCapabilities("example", defineCapabilities({ protocolVersion: 1, queries }))).toThrow(
+      "manifest exceeds the 262144-byte",
+    );
+  });
+
+  test("revalidates untrusted manifests and their integrity hashes", () => {
+    const manifest = compileCapabilities("example", example()).manifest;
+    expect(parseCapabilityManifest(structuredClone(manifest), "example")).toEqual(manifest);
+    expect(() => parseCapabilityManifest(structuredClone(manifest), "other")).toThrow("manifest appId must be other");
+
+    const tampered = structuredClone(manifest);
+    tampered.queries[0]!.dataSchema = { type: "string" };
+    expect(() => parseCapabilityManifest(tampered, "example")).toThrow("schemaHash does not match");
+
+    const collision = structuredClone(manifest);
+    collision.queries[0]!.localId = collision.types[0]!.localId;
+    expect(() => parseCapabilityManifest(collision, "example")).toThrow("declared more than once");
+  });
+
+  test("allows additive same-id evolution and reports breaking changes", () => {
+    const manifest = (input: z.ZodType, data: z.ZodType, openWorld = false) =>
+      compileCapabilities(
+        "example",
+        defineCapabilities({
+          protocolVersion: 1,
+          queries: {
+            get: {
+              title: "Get item",
+              description: "Loads one item.",
+              input,
+              data,
+              openWorld,
+              run: async () => ok({ data: {} }),
+            },
+          },
+        }),
+      ).manifest;
+    const previous = manifest(z.object({ id: z.string().describe("Stable item id.") }).strict(), z.object({ id: z.string() }).strict());
+    const additive = manifest(
+      z
+        .object({
+          id: z.string().describe("Stable item id."),
+          locale: z.string().describe("Optional locale.").optional(),
+        })
+        .strict(),
+      z.object({ id: z.string(), label: z.string().optional() }).strict(),
+    );
+    expect(capabilityManifestEvolutionIssues(previous, additive)).toEqual([]);
+
+    const clarified = manifest(
+      z.object({ id: z.string().describe("A clearer stable item identifier.") }).strict(),
+      z.object({ id: z.string().describe("The stable item identifier.") }).strict(),
+    );
+    expect(capabilityManifestEvolutionIssues(previous, clarified)).toEqual([]);
+
+    const breaking = manifest(
+      z
+        .object({
+          id: z.string().describe("Stable item id."),
+          locale: z.string().describe("Required locale."),
+        })
+        .strict(),
+      z.object({ label: z.string() }).strict(),
+      true,
+    );
+    expect(capabilityManifestEvolutionIssues(previous, breaking)).toEqual(
+      expect.arrayContaining(["Query get openWorld changed", "Query get input.locale became required", "Query get data.id was removed"]),
+    );
   });
 
   test("returns structured validation, schema, idempotency, and handler failures", async () => {
@@ -360,6 +563,16 @@ describe("capability v1 compilation", () => {
       ok: false,
       error: { code: "IDEMPOTENCY_KEY_REQUIRED", status: 400 },
     });
+
+    const queryWithKey = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "get",
+      input: { id: "one" },
+      expectedSchemaHash: query.schemaHash,
+      context: { ...context, idempotencyKey: "not-valid-for-queries" },
+    });
+    expect(queryWithKey).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_KEY_NOT_ALLOWED", status: 400 } });
 
     const deniedDefinitions = {
       ...example(),
@@ -486,7 +699,7 @@ describe("capability v1 compilation", () => {
           run: async (input: { id: string }) =>
             ok({
               data: { id: input.id, name: "Example" },
-              refs: [{ type: "other.item", id: input.id }],
+              refs: [{ type: "example.other", id: input.id }],
             }),
         },
       },

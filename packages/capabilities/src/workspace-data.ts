@@ -45,13 +45,14 @@ export const parseCapabilityTableState = (url: URL): CapabilityTableState => {
 };
 
 export const capabilityOperationRows = (
+  appId: string,
   queries: readonly CapabilityQueryManifest[],
   actions: readonly CapabilityActionManifest[],
 ): CapabilityOperationRow[] => [
   ...queries.map((operation) => ({
     kind: "query" as const,
     localId: operation.localId,
-    id: operation.id,
+    id: `${appId}.${operation.localId}`,
     title: operation.title,
     description: operation.description,
     policy: "Read only" as const,
@@ -59,7 +60,7 @@ export const capabilityOperationRows = (
   ...actions.map((operation) => ({
     kind: "action" as const,
     localId: operation.localId,
-    id: operation.id,
+    id: `${appId}.${operation.localId}`,
     title: operation.title,
     description: operation.description,
     policy: operation.destructive ? ("Destructive" as const) : ("Write" as const),

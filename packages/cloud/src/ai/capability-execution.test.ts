@@ -4,7 +4,7 @@ import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
 import { buildAiCapabilityCatalog } from "./capabilities";
-import { AiCapabilityExecutionError, executeAiCapability, resolveAiCapabilityActor } from "./capability-execution";
+import { AiCapabilityExecutionError, executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import type { AiConversation } from "./types";
 
 const user = (id: string) => ({
@@ -50,7 +50,7 @@ const app = () => {
   const compiled = compileCapabilities(
     "demo",
     defineCapabilities({
-      version: 1,
+      protocolVersion: 1,
       types: { item: { title: "Item", description: "One item." } },
       queries: {},
       actions: {
@@ -61,8 +61,8 @@ const app = () => {
           data: z.object({ id: z.string() }).strict(),
           destructive: false,
           openWorld: false,
-          approval: "once",
           idempotency: "required",
+          review: async ({ title }) => ok({ message: `Create ${title}.` }),
           run: async () => ok({ data: { id: "created" } }),
         },
       },
@@ -72,6 +72,7 @@ const app = () => {
     appId: "demo",
     appName: "Demo",
     appIcon: "ti ti-box",
+    appDescription: "",
     endpoint: "http://demo:3000/api/_internal/capabilities/v1",
     manifest: compiled.manifest,
   };
@@ -174,6 +175,34 @@ describe("AI capability authority", () => {
     expect(seen[1]).toBe("Bearer short-lived-token");
     expect(seen[2]).toMatch(/^ai-[a-f0-9]{64}$/);
     expect(seen[3]).toBe("revoke:short-lived-token");
+  });
+
+  test("resolves an advertised review without forwarding an idempotency key", async () => {
+    const current = user("11111111-1111-4111-8111-111111111111");
+    let review = false;
+    const result = await reviewAiCapability({
+      conversationId: "conversation-1",
+      authority: { actor: { kind: "user", user: current }, accessSubject: { type: "user", userId: current.id } },
+      entry: buildAiCapabilityCatalog([app()])[0]!,
+      args: { title: "Ada" },
+      context: {
+        callId: "call-1",
+        signal: AbortSignal.timeout(1_000),
+        requestApproval: async () => true,
+        requestClientTool: async <T>() => undefined as T,
+      },
+      dependencies: {
+        createDelegation: async () => "short-lived-token",
+        revokeDelegation: async () => undefined,
+        dispatch: async ({ request, review: requestedReview }) => {
+          review = requestedReview === true;
+          expect(request.headers.has("idempotency-key")).toBe(false);
+          return Response.json({ message: "Create Ada.", details: [{ label: "Name", value: "Ada" }] });
+        },
+      },
+    });
+    expect(review).toBe(true);
+    expect(result).toEqual({ message: "Create Ada.", details: [{ label: "Name", value: "Ada" }] });
   });
 
   test("preserves target authorization errors without leaking or retaining the delegation", async () => {

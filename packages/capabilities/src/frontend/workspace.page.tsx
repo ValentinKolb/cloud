@@ -214,7 +214,8 @@ export default ssr<AuthContext>(async (c) => {
   if (kind && kind !== "query" && kind !== "action") return c.notFound();
 
   const tableState = parseCapabilityTableState(new URL(c.req.url));
-  const operations = loaded.kind === "ready" ? capabilityOperationRows(loaded.manifest.queries, loaded.manifest.actions) : [];
+  const operations =
+    loaded.kind === "ready" ? capabilityOperationRows(loaded.app.id, loaded.manifest.queries, loaded.manifest.actions) : [];
   const selection = loaded.kind === "ready" && kind && capabilityId ? selectCapability(loaded, kind, capabilityId) : undefined;
   if (kind && capabilityId && !selection) return c.notFound();
 

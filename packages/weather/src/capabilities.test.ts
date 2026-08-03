@@ -86,16 +86,13 @@ describe("weather capabilities", () => {
     expect(createAction).toMatchObject({
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
     });
     expect("target" in createAction).toBeFalse();
     expect(weatherCapabilities.actions["location.delete"]).toMatchObject({
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "location", inputField: "locationId" },
     });
     expect("review" in weatherCapabilities.actions["location.create"]).toBeFalse();
     expect(weatherCapabilities.actions["location.delete"].review).toBeFunction();

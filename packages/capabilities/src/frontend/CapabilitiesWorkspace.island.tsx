@@ -327,7 +327,7 @@ function CapabilityRunner(props: Props) {
         <div class="flex items-start justify-between gap-3">
           <div class="flex min-w-0 flex-wrap items-center gap-2">
             <StatusBadge tone="neutral" label={props.selection.kind === "query" ? "Query" : "Action"} />
-            <code class="truncate text-xs text-dimmed">{props.selection.operation.id}</code>
+            <code class="truncate text-xs text-dimmed">{`${props.selection.app.id}.${props.selection.operation.localId}`}</code>
           </div>
           <div class="flex shrink-0 items-center gap-1">
             <Button size="sm" variant="secondary" onClick={reset}>
@@ -351,7 +351,6 @@ function CapabilityRunner(props: Props) {
                 tone={selectedAction().openWorld ? "warning" : "neutral"}
                 label={selectedAction().openWorld ? "Open world" : "Cloud only"}
               />
-              <StatusBadge tone="neutral" label={`Approval: ${selectedAction().approval}`} />
               <StatusBadge tone="neutral" label={`Idempotency: ${selectedAction().idempotency}`} />
             </div>
           )}
@@ -377,7 +376,7 @@ function CapabilityRunner(props: Props) {
             <Disclosure summary="Schemas" icon="ti ti-braces">
               <div class="grid gap-3">
                 <StructuredDataPreview title="Input schema" data={props.selection.operation.inputSchema} maxRows={10} />
-                <StructuredDataPreview title="Result schema" data={props.selection.operation.resultSchema} maxRows={10} />
+                <StructuredDataPreview title="Data schema" data={props.selection.operation.dataSchema} maxRows={10} />
               </div>
             </Disclosure>
           </div>

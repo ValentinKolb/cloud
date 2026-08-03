@@ -1,23 +1,27 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { getCapability, listApps } from "..";
+import { getCapability, listApps } from "../_internal/registry";
 import { readBoundedJson } from "../_internal/bounded-json";
 import {
   CAPABILITY_PROTOCOL_VERSION,
+  CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CapabilityIdempotencyKeySchema,
+  CAPABILITY_MAX_REQUEST_BYTES,
+  CAPABILITY_MAX_RESULT_BYTES,
+  capabilityResultJsonSchema,
   CapabilityActionReviewSchema,
+  type CapabilityCatalog,
+  CapabilityCatalogSchema,
   CapabilityErrorSchema,
-  CapabilityManifestSchema,
 } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { type AuthContext, auth, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
 
 const log = logger("capabilities");
-const MAX_BODY_BYTES = 256 * 1024;
 const QUERY_TIMEOUT_MS = 15_000;
 const ACTION_TIMEOUT_MS = 30_000;
-const MAX_APP_RESPONSE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_CATALOG_LIMIT = 10;
 const MAX_CATALOG_LIMIT = 25;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
@@ -49,38 +53,64 @@ const CapabilityCatalogQuerySchema = z
     limit: z.coerce.number().int().min(1).max(MAX_CATALOG_LIMIT).default(DEFAULT_CATALOG_LIMIT),
   })
   .strict();
-const CapabilityCatalogResponseSchema = z
-  .object({
-    protocolVersion: z.literal(CAPABILITY_PROTOCOL_VERSION),
-    apps: z
-      .array(
-        z
-          .object({
-            appId: z.string(),
-            appName: z.string(),
-            appIcon: z.string(),
-            manifest: CapabilityManifestSchema,
-          })
-          .strict(),
-      )
-      .max(MAX_CATALOG_LIMIT),
-    page: z
-      .object({
-        nextCursor: z.string().max(80).optional(),
-        hasMore: z.boolean(),
-      })
-      .strict(),
-  })
-  .strict();
-
 export type CapabilityRouteDependencies = {
   listApps?: () => Promise<AppRegistryEntry[]>;
   getCapability?: (appId: string) => Promise<CapabilityRegistryEntry | null>;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   authenticate?: MiddlewareHandler<AuthContext>;
+  queryTimeoutMs?: number;
+  actionTimeoutMs?: number;
 };
 
-export type CapabilityDispatchDependencies = Pick<CapabilityRouteDependencies, "getCapability" | "fetch">;
+export type CapabilityDispatchDependencies = Pick<
+  CapabilityRouteDependencies,
+  "getCapability" | "fetch" | "queryTimeoutMs" | "actionTimeoutMs"
+>;
+
+export const loadCapabilityCatalogPage = async (
+  query: { cursor?: string; limit: number },
+  dependencies: Pick<CapabilityRouteDependencies, "listApps" | "getCapability"> = {},
+): Promise<CapabilityCatalog> => {
+  const registry = dependencies.listApps ?? listApps;
+  const capabilityLookup = dependencies.getCapability ?? getCapability;
+  const entries = await registry();
+  const liveApps = entries
+    .filter((entry) => entry.capabilities?.protocolVersion === CAPABILITY_PROTOCOL_VERSION)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const start = query.cursor ? liveApps.findIndex((entry) => entry.id > query.cursor!) : 0;
+  const offset = start < 0 ? liveApps.length : start;
+  const apps: CapabilityCatalog["apps"] = [];
+  let bytes = 0;
+  let lastScannedAppId: string | undefined;
+  for (const entry of liveApps.slice(offset)) {
+    if (apps.length === query.limit) break;
+    const capability = await capabilityLookup(entry.id);
+    if (!capability || capability.manifest.manifestHash !== entry.capabilities?.manifestHash) {
+      lastScannedAppId = entry.id;
+      continue;
+    }
+    const projected = {
+      appId: capability.appId,
+      appName: capability.appName,
+      appIcon: capability.appIcon,
+      appDescription: capability.appDescription,
+      manifest: capability.manifest,
+    };
+    const projectedBytes = new TextEncoder().encode(JSON.stringify(projected)).byteLength;
+    if (apps.length > 0 && bytes + projectedBytes > MAX_CATALOG_BYTES) break;
+    apps.push(projected);
+    bytes += projectedBytes;
+    lastScannedAppId = entry.id;
+  }
+  const hasMore = lastScannedAppId !== undefined && liveApps.some((entry) => entry.id > lastScannedAppId);
+  const page: CapabilityCatalog["page"] =
+    hasMore && lastScannedAppId ? { hasMore: true, nextCursor: lastScannedAppId } : { hasMore: false };
+  return {
+    protocolVersion: CAPABILITY_PROTOCOL_VERSION,
+    apps,
+    page,
+  };
+};
 
 export const capabilityCredentialHeaders = (request: Request): Headers => {
   const headers = new Headers({
@@ -98,7 +128,7 @@ export const capabilityCredentialHeaders = (request: Request): Headers => {
   return headers;
 };
 
-const errorResponse = (code: string, message: string, status: 400 | 404 | 409 | 502 | 503, details?: Record<string, unknown>) => ({
+const errorResponse = (code: string, message: string, status: number, details?: Record<string, unknown>) => ({
   body: { code, message, ...(details ? { details } : {}) },
   status,
 });
@@ -127,7 +157,7 @@ export const dispatchCapability = async (params: {
   const fetchUpstream = params.dependencies?.fetch ?? globalThis.fetch;
   const entry = await registryEntry(params.appId);
   if (!entry) {
-    const error = errorResponse("APP_UNAVAILABLE", `App ${params.appId} is not currently available`, 404);
+    const error = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable, `App ${params.appId} is not currently available`, 503);
     return capabilityJsonResponse(error.body, error.status);
   }
 
@@ -140,6 +170,37 @@ export const dispatchCapability = async (params: {
   }
   if (params.review && (params.kind !== "actions" || !("review" in operation) || operation.review !== true)) {
     const error = errorResponse("CAPABILITY_NOT_FOUND", `Review ${params.appId}.${params.capabilityId} not found`, 404);
+    return capabilityJsonResponse(error.body, error.status);
+  }
+
+  const rawIdempotencyKey = params.request.headers.get("idempotency-key");
+  if (params.kind === "actions" && !params.review) {
+    const action = operation as (typeof entry.manifest.actions)[number];
+    if (action.idempotency === "required" && rawIdempotencyKey === null) {
+      const error = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyRequired, "This Action requires an Idempotency-Key", 400);
+      return capabilityJsonResponse(error.body, error.status);
+    }
+    if (action.idempotency === "none" && rawIdempotencyKey !== null) {
+      const error = errorResponse(
+        CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyNotAllowed,
+        "This Action does not support idempotent retries; omit Idempotency-Key",
+        400,
+      );
+      return capabilityJsonResponse(error.body, error.status);
+    }
+  } else if (rawIdempotencyKey !== null) {
+    const error = errorResponse(
+      CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyNotAllowed,
+      "Idempotency-Key is only valid for Actions that require it",
+      400,
+    );
+    return capabilityJsonResponse(error.body, error.status);
+  }
+  const idempotencyKey = rawIdempotencyKey === null ? null : CapabilityIdempotencyKeySchema.safeParse(rawIdempotencyKey);
+  if (idempotencyKey && !idempotencyKey.success) {
+    const error = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed, "Idempotency-Key is invalid", 400, {
+      issues: idempotencyKey.error.issues.map((issue) => ({ message: issue.message })),
+    });
     return capabilityJsonResponse(error.body, error.status);
   }
 
@@ -157,8 +218,13 @@ export const dispatchCapability = async (params: {
   }
 
   const headers = capabilityCredentialHeaders(params.request);
+  if (idempotencyKey?.success) headers.set("idempotency-key", idempotencyKey.data);
   headers.set("x-cloud-capability-schema-hash", operation.schemaHash);
-  const timeout = AbortSignal.timeout(params.kind === "queries" || params.review ? QUERY_TIMEOUT_MS : ACTION_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(
+    params.kind === "queries" || params.review
+      ? (params.dependencies?.queryTimeoutMs ?? QUERY_TIMEOUT_MS)
+      : (params.dependencies?.actionTimeoutMs ?? ACTION_TIMEOUT_MS),
+  );
   const signal = AbortSignal.any([params.request.signal, timeout]);
 
   let response: Response;
@@ -179,13 +245,45 @@ export const dispatchCapability = async (params: {
       kind: params.kind,
       error: error instanceof Error ? error.message : String(error),
     });
-    const unavailable = errorResponse("APP_UNAVAILABLE", `App ${params.appId} could not serve the capability`, 503);
+    const actionWithoutRetrySafety =
+      params.kind === "actions" && !params.review && "idempotency" in operation && operation.idempotency === "none";
+    if (actionWithoutRetrySafety) {
+      const unknown = errorResponse(
+        CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
+        "The Action response was lost and its outcome is unknown; do not retry automatically",
+        502,
+        { retrySafe: false },
+      );
+      return capabilityJsonResponse(unknown.body, unknown.status);
+    }
+    if (params.request.signal.aborted) {
+      const cancelled = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.requestCancelled, "Capability request was cancelled", 499, {
+        retrySafe: params.kind === "queries" || ("idempotency" in operation && operation.idempotency === "required"),
+      });
+      return capabilityJsonResponse(cancelled.body, cancelled.status);
+    }
+    if (timeout.aborted) {
+      const deadline = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.deadlineExceeded, "The capability deadline was exceeded", 504, {
+        retrySafe: params.kind === "queries" || ("idempotency" in operation && operation.idempotency === "required"),
+      });
+      return capabilityJsonResponse(deadline.body, deadline.status);
+    }
+    const unavailable = errorResponse(
+      CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable,
+      `App ${params.appId} could not serve the capability`,
+      503,
+      { retrySafe: params.kind === "queries" || ("idempotency" in operation && operation.idempotency === "required") },
+    );
     return capabilityJsonResponse(unavailable.body, unavailable.status);
   }
 
-  const upstreamBody = await readBoundedJson(response, MAX_APP_RESPONSE_BYTES);
+  const upstreamBody = await readBoundedJson(response, CAPABILITY_MAX_RESULT_BYTES);
   if (!upstreamBody.ok) {
-    const invalid = errorResponse("INVALID_APP_RESPONSE", `App ${params.appId} returned invalid or oversized capability JSON`, 502);
+    const code =
+      upstreamBody.reason === "too_large"
+        ? CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge
+        : CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse;
+    const invalid = errorResponse(code, `App ${params.appId} returned invalid or oversized capability JSON`, 502);
     return capabilityJsonResponse(invalid.body, invalid.status);
   }
 
@@ -200,7 +298,7 @@ export const dispatchCapability = async (params: {
 
   const resultValidator = params.review
     ? CapabilityActionReviewSchema
-    : schemaValidator(`${operation.schemaHash}:result`, operation.resultSchema);
+    : schemaValidator(`${operation.schemaHash}:result`, capabilityResultJsonSchema(operation.dataSchema));
   if (!resultValidator || !resultValidator.safeParse(upstreamBody.data).success) {
     const invalid = errorResponse(
       "INVALID_APP_RESPONSE",
@@ -214,9 +312,6 @@ export const dispatchCapability = async (params: {
 };
 
 export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies = {}) => {
-  const registry = dependencies.listApps ?? listApps;
-  const capabilityLookup = dependencies.getCapability ?? getCapability;
-
   return new Hono<AuthContext>()
     .use(dependencies.authenticate ?? auth.requireRole("authenticated"))
     .get(
@@ -227,50 +322,14 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
         description: "Returns the versioned capability manifests currently advertised by live app leases.",
         ...requiresAuth,
         responses: {
-          200: jsonResponse(CapabilityCatalogResponseSchema, "Live capability catalog"),
+          200: jsonResponse(CapabilityCatalogSchema, "Live capability catalog"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
         },
       }),
       v("query", CapabilityCatalogQuerySchema),
       async (c) => {
         const query = c.req.valid("query");
-        const entries = await registry();
-        const liveApps = entries
-          .filter((entry) => entry.capabilities?.protocolVersion === CAPABILITY_PROTOCOL_VERSION)
-          .sort((left, right) => left.id.localeCompare(right.id));
-        const start = query.cursor ? liveApps.findIndex((entry) => entry.id > query.cursor!) : 0;
-        const offset = start < 0 ? liveApps.length : start;
-        const apps: Array<{ appId: string; appName: string; appIcon: string; manifest: CapabilityRegistryEntry["manifest"] }> = [];
-        let bytes = 0;
-        let lastScannedAppId: string | undefined;
-        for (const entry of liveApps.slice(offset)) {
-          if (apps.length === query.limit) break;
-          const capability = await capabilityLookup(entry.id);
-          if (!capability || capability.manifest.manifestHash !== entry.capabilities?.manifestHash) {
-            lastScannedAppId = entry.id;
-            continue;
-          }
-          const projected = {
-            appId: capability.appId,
-            appName: capability.appName,
-            appIcon: capability.appIcon,
-            manifest: capability.manifest,
-          };
-          const projectedBytes = new TextEncoder().encode(JSON.stringify(projected)).byteLength;
-          if (apps.length > 0 && bytes + projectedBytes > MAX_CATALOG_BYTES) break;
-          apps.push(projected);
-          bytes += projectedBytes;
-          lastScannedAppId = entry.id;
-        }
-        const hasMore = lastScannedAppId !== undefined && liveApps.some((entry) => entry.id > lastScannedAppId);
-        return c.json({
-          protocolVersion: CAPABILITY_PROTOCOL_VERSION,
-          apps,
-          page: {
-            hasMore,
-            ...(hasMore && lastScannedAppId ? { nextCursor: lastScannedAppId } : {}),
-          },
-        });
+        return c.json(await loadCapabilityCatalogPage(query, dependencies));
       },
     )
     .post(
@@ -284,24 +343,30 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           200: jsonResponse(z.unknown(), "Capability Action review"),
           400: jsonResponse(CapabilityErrorSchema, "Invalid request"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
-          404: jsonResponse(CapabilityErrorSchema, "Capability review or app unavailable"),
+          404: jsonResponse(CapabilityErrorSchema, "Capability review not found"),
           409: jsonResponse(CapabilityErrorSchema, "Schema changed"),
+          499: jsonResponse(CapabilityErrorSchema, "Request cancelled"),
           500: jsonResponse(CapabilityErrorSchema, "Capability review failed"),
           502: jsonResponse(CapabilityErrorSchema, "Invalid app response"),
           503: jsonResponse(CapabilityErrorSchema, "App unavailable"),
+          504: jsonResponse(CapabilityErrorSchema, "App deadline exceeded"),
         },
       }),
       async (c) => {
-        const body = await readBoundedJson(c.req.raw, MAX_BODY_BYTES);
+        const body = await readBoundedJson(c.req.raw, CAPABILITY_MAX_REQUEST_BYTES);
         if (!body.ok) {
           const message = body.reason === "too_large" ? "Capability request is too large" : "Capability request body must be JSON";
-          const error = errorResponse("BAD_INPUT", message, 400);
-          return c.json(error.body, error.status);
+          const error = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed, message, 400);
+          return capabilityJsonResponse(error.body, error.status);
         }
         const request = CapabilityInvocationRequestSchema.safeParse(body.data);
         if (!request.success) {
-          const error = errorResponse("BAD_INPUT", "Capability request must contain only an input field", 400);
-          return c.json(error.body, error.status);
+          const error = errorResponse(
+            CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed,
+            "Capability request must contain only an input field",
+            400,
+          );
+          return capabilityJsonResponse(error.body, error.status);
         }
         return dispatchCapability({
           request: c.req.raw,
@@ -325,25 +390,31 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           200: jsonResponse(z.unknown(), "Capability result"),
           400: jsonResponse(CapabilityErrorSchema, "Invalid request"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
-          404: jsonResponse(CapabilityErrorSchema, "Capability or app unavailable"),
+          404: jsonResponse(CapabilityErrorSchema, "Capability not found"),
           409: jsonResponse(CapabilityErrorSchema, "Schema changed"),
           429: jsonResponse(CapabilityErrorSchema, "Capability rate limited"),
+          499: jsonResponse(CapabilityErrorSchema, "Request cancelled"),
           500: jsonResponse(CapabilityErrorSchema, "Capability execution failed"),
           502: jsonResponse(CapabilityErrorSchema, "Invalid app response"),
           503: jsonResponse(CapabilityErrorSchema, "App unavailable"),
+          504: jsonResponse(CapabilityErrorSchema, "App deadline exceeded"),
         },
       }),
       async (c) => {
-        const body = await readBoundedJson(c.req.raw, MAX_BODY_BYTES);
+        const body = await readBoundedJson(c.req.raw, CAPABILITY_MAX_REQUEST_BYTES);
         if (!body.ok) {
           const message = body.reason === "too_large" ? "Capability request is too large" : "Capability request body must be JSON";
-          const error = errorResponse("BAD_INPUT", message, 400);
-          return c.json(error.body, error.status);
+          const error = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed, message, 400);
+          return capabilityJsonResponse(error.body, error.status);
         }
         const request = CapabilityInvocationRequestSchema.safeParse(body.data);
         if (!request.success) {
-          const error = errorResponse("BAD_INPUT", "Capability request must contain only an input field", 400);
-          return c.json(error.body, error.status);
+          const error = errorResponse(
+            CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed,
+            "Capability request must contain only an input field",
+            400,
+          );
+          return capabilityJsonResponse(error.body, error.status);
         }
 
         return dispatchCapability({

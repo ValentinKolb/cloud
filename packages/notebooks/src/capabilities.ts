@@ -2,6 +2,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
+  capabilityPage,
   type CloudResourceView,
   defineCapabilities,
   type MutationResult,
@@ -227,10 +228,7 @@ const runNotebookList = async (input: z.infer<typeof NotebookListInputSchema>, c
   );
   return ok({
     data,
-    page: {
-      hasMore: cursor.data * input.limit < page.total,
-      ...(cursor.data * input.limit < page.total ? { nextCursor: encodePageCursor(cursor.data + 1) } : {}),
-    },
+    page: capabilityPage(cursor.data * input.limit < page.total ? encodePageCursor(cursor.data + 1) : undefined),
     refs: data.map((notebook) => ({ type: "notebooks.notebook", id: notebook.id })),
   });
 };
@@ -260,7 +258,7 @@ const runNoteTree = async (input: z.infer<typeof NoteTreeInputSchema>, context: 
   const last = data.at(-1);
   return ok({
     data,
-    page: { hasMore, ...(hasMore && last ? { nextCursor: encodeTreeCursor(last.id) } : {}) },
+    page: capabilityPage(hasMore && last ? encodeTreeCursor(last.id) : undefined),
   });
 };
 
@@ -315,7 +313,7 @@ const runNoteLinks = async (input: z.infer<typeof NoteLinksInputSchema>, context
   const data = rows.slice(0, input.limit);
   return ok({
     data,
-    page: { hasMore, ...(hasMore ? { nextCursor: encodePageCursor(cursor.data + 1) } : {}) },
+    page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
     refs: data.map((entry) => ({ type: "notebooks.note", id: entry.noteId })),
   });
 };
@@ -332,7 +330,7 @@ const runTagList = async (input: z.infer<typeof TagListInputSchema>, context: Ca
   const hasMore = rows.length > input.limit;
   return ok({
     data: rows.slice(0, input.limit),
-    page: { hasMore, ...(hasMore ? { nextCursor: encodePageCursor(cursor.data + 1) } : {}) },
+    page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
   });
 };
 
@@ -350,7 +348,7 @@ const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: 
   const hasMore = cursor.data * input.limit < result.total;
   return ok({
     data: result.items,
-    page: { hasMore, ...(hasMore ? { nextCursor: encodePageCursor(cursor.data + 1) } : {}) },
+    page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
     refs: result.items.map((note) => ({ type: "notebooks.note", id: note.id })),
   });
 };
@@ -457,7 +455,7 @@ const runNoteMove = async (input: z.infer<typeof NoteMoveInputSchema>, context: 
   });
 
 export const notebooksCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     notebook: { title: "Notebook", description: "A permission-scoped collection of Markdown notes.", icon: "ti ti-notebook" },
     note: { title: "Note", description: "A Markdown note in an accessible notebook.", icon: "ti ti-file-text" },
@@ -550,9 +548,7 @@ export const notebooksCapabilities = defineCapabilities({
       data: NoteSummaryDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "notebook", inputField: "notebookId" },
       run: runNoteCreate,
     },
     "note.edit": {
@@ -562,9 +558,7 @@ export const notebooksCapabilities = defineCapabilities({
       data: NoteEditDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "note", inputField: "noteId" },
       review: async (input, context) => {
         const resolved = await requireNote(input.noteId, context, "write");
         if (!resolved.ok) return resolved;
@@ -591,9 +585,7 @@ export const notebooksCapabilities = defineCapabilities({
       data: NoteSummaryDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "note", inputField: "noteId" },
       review: async (input, context) => {
         const resolved = await requireNote(input.noteId, context, "write");
         if (!resolved.ok) return resolved;

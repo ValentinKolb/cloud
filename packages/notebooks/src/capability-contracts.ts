@@ -167,37 +167,45 @@ export const TagNotesDataSchema = z
   .max(100);
 
 const EditBlockSelectorShape = {
-  name: z.string().trim().min(1).max(200),
-  type: NamedBlockTypeSchema.optional(),
-  index: z.number().int().nonnegative().optional(),
+  name: z.string().trim().min(1).max(200).describe("Named Markdown block selector."),
+  type: NamedBlockTypeSchema.optional().describe("Optional block type disambiguation."),
+  index: z.number().int().nonnegative().optional().describe("Zero-based match index when names repeat."),
 };
-const EditContentSchema = z.string().max(200_000);
+const EditContentSchema = z.string().max(200_000).describe("Markdown content used by this edit.");
+const EditKindSchema = <T extends string>(kind: T) => z.literal(kind).describe("Structural edit operation kind.");
+const EditLineSchema = z.number().int().positive().describe("One-based Markdown line number.");
 
 export const NoteEditOperationSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("set-content"), content: EditContentSchema }).strict(),
-  z.object({ kind: z.literal("append"), content: EditContentSchema }).strict(),
-  z.object({ kind: z.literal("prepend"), content: EditContentSchema }).strict(),
-  z.object({ kind: z.literal("insert-before-line"), line: z.number().int().positive(), content: EditContentSchema }).strict(),
-  z.object({ kind: z.literal("insert-after-line"), line: z.number().int().positive(), content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("set-content"), content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("append"), content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("prepend"), content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("insert-before-line"), line: EditLineSchema, content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("insert-after-line"), line: EditLineSchema, content: EditContentSchema }).strict(),
   z
     .object({
-      kind: z.literal("replace-lines"),
-      startLine: z.number().int().positive(),
-      endLine: z.number().int().positive(),
+      kind: EditKindSchema("replace-lines"),
+      startLine: EditLineSchema.describe("First one-based line to replace."),
+      endLine: EditLineSchema.describe("Last one-based line to replace."),
       content: EditContentSchema,
     })
     .strict(),
-  z.object({ kind: z.literal("delete-lines"), startLine: z.number().int().positive(), endLine: z.number().int().positive() }).strict(),
   z
     .object({
-      kind: z.literal("replace-block"),
+      kind: EditKindSchema("delete-lines"),
+      startLine: EditLineSchema.describe("First one-based line to delete."),
+      endLine: EditLineSchema.describe("Last one-based line to delete."),
+    })
+    .strict(),
+  z
+    .object({
+      kind: EditKindSchema("replace-block"),
       ...EditBlockSelectorShape,
-      includeHandle: z.boolean().optional(),
+      includeHandle: z.boolean().optional().describe("Whether replacement includes the block handle line."),
       content: EditContentSchema,
     })
     .strict(),
-  z.object({ kind: z.literal("append-block"), ...EditBlockSelectorShape, content: EditContentSchema }).strict(),
-  z.object({ kind: z.literal("prepend-block"), ...EditBlockSelectorShape, content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("append-block"), ...EditBlockSelectorShape, content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("prepend-block"), ...EditBlockSelectorShape, content: EditContentSchema }).strict(),
 ]);
 
 export const NoteCreateInputSchema = z

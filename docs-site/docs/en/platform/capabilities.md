@@ -85,7 +85,7 @@ const visibleItem = (itemId: string, subject: AccessSubject): Item | null => {
 };
 
 export const inventoryCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     item: {
       title: "Inventory item",
@@ -143,9 +143,7 @@ export const inventoryCapabilities = defineCapabilities({
       data: z.object({ id: z.string().uuid(), name: z.string() }).strict(),
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       review: async ({ itemId, name }, context) => {
         const item = visibleItem(itemId, context.accessSubject);
         if (!item) {
@@ -266,9 +264,7 @@ Actions declare the mutation's objective behavior:
 | --- | --- |
 | `destructive` | `true` when the Action may delete, overwrite, remove, or otherwise destructively update existing state; `false` only for exclusively additive updates |
 | `openWorld` | `true` when the Action may interact with an open world of external entities; `false` when its interaction domain is closed |
-| `approval` | Cloud client hint: `never`, `once`, or `always`; MCP has no equivalent and each client owns enforcement |
-| `idempotency` | Retry contract: `none`, `optional`, or `required` |
-| `target` | Optional declared Type and input field identifying the resource |
+| `idempotency` | Retry contract: `none` or `required` |
 | `review` | Optional read-only description of the concrete effect for human review |
 
 Cloud follows the MCP `ToolAnnotations` meanings rather than inventing narrower
@@ -278,11 +274,11 @@ an existing value is not exclusively additive, so an Action such as rename,
 replace, move, clear, or remove uses `destructive: true`. `openWorld` is
 independent of mutation: a read-only web search is still open-world.
 
-The Cloud `idempotency` field declares idempotency-key support rather than a
-broader semantic guarantee. Queries project as idempotent. An Action with
-`idempotency: "required"` can project as idempotent because the stable key is
-part of the same MCP arguments; `optional` and `none` project conservatively as
-not idempotent.
+The Cloud `idempotency` field declares transport retry safety rather than a
+broader semantic guarantee. Queries are retry-safe. An Action with
+`idempotency: "required"` is retry-safe only when the caller supplies a stable
+key; `none` means callers must not send a key and must not retry after an
+ambiguous transport failure.
 
 Do not rely on MCP's conservative defaults. Declare these fields explicitly so
 the live Cloud catalog remains deterministic. MCP defines annotations as
@@ -296,9 +292,12 @@ None of the metadata replaces application-side authorization. The owning app
 must authorize both an optional review and the eventual Action against current
 state.
 
-When an Action requires idempotency, the app must claim the key atomically with
-the state change and replay the same result for the same request. A cache lookup
-before the mutation is not enough.
+When an Action requires idempotency, scope the durable claim to the owning app,
+Action, current `AccessSubject`, and key. Atomically bind that claim to the
+normalized parsed input with the state change. Concurrent calls with the same
+claim wait for or replay the same terminal success; the same key with different
+input fails with `IDEMPOTENCY_CONFLICT`. Keep completed claims for at least 24
+hours. A cache lookup before the mutation is not enough.
 
 Record security-sensitive mutations with [Audit events](/en/docs/platform/audit-events).
 
@@ -369,22 +368,29 @@ fail the Action rather than applying a different effect.
 
 Cloud validates the declaration at startup:
 
-- `version` is currently `1`;
+- `protocolVersion` is currently `1`;
 - local IDs start with a lower-case letter and may contain `.`, `_`, or `-`;
+- one local ID may occur only once across Types, Queries, and Actions;
 - inputs are closed `z.object(...).strict()` schemas;
 - every meaningful input field has a concise `.describe(...)` string;
 - input and data schemas must project to JSON Schema;
 - every Query and Action declares `openWorld`, and every Action also declares
-  `destructive`, `approval`, and `idempotency`;
+  `destructive` and `idempotency`;
 - `idempotencyKey` is reserved for transports and cannot be an Action field;
 - Action reviews use the fixed platform schema and are advertised as
   `review: true` only when the callback exists;
-- every Type used by `refs`, Action targets, or Universal Search is declared;
+- every provider-owned Type used by `refs` or Universal Search is declared;
 - an app may declare at most 200 Types, 200 Queries, and 200 Actions;
 - the deterministic live manifest may not exceed 256 KiB.
 
-Each operation gets input and result JSON Schema plus a stable schema hash.
-Refresh the live catalog after `SCHEMA_MISMATCH`.
+Every transport caps the complete JSON request and result at 256 KiB. Keep
+individual field limits comfortably below that envelope; large files, exports,
+and document bodies belong in app-owned upload or download APIs referenced by
+a capability.
+
+Each operation publishes input and data JSON Schema plus a stable schema hash.
+The result envelope is one fixed Core contract and is not repeated in every
+manifest entry. Refresh the live catalog after `SCHEMA_MISMATCH`.
 
 ### Keep contracts at the owning boundary
 
@@ -412,6 +418,32 @@ provider Zod declaration -> live manifest JSON Schema -> Core dispatcher
 The provider still parses and authorizes inside `run`. Core's validation is an
 additional transport invariant, not a replacement for app-side checks.
 
+### Evolve published local IDs additively
+
+Treat an app ID plus local operation ID as a stable public contract. The same
+ID may add new Types, operations, optional input object fields, result object
+fields, Universal Search tags, or an Action review. It must not change kind,
+remove fields or operations, add required input, weaken a previously guaranteed
+result field, change safety or idempotency semantics, or remove an advertised
+review or search token. Publish a new local ID for those changes and migrate
+callers deliberately.
+
+Keep a previous manifest fixture and check it in provider tests:
+
+```ts
+import {
+  assertCapabilityManifestEvolution,
+  compileCapabilityManifest,
+} from "@valentinkolb/cloud/capabilities/testing";
+
+const current = compileCapabilityManifest("inventory", inventoryCapabilities);
+assertCapabilityManifestEvolution(previousManifestFixture, current);
+```
+
+Titles and descriptions may improve without changing the local ID. Consumers
+should still project only the fields they need with permissive runtime schemas
+so additive result fields remain compatible.
+
 ## Return structured results
 
 Every successful operation returns `data`. Add only the navigation and identity
@@ -421,7 +453,9 @@ metadata the caller can use:
 type CapabilityResult<T> = {
   data: T;
   refs?: Array<{ type: string; id: string }>;
-  page?: { nextCursor?: string; hasMore: boolean };
+  page?:
+    | { hasMore: true; nextCursor: string }
+    | { hasMore: false };
   links?: Array<{
     rel: "open" | "edit" | "status" | "preview" | "download";
     href: string;
@@ -430,9 +464,12 @@ type CapabilityResult<T> = {
 };
 ```
 
-`refs` use qualified declared Types. Links are root-relative same-origin Cloud
-paths. They are hints: a caller may open one, but an operation does not require
-UI merely because it returns a link.
+Provider-owned `refs` use qualified declared Types. Foreign qualified refs are
+opaque cross-app identities and need not be redeclared by the provider. Links
+are root-relative same-origin Cloud paths. They are hints: a caller may open
+one, but an operation does not require UI merely because it returns a link.
+When `hasMore` is true, `nextCursor` is required; on the final page it must be
+absent. Treat cursors as opaque values.
 
 Keep result metadata non-overlapping. For one primary resource, return its
 identity in top-level `refs` and its navigation in top-level `links`. For
@@ -453,8 +490,13 @@ Failures use the normal structured service-error shape:
 ```
 
 Framework errors include `VALIDATION_FAILED`, `SCHEMA_MISMATCH`,
-`IDEMPOTENCY_KEY_REQUIRED`, `APP_UNAVAILABLE`, `CAPABILITY_NOT_FOUND`, and
-`INVALID_APP_RESPONSE`. Applications may return their own domain error codes.
+`IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_NOT_ALLOWED`,
+`IDEMPOTENCY_CONFLICT`, `APP_UNAVAILABLE`, `CAPABILITY_NOT_FOUND`,
+`DEADLINE_EXCEEDED`, `ACTION_OUTCOME_UNKNOWN`, `REQUEST_CANCELLED`,
+`INVALID_APP_RESPONSE`, and `RESPONSE_TOO_LARGE`. Applications may return their
+own domain error codes. `DEADLINE_EXCEEDED` is retry-safe for Queries and
+required-idempotency Actions. `ACTION_OUTCOME_UNKNOWN` means a non-idempotent
+Action may already have taken effect and must not be retried automatically.
 
 ## Invoke capabilities
 
@@ -468,6 +510,12 @@ POST /api/capabilities/v1/actions/<appId>/<localId>
 POST /api/capabilities/v1/actions/<appId>/<localId>/review
 ```
 
+The public catalog contains only revalidated live manifests plus current app
+name, icon, and description. Core derives the internal endpoint from the live
+app registry; providers cannot publish a dispatch URL or trusted app metadata
+inside the Capability record. Raw registry records are internal and are not a
+consumer API.
+
 The POST body contains one `input` field:
 
 ```json
@@ -478,7 +526,7 @@ The optional review route accepts the same body and is available only when the
 Action manifest advertises `review: true`. It performs no mutation and needs no
 `Idempotency-Key`.
 
-Send `Idempotency-Key` when invoking Actions that support or require it. Core
+Send `Idempotency-Key` only when invoking an Action whose manifest requires it. Core
 pins the registered schema, forwards the caller credential and trace context,
 and rejects invalid app responses. The app authenticates again, reconstructs
 the actor and access subject, validates the input, and authorizes the resource.
@@ -487,14 +535,19 @@ Reviewing an Action never authorizes its later invocation.
 Browser and client islands use the same-origin public client:
 
 ```ts
-import { invokeCapability } from "@valentinkolb/cloud/capabilities";
+import { invokeCapabilityWithDataSchema } from "@valentinkolb/cloud/capabilities";
+import { z } from "zod";
 
-const result = await invokeCapability<{ id: string }>({
-  appId: "inventory",
-  capabilityId: "item.get",
-  kind: "query",
-  input: { itemId },
-});
+const itemSchema = z.object({ id: z.uuid(), name: z.string() }).passthrough();
+const result = await invokeCapabilityWithDataSchema(
+  {
+    appId: "inventory",
+    capabilityId: "item.get",
+    kind: "query",
+    input: { itemId },
+  },
+  itemSchema,
+);
 if (!result.ok) throw new Error(result.error.message);
 ```
 
@@ -503,15 +556,16 @@ and trace data from the current request; the adapter dispatches through Core
 without making an HTTP loop through Gateway:
 
 ```ts
-import { invokeCapability } from "@valentinkolb/cloud/capabilities/server";
+import { invokeCapabilityWithDataSchema } from "@valentinkolb/cloud/capabilities/server";
 
-const result = await invokeCapability<{ id: string }>(
+const result = await invokeCapabilityWithDataSchema(
   {
     appId: "inventory",
     capabilityId: "item.get",
     kind: "query",
     input: { itemId },
   },
+  itemSchema,
   {
     cookie: request.headers.get("cookie"),
     authorization: request.headers.get("authorization"),
@@ -522,7 +576,9 @@ const result = await invokeCapability<{ id: string }>(
 ```
 
 Both clients return `{ ok: true, data }` or `{ ok: false, error }`; ordinary
-network and protocol failures do not require exception handling. Use
+network and protocol failures do not require exception handling. The untyped
+`invokeCapability()` variant returns `unknown`; use a small permissive runtime
+data schema at every typed consumer boundary. Use
 `reviewCapabilityAction()` from the same entry point for an advertised Action
 review. App tests may compile a declaration without importing Cloud internals:
 
@@ -556,8 +612,9 @@ inventory__action__item.rename
 
 Queries become read-only tools. Query and Action `openWorld` values become
 `openWorldHint`; Action metadata also becomes destructive and idempotent hints.
-An optional or required idempotency key is a separate `idempotencyKey` tool
-argument. MCP uses the same Core dispatcher and has no broader authorization.
+A required idempotency key is a separate `idempotencyKey` tool argument. MCP
+uses the same Core dispatcher and has no broader authorization or approval
+contract.
 
 > Cloud capability MCP exposes live application operations. Fibel MCP exposes
 > read-only developer documentation. They are separate endpoints with separate

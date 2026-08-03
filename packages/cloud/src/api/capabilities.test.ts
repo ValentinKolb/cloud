@@ -4,12 +4,12 @@ import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
-import { capabilityCredentialHeaders, createCapabilityRoutes } from "./capabilities";
+import { capabilityCredentialHeaders, createCapabilityRoutes, dispatchCapability } from "./capabilities";
 
 const compiled = compileCapabilities(
   "demo",
   defineCapabilities({
-    version: 1,
+    protocolVersion: 1,
     types: { item: { title: "Item", description: "One demo item." } },
     queries: {
       get: {
@@ -29,7 +29,6 @@ const compiled = compileCapabilities(
         data: z.object({ id: z.string(), name: z.string() }).strict(),
         destructive: true,
         openWorld: false,
-        approval: "once",
         idempotency: "none",
         review: async ({ id, name }) => ok({ message: `Rename ${id} to ${name}.` }),
         run: async ({ id, name }) => ok({ data: { id, name } }),
@@ -42,8 +41,9 @@ const entry = (id = "demo"): CapabilityRegistryEntry => ({
   appId: id,
   appName: id,
   appIcon: "ti ti-box",
+  appDescription: `${id} app`,
   endpoint: `http://${id}:3000/api/_internal/capabilities/v1`,
-  manifest: { ...compiled.manifest, appId: id },
+  manifest: { ...structuredClone(compiled.manifest), appId: id },
 });
 
 const summary = (capability: CapabilityRegistryEntry): AppRegistryEntry => ({
@@ -89,7 +89,7 @@ describe("capability API", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ input: { id: "one" } }),
     });
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ code: "APP_UNAVAILABLE", message: "App missing is not currently available" });
   });
 
@@ -109,7 +109,6 @@ describe("capability API", () => {
         authorization: "Bearer secret",
         cookie: "session=ignored",
         "content-type": "application/json",
-        "idempotency-key": "attempt-1",
         traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
         tracestate: "cloud=test",
         "x-request-id": "request-123",
@@ -121,11 +120,116 @@ describe("capability API", () => {
     expect(forwarded?.get("authorization")).toBe("Bearer secret");
     expect(forwarded?.get("cookie")).toBeNull();
     expect(forwarded?.get("x-cloud-actor")).toBeNull();
-    expect(forwarded?.get("idempotency-key")).toBe("attempt-1");
+    expect(forwarded?.get("idempotency-key")).toBeNull();
     expect(forwarded?.get("traceparent")).toBe("00-11111111111111111111111111111111-2222222222222222-01");
     expect(forwarded?.get("tracestate")).toBe("cloud=test");
     expect(forwarded?.get("x-request-id")).toBe("request-123");
     expect(forwarded?.get("x-cloud-capability-schema-hash")).toBe(compiled.manifest.queries[0]?.schemaHash);
+  });
+
+  test("enforces the declared Action idempotency policy before dispatch", async () => {
+    let requested = false;
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => {
+        requested = true;
+        return Response.json({ data: { id: "one", name: "Two" } });
+      },
+    });
+    const rejected = await routes.request("/capabilities/v1/actions/demo/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": "attempt-1" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ code: "IDEMPOTENCY_KEY_NOT_ALLOWED" });
+    expect(requested).toBeFalse();
+
+    const requiredEntry = entry();
+    requiredEntry.manifest.actions[0] = { ...requiredEntry.manifest.actions[0]!, idempotency: "required" };
+    const requiredRoutes = createCapabilityRoutes({ getCapability: async () => requiredEntry, authenticate });
+    const missing = await requiredRoutes.request("/capabilities/v1/actions/demo/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({ code: "IDEMPOTENCY_KEY_REQUIRED" });
+  });
+
+  test("marks a lost non-idempotent Action response as outcome unknown", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => {
+        throw new Error("connection reset");
+      },
+    });
+    const response = await routes.request("/capabilities/v1/actions/demo/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } });
+  });
+
+  test("marks a cancelled in-flight non-idempotent Action as outcome unknown", async () => {
+    const controller = new AbortController();
+    const responsePromise = dispatchCapability({
+      request: new Request("http://cloud.internal/api/capabilities/v1", { signal: controller.signal }),
+      kind: "actions",
+      appId: "demo",
+      capabilityId: "rename",
+      input: { id: "one", name: "Two" },
+      dependencies: {
+        getCapability: async () => entry(),
+        fetch: async (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+            controller.abort();
+          }),
+      },
+    });
+
+    const response = await responsePromise;
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } });
+  });
+
+  test("distinguishes a retry-safe Query deadline from app unavailability", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      queryTimeoutMs: 1,
+      fetch: async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        }),
+    });
+    const response = await routes.request("/capabilities/v1/queries/demo/get", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one" } }),
+    });
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({ code: "DEADLINE_EXCEEDED", details: { retrySafe: true } });
+  });
+
+  test("rejects oversized app responses with the shared public limit", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => Response.json({ data: { id: "x".repeat(300 * 1024) } }),
+    });
+    const response = await routes.request("/capabilities/v1/queries/demo/get", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one" } }),
+    });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "RESPONSE_TOO_LARGE" });
   });
 
   test("rejects input outside the live registered schema before calling the app", async () => {

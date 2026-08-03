@@ -95,7 +95,7 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
 };
 
 export const filesCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     file: { title: "File", description: "A file in personal or shared storage.", icon: "ti ti-file" },
     directory: { title: "Directory", description: "A folder in personal or shared storage.", icon: "ti ti-folder" },

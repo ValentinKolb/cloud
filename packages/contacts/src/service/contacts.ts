@@ -1,5 +1,6 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { resolveContactName, resolveStoredContactLabel } from "../shared";
 import { emptyToNull, isUuid, type SqlExecutor, toDateOnly, toPgUuidArray } from "./shared";
@@ -1211,11 +1212,7 @@ export const createIdempotent = async (config: {
       `;
       if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
       if (existing.request_hash !== config.requestHash) {
-        return fail({
-          code: "CONFLICT",
-          message: "Idempotency-Key was already used with different input",
-          status: 409,
-        });
+        return fail(capabilityIdempotencyConflict("Idempotency-Key was already used with different input"));
       }
       return ok({ contactId: existing.contact_id, resultLabel: existing.result_label ?? resultLabel, replayed: true });
     }

@@ -1,9 +1,9 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
-import { listCapabilities } from "..";
+import { listCapabilities } from "../_internal/registry";
 import { readBoundedJson } from "../_internal/bounded-json";
 import type { CapabilityRegistryEntry } from "../contracts";
-import { CloudResourceViewSchema, ErrorResponseSchema } from "../contracts";
+import { CAPABILITY_MAX_RESULT_BYTES, capabilityResultSchema, ErrorResponseSchema, UniversalSearchDataSchema } from "../contracts";
 import { type AuthContext, auth, expectUserBackedActor, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
 import { capabilityCredentialHeaders } from "./capabilities";
@@ -18,7 +18,6 @@ const log = logger("search");
 const GLOBAL_RESULT_LIMIT = 30;
 const PROVIDER_CONCURRENCY = 8;
 const PROVIDER_TIMEOUT_MS = 8_000;
-const MAX_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 type HttpSearchProvider = {
   appId: string;
@@ -26,6 +25,7 @@ type HttpSearchProvider = {
   appIcon: string;
   endpoint: string;
   tags: string[];
+  typeIds: Set<string>;
   schemaHash: string;
 };
 
@@ -44,6 +44,7 @@ const getSearchProviders = (entries: CapabilityRegistryEntry[]): HttpSearchProvi
               appIcon: entry.appIcon,
               endpoint: `${entry.endpoint}/queries/${encodeURIComponent(query.localId)}`,
               tags: query.universalSearch.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]),
+              typeIds: new Set(entry.manifest.types.map((type) => `${entry.appId}.${type.localId}`)),
               schemaHash: query.schemaHash,
             },
           ]
@@ -165,35 +166,35 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
           throw new Error(`Search provider ${provider.appId} returned ${res.status}`);
         }
 
-        const parsedBody = await readBoundedJson(res, MAX_PROVIDER_RESPONSE_BYTES);
+        const parsedBody = await readBoundedJson(res, CAPABILITY_MAX_RESULT_BYTES);
         if (!parsedBody.ok) throw new Error(`Search provider ${provider.appId} returned invalid or oversized JSON`);
-        const envelope = parsedBody.data as { data?: unknown };
-        const results = Array.isArray(envelope.data) ? envelope.data : [];
+        const envelope = capabilityResultSchema(UniversalSearchDataSchema).safeParse(parsedBody.data);
+        if (!envelope.success) throw new Error(`Search provider ${provider.appId} returned an invalid capability result`);
+        const results = envelope.data.data;
         const validItems: SearchItem[] = [];
 
-        for (const item of results.slice(0, effectiveProviderLimit)) {
-          const view = CloudResourceViewSchema.safeParse(item);
-          if (!view.success) {
-            log.warn("Search capability returned invalid resource view", {
+        for (const view of results.slice(0, effectiveProviderLimit)) {
+          if (view.ref.type.startsWith(`${provider.appId}.`) && !provider.typeIds.has(view.ref.type)) {
+            log.warn("Search capability returned an undeclared provider-owned resource type", {
               appId: provider.appId,
-              issues: view.error.issues.map((issue) => issue.message),
+              type: view.ref.type,
             });
             continue;
           }
-          const open = view.data.links.find((link) => link.rel === "open");
+          const open = view.links.find((link) => link.rel === "open");
           if (!open) {
-            log.warn("Search capability returned a resource without an open link", { appId: provider.appId, type: view.data.ref.type });
+            log.warn("Search capability returned a resource without an open link", { appId: provider.appId, type: view.ref.type });
             continue;
           }
-          const preview = view.data.links.find((link) => link.rel === "preview");
+          const preview = view.links.find((link) => link.rel === "preview");
           const parsed = SearchItemSchema.safeParse({
-            id: `${view.data.ref.type}:${view.data.ref.id}`,
-            title: view.data.title,
+            id: `${view.ref.type}:${view.ref.id}`,
+            title: view.title,
             href: open.href,
-            preview: view.data.preview,
-            icon: view.data.icon,
-            priority: view.data.priority,
-            metadata: view.data.metadata,
+            preview: view.preview,
+            icon: view.icon,
+            priority: view.priority,
+            metadata: view.metadata,
             previewUrl: preview?.href,
             appId: provider.appId,
             appName: provider.appName,

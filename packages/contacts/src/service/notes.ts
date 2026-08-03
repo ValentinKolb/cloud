@@ -1,4 +1,5 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { isUuid, type SqlExecutor } from "./shared";
 import type { ContactNote, CreateContactNoteInput, UpdateContactNoteInput } from "./types";
@@ -172,7 +173,7 @@ export const createIdempotent = async (config: {
       `;
       if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
       if (existing.request_hash !== config.requestHash) {
-        return fail(err.conflict("Idempotency-Key was already used with different input"));
+        return fail(capabilityIdempotencyConflict("Idempotency-Key was already used with different input"));
       }
       if (!isUuid(existing.result_label) || existing.contact_id !== config.contactId) {
         return fail(err.internal("Stored idempotency result is invalid"));

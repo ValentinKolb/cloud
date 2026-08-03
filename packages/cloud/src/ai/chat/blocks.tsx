@@ -150,7 +150,9 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
             <i class={props.block.presentation?.appIcon ?? "ti ti-tool"} aria-hidden="true" />
             Approve {props.block.presentation ? `${props.block.presentation.appName}: ${props.block.presentation.title}` : props.block.name}
           </p>
-          <p class="mt-0.5 text-xs opacity-80">{props.block.approval?.message ?? "The assistant wants to run this tool."}</p>
+          <p class="mt-0.5 whitespace-pre-wrap text-xs opacity-80">
+            {props.block.approval?.message ?? "The assistant wants to run this tool."}
+          </p>
         </div>
         <Show
           when={pending()}

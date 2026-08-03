@@ -4,25 +4,23 @@ import { capabilityOperationRows, paginateCapabilityOperations, parseCapabilityT
 
 const query = (overrides: Partial<CapabilityQueryManifest> = {}): CapabilityQueryManifest => ({
   localId: "messages.search",
-  id: "mail.messages.search",
   title: "Search messages",
   description: "Find messages in a mailbox.",
   inputSchema: { type: "object" },
-  resultSchema: { type: "object" },
+  dataSchema: { type: "object" },
   schemaHash: "query-schema",
+  openWorld: false,
   ...overrides,
 });
 
 const action = (overrides: Partial<CapabilityActionManifest> = {}): CapabilityActionManifest => ({
   localId: "draft.create",
-  id: "mail.draft.create",
   title: "Create draft",
   description: "Create an editable mail draft.",
   inputSchema: { type: "object" },
-  resultSchema: { type: "object" },
+  dataSchema: { type: "object" },
   schemaHash: "action-schema",
-  approval: "never",
-  idempotency: "optional",
+  idempotency: "none",
   destructive: false,
   openWorld: false,
   ...overrides,
@@ -47,6 +45,7 @@ describe("capability workspace data", () => {
 
   test("searches descriptions and sorts deterministically", () => {
     const operations = capabilityOperationRows(
+      "mail",
       [query({ title: "Zulu", description: "Mailbox audit" })],
       [action({ title: "Alpha", description: "Mailbox audit" })],
     );
@@ -63,8 +62,9 @@ describe("capability workspace data", () => {
 
   test("classifies action policy for display and sorting", () => {
     const operations = capabilityOperationRows(
+      "mail",
       [query()],
-      [action(), action({ localId: "mail.delete", id: "mail.mail.delete", title: "Delete mail", destructive: true })],
+      [action(), action({ localId: "mail.delete", title: "Delete mail", destructive: true })],
     );
     const page = paginateCapabilityOperations(operations, {
       search: "",

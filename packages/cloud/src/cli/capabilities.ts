@@ -1,14 +1,6 @@
+import { CapabilityCatalogSchema, capabilityResultSchema } from "../contracts/capabilities";
+import { z } from "zod";
 import { arg, type CliInputFlagValue, type CloudCliContext, command, defineCliCommands, flag, readCliInput } from "./index";
-
-type CatalogResponse = {
-  protocolVersion: 1;
-  apps: Array<{
-    appId: string;
-    appName: string;
-    manifest: { types: unknown[]; queries: unknown[]; actions: unknown[] };
-  }>;
-  page: { nextCursor?: string; hasMore: boolean };
-};
 
 const parseInput = async (input: CliInputFlagValue): Promise<unknown> => {
   const raw = await readCliInput(input, {
@@ -46,7 +38,8 @@ const invoke = async (config: {
       body: JSON.stringify({ input: await parseInput(config.input) }),
     },
   );
-  printGenericResult(config.ctx, await config.ctx.readJson<unknown>(response));
+  const body = await config.ctx.readJson<unknown>(response);
+  printGenericResult(config.ctx, capabilityResultSchema(z.unknown()).parse(body));
 };
 
 export default defineCliCommands({
@@ -67,7 +60,7 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const query = new URLSearchParams({ limit: String(flags.limit ?? 10) });
         if (flags.cursor) query.set("cursor", flags.cursor);
-        const result = await ctx.readJson<CatalogResponse>(await ctx.fetch(`/api/capabilities/v1/catalog?${query}`));
+        const result = CapabilityCatalogSchema.parse(await ctx.readJson<unknown>(await ctx.fetch(`/api/capabilities/v1/catalog?${query}`)));
         if (ctx.options.output === "json" || ctx.options.output === "jsonl") {
           printGenericResult(ctx, result);
           return;
@@ -88,7 +81,7 @@ export default defineCliCommands({
             { key: "actions", label: "ACTIONS" },
           ],
         );
-        if (result.page.nextCursor) ctx.error(`More apps available; continue with --cursor ${result.page.nextCursor}`);
+        if (result.page.hasMore) ctx.error(`More apps available; continue with --cursor ${result.page.nextCursor}`);
       },
     }),
     command("query", {
@@ -125,7 +118,7 @@ export default defineCliCommands({
         }),
         idempotencyKey: flag.string({
           name: "idempotency-key",
-          description: "Stable retry key when the action supports or requires idempotency",
+          description: "Stable retry key for an Action whose manifest requires idempotency",
         }),
       },
       run: ({ ctx, args, flags }) =>

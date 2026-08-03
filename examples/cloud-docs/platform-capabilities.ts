@@ -1,5 +1,8 @@
 import { ok } from "@k2b/stdlib";
 import { defineCapabilities } from "@valentinkolb/cloud";
+import { invokeCapabilityWithDataSchema as invokeCapabilityInBrowser } from "@valentinkolb/cloud/capabilities";
+import { invokeCapabilityWithDataSchema as invokeCapabilityOnServer, type CapabilityCaller } from "@valentinkolb/cloud/capabilities/server";
+import { assertCapabilityManifestEvolution, compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import { type AccessSubject, UniversalSearchDataSchema, UniversalSearchInputSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
@@ -32,7 +35,7 @@ const visibleItems = (subject: AccessSubject): Item[] =>
   [...items.values()].filter((item) => subject.type === "user" && subject.userId === item.ownerId);
 
 export const inventoryCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     item: {
       title: "Inventory item",
@@ -129,9 +132,7 @@ export const inventoryCapabilities = defineCapabilities({
       data: z.object({ id: z.string().uuid(), name: z.string() }).strict(),
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "item", inputField: "itemId" },
       review: async ({ itemId, name }, context) => {
         const item = visibleItem(itemId, context.accessSubject);
         if (!item) {
@@ -181,3 +182,20 @@ export const inventoryCapabilities = defineCapabilities({
     },
   },
 });
+
+const inventoryItemDataSchema = z.object({ id: z.string().uuid(), name: z.string(), quantity: z.number().int() }).passthrough();
+
+export const readInventoryItemInBrowser = (itemId: string) =>
+  invokeCapabilityInBrowser({ appId: "inventory", capabilityId: "item.get", kind: "query", input: { itemId } }, inventoryItemDataSchema);
+
+export const readInventoryItemOnServer = (itemId: string, caller: CapabilityCaller) =>
+  invokeCapabilityOnServer(
+    { appId: "inventory", capabilityId: "item.get", kind: "query", input: { itemId } },
+    inventoryItemDataSchema,
+    caller,
+  );
+
+export const inventoryCapabilityManifest = compileCapabilityManifest("inventory", inventoryCapabilities);
+
+export const assertInventoryCapabilityEvolution = (previous: typeof inventoryCapabilityManifest) =>
+  assertCapabilityManifestEvolution(previous, inventoryCapabilityManifest);

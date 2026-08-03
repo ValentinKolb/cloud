@@ -2,6 +2,7 @@ import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
+  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
   defineCapabilities,
@@ -120,10 +121,7 @@ const locationPageResult = <T>(page: Paginated<unknown>, data: T, refs?: Capabil
   ok({
     data,
     ...(refs ? { refs } : {}),
-    page: {
-      hasMore: page.hasNext,
-      ...(page.hasNext ? { nextCursor: encodeCursor(page.page + 1) } : {}),
-    },
+    page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1) : undefined),
   });
 
 const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -290,7 +288,7 @@ const runLocationDelete = async (input: z.infer<typeof LocationGetInputSchema>, 
   );
 
 export const weatherCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     location: {
       title: "Saved location",
@@ -367,7 +365,6 @@ export const weatherCapabilities = defineCapabilities({
       data: LocationSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
       run: runLocationCreate,
     },
@@ -378,9 +375,7 @@ export const weatherCapabilities = defineCapabilities({
       data: LocationDeleteDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "location", inputField: "locationId" },
       review: async (input, context) => {
         const userId = requireUserId(context);
         if (!userId.ok) return userId;

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { invokeCapability, reviewCapabilityAction } from "./client";
+import { z } from "zod";
+import { invokeCapability, invokeCapabilityWithDataSchema, listCapabilityCatalog, reviewCapabilityAction } from "./client";
 
 describe("public capability client", () => {
   test("uses the public route and forwards the idempotency key", async () => {
     let url = "";
     let request: RequestInit | undefined;
-    const result = await invokeCapability<{ id: string }, { id: string }>(
+    const result = await invokeCapabilityWithDataSchema(
       {
         appId: "demo app",
         capabilityId: "item.rename",
@@ -13,6 +14,7 @@ describe("public capability client", () => {
         input: { id: "one" },
         idempotencyKey: "attempt-1",
       },
+      z.object({ id: z.string() }).passthrough(),
       {
         fetch: async (input, init) => {
           url = String(input);
@@ -26,6 +28,29 @@ describe("public capability client", () => {
     expect(url).toBe("/api/capabilities/v1/actions/demo%20app/item.rename");
     expect(new Headers(request?.headers).get("idempotency-key")).toBe("attempt-1");
     expect(request?.credentials).toBe("same-origin");
+  });
+
+  test("requires a runtime schema for typed data and validates it", async () => {
+    const result = await invokeCapabilityWithDataSchema(
+      { appId: "demo", capabilityId: "get", kind: "query", input: {} },
+      z.object({ id: z.string() }).passthrough(),
+      { fetch: async () => Response.json({ data: { id: 42 } }) },
+    );
+    expect(result).toMatchObject({ ok: false, error: { code: "INVALID_APP_RESPONSE", status: 502 } });
+  });
+
+  test("loads and validates the public catalog", async () => {
+    let url = "";
+    const result = await listCapabilityCatalog({
+      cursor: "demo",
+      limit: 10,
+      fetch: async (input) => {
+        url = String(input);
+        return Response.json({ protocolVersion: 1, apps: [], page: { hasMore: false } });
+      },
+    });
+    expect(result).toEqual({ ok: true, data: { protocolVersion: 1, apps: [], page: { hasMore: false } } });
+    expect(url).toBe("/api/capabilities/v1/catalog?cursor=demo&limit=10");
   });
 
   test("returns structured Cloud errors without throwing", async () => {

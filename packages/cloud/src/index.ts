@@ -4,14 +4,11 @@ export { createHeartbeat } from "./_internal/heartbeat";
 export type { AppRegistryDetail, AppRegistryIssue, AppRegistrySnapshot, DashboardWidget } from "./_internal/registry";
 export {
   appRegistry,
-  capabilityRegistry,
   helpRegistry,
   getApp,
-  getCapability,
   getHelp,
   listApps,
   listAppsDetailed,
-  listCapabilities,
   listHelp,
   listLegalLinks,
   listWidgets,

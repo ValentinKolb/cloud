@@ -142,8 +142,18 @@ export const GqlContextInputSchema = z
   .strict();
 
 const CurrentSourceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("table"), tableId: z.uuid() }).strict(),
-  z.object({ kind: z.literal("view"), viewId: z.uuid() }).strict(),
+  z
+    .object({
+      kind: z.literal("table").describe("Select a Table as the current source."),
+      tableId: z.uuid().describe("Readable current Table UUID."),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("view").describe("Select a View as the current source."),
+      viewId: z.uuid().describe("Readable current View UUID."),
+    })
+    .strict(),
 ]);
 
 const GqlInputShape = {
@@ -265,7 +275,11 @@ export const RecordGetInputSchema = z
   .strict();
 
 const RecordValuesSchema = z.record(z.string().uuid(), z.unknown());
-const RecordAuditSchema = z.object({ answers: z.record(z.string().uuid(), z.string().max(10_000)).default({}) }).strict();
+const RecordAuditSchema = z
+  .object({
+    answers: z.record(z.string().uuid(), z.string().max(10_000)).default({}).describe("Audit question UUIDs mapped to their answers."),
+  })
+  .strict();
 
 export const RecordCreateInputSchema = z
   .object({

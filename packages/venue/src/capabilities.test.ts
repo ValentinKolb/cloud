@@ -86,7 +86,7 @@ const postgresTest = (await canUseDatabase()) ? test : test.skip;
 
 describe("Venue capabilities", () => {
   test("declares the curated agent surface", () => {
-    expect(venueCapabilities.version).toBe(1);
+    expect(venueCapabilities.protocolVersion).toBe(1);
     expect(Object.keys(venueCapabilities.types ?? {}).sort()).toEqual(["assignment", "shift", "venue"]);
     expect(Object.keys(venueCapabilities.queries ?? {}).sort()).toEqual([
       "assignment.mine",
@@ -103,7 +103,6 @@ describe("Venue capabilities", () => {
       "assignment.signup_free",
     ]);
     expect(venueCapabilities.actions?.["assignment.cancel"]?.destructive).toBe(true);
-    expect(venueCapabilities.actions?.["assignment.cancel"]?.approval).toBe("always");
     expect(venueCapabilities.actions?.["assignment.cancel"]?.review).toBeFunction();
     expect("review" in venueCapabilities.actions["assignment.signup"]).toBeFalse();
   });

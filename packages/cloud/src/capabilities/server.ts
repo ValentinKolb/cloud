@@ -1,10 +1,25 @@
 import { z } from "zod";
-import { dispatchCapability } from "../api/capabilities";
-import { CapabilityActionReviewSchema, type CapabilityResult, capabilityResultSchema } from "../contracts/capabilities";
+import { getCapability } from "../_internal/registry";
+import { dispatchCapability, loadCapabilityCatalogPage } from "../api/capabilities";
+import { CapabilityActionReviewSchema, capabilityResultSchema } from "../contracts/capabilities";
 import { readCapabilityResponse } from "./response";
-import type { CapabilityClientResult, CapabilityInvocation, CapabilityReviewClientResult } from "./types";
+import type {
+  CapabilityCatalogApp,
+  CapabilityCatalogAppClientResult,
+  CapabilityCatalogClientResult,
+  CapabilityClientResult,
+  CapabilityInvocation,
+  CapabilityReviewClientResult,
+} from "./types";
 
-export type { CapabilityClientResult, CapabilityInvocation, CapabilityReviewClientResult } from "./types";
+export type {
+  CapabilityCatalogApp,
+  CapabilityCatalogAppClientResult,
+  CapabilityCatalogClientResult,
+  CapabilityClientResult,
+  CapabilityInvocation,
+  CapabilityReviewClientResult,
+} from "./types";
 
 export type CapabilityCaller = {
   authorization?: string | null;
@@ -26,10 +41,11 @@ const callerRequest = (caller: CapabilityCaller, idempotencyKey?: string): Reque
   return new Request("http://cloud.internal/api/capabilities/v1", { headers, signal: caller.signal });
 };
 
-export const invokeCapability = async <TData, TInput = unknown>(
+const invokeCapabilityWithResultSchema = async <TDataSchema extends z.ZodType, TInput = unknown>(
   invocation: CapabilityInvocation<TInput>,
+  dataSchema: TDataSchema,
   caller: CapabilityCaller,
-): Promise<CapabilityClientResult<TData>> => {
+): Promise<CapabilityClientResult<z.output<TDataSchema>>> => {
   try {
     const response = await dispatchCapability({
       request: callerRequest(caller, invocation.idempotencyKey),
@@ -38,7 +54,49 @@ export const invokeCapability = async <TData, TInput = unknown>(
       capabilityId: invocation.capabilityId,
       input: invocation.input,
     });
-    return readCapabilityResponse(response, capabilityResultSchema(z.unknown()) as z.ZodType<CapabilityResult<TData>>);
+    return readCapabilityResponse(response, capabilityResultSchema(dataSchema));
+  } catch {
+    return { ok: false, error: { code: "APP_UNAVAILABLE", message: "Cloud is unavailable", status: 503 } };
+  }
+};
+
+export const invokeCapability = <TInput = unknown>(
+  invocation: CapabilityInvocation<TInput>,
+  caller: CapabilityCaller,
+): Promise<CapabilityClientResult<unknown>> => invokeCapabilityWithResultSchema(invocation, z.unknown(), caller);
+
+export const invokeCapabilityWithDataSchema = <TDataSchema extends z.ZodType, TInput = unknown>(
+  invocation: CapabilityInvocation<TInput>,
+  dataSchema: TDataSchema,
+  caller: CapabilityCaller,
+): Promise<CapabilityClientResult<z.output<TDataSchema>>> => invokeCapabilityWithResultSchema(invocation, dataSchema, caller);
+
+export const listCapabilityCatalog = async (options: { cursor?: string; limit?: number } = {}): Promise<CapabilityCatalogClientResult> => {
+  try {
+    return {
+      ok: true,
+      data: await loadCapabilityCatalogPage({ cursor: options.cursor, limit: options.limit ?? 25 }),
+    };
+  } catch {
+    return { ok: false, error: { code: "APP_UNAVAILABLE", message: "Cloud is unavailable", status: 503 } };
+  }
+};
+
+export const getCapabilityCatalogApp = async (appId: string): Promise<CapabilityCatalogAppClientResult> => {
+  try {
+    const capability = await getCapability(appId);
+    return {
+      ok: true,
+      data: capability
+        ? {
+            appId: capability.appId,
+            appName: capability.appName,
+            appIcon: capability.appIcon,
+            appDescription: capability.appDescription,
+            manifest: capability.manifest,
+          }
+        : null,
+    };
   } catch {
     return { ok: false, error: { code: "APP_UNAVAILABLE", message: "Cloud is unavailable", status: 503 } };
   }

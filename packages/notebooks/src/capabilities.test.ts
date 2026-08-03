@@ -130,9 +130,7 @@ describe("notebooks capabilities", () => {
     expect(notebooksCapabilities.actions["note.edit"]).toMatchObject({
       destructive: true,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "note", inputField: "noteId" },
     });
     expect(
       Object.entries(notebooksCapabilities.queries)

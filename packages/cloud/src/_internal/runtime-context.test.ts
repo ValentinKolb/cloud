@@ -70,7 +70,7 @@ describe("buildRuntimeFromRegistry", () => {
     const manifest = compileCapabilities(
       "example",
       defineCapabilities({
-        version: 1,
+        protocolVersion: 1,
         queries: {
           search: {
             title: "Search examples",
@@ -105,6 +105,7 @@ describe("buildRuntimeFromRegistry", () => {
       appId: app.id,
       appName: app.name,
       appIcon: app.icon,
+      appDescription: app.description,
       endpoint: "http://app-example:3000/api/_internal/capabilities/v1",
       manifest,
     };

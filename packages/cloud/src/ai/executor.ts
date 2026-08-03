@@ -6,7 +6,7 @@ import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
 import { listActiveAiSkillHints } from "./bash-tool";
 import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
-import { executeAiCapability, resolveAiCapabilityActor } from "./capability-execution";
+import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { createCloudAiMemoryTool } from "./memory-tool";
@@ -462,6 +462,14 @@ export class AiTurnExecutor {
               error: error instanceof Error ? error.message : String(error),
             }),
           maxLoadedCapabilities: resolved.profile.maxLoadedCapabilities,
+          review: (entry, args, context) =>
+            reviewAiCapability({
+              conversationId,
+              authority: capabilityAuthority!,
+              entry,
+              args,
+              context,
+            }),
           execute: (entry, args, context) =>
             executeAiCapability({
               conversationId,

@@ -1,5 +1,4 @@
-import { getCapability } from "@valentinkolb/cloud";
-import { invokeCapability } from "@valentinkolb/cloud/capabilities/server";
+import { getCapabilityCatalogApp, invokeCapabilityWithDataSchema } from "@valentinkolb/cloud/capabilities/server";
 import type { CapabilityResult } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import {
@@ -42,10 +41,10 @@ const draftDataSchema = z.object({ id: z.uuid() }).passthrough();
 
 export const isMailInvitationIntegrationAvailable = async (): Promise<boolean> => {
   try {
-    const app = await getCapability("mail");
-    if (!app) return false;
-    const queries = new Set(app.manifest.queries.map((operation) => operation.localId));
-    const actions = new Set(app.manifest.actions.map((operation) => operation.localId));
+    const catalog = await getCapabilityCatalogApp("mail");
+    if (!catalog.ok || !catalog.data) return false;
+    const queries = new Set(catalog.data.manifest.queries.map((operation) => operation.localId));
+    const actions = new Set(catalog.data.manifest.actions.map((operation) => operation.localId));
     return REQUIRED_MAIL_QUERIES.every((id) => queries.has(id)) && REQUIRED_MAIL_ACTIONS.every((id) => actions.has(id));
   } catch {
     return false;
@@ -60,7 +59,7 @@ const callMailCapability = async <T>(params: {
   input: unknown;
   idempotencyKey?: string;
 }): Promise<IntegrationResult<CapabilityResult<T>>> => {
-  const result = await invokeCapability<unknown>(
+  const result = await invokeCapabilityWithDataSchema(
     {
       appId: "mail",
       capabilityId: params.capabilityId,
@@ -68,16 +67,14 @@ const callMailCapability = async <T>(params: {
       input: params.input,
       idempotencyKey: params.idempotencyKey,
     },
+    params.dataSchema,
     params.request,
   );
   if (!result.ok) {
     const appUnavailable = result.error.code === "APP_UNAVAILABLE" || result.error.code === "CAPABILITY_NOT_FOUND";
     return { ok: false, message: result.error.message, status: appUnavailable ? 503 : result.error.status };
   }
-  const data = params.dataSchema.safeParse(result.data.data);
-  return data.success
-    ? { ok: true, data: { ...result.data, data: data.data } }
-    : { ok: false, message: "Mail returned an incompatible response", status: 502 };
+  return { ok: true, data: result.data };
 };
 
 const listIdentities = (mailboxId: string, request: MailIntegrationRequest) =>

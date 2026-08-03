@@ -69,4 +69,12 @@ describe("capabilities CLI", () => {
     await capabilitiesCliModule.run(ctx);
     expect(keys).toEqual(["contact-ada"]);
   });
+
+  test("rejects invalid catalog and invocation envelopes", async () => {
+    const invalidCatalog = createContext(["catalog"], {}, async () => Response.json({ protocolVersion: 1, apps: [] }));
+    await expect(capabilitiesCliModule.run(invalidCatalog.ctx)).rejects.toThrow();
+
+    const invalidResult = createContext(["query", "contacts", "search"], { input: "{}" }, async () => Response.json({ value: [] }));
+    await expect(capabilitiesCliModule.run(invalidResult.ctx)).rejects.toThrow();
+  });
 });

@@ -23,11 +23,12 @@ export type AppRegistryCapabilitySummary = {
   manifestHash: string;
 };
 
-/** Full manifests live separately so normal app discovery stays small. */
+/** Validated Capability manifest joined to its matching live app lease. */
 export type CapabilityRegistryEntry = {
   appId: string;
   appName: string;
   appIcon: string;
+  appDescription: string;
   endpoint: string;
   manifest: CapabilityManifest;
 };

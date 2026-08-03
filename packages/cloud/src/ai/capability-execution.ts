@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ToolContext } from "@k2b/nessi";
 import { type CapabilityDispatchDependencies, dispatchCapability } from "../api/capabilities";
-import type { CapabilityActionManifest } from "../contracts/capabilities";
+import { CapabilityActionReviewSchema, type CapabilityActionManifest, type CapabilityActionReview } from "../contracts/capabilities";
 import type { RequestActor } from "../server";
 import type { AccessSubject } from "../server/services/access";
 import { isAccountExpired } from "../services/account-model";
@@ -51,7 +51,7 @@ const parseCapabilityResponse = async (response: Response): Promise<unknown> => 
   throw new AiCapabilityExecutionError(code, response.status, message);
 };
 
-export const executeAiCapability = async (input: {
+type AiCapabilityCall = {
   conversationId: string;
   authority: { actor: CapabilityActor; accessSubject: AccessSubject };
   entry: AiCapabilityCatalogEntry;
@@ -62,7 +62,9 @@ export const executeAiCapability = async (input: {
     revokeDelegation?: (token: string) => Promise<void>;
     dispatch?: typeof dispatchCapability;
   };
-}): Promise<unknown> => {
+};
+
+const dispatchAiCapability = async (input: AiCapabilityCall, review: boolean): Promise<unknown> => {
   if (input.authority.accessSubject.type !== "user" || input.authority.accessSubject.userId !== input.authority.actor.user.id) {
     throw new Error("Cloud capability authority is inconsistent.");
   }
@@ -73,7 +75,7 @@ export const executeAiCapability = async (input: {
   try {
     const headers = new Headers({ authorization: `Bearer ${token}` });
     const action = input.entry.kind === "action" ? (input.entry.operation as CapabilityActionManifest) : null;
-    if (action?.idempotency !== "none" && input.context.callId) {
+    if (!review && action?.idempotency === "required" && input.context.callId) {
       headers.set("idempotency-key", idempotencyKey(input.conversationId, input.context.callId));
     }
     const request = new Request("http://cloud.internal/api/ai/capability", {
@@ -85,6 +87,7 @@ export const executeAiCapability = async (input: {
       await dispatch({
         request,
         kind: input.entry.kind === "query" ? "queries" : "actions",
+        review,
         appId: input.entry.appId,
         capabilityId: input.entry.operation.localId,
         input: input.args,
@@ -95,3 +98,10 @@ export const executeAiCapability = async (input: {
     await revokeDelegation(token).catch(() => undefined);
   }
 };
+
+export const reviewAiCapability = async (input: AiCapabilityCall): Promise<CapabilityActionReview | null> => {
+  if (input.entry.kind !== "action" || !(input.entry.operation as CapabilityActionManifest).review) return null;
+  return CapabilityActionReviewSchema.parse(await dispatchAiCapability(input, true));
+};
+
+export const executeAiCapability = (input: AiCapabilityCall): Promise<unknown> => dispatchAiCapability(input, false);

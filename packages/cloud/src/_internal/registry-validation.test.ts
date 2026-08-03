@@ -15,6 +15,10 @@ describe("validateAppRegistryEntry", () => {
   test("accepts a valid entry", () => expect(validateAppRegistryEntry(valid)).toBeNull());
   test("rejects a scalar entry", () => expect(validateAppRegistryEntry("broken")).toBe("entry must be an object"));
   test("rejects invalid routes", () => expect(validateAppRegistryEntry({ ...valid, routes: ["auth"] })).toContain("routes"));
+  test("rejects a non-HTTP or credential-bearing base URL", () => {
+    expect(validateAppRegistryEntry({ ...valid, baseUrl: "file:///tmp/app" })).toContain("baseUrl");
+    expect(validateAppRegistryEntry({ ...valid, baseUrl: "http://user:secret@app:3000" })).toContain("baseUrl");
+  });
   test("rejects partial runtime metadata", () =>
     expect(validateAppRegistryEntry({ ...valid, runtime: { release: valid.runtime.release } })).toContain("runtime.syncVersion"));
   test("accepts a valid Help summary", () =>

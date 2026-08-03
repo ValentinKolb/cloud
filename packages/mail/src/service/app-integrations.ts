@@ -1,5 +1,4 @@
-import { getCapability } from "@valentinkolb/cloud";
-import { invokeCapability } from "@valentinkolb/cloud/capabilities/server";
+import { getCapabilityCatalogApp, invokeCapabilityWithDataSchema } from "@valentinkolb/cloud/capabilities/server";
 import type { CapabilityResult } from "@valentinkolb/cloud/contracts";
 import type { z } from "zod";
 import {
@@ -41,10 +40,10 @@ type AppIntegrationResult<T> = { ok: true; data: T } | { ok: false; code: "unava
 
 export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitations: boolean; settings: boolean; composer: boolean }> => {
   try {
-    const app = await getCapability("spaces");
-    if (!app) return { invitations: false, settings: false, composer: false };
-    const queries = new Set(app.manifest.queries.map((operation) => operation.localId));
-    const actions = new Set(app.manifest.actions.map((operation) => operation.localId));
+    const catalog = await getCapabilityCatalogApp("spaces");
+    if (!catalog.ok || !catalog.data) return { invitations: false, settings: false, composer: false };
+    const queries = new Set(catalog.data.manifest.queries.map((operation) => operation.localId));
+    const actions = new Set(catalog.data.manifest.actions.map((operation) => operation.localId));
     const invitations =
       REQUIRED_SPACES_INVITATION_QUERIES.every((id) => queries.has(id)) &&
       REQUIRED_SPACES_INVITATION_ACTIONS.every((id) => actions.has(id));
@@ -75,7 +74,7 @@ const fetchAppCapability = async <T>(params: {
   input: unknown;
   idempotencyKey?: string;
 }): Promise<AppIntegrationResult<CapabilityResult<T>>> => {
-  const result = await invokeCapability<unknown>(
+  const result = await invokeCapabilityWithDataSchema(
     {
       appId: params.appId,
       capabilityId: params.capabilityId,
@@ -83,6 +82,7 @@ const fetchAppCapability = async <T>(params: {
       input: params.input,
       idempotencyKey: params.idempotencyKey,
     },
+    params.dataSchema,
     params.request,
   );
   if (!result.ok) {
@@ -99,10 +99,7 @@ const fetchAppCapability = async <T>(params: {
       status: appUnavailable && result.error.status < 500 ? 503 : result.error.status,
     };
   }
-  const data = params.dataSchema.safeParse(result.data.data);
-  return data.success
-    ? { ok: true, data: { ...result.data, data: data.data } }
-    : unavailable("The connected app returned an incompatible response");
+  return { ok: true, data: result.data };
 };
 
 export const resolveContacts = async (
@@ -122,7 +119,7 @@ export const resolveContacts = async (
     ok: true as const,
     data: {
       ...result.data.data,
-      nextCursor: result.data.page?.nextCursor ?? null,
+      nextCursor: result.data.page?.hasMore ? result.data.page.nextCursor : null,
     },
   };
 };

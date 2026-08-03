@@ -1,6 +1,7 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
+  capabilityPage,
   type CloudResourceView,
   defineCapabilities,
   UniversalSearchDataSchema,
@@ -54,7 +55,7 @@ const decodeCursor = (cursor: string | undefined) => {
 const pageResult = <T>(items: T[], offset: number, limit: number) => {
   const data = items.slice(0, limit);
   const hasMore = items.length > limit;
-  return { data, page: { hasMore, ...(hasMore ? { nextCursor: encodeCursor(offset + data.length) } : {}) } };
+  return { data, page: capabilityPage(hasMore ? encodeCursor(offset + data.length) : undefined) };
 };
 
 const scopeFor = (context: CapabilityExecutionContext) => venueAccessScopeFor(context.actor, context.accessSubject);
@@ -352,7 +353,7 @@ const runAssignmentCancel = async (input: z.infer<typeof AssignmentCancelInputSc
 };
 
 export const venueCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     venue: {
       title: "Venue",
@@ -433,9 +434,7 @@ export const venueCapabilities = defineCapabilities({
       data: AssignmentActionDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "shift", inputField: "shiftId" },
       run: runAssignmentSignup,
     },
     "assignment.signup_free": {
@@ -445,9 +444,7 @@ export const venueCapabilities = defineCapabilities({
       data: AssignmentActionDataSchema,
       destructive: false,
       openWorld: false,
-      approval: "once",
       idempotency: "none",
-      target: { type: "venue", inputField: "venueId" },
       run: runAssignmentFreeSignup,
     },
     "assignment.cancel": {
@@ -457,9 +454,7 @@ export const venueCapabilities = defineCapabilities({
       data: AssignmentCancelDataSchema,
       destructive: true,
       openWorld: false,
-      approval: "always",
       idempotency: "none",
-      target: { type: "assignment", inputField: "assignmentId" },
       review: async (input, context) => {
         const actor = await requireUserAndVenue(input.venueId, context, "read");
         if (!actor.ok) return actor;

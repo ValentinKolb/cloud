@@ -8,12 +8,12 @@ const querySelection = (universalSearch = true): SelectedCapability => ({
   kind: "query",
   operation: {
     localId: "search",
-    id: "mail.search",
     title: "Search mail",
     description: "Search mail.",
     inputSchema: { type: "object" },
-    resultSchema: { type: "array" },
+    dataSchema: { type: "array" },
     schemaHash: "a".repeat(64),
+    openWorld: false,
     ...(universalSearch ? { universalSearch: { tags: [] } } : {}),
   } satisfies CapabilityQueryManifest,
 });
@@ -23,15 +23,13 @@ const actionSelection: SelectedCapability = {
   kind: "action",
   operation: {
     localId: "create",
-    id: "contacts.create",
     title: "Create contact",
     description: "Create a contact.",
     inputSchema: { type: "object" },
-    resultSchema: { type: "object" },
+    dataSchema: { type: "object" },
     schemaHash: "b".repeat(64),
     destructive: false,
     openWorld: false,
-    approval: "once",
     idempotency: "required",
   } satisfies CapabilityActionManifest,
 };

@@ -1,4 +1,5 @@
 import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import {
@@ -678,7 +679,7 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
     FOR UPDATE
   `;
   if (existing) {
-    if (!commandActorMatches(existing, actor)) return fail(err.conflict("Idempotency key is already in use"));
+    if (!commandActorMatches(existing, actor)) return fail(capabilityIdempotencyConflict("Idempotency key is already in use"));
     if (
       actor.kind === "workflow" &&
       Number(existing.workflow_execution_generation) !== creationFence?.workflowExecutionGeneration &&
@@ -688,7 +689,7 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
     }
     return existing.request_hash === requestHash
       ? ok(mapCommand(existing))
-      : fail(err.conflict("Idempotency key with a different mail command"));
+      : fail(capabilityIdempotencyConflict("Idempotency key with a different mail command"));
   }
 
   const targets = await validateCommandTargets({
@@ -1038,10 +1039,10 @@ export const createMaintenanceCommand = async (params: {
         FOR UPDATE
       `;
       if (existing) {
-        if (!commandActorMatches(existing, actor)) return fail(err.conflict("Idempotency key is already in use"));
+        if (!commandActorMatches(existing, actor)) return fail(capabilityIdempotencyConflict("Idempotency key is already in use"));
         return existing.request_hash === requestHash
           ? ok(mapCommand(existing))
-          : fail(err.conflict("Idempotency key with a different mail command"));
+          : fail(capabilityIdempotencyConflict("Idempotency key with a different mail command"));
       }
       const target = await validateMaintenanceTarget({ db: tx, mailboxId: params.mailboxId, input });
       if (!target.ok) return target;

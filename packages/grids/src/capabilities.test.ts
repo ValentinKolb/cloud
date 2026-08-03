@@ -70,7 +70,7 @@ beforeAll(async () => {
 
 describe("Grids capabilities", () => {
   test("declares the curated v1 surface", () => {
-    expect(gridsCapabilities.version).toBe(1);
+    expect(gridsCapabilities.protocolVersion).toBe(1);
     expect(Object.keys(gridsCapabilities.types ?? {}).sort()).toEqual(["base", "record", "table", "view"]);
     expect(Object.keys(gridsCapabilities.queries ?? {}).sort()).toEqual([
       "base.get",
@@ -236,11 +236,12 @@ describe("Grids capabilities", () => {
         items: [{ kind: "option", id: "open", fieldId: selectFieldId, label: "Open", description: "Work has started." }],
         recordWrite: null,
       });
-      if (!options.ok || !options.data.page?.nextCursor) throw new Error("Expected a second select-option page");
+      if (!options.ok || !options.data.page?.hasMore) throw new Error("Expected a second select-option page");
+      const nextCursor = options.data.page.nextCursor;
       const remainingOptions = await invoke(
         "query",
         "gql.context",
-        { baseId, kind: "options", tableId, fieldId: selectFieldId, limit: 1, cursor: options.data.page.nextCursor },
+        { baseId, kind: "options", tableId, fieldId: selectFieldId, limit: 1, cursor: nextCursor },
         context,
       );
       expect(remainingOptions.ok && remainingOptions.data.data).toMatchObject({

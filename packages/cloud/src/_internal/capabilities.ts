@@ -3,6 +3,8 @@ import { isServiceError, type Result, type ServiceError } from "@k2b/stdlib";
 import { z } from "zod";
 import {
   CAPABILITY_PROTOCOL_VERSION,
+  CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CapabilityIdempotencyKeySchema,
   type CapabilityActionDefinition,
   type CapabilityActionManifest,
   type CapabilityActionReviewResult,
@@ -62,27 +64,48 @@ const assertText = (value: string, label: string, max: number): void => {
   if (value.length > max) throw new Error(`${label} must be at most ${max} characters`);
 };
 
-const projectSchema = (schema: z.ZodType, label: string): JsonSchema => {
+const projectSchema = (schema: z.ZodType, label: string, io: "input" | "output"): JsonSchema => {
   try {
-    return z.toJSONSchema(schema) as JsonSchema;
+    const projected = z.toJSONSchema(schema, { io }) as JsonSchema;
+    z.fromJSONSchema(projected);
+    return projected;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${label} is not JSON-Schema-projectable: ${message}`);
+    throw new Error(`${label} is not JSON-Schema-round-trippable: ${message}`);
+  }
+};
+
+const assertPropertyDescriptions = (schema: unknown, label: string, path: readonly string[] = []): void => {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return;
+  const value = schema as Record<string, unknown>;
+  const properties = value.properties;
+  if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+    for (const [field, definition] of Object.entries(properties)) {
+      if (!definition || typeof definition !== "object" || Array.isArray(definition)) continue;
+      const property = definition as Record<string, unknown>;
+      if (typeof property.description !== "string" || !property.description.trim()) {
+        throw new Error(`${label}.${[...path, field].join(".")} needs a concise Zod description`);
+      }
+      assertPropertyDescriptions(property, label, [...path, field]);
+    }
+  }
+  if (value.items) assertPropertyDescriptions(value.items, label, [...path, "[]"]);
+  for (const keyword of ["allOf", "anyOf", "oneOf"] as const) {
+    if (!Array.isArray(value[keyword])) continue;
+    value[keyword].forEach((entry, index) => assertPropertyDescriptions(entry, label, [...path, `${keyword}[${index}]`]));
+  }
+  const definitions = value.$defs;
+  if (definitions && typeof definitions === "object" && !Array.isArray(definitions)) {
+    for (const [name, definition] of Object.entries(definitions)) {
+      assertPropertyDescriptions(definition, label, [...path, `$defs.${name}`]);
+    }
   }
 };
 
 const assertClosedObjectInput = (schema: JsonSchema, label: string): void => {
   if (schema.type !== "object") throw new Error(`${label} must be a Zod object schema`);
   if (schema.additionalProperties !== false) throw new Error(`${label} must reject unknown properties`);
-  const properties = schema.properties;
-  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) return;
-  for (const [field, definition] of Object.entries(properties)) {
-    if (typeof definition !== "object" || definition === null || Array.isArray(definition)) continue;
-    const description = (definition as Record<string, unknown>).description;
-    if (typeof description !== "string" || !description.trim()) {
-      throw new Error(`${label}.${field} needs a concise Zod description`);
-    }
-  }
+  assertPropertyDescriptions(schema, label);
 };
 
 const qualifiedId = (appId: string, localId: string): string => `${appId}.${localId}`;
@@ -119,7 +142,7 @@ const normalizeSearchTags = (definition: CapabilityQueryDefinition, label: strin
 const compileOperationSchemas = (definition: CapabilityQueryDefinition | CapabilityActionDefinition, label: string) => {
   assertText(definition.title, `${label} title`, 120);
   assertText(definition.description, `${label} description`, 1000);
-  const inputSchema = projectSchema(definition.input, `${label} input`);
+  const inputSchema = projectSchema(definition.input, `${label} input`, "input");
   assertClosedObjectInput(inputSchema, `${label} input`);
   if (
     "idempotency" in definition &&
@@ -128,46 +151,50 @@ const compileOperationSchemas = (definition: CapabilityQueryDefinition | Capabil
     throw new Error(`${label} input field "idempotencyKey" is reserved for capability transports`);
   }
   const resultZodSchema = capabilityResultSchema(definition.data);
-  const dataSchema = projectSchema(definition.data, `${label} data`);
-  const resultSchema = projectSchema(resultZodSchema, `${label} result`);
+  const dataSchema = projectSchema(definition.data, `${label} data`, "output");
   return {
     inputSchema,
     dataSchema,
-    resultSchema,
     resultZodSchema,
-    schemaHash: capabilityHash({ inputSchema, resultSchema }),
+    schemaHash: capabilityHash({ inputSchema, dataSchema }),
   };
 };
 
 export const compileCapabilities = (appId: string, definitions: CapabilityDefinitions): CompiledCapabilities => {
-  if (definitions.version !== CAPABILITY_PROTOCOL_VERSION) {
-    throw new Error(`Unsupported capability protocol version ${String(definitions.version)}`);
+  if (definitions.protocolVersion !== CAPABILITY_PROTOCOL_VERSION) {
+    throw new Error(`Unsupported capability protocol version ${String(definitions.protocolVersion)}`);
   }
+
+  const localIds = new Set<string>();
+  const registerLocalId = (localId: string, kind: string): void => {
+    assertLocalId(localId, kind);
+    if (localIds.has(localId)) throw new Error(`localId ${localId} is declared more than once across Types, Queries, and Actions`);
+    localIds.add(localId);
+  };
 
   const types = Object.entries(definitions.types ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([localId, definition]) => {
-      assertLocalId(localId, "Resource type");
+      registerLocalId(localId, "Resource type");
       assertText(definition.title, `Resource type ${localId} title`, 120);
       assertText(definition.description, `Resource type ${localId} description`, 500);
       return {
-        id: qualifiedId(appId, localId),
         localId,
         title: definition.title.trim(),
         description: definition.description.trim(),
         ...(definition.icon ? { icon: definition.icon } : {}),
       };
     });
-  const typeIds = new Set(types.map((type) => type.id));
+  const typeIds = new Set(types.map((type) => qualifiedId(appId, type.localId)));
 
   const queries = new Map<string, CompiledCapabilityQuery>();
   for (const [localId, definition] of Object.entries(definitions.queries ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
-    assertLocalId(localId, "Query");
+    registerLocalId(localId, "Query");
     const label = `Query ${localId}`;
     const schemas = compileOperationSchemas(definition, label);
     if (definition.universalSearch) {
-      const expectedInput = projectSchema(UniversalSearchInputSchema, "Universal Search input");
-      const expectedData = projectSchema(UniversalSearchDataSchema, "Universal Search data");
+      const expectedInput = projectSchema(UniversalSearchInputSchema, "Universal Search input", "input");
+      const expectedData = projectSchema(UniversalSearchDataSchema, "Universal Search data", "output");
       if (capabilityHash(schemas.inputSchema) !== capabilityHash(expectedInput)) {
         throw new Error(`${label} exposed through Universal Search must use UniversalSearchInputSchema`);
       }
@@ -176,12 +203,11 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       }
     }
     const manifest = {
-      id: qualifiedId(appId, localId),
       localId,
       title: definition.title.trim(),
       description: definition.description.trim(),
       inputSchema: schemas.inputSchema,
-      resultSchema: schemas.resultSchema,
+      dataSchema: schemas.dataSchema,
       schemaHash: schemas.schemaHash,
       openWorld: definition.openWorld,
       universalSearch: normalizeSearchTags(definition, label),
@@ -194,33 +220,19 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
   }
   const actions = new Map<string, CompiledCapabilityAction>();
   for (const [localId, definition] of Object.entries(definitions.actions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
-    assertLocalId(localId, "Action");
+    registerLocalId(localId, "Action");
     const label = `Action ${localId}`;
     const schemas = compileOperationSchemas(definition, label);
-    let target: CapabilityActionManifest["target"];
-    if (definition.target) {
-      assertLocalId(definition.target.type, `${label} target type`);
-      const targetType = qualifiedId(appId, definition.target.type);
-      if (!typeIds.has(targetType)) throw new Error(`${label} targets undeclared resource type "${definition.target.type}"`);
-      const properties = (schemas.inputSchema.properties as Record<string, unknown> | undefined) ?? {};
-      if (!Object.hasOwn(properties, definition.target.inputField)) {
-        throw new Error(`${label} target input field "${definition.target.inputField}" is not declared by the action input`);
-      }
-      target = { type: targetType, inputField: definition.target.inputField };
-    }
     const manifest = {
-      id: qualifiedId(appId, localId),
       localId,
       title: definition.title.trim(),
       description: definition.description.trim(),
       inputSchema: schemas.inputSchema,
-      resultSchema: schemas.resultSchema,
+      dataSchema: schemas.dataSchema,
       schemaHash: schemas.schemaHash,
       destructive: definition.destructive,
       openWorld: definition.openWorld,
-      approval: definition.approval,
       idempotency: definition.idempotency,
-      ...(target ? { target } : {}),
       ...(definition.review ? { review: true as const } : {}),
     } satisfies CapabilityActionManifest;
     actions.set(localId, {
@@ -246,6 +258,147 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
     throw new Error(`Capability manifest exceeds the ${MAX_CAPABILITY_MANIFEST_BYTES}-byte registry limit`);
   }
   return { manifest, typeIds, queries, actions };
+};
+
+/** Validates an untrusted live manifest and recomputes every integrity hash. */
+export const parseCapabilityManifest = (value: unknown, expectedAppId: string): CapabilityManifest => {
+  const manifest = CapabilityManifestSchema.parse(value);
+  if (manifest.appId !== expectedAppId) throw new Error(`manifest appId must be ${expectedAppId}`);
+
+  const localIds = new Set<string>();
+  const registerLocalId = (localId: string, kind: string): void => {
+    if (localIds.has(localId)) throw new Error(`localId ${localId} is declared more than once across Types, Queries, and Actions`);
+    localIds.add(localId);
+    assertLocalId(localId, kind);
+  };
+  for (const type of manifest.types) registerLocalId(type.localId, "Resource type");
+  for (const operation of [...manifest.queries, ...manifest.actions]) {
+    registerLocalId(operation.localId, "Operation");
+    const inputSchema = structuredClone(operation.inputSchema);
+    const dataSchema = structuredClone(operation.dataSchema);
+    try {
+      z.fromJSONSchema(inputSchema);
+      z.fromJSONSchema(dataSchema);
+    } catch (error) {
+      throw new Error(
+        `Operation ${operation.localId} contains unsupported JSON Schema: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    assertClosedObjectInput(inputSchema, `Operation ${operation.localId} input`);
+    const expectedSchemaHash = capabilityHash({ inputSchema: operation.inputSchema, dataSchema: operation.dataSchema });
+    if (operation.schemaHash !== expectedSchemaHash)
+      throw new Error(`Operation ${operation.localId} schemaHash does not match its schemas`);
+    if ("universalSearch" in operation && operation.universalSearch) {
+      const expectedInput = projectSchema(UniversalSearchInputSchema, "Universal Search input", "input");
+      const expectedData = projectSchema(UniversalSearchDataSchema, "Universal Search data", "output");
+      if (
+        capabilityHash(operation.inputSchema) !== capabilityHash(expectedInput) ||
+        capabilityHash(operation.dataSchema) !== capabilityHash(expectedData)
+      ) {
+        throw new Error(`Operation ${operation.localId} advertises Universal Search with non-canonical schemas`);
+      }
+    }
+  }
+
+  const { manifestHash: _manifestHash, ...manifestBase } = manifest;
+  if (manifest.manifestHash !== capabilityHash(manifestBase)) throw new Error("manifestHash does not match the manifest");
+  return manifest;
+};
+
+const schemaSemantics = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(schemaSemantics);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "title" && key !== "description")
+      .map(([key, entry]) => [key, schemaSemantics(entry)]),
+  );
+};
+
+const sameSchema = (left: unknown, right: unknown): boolean =>
+  JSON.stringify(stableJsonValue(schemaSemantics(left))) === JSON.stringify(stableJsonValue(schemaSemantics(right)));
+
+const schemaEvolutionIssues = (previous: JsonSchema, next: JsonSchema, path: string, direction: "input" | "data"): string[] => {
+  if (previous.type !== "object" || next.type !== "object") {
+    return sameSchema(previous, next) ? [] : [`${path} changed`];
+  }
+  const issues: string[] = [];
+  const previousRest = { ...previous };
+  const nextRest = { ...next };
+  delete previousRest.properties;
+  delete previousRest.required;
+  delete nextRest.properties;
+  delete nextRest.required;
+  if (!sameSchema(previousRest, nextRest)) issues.push(`${path} constraints changed`);
+
+  const previousProperties = (previous.properties ?? {}) as Record<string, JsonSchema>;
+  const nextProperties = (next.properties ?? {}) as Record<string, JsonSchema>;
+  for (const [name, schema] of Object.entries(previousProperties)) {
+    const nextSchema = nextProperties[name];
+    if (!nextSchema) issues.push(`${path}.${name} was removed`);
+    else issues.push(...schemaEvolutionIssues(schema, nextSchema, `${path}.${name}`, direction));
+  }
+
+  const previousRequired = new Set(Array.isArray(previous.required) ? (previous.required as string[]) : []);
+  const nextRequired = new Set(Array.isArray(next.required) ? (next.required as string[]) : []);
+  const invalidRequired =
+    direction === "input"
+      ? [...nextRequired].filter((name) => !previousRequired.has(name))
+      : [...previousRequired].filter((name) => !nextRequired.has(name));
+  for (const name of invalidRequired) {
+    issues.push(direction === "input" ? `${path}.${name} became required` : `${path}.${name} is no longer guaranteed in results`);
+  }
+  return issues;
+};
+
+const searchTokens = (operation: CapabilityQueryManifest): Set<string> =>
+  new Set(operation.universalSearch?.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]) ?? []);
+
+/** Returns breaking same-id changes; additions and optional object fields are additive. */
+export const capabilityManifestEvolutionIssues = (previous: CapabilityManifest, next: CapabilityManifest): string[] => {
+  const issues: string[] = [];
+  if (previous.appId !== next.appId) issues.push(`appId changed from ${previous.appId} to ${next.appId}`);
+  if (previous.protocolVersion !== next.protocolVersion) issues.push("protocolVersion changed");
+
+  const nextTypes = new Set(next.types.map((type) => type.localId));
+  for (const type of previous.types) {
+    if (!nextTypes.has(type.localId)) issues.push(`Type ${type.localId} was removed`);
+  }
+
+  const nextQueries = new Map(next.queries.map((operation) => [operation.localId, operation]));
+  const nextActions = new Map(next.actions.map((operation) => [operation.localId, operation]));
+  for (const operation of previous.queries) {
+    const current = nextQueries.get(operation.localId);
+    if (!current) {
+      issues.push(
+        nextActions.has(operation.localId) ? `Query ${operation.localId} changed kind` : `Query ${operation.localId} was removed`,
+      );
+      continue;
+    }
+    if (operation.openWorld !== current.openWorld) issues.push(`Query ${operation.localId} openWorld changed`);
+    const currentSearchTokens = searchTokens(current);
+    for (const token of searchTokens(operation)) {
+      if (!currentSearchTokens.has(token)) issues.push(`Query ${operation.localId} removed Universal Search token ${token}`);
+    }
+    issues.push(...schemaEvolutionIssues(operation.inputSchema, current.inputSchema, `Query ${operation.localId} input`, "input"));
+    issues.push(...schemaEvolutionIssues(operation.dataSchema, current.dataSchema, `Query ${operation.localId} data`, "data"));
+  }
+  for (const operation of previous.actions) {
+    const current = nextActions.get(operation.localId);
+    if (!current) {
+      issues.push(
+        nextQueries.has(operation.localId) ? `Action ${operation.localId} changed kind` : `Action ${operation.localId} was removed`,
+      );
+      continue;
+    }
+    if (operation.openWorld !== current.openWorld) issues.push(`Action ${operation.localId} openWorld changed`);
+    if (operation.destructive !== current.destructive) issues.push(`Action ${operation.localId} destructive changed`);
+    if (operation.idempotency !== current.idempotency) issues.push(`Action ${operation.localId} idempotency changed`);
+    if (operation.review && !current.review) issues.push(`Action ${operation.localId} review was removed`);
+    issues.push(...schemaEvolutionIssues(operation.inputSchema, current.inputSchema, `Action ${operation.localId} input`, "input"));
+    issues.push(...schemaEvolutionIssues(operation.dataSchema, current.dataSchema, `Action ${operation.localId} data`, "data"));
+  }
+  return issues;
 };
 
 const resultRefs = (result: unknown): Array<{ type: string; id: string }> => {
@@ -277,12 +430,25 @@ export const validateCapabilityResult = (
     };
   }
   for (const ref of resultRefs(parsed.data)) {
-    if (!compiled.typeIds.has(ref.type)) {
+    if (ref.type.startsWith(`${compiled.manifest.appId}.`) && !compiled.typeIds.has(ref.type)) {
       return {
         ok: false,
         error: {
           code: "INTERNAL",
           message: `Capability returned undeclared resource type ${ref.type}`,
+          status: 500,
+        },
+      };
+    }
+  }
+  if ("universalSearch" in operation.manifest && operation.manifest.universalSearch) {
+    const resources = UniversalSearchDataSchema.safeParse((parsed.data as { data?: unknown }).data);
+    if (!resources.success || resources.data.some((resource) => !resource.links.some((link) => link.rel === "open"))) {
+      return {
+        ok: false,
+        error: {
+          code: "INTERNAL",
+          message: "Universal Search results must include an open link",
           status: 500,
         },
       };
@@ -305,7 +471,7 @@ export const invokeCompiledCapability = async (params: {
     return {
       ok: false,
       error: {
-        code: "NOT_FOUND",
+        code: CAPABILITY_FRAMEWORK_ERROR_CODES.capabilityNotFound,
         message: `Capability ${params.kind} not found`,
         status: 404,
       },
@@ -322,18 +488,53 @@ export const invokeCompiledCapability = async (params: {
       },
     };
   }
+  let context = params.context;
   if (params.kind === "action") {
     const action = operation as CompiledCapabilityAction;
     if (action.manifest.idempotency === "required" && !params.context.idempotencyKey) {
       return {
         ok: false,
         error: {
-          code: "IDEMPOTENCY_KEY_REQUIRED",
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyRequired,
           message: "This action requires an Idempotency-Key",
           status: 400,
         },
       };
     }
+    if (action.manifest.idempotency === "none" && params.context.idempotencyKey) {
+      return {
+        ok: false,
+        error: {
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyNotAllowed,
+          message: "This Action does not support idempotent retries; omit Idempotency-Key",
+          status: 400,
+        },
+      };
+    }
+  } else if (params.context.idempotencyKey) {
+    return {
+      ok: false,
+      error: {
+        code: CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyNotAllowed,
+        message: "Idempotency-Key is only valid for Actions that require it",
+        status: 400,
+      },
+    };
+  }
+  if (params.context.idempotencyKey) {
+    const idempotencyKey = CapabilityIdempotencyKeySchema.safeParse(params.context.idempotencyKey);
+    if (!idempotencyKey.success) {
+      return {
+        ok: false,
+        error: {
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed,
+          message: "Idempotency-Key is invalid",
+          status: 400,
+          details: { issues: idempotencyKey.error.issues },
+        },
+      };
+    }
+    context = { ...params.context, idempotencyKey: idempotencyKey.data };
   }
   const input = operation.definition.input.safeParse(params.input);
   if (!input.success) {
@@ -348,7 +549,7 @@ export const invokeCompiledCapability = async (params: {
     };
   }
   try {
-    const invoked = await operation.definition.run(input.data, params.context);
+    const invoked = await operation.definition.run(input.data, context);
     if (!invoked.ok) return invoked;
     const validated = validateCapabilityResult(params.compiled, operation, invoked.data);
     return validated.ok
@@ -383,12 +584,22 @@ export const reviewCompiledCapability = async (params: {
   context: CapabilityExecutionContext;
   onUnexpectedError?: (error: unknown) => void;
 }): Promise<CapabilityActionReviewResult> => {
+  if (params.context.idempotencyKey) {
+    return {
+      ok: false,
+      error: {
+        code: CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyKeyNotAllowed,
+        message: "Idempotency-Key is not valid for an Action review",
+        status: 400,
+      },
+    };
+  }
   const operation = params.compiled.actions.get(params.localId);
   if (!operation || !operation.definition.review) {
     return {
       ok: false,
       error: {
-        code: "NOT_FOUND",
+        code: CAPABILITY_FRAMEWORK_ERROR_CODES.capabilityNotFound,
         message: "Capability action review not found",
         status: 404,
       },

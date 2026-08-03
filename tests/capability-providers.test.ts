@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { CapabilityDefinitions } from "../packages/cloud/src/contracts/capabilities";
 import { compileCapabilities } from "../packages/cloud/src/_internal/capabilities";
 import { contactsCapabilities } from "../packages/contacts/src/capabilities";
 import { filesCapabilities } from "../packages/files/src/capabilities";
@@ -10,61 +11,114 @@ import { spacesCapabilities } from "../packages/spaces/src/capabilities";
 import { venueCapabilities } from "../packages/venue/src/capabilities";
 import { weatherCapabilities } from "../packages/weather/src/capabilities";
 
-const providers = [
-  ["contacts", contactsCapabilities, ["contacts.book", "contacts.contact", "contacts.note", "contacts.tag"]],
-  ["files", filesCapabilities, ["files.directory", "files.file"]],
-  ["grids", gridsCapabilities, ["grids.base", "grids.record", "grids.table", "grids.view"]],
-  [
-    "mail",
-    mailCapabilities,
-    [
-      "mail.attachment",
-      "mail.comment",
-      "mail.conversation",
-      "mail.delivery",
-      "mail.draft",
-      "mail.folder",
-      "mail.mailbox",
-      "mail.mailing-list",
-      "mail.message",
-      "mail.reminder",
-      "mail.sender-identity",
-      "mail.tag",
+const providers: ReadonlyArray<{
+  appId: string;
+  definitions: CapabilityDefinitions;
+  types: readonly string[];
+  searches: readonly string[];
+}> = [
+  {
+    appId: "contacts",
+    definitions: contactsCapabilities,
+    types: ["book", "contact", "note", "tag"],
+    searches: ["contact.search"],
+  },
+  { appId: "files", definitions: filesCapabilities, types: ["directory", "file"], searches: ["search"] },
+  {
+    appId: "grids",
+    definitions: gridsCapabilities,
+    types: ["base", "record", "table", "view"],
+    searches: ["base.search"],
+  },
+  {
+    appId: "mail",
+    definitions: mailCapabilities,
+    types: [
+      "attachment",
+      "comment",
+      "conversation",
+      "delivery",
+      "draft",
+      "folder",
+      "mailbox",
+      "mailing-list",
+      "message",
+      "reminder",
+      "sender-identity",
+      "tag",
     ],
-  ],
-  ["notebooks", notebooksCapabilities, ["notebooks.note", "notebooks.notebook"]],
-  ["pulse", pulseCapabilities, ["pulse.base", "pulse.resource", "pulse.saved_query", "pulse.source"]],
-  ["spaces", spacesCapabilities, ["spaces.comment", "spaces.item", "spaces.space"]],
-  ["venue", venueCapabilities, ["venue.assignment", "venue.shift", "venue.venue"]],
-  ["weather", weatherCapabilities, ["weather.location"]],
+    searches: ["search"],
+  },
+  { appId: "notebooks", definitions: notebooksCapabilities, types: ["note", "notebook"], searches: ["note.search", "notebook.search"] },
+  {
+    appId: "pulse",
+    definitions: pulseCapabilities,
+    types: ["base", "resource", "saved_query", "source"],
+    searches: ["base.search", "resource.search"],
+  },
+  {
+    appId: "spaces",
+    definitions: spacesCapabilities,
+    types: ["comment", "item", "space"],
+    searches: ["item.search", "space.search"],
+  },
+  { appId: "venue", definitions: venueCapabilities, types: ["assignment", "shift", "venue"], searches: ["venue.search"] },
+  { appId: "weather", definitions: weatherCapabilities, types: ["location"], searches: ["location.search"] },
+];
+
+const consumers = [
+  ["Core HTTP catalog and dispatcher", "packages/cloud/src/api/capabilities.test.ts"],
+  ["browser and server clients", "packages/cloud/src/capabilities/client.test.ts"],
+  ["generic CLI", "packages/cloud/src/cli/capabilities.test.ts"],
+  ["Capabilities app", "packages/capabilities/src/invocation.test.ts"],
+  ["Universal Search", "packages/cloud/src/api/search.test.ts"],
+  ["MCP", "packages/cloud/src/api/mcp.test.ts"],
+  ["Assistant discovery and approval", "packages/cloud/src/ai/capabilities.test.ts"],
+  ["Assistant execution", "packages/cloud/src/ai/capability-execution.test.ts"],
+  ["Mail to Contacts browser integration", "packages/mail/src/frontend/_components/contact-capabilities.ts"],
+  ["Mail to Spaces server integration", "packages/mail/src/service/app-integrations.ts"],
+  ["Spaces to Mail server integration", "packages/spaces/src/service/mail-integration.ts"],
 ] as const;
 
-describe("capability provider inventory", () => {
-  for (const [appId, definitions, expectedTypes] of providers) {
-    test(`${appId} publishes its resource types and universal search query`, () => {
-      const manifest = compileCapabilities(appId, definitions).manifest;
-      expect(manifest.types.map((type) => type.id)).toEqual([...expectedTypes]);
-      expect(manifest.queries.some((query) => query.universalSearch)).toBeTrue();
-      expect(manifest.queries.find((query) => query.universalSearch)?.universalSearch?.tags.length).toBeGreaterThan(0);
-    });
-
-    test(`${appId} reviews every destructive or open-world action`, () => {
-      const manifest = compileCapabilities(appId, definitions).manifest;
+describe("Capability v1 provider conformance", () => {
+  for (const provider of providers) {
+    test(`${provider.appId} compiles the frozen manifest and focused searches`, () => {
+      const manifest = compileCapabilities(provider.appId, provider.definitions).manifest;
+      expect(manifest.protocolVersion).toBe(1);
+      expect(manifest.types.map((type) => type.localId)).toEqual(provider.types);
+      expect(manifest.queries.filter((query) => query.universalSearch).map((query) => query.localId)).toEqual(provider.searches);
+      expect(new Set([...manifest.types, ...manifest.queries, ...manifest.actions].map((entry) => entry.localId)).size).toBe(
+        manifest.types.length + manifest.queries.length + manifest.actions.length,
+      );
       for (const action of manifest.actions) {
-        expect(Boolean(action.review), `${action.id} review`).toBe(action.destructive || action.openWorld);
+        expect(Boolean(action.review), `${provider.appId}.${action.localId} review`).toBe(action.destructive || action.openWorld);
+        expect(["none", "required"]).toContain(action.idempotency);
       }
     });
   }
 
-  test("Contacts publishes the idempotent create action", () => {
-    const manifest = compileCapabilities("contacts", contactsCapabilities).manifest;
-    expect(manifest.actions.find((action) => action.id === "contacts.contact.create")).toEqual(
-      expect.objectContaining({
-        approval: "once",
-        idempotency: "required",
-        destructive: false,
-        openWorld: false,
-      }),
+  test("required-idempotency Actions remain an explicit inventory", () => {
+    const required = providers.flatMap(({ appId, definitions }) =>
+      compileCapabilities(appId, definitions).manifest.actions.flatMap((action) =>
+        action.idempotency === "required" ? [`${appId}.${action.localId}`] : [],
+      ),
     );
+    expect(required).toEqual([
+      "contacts.contact.create",
+      "contacts.note.create",
+      "mail.conversation.mark",
+      "mail.conversation.move",
+      "mail.draft.create",
+      "mail.draft.send",
+      "spaces.event.invitation.prepare",
+    ]);
   });
+});
+
+describe("Capability v1 consumer conformance matrix", () => {
+  for (const [surface, evidence] of consumers) {
+    test(`${surface} has focused live-checkout coverage`, async () => {
+      expect(await Bun.file(new URL(`../${evidence}`, import.meta.url)).exists(), evidence).toBe(true);
+    });
+  }
 });

@@ -1,6 +1,8 @@
 import { ephemeral } from "@k2b/sync";
 import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
+import type { CapabilityManifest } from "../contracts/capabilities";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
+import { parseCapabilityManifest } from "./capabilities";
 import { validateAppRegistryEntry } from "./registry-validation";
 
 /**
@@ -11,13 +13,15 @@ import { validateAppRegistryEntry } from "./registry-validation";
  */
 export const APP_REGISTRY_TTL_MS = 180_000;
 
+export type CapabilityRegistryRecord = { appId: string; manifest: CapabilityManifest };
+
 export const appRegistry = ephemeral<AppRegistryEntry>({
   id: "cloud-apps",
   ttlMs: APP_REGISTRY_TTL_MS,
   limits: { maxPayloadBytes: 64 * 1024 },
 });
 
-export const capabilityRegistry = ephemeral<CapabilityRegistryEntry>({
+export const capabilityRegistry = ephemeral<CapabilityRegistryRecord>({
   id: "cloud-capabilities",
   ttlMs: APP_REGISTRY_TTL_MS,
   limits: { maxPayloadBytes: 512 * 1024 },
@@ -77,7 +81,9 @@ export const readAppRegistrySnapshot = async (): Promise<AppRegistrySnapshot> =>
 
   for (const entry of snapshot.entries) {
     presentKeys.add(entry.key);
-    const reason = validateAppRegistryEntry(entry.value);
+    const expectedKey =
+      entry.value && typeof entry.value === "object" && "id" in entry.value ? `apps/${String(entry.value.id)}` : undefined;
+    const reason = entry.key !== expectedKey ? "registry key must match entry id" : validateAppRegistryEntry(entry.value);
     if (reason) {
       const issue = { key: entry.key, version: entry.version, reason };
       issues.push(issue);
@@ -121,7 +127,10 @@ export const getApp = async (appId: string): Promise<AppRegistryEntry | null> =>
   const snap = await appRegistry.snapshot({ prefix: key });
   const entry = snap.entries.find((candidate) => candidate.key === key);
   if (!entry) return null;
-  const reason = validateAppRegistryEntry(entry.value);
+  const reason =
+    !entry.value || typeof entry.value !== "object" || !("id" in entry.value) || entry.value.id !== appId
+      ? "registry key must match entry id"
+      : validateAppRegistryEntry(entry.value);
   if (!reason) {
     loggedInvalidReasons.delete(key);
     return entry.value;
@@ -130,15 +139,54 @@ export const getApp = async (appId: string): Promise<AppRegistryEntry | null> =>
   return null;
 };
 
+const capabilityEndpoint = (baseUrl: string): string | null => {
+  try {
+    const base = new URL(baseUrl);
+    if (!(["http:", "https:"] as const).includes(base.protocol as "http:" | "https:") || base.username || base.password) return null;
+    return new URL("/api/_internal/capabilities/v1", base).toString();
+  } catch {
+    return null;
+  }
+};
+
+export const resolveLiveCapabilityRegistryEntry = (
+  key: string,
+  value: unknown,
+  app: AppRegistryEntry | undefined,
+): CapabilityRegistryEntry | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (Object.keys(value).some((field) => field !== "appId" && field !== "manifest")) return null;
+  const record = value as Partial<CapabilityRegistryRecord>;
+  if (!app || typeof record.appId !== "string" || key !== `capabilities/${record.appId}` || record.appId !== app.id) return null;
+  if (!app.capabilities) return null;
+  const endpoint = capabilityEndpoint(app.baseUrl);
+  if (!endpoint) return null;
+  try {
+    const manifest = parseCapabilityManifest(record.manifest, app.id);
+    if (app.capabilities.protocolVersion !== manifest.protocolVersion || app.capabilities.manifestHash !== manifest.manifestHash) {
+      return null;
+    }
+    return { appId: app.id, appName: app.name, appIcon: app.icon, appDescription: app.description, endpoint, manifest };
+  } catch {
+    return null;
+  }
+};
+
 export const listCapabilities = async (): Promise<CapabilityRegistryEntry[]> => {
-  const snap = await capabilityRegistry.snapshot({ prefix: "capabilities/" });
-  return snap.entries.map((entry) => entry.value);
+  const [snap, apps] = await Promise.all([capabilityRegistry.snapshot({ prefix: "capabilities/" }), listApps()]);
+  const byId = new Map(apps.map((app) => [app.id, app]));
+  return snap.entries.flatMap((entry) => {
+    const appId = entry.key.startsWith("capabilities/") ? entry.key.slice("capabilities/".length) : "";
+    const capability = resolveLiveCapabilityRegistryEntry(entry.key, entry.value, byId.get(appId));
+    return capability ? [capability] : [];
+  });
 };
 
 export const getCapability = async (appId: string): Promise<CapabilityRegistryEntry | null> => {
   const key = `capabilities/${appId}`;
-  const snap = await capabilityRegistry.snapshot({ prefix: key });
-  return snap.entries.find((entry) => entry.key === key)?.value ?? null;
+  const [snap, app] = await Promise.all([capabilityRegistry.snapshot({ prefix: key }), getApp(appId)]);
+  const entry = snap.entries.find((candidate) => candidate.key === key);
+  return entry ? resolveLiveCapabilityRegistryEntry(entry.key, entry.value, app ?? undefined) : null;
 };
 
 const isHelpRegistryEntry = (value: unknown): value is HelpRegistryEntry => {

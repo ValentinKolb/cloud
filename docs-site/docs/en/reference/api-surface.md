@@ -5,7 +5,7 @@ section: Reference
 order: 1205
 description: Choose a supported Cloud import and check its runtime and stability.
 tags: [api, imports, boundaries, compatibility]
-updated: 2026-07-27
+updated: 2026-08-03
 ---
 
 # API surface
@@ -150,6 +150,9 @@ documents all process variables; that larger list is not the shape of `env`.
 | `@valentinkolb/cloud/workflows/editor` | Supported, SolidJS | Workflow authoring controls | [Shared components](/docs/en/frontend#choose-shared-components) |
 | `@valentinkolb/cloud/styles/global.css` | Supported asset | Alias for the global stylesheet | [Styling](/docs/en/frontend/styling-and-accessibility) |
 | `@valentinkolb/cloud/cli/access` | Supported | Resource access commands | [CLI modules](/docs/en/platform/cli-modules) |
+| `@valentinkolb/cloud/capabilities` | Supported, browser | Runtime-validated capability catalog, invocation, and Action review client | [App capabilities](/en/docs/platform/capabilities) |
+| `@valentinkolb/cloud/capabilities/server` | Supported, server-only | Registry-backed capability catalog, invocation, and Action review client | [App capabilities](/en/docs/platform/capabilities) |
+| `@valentinkolb/cloud/capabilities/testing` | Supported, tests | Provider manifest compilation and additive-evolution assertions | [App capabilities](/en/docs/platform/capabilities) |
 | `@valentinkolb/cloud/cli/account` | Platform-owned | Built-in account commands | — |
 | `@valentinkolb/cloud/cli/apps` | Platform-owned | Built-in application commands | — |
 | `@valentinkolb/cloud/cli/admin` | Platform-owned | Built-in administration commands | — |
