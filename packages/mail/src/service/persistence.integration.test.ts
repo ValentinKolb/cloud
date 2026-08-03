@@ -37,6 +37,7 @@ import {
   updateDraft,
 } from "./drafts";
 import { resolveMailExecution } from "./execution";
+import { createLocalTag, setConversationLocalTags } from "./local-tags";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
@@ -652,6 +653,23 @@ suite("mail PostgreSQL foundation", () => {
     expect(filteredUnreadConversations.data.items.every((item) => item.unread)).toBe(true);
     expect(filteredUnreadConversations.data.items.some((item) => item.id === orderedConversation!.id)).toBe(true);
 
+    if (!unreadConversation) throw new Error("Expected the ordered conversation in the unread page");
+    const capabilityTag = await createLocalTag({
+      context,
+      mailboxId: mailbox.data.id,
+      input: { name: `Capability ${suffix}`, color: "#2563eb" },
+    });
+    expect(capabilityTag.ok).toBe(true);
+    if (!capabilityTag.ok) return;
+    const taggedConversation = await setConversationLocalTags({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+      input: { expectedRevision: unreadConversation.revision, tagIds: [capabilityTag.data.id] },
+    });
+    expect(taggedConversation.ok).toBe(true);
+    if (!taggedConversation.ok) return;
+
     const conversationCapability = mailCapabilities.queries["conversation.get"];
     const capabilityResult = await conversationCapability.run(
       { mailboxId: mailbox.data.id, conversationId: orderedConversation!.id },
@@ -665,6 +683,14 @@ suite("mail PostgreSQL foundation", () => {
     expect(capabilityResult.ok).toBe(true);
     if (!capabilityResult.ok) return;
     expect(ConversationGetDataSchema.safeParse(capabilityResult.data.data).success).toBe(true);
+    expect(capabilityResult.data.data.tags).toEqual([
+      {
+        id: capabilityTag.data.id,
+        name: capabilityTag.data.name,
+        color: capabilityTag.data.color,
+        revision: capabilityTag.data.revision,
+      },
+    ]);
 
     const conversationRead = await createConversationTriageCommands({
       context,

@@ -127,10 +127,12 @@ Capability-enabled chats always expose three small discovery tools:
   and kind;
 - `load_capabilities` retains exact names returned by discovery.
 
-Capability search matches and ranks individual normalized task terms; callers
-do not need to reproduce one contiguous title or description phrase. Prefer a
-few concrete product terms and scope the exact `appId` when it is already
-known. Use the paginated list only for browsing, not as a fallback dump after a
+Capability search matches whole normalized task words, handles simple plural
+forms, and ranks operations by how many requested terms they cover. Callers do
+not need to reproduce one contiguous title or description phrase. Prefer a few
+concrete product terms, scope the exact `appId` when it is already known, and
+set `kind: "query"` for reads or `kind: "action"` for mutations. Use the
+paginated list only for browsing, not as a fallback dump after a
 natural-language search.
 
 A loaded capability becomes an ordinary named tool on the next model turn.

@@ -236,6 +236,7 @@ describe("AI capability catalog", () => {
     expect(searchAiCapabilities(catalog, { query: "read email messages", appId: "mail" }).capabilities).toEqual([
       expect.objectContaining({ name: "mail__query__list" }),
     ]);
+    expect(searchAiCapabilities(catalog, { query: "read", appId: "mail" }).capabilities).toEqual([]);
     expect(searchAiCapabilities(catalog, { query: "missing phrase" }).capabilities).toEqual([]);
     expect(searchAiCapabilities(catalog, { query: "create items", appId: "contacts", kind: "action" }).capabilities).toEqual([
       expect.objectContaining({ name: "contacts__action__create" }),

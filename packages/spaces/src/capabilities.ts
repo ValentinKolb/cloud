@@ -3,9 +3,9 @@ import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
-  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   UniversalSearchDataSchema,
   type UniversalSearchInput,
@@ -723,7 +723,7 @@ export const spacesCapabilities = defineCapabilities({
     },
     "comment.list": {
       title: "List comments",
-      description: "List one bounded item or recurring-occurrence discussion after checking parent Space access.",
+      description: "Read comments in one bounded item or recurring-occurrence discussion after checking parent Space access.",
       input: CommentListInputSchema,
       data: CommentListDataSchema,
       openWorld: false,

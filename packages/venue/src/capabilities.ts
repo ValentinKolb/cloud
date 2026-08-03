@@ -1,8 +1,8 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
-  capabilityPage,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   UniversalSearchDataSchema,
   type UniversalSearchInput,
@@ -403,7 +403,7 @@ export const venueCapabilities = defineCapabilities({
     },
     "shift.list": {
       title: "List Venue shifts",
-      description: "List dated staffing slots for up to 31 days without exposing participant identities.",
+      description: "Find and list dated Venue shifts for up to 31 days without exposing participant identities.",
       input: ShiftListInputSchema,
       data: ShiftListDataSchema,
       openWorld: false,

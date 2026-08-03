@@ -1,9 +1,9 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
-  capabilityPage,
   type CloudResourceRef,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   UniversalSearchDataSchema,
   type UniversalSearchInput,
@@ -554,7 +554,7 @@ export const gridsCapabilities = defineCapabilities({
     "gql.context": {
       title: "Load Grids GQL context",
       description:
-        "Discover a Base in steps: list Tables, then Fields and paginated select option IDs, or saved Views. Field results include effective write and audit requirements.",
+        "Inspect a Grids Base schema in steps: list Tables, then Fields and paginated select option IDs, or saved Views. Field results include effective write and audit requirements.",
       input: GqlContextInputSchema,
       data: GqlContextDataSchema,
       openWorld: false,

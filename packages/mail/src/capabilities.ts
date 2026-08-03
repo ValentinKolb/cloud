@@ -4,19 +4,18 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
-  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
-  type UniversalSearchInput,
   UniversalSearchDataSchema,
+  type UniversalSearchInput,
   UniversalSearchInputSchema,
 } from "@valentinkolb/cloud/contracts";
 import type { z } from "zod";
 import * as c from "./capability-contracts";
 import type { Mailbox, MailDraft } from "./contracts";
 import {
-  type MailRequestContext,
   collaboration,
   commands,
   composeSafety,
@@ -24,6 +23,7 @@ import {
   draftUploads,
   listSubscriptions,
   localTags,
+  type MailRequestContext,
   mailboxAccess,
   mailboxes,
   messages,
@@ -404,7 +404,7 @@ const queryDefinitions = {
             snoozedUntil: state.data.snoozedUntil,
             revision: state.data.revision,
           },
-          tags: tags.data.tags,
+          tags: tags.data.tags.map(({ id, name, color, revision }) => ({ id, name, color, revision })),
           messages: page.data.items.map((item) => mapMessageSummary(input.mailboxId, input.conversationId, item)),
           messagesTruncated: page.data.nextCursor !== null,
         },
@@ -431,7 +431,7 @@ const queryDefinitions = {
   },
   "message.get": {
     title: "Get message",
-    description: "Read safe plain-text message content and bounded attachment metadata. Raw source and HTML are excluded.",
+    description: "Read one email message body as safe plain text with bounded attachment metadata. Raw source and HTML are excluded.",
     input: c.MessageGetInputSchema,
     data: c.MessageDataSchema,
     openWorld: true,

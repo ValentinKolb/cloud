@@ -137,8 +137,19 @@ const searchTerms = (value: string): string[] => {
   return [...new Set(meaningful.length > 0 ? meaningful : terms)];
 };
 
-const includesSearchTerm = (text: string, term: string): boolean =>
-  text.includes(term) || (term.length > 3 && term.endsWith("s") && text.includes(term.slice(0, -1)));
+const searchTermForms = (term: string): string[] => {
+  const forms = new Set([term]);
+  if (term.length > 3 && term.endsWith("s") && !term.endsWith("ss")) forms.add(term.slice(0, -1));
+  if (term.length > 4 && term.endsWith("es")) forms.add(term.slice(0, -2));
+  if (term.length > 4 && term.endsWith("ies")) forms.add(`${term.slice(0, -3)}y`);
+  return [...forms];
+};
+
+const searchWordForms = (value: string): Set<string> => new Set(searchTerms(value).flatMap(searchTermForms));
+
+const includesSearchTerm = (words: ReadonlySet<string>, term: string): boolean => searchTermForms(term).some((form) => words.has(form));
+
+const includesSearchPhrase = (text: string, phrase: string): boolean => ` ${text} `.includes(` ${phrase} `);
 
 export const searchAiCapabilities = (
   catalog: readonly AiCapabilityCatalogEntry[],
@@ -155,20 +166,31 @@ export const searchAiCapabilities = (
       const identity = `${name} ${title}`;
       const app = normalizeSearchText(`${entry.appId} ${entry.appName}`);
       const description = normalizeSearchText(entry.description);
+      const identityWords = searchWordForms(identity);
+      const appWords = searchWordForms(app);
+      const descriptionWords = searchWordForms(description);
+      let matchedTerms = 0;
       let score = 0;
       if (name === phrase || title === phrase) score += 100;
-      else if (identity.includes(phrase)) score += 50;
+      else if (includesSearchPhrase(identity, phrase)) score += 50;
       if (app === phrase) score += 40;
-      else if (app.includes(phrase)) score += 20;
-      if (description.includes(phrase)) score += 15;
+      else if (includesSearchPhrase(app, phrase)) score += 20;
+      if (includesSearchPhrase(description, phrase)) score += 15;
       for (const term of terms) {
-        if (includesSearchTerm(identity, term)) score += 8;
-        if (includesSearchTerm(app, term)) score += 6;
-        if (includesSearchTerm(description, term)) score += 4;
+        const identityMatch = includesSearchTerm(identityWords, term);
+        const appMatch = includesSearchTerm(appWords, term);
+        const descriptionMatch = includesSearchTerm(descriptionWords, term);
+        if (identityMatch || appMatch || descriptionMatch) matchedTerms += 1;
+        if (identityMatch) score += 8;
+        if (appMatch) score += 6;
+        if (descriptionMatch) score += 4;
       }
-      return score > 0 ? [{ entry, score }] : [];
+      return matchedTerms > 0 ? [{ entry, matchedTerms, score }] : [];
     })
-    .sort((left, right) => right.score - left.score || left.entry.name.localeCompare(right.entry.name))
+    .sort(
+      (left, right) =>
+        right.matchedTerms - left.matchedTerms || right.score - left.score || left.entry.name.localeCompare(right.entry.name),
+    )
     .slice(0, limit);
   return { capabilities: matches.map(({ entry }) => catalogItem(entry)) };
 };
@@ -349,12 +371,13 @@ export const createAiCapabilityMetaTools = (input: {
 }): AiRuntimeTool[] => {
   const search = defineAiTool({
     name: "search_capabilities",
-    description: "Search installed Cloud app capabilities by concise task terms, app, or name. Returns compact exact names for loading.",
+    description:
+      "Search installed Cloud app capabilities by concise task terms, app, or name. Set kind to query for reads and action for mutations. Returns compact exact names for loading.",
     inputSchema: z
       .object({
         query: z.string().trim().min(1).max(200).describe("What the capability should do."),
         appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
-        kind: z.enum(["query", "action"]).optional(),
+        kind: z.enum(["query", "action"]).optional().describe("Use query for reading or searching and action for mutations."),
         limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
       })
       .strict(),

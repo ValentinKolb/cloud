@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { CapabilityDefinitions } from "../packages/cloud/src/contracts/capabilities";
 import { compileCapabilities } from "../packages/cloud/src/_internal/capabilities";
+import { buildAiCapabilityCatalog, searchAiCapabilities } from "../packages/cloud/src/ai/capabilities";
+import type { CapabilityDefinitions } from "../packages/cloud/src/contracts/capabilities";
 import { contactsCapabilities } from "../packages/contacts/src/capabilities";
 import { filesCapabilities } from "../packages/files/src/capabilities";
 import { gridsCapabilities } from "../packages/grids/src/capabilities";
@@ -112,6 +113,28 @@ describe("Capability v1 provider conformance", () => {
       "mail.draft.send",
       "spaces.event.invitation.prepare",
     ]);
+  });
+});
+
+describe("Capability v1 Assistant discovery", () => {
+  const catalog = buildAiCapabilityCatalog(
+    providers.map(({ appId, definitions }) => ({
+      appId,
+      appName: appId,
+      appIcon: "",
+      appDescription: "",
+      endpoint: `http://${appId}`,
+      manifest: compileCapabilities(appId, definitions).manifest,
+    })),
+  );
+
+  test.each([
+    ["read email body", undefined, "mail__query__message_dot_get"],
+    ["inspect grid schema fields", "grids", "grids__query__gql_dot_context"],
+    ["read comments", "spaces", "spaces__query__comment_dot_list"],
+    ["find shifts", "venue", "venue__query__shift_dot_list"],
+  ] as const)("ranks %s to its expected capability", (query, appId, expectedName) => {
+    expect(searchAiCapabilities(catalog, { query, appId, limit: 5 }).capabilities[0]?.name).toBe(expectedName);
   });
 });
 
