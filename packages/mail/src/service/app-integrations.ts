@@ -10,6 +10,7 @@ import {
   calendarInvitationPreviewSchema,
   calendarInvitationResponseSchema,
   calendarResponseStateDataSchema,
+  contactOpenHref,
   contactResolveDataSchema,
   eventInvitationCommitDataSchema,
   eventInvitationPrepareDataSchema,
@@ -116,6 +117,10 @@ export const resolveContacts = async (
     ok: true as const,
     data: {
       ...result.data.data,
+      items: result.data.data.items.map((item) => ({
+        ...item,
+        openHref: contactOpenHref(item.links),
+      })),
       nextCursor: result.data.page?.hasMore ? result.data.page.nextCursor : null,
     },
   };

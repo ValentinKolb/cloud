@@ -10,6 +10,7 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { pulseCapabilities } from "./capabilities";
+import { BaseListDataSchema } from "./capability-contracts";
 
 const userContext = (user: User): CapabilityExecutionContext => ({
   actor: { kind: "user", user },
@@ -96,6 +97,18 @@ describe("Pulse capabilities", () => {
     expect(pulseCapabilities.queries?.["query.execute"]?.description.toLowerCase()).toContain("run");
     expect(pulseCapabilities.queries?.["query.execute"]?.description.toLowerCase()).toContain("telemetry");
     expect(pulseCapabilities.queries?.["saved_query.execute"]?.description.toLowerCase()).toContain("run");
+    expect(
+      BaseListDataSchema.safeParse([
+        {
+          id: crypto.randomUUID(),
+          name: "Telemetry",
+          description: null,
+          createdAt: "2026-08-04T00:00:00.000Z",
+          updatedAt: "2026-08-04T00:00:00.000Z",
+          links: [{ rel: "open", href: "/app/pulse/base" }],
+        },
+      ]).success,
+    ).toBeTrue();
   });
 
   postgresTest("discovers and executes only data visible to the current access subject", async () => {
@@ -200,20 +213,44 @@ describe("Pulse capabilities", () => {
       `;
 
       const bases = await invoke("base.list", { query: "Agent", limit: 25 }, context);
-      expect(bases.ok && bases.data.data).toEqual([expect.objectContaining({ id: baseId, name: "Agent telemetry" })]);
+      expect(bases.ok && bases.data.data).toEqual([
+        expect.objectContaining({
+          id: baseId,
+          name: "Agent telemetry",
+          links: [{ rel: "open", href: `/app/pulse/${baseId}` }],
+        }),
+      ]);
       const hiddenBases = await invoke("base.list", { limit: 25 }, otherContext);
       expect(hiddenBases.ok && hiddenBases.data.data).toEqual([]);
 
       const sources = await invoke("source.list", { baseId, limit: 25 }, context);
-      expect(sources.ok && sources.data.data).toEqual([expect.objectContaining({ id: sourceId, name: "Agent source" })]);
+      expect(sources.ok && sources.data.data).toEqual([
+        expect.objectContaining({
+          id: sourceId,
+          name: "Agent source",
+          links: [{ rel: "open", href: `/app/pulse/${baseId}/sources/${sourceId}` }],
+        }),
+      ]);
       const resources = await invoke("resource.search", { query: "Agent service", tags: [], limit: 10 }, context);
       expect(resources.ok && resources.data.data).toEqual([
         expect.objectContaining({ title: "Agent service", metadata: expect.arrayContaining([{ label: "Base ID", value: baseId }]) }),
       ]);
       const metrics = await invoke("metric.search", { baseId, query: "agent", limit: 25 }, context);
-      expect(metrics.ok && metrics.data.data).toEqual([expect.objectContaining({ name: "agent.cpu", seriesCount: 1 })]);
+      expect(metrics.ok && metrics.data.data).toEqual([
+        expect.objectContaining({
+          name: "agent.cpu",
+          seriesCount: 1,
+          links: [{ rel: "open", href: `/app/pulse/${baseId}/metrics/agent.cpu` }],
+        }),
+      ]);
       const fields = await invoke("field.search", { baseId, query: "env", role: "dimension", limit: 25 }, context);
-      expect(fields.ok && fields.data.data).toEqual([expect.objectContaining({ signalName: "agent.cpu", key: "env" })]);
+      expect(fields.ok && fields.data.data).toEqual([
+        expect.objectContaining({
+          signalName: "agent.cpu",
+          key: "env",
+          links: [{ rel: "open", href: `/app/pulse/${baseId}/metrics/agent.cpu` }],
+        }),
+      ]);
 
       const compiled = await invoke("query.compile", { baseId, query }, context);
       expect(compiled.ok && compiled.data.data).toMatchObject({ valid: true, kind: "metric" });

@@ -4,11 +4,7 @@ import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
-import {
-  ContactResolveDataSchema,
-  ContactResolveInputSchema,
-  ContactResolveMatchDataSchema,
-} from "../capability-contracts";
+import { ContactResolveDataSchema, ContactResolveInputSchema, ContactResolveMatchDataSchema } from "../capability-contracts";
 import { SYSTEM_BOOK_ID, SYSTEM_BOOK_NAME } from "./system";
 
 const cursorSchema = z.object({ version: z.literal(1), source: z.enum(["manual", "system"]), id: z.uuid() }).strict();
@@ -204,7 +200,6 @@ export const resolveContactsByEmail = async (params: {
       emails: row.emails.slice(0, 20),
       phones: row.phones.slice(0, 20),
       contactPointsTruncated,
-      openHref: `/app/contacts/${encodeURIComponent(row.book_id)}?contact=${encodeURIComponent(row.contact_id)}&contactBook=${encodeURIComponent(row.book_id)}`,
       updatedAt: row.updated_at.toISOString(),
     };
   });

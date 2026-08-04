@@ -290,6 +290,7 @@ describe("notebooks capabilities", () => {
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.data.data[0]?.updatedAt).toBe(createdAt);
+    expect(result.data.data[0]?.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }]);
     expect(TagNotesDataSchema.safeParse(result.data.data).success).toBeTrue();
   });
 

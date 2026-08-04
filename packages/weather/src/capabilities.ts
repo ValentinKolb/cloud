@@ -3,6 +3,7 @@ import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
   type CapabilityResult,
+  CapabilitySemanticLinkSchema,
   type CloudResourceView,
   capabilityPage,
   defineCapabilities,
@@ -37,6 +38,7 @@ const LocationSchema = z
     state: z.string().trim().min(1).max(120).nullable(),
     lat: z.number().finite().min(-90).max(90),
     lon: z.number().finite().min(-180).max(180),
+    links: z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional(),
   })
   .strict();
 
@@ -190,7 +192,10 @@ const runLocationList = async (input: z.infer<typeof LocationListInputSchema>, c
   if (page.hasNext && page.page * page.perPage > MAX_CURSOR_OFFSET) {
     return fail(err.badInput("Saved location pagination exceeds the supported window"));
   }
-  const locations = page.items.map(mapLocation);
+  const locations = page.items.map((location) => {
+    const data = mapLocation(location);
+    return { ...data, links: [{ rel: "open" as const, href: locationHref(data.id) }] };
+  });
   return locationPageResult(
     page,
     locations,

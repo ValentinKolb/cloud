@@ -1,3 +1,4 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import { PrioritySchema } from "./contracts";
 import {
@@ -7,7 +8,7 @@ import {
   CalendarInvitationResponseSchema,
   CalendarInvitationResponseStateSchema,
   CalendarParticipationStatusSchema,
-  SpacesMailDestinationsSchema,
+  SpacesMailDestinationSchema,
 } from "./integration";
 
 const TimestampSchema = z.string().datetime({ offset: true });
@@ -17,6 +18,11 @@ const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maxim
 const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
 const IdListSchema = z.array(z.uuid()).max(100);
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
+const ItemPageInputShape = {
+  cursor: CursorSchema,
+  limit: z.number().int().min(1).max(50).default(25).describe("Maximum number of task or event results to return."),
+};
+const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 const SpaceColumnDataSchema = z
   .object({
@@ -42,6 +48,7 @@ export const SpaceSummaryDataSchema = z
     description: z.string().max(500).nullable(),
     color: z.string().min(1).max(100),
     permission: z.enum(["read", "write", "admin"]),
+    links: ResourceLinksSchema,
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -135,6 +142,7 @@ const ItemListBaseDataShape = {
   relationsTruncated: z.boolean(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
+  links: ResourceLinksSchema,
 };
 export const TaskListItemDataSchema = z
   .object({ kind: z.literal("task"), ...ItemListBaseDataShape, deadline: TimestampSchema.nullable(), priority: PrioritySchema.nullable() })
@@ -153,8 +161,8 @@ export const EventListItemDataSchema = z
     hasRecurrence: z.boolean(),
   })
   .strict();
-export const TaskListDataSchema = z.array(TaskListItemDataSchema).max(100);
-export const EventListDataSchema = z.array(EventListItemDataSchema).max(100);
+export const TaskListDataSchema = z.array(TaskListItemDataSchema).max(50);
+export const EventListDataSchema = z.array(EventListItemDataSchema).max(50);
 
 const ItemListBaseShape = {
   spaceId: z.uuid().describe("Space whose items should be listed."),
@@ -170,7 +178,7 @@ const ItemListBaseShape = {
     .describe("Assignment-state filter; me uses the user backing the current actor."),
   sort: z.enum(["column", "priority", "deadline", "created", "updated", "title"]).default("updated").describe("Stable item sort key."),
   sortDesc: z.boolean().default(true).describe("Sort descending when true."),
-  ...PageInputShape,
+  ...ItemPageInputShape,
 };
 
 export const TaskListInputSchema = z.object(ItemListBaseShape).strict();
@@ -351,7 +359,9 @@ export const CalendarInvitationResponseCommitCapabilityInputSchema = z
   .strict();
 export const CalendarInvitationResponseCommitCapabilityDataSchema = CalendarInvitationResponseStateSchema;
 export const CalendarDestinationListInputSchema = z.object({}).strict();
-export const CalendarDestinationListDataSchema = SpacesMailDestinationsSchema;
+export const CalendarDestinationListDataSchema = z
+  .array(SpacesMailDestinationSchema.extend({ links: ResourceLinksSchema }).strict())
+  .max(500);
 export const EventInvitationPrepareInputSchema = z
   .object({
     itemId: z.uuid().describe("Writable event item UUID."),

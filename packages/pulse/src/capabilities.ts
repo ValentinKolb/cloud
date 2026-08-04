@@ -28,6 +28,7 @@ import {
   SourceListInputSchema,
 } from "./capability-contracts";
 import type { PulseBase, PulseCurrentState, PulseRecordedEvent, PulseSavedQuery, PulseSource } from "./contracts";
+import { pulseBaseHref, pulseExplorerHref, pulseResourceHref, pulseSignalHref, pulseSourceHref } from "./resource-hrefs";
 import { pulseService } from "./service";
 import { accessScopeFor } from "./service/access-control";
 
@@ -51,10 +52,6 @@ const decodeCursor = (cursor: string | undefined) => {
 
 const scopeFor = (context: CapabilityExecutionContext) => accessScopeFor(context.actor, context.accessSubject);
 
-const baseHref = (baseId: string) => `/app/pulse/${baseId}`;
-const resourceHref = (baseId: string, resourceKey: string) => `${baseHref(baseId)}/resources/${encodeURIComponent(resourceKey)}`;
-const explorerHref = (baseId: string) => `${baseHref(baseId)}/explorer`;
-
 const mapBase = (base: PulseBase) => ({
   id: base.id,
   name: base.name.slice(0, 120),
@@ -73,6 +70,7 @@ const mapSource = (source: PulseSource) => ({
   lastError: source.lastError?.slice(0, 2_000) ?? null,
   lastErrorAt: source.lastErrorAt,
   updatedAt: source.updatedAt,
+  links: [{ rel: "open" as const, href: pulseSourceHref(source.baseId, source.id) }],
 });
 
 const mapSavedQuery = (query: PulseSavedQuery) => ({
@@ -103,7 +101,7 @@ const runBaseSearch = async (input: UniversalSearchInput, context: CapabilityExe
     icon: "ti ti-activity-heartbeat",
     priority: 7,
     metadata: [{ label: "Type", value: "Pulse Base" }],
-    links: [{ rel: "open", href: baseHref(base.id) }],
+    links: [{ rel: "open", href: pulseBaseHref(base.id) }],
   }));
   return ok({ data });
 };
@@ -115,7 +113,14 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
   if (!scope.ok) return scope;
   const result = await pulseService.base.list(scope.data, { query: input.query, limit: input.limit + 1, offset: cursor.data });
   if (!result.ok) return result;
-  const page = pageResult(result.data.map(mapBase), cursor.data, input.limit);
+  const page = pageResult(
+    result.data.map((base) => ({
+      ...mapBase(base),
+      links: [{ rel: "open" as const, href: pulseBaseHref(base.id) }],
+    })),
+    cursor.data,
+    input.limit,
+  );
   return ok({
     ...page,
     refs: page.data.map((base) => ({ type: "pulse.base" as const, id: base.id })),
@@ -137,7 +142,6 @@ const runSourceList = async (input: z.infer<typeof SourceListInputSchema>, conte
   return ok({
     ...page,
     refs: page.data.map((source) => ({ type: "pulse.source" as const, id: source.id })),
-    links: [{ rel: "open" as const, href: `${baseHref(input.baseId)}/sources` }],
   });
 };
 
@@ -163,7 +167,7 @@ const runResourceSearch = async (input: UniversalSearchInput, context: Capabilit
       { label: "Base ID", value: resource.baseId },
       { label: "Resource key", value: resource.key },
     ],
-    links: [{ rel: "open", href: resourceHref(resource.baseId, resource.key) }],
+    links: [{ rel: "open", href: pulseResourceHref(resource.baseId, resource.key) }],
   }));
   return ok({ data });
 };
@@ -185,6 +189,7 @@ const runMetricSearch = async (input: z.infer<typeof MetricSearchInputSchema>, c
       ...metric,
       name: metric.name.slice(0, 240),
       unit: metric.unit?.slice(0, 120) ?? null,
+      links: [{ rel: "open" as const, href: pulseSignalHref(input.baseId, "metric", metric.name) }],
     })),
     cursor.data,
     input.limit,
@@ -206,7 +211,11 @@ const runFieldSearch = async (input: z.infer<typeof FieldSearchInputSchema>, con
   });
   if (!result.ok) return result;
   const page = pageResult(
-    result.data.map((field) => ({ ...field, signalName: field.signalName.slice(0, 240) })),
+    result.data.map((field) => ({
+      ...field,
+      signalName: field.signalName.slice(0, 240),
+      links: [{ rel: "open" as const, href: pulseSignalHref(input.baseId, field.scope, field.signalName) }],
+    })),
     cursor.data,
     input.limit,
   );
@@ -228,7 +237,7 @@ const runQueryCompile = async (input: z.infer<typeof QueryTextInputSchema>, cont
       })),
     },
     refs: [{ type: "pulse.base", id: input.baseId }],
-    links: [{ rel: "open" as const, href: explorerHref(input.baseId) }],
+    links: [{ rel: "open" as const, href: pulseExplorerHref(input.baseId) }],
   });
 };
 
@@ -269,7 +278,7 @@ type QueryExecutionData = z.infer<typeof QueryExecutionDataSchema>;
 const queryCapabilityResult = (data: QueryExecutionData, refs: CloudResourceRef[]) => ({
   data,
   refs,
-  links: [{ rel: "open" as const, href: explorerHref(refs[0]!.id) }],
+  links: [{ rel: "open" as const, href: pulseExplorerHref(refs[0]!.id) }],
 });
 
 const fitQueryResult = (data: QueryExecutionData, refs: CloudResourceRef[]) => {
@@ -363,7 +372,7 @@ const runSavedQueryList = async (input: z.infer<typeof SavedQueryListInputSchema
   return ok({
     ...page,
     refs: page.data.map((query) => ({ type: "pulse.saved_query" as const, id: query.id })),
-    links: [{ rel: "open" as const, href: explorerHref(input.baseId) }],
+    links: [{ rel: "open" as const, href: pulseExplorerHref(input.baseId) }],
   });
 };
 

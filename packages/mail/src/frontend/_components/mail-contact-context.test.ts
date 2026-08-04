@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { z } from "zod";
-import type { contactResolveMatchSchema } from "../../app-integration-contracts";
+import { contactOpenHref, type contactResolveMatchSchema } from "../../app-integration-contracts";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
 
 type ContactMatch = z.infer<typeof contactResolveMatchSchema>;
@@ -21,6 +21,17 @@ const contact = (id: string, bookId: string, email: string): ContactMatch => ({
 });
 
 describe("Mail contact context", () => {
+  test("projects optional capability links without inferring a Contacts route", () => {
+    expect(contactOpenHref(undefined)).toBeNull();
+    expect(contactOpenHref([{ rel: "edit", href: "/app/contacts/book?contact=one" }])).toBe("/app/contacts/book?contact=one");
+    expect(
+      contactOpenHref([
+        { rel: "edit", href: "/app/contacts/book?contact=one&edit=true" },
+        { rel: "open", href: "/app/contacts/book?contact=one" },
+      ]),
+    ).toBe("/app/contacts/book?contact=one");
+  });
+
   test("groups multiple exact contacts under one participant", () => {
     const rows = buildMailContactParticipantRows({
       participants: [{ email: "ada@example.com", displayName: "Ada" }],

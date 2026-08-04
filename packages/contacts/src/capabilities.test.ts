@@ -366,11 +366,64 @@ describe("contacts capabilities", () => {
           emails: [{ label: "work", email: "ada@example.com" }],
           phones: [{ label: "mobile", phone: "+49 170 1234567" }],
           contactPointsTruncated: false,
-          openHref: "/app/contacts/553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef?contact=553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
+          links: [
+            {
+              rel: "open",
+              href: "/app/contacts/553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef?contact=553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
+            },
+          ],
           updatedAt: "2026-08-01T10:00:00.000Z",
         },
       ]).success,
     ).toBeTrue();
+  });
+
+  test("emits semantic contact links without the legacy openHref field", async () => {
+    spyOn(contactsService.contact, "search").mockResolvedValue({
+      items: [contact],
+      page: 1,
+      perPage: 8,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    });
+    const suggested = await contactsCapabilities.queries["contact.suggest"].run({ query: "Ada", limit: 8 }, context);
+    expect(suggested.ok).toBeTrue();
+    if (!suggested.ok) return;
+    expect(suggested.data.data[0]).toMatchObject({
+      links: [{ rel: "open", href: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}` }],
+    });
+    expect("openHref" in suggested.data.data[0]!).toBeFalse();
+
+    spyOn(contactsService.lookup, "resolveContactsByEmail").mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            contactId,
+            bookId,
+            bookName: "Contacts",
+            displayName: "Ada Example",
+            companyName: null,
+            jobTitle: null,
+            matchedEmails: ["ada@example.test"],
+            emails: [{ label: "work", email: "ada@example.test" }],
+            phones: [],
+            contactPointsTruncated: false,
+            updatedAt: timestamp,
+          },
+        ],
+        matchedEmails: ["ada@example.test"],
+        nextCursor: null,
+      },
+    });
+    const resolved = await contactsCapabilities.queries["contact.resolve"].run({ emails: ["ada@example.test"], limit: 25 }, context);
+    expect(resolved.ok).toBeTrue();
+    if (!resolved.ok) return;
+    expect(resolved.data.data.items[0]).toMatchObject({
+      links: [{ rel: "open", href: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}` }],
+    });
+    expect("openHref" in resolved.data.data.items[0]!).toBeFalse();
   });
 
   test("keeps exact resolution bounded and rejects unrelated contact fields", () => {

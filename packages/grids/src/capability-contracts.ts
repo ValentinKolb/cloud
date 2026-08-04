@@ -1,8 +1,10 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(16_384).optional().describe("Opaque cursor returned by the previous page.");
 const PageLimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of items to return.");
+const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 export const BaseCapabilityDataSchema = z
   .object({
@@ -12,6 +14,7 @@ export const BaseCapabilityDataSchema = z
     description: z.string().max(1_000).nullable(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
+    links: ResourceLinksSchema,
   })
   .strict();
 
@@ -43,6 +46,7 @@ const TableContextItemSchema = z
     permission: GridsPermissionSchema,
     canCreateRecords: z.boolean(),
     canUpdateRecords: z.boolean(),
+    links: ResourceLinksSchema,
   })
   .strict();
 
@@ -55,6 +59,7 @@ const ViewContextItemSchema = z
     name: z.string().min(1).max(200),
     description: z.string().max(2_000).nullable(),
     icon: z.string().max(200).nullable(),
+    links: ResourceLinksSchema,
   })
   .strict();
 
@@ -234,6 +239,7 @@ const GqlSuccessSchema = z
             tableId: z.uuid().optional(),
             recordMeta: RecordMetaSchema.optional(),
             values: z.record(z.string(), z.unknown()),
+            links: ResourceLinksSchema,
           })
           .strict(),
       )

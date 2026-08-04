@@ -1,9 +1,11 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const NullableTextSchema = z.string().nullable();
 const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
+const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 const ReadableContactBookIdSchema = z.union([z.uuid(), z.literal("system")]);
 export const CONTACT_COLLECTION_LIMIT = 20;
 export const CONTACT_TAG_LIMIT = 100;
@@ -21,6 +23,7 @@ const ContactTagDataSchema = z
     bookId: z.uuid(),
     name: z.string().min(1),
     color: z.string().regex(/^#[0-9a-f]{6}$/i),
+    links: ResourceLinksSchema,
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })
@@ -93,7 +96,7 @@ export const ContactSuggestionDataSchema = z
     emails: z.array(ContactLookupEmailDataSchema).min(1).max(20),
     phones: z.array(ContactLookupPhoneDataSchema).max(20),
     contactPointsTruncated: z.boolean(),
-    openHref: z.string().startsWith("/app/contacts/"),
+    links: ResourceLinksSchema,
     updatedAt: TimestampSchema,
   })
   .strict();
@@ -125,7 +128,7 @@ export const ContactResolveMatchDataSchema = z
     emails: z.array(ContactLookupEmailDataSchema).max(20),
     phones: z.array(ContactLookupPhoneDataSchema).max(20),
     contactPointsTruncated: z.boolean(),
-    openHref: z.string().startsWith("/app/contacts/"),
+    links: ResourceLinksSchema,
     updatedAt: TimestampSchema,
   })
   .strict();
@@ -178,6 +181,7 @@ const ContactBookDataSchema = z
     name: z.string().min(1),
     description: NullableTextSchema,
     permission: z.enum(["read", "write", "admin"]),
+    links: ResourceLinksSchema,
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
   })

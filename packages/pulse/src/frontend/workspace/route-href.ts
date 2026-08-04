@@ -1,3 +1,4 @@
+import { pulseBaseHref, pulseExplorerHref, pulseResourceHref, pulseSignalHref, pulseSourceHref } from "../../resource-hrefs";
 import type { ActivityQueryState, ResourceQueryState, WorkspaceHrefOptions, WorkspaceView } from "./route-types";
 
 const setTrimmedParam = (params: URLSearchParams, key: string, value: string | undefined): void => {
@@ -25,9 +26,6 @@ const resourceSearch = (resources: Partial<ResourceQueryState> = {}) => {
   return searchString(params);
 };
 
-const focusedSignalPrefix = (view: WorkspaceHrefOptions["state"]["view"]): "metrics" | "states" | "events" =>
-  view === "metric-detail" ? "metrics" : view === "state-detail" ? "states" : "events";
-
 const focusedSignalSearch = (focusedSearch: string | undefined): string => {
   const params = new URLSearchParams();
   setTrimmedParam(params, "q", focusedSearch);
@@ -37,25 +35,20 @@ const focusedSignalSearch = (focusedSearch: string | undefined): string => {
 type WorkspaceHrefBuilder = (options: WorkspaceHrefOptions & { baseId: string }) => string;
 
 const viewHrefBuilders: Record<WorkspaceView, WorkspaceHrefBuilder> = {
-  dashboard: ({ baseId, state }) => (state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}` : `/app/pulse/${baseId}/resources`),
+  dashboard: ({ baseId, state }) =>
+    state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}` : `/app/pulse/${baseId}/resources`,
   "dashboard-edit": ({ baseId, state }) =>
-    state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}/edit` : `/app/pulse/${baseId}`,
-  sources: ({ baseId, state }) => (state.sourceId ? `/app/pulse/${baseId}/sources/${state.sourceId}` : `/app/pulse/${baseId}/sources`),
-  "resource-detail": ({ baseId, state }) => `/app/pulse/${baseId}/resources/${encodeURIComponent(state.signalId ?? "")}`,
+    state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}/edit` : pulseBaseHref(baseId),
+  sources: ({ baseId, state }) => (state.sourceId ? pulseSourceHref(baseId, state.sourceId) : `/app/pulse/${baseId}/sources`),
+  "resource-detail": ({ baseId, state }) => pulseResourceHref(baseId, state.signalId ?? ""),
   resources: ({ baseId, resources }) => `/app/pulse/${baseId}/resources${resourceSearch(resources)}`,
-  "metric-detail": ({ baseId, state, focusedSearch }) => {
-    const prefix = focusedSignalPrefix(state.view);
-    return `/app/pulse/${baseId}/${prefix}/${encodeURIComponent(state.signalId ?? "")}${focusedSignalSearch(focusedSearch)}`;
-  },
-  "state-detail": ({ baseId, state, focusedSearch }) => {
-    const prefix = focusedSignalPrefix(state.view);
-    return `/app/pulse/${baseId}/${prefix}/${encodeURIComponent(state.signalId ?? "")}${focusedSignalSearch(focusedSearch)}`;
-  },
-  "event-detail": ({ baseId, state, focusedSearch }) => {
-    const prefix = focusedSignalPrefix(state.view);
-    return `/app/pulse/${baseId}/${prefix}/${encodeURIComponent(state.signalId ?? "")}${focusedSignalSearch(focusedSearch)}`;
-  },
-  explorer: ({ baseId }) => `/app/pulse/${baseId}/explorer`,
+  "metric-detail": ({ baseId, state, focusedSearch }) =>
+    `${pulseSignalHref(baseId, "metric", state.signalId ?? "")}${focusedSignalSearch(focusedSearch)}`,
+  "state-detail": ({ baseId, state, focusedSearch }) =>
+    `${pulseSignalHref(baseId, "state", state.signalId ?? "")}${focusedSignalSearch(focusedSearch)}`,
+  "event-detail": ({ baseId, state, focusedSearch }) =>
+    `${pulseSignalHref(baseId, "event", state.signalId ?? "")}${focusedSignalSearch(focusedSearch)}`,
+  explorer: ({ baseId }) => pulseExplorerHref(baseId),
   "activity-states": ({ baseId, activity }) => `/app/pulse/${baseId}/signals/states${activitySearch(activity)}`,
   "activity-metrics": ({ baseId, activity }) => `/app/pulse/${baseId}/signals/metrics${activitySearch(activity)}`,
   "activity-events": ({ baseId, activity }) => `/app/pulse/${baseId}/signals/events${activitySearch(activity)}`,

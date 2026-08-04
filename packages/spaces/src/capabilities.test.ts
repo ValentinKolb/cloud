@@ -7,11 +7,13 @@ import {
   CommentCreateInputSchema,
   CommentListDataSchema,
   EventCreateInputSchema,
+  EventListDataSchema,
   EventUpdateInputSchema,
   SpaceDetailDataSchema,
   SpaceListInputSchema,
   TaskCreateInputSchema,
   TaskListDataSchema,
+  TaskListInputSchema,
   TaskUpdateInputSchema,
 } from "./capability-contracts";
 import type { SpaceComment, SpaceItem } from "./contracts";
@@ -159,7 +161,19 @@ describe("spaces capabilities", () => {
       requiredLevel: "write",
       pagination: { page: 1, perPage: 100 },
     });
-    expect(result).toEqual({ ok: true, data: { data: [{ id: spaceId, name: space.name, color: space.color }] } });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        data: [
+          {
+            id: spaceId,
+            name: space.name,
+            color: space.color,
+            links: [{ rel: "open", href: `/app/spaces/${spaceId}` }],
+          },
+        ],
+      },
+    });
   });
 
   test("declares the complete bounded v1 surface and safety metadata", () => {
@@ -488,7 +502,7 @@ describe("spaces capabilities", () => {
   });
 
   test("keeps compact item and comment pages below the capability transport limit", () => {
-    const tasks = Array.from({ length: 100 }, () => ({
+    const tasks = Array.from({ length: 50 }, () => ({
       kind: "task" as const,
       id: itemId,
       spaceId,
@@ -504,6 +518,7 @@ describe("spaces capabilities", () => {
       relationsTruncated: true,
       createdAt,
       updatedAt: createdAt,
+      links: [{ rel: "open" as const, href: `/app/spaces/${spaceId}?item=${itemId}` }],
     }));
     const comments = Array.from({ length: 100 }, () => ({
       id: commentId,
@@ -517,10 +532,25 @@ describe("spaces capabilities", () => {
       updatedAt: createdAt,
       canDelete: true,
     }));
+    const events = tasks.map(({ kind: _kind, deadline: _deadline, priority: _priority, ...task }) => ({
+      ...task,
+      kind: "event" as const,
+      location: "l".repeat(200),
+      locationTruncated: true,
+      url: `https://example.test/${"u".repeat(470)}`,
+      urlTruncated: true,
+      startsAt: createdAt,
+      endsAt: createdAt,
+      allDay: false,
+      hasRecurrence: true,
+    }));
     const parsedTasks = TaskListDataSchema.parse(tasks);
+    const parsedEvents = EventListDataSchema.parse(events);
     const parsedComments = CommentListDataSchema.parse(comments);
     expect(Buffer.byteLength(JSON.stringify({ data: parsedTasks }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+    expect(Buffer.byteLength(JSON.stringify({ data: parsedEvents }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
     expect(Buffer.byteLength(JSON.stringify({ data: parsedComments }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+    expect(TaskListInputSchema.safeParse({ spaceId, limit: 51 }).success).toBeFalse();
   });
 });
 

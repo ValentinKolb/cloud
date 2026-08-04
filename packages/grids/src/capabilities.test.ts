@@ -10,6 +10,7 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { gridsCapabilities } from "./capabilities";
+import { BaseListDataSchema, GqlResultDataSchema } from "./capability-contracts";
 import { migrate } from "./migrate";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
@@ -110,6 +111,35 @@ describe("Grids capabilities", () => {
     expect(gridsCapabilities.queries?.["gql.view.execute"]?.description.toLowerCase()).toContain("saved");
   });
 
+  test("accepts semantic links on navigable list and query rows", () => {
+    const baseId = uuid();
+    const tableId = uuid();
+    const recordId = uuid();
+    const links = [{ rel: "open" as const, href: `/app/grids/base/table/table?record=${recordId}` }];
+    expect(
+      BaseListDataSchema.safeParse([
+        {
+          id: baseId,
+          shortId: "base",
+          name: "Base",
+          description: null,
+          createdAt: "2026-08-04T00:00:00.000Z",
+          updatedAt: "2026-08-04T00:00:00.000Z",
+          links,
+        },
+      ]).success,
+    ).toBeTrue();
+    expect(
+      GqlResultDataSchema.safeParse({
+        ok: true,
+        mode: "rows",
+        columns: [],
+        rows: [{ recordId, tableId, values: {}, links }],
+        limit: 1,
+      }).success,
+    ).toBeTrue();
+  });
+
   postgresTest("discovers schema, executes GQL, and mutates records with conflict protection", async () => {
     process.env.APP_SECRET ??= "grids-capability-integration-secret";
     const user = testUser(await existingAuthUserId());
@@ -194,7 +224,13 @@ describe("Grids capabilities", () => {
       ]);
 
       const listed = await invoke("query", "base.list", { query: "Capability", limit: 25 }, context);
-      expect(listed.ok && listed.data.data).toEqual([expect.objectContaining({ id: baseId, name: "Capability Base" })]);
+      expect(listed.ok && listed.data.data).toEqual([
+        expect.objectContaining({
+          id: baseId,
+          name: "Capability Base",
+          links: [{ rel: "open", href: expect.stringMatching(/^\/app\/grids\//) }],
+        }),
+      ]);
 
       const loadedBase = await invoke("query", "base.get", { baseId }, context);
       expect(loadedBase.ok && loadedBase.data.data).toMatchObject({ id: baseId, shortId: expect.any(String) });
@@ -210,6 +246,7 @@ describe("Grids capabilities", () => {
             permission: "write",
             canCreateRecords: true,
             canUpdateRecords: true,
+            links: [{ rel: "open", href: expect.stringContaining("/table/") }],
           },
         ],
       });
@@ -270,7 +307,10 @@ describe("Grids capabilities", () => {
       });
 
       const views = await invoke("query", "gql.context", { baseId, kind: "views", limit: 25 }, context);
-      expect(views.ok && views.data.data).toMatchObject({ kind: "views", items: [{ kind: "view", id: viewId, name: "All items" }] });
+      expect(views.ok && views.data.data).toMatchObject({
+        kind: "views",
+        items: [{ kind: "view", id: viewId, name: "All items", links: [{ rel: "open", href: expect.stringContaining("/view/") }] }],
+      });
 
       const created = await invoke("action", "record.create", { tableId, values: { [fieldId]: "First" } }, context);
       expect(created.ok).toBe(true);
@@ -289,7 +329,12 @@ describe("Grids capabilities", () => {
         { baseId, query: `from table {${tableId}}\nselect {${fieldId}}`, pageSize: 25 },
         context,
       );
-      expect(preview.ok && preview.data.data).toMatchObject({ ok: true, rows: [expect.objectContaining({ recordId: record.id })] });
+      expect(preview.ok && preview.data.data).toMatchObject({
+        ok: true,
+        rows: [
+          expect.objectContaining({ recordId: record.id, links: [{ rel: "open", href: expect.stringContaining(`record=${record.id}`) }] }),
+        ],
+      });
 
       const gql = await invoke(
         "query",

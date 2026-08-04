@@ -175,7 +175,12 @@ describe("weather capabilities", () => {
     expect(result).toMatchObject({
       ok: true,
       data: {
-        data: [location],
+        data: [
+          {
+            ...location,
+            links: [{ rel: "open", href: `/app/weather/${locationId}` }],
+          },
+        ],
         refs: [{ type: "weather.location", id: locationId }],
         page: { hasMore: true },
       },

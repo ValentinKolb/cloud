@@ -2,6 +2,7 @@ import { mutation } from "@k2b/stdlib/solid";
 import { Placeholder, prompts, Button } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
+import { contactOpenHref } from "../../app-integration-contracts";
 import type { MailConversationContext, RelatedMailPage } from "../../contracts";
 import { readApiError } from "./api-response";
 import { createContact, listWritableContactBooks } from "./contact-capabilities";
@@ -235,7 +236,7 @@ export default function MailConversationContext(props: {
       );
       if (conversationId !== props.conversationId) return;
       const contact = result.data.contact;
-      const openHref = result.links?.find((link) => link.rel === "edit" || link.rel === "open")?.href;
+      const openHref = contactOpenHref(result.links);
       setContext((current) => {
         if (!current || current.conversationId !== conversationId || current.contacts.status !== "ready") return current;
         return {
@@ -255,9 +256,7 @@ export default function MailConversationContext(props: {
                 emails: contact.emails.slice(0, 20),
                 phones: contact.phones.slice(0, 20),
                 contactPointsTruncated: contact.emails.length > 20 || contact.phones.length > 20,
-                openHref:
-                  openHref ??
-                  `/app/contacts/${encodeURIComponent(contact.bookId)}?contact=${encodeURIComponent(contact.id)}&contactBook=${encodeURIComponent(contact.bookId)}`,
+                openHref,
                 updatedAt: contact.updatedAt,
               },
             ],
@@ -352,9 +351,16 @@ export default function MailConversationContext(props: {
                               <For each={participant.contacts}>
                                 {(contact) => (
                                   <div class="min-w-0">
-                                    <a class="block truncate text-sm font-medium text-primary hover:underline" href={contact.openHref}>
-                                      {contact.displayName}
-                                    </a>
+                                    <Show
+                                      when={contact.openHref}
+                                      fallback={<p class="truncate text-sm font-medium text-primary">{contact.displayName}</p>}
+                                    >
+                                      {(href) => (
+                                        <a class="block truncate text-sm font-medium text-primary hover:underline" href={href()}>
+                                          {contact.displayName}
+                                        </a>
+                                      )}
+                                    </Show>
                                     <p class="truncate text-xs text-dimmed">
                                       {[contact.jobTitle, contact.companyName, contact.bookName].filter(Boolean).join(" · ")}
                                     </p>

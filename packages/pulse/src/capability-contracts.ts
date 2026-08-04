@@ -1,3 +1,4 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import { METRIC_TYPES, SOURCE_KINDS } from "./contracts";
 
@@ -6,6 +7,7 @@ const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque curs
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
+const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 const BaseDataSchema = z
   .object({
@@ -14,6 +16,7 @@ const BaseDataSchema = z
     description: z.string().max(1_000).nullable(),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
+    links: ResourceLinksSchema,
   })
   .strict();
 export const BaseListDataSchema = z.array(BaseDataSchema).max(100);
@@ -30,6 +33,7 @@ const SourceDataSchema = z
     lastError: z.string().max(2_000).nullable(),
     lastErrorAt: TimestampSchema.nullable(),
     updatedAt: TimestampSchema,
+    links: ResourceLinksSchema,
   })
   .strict();
 export const SourceListDataSchema = z.array(SourceDataSchema).max(100);
@@ -44,6 +48,7 @@ const MetricDataSchema = z
     type: z.enum(METRIC_TYPES),
     seriesCount: z.number().int().nonnegative(),
     lastSeenAt: TimestampSchema.nullable(),
+    links: ResourceLinksSchema,
   })
   .strict();
 export const MetricSearchDataSchema = z.array(MetricDataSchema).max(100);
@@ -67,6 +72,7 @@ const FieldDataSchema = z
     observedCount: z.number().int().nonnegative(),
     firstSeenAt: TimestampSchema,
     lastSeenAt: TimestampSchema,
+    links: ResourceLinksSchema,
   })
   .strict();
 export const FieldSearchDataSchema = z.array(FieldDataSchema).max(100);

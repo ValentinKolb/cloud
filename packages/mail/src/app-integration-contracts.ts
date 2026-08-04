@@ -1,3 +1,4 @@
+import { CapabilitySemanticLinkSchema, type CapabilitySemanticLink } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const timestampSchema = z.string().datetime({ offset: true });
@@ -6,27 +7,34 @@ const nullableTextSchema = z.string().nullable();
 export const normalizedContactEmailSchema = z.email().max(320);
 const contactPointEmailSchema = z.object({ label: nullableTextSchema, email: z.email() }).passthrough();
 const contactPointPhoneSchema = z.object({ label: nullableTextSchema, phone: z.string().min(1) }).passthrough();
+const contactResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
+
+export const contactOpenHref = (links: readonly CapabilitySemanticLink[] | undefined): string | null =>
+  links?.find((link) => link.rel === "open")?.href ?? links?.find((link) => link.rel === "edit")?.href ?? null;
+
+const contactResolveMatchShape = {
+  contactId: z.uuid(),
+  bookId: z.string().min(1),
+  bookName: z.string().min(1),
+  displayName: z.string().min(1),
+  companyName: nullableTextSchema,
+  jobTitle: nullableTextSchema,
+  matchedEmails: z.array(normalizedContactEmailSchema).min(1).max(100),
+  emails: z.array(contactPointEmailSchema).max(20),
+  phones: z.array(contactPointPhoneSchema).max(20),
+  contactPointsTruncated: z.boolean(),
+  updatedAt: timestampSchema,
+};
+
+const contactResolveCapabilityMatchSchema = z.object({ ...contactResolveMatchShape, links: contactResourceLinksSchema }).passthrough();
 
 export const contactResolveMatchSchema = z
-  .object({
-    contactId: z.uuid(),
-    bookId: z.string().min(1),
-    bookName: z.string().min(1),
-    displayName: z.string().min(1),
-    companyName: nullableTextSchema,
-    jobTitle: nullableTextSchema,
-    matchedEmails: z.array(normalizedContactEmailSchema).min(1).max(100),
-    emails: z.array(contactPointEmailSchema).max(20),
-    phones: z.array(contactPointPhoneSchema).max(20),
-    contactPointsTruncated: z.boolean(),
-    openHref: z.string().startsWith("/app/contacts/"),
-    updatedAt: timestampSchema,
-  })
+  .object({ ...contactResolveMatchShape, openHref: z.string().startsWith("/app/contacts/").nullable() })
   .passthrough();
 
 export const contactResolveDataSchema = z
   .object({
-    items: z.array(contactResolveMatchSchema).max(50),
+    items: z.array(contactResolveCapabilityMatchSchema).max(50),
     matchedEmails: z.array(normalizedContactEmailSchema).max(100),
   })
   .passthrough();
@@ -41,7 +49,7 @@ export const contactSuggestionSchema = z
     emails: z.array(contactPointEmailSchema).min(1).max(20),
     phones: z.array(contactPointPhoneSchema).max(20),
     contactPointsTruncated: z.boolean(),
-    openHref: z.string().startsWith("/app/contacts/"),
+    links: contactResourceLinksSchema,
     updatedAt: timestampSchema,
   })
   .passthrough();

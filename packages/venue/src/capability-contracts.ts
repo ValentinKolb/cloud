@@ -1,3 +1,4 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const TimestampSchema = z.string().datetime({ offset: true });
@@ -6,6 +7,7 @@ const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque curs
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 const VenueIdSchema = z.uuid().describe("Stable Venue UUID.");
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
+const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 const VenueDataSchema = z
   .object({
@@ -31,7 +33,7 @@ export const VenueListInputSchema = z
     ...PageInputShape,
   })
   .strict();
-export const VenueListDataSchema = z.array(VenueDataSchema).max(100);
+export const VenueListDataSchema = z.array(VenueDataSchema.extend({ links: ResourceLinksSchema }).strict()).max(100);
 export const VenueGetInputSchema = z.object({ venueId: VenueIdSchema }).strict();
 export const VenueGetDataSchema = VenueDataSchema;
 

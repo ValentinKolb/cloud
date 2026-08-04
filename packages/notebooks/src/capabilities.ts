@@ -283,9 +283,10 @@ const runNotebookList = async (input: z.infer<typeof NotebookListInputSchema>, c
     pagination: { limit: input.limit, offset: (cursor.data - 1) * input.limit },
     query: input.query,
   });
-  const data = page.items.map((notebook: NotebookWithPermission) =>
-    mapNotebook(notebook, effectivePermission(notebook.permission, context) as Exclude<PermissionLevel, "none">),
-  );
+  const data = page.items.map((notebook: NotebookWithPermission) => ({
+    ...mapNotebook(notebook, effectivePermission(notebook.permission, context) as Exclude<PermissionLevel, "none">),
+    links: [{ rel: "open" as const, href: notebookHref(notebook) }],
+  }));
   return ok({
     data,
     page: capabilityPage(cursor.data * input.limit < page.total ? encodePageCursor(cursor.data + 1) : undefined),
@@ -314,7 +315,10 @@ const runNoteTree = async (input: z.infer<typeof NoteTreeInputSchema>, context: 
     limit: input.limit + 1,
   });
   const hasMore = rows.length > input.limit;
-  const data = rows.slice(0, input.limit);
+  const data = rows.slice(0, input.limit).map((note) => ({
+    ...note,
+    links: [{ rel: "open" as const, href: noteHref(access.data.notebook, note) }],
+  }));
   const last = data.at(-1);
   return ok({
     data,
@@ -370,7 +374,15 @@ const runNoteLinks = async (input: z.infer<typeof NoteLinksInputSchema>, context
     pagination: { limit: input.limit + 1, offset: (cursor.data - 1) * input.limit },
   });
   const hasMore = rows.length > input.limit;
-  const data = rows.slice(0, input.limit);
+  const data = rows.slice(0, input.limit).map((entry) => ({
+    ...entry,
+    links: [
+      {
+        rel: "open" as const,
+        href: `/app/notebooks/${entry.notebookShortId}/notes/${entry.noteShortId}`,
+      },
+    ],
+  }));
   return ok({
     data,
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
@@ -389,7 +401,10 @@ const runTagList = async (input: z.infer<typeof TagListInputSchema>, context: Ca
   });
   const hasMore = rows.length > input.limit;
   return ok({
-    data: rows.slice(0, input.limit),
+    data: rows.slice(0, input.limit).map((entry) => ({
+      ...entry,
+      links: [{ rel: "open" as const, href: `/app/notebooks/${access.data.notebook.shortId}/tags/${encodeURIComponent(entry.tag)}` }],
+    })),
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
   });
 };
@@ -408,7 +423,11 @@ const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: 
   const hasMore = cursor.data * input.limit < result.total;
   const data = result.items.map((item) => {
     const updatedAt = item.updatedAt as string | Date;
-    return { ...item, updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt };
+    return {
+      ...item,
+      updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
+      links: [{ rel: "open" as const, href: noteHref(access.data.notebook, item) }],
+    };
   });
   return ok({
     data,

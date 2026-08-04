@@ -1,3 +1,4 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const TimestampSchema = z.string().datetime({ offset: true });
@@ -7,6 +8,7 @@ const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maxim
 const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
 const ContentHashSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const NamedBlockTypeSchema = z.enum(["table", "list", "data", "section", "script", "unknown"]);
+const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 const NotebookDataShape = {
   id: z.uuid(),
@@ -19,6 +21,7 @@ const NotebookDataShape = {
   permission: PermissionSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
+  links: ResourceLinksSchema,
 };
 
 export const NotebookDataSchema = z.object(NotebookDataShape).strict();
@@ -65,6 +68,7 @@ export const NoteTreeDataSchema = z
         title: z.string(),
         position: z.number().int().nonnegative(),
         hasChildren: z.boolean(),
+        links: ResourceLinksSchema,
       })
       .strict(),
   )
@@ -123,6 +127,7 @@ export const NoteLinksDataSchema = z
         notebookShortId: z.string().min(1).max(6),
         notebookName: z.string(),
         updatedAt: TimestampSchema,
+        links: ResourceLinksSchema,
       })
       .strict(),
   )
@@ -135,7 +140,9 @@ export const TagListInputSchema = z
     limit: LimitSchema,
   })
   .strict();
-export const TagListDataSchema = z.array(z.object({ tag: z.string().min(1), count: z.number().int().nonnegative() }).strict()).max(100);
+export const TagListDataSchema = z
+  .array(z.object({ tag: z.string().min(1), count: z.number().int().nonnegative(), links: ResourceLinksSchema }).strict())
+  .max(100);
 
 export const TagNotesInputSchema = z
   .object({
@@ -161,6 +168,7 @@ export const TagNotesDataSchema = z
         title: z.string(),
         preview: z.string().nullable(),
         updatedAt: TimestampSchema,
+        links: ResourceLinksSchema,
       })
       .strict(),
   )

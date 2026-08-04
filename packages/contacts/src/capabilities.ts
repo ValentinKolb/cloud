@@ -53,14 +53,16 @@ import { resolveContactName, safeWebsiteHref } from "./shared";
 const CONTACT_CREATE_ACTION_ID = "contacts.contact.create";
 const NOTE_CREATE_ACTION_ID = "contacts.note.create";
 
-const contactHref = (contact: Pick<Contact, "id" | "bookId">): string =>
-  `/app/contacts/${contact.bookId}?contact=${contact.id}&contactBook=${contact.bookId}`;
+const contactHrefById = (bookId: string, contactId: string): string =>
+  `/app/contacts/${encodeURIComponent(bookId)}?contact=${encodeURIComponent(contactId)}&contactBook=${encodeURIComponent(bookId)}`;
+const contactHref = (contact: Pick<Contact, "id" | "bookId">): string => contactHrefById(contact.bookId, contact.id);
 
 const mapTag = (tag: ContactTag) => ({
   id: tag.id,
   bookId: tag.bookId,
   name: tag.name,
   color: tag.color,
+  links: [{ rel: "open" as const, href: `/app/contacts/${tag.bookId}?tag_id=${tag.id}` }],
   createdAt: tag.createdAt,
   updatedAt: tag.updatedAt,
 });
@@ -154,7 +156,7 @@ const mapContactSuggestion = (contact: Contact) => ({
   emails: contact.emails.slice(0, 20).map((item) => ({ label: item.label, email: item.email })),
   phones: contact.phones.slice(0, 20).map((item) => ({ label: item.label, phone: item.phone })),
   contactPointsTruncated: contact.emails.length > 20 || contact.phones.length > 20,
-  openHref: contactHref(contact),
+  links: [{ rel: "open" as const, href: contactHref(contact) }],
   updatedAt: contact.updatedAt,
 });
 
@@ -243,10 +245,16 @@ export const decodeContactCapabilityCursor = (cursor: string | undefined): Resul
   }
 };
 
-const pageResult = <T>(page: Paginated<unknown>, data: T, refs?: CapabilityResult<T>["refs"]): CapabilityInvocationResult<T> =>
+const pageResult = <T>(
+  page: Paginated<unknown>,
+  data: T,
+  refs?: CapabilityResult<T>["refs"],
+  links?: CapabilityResult<T>["links"],
+): CapabilityInvocationResult<T> =>
   ok({
     data,
     ...(refs ? { refs } : {}),
+    ...(links ? { links } : {}),
     page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1) : undefined),
   });
 
@@ -416,7 +424,14 @@ const runContactResolve = async (input: z.infer<typeof ContactResolveInputSchema
     input: normalizedInput,
   });
   if (!result.ok) return result;
-  const { nextCursor, ...data } = result.data;
+  const { nextCursor, ...resolvedData } = result.data;
+  const data = {
+    ...resolvedData,
+    items: resolvedData.items.map((contact) => ({
+      ...contact,
+      links: [{ rel: "open" as const, href: contactHrefById(contact.bookId, contact.contactId) }],
+    })),
+  };
   return ok({
     data,
     refs: data.items.map((contact) => ({ type: "contacts.contact", id: contact.contactId })),
@@ -479,6 +494,7 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
         name: book.name,
         description: book.description,
         permission: "admin" as const,
+        links: [{ rel: "open" as const, href: `/app/contacts/${book.id}` }],
         createdAt: book.createdAt,
         updatedAt: book.updatedAt,
       })),
@@ -498,6 +514,7 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
       name: book.name,
       description: book.description,
       permission: minPermission(book.permission, scopedPermission) as "read" | "write" | "admin",
+      links: [{ rel: "open" as const, href: `/app/contacts/${book.id}` }],
       createdAt: book.createdAt,
       updatedAt: book.updatedAt,
     })),
@@ -533,6 +550,7 @@ const runNoteList = async (input: z.infer<typeof ContactNoteListInputSchema>, co
     page,
     page.items.map(mapNote),
     page.items.map((note) => ({ type: "contacts.note", id: note.id })),
+    [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
   );
 };
 
@@ -655,6 +673,7 @@ const runFavoriteSet = async (input: z.infer<typeof FavoriteSetInputSchema>, con
     return ok({
       data: { contactId: input.contactId, favorite: input.favorite },
       refs: [{ type: "contacts.contact", id: input.contactId }],
+      links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
     });
   });
 };
@@ -678,6 +697,7 @@ const runTagChange = async (input: z.infer<typeof ContactTagChangeInputSchema>, 
             tagsTruncated: result.data.length > CONTACT_TAG_LIMIT,
           },
           refs: [{ type: "contacts.contact", id: input.contactId }],
+          links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
         })
       : result;
   });
@@ -713,6 +733,7 @@ const runNoteCreate = async (input: z.infer<typeof ContactNoteCreateInputSchema>
           { type: "contacts.note", id: created.data.note.id },
           { type: "contacts.contact", id: input.contactId },
         ],
+        links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
       });
     },
     () => replayed,

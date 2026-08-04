@@ -8,6 +8,7 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { venueCapabilities } from "./capabilities";
+import { VenueListDataSchema } from "./capability-contracts";
 
 const testUser = (id: string, suffix: string): User => ({
   id,
@@ -116,6 +117,31 @@ describe("Venue capabilities", () => {
     ).toBeFalse();
   });
 
+  test("accepts item-local links for navigable Venue lists", () => {
+    const venueId = crypto.randomUUID();
+    const links = [{ rel: "open" as const, href: `/app/venue/${venueId}` }];
+    expect(
+      VenueListDataSchema.safeParse([
+        {
+          id: venueId,
+          slug: "venue",
+          name: "Venue",
+          icon: "ti ti-building",
+          description: null,
+          timezone: "Europe/Berlin",
+          openMode: "regular",
+          signupMode: "both",
+          publicEnabled: true,
+          feedbackEnabled: true,
+          permission: "read",
+          createdAt: "2026-08-04T00:00:00.000Z",
+          updatedAt: "2026-08-04T00:00:00.000Z",
+          links,
+        },
+      ]).success,
+    ).toBeTrue();
+  });
+
   postgresTest(
     "supports safe discovery, status, shift, assignment, and feedback workflows",
     async () => {
@@ -179,6 +205,14 @@ describe("Venue capabilities", () => {
           ]),
         );
         const list = await invokeQuery("venue.list", { limit: 25 }, context);
+        expect(list.ok && list.data.data).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: venueId,
+              links: [{ rel: "open", href: `/app/venue/${venueId}` }],
+            }),
+          ]),
+        );
         expect(list.ok && list.data.data).toEqual([expect.objectContaining({ id: venueId, permission: "write" })]);
         const hiddenList = await invokeQuery("venue.list", { limit: 25 }, otherContext);
         expect(hiddenList.ok && hiddenList.data.data).toEqual([]);
@@ -267,6 +301,7 @@ describe("Venue capabilities", () => {
         expect(duplicateFree.ok).toBe(false);
 
         const mine = await invokeQuery("assignment.mine", { venueId, days: 366, limit: 25 }, context);
+        expect(mine.ok && mine.data.links).toEqual([{ rel: "open", href: `/app/venue/${venueId}/my-shifts` }]);
         expect(mine.ok && mine.data.data).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ id: signup.data.data.id, venueId }),

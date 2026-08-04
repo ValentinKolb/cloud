@@ -96,6 +96,8 @@ const mapBase = (base: Base) => ({
 
 const baseHref = (base: Pick<Base, "shortId">) => `/app/grids/${base.shortId}`;
 const tableHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">) => `${baseHref(base)}/table/${table.shortId}`;
+const viewHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">, viewShortId: string) =>
+  `${tableHref(base, table)}/view/${viewShortId}`;
 const recordHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">, recordId: string) =>
   `${tableHref(base, table)}?record=${encodeURIComponent(recordId)}`;
 
@@ -144,7 +146,10 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
     limit: input.limit,
     offset: cursor.data,
   });
-  const data = result.items.map(mapBase);
+  const data = result.items.map((base) => ({
+    ...mapBase(base),
+    links: [{ rel: "open" as const, href: baseHref(base) }],
+  }));
   const nextOffset = cursor.data + data.length;
   const hasMore = nextOffset < result.total;
   return ok({
@@ -308,7 +313,14 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
     const tableItems: TableContextItem[] = resolver.tables.flatMap((source) => {
       const table = tablesById.get(source.id);
       const permission = resolver.tablePermissionsById[source.id];
-      return table && permission && permission !== "none" ? [tableContextItem(table, permission)] : [];
+      return table && permission && permission !== "none"
+        ? [
+            {
+              ...tableContextItem(table, permission),
+              links: [{ rel: "open" as const, href: tableHref(baseResult.data, table) }],
+            },
+          ]
+        : [];
     });
     tableItems.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
     items = tableItems;
@@ -351,17 +363,26 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
       tableIds: resolver.tables.map((table) => table.id),
       ...actorViewerFor(access),
     });
+    const tablesById = new Map(resolver.tables.map((table) => [table.id, table]));
     items = views
       .filter((view) => !input.tableId || view.tableId === input.tableId)
-      .map((view) => ({
-        kind: "view" as const,
-        id: view.id,
-        shortId: view.shortId,
-        tableId: view.tableId,
-        name: view.name,
-        description: view.description,
-        icon: view.icon ?? null,
-      }))
+      .flatMap((view) => {
+        const table = tablesById.get(view.tableId);
+        return table
+          ? [
+              {
+                kind: "view" as const,
+                id: view.id,
+                shortId: view.shortId,
+                tableId: view.tableId,
+                name: view.name,
+                description: view.description,
+                icon: view.icon ?? null,
+                links: [{ rel: "open" as const, href: viewHref(baseResult.data, table, view.shortId) }],
+              },
+            ]
+          : [];
+      })
       .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
   }
 
@@ -371,18 +392,36 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
   );
   return ok({
     data: { base: mapBase(baseResult.data), kind: input.kind, items: page.data, recordWrite },
-    refs,
+    refs: [{ type: "grids.base", id: baseResult.data.id }, ...refs],
+    links: [{ rel: "open" as const, href: baseHref(baseResult.data) }],
     page: page.page,
   });
 };
 
-const gqlCapabilityResult = (response: DslQueryPreviewResponse) => {
+const gqlCapabilityResult = async (response: DslQueryPreviewResponse, base: Base) => {
   if (!response.ok) {
     const tooLarge = response.diagnostics.find((diagnostic) => diagnostic.message.startsWith("GQL result is too large."));
-    return tooLarge ? fail(err.badInput(tooLarge.message)) : ok({ data: response });
+    return tooLarge
+      ? fail(err.badInput(tooLarge.message))
+      : ok({
+          data: response,
+          refs: [{ type: "grids.base" as const, id: base.id }],
+          links: [{ rel: "open" as const, href: baseHref(base) }],
+        });
   }
-  const { page, ...data } = response;
-  const refs: CloudResourceRef[] = [];
+  const tableIds = [...new Set(response.rows.flatMap((row) => (row.recordId && row.tableId ? [row.tableId] : [])))];
+  const tables = tableIds.length > 0 ? await gridsService.table.listByBase(base.id) : [];
+  const wantedTableIds = new Set(tableIds);
+  const tablesById = new Map(tables.filter((table) => wantedTableIds.has(table.id)).map((table) => [table.id, table]));
+  const { page, ...resultData } = response;
+  const data = {
+    ...resultData,
+    rows: response.rows.map((row) => {
+      const table = row.tableId ? tablesById.get(row.tableId) : undefined;
+      return row.recordId && table ? { ...row, links: [{ rel: "open" as const, href: recordHref(base, table, row.recordId) }] } : row;
+    }),
+  };
+  const refs: CloudResourceRef[] = [{ type: "grids.base", id: base.id }];
   const seen = new Set<string>();
   for (const row of response.rows) {
     if (!row.recordId || seen.has(row.recordId)) continue;
@@ -393,6 +432,7 @@ const gqlCapabilityResult = (response: DslQueryPreviewResponse) => {
   return ok({
     data,
     refs,
+    links: [{ rel: "open" as const, href: baseHref(base) }],
     page: capabilityPage(nextCursor),
   });
 };
@@ -419,7 +459,7 @@ const runGqlPreview = async (input: z.infer<typeof GqlPreviewInputSchema>, conte
       },
       { maxRows: 25, maxResultBytes: GQL_CAPABILITY_RESULT_BUDGET_BYTES, operation: "preview" },
     );
-    return gqlCapabilityResult(result.response);
+    return await gqlCapabilityResult(result.response, base.data);
   } catch (error) {
     return gqlUnavailable(error);
   }
@@ -443,13 +483,15 @@ const runGqlExecute = async (input: z.infer<typeof GqlExecuteInputSchema>, conte
       },
       { maxRows: 1_000, maxResultBytes: GQL_CAPABILITY_RESULT_BUDGET_BYTES, operation: "execute" },
     );
-    return gqlCapabilityResult(result.response);
+    return await gqlCapabilityResult(result.response, base.data);
   } catch (error) {
     return gqlUnavailable(error);
   }
 };
 
 const runGqlViewExecute = async (input: z.infer<typeof GqlViewExecuteInputSchema>, context: CapabilityExecutionContext) => {
+  const base = await requireBase(input.baseId, accessContext(context));
+  if (!base.ok) return base;
   try {
     const response = await executeSavedViewSourceForContext(await gqlRuntimeContext(context), input.baseId, input.viewId, {
       maxRows: 1_000,
@@ -459,7 +501,7 @@ const runGqlViewExecute = async (input: z.infer<typeof GqlViewExecuteInputSchema
       operation: "execute",
       surface: "api",
     });
-    return gqlCapabilityResult(response);
+    return await gqlCapabilityResult(response, base.data);
   } catch (error) {
     return gqlUnavailable(error);
   }

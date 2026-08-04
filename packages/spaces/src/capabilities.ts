@@ -108,10 +108,16 @@ export const decodeSpacesCapabilityCursor = (cursor: string | undefined): Result
   }
 };
 
-const pageResult = <T>(page: Paginated<unknown>, data: T, refs?: CapabilityResult<T>["refs"]): CapabilityInvocationResult<T> =>
+const pageResult = <T>(
+  page: Paginated<unknown>,
+  data: T,
+  refs?: CapabilityResult<T>["refs"],
+  links?: CapabilityResult<T>["links"],
+): CapabilityInvocationResult<T> =>
   ok({
     data,
     ...(refs ? { refs } : {}),
+    ...(links ? { links } : {}),
     page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1) : undefined),
   });
 
@@ -385,7 +391,10 @@ const runSpaceList = async (input: z.infer<typeof SpaceListInputSchema>, context
     query: input.query,
     pagination: { page: cursor.data, perPage: input.limit },
   });
-  const data = page.items.map((space) => mapSpace(space, context));
+  const data = page.items.map((space) => ({
+    ...mapSpace(space, context),
+    links: [{ rel: "open" as const, href: `/app/spaces/${space.id}` }],
+  }));
   return pageResult(
     page,
     data,
@@ -467,8 +476,12 @@ const runItemList = async (input: ItemListInput, context: CapabilityExecutionCon
       pageSize: input.limit,
     },
   });
-  const items =
-    kind === "event" ? page.items.filter(isEvent).map(mapEventSummary) : page.items.filter((item) => !isEvent(item)).map(mapTaskSummary);
+  const items = (
+    kind === "event" ? page.items.filter(isEvent).map(mapEventSummary) : page.items.filter((item) => !isEvent(item)).map(mapTaskSummary)
+  ).map((item) => ({
+    ...item,
+    links: [{ rel: "open" as const, href: buildSpaceItemHref(item.spaceId, item.id) }],
+  }));
   return pageResult(
     { items: page.items, page: page.page, perPage: page.pageSize, total: page.total, hasNext: page.page < page.totalPages },
     items,
@@ -503,6 +516,7 @@ const runCommentList = async (input: z.infer<typeof CommentListInputSchema>, con
     page,
     data,
     data.map((comment) => ({ type: "spaces.comment", id: comment.id })),
+    [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
   );
 };
 
@@ -677,7 +691,9 @@ const runCalendarInvitationPreview = async (
   const result = await spacesService.calendarInvitations.previewCalendarInvitation(input);
   if (!result.ok || !result.data.existing) return result.ok ? ok({ data: result.data }) : result;
   const access = await requireSpace(result.data.existing.spaceId, context, "read");
-  return access.ok ? ok({ data: result.data }) : ok({ data: { ...result.data, existing: null, response: null } });
+  return access.ok
+    ? ok({ data: result.data, links: [{ rel: "open" as const, href: result.data.existing.href }] })
+    : ok({ data: { ...result.data, existing: null, response: null } });
 };
 
 const runCalendarInvitationResponsePrepare = async (
@@ -698,7 +714,12 @@ const calendarDestinationContext = async (context: CapabilityExecutionContext) =
     pagination: { page: 1, perPage: 100 },
   });
   return ok({
-    data: page.items.map((space) => ({ id: space.id, name: space.name, color: space.color })),
+    data: page.items.map((space) => ({
+      id: space.id,
+      name: space.name,
+      color: space.color,
+      links: [{ rel: "open" as const, href: `/app/spaces/${space.id}` }],
+    })),
   });
 };
 
@@ -728,7 +749,12 @@ const runCalendarInvitationResponseCommit = async (
 ) =>
   audited(actionAudit(context, "calendar-invitation.response.commit", "mail_draft", input.draftId), async () => {
     const result = await spacesService.calendarInvitations.commitCalendarResponse({ input, subject: context.accessSubject });
-    return result.ok ? ok({ data: result.data, refs: [{ type: "mail.draft", id: input.draftId }] }) : result;
+    return result.ok
+      ? ok({
+          data: result.data,
+          refs: [{ type: "mail.draft", id: input.draftId }],
+        })
+      : result;
   });
 
 const runEventInvitationPrepare = async (input: z.infer<typeof EventInvitationPrepareInputSchema>, context: CapabilityExecutionContext) =>
@@ -750,6 +776,7 @@ const runEventInvitationPrepare = async (input: z.infer<typeof EventInvitationPr
             { type: "spaces.item", id: result.data.itemId },
             { type: "mail.draft", id: result.data.draftId },
           ],
+          links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
         })
       : result;
   });
@@ -760,15 +787,18 @@ const runEventInvitationCommit = async (input: z.infer<typeof EventInvitationCom
       deliveryId: input.deliveryId,
       subject: context.accessSubject,
     });
-    return result.ok
-      ? ok({
-          data: result.data,
-          refs: [
-            { type: "spaces.item", id: result.data.itemId },
-            { type: "mail.draft", id: result.data.draftId },
-          ],
-        })
-      : result;
+    if (!result.ok) return result;
+    const resolved = await requireItem(result.data.itemId, context);
+    return ok({
+      data: result.data,
+      refs: [
+        { type: "spaces.item", id: result.data.itemId },
+        { type: "mail.draft", id: result.data.draftId },
+      ],
+      ...(resolved.ok
+        ? { links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }] }
+        : {}),
+    });
   });
 
 export const spacesCapabilities = defineCapabilities({

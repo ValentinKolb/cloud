@@ -124,7 +124,14 @@ const runVenueList = async (input: z.infer<typeof VenueListInputSchema>, context
     limit: input.limit + 1,
     offset: cursor.data,
   });
-  const page = pageResult(venues.map(mapVenue), cursor.data, input.limit);
+  const page = pageResult(
+    venues.map((venue) => ({
+      ...mapVenue(venue),
+      links: [{ rel: "open" as const, href: openVenueHref(venue) }],
+    })),
+    cursor.data,
+    input.limit,
+  );
   return ok({
     ...page,
     refs: page.data.map((venue) => ({ type: "venue.venue" as const, id: venue.id })),
