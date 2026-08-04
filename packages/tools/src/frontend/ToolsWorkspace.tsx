@@ -41,13 +41,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
     <div class="flex min-h-0 min-w-0 flex-1">
       <AppWorkspace class="min-h-0 flex-1">
         <AppWorkspace.Sidebar collapsible>
-          <AppWorkspace.SidebarHeader
-            title="Tools"
-            subtitle="Utilities"
-            icon="ti ti-tools"
-            iconStyle="background-color: color-mix(in srgb, var(--app-accent) 12%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 24%, transparent)"
-            showDesktop={false}
-          />
+          <AppWorkspace.SidebarMobileTrigger label="Tools" />
           <AppWorkspace.SidebarMobile>
             <AppWorkspace.SidebarMobileItems scrollPreserveKey="tools-sidebar-mobile">
               <AppWorkspace.SidebarItem href="/tools" navigation="document" icon="ti ti-layout-grid" active={!props.activeToolId}>

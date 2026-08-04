@@ -1109,7 +1109,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     <AppWorkspace class={`${activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}`}>
       <PulseSidebar
         title={selectedBase()?.name ?? "Pulse"}
-        subtitle={`${sources().length} source${sources().length === 1 ? "" : "s"} · ${metrics().length} metric${metrics().length === 1 ? "" : "s"}`}
         activeView={activeView()}
         dashboards={dashboards()}
         resourceCount={inventory().resources.length}

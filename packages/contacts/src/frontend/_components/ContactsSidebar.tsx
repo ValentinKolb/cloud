@@ -39,12 +39,7 @@ export default function ContactsSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar collapsible>
-      <AppWorkspace.SidebarHeader
-        title="Contacts"
-        icon="ti ti-address-book"
-        iconStyle="background-color: var(--app-accent)"
-        showDesktop={false}
-      />
+      <AppWorkspace.SidebarMobileTrigger label="Contacts" />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

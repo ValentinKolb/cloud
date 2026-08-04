@@ -83,12 +83,7 @@ export default function AccountsNavSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader
-        title="Accounts"
-        subtitle="Identity & access"
-        icon="ti ti-users-group"
-        iconStyle="background-color: color-mix(in srgb, var(--app-accent) 12%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 24%, transparent)"
-      />
+      <AppWorkspace.SidebarMobileTrigger label="Accounts" />
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey="accounts-sidebar-mobile">
           <AccountsSearchButton isAdmin={props.isAdmin} variant="sidebar-mobile" />

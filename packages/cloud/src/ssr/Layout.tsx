@@ -307,16 +307,15 @@ export default function Layout({
             </div>
           </div>
           <div class="flex shrink-0 items-center gap-1">
-            <HotkeysHelpRail
-              variant="header"
-              registerHotkey={!showRail}
-              class={showRail ? "md:hidden" : ""}
-              searchHelpApps={searchHelpApps}
-              accent={currentApp?.appearance?.accent}
-            />
-            {user && (
-              <GlobalSearchTrigger variant="header" registerHotkey class={showRail ? "md:hidden" : ""} searchHelpApps={searchHelpApps} />
-            )}
+            <div class="flex items-center gap-1 md:hidden">
+              <HotkeysHelpRail
+                variant="header"
+                registerHotkey={!showRail}
+                searchHelpApps={searchHelpApps}
+                accent={currentApp?.appearance?.accent}
+              />
+              {user && <GlobalSearchTrigger variant="header" registerHotkey searchHelpApps={searchHelpApps} />}
+            </div>
             {user ? (
               <>
                 <a href="/me" class="hidden cursor-pointer items-center justify-center md:flex" aria-label="Profile">

@@ -81,7 +81,7 @@ export default function PulseQueryReferenceWindow(props: Props) {
   return (
     <AppWorkspace class="h-screen">
       <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarHeader title="Pulse reference" subtitle={props.baseName} icon="ti ti-book" />
+        <AppWorkspace.SidebarMobileTrigger label="Pulse reference" />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileBody scrollPreserveKey="pulse-reference-mobile">{renderReferenceNav()}</AppWorkspace.SidebarMobileBody>
         </AppWorkspace.SidebarMobile>

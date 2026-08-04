@@ -38,7 +38,7 @@ const LayoutStateContext = createContext<AppWorkspaceLayoutState | null>(null);
 type SidebarMode = "desktop" | "mobile";
 const SidebarModeContext = createContext<SidebarMode>("desktop");
 const MAIN_PANE = Symbol("AppWorkspace.MainPane");
-const SIDEBAR_HEADER = Symbol("AppWorkspace.SidebarHeader");
+const SIDEBAR_MOBILE_TRIGGER = Symbol("AppWorkspace.SidebarMobileTrigger");
 const SIDEBAR_MOBILE = Symbol("AppWorkspace.SidebarMobile");
 const SIDEBAR_DESKTOP = Symbol("AppWorkspace.SidebarDesktop");
 const SIDEBAR_ITEM_ICON = Symbol("AppWorkspace.SidebarItemIcon");
@@ -52,9 +52,9 @@ type MainPaneSlot = {
   props: AppWorkspaceMainPaneProps;
   domId: string;
 };
-type SidebarHeaderSlot = AppWorkspaceSidebarHeaderProps & { kind: typeof SIDEBAR_HEADER };
+type SidebarMobileTriggerSlot = AppWorkspaceSidebarMobileTriggerProps & { kind: typeof SIDEBAR_MOBILE_TRIGGER };
 type SidebarChildSlot =
-  | SidebarHeaderSlot
+  | SidebarMobileTriggerSlot
   | { kind: typeof SIDEBAR_MOBILE; children: JSX.Element }
   | { kind: typeof SIDEBAR_DESKTOP; children: JSX.Element };
 type SidebarItemSlot =
@@ -79,7 +79,7 @@ const sidebarChildSlot = (value: unknown): value is SidebarChildSlot =>
     value &&
       typeof value === "object" &&
       "kind" in value &&
-      [SIDEBAR_HEADER, SIDEBAR_MOBILE, SIDEBAR_DESKTOP].includes((value as SidebarChildSlot).kind),
+      [SIDEBAR_MOBILE_TRIGGER, SIDEBAR_MOBILE, SIDEBAR_DESKTOP].includes((value as SidebarChildSlot).kind),
   );
 const sidebarItemSlot = (value: unknown): value is SidebarItemSlot =>
   Boolean(
@@ -216,16 +216,7 @@ export type AppWorkspaceSidebarProps = {
   minSize?: number;
   maxSize?: number;
 };
-export type AppWorkspaceSidebarHeaderProps = {
-  title: string;
-  subtitle?: string;
-  icon?: string | false;
-  iconStyle?: string;
-  iconViewTransitionName?: string;
-  titleViewTransitionName?: string;
-  action?: JSX.Element;
-  showDesktop?: boolean;
-};
+export type AppWorkspaceSidebarMobileTriggerProps = { label: string };
 export type AppWorkspaceSidebarMobileProps = { children: JSX.Element };
 export type AppWorkspaceSidebarMobileItemsProps = {
   children: JSX.Element;
@@ -547,29 +538,8 @@ function AppWorkspaceBottomDrawer(props: AppWorkspaceBottomDrawerProps): JSX.Ele
   );
 }
 
-const AppWorkspaceSidebarHeader = (props: AppWorkspaceSidebarHeaderProps): JSX.Element =>
-  ({ kind: SIDEBAR_HEADER, ...props }) satisfies SidebarHeaderSlot as unknown as JSX.Element;
-
-const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boolean }) => (
-  <header class="k2b-app-workspace__sidebar-header" data-show-desktop={props.header.showDesktop === false ? "false" : undefined}>
-    <Show when={props.header.icon !== false}>
-      <span
-        class="k2b-app-workspace__sidebar-header-icon"
-        style={`${props.header.iconStyle ?? ""}${props.header.iconViewTransitionName ? `;view-transition-name:${props.header.iconViewTransitionName}` : ""}`}
-        aria-hidden="true"
-      >
-        <i class={iconClass(props.header.icon || undefined, "ti-layout-sidebar-left")} />
-      </span>
-    </Show>
-    <span class="k2b-app-workspace__sidebar-heading">
-      <strong style={{ "view-transition-name": props.header.titleViewTransitionName }}>{props.header.title}</strong>
-      <Show when={!props.mobile && props.header.subtitle}>{(subtitle) => <small>{subtitle()}</small>}</Show>
-    </span>
-    <Show when={!props.mobile && props.header.action}>
-      <span class="k2b-app-workspace__sidebar-action">{props.header.action}</span>
-    </Show>
-  </header>
-);
+const AppWorkspaceSidebarMobileTrigger = (props: AppWorkspaceSidebarMobileTriggerProps): JSX.Element =>
+  ({ kind: SIDEBAR_MOBILE_TRIGGER, ...props }) satisfies SidebarMobileTriggerSlot as unknown as JSX.Element;
 
 function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
   const rootResizable = useContext(ResizeContext);
@@ -581,16 +551,19 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
   const domId = `k2b-workspace-sidebar-${generatedId}`;
   const resolved = children(() => props.children);
   const slots = createMemo(() => flatten(resolved()).filter(sidebarChildSlot));
-  const header = createMemo(() => slots().find((slot): slot is SidebarHeaderSlot => slot.kind === SIDEBAR_HEADER));
+  const mobileTrigger = createMemo(() => slots().find((slot): slot is SidebarMobileTriggerSlot => slot.kind === SIDEBAR_MOBILE_TRIGGER));
   const mobile = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_MOBILE));
   const desktop = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_DESKTOP));
   return (
     <>
-      <Show when={header() && mobile()}>
-        <nav class="k2b-app-workspace__sidebar-mobile">
+      <Show when={mobileTrigger() && mobile()}>
+        <nav class="k2b-app-workspace__sidebar-mobile" aria-label={mobileTrigger()!.label}>
           <details>
             <summary>
-              <SidebarHeaderContent header={header()!} mobile />
+              <span class="k2b-app-workspace__sidebar-mobile-trigger">
+                <i class="ti ti-menu-2" aria-hidden="true" />
+                <span>{mobileTrigger()!.label}</span>
+              </span>
               <i class="ti ti-chevron-down" aria-hidden="true" />
             </summary>
             <SidebarModeContext.Provider value="mobile">{mobile()!.children}</SidebarModeContext.Provider>
@@ -600,13 +573,11 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
       <aside
         id={domId}
         class={`k2b-app-workspace__sidebar ${props.class ?? ""}`}
+        aria-label={mobileTrigger()?.label}
         data-workspace-resizable={resizable() ? "true" : "false"}
         data-workspace-collapsible={props.collapsible ? "true" : "false"}
       >
         <div class="k2b-app-workspace__sidebar-desktop">
-          <Show when={header() && header()!.showDesktop !== false}>
-            <SidebarHeaderContent header={header()!} />
-          </Show>
           <SidebarModeContext.Provider value="desktop">{desktop()?.children}</SidebarModeContext.Provider>
         </div>
       </aside>
@@ -1197,7 +1168,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   Detail: (props: AppWorkspaceDetailProps) => JSX.Element;
   BottomDrawer: (props: AppWorkspaceBottomDrawerProps) => JSX.Element;
   Sidebar: (props: AppWorkspaceSidebarProps) => JSX.Element;
-  SidebarHeader: (props: AppWorkspaceSidebarHeaderProps) => JSX.Element;
+  SidebarMobileTrigger: (props: AppWorkspaceSidebarMobileTriggerProps) => JSX.Element;
   SidebarMobile: (props: AppWorkspaceSidebarMobileProps) => JSX.Element;
   SidebarMobileItems: (props: AppWorkspaceSidebarMobileItemsProps) => JSX.Element;
   SidebarMobileBody: (props: AppWorkspaceSidebarBodyProps) => JSX.Element;
@@ -1264,7 +1235,7 @@ AppWorkspace.MainPane = AppWorkspaceMainPane;
 AppWorkspace.Detail = AppWorkspaceDetail;
 AppWorkspace.BottomDrawer = AppWorkspaceBottomDrawer;
 AppWorkspace.Sidebar = AppWorkspaceSidebar;
-AppWorkspace.SidebarHeader = AppWorkspaceSidebarHeader;
+AppWorkspace.SidebarMobileTrigger = AppWorkspaceSidebarMobileTrigger;
 AppWorkspace.SidebarMobile = AppWorkspaceSidebarMobile;
 AppWorkspace.SidebarMobileItems = AppWorkspaceSidebarMobileItems;
 AppWorkspace.SidebarMobileBody = AppWorkspaceSidebarMobileBody;

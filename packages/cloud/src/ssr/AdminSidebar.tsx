@@ -29,11 +29,7 @@ export default function AdminSidebar({ currentPath, apps }: { currentPath: strin
 
   return (
     <AppWorkspace.Sidebar resizable={false}>
-      <AppWorkspace.SidebarHeader
-        title="Admin"
-        icon="ti ti-settings"
-        iconStyle="background-color: color-mix(in srgb, var(--app-accent) 12%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 24%, transparent)"
-      />
+      <AppWorkspace.SidebarMobileTrigger label="Admin" />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="admin-sidebar-mobile">

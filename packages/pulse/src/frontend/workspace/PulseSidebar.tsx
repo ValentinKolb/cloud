@@ -1,11 +1,10 @@
-import { AppWorkspace, Dropdown, IconButton, Tooltip } from "@k2b/ui";
+import { AppWorkspace, Dropdown } from "@k2b/ui";
 import { For, type JSX } from "solid-js";
 import type { PulseDashboard } from "../../contracts";
 import type { WorkspaceView } from "./types";
 
 type Props = {
   title: string;
-  subtitle: string;
   activeView: WorkspaceView;
   dashboards: PulseDashboard[];
   resourceCount: number;
@@ -103,25 +102,13 @@ export default function PulseSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar collapsible>
-      <AppWorkspace.SidebarHeader
-        title={props.title}
-        subtitle={props.subtitle}
-        icon="ti ti-activity-heartbeat"
-        action={
-          <Tooltip.Anchor content={`Settings for ${props.title}`} class="absolute right-0 top-0">
-            <IconButton
-              label={`Settings for ${props.title}`}
-              size="xs"
-              variant="ghost"
-              onClick={() => void props.openSettings()}
-              disabled={props.settingsDisabled}
-            >
-              <i class="ti ti-settings" />
-            </IconButton>
-          </Tooltip.Anchor>
-        }
-      />
+      <AppWorkspace.SidebarMobileTrigger label={props.title} />
       <AppWorkspace.SidebarMobile>
+        <AppWorkspace.SidebarMobileItems>
+          <AppWorkspace.SidebarItem icon="ti ti-settings" disabled={props.settingsDisabled} onClick={() => void props.openSettings()}>
+            Settings
+          </AppWorkspace.SidebarItem>
+        </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="pulse-sidebar-mobile">
           <div class="grid gap-3">
             <SidebarSections {...props} />
@@ -184,6 +171,11 @@ export default function PulseSidebar(props: Props) {
             onClick={props.openActivityMetrics}
           />
         </AppWorkspace.SidebarIconGrid>
+        <AppWorkspace.SidebarFooter sidebarMode="expanded">
+          <AppWorkspace.SidebarItem icon="ti ti-settings" disabled={props.settingsDisabled} onClick={() => void props.openSettings()}>
+            Settings
+          </AppWorkspace.SidebarItem>
+        </AppWorkspace.SidebarFooter>
         <AppWorkspace.SidebarFooter sidebarMode="collapsed">
           <AppWorkspace.SidebarIconGrid>
             <AppWorkspace.SidebarIconAction

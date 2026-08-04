@@ -448,7 +448,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
     <div class="flex min-h-0 min-w-0 flex-1">
       <AppWorkspace class="min-h-0 flex-1">
         <AppWorkspace.Sidebar>
-          <AppWorkspace.SidebarHeader title="Webhook Tester" subtitle="Inspect HTTP calls" icon="ti ti-webhook" />
+          <AppWorkspace.SidebarMobileTrigger label="Webhook Tester" />
           <AppWorkspace.SidebarMobile>
             <AppWorkspace.SidebarMobileItems scrollPreserveKey="webhook-tester-mobile-modes">
               <AppWorkspace.SidebarItem

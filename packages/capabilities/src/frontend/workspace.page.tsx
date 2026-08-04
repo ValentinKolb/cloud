@@ -82,7 +82,7 @@ function CapabilitiesSidebar(props: {
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader title="Capabilities" subtitle={`${props.apps.length} apps`} icon="ti ti-api-app" />
+      <AppWorkspace.SidebarMobileTrigger label="Capabilities" />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey="capabilities-apps-mobile">

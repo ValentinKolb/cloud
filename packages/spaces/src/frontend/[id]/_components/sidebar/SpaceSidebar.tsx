@@ -21,20 +21,6 @@ const views: Array<{ id: ViewType; label: string; icon: string }> = [
   { id: "calendar", label: "Calendar", icon: "ti-calendar" },
 ];
 
-/** Get icon for current view */
-const getViewIcon = (view: ViewType): string => {
-  switch (view) {
-    case "list":
-      return "ti-home";
-    case "table":
-      return "ti-table";
-    case "kanban":
-      return "ti-layout-kanban";
-    case "calendar":
-      return "ti-calendar";
-  }
-};
-
 const buildViewHref = (ctx: SpaceContext, view: ViewType): string => {
   const query = new URLSearchParams(ctx.query);
   query.set("view", view);
@@ -46,13 +32,7 @@ export default function SpaceSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar collapsible>
-      <AppWorkspace.SidebarHeader
-        title={props.ctx.space.name}
-        icon={getViewIcon(props.ctx.currentView)}
-        iconStyle={`background-color: color-mix(in srgb, ${props.ctx.space.color} 12%, var(--ui-surface)); color: ${props.ctx.space.color}; box-shadow: inset 0 0 0 1px color-mix(in srgb, ${props.ctx.space.color} 22%, transparent)`}
-        iconViewTransitionName={`space-color-${props.ctx.space.id}`}
-        titleViewTransitionName={`space-name-${props.ctx.space.id}`}
-      />
+      <AppWorkspace.SidebarMobileTrigger label={props.ctx.space.name} />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey={`spaces-sidebar-mobile-${props.ctx.space.id}`}>

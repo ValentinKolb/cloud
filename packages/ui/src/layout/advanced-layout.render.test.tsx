@@ -35,11 +35,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
               collapsible: true,
               get children() {
                 return [
-                  createComponent(AppWorkspace.SidebarHeader, {
-                    title: "Inventory",
-                    subtitle: "12 items",
-                    icon: "ti ti-box",
-                  }),
+                  createComponent(AppWorkspace.SidebarMobileTrigger, { label: "Inventory" }),
                   createComponent(AppWorkspace.SidebarDesktop, {
                     get children() {
                       return createComponent(AppWorkspace.SidebarBody, {
@@ -134,6 +130,9 @@ describe("@k2b/ui complete advanced layout migrations", () => {
 
     expect(html).toContain("data-k2b-app-workspace");
     expect(html).toContain("k2b-app-workspace__sidebar-mobile");
+    expect(html).toContain("k2b-app-workspace__sidebar-mobile-trigger");
+    expect(html).toContain("ti ti-menu-2");
+    expect(html).toContain("Inventory");
     expect(html).toContain("k2b-app-workspace__sidebar-desktop");
     expect(html).toContain('role="separator"');
     expect(html).toContain('data-app-workspace-resize="detail"');
@@ -591,8 +590,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
 
     test("limits mobile pane selection to the mobile breakpoint", () => {
       const mobileBreakpoint = layoutSource.indexOf("@media (max-width: 63.999rem)");
-      const mobilePaneSelector =
-        '.k2b-app-workspace__main.has-panes > [data-workspace-main-region][data-workspace-mobile-active="true"]';
+      const mobilePaneSelector = '.k2b-app-workspace__main.has-panes > [data-workspace-main-region][data-workspace-mobile-active="true"]';
 
       expect(mobileBreakpoint).toBeGreaterThan(-1);
       expect(layoutSource.slice(0, mobileBreakpoint)).not.toContain(mobilePaneSelector);
@@ -608,7 +606,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-app-workspace__sidebar-body")).toContain("padding:0");
       expect(rule(".k2b-app-workspace__sidebar-footer")).toContain("padding:0");
       expect(rule(".k2b-app-workspace__sidebar-item")).toContain("--k2b-sidebar-item-depth");
-      expect(rule(".k2b-app-workspace__sidebar-heading strong")).toContain("font-size:1rem");
+      expect(rule(".k2b-app-workspace__sidebar-mobile-trigger")).toContain("font-size:.875rem");
       expect(rule(".k2b-app-workspace__sidebar-icon-action")).toContain("width:100%");
       expect(rule(".k2b-app-workspace__main-pane[data-surface=navigation]")).toContain("background:var(--k2b-surface-muted)");
       expect(rule(".k2b-app-workspace__main-pane[data-surface=navigation]")).toContain("padding:.5rem");
@@ -618,9 +616,6 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     });
 
     test("reduces a collapsible sidebar to an intentional icon rail", () => {
-      expect(css).toMatch(
-        /data-sidebar-collapsed=true\][^{]*sidebar-header>:not\(\.k2b-app-workspace__sidebar-header-icon\)\{display:none!important/,
-      );
       expect(css).toMatch(/data-sidebar-collapsed=true\][^{]*sidebar-item-label[^}]*\{display:none!important/);
       expect(css).toMatch(/data-sidebar-collapsed=true\][^{]*:is\(\.k2b-app-workspace__sidebar-item,[^{]*\)\{justify-content:center/);
     });

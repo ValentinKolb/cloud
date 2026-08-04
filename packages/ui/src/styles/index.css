@@ -611,45 +611,6 @@
   }
 }
 
-.k2b-ui .k2b-app-workspace__sidebar-header {
-  @apply flex min-w-0 items-center;
-  min-height: 2.5rem;
-  gap: 0.625rem;
-  padding: 0 0.25rem;
-}
-
-.k2b-ui .k2b-app-workspace__sidebar-header-icon {
-  @apply flex shrink-0 items-center justify-center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: var(--k2b-radius-control);
-  color: var(--k2b-action);
-  background: var(--k2b-selected);
-}
-
-.k2b-ui .k2b-app-workspace__sidebar-heading {
-  @apply flex min-w-0 flex-1 flex-col;
-}
-
-.k2b-ui .k2b-app-workspace__sidebar-heading strong {
-  overflow: hidden;
-  color: var(--k2b-text);
-  font-size: 1rem;
-  font-weight: 650;
-  line-height: 1.375rem;
-  letter-spacing: -0.016em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.k2b-ui .k2b-app-workspace__sidebar-heading small {
-  overflow: hidden;
-  color: var(--k2b-text-muted);
-  font-size: 0.6875rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .k2b-ui .k2b-app-workspace__sidebar-body {
   @apply flex min-h-0 flex-1;
   gap: 0.25rem;
@@ -1994,8 +1955,39 @@
 .k2b-ui .k2b-app-workspace__sidebar-mobile details > summary {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  min-height: 2.5rem;
   list-style: none;
+  color: var(--k2b-text-secondary);
   cursor: pointer;
+  user-select: none;
+}
+
+.k2b-ui .k2b-app-workspace__sidebar-mobile details > summary:focus-visible {
+  outline: 2px solid var(--k2b-focus-ring);
+  outline-offset: -2px;
+}
+
+.k2b-ui .k2b-app-workspace__sidebar-mobile-trigger {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.k2b-ui .k2b-app-workspace__sidebar-mobile-trigger > i {
+  flex: 0 0 auto;
+  font-size: 1rem;
+}
+
+.k2b-ui .k2b-app-workspace__sidebar-mobile-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-mobile details > summary::-webkit-details-marker {
@@ -2037,10 +2029,6 @@
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-}
-
-.k2b-ui .k2b-app-workspace__sidebar-action {
-  flex: 0 0 auto;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-item[data-tone="success"],
@@ -2199,19 +2187,6 @@
   display: none;
 }
 
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  .k2b-app-workspace__sidebar-header {
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.k2b-ui
-  .k2b-app-workspace[data-sidebar-collapsed="true"]
-  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
-  .k2b-app-workspace__sidebar-header
-  > :not(.k2b-app-workspace__sidebar-header-icon),
 .k2b-ui
   .k2b-app-workspace[data-sidebar-collapsed="true"]
   .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]

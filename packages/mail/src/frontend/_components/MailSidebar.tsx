@@ -1,6 +1,6 @@
 import { documentNavigate, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppWorkspace, ButtonLink, Dropdown, IconButtonLink, prompts, toast } from "@k2b/ui";
+import { AppWorkspace, ButtonLink, Dropdown, prompts, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationView } from "../../contracts";
@@ -388,17 +388,7 @@ export default function MailSidebar(props: {
 
   return (
     <AppWorkspace.Sidebar class="mail-workspace-navigation">
-      <AppWorkspace.SidebarHeader
-        title={props.mailboxName}
-        subtitle="Mailbox"
-        icon="ti ti-mail"
-        action={
-          <IconButtonLink href="/app/mail" label="All mailboxes" title="All mailboxes">
-            <i class="ti ti-switch-horizontal" aria-hidden="true" />
-            <span class="sr-only">All mailboxes</span>
-          </IconButtonLink>
-        }
-      />
+      <AppWorkspace.SidebarMobileTrigger label={props.mailboxName} />
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           {props.canWrite && (
@@ -406,6 +396,9 @@ export default function MailSidebar(props: {
               Compose
             </AppWorkspace.SidebarItem>
           )}
+          <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal">
+            All mailboxes
+          </AppWorkspace.SidebarItem>
           {mailboxTools()}
           <AppWorkspace.SidebarItem icon="ti ti-settings" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             Settings
@@ -442,6 +435,9 @@ export default function MailSidebar(props: {
           {moreItems("desktop")}
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
+          <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal">
+            All mailboxes
+          </AppWorkspace.SidebarItem>
           {mailboxTools()}
           <AppWorkspace.SidebarItem
             icon={props.settingsOpening ? "ti ti-loader-2 animate-spin" : "ti ti-settings"}

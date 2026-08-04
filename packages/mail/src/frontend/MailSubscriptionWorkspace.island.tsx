@@ -1,5 +1,5 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { AppWorkspace, Button, ButtonLink, IconButtonLink, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
+import { AppWorkspace, Button, ButtonLink, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
 import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -298,17 +298,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   return (
     <AppWorkspace>
       <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarHeader
-          title="Subscriptions"
-          subtitle={props.data.mailbox.name}
-          icon="ti ti-news"
-          action={
-            <IconButtonLink href={`/app/mail/${props.data.mailbox.id}`} label="Back to mailbox" title="Back to mailbox">
-              <i class="ti ti-arrow-left" aria-hidden="true" />
-              <span class="sr-only">Back to mailbox</span>
-            </IconButtonLink>
-          }
-        />
+        <AppWorkspace.SidebarMobileTrigger label="Subscriptions" />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
             <AppWorkspace.SidebarItem href={`/app/mail/${props.data.mailbox.id}`} icon="ti ti-inbox">

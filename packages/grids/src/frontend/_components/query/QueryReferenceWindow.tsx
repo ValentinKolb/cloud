@@ -314,7 +314,7 @@ function ReferenceSidebar(props: { activeTab: GqlReferenceTab; baseShortId: stri
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader title="Grids reference" subtitle={props.baseName} icon="ti-layout-grid" />
+      <AppWorkspace.SidebarMobileTrigger label="Grids reference" />
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="grids-query-reference-mobile">{items}</AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>

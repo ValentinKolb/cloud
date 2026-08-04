@@ -53,7 +53,7 @@ Set `scrollPreserveKey` on scrolling sidebar bodies when enhanced navigation sho
 
 The sidebar compound members cover these jobs:
 
-- `SidebarHeader` supplies the application identity and optional action;
+- `SidebarMobileTrigger` supplies the compact menu label and standard menu icon;
 - `SidebarMobile`, `SidebarMobileItems`, and `SidebarMobileBody` compose the
   compact navigation;
 - `SidebarDesktop`, `SidebarBody`, `SidebarSection`, and `SidebarFooter`
@@ -63,6 +63,12 @@ The sidebar compound members cover these jobs:
 - `NavTree` and `NavTree.Item` compose nested folder, mailbox, category, or tag
   navigation with automatic indentation and keyboard interaction;
 - `SidebarIconGrid` and `SidebarIconAction` provide compact icon-only actions.
+
+Desktop sidebars are action-first: begin with primary actions or navigation,
+not a repeated application title. Put persistent secondary navigation in
+`SidebarFooter`; when Settings exists, it is the final footer item. The compact
+trigger is mobile-only and deliberately owns no application-specific icon or
+accent tile.
 
 ### Row metadata and actions
 
@@ -240,7 +246,7 @@ The package exports parse, normalize, serialize, and style helpers for layout st
 ```tsx
 <AppWorkspace class="app-shell-frame">
   <AppWorkspace.Sidebar collapsible>
-    <AppWorkspace.SidebarHeader title="Inventory" icon="ti ti-box" />
+    <AppWorkspace.SidebarMobileTrigger label="Inventory" />
     <AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarItem
@@ -266,6 +272,11 @@ The package exports parse, normalize, serialize, and style helpers for layout st
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarSection>
       </AppWorkspace.SidebarBody>
+      <AppWorkspace.SidebarFooter>
+        <AppWorkspace.SidebarItem icon="ti ti-settings">
+          Settings
+        </AppWorkspace.SidebarItem>
+      </AppWorkspace.SidebarFooter>
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
 

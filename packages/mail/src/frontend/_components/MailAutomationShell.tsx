@@ -1,4 +1,4 @@
-import { AppWorkspace, IconButtonLink } from "@k2b/ui";
+import { AppWorkspace } from "@k2b/ui";
 import { createSignal, type JSX, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import { openMailboxSettingsDialog } from "./MailboxSettingsDialog";
@@ -63,21 +63,18 @@ export default function MailAutomationShell(props: {
   return (
     <AppWorkspace>
       <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarHeader
-          title="Automations"
-          subtitle={props.mailbox.name}
-          icon="ti ti-route"
-          action={
-            <IconButtonLink href={mailboxHref} label="Back to mailbox" title="Back to mailbox">
-              <i class="ti ti-arrow-left" aria-hidden="true" />
-              <span class="sr-only">Back to mailbox</span>
-            </IconButtonLink>
-          }
-        />
+        <AppWorkspace.SidebarMobileTrigger label="Automations" />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
             <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox">
               Back to mailbox
+            </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem
+              icon={settingsOpening() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"}
+              disabled={settingsOpening()}
+              onClick={() => void openSettings()}
+            >
+              Mailbox settings
             </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarMobileItems>
           <AppWorkspace.SidebarMobileBody>

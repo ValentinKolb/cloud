@@ -63,12 +63,6 @@ function ViewHeader(props: { title: string; description: string; action?: JSX.El
   );
 }
 
-const permissionLabel = (permission: VenueWorkspaceProps["dashboard"]["venue"]["permission"]): string => {
-  if (permission === "admin") return "Admin";
-  if (permission === "write") return "Staff";
-  return "Viewer";
-};
-
 export default function VenueWorkspace(props: VenueWorkspaceProps) {
   const venue = () => props.dashboard.venue;
   const [view] = createSignal<VenueView>(props.initialView);
@@ -323,16 +317,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
   return (
     <AppWorkspace>
       <AppWorkspace.Sidebar collapsible>
-        <AppWorkspace.SidebarHeader
-          title={venue().name}
-          subtitle={permissionLabel(venue().permission)}
-          icon={venue().icon || "ti ti-building-carousel"}
-          iconStyle={`background-color: color-mix(in srgb, ${venue().accentColor} 12%, var(--ui-surface)); color: ${
-            venue().accentColor
-          }; box-shadow: inset 0 0 0 1px color-mix(in srgb, ${venue().accentColor} 22%, transparent)`}
-          iconViewTransitionName={`venue-color-${venue().id}`}
-          titleViewTransitionName={`venue-name-${venue().id}`}
-        />
+        <AppWorkspace.SidebarMobileTrigger label={venue().name} />
 
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems scrollPreserveKey={`venue-sidebar-mobile-${venue().id}`}>

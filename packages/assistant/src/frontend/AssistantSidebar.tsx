@@ -23,7 +23,6 @@ type AssistantSidebarProps = {
   onConversationArchived?: (conversation: AiConversation) => void;
 };
 
-const ASSISTANT_ICON_STYLE = "background-color: var(--app-accent)";
 const PER_SPOTLIGHT_PAGE = 20;
 
 function AssistantSpotlightButton(props: {
@@ -173,7 +172,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
 
   return (
     <AppWorkspace.Sidebar collapsible>
-      <AppWorkspace.SidebarHeader title="Assistant" icon="ti ti-sparkles" iconStyle={ASSISTANT_ICON_STYLE} showDesktop={false} />
+      <AppWorkspace.SidebarMobileTrigger label="Assistant" />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

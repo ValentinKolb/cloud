@@ -37,7 +37,7 @@ const WorkspaceDemo = () => {
       onLayoutChange={(state) => setSidebarCollapsed(Boolean(state.sidebarCollapsed))}
     >
       <AppWorkspace.Sidebar collapsible>
-        <AppWorkspace.SidebarHeader title="Inventory" subtitle="12 items" icon="ti ti-box" />
+        <AppWorkspace.SidebarMobileTrigger label="Inventory" />
         <AppWorkspace.SidebarDesktop>
           <AppWorkspace.SidebarBody>
             <AppWorkspace.SidebarSection title="Status">
@@ -86,6 +86,9 @@ const WorkspaceDemo = () => {
               </AppWorkspace.NavTree.Item>
             </AppWorkspace.NavTree>
           </AppWorkspace.SidebarBody>
+          <AppWorkspace.SidebarFooter>
+            <AppWorkspace.SidebarItem icon="ti ti-settings">Settings</AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarFooter>
         </AppWorkspace.SidebarDesktop>
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
@@ -95,6 +98,7 @@ const WorkspaceDemo = () => {
             <AppWorkspace.SidebarItem active={activeView() === "activity"} icon="ti ti-history" onClick={() => setActiveView("activity")}>
               Activity
             </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem icon="ti ti-settings">Settings</AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarMobileItems>
         </AppWorkspace.SidebarMobile>
       </AppWorkspace.Sidebar>

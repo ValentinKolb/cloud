@@ -18,7 +18,6 @@ type Props = {
 
 export default function LocationSidebar(props: Props) {
   const activeLocation = props.locations.find((location) => location.id === props.activeId);
-  const activeWeather = activeLocation ? props.weatherMap.get(activeLocation.id) : null;
 
   const renderLocation = (loc: Location, mode: "desktop" | "mobile") => {
     const data = props.weatherMap.get(loc.id);
@@ -49,11 +48,7 @@ export default function LocationSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader
-        title={activeLocation?.name ?? "Weather"}
-        icon={`ti ti-${activeWeather?.current ? weatherService.ui.getTablerIcon(activeWeather.current.icon) : "temperature-celsius"}`}
-        iconStyle="background-color: color-mix(in srgb, var(--app-accent) 10%, var(--ui-surface)); color: var(--ui-app-accent-text); box-shadow: inset 0 0 0 1px var(--ui-app-accent-border)"
-      />
+      <AppWorkspace.SidebarMobileTrigger label={activeLocation?.name ?? "Weather"} />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

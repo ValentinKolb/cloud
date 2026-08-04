@@ -88,7 +88,7 @@ export default function NotebookSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar resizable>
-      <AppWorkspace.SidebarHeader title={notebook().name} icon={notebook().icon || "ti-notebook"} />
+      <AppWorkspace.SidebarMobileTrigger label={notebook().name} />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

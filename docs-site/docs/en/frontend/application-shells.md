@@ -43,11 +43,20 @@ every application capability.
 <Layout c={c} title="Inventory" fullWidth fullPage>
   <AppWorkspace>
     <AppWorkspace.Sidebar collapsible>
-      <AppWorkspace.SidebarHeader
-        title="Inventory"
-        icon="ti ti-packages"
-      />
-      <InventoryNavigation />
+      <AppWorkspace.SidebarMobileTrigger label="Inventory" />
+      <AppWorkspace.SidebarMobile>
+        <InventoryMobileNavigation />
+      </AppWorkspace.SidebarMobile>
+      <AppWorkspace.SidebarDesktop>
+        <AppWorkspace.SidebarBody>
+          <InventoryNavigation />
+        </AppWorkspace.SidebarBody>
+        <AppWorkspace.SidebarFooter>
+          <AppWorkspace.SidebarItem icon="ti ti-settings">
+            Settings
+          </AppWorkspace.SidebarItem>
+        </AppWorkspace.SidebarFooter>
+      </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
     <AppWorkspace.Content>
       <AppWorkspace.Main>
@@ -71,6 +80,9 @@ detail after reload. See
 
 `AppWorkspace.Content` is the required flex row for `Main` and `Detail`.
 Keep geometry IDs stable. Do not add another grid or resize handle.
+
+Authenticated desktop layouts expose Help and Search through the application
+rail. Their header controls are compact-layout fallbacks and stay mobile-only.
 
 ## Choose a dialog
 

@@ -61,7 +61,7 @@ export type {
   AppWorkspaceProps,
   AppWorkspaceSidebarBodyProps,
   AppWorkspaceSidebarAccessoryVisibility,
-  AppWorkspaceSidebarHeaderProps,
+  AppWorkspaceSidebarMobileTriggerProps,
   AppWorkspaceSidebarIconActionProps,
   AppWorkspaceSidebarIconActionTone,
   AppWorkspaceSidebarIconGridProps,
