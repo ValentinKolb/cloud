@@ -1,7 +1,6 @@
 import { type AppContext, type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
-import { filesCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes, { adminPages as adminPageRoutes } from "./frontend";
 import { filesHelp } from "./help";
@@ -18,7 +17,6 @@ const router = new Hono<AuthContext>()
   .route("/admin/files", adminPageRoutes);
 
 export default await app.start({
-  capabilities: filesCapabilities,
   fetch: router.fetch,
   help: filesHelp,
   openapi: apiRoutes,
