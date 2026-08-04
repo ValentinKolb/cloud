@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const WeatherIconSchema = z.enum([
+export const WeatherIconSchema = z.enum([
   "clear-day",
   "clear-night",
   "partly-cloudy-day",
@@ -17,44 +17,44 @@ const WeatherIconSchema = z.enum([
 
 export const CurrentWeatherSchema = z
   .object({
-    temperature: z.number(),
+    temperature: z.number().finite().min(-100).max(70).describe("Air temperature in degrees Celsius."),
     icon: WeatherIconSchema,
-    cloudCover: z.number(),
-    windSpeed: z.number(),
-    windGust: z.number().nullable(),
-    windDirection: z.number().nullable(),
-    humidity: z.number().nullable(),
-    precipitation: z.number(),
-    pressure: z.number().nullable(),
-    visibility: z.number().nullable(),
-    dewPoint: z.number().nullable(),
-    sunshine: z.number().nullable(),
-    stationName: z.string(),
-    timestamp: z.string(),
+    cloudCover: z.number().finite().min(0).max(100).describe("Cloud cover percentage from 0 to 100."),
+    windSpeed: z.number().finite().min(0).max(500).describe("Wind speed in kilometres per hour."),
+    windGust: z.number().finite().min(0).max(500).nullable().describe("Wind gust speed in kilometres per hour."),
+    windDirection: z.number().finite().min(0).max(360).nullable().describe("Wind direction in degrees."),
+    humidity: z.number().finite().min(0).max(100).nullable().describe("Relative humidity percentage from 0 to 100."),
+    precipitation: z.number().finite().min(0).max(1_000).describe("Precipitation in millimetres during the last hour."),
+    pressure: z.number().finite().min(0).max(2_000).nullable().describe("Mean sea-level pressure in hectopascals."),
+    visibility: z.number().finite().min(0).max(10_000_000).nullable().describe("Visibility in metres."),
+    dewPoint: z.number().finite().min(-100).max(70).nullable().describe("Dew point in degrees Celsius."),
+    sunshine: z.number().finite().min(0).max(60).nullable().describe("Sunshine duration in minutes during the last hour."),
+    stationName: z.string().trim().min(1).max(160),
+    timestamp: z.iso.datetime({ offset: true }),
   })
   .strict();
 
 const HourlyForecastSchema = z
   .object({
-    timestamp: z.string(),
-    temperature: z.number(),
+    timestamp: z.iso.datetime({ offset: true }),
+    temperature: z.number().finite().min(-100).max(70),
     icon: WeatherIconSchema,
-    precipitation: z.number(),
-    precipitationProbability: z.number().nullable(),
-    windSpeed: z.number(),
-    cloudCover: z.number(),
+    precipitation: z.number().finite().min(0).max(1_000),
+    precipitationProbability: z.number().finite().min(0).max(100).nullable(),
+    windSpeed: z.number().finite().min(0).max(500),
+    cloudCover: z.number().finite().min(0).max(100),
   })
   .strict();
 
 const DailyForecastSchema = z
   .object({
-    date: z.string(),
+    date: z.iso.date(),
     icon: WeatherIconSchema,
-    tempMin: z.number(),
-    tempMax: z.number(),
-    precipitation: z.number(),
-    precipitationProbability: z.number().nullable(),
-    sunshine: z.number(),
+    tempMin: z.number().finite().min(-100).max(70),
+    tempMax: z.number().finite().min(-100).max(70),
+    precipitation: z.number().finite().min(0).max(1_000),
+    precipitationProbability: z.number().finite().min(0).max(100).nullable(),
+    sunshine: z.number().finite().min(0).max(1_440),
   })
   .strict();
 

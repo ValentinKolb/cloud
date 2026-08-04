@@ -6,7 +6,11 @@ type PublicAvailabilityInput = {
   openingRules: OpeningRule[];
   overrides: DateOverride[];
   templates: ShiftTemplate[];
-  assignments: ShiftAssignment[];
+  assignments: Array<
+    Pick<ShiftAssignment, "templateId" | "startsAt" | "endsAt"> & {
+      assignedCount?: number;
+    }
+  >;
   now: Date;
   days?: number;
 };
@@ -100,7 +104,7 @@ export const buildPublicAvailability = (input: PublicAvailabilityInput): PublicA
     for (const assignment of input.assignments) {
       if (!assignment.templateId) continue;
       const key = `${assignment.templateId}:${assignment.startsAt}`;
-      assignmentsByTemplateStart.set(key, (assignmentsByTemplateStart.get(key) ?? 0) + 1);
+      assignmentsByTemplateStart.set(key, (assignmentsByTemplateStart.get(key) ?? 0) + (assignment.assignedCount ?? 1));
     }
 
     const activeTemplates = input.templates.filter((template) => template.active);

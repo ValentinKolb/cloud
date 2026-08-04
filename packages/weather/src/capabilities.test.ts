@@ -3,6 +3,7 @@ import { ok } from "@k2b/stdlib";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit, weatherService } from "@valentinkolb/cloud/services";
 import { decodeWeatherCapabilityCursor, weatherCapabilities } from "./capabilities";
+import { CurrentWeatherSchema } from "./contracts";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const locationId = "22222222-2222-4222-8222-222222222222";
@@ -66,6 +67,23 @@ const location = {
   state: "Baden-Württemberg",
   lat: 48.4,
   lon: 9.99,
+};
+
+const currentWeather = {
+  temperature: 22,
+  icon: "clear-day" as const,
+  cloudCover: 10,
+  windSpeed: 8,
+  windGust: null,
+  windDirection: 180,
+  humidity: 55,
+  precipitation: 0,
+  pressure: 1015,
+  visibility: 20_000,
+  dewPoint: 12,
+  sunshine: 60,
+  stationName: "Ulm",
+  timestamp: "2026-08-01T12:00:00.000Z",
 };
 
 afterEach(() => mock.restore());
@@ -133,9 +151,12 @@ describe("weather capabilities", () => {
   });
 
   test("accepts only opaque v1 page cursors", () => {
-    const cursor = Buffer.from(JSON.stringify({ v: 1, page: 3 }), "utf8").toString("base64url");
-    expect(decodeWeatherCapabilityCursor(cursor)).toEqual({ ok: true, data: 3 });
-    expect(decodeWeatherCapabilityCursor("not-a-cursor").ok).toBeFalse();
+    const cursor = Buffer.from(JSON.stringify({ v: 1, page: 3, limit: 20 }), "utf8").toString("base64url");
+    const excessive = Buffer.from(JSON.stringify({ v: 1, page: 502, limit: 20 }), "utf8").toString("base64url");
+    expect(decodeWeatherCapabilityCursor(cursor, 20)).toEqual({ ok: true, data: 3 });
+    expect(decodeWeatherCapabilityCursor(cursor, 10).ok).toBeFalse();
+    expect(decodeWeatherCapabilityCursor(excessive, 20).ok).toBeFalse();
+    expect(decodeWeatherCapabilityCursor("not-a-cursor", 20).ok).toBeFalse();
   });
 
   test("lists only the access-subject user's page", async () => {
@@ -146,7 +167,7 @@ describe("weather capabilities", () => {
       total: 3,
       hasNext: true,
     });
-    const cursor = Buffer.from(JSON.stringify({ v: 1, page: 2 }), "utf8").toString("base64url");
+    const cursor = Buffer.from(JSON.stringify({ v: 1, page: 2, limit: 1 }), "utf8").toString("base64url");
 
     const result = await weatherCapabilities.queries["location.list"].run({ limit: 1, cursor }, userContext);
 
@@ -184,22 +205,7 @@ describe("weather capabilities", () => {
 
   test("resolves an owned saved location through the existing forecast service", async () => {
     const getLocation = spyOn(weatherService.location.saved, "get").mockResolvedValue(location);
-    const getCurrent = spyOn(weatherService.forecast.current, "get").mockResolvedValue({
-      temperature: 22,
-      icon: "clear-day",
-      cloudCover: 10,
-      windSpeed: 8,
-      windGust: null,
-      windDirection: 180,
-      humidity: 55,
-      precipitation: 0,
-      pressure: 1015,
-      visibility: 20_000,
-      dewPoint: 12,
-      sunshine: 60,
-      stationName: "Ulm",
-      timestamp: "2026-08-01T12:00:00.000Z",
-    });
+    const getCurrent = spyOn(weatherService.forecast.current, "get").mockResolvedValue(currentWeather);
 
     const result = await weatherCapabilities.queries["forecast.current"].run({ source: { kind: "saved", locationId } }, userContext);
 
@@ -212,6 +218,51 @@ describe("weather capabilities", () => {
         links: [{ rel: "open", href: `/app/weather/${locationId}` }],
       },
     });
+  });
+
+  test("allows service accounts to use coordinate forecasts without reading saved locations", async () => {
+    const getLocation = spyOn(weatherService.location.saved, "get");
+    const getCurrent = spyOn(weatherService.forecast.current, "get").mockResolvedValue(currentWeather);
+
+    const result = await weatherCapabilities.queries["forecast.current"].run(
+      { source: { kind: "coordinates", lat: location.lat, lon: location.lon } },
+      serviceAccountContext,
+    );
+
+    expect(getLocation).not.toHaveBeenCalled();
+    expect(getCurrent).toHaveBeenCalledWith({ lat: String(location.lat), lon: String(location.lon) });
+    expect(result).toMatchObject({ ok: true, data: { data: currentWeather } });
+  });
+
+  test("bounds external forecast output and falls back for unknown icons", async () => {
+    spyOn(weatherService.forecast.current, "get").mockResolvedValue({
+      ...currentWeather,
+      icon: "future-weather-icon",
+      stationName: `  ${"x".repeat(200)}  `,
+    } as never);
+
+    const result = await weatherCapabilities.queries["forecast.current"].run(
+      { source: { kind: "coordinates", lat: location.lat, lon: location.lon } },
+      userContext,
+    );
+
+    expect(result).toMatchObject({ ok: true, data: { data: { icon: "cloudy" } } });
+    if (result.ok) expect(CurrentWeatherSchema.parse(result.data.data).stationName).toHaveLength(160);
+  });
+
+  test("allows service accounts to search cities and forwards cancellation", async () => {
+    const list = spyOn(weatherService.location.city, "list").mockResolvedValue(
+      ok({ items: [{ name: "Ulm", lat: 48.4, lon: 9.99, country: "DE" }], page: 1, perPage: 5, total: 1, hasNext: false }),
+    );
+
+    const result = await weatherCapabilities.queries["city.search"].run({ query: "Ulm", limit: 5 }, serviceAccountContext);
+
+    expect(list).toHaveBeenCalledWith({
+      pagination: { page: 1, perPage: 5 },
+      signal: serviceAccountContext.signal,
+      filter: { query: "Ulm", country: "DE" },
+    });
+    expect(result).toMatchObject({ ok: true, data: { data: [{ name: "Ulm", lat: 48.4, lon: 9.99, country: "DE" }] } });
   });
 
   test("audits allowed creates and denied deletes", async () => {

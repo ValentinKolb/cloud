@@ -2,9 +2,9 @@ import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
-  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   UniversalSearchDataSchema,
   type UniversalSearchInput,
@@ -12,15 +12,31 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { type AuditActor, audit, weatherService } from "@valentinkolb/cloud/services";
 import { z } from "zod";
-import { CurrentWeatherSchema, WeatherDataSchema } from "./contracts";
+import { CurrentWeatherSchema, WeatherDataSchema, WeatherIconSchema } from "./contracts";
+
+const MAX_CURSOR_OFFSET = 10_000;
+
+const unavailable = <T>(): CapabilityInvocationResult<T> =>
+  fail({
+    code: "WEATHER_UNAVAILABLE",
+    message: "Weather data is unavailable",
+    status: 500,
+  });
+
+const citySearchUnavailable = <T>(): CapabilityInvocationResult<T> =>
+  fail({
+    code: "WEATHER_CITY_SEARCH_UNAVAILABLE",
+    message: "Weather city search is unavailable",
+    status: 500,
+  });
 
 const LocationSchema = z
   .object({
     id: z.uuid(),
-    name: z.string(),
-    state: z.string().nullable(),
-    lat: z.number(),
-    lon: z.number(),
+    name: z.string().trim().min(1).max(120),
+    state: z.string().trim().min(1).max(120).nullable(),
+    lat: z.number().finite().min(-90).max(90),
+    lon: z.number().finite().min(-180).max(180),
   })
   .strict();
 
@@ -70,11 +86,11 @@ const CitySearchDataSchema = z
   .array(
     z
       .object({
-        name: z.string(),
-        lat: z.number(),
-        lon: z.number(),
-        country: z.string().optional(),
-        state: z.string().optional(),
+        name: z.string().trim().min(1).max(160),
+        lat: z.number().finite().min(-90).max(90),
+        lon: z.number().finite().min(-180).max(180),
+        country: z.string().trim().min(1).max(16).optional(),
+        state: z.string().trim().min(1).max(160).optional(),
       })
       .strict(),
   )
@@ -96,13 +112,18 @@ const LocationDeleteDataSchema = z
   })
   .strict();
 
-const encodeCursor = (page: number): string => Buffer.from(JSON.stringify({ v: 1, page }), "utf8").toString("base64url");
+const encodeCursor = (page: number, limit: number): string =>
+  Buffer.from(JSON.stringify({ v: 1, page, limit }), "utf8").toString("base64url");
 
-export const decodeWeatherCapabilityCursor = (cursor: string | undefined): Result<number> => {
+export const decodeWeatherCapabilityCursor = (cursor: string | undefined, limit: number): Result<number> => {
   if (!cursor) return ok(1);
   try {
-    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { v?: unknown; page?: unknown };
-    return value.v === 1 && Number.isInteger(value.page) && Number(value.page) >= 1
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { v?: unknown; page?: unknown; limit?: unknown };
+    return value.v === 1 &&
+      Number.isSafeInteger(value.page) &&
+      Number(value.page) >= 1 &&
+      (Number(value.page) - 1) * limit <= MAX_CURSOR_OFFSET &&
+      value.limit === limit
       ? ok(Number(value.page))
       : fail(err.badInput("Invalid cursor"));
   } catch {
@@ -117,11 +138,19 @@ const requireUserId = (context: CapabilityExecutionContext): Result<string> =>
 
 const locationHref = (locationId: string): string => `/app/weather/${locationId}`;
 
+const mapLocation = (location: { id: string; name: string; state: string | null; lat: number; lon: number }) => ({
+  id: location.id,
+  name: location.name.trim().slice(0, 120),
+  state: location.state?.trim().slice(0, 120) || null,
+  lat: location.lat,
+  lon: location.lon,
+});
+
 const locationPageResult = <T>(page: Paginated<unknown>, data: T, refs?: CapabilityResult<T>["refs"]): CapabilityInvocationResult<T> =>
   ok({
     data,
     ...(refs ? { refs } : {}),
-    page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1) : undefined),
+    page: capabilityPage(page.hasNext ? encodeCursor(page.page + 1, page.perPage) : undefined),
   });
 
 const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -133,32 +162,39 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
     pagination: { page: 1, perPage: input.limit },
     filter: { query: input.query },
   });
-  const data: CloudResourceView[] = page.items.map((entry) => ({
-    ref: { type: "weather.location", id: entry.id },
-    title: entry.name,
-    preview: entry.state ?? undefined,
-    icon: "ti ti-temperature-celsius",
-    priority: 6,
-    metadata: [{ label: "Type", value: "Location" }, ...(entry.state ? [{ label: "State", value: entry.state }] : [])],
-    links: [{ rel: "open", href: locationHref(entry.id) }],
-  }));
+  const data: CloudResourceView[] = page.items.map((rawEntry) => {
+    const entry = mapLocation(rawEntry);
+    return {
+      ref: { type: "weather.location", id: entry.id },
+      title: entry.name,
+      preview: entry.state ?? undefined,
+      icon: "ti ti-temperature-celsius",
+      priority: 6,
+      metadata: [{ label: "Type", value: "Location" }, ...(entry.state ? [{ label: "State", value: entry.state }] : [])],
+      links: [{ rel: "open", href: locationHref(entry.id) }],
+    };
+  });
   return ok({ data });
 };
 
 const runLocationList = async (input: z.infer<typeof LocationListInputSchema>, context: CapabilityExecutionContext) => {
   const userId = requireUserId(context);
   if (!userId.ok) return userId;
-  const cursor = decodeWeatherCapabilityCursor(input.cursor);
+  const cursor = decodeWeatherCapabilityCursor(input.cursor, input.limit);
   if (!cursor.ok) return cursor;
 
   const page = await weatherService.location.saved.list({
     userId: userId.data,
     pagination: { page: cursor.data, perPage: input.limit },
   });
+  if (page.hasNext && page.page * page.perPage > MAX_CURSOR_OFFSET) {
+    return fail(err.badInput("Saved location pagination exceeds the supported window"));
+  }
+  const locations = page.items.map(mapLocation);
   return locationPageResult(
     page,
-    page.items,
-    page.items.map((location) => ({ type: "weather.location", id: location.id })),
+    locations,
+    locations.map((location) => ({ type: "weather.location", id: location.id })),
   );
 };
 
@@ -167,10 +203,11 @@ const runLocationGet = async (input: z.infer<typeof LocationGetInputSchema>, con
   if (!userId.ok) return userId;
   const location = await weatherService.location.saved.get({ id: input.locationId, userId: userId.data });
   if (!location) return fail(err.notFound("Location"));
+  const data = mapLocation(location);
   return ok({
-    data: location,
-    refs: [{ type: "weather.location", id: location.id }],
-    links: [{ rel: "open" as const, href: locationHref(location.id) }],
+    data,
+    refs: [{ type: "weather.location", id: data.id }],
+    links: [{ rel: "open" as const, href: locationHref(data.id) }],
   });
 };
 
@@ -181,12 +218,12 @@ const resolveForecastSource = async (
   source: ForecastSource,
   context: CapabilityExecutionContext,
 ): Promise<Result<ResolvedForecastSource>> => {
-  const userId = requireUserId(context);
-  if (!userId.ok) return userId;
   if (source.kind === "coordinates") {
     return ok({ lat: String(source.lat), lon: String(source.lon), locationId: null });
   }
 
+  const userId = requireUserId(context);
+  if (!userId.ok) return userId;
   const location = await weatherService.location.saved.get({ id: source.locationId, userId: userId.data });
   return location ? ok({ lat: String(location.lat), lon: String(location.lon), locationId: location.id }) : fail(err.notFound("Location"));
 };
@@ -199,28 +236,108 @@ const forecastIdentity = (locationId: string | null) =>
       }
     : {};
 
+const record = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+const icon = (value: unknown) => {
+  const parsed = WeatherIconSchema.safeParse(value);
+  return parsed.success ? parsed.data : "cloudy";
+};
+
+const currentCandidate = (value: unknown) => {
+  const source = record(value);
+  return {
+    temperature: source.temperature,
+    icon: icon(source.icon),
+    cloudCover: source.cloudCover,
+    windSpeed: source.windSpeed,
+    windGust: source.windGust,
+    windDirection: source.windDirection,
+    humidity: source.humidity,
+    precipitation: source.precipitation,
+    pressure: source.pressure,
+    visibility: source.visibility,
+    dewPoint: source.dewPoint,
+    sunshine: source.sunshine,
+    stationName: typeof source.stationName === "string" ? source.stationName.trim().slice(0, 160) : source.stationName,
+    timestamp: source.timestamp,
+  };
+};
+
+const projectCurrentWeather = (value: unknown) => CurrentWeatherSchema.safeParse(currentCandidate(value));
+
+const projectWeatherData = (value: unknown) => {
+  const source = record(value);
+  const hourly = Array.isArray(source.hourly)
+    ? source.hourly.slice(0, 12).map((value) => {
+        const entry = record(value);
+        return {
+          timestamp: entry.timestamp,
+          temperature: entry.temperature,
+          icon: icon(entry.icon),
+          precipitation: entry.precipitation,
+          precipitationProbability: entry.precipitationProbability,
+          windSpeed: entry.windSpeed,
+          cloudCover: entry.cloudCover,
+        };
+      })
+    : source.hourly;
+  const daily = Array.isArray(source.daily)
+    ? source.daily.slice(0, 7).map((value) => {
+        const entry = record(value);
+        return {
+          date: entry.date,
+          icon: icon(entry.icon),
+          tempMin: entry.tempMin,
+          tempMax: entry.tempMax,
+          precipitation: entry.precipitation,
+          precipitationProbability: entry.precipitationProbability,
+          sunshine: entry.sunshine,
+        };
+      })
+    : source.daily;
+  return WeatherDataSchema.safeParse({ current: currentCandidate(source.current), hourly, daily });
+};
+
 const runCurrentForecast = async (input: z.infer<typeof ForecastInputSchema>, context: CapabilityExecutionContext) => {
   const source = await resolveForecastSource(input.source, context);
   if (!source.ok) return source;
-  const data = await weatherService.forecast.current.get({ lat: source.data.lat, lon: source.data.lon });
-  return data ? ok({ data, ...forecastIdentity(source.data.locationId) }) : fail(err.internal("Current weather is unavailable"));
+  try {
+    const data = await weatherService.forecast.current.get({ lat: source.data.lat, lon: source.data.lon });
+    if (!data) return unavailable();
+    const projected = projectCurrentWeather(data);
+    return projected.success ? ok({ data: projected.data, ...forecastIdentity(source.data.locationId) }) : unavailable();
+  } catch {
+    return unavailable();
+  }
 };
 
 const runForecast = async (input: z.infer<typeof ForecastInputSchema>, context: CapabilityExecutionContext) => {
   const source = await resolveForecastSource(input.source, context);
   if (!source.ok) return source;
-  const data = await weatherService.forecast.get({ lat: source.data.lat, lon: source.data.lon });
-  return data ? ok({ data, ...forecastIdentity(source.data.locationId) }) : fail(err.internal("Weather forecast is unavailable"));
+  try {
+    const data = await weatherService.forecast.get({ lat: source.data.lat, lon: source.data.lon });
+    if (!data) return unavailable();
+    const projected = projectWeatherData(data);
+    return projected.success ? ok({ data: projected.data, ...forecastIdentity(source.data.locationId) }) : unavailable();
+  } catch {
+    return unavailable();
+  }
 };
 
 const runCitySearch = async (input: z.infer<typeof CitySearchInputSchema>, context: CapabilityExecutionContext) => {
-  const userId = requireUserId(context);
-  if (!userId.ok) return userId;
-  const result = await weatherService.location.city.list({
-    pagination: { page: 1, perPage: input.limit },
-    filter: { query: input.query, country: "DE" },
-  });
-  return result.ok ? ok({ data: result.data.items.slice(0, input.limit) }) : result;
+  try {
+    const result = await weatherService.location.city.list({
+      pagination: { page: 1, perPage: input.limit },
+      signal: context.signal,
+      filter: { query: input.query, country: "DE" },
+    });
+    if (!result.ok) return result;
+    const data = CitySearchDataSchema.safeParse(result.data.items.slice(0, input.limit));
+    return data.success ? ok({ data: data.data }) : citySearchUnavailable();
+  } catch {
+    return citySearchUnavailable();
+  }
 };
 
 const capabilityAuditActor = (context: CapabilityExecutionContext): AuditActor =>
@@ -263,10 +380,11 @@ const runLocationCreate = async (input: z.infer<typeof LocationCreateInputSchema
       if (!userId.ok) return userId;
       const result = await weatherService.location.saved.create({ userId: userId.data, data: input });
       if (!result.ok) return result;
+      const data = mapLocation(result.data);
       return ok({
-        data: result.data,
-        refs: [{ type: "weather.location", id: result.data.id }],
-        links: [{ rel: "open" as const, href: locationHref(result.data.id) }],
+        data,
+        refs: [{ type: "weather.location", id: data.id }],
+        links: [{ rel: "open" as const, href: locationHref(data.id) }],
       });
     },
   );
@@ -316,7 +434,7 @@ export const weatherCapabilities = defineCapabilities({
       run: runSearch,
     },
     "location.list": {
-      title: "List saved weather locations",
+      title: "List my saved weather locations",
       description: "List the current user's saved weather locations with bounded pagination.",
       input: LocationListInputSchema,
       data: z.array(LocationSchema).max(100),
@@ -333,7 +451,8 @@ export const weatherCapabilities = defineCapabilities({
     },
     "forecast.current": {
       title: "Get current weather",
-      description: "Get current weather for one owned saved location or explicit coordinates.",
+      description:
+        "Get current weather for one owned saved location or explicit coordinates. Temperatures use degrees Celsius, wind uses km/h, precipitation uses mm, pressure uses hPa, and visibility uses metres.",
       input: ForecastInputSchema,
       data: CurrentWeatherSchema,
       openWorld: true,
@@ -342,7 +461,7 @@ export const weatherCapabilities = defineCapabilities({
     "forecast.get": {
       title: "Get weather forecast",
       description:
-        "Get current conditions plus up to 12 hourly and 7 daily forecasts for one owned saved location or explicit coordinates.",
+        "Get current conditions plus up to 12 hourly and 7 daily forecasts for one owned saved location or explicit coordinates. Temperatures use degrees Celsius, wind uses km/h, precipitation uses mm, and sunshine uses minutes.",
       input: ForecastInputSchema,
       data: WeatherDataSchema,
       openWorld: true,
@@ -381,9 +500,10 @@ export const weatherCapabilities = defineCapabilities({
         if (!userId.ok) return userId;
         const location = await weatherService.location.saved.get({ id: input.locationId, userId: userId.data });
         if (!location) return fail(err.notFound("Location"));
+        const name = location.name.trim().slice(0, 120);
         return ok({
-          message: `Permanently delete saved weather location ${location.name}.`,
-          details: [{ label: "Location", value: location.name }],
+          message: `Permanently delete saved weather location ${name}.`,
+          details: [{ label: "Location", value: name }],
           links: [{ rel: "open" as const, href: locationHref(location.id) }],
         });
       },

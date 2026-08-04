@@ -8,7 +8,7 @@ import {
   type UniversalSearchInput,
   UniversalSearchInputSchema,
 } from "@valentinkolb/cloud/contracts";
-import type { z } from "zod";
+import { z } from "zod";
 import { type VenueAccessScope, venueAccessScopeFor } from "./access-control";
 import {
   AssignmentActionDataSchema,
@@ -27,8 +27,8 @@ import {
   VenueListInputSchema,
   VenueStatusDataSchema,
 } from "./capability-contracts";
-import type { ShiftAssignment, UpcomingSlot, Venue } from "./contracts";
-import { venueService } from "./service";
+import type { ShiftAssignment, Venue } from "./contracts";
+import { type UpcomingSlotSummary, venueService } from "./service";
 
 const venueHref = (venueId: string): string => `/app/venue/${venueId}`;
 const publicVenueHref = (slug: string): string => `/app/venue/public/${encodeURIComponent(slug)}`;
@@ -82,7 +82,7 @@ const requireVenue = async (venueId: string, scope: VenueAccessScope, permission
   if (!venue) return fail(err.notFound("Venue"));
   const access = await venueService.access.require(venueId, scope, permission);
   if (access.ok || (allowPublic && venue.publicEnabled && !scope.serviceAccountResourceId)) return ok(venue);
-  return access;
+  return fail(err.notFound("Venue"));
 };
 
 const runVenueSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -171,7 +171,7 @@ const runVenueStatus = async (input: z.infer<typeof VenueGetInputSchema>, contex
   });
 };
 
-const mapShift = (slot: UpcomingSlot, currentUserId: string | null) => ({
+const mapShift = (slot: UpcomingSlotSummary) => ({
   id: slot.key,
   venueId: slot.template.venueId,
   templateId: slot.template.id,
@@ -184,7 +184,7 @@ const mapShift = (slot: UpcomingSlot, currentUserId: string | null) => ({
   maxPeople: slot.maxPeople,
   missingPeople: slot.missingPeople,
   full: slot.full,
-  currentUserAssignmentId: slot.assignments.find((assignment) => assignment.userId === currentUserId)?.id ?? null,
+  currentUserAssignmentId: slot.currentUserAssignmentId,
 });
 
 const runShiftList = async (input: z.infer<typeof ShiftListInputSchema>, context: CapabilityExecutionContext) => {
@@ -196,12 +196,13 @@ const runShiftList = async (input: z.infer<typeof ShiftListInputSchema>, context
   if (!venue.ok) return venue;
   const templates = await venueService.templates.list(venue.data.id, { limit: 101 });
   if (templates.length > 100) return fail(err.badInput("This Venue has too many active shift templates"));
-  const slots = await venueService.shifts.list(venue.data, { startDate: input.startDate, days: input.days, templates });
-  const page = pageResult(
-    slots.map((slot) => mapShift(slot, context.user?.id ?? null)),
-    cursor.data,
-    input.limit,
-  );
+  const slots = await venueService.shifts.listSummary(venue.data, {
+    startDate: input.startDate,
+    days: input.days,
+    templates,
+    currentUserId: context.user?.id ?? null,
+  });
+  const page = pageResult(slots.slice(cursor.data, cursor.data + input.limit + 1).map(mapShift), cursor.data, input.limit);
   return ok({
     ...page,
     refs: page.data.map((shift) => ({ type: "venue.shift" as const, id: shift.id })),
@@ -297,13 +298,37 @@ const mapCreatedAssignment = (assignment: ShiftAssignment, venue: Venue) => ({
 
 const SHIFT_ID_PATTERN = /^([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):(\d{4}-\d{2}-\d{2})$/i;
 
+const parseShiftId = (shiftId: string) => {
+  const match = SHIFT_ID_PATTERN.exec(shiftId);
+  return match?.[1] && match[2] && z.iso.date().safeParse(match[2]).success
+    ? ok({ templateId: match[1], date: match[2] })
+    : fail(err.badInput("Invalid shiftId"));
+};
+
+const validateFreeSignupWindow = (input: z.infer<typeof AssignmentFreeSignupInputSchema>) => {
+  const start = new Date(input.startsAt);
+  const end = new Date(input.endsAt);
+  const duration = end.getTime() - start.getTime();
+  if (start.getTime() < Date.now() - 60_000) return fail(err.badInput("Free shifts cannot start in the past"));
+  if (duration < 60_000 || duration > 24 * 60 * 60 * 1_000) {
+    return fail(err.badInput("Free shifts must last between one minute and 24 hours"));
+  }
+  if (start.getTime() > Date.now() + 366 * 86_400_000) return fail(err.badInput("Free shifts must start within the next 366 days"));
+  return ok({ start, end });
+};
+
 const runAssignmentSignup = async (input: z.infer<typeof AssignmentSignupInputSchema>, context: CapabilityExecutionContext) => {
   const actor = await requireUserAndVenue(input.venueId, context, "write");
   if (!actor.ok) return actor;
   if (actor.data.venue.signupMode === "free") return fail(err.badInput("Template shift signup is disabled for this Venue"));
-  const match = SHIFT_ID_PATTERN.exec(input.shiftId);
-  if (!match?.[1] || !match[2]) return fail(err.badInput("Invalid shiftId"));
-  const result = await venueService.assignments.signupTemplate(actor.data.venue, match[1], { date: match[2] }, actor.data.user);
+  const shift = parseShiftId(input.shiftId);
+  if (!shift.ok) return shift;
+  const result = await venueService.assignments.signupTemplate(
+    actor.data.venue,
+    shift.data.templateId,
+    { date: shift.data.date },
+    actor.data.user,
+  );
   if (!result.ok) return result;
   return ok({
     data: mapCreatedAssignment(result.data, actor.data.venue),
@@ -320,14 +345,8 @@ const runAssignmentFreeSignup = async (input: z.infer<typeof AssignmentFreeSignu
   const actor = await requireUserAndVenue(input.venueId, context, "write");
   if (!actor.ok) return actor;
   if (actor.data.venue.signupMode === "templates") return fail(err.badInput("Free shift signup is disabled for this Venue"));
-  const start = new Date(input.startsAt);
-  const end = new Date(input.endsAt);
-  const duration = end.getTime() - start.getTime();
-  if (start.getTime() < Date.now() - 60_000) return fail(err.badInput("Free shifts cannot start in the past"));
-  if (duration < 60_000 || duration > 24 * 60 * 60 * 1_000) {
-    return fail(err.badInput("Free shifts must last between one minute and 24 hours"));
-  }
-  if (start.getTime() > Date.now() + 366 * 86_400_000) return fail(err.badInput("Free shifts must start within the next 366 days"));
+  const window = validateFreeSignupWindow(input);
+  if (!window.ok) return window;
   const result = await venueService.assignments.signupFree(actor.data.venue.id, input, actor.data.user);
   if (!result.ok) return result;
   return ok({
@@ -410,7 +429,7 @@ export const venueCapabilities = defineCapabilities({
       run: runShiftList,
     },
     "assignment.mine": {
-      title: "List my shift assignments",
+      title: "List my assignments",
       description: "List the current user-backed actor's own assignments in a bounded date range.",
       input: AssignmentMineInputSchema,
       data: AssignmentListDataSchema,
@@ -435,6 +454,35 @@ export const venueCapabilities = defineCapabilities({
       destructive: false,
       openWorld: false,
       idempotency: "none",
+      review: async (input, context) => {
+        const actor = await requireUserAndVenue(input.venueId, context, "write");
+        if (!actor.ok) return actor;
+        if (actor.data.venue.signupMode === "free") return fail(err.badInput("Template shift signup is disabled for this Venue"));
+        const parsed = parseShiftId(input.shiftId);
+        if (!parsed.ok) return parsed;
+        const templates = await venueService.templates.list(actor.data.venue.id, { limit: 101 });
+        if (templates.length > 100) return fail(err.badInput("This Venue has too many active shift templates"));
+        const shifts = await venueService.shifts.listSummary(actor.data.venue, {
+          startDate: parsed.data.date,
+          days: 1,
+          templates,
+          currentUserId: actor.data.user.id,
+        });
+        const shift = shifts.find((entry) => entry.key === input.shiftId);
+        if (!shift) return fail(err.notFound("Shift"));
+        if (shift.currentUserAssignmentId) return fail(err.badInput("You are already signed up for this shift"));
+        if (shift.full) return fail(err.badInput("This shift is already full"));
+        return ok({
+          message: `Sign up for ${shift.template.title} at ${actor.data.venue.name}.`,
+          details: [
+            { label: "Venue", value: actor.data.venue.name },
+            { label: "Shift", value: shift.template.title },
+            { label: "Starts", value: shift.startsAt },
+            { label: "Ends", value: shift.endsAt },
+          ],
+          links: [{ rel: "open" as const, href: shiftHref(actor.data.venue.id) }],
+        });
+      },
       run: runAssignmentSignup,
     },
     "assignment.signup_free": {
@@ -445,6 +493,23 @@ export const venueCapabilities = defineCapabilities({
       destructive: false,
       openWorld: false,
       idempotency: "none",
+      review: async (input, context) => {
+        const actor = await requireUserAndVenue(input.venueId, context, "write");
+        if (!actor.ok) return actor;
+        if (actor.data.venue.signupMode === "templates") return fail(err.badInput("Free shift signup is disabled for this Venue"));
+        const window = validateFreeSignupWindow(input);
+        if (!window.ok) return window;
+        return ok({
+          message: `Create a free shift assignment at ${actor.data.venue.name}.`,
+          details: [
+            { label: "Venue", value: actor.data.venue.name },
+            { label: "Timezone", value: actor.data.venue.timezone },
+            { label: "Starts", value: window.data.start.toISOString() },
+            { label: "Ends", value: window.data.end.toISOString() },
+          ],
+          links: [{ rel: "open" as const, href: myShiftsHref(actor.data.venue.id) }],
+        });
+      },
       run: runAssignmentFreeSignup,
     },
     "assignment.cancel": {

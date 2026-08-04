@@ -12,6 +12,13 @@ export type WeatherCity = {
   state?: string;
 };
 
+const unavailable = <T>(): Result<T> =>
+  fail({
+    code: "WEATHER_CITY_SEARCH_UNAVAILABLE",
+    message: "Weather city search is unavailable",
+    status: 500,
+  });
+
 /**
  * Adapts generic geo place data to the weather app's city model.
  */
@@ -39,6 +46,7 @@ const getGeoBaseUrl = async (): Promise<Result<string>> => {
  */
 const list = async (config: {
   pagination?: PageParams;
+  signal?: AbortSignal;
   filter: {
     query: string;
     country?: string;
@@ -61,18 +69,19 @@ const list = async (config: {
   }
 
   const baseUrlResult = await getGeoBaseUrl();
-  if (!baseUrlResult.ok) return baseUrlResult;
+  if (!baseUrlResult.ok) return unavailable();
   const geoUrl = baseUrlResult.data;
   const result = await geoService.place.list({
     baseUrl: geoUrl,
     pagination: config.pagination,
+    signal: config.signal,
     filter: {
       query,
       country: WEATHER_COUNTRY_CODE,
       featureClass: "P",
     },
   });
-  if (!result.ok) return result;
+  if (!result.ok) return unavailable();
 
   return ok({
     ...result.data,

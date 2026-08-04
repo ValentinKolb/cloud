@@ -1,18 +1,30 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
+import { z } from "zod";
+import { readBoundedJson } from "../../_internal/bounded-json";
 
-type GeoApiPlace = {
-  name?: string;
-  latitude?: number;
-  longitude?: number;
-  country_code?: string;
-  admin1_code?: string;
-  feature_class?: string;
-  feature_code?: string;
-};
+const GEO_TIMEOUT_MS = 2_000;
+const GEO_MAX_RESPONSE_BYTES = 256 * 1024;
+const GEO_MAX_PLACES = 500;
 
-type GeoApiSearchResponse = {
-  places?: GeoApiPlace[];
-};
+const GeoApiPlaceSchema = z
+  .object({
+    name: z.string().trim().min(1).max(160),
+    latitude: z.number().finite().min(-90).max(90),
+    longitude: z.number().finite().min(-180).max(180),
+    country_code: z.string().trim().max(16).optional(),
+    admin1_code: z.string().trim().max(160).optional(),
+    feature_class: z.string().trim().max(16).optional(),
+    feature_code: z.string().trim().max(32).optional(),
+  })
+  .strip();
+
+const GeoApiSearchResponseSchema = z
+  .object({
+    places: z.array(z.unknown()).max(GEO_MAX_PLACES).optional(),
+  })
+  .strip();
+
+type GeoApiPlace = z.infer<typeof GeoApiPlaceSchema>;
 
 export type GeoPlace = {
   name: string;
@@ -33,6 +45,23 @@ const normalizeBaseUrl = (baseUrl: string): Result<string> => {
     return fail(err.badInput("Geo API base URL is required"));
   }
   return ok(value.replace(/\/$/, ""));
+};
+
+const unavailable = <T>(): Result<T> =>
+  fail({
+    code: "GEO_UNAVAILABLE",
+    message: "Geo service is unavailable",
+    status: 500,
+  });
+
+const geoSignal = (signal?: AbortSignal): AbortSignal =>
+  signal ? AbortSignal.any([signal, AbortSignal.timeout(GEO_TIMEOUT_MS)]) : AbortSignal.timeout(GEO_TIMEOUT_MS);
+
+const readGeoResponse = async (response: Response): Promise<Result<z.infer<typeof GeoApiSearchResponseSchema>>> => {
+  const body = await readBoundedJson(response, GEO_MAX_RESPONSE_BYTES);
+  if (!body.ok) return unavailable();
+  const parsed = GeoApiSearchResponseSchema.safeParse(body.data);
+  return parsed.success ? ok(parsed.data) : unavailable();
 };
 
 /**
@@ -60,6 +89,7 @@ const toPlace = (place: GeoApiPlace): GeoPlace | null => {
 const list = async (config: {
   baseUrl: string;
   pagination?: PageParams;
+  signal?: AbortSignal;
   filter: {
     query: string;
     country?: string;
@@ -88,13 +118,20 @@ const list = async (config: {
   }
 
   try {
-    const res = await fetch(`${baseUrlResult.data}/geo/search?${params}`);
+    const res = await fetch(`${baseUrlResult.data}/geo/search?${params}`, { signal: geoSignal(config.signal) });
     if (!res.ok) {
-      return fail(err.internal(`Geo search failed with status ${res.status}`));
+      return unavailable();
     }
 
-    const body = (await res.json()) as GeoApiSearchResponse;
-    const mapped = (body.places ?? []).map(toPlace).filter((place): place is GeoPlace => place !== null);
+    const body = await readGeoResponse(res);
+    if (!body.ok) return body;
+    const mapped = (body.data.places ?? [])
+      .flatMap((candidate) => {
+        const place = GeoApiPlaceSchema.safeParse(candidate);
+        return place.success ? [place.data] : [];
+      })
+      .map(toPlace)
+      .filter((place): place is GeoPlace => place !== null);
 
     const filtered = mapped.filter((place) => {
       if (config.filter.featureClass && place.featureClass !== config.filter.featureClass) {
@@ -115,8 +152,8 @@ const list = async (config: {
       total: filtered.length,
       hasNext: page * perPage < filtered.length,
     });
-  } catch (error) {
-    return fail(err.internal(`Geo search request failed: ${error instanceof Error ? error.message : String(error)}`));
+  } catch {
+    return unavailable();
   }
 };
 
@@ -128,17 +165,24 @@ const get = async (config: { baseUrl: string; lat: number; lon: number }): Promi
   if (!baseUrlResult.ok) return baseUrlResult;
 
   try {
-    const res = await fetch(`${baseUrlResult.data}/geo/reverse?lat=${config.lat}&lng=${config.lon}`);
+    const res = await fetch(`${baseUrlResult.data}/geo/reverse?lat=${config.lat}&lng=${config.lon}`, { signal: geoSignal() });
     if (!res.ok) {
-      return fail(err.internal(`Geo reverse lookup failed with status ${res.status}`));
+      return unavailable();
     }
 
-    const body = (await res.json()) as GeoApiSearchResponse;
-    const first = (body.places ?? []).map(toPlace).find((place): place is GeoPlace => place !== null);
+    const body = await readGeoResponse(res);
+    if (!body.ok) return body;
+    const first = (body.data.places ?? [])
+      .flatMap((candidate) => {
+        const place = GeoApiPlaceSchema.safeParse(candidate);
+        return place.success ? [place.data] : [];
+      })
+      .map(toPlace)
+      .find((place): place is GeoPlace => place !== null);
 
     return ok(first ?? null);
-  } catch (error) {
-    return fail(err.internal(`Geo reverse request failed: ${error instanceof Error ? error.message : String(error)}`));
+  } catch {
+    return unavailable();
   }
 };
 

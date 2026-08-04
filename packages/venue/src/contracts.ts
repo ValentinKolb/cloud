@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const WeekdaySchema = z.number().int().min(0).max(6);
 const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/, "Expected HH:MM");
-const DateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+const DateKeySchema = z.iso.date();
 const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
 
 const VenueOpenModeSchema = z.enum(["regular", "staffed", "combined"]);

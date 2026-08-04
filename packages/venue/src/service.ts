@@ -121,6 +121,26 @@ type DbShiftAssignment = {
   updated_at: Date;
 };
 
+type DbShiftAssignmentSummary = {
+  template_id: string | null;
+  starts_at: Date;
+  ends_at: Date;
+  assigned_count: number;
+  current_user_assignment_id: string | null;
+};
+
+export type ShiftAssignmentSummary = {
+  templateId: string | null;
+  startsAt: string;
+  endsAt: string;
+  assignedCount: number;
+  currentUserAssignmentId: string | null;
+};
+
+export type UpcomingSlotSummary = Omit<UpcomingSlot, "assignments"> & {
+  currentUserAssignmentId: string | null;
+};
+
 type DbPublicSection = {
   id: string;
   venue_id: string;
@@ -835,7 +855,7 @@ const listTemplates = async (venueId: string, options: { limit?: number } = {}):
     SELECT * FROM venue.shift_templates
     WHERE venue_id = ${venueId}::uuid
       AND active = true
-    ORDER BY weekday, start_time
+    ORDER BY weekday, start_time, id
     LIMIT ${limit}
   `;
   return rows.map(mapTemplate);
@@ -879,6 +899,37 @@ const assignmentsForRange = async (venueId: string, start: Date, end: Date): Pro
     ORDER BY sa.starts_at, u.display_name
   `;
   return rows.map(mapAssignment);
+};
+
+const assignmentSummariesForRange = async (
+  venueId: string,
+  start: Date,
+  end: Date,
+  currentUserId: string | null = null,
+): Promise<ShiftAssignmentSummary[]> => {
+  const rows = await sql<DbShiftAssignmentSummary[]>`
+    SELECT
+      sa.template_id,
+      sa.starts_at,
+      sa.ends_at,
+      COUNT(*)::int AS assigned_count,
+      MIN(sa.id::text) FILTER (
+        WHERE ${currentUserId}::uuid IS NOT NULL AND sa.user_id = ${currentUserId}::uuid
+      ) AS current_user_assignment_id
+    FROM venue.shift_assignments sa
+    WHERE sa.venue_id = ${venueId}::uuid
+      AND sa.starts_at < ${end}
+      AND sa.ends_at > ${start}
+    GROUP BY sa.template_id, sa.starts_at, sa.ends_at
+    ORDER BY sa.starts_at, sa.ends_at, sa.template_id
+  `;
+  return rows.map((row) => ({
+    templateId: row.template_id,
+    startsAt: row.starts_at.toISOString(),
+    endsAt: row.ends_at.toISOString(),
+    assignedCount: row.assigned_count,
+    currentUserAssignmentId: row.current_user_assignment_id,
+  }));
 };
 
 type PersonalShiftAssignment = ShiftAssignment & {
@@ -980,6 +1031,53 @@ const upcomingSlots = async (venue: Venue, options: number | UpcomingSlotsOption
       const startsAt = instantFor(date, template.startTime, venue.timezone).toISOString();
       const slotAssignments = assignmentsBySlot.get(`${template.id}:${startsAt}`) ?? [];
       slots.push(slotForTemplate(venue, template, date, slotAssignments));
+    }
+  }
+  return slots;
+};
+
+const upcomingSlotSummaries = async (
+  venue: Venue,
+  options: UpcomingSlotsOptions & { currentUserId?: string | null },
+): Promise<UpcomingSlotSummary[]> => {
+  const days = Math.max(0, options.days ?? 14);
+  if (days === 0) return [];
+
+  const templates = (options.templates ?? (await listTemplates(venue.id))).filter((template) => template.active);
+  if (templates.length === 0) return [];
+
+  const startDate = options.startDate ?? localDateKey(new Date(), venue.timezone);
+  const rangeStart = instantFor(startDate, "00:00", venue.timezone);
+  const rangeEnd = new Date(rangeStart.getTime() + days * 86_400_000);
+  const summaries = await assignmentSummariesForRange(venue.id, rangeStart, rangeEnd, options.currentUserId ?? null);
+  const summariesBySlot = new Map(
+    summaries.filter((summary) => summary.templateId).map((summary) => [`${summary.templateId}:${summary.startsAt}`, summary]),
+  );
+  const templatesForWeekday = templatesByWeekday(templates);
+  const slots: UpcomingSlotSummary[] = [];
+
+  for (let offset = 0; offset < days; offset++) {
+    const date = dateKeyAfterDays(startDate, offset, venue.timezone);
+    const weekdayTemplates = templatesForWeekday.get(localWeekday(date));
+    if (!weekdayTemplates) continue;
+    for (const template of weekdayTemplates) {
+      const startsAt = instantFor(date, template.startTime, venue.timezone).toISOString();
+      const endsAt = endInstantFor(date, template.startTime, template.endTime, venue.timezone).toISOString();
+      const summary = summariesBySlot.get(`${template.id}:${startsAt}`);
+      const assignedCount = summary?.assignedCount ?? 0;
+      slots.push({
+        key: `${template.id}:${date}`,
+        date,
+        template,
+        startsAt,
+        endsAt,
+        assignedCount,
+        minPeople: template.minPeople,
+        maxPeople: template.maxPeople,
+        missingPeople: Math.max(0, template.minPeople - assignedCount),
+        full: template.maxPeople !== null && assignedCount >= template.maxPeople,
+        currentUserAssignmentId: summary?.currentUserAssignmentId ?? null,
+      });
     }
   }
   return slots;
@@ -1209,7 +1307,7 @@ const statusForVenue = async (venue: Venue, now = new Date(), includeSections = 
     listOpeningRules(venue.id),
     listOverridesForDateRange(venue.id, startDate, endDate),
     listTemplates(venue.id),
-    assignmentsForRange(venue.id, new Date(now.getTime() - 1), rangeEnd),
+    assignmentSummariesForRange(venue.id, new Date(now.getTime() - 1), rangeEnd),
     includeSections ? listSections(venue.id, true) : Promise.resolve([]),
   ]);
   const availability = buildPublicAvailability({ venue, openingRules, overrides, templates, assignments, now, days });
@@ -1342,7 +1440,7 @@ export const venueService = {
   openingRules: { list: listOpeningRules, create: createOpeningRule, update: updateOpeningRule, delete: deleteOpeningRule },
   overrides: { list: listOverrides, upsert: upsertOverride, update: updateOverride, delete: deleteOverride },
   templates: { list: listTemplates, create: createTemplate, update: updateTemplate, delete: deleteTemplate },
-  shifts: { list: upcomingSlots },
+  shifts: { list: upcomingSlots, listSummary: upcomingSlotSummaries },
   assignments: {
     mine: listPersonalAssignments,
     getPersonal: getPersonalAssignment,
