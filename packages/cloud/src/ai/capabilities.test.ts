@@ -393,6 +393,9 @@ describe("AI capability catalog", () => {
       "load_capabilities",
       "contacts__query__list",
     ]);
+    expect(first.find((tool) => tool.def.name === "search_capabilities")?.def.description).not.toContain(
+      "Previously loaded capabilities currently absent",
+    );
 
     loaded.push("spaces__action__create");
     registry = [spaces];
@@ -404,6 +407,10 @@ describe("AI capability catalog", () => {
       "load_capabilities",
       "spaces__action__create",
     ]);
+    const searchDescription = second.find((tool) => tool.def.name === "search_capabilities")?.def.description;
+    expect(searchDescription).toContain("Previously loaded capabilities currently absent from the live registry: contacts__query__list");
+    expect(searchDescription).toContain("Treat them as temporarily unavailable");
+    expect(searchDescription).not.toContain("spaces__action__create");
   });
 
   test("keeps capability discovery available when the Help registry fails", async () => {

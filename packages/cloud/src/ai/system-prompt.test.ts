@@ -97,7 +97,11 @@ describe("composeAiSystemPrompt", () => {
     expect(enabled).toContain("current user with the user's current permissions");
     expect(enabled).toContain("owning app authorizes every call");
     expect(enabled).toContain("Catalog visibility does not prove access");
+    expect(enabled).toContain("use its exact appId on the first search or list");
+    expect(enabled).toContain("try at most one broader search, then stop");
     expect(enabled).toContain("load only the needed capability names");
+    expect(enabled).toContain("temporarily unavailable, not that the product lacks the feature");
+    expect(enabled).toContain("never infer available capabilities from mentions in other tools' descriptions");
     expect(enabled).toContain("exact relevant href as a Markdown link");
     expect(enabled).toContain("never invent a Cloud URL");
   });

@@ -29,6 +29,7 @@ const MAX_LIST_LIMIT = 50;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_SEARCH_LIMIT = 25;
 const MAX_HELP_MARKDOWN_CHARS = 128 * 1024;
+const MAX_UNAVAILABLE_LOADED_NAMES = 10;
 
 const providerSafeSegment = (value: string): string =>
   [...value]
@@ -380,11 +381,22 @@ export const createAiCapabilityMetaTools = (input: {
   conversationId: string;
   store: CapabilityStateStore;
   maxLoadedCapabilities?: number;
+  unavailableLoadedNames?: readonly string[];
 }): AiRuntimeTool[] => {
+  const unavailableLoadedNames = input.unavailableLoadedNames ?? [];
+  const unavailableLoadedNotice =
+    unavailableLoadedNames.length > 0
+      ? ` Previously loaded capabilities currently absent from the live registry: ${unavailableLoadedNames
+          .slice(-MAX_UNAVAILABLE_LOADED_NAMES)
+          .join(", ")}${
+          unavailableLoadedNames.length > MAX_UNAVAILABLE_LOADED_NAMES
+            ? `, and ${unavailableLoadedNames.length - MAX_UNAVAILABLE_LOADED_NAMES} more`
+            : ""
+        }. Treat them as temporarily unavailable; do not infer a permanent product limitation or search repeatedly.`
+      : "";
   const search = defineAiTool({
     name: "search_capabilities",
-    description:
-      "Search installed Cloud app capabilities by concise task terms, app, or name. Set kind to query for reads and action for mutations. Returns compact exact names for loading.",
+    description: `Search installed Cloud app capabilities by concise task terms, app, or name. When the app is known, set its exact appId on the first attempt. Set kind to query for reads and action for mutations. If one scoped attempt has no relevant result, try at most one broader search, then stop. Returns compact exact names for loading.${unavailableLoadedNotice}`,
     inputSchema: z
       .object({
         query: z.string().trim().min(1).max(200).describe("What the capability should do."),
@@ -515,12 +527,15 @@ export const createAiCapabilityToolResolver =
       });
     }
     const catalog = buildAiCapabilityCatalog(registry);
+    const catalogNames = new Set(catalog.map((entry) => entry.name));
+    const unavailableLoadedNames = loadedNames.filter((name) => !catalogNames.has(name));
     const capabilityTools = [
       ...createAiCapabilityMetaTools({
         catalog,
         conversationId: input.conversationId,
         store: input.store,
         maxLoadedCapabilities: input.maxLoadedCapabilities,
+        unavailableLoadedNames,
       }),
       ...(input.listHelpRegistry ? createAiHelpTools(helpRegistry) : []),
       ...createLoadedAiCapabilityTools({ catalog, loadedNames, review: input.review, execute: input.execute }),

@@ -141,6 +141,15 @@ fields, descriptions, enums, and useful formats. Output schemas, schema hashes,
 icons, authorization metadata, and validation-only limits stay out of model
 context. The owning application still performs authoritative input validation.
 
+When a request names or clearly implies an app, discovery scopes the first
+search or list to that exact `appId`. If no relevant operation is found, the
+agent may try one broader search, then stops instead of cycling through
+synonyms. If a previously loaded operation is absent from the live catalog,
+AI Core tells the model that it is temporarily unavailable. The model must not
+turn that transient registry state into a permanent claim about product
+features or infer an available operation merely because another capability
+description mentions it.
+
 Discovery is not authorization. Every invocation resolves the conversation's
 current user, creates a short-lived request delegation, and lets the owning app
 authenticate and authorize the operation again. Cloud never persists or
