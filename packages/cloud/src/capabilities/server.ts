@@ -3,8 +3,8 @@ import { getCapability } from "../_internal/registry";
 import { dispatchCapability, loadCapabilityCatalogPage } from "../api/capabilities";
 import { CapabilityActionReviewSchema, capabilityResultSchema } from "../contracts/capabilities";
 import { readCapabilityResponse } from "./response";
+import { combineCapabilitySignals } from "./signals";
 import type {
-  CapabilityCatalogApp,
   CapabilityCatalogAppClientResult,
   CapabilityCatalogClientResult,
   CapabilityClientResult,
@@ -30,7 +30,7 @@ export type CapabilityCaller = {
   signal?: AbortSignal;
 };
 
-const callerRequest = (caller: CapabilityCaller, idempotencyKey?: string): Request => {
+const callerRequest = (caller: CapabilityCaller, idempotencyKey?: string, invocationSignal?: AbortSignal): Request => {
   const headers = new Headers();
   if (caller.authorization) headers.set("authorization", caller.authorization);
   if (caller.cookie) headers.set("cookie", caller.cookie);
@@ -38,7 +38,8 @@ const callerRequest = (caller: CapabilityCaller, idempotencyKey?: string): Reque
   if (caller.traceparent) headers.set("traceparent", caller.traceparent);
   if (caller.tracestate) headers.set("tracestate", caller.tracestate);
   if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
-  return new Request("http://cloud.internal/api/capabilities/v1", { headers, signal: caller.signal });
+  const signal = combineCapabilitySignals(caller.signal, invocationSignal);
+  return new Request("http://cloud.internal/api/capabilities/v1", { headers, signal });
 };
 
 const invokeCapabilityWithResultSchema = async <TDataSchema extends z.ZodType, TInput = unknown>(
@@ -48,7 +49,7 @@ const invokeCapabilityWithResultSchema = async <TDataSchema extends z.ZodType, T
 ): Promise<CapabilityClientResult<z.output<TDataSchema>>> => {
   try {
     const response = await dispatchCapability({
-      request: callerRequest(caller, invocation.idempotencyKey),
+      request: callerRequest(caller, invocation.idempotencyKey, invocation.signal),
       kind: invocation.kind === "query" ? "queries" : "actions",
       appId: invocation.appId,
       capabilityId: invocation.capabilityId,
@@ -72,10 +73,17 @@ export const invokeCapabilityWithDataSchema = <TDataSchema extends z.ZodType, TI
 ): Promise<CapabilityClientResult<z.output<TDataSchema>>> => invokeCapabilityWithResultSchema(invocation, dataSchema, caller);
 
 export const listCapabilityCatalog = async (options: { cursor?: string; limit?: number } = {}): Promise<CapabilityCatalogClientResult> => {
+  const limit = options.limit ?? 25;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 25) {
+    return {
+      ok: false,
+      error: { code: "VALIDATION_FAILED", message: "Capability catalog limit must be between 1 and 25", status: 400 },
+    };
+  }
   try {
     return {
       ok: true,
-      data: await loadCapabilityCatalogPage({ cursor: options.cursor, limit: options.limit ?? 25 }),
+      data: await loadCapabilityCatalogPage({ cursor: options.cursor, limit }),
     };
   } catch {
     return { ok: false, error: { code: "APP_UNAVAILABLE", message: "Cloud is unavailable", status: 503 } };
@@ -108,7 +116,7 @@ export const reviewCapabilityAction = async <TInput = unknown>(
 ): Promise<CapabilityReviewClientResult> => {
   try {
     const response = await dispatchCapability({
-      request: callerRequest(caller),
+      request: callerRequest(caller, undefined, invocation.signal),
       kind: "actions",
       review: true,
       appId: invocation.appId,

@@ -28,10 +28,10 @@ import { registerSettings, toLegacySettingDefs } from "../services/settings/defa
 import { themeBootstrapScript } from "../shared/theme";
 import { readBoundedJson } from "./bounded-json";
 import { appRuntimeMetadata } from "./build-metadata";
-import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability } from "./capabilities";
+import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability, serializeCapabilityProviderResult } from "./capabilities";
 import { createHeartbeat } from "./heartbeat";
 import { compileHelp } from "./help";
-import { capabilityRegistry, type CapabilityRegistryRecord, helpRegistry } from "./registry";
+import { type CapabilityRegistryRecord, capabilityRegistry, helpRegistry } from "./registry";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
 import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
@@ -519,16 +519,14 @@ export const defineApp = <
         };
         const result =
           kind === "review" ? await reviewCompiledCapability(invocation) : await invokeCompiledCapability({ ...invocation, kind });
-        return result.ok
-          ? c.json(result.data)
-          : c.json(
-              {
-                code: result.error.code,
-                message: result.error.message,
-                details: result.error.details,
-              },
-              result.error.status,
-            );
+        const operation = kind === "action" ? compiledCapabilities.actions.get(invocation.localId) : undefined;
+        const serialized = serializeCapabilityProviderResult(result, {
+          nonIdempotentAction: kind === "action" && operation?.manifest.idempotency === "none",
+        });
+        return new Response(serialized.body, {
+          status: serialized.status,
+          headers: { "content-type": "application/json" },
+        });
       };
       server.post("/api/_internal/capabilities/v1/queries/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "query"));
       server.post("/api/_internal/capabilities/v1/actions/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "action"));

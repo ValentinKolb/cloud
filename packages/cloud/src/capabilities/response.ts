@@ -1,10 +1,14 @@
 import type { z } from "zod";
-import { CAPABILITY_FRAMEWORK_ERROR_CODES, CapabilityErrorSchema, CAPABILITY_MAX_RESULT_BYTES } from "../contracts/capabilities";
 import { readBoundedJson } from "../_internal/bounded-json";
+import { CAPABILITY_FRAMEWORK_ERROR_CODES, CAPABILITY_MAX_RESULT_BYTES, CapabilityErrorSchema } from "../contracts/capabilities";
 import type { CapabilityResultState } from "./types";
 
-export const readCapabilityResponse = async <T>(response: Response, schema: z.ZodType<T>): Promise<CapabilityResultState<T>> => {
-  const parsedBody = await readBoundedJson(response, CAPABILITY_MAX_RESULT_BYTES);
+export const readCapabilityResponse = async <T>(
+  response: Response,
+  schema: z.ZodType<T>,
+  maxBytes = CAPABILITY_MAX_RESULT_BYTES,
+): Promise<CapabilityResultState<T>> => {
+  const parsedBody = await readBoundedJson(response, maxBytes);
   if (!parsedBody.ok && parsedBody.reason === "too_large") {
     return {
       ok: false,

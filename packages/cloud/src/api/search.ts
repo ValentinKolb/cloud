@@ -1,9 +1,15 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
-import { listCapabilities } from "../_internal/registry";
 import { readBoundedJson } from "../_internal/bounded-json";
+import { listCapabilities } from "../_internal/registry";
 import type { CapabilityRegistryEntry } from "../contracts";
-import { CAPABILITY_MAX_RESULT_BYTES, capabilityResultSchema, ErrorResponseSchema, UniversalSearchDataSchema } from "../contracts";
+import {
+  CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CAPABILITY_MAX_RESULT_BYTES,
+  capabilityResultSchema,
+  ErrorResponseSchema,
+  UniversalSearchDataSchema,
+} from "../contracts";
 import { type AuthContext, auth, expectUserBackedActor, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
 import { capabilityCredentialHeaders } from "./capabilities";
@@ -103,6 +109,7 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         403: jsonResponse(ErrorResponseSchema, "User-backed actor required"),
+        503: jsonResponse(ErrorResponseSchema, "Capability registry unavailable"),
       },
     }),
     v("query", SearchQuerySchema),
@@ -110,7 +117,20 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
       expectUserBackedActor(c);
 
       const query = c.req.valid("query");
-      const providers = getSearchProviders(await registry());
+      let entries: CapabilityRegistryEntry[];
+      try {
+        entries = await registry();
+      } catch (error) {
+        log.warn("Search capability registry unavailable", { error: error instanceof Error ? error.message : String(error) });
+        return c.json(
+          {
+            code: CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable,
+            message: "Capability registry is currently unavailable",
+          },
+          503,
+        );
+      }
+      const providers = getSearchProviders(entries);
 
       // Pre-filter providers by tag overlap. With no tags, every provider
       // runs (text-only search). With tags, only providers that own at least

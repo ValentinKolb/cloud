@@ -70,6 +70,41 @@ describe("capabilities CLI", () => {
     expect(keys).toEqual(["contact-ada"]);
   });
 
+  test("warns against retrying a non-idempotent Action after network loss", async () => {
+    const { ctx } = createContext(["action", "example", "refresh"], { input: "{}" }, async () => {
+      throw new Error("connection reset");
+    });
+    await expect(capabilitiesCliModule.run(ctx)).rejects.toThrow("ACTION_OUTCOME_UNKNOWN");
+    await expect(capabilitiesCliModule.run(ctx)).rejects.toThrow("do not retry automatically");
+  });
+
+  test("warns against retrying a non-idempotent Action after response body loss", async () => {
+    const { ctx } = createContext(["action", "example", "refresh"], { input: "{}" }, async () => {
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("connection reset"));
+          },
+        }),
+      );
+    });
+    await expect(capabilitiesCliModule.run(ctx)).rejects.toThrow("ACTION_OUTCOME_UNKNOWN");
+  });
+
+  test("rejects oversized capability results before parsing", async () => {
+    const { ctx } = createContext(["query", "contacts", "search"], { input: "{}" }, async () => {
+      return new Response("x".repeat(300 * 1024));
+    });
+    await expect(capabilitiesCliModule.run(ctx)).rejects.toThrow("RESPONSE_TOO_LARGE");
+  });
+
+  test("accepts catalog pages above the invocation result limit", async () => {
+    const payload = JSON.stringify({ protocolVersion: 1, apps: [], page: { hasMore: false } });
+    const { ctx, lines } = createContext(["catalog"], {}, async () => new Response(`${" ".repeat(300 * 1024)}${payload}`));
+    await capabilitiesCliModule.run(ctx);
+    expect(lines).toContain(payload);
+  });
+
   test("rejects invalid catalog and invocation envelopes", async () => {
     const invalidCatalog = createContext(["catalog"], {}, async () => Response.json({ protocolVersion: 1, apps: [] }));
     await expect(capabilitiesCliModule.run(invalidCatalog.ctx)).rejects.toThrow();

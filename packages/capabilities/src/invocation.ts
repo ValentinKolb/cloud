@@ -1,4 +1,9 @@
-import { CAPABILITY_MAX_RESULT_BYTES, CapabilityErrorSchema, capabilityResultSchema } from "@valentinkolb/cloud/contracts";
+import {
+  CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CAPABILITY_MAX_RESULT_BYTES,
+  CapabilityErrorSchema,
+  capabilityResultSchema,
+} from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const ResultSchema = capabilityResultSchema(z.unknown());
@@ -16,6 +21,32 @@ export type CapabilityInvocationOutcome =
       durationMs: number;
       error: { code: string; message: string; details?: Record<string, unknown> };
     };
+
+export const ambiguousActionNetworkOutcome = (input: {
+  kind: "query" | "action";
+  idempotencyKey?: string;
+  durationMs: number;
+}): CapabilityInvocationOutcome | undefined =>
+  input.kind === "action" && !input.idempotencyKey
+    ? {
+        ok: false,
+        status: 502,
+        durationMs: input.durationMs,
+        error: {
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
+          message: "The Action response was lost and its outcome is unknown; do not retry automatically.",
+          details: { retrySafe: false },
+        },
+      }
+    : undefined;
+
+export const preserveAmbiguousActionOutcome = (
+  outcome: CapabilityInvocationOutcome,
+  input: { kind: "query" | "action"; idempotencyKey?: string },
+): CapabilityInvocationOutcome =>
+  !outcome.ok && ["INVALID_APP_RESPONSE", "RESPONSE_TOO_LARGE"].includes(outcome.error.code)
+    ? (ambiguousActionNetworkOutcome({ ...input, durationMs: outcome.durationMs }) ?? outcome)
+    : outcome;
 
 const safeTextMessage = (text: string): string | undefined => {
   const compact = text.replace(/\s+/g, " ").trim();

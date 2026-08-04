@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { fail, ok } from "@k2b/stdlib";
 import { z } from "zod";
 import {
+  CAPABILITY_ERROR_STATUSES,
+  CAPABILITY_MAX_RESULT_BYTES,
   CapabilityPageSchema,
   CapabilitySemanticLinkSchema,
   defineCapabilities,
@@ -14,6 +16,7 @@ import {
   invokeCompiledCapability,
   parseCapabilityManifest,
   reviewCompiledCapability,
+  serializeCapabilityProviderResult,
 } from "./capabilities";
 
 const context = {
@@ -658,6 +661,32 @@ describe("capability v1 compilation", () => {
     });
   });
 
+  test("rejects malformed provider review failures", async () => {
+    const definitions = example();
+    const compiled = compileCapabilities("example", {
+      ...definitions,
+      actions: {
+        ...definitions.actions,
+        rename: {
+          ...definitions.actions!.rename!,
+          review: async () => ({ ok: false, error: {} }) as never,
+        },
+      },
+    });
+    const action = compiled.manifest.actions[0]!;
+    const reviewed = await reviewCompiledCapability({
+      compiled,
+      localId: "rename",
+      input: { id: "one", name: "Two" },
+      expectedSchemaHash: action.schemaHash,
+      context,
+    });
+    expect(reviewed).toEqual({
+      ok: false,
+      error: { code: "INVALID_APP_RESPONSE", message: "Capability review returned an invalid error", status: 500 },
+    });
+  });
+
   test("reports unexpected handler failures without changing the public error", async () => {
     const base = example();
     const definitions = {
@@ -722,6 +751,81 @@ describe("capability v1 compilation", () => {
     });
     expect(JSON.stringify(result)).not.toContain("privateToken");
     expect(JSON.stringify(result)).not.toContain("must-not-leak");
+  });
+
+  test("rejects malformed provider failure results", async () => {
+    const base = example();
+    const compiled = compileCapabilities("example", {
+      ...base,
+      queries: {
+        ...base.queries,
+        get: {
+          ...base.queries!.get!,
+          run: async () => ({ ok: false, error: {} }) as never,
+        },
+      },
+    });
+    const result = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "get",
+      input: { id: "one" },
+      expectedSchemaHash: compiled.manifest.queries[0]!.schemaHash,
+      context,
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "INVALID_APP_RESPONSE", message: "Capability returned an invalid error", status: 500 },
+    });
+  });
+
+  test("preserves every declared provider error status", async () => {
+    for (const status of CAPABILITY_ERROR_STATUSES) {
+      const base = example();
+      const compiled = compileCapabilities("example", {
+        ...base,
+        queries: {
+          ...base.queries,
+          get: {
+            ...base.queries!.get!,
+            run: async () => ({ ok: false, error: { code: "PROVIDER_ERROR", message: "Provider failed", status } }),
+          },
+        },
+      });
+      const result = await invokeCompiledCapability({
+        compiled,
+        kind: "query",
+        localId: "get",
+        input: { id: "one" },
+        expectedSchemaHash: compiled.manifest.queries[0]!.schemaHash,
+        context,
+      });
+      expect(result).toEqual({ ok: false, error: { code: "PROVIDER_ERROR", message: "Provider failed", status } });
+    }
+  });
+
+  test("serializes provider results once within the byte bound", () => {
+    const oversized = serializeCapabilityProviderResult({
+      ok: true,
+      data: { data: { value: "x".repeat(CAPABILITY_MAX_RESULT_BYTES) } },
+    });
+    expect(oversized.status).toBe(500);
+    expect(JSON.parse(oversized.body)).toMatchObject({ code: "RESPONSE_TOO_LARGE", details: { retrySafe: false } });
+    expect(new TextEncoder().encode(oversized.body).byteLength).toBeLessThanOrEqual(CAPABILITY_MAX_RESULT_BYTES);
+
+    const action = serializeCapabilityProviderResult(
+      { ok: true, data: { data: { value: "x".repeat(CAPABILITY_MAX_RESULT_BYTES) } } },
+      { nonIdempotentAction: true },
+    );
+    expect(action.status).toBe(502);
+    expect(JSON.parse(action.body)).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } });
+
+    const invalidAction = serializeCapabilityProviderResult(
+      { ok: false, error: { code: "INVALID_APP_RESPONSE", message: "Invalid result", status: 500 } },
+      { nonIdempotentAction: true },
+    );
+    expect(invalidAction.status).toBe(502);
+    expect(JSON.parse(invalidAction.body)).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } });
   });
 
   test("rejects undeclared refs returned by a handler", async () => {

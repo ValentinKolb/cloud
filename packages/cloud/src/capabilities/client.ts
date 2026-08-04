@@ -1,15 +1,16 @@
 import { z } from "zod";
 import {
   CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CAPABILITY_MAX_CATALOG_BYTES,
   CapabilityActionReviewSchema,
   CapabilityCatalogSchema,
   capabilityResultSchema,
 } from "../contracts/capabilities";
 import { readCapabilityResponse } from "./response";
 import type {
-  CapabilityClientError,
   CapabilityCatalogClientResult,
   CapabilityCatalogOptions,
+  CapabilityClientError,
   CapabilityClientResult,
   CapabilityHttpOptions,
   CapabilityInvocation,
@@ -17,9 +18,9 @@ import type {
 } from "./types";
 
 export type {
-  CapabilityClientError,
   CapabilityCatalogClientResult,
   CapabilityCatalogOptions,
+  CapabilityClientError,
   CapabilityClientResult,
   CapabilityHttpOptions,
   CapabilityInvocation,
@@ -34,12 +35,22 @@ const capabilityPath = (invocation: Pick<CapabilityInvocation, "appId" | "capabi
 
 const requestUrl = (baseUrl: string, path: string): string => `${baseUrl.replace(/\/$/, "")}${path}`;
 
-const unavailable = (cause: unknown): { ok: false; error: CapabilityClientError } => ({
+const unavailable = (
+  cause: unknown,
+  invocation?: Pick<CapabilityInvocation, "kind" | "idempotencyKey">,
+): { ok: false; error: CapabilityClientError } => ({
   ok: false,
   error:
-    cause instanceof Error && cause.name === "AbortError"
-      ? { code: CAPABILITY_FRAMEWORK_ERROR_CODES.requestCancelled, message: "Capability request was cancelled", status: 499 }
-      : { code: CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable, message: "Cloud is unavailable", status: 503 },
+    invocation?.kind === "action" && !invocation.idempotencyKey
+      ? {
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
+          message: "The Action response was lost and its outcome is unknown; do not retry automatically",
+          status: 502,
+          details: { retrySafe: false },
+        }
+      : cause instanceof Error && cause.name === "AbortError"
+        ? { code: CAPABILITY_FRAMEWORK_ERROR_CODES.requestCancelled, message: "Capability request was cancelled", status: 499 }
+        : { code: CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable, message: "Cloud is unavailable", status: 503 },
 });
 
 const invokeCapabilityWithResultSchema = async <TDataSchema extends z.ZodType, TInput = unknown>(
@@ -59,9 +70,19 @@ const invokeCapabilityWithResultSchema = async <TDataSchema extends z.ZodType, T
       body: JSON.stringify({ input: invocation.input }),
       signal: invocation.signal,
     });
-    return readCapabilityResponse(response, capabilityResultSchema(dataSchema));
+    const result = await readCapabilityResponse(response, capabilityResultSchema(dataSchema));
+    if (
+      invocation.kind === "action" &&
+      !invocation.idempotencyKey &&
+      !result.ok &&
+      (result.error.code === CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse ||
+        result.error.code === CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge)
+    ) {
+      return unavailable(new Error("Action response was invalid"), invocation);
+    }
+    return result;
   } catch (cause) {
-    return unavailable(cause);
+    return unavailable(cause, invocation);
   }
 };
 
@@ -88,7 +109,7 @@ export const listCapabilityCatalog = async (options: CapabilityCatalogOptions = 
       headers: new Headers(options.headers),
       signal: options.signal,
     });
-    return readCapabilityResponse(response, CapabilityCatalogSchema);
+    return readCapabilityResponse(response, CapabilityCatalogSchema, CAPABILITY_MAX_CATALOG_BYTES);
   } catch (cause) {
     return unavailable(cause);
   }

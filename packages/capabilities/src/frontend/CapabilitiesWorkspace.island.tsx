@@ -13,10 +13,17 @@ import {
   StructuredDataPreview,
   TextInput,
 } from "@k2b/ui";
+import { reviewCapabilityAction } from "@valentinkolb/cloud/capabilities";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { ActionReviewContent, confirmActionRun } from "../action-review";
 import type { SelectedCapability } from "../catalog";
 import { buildCapabilityCurl } from "../curl";
-import { type CapabilityInvocationOutcome, readCapabilityOutcome } from "../invocation";
+import {
+  ambiguousActionNetworkOutcome,
+  type CapabilityInvocationOutcome,
+  preserveAmbiguousActionOutcome,
+  readCapabilityOutcome,
+} from "../invocation";
 import { capabilityApiPath } from "../routes";
 import {
   buildCapabilityInput,
@@ -252,6 +259,9 @@ function CapabilityRunner(props: Props) {
   const [submitted, setSubmitted] = createSignal(false);
   const [resultVisible, setResultVisible] = createSignal(false);
   const [attemptKey, setAttemptKey] = createSignal(props.initialAttemptKey);
+  const [reviewing, setReviewing] = createSignal(false);
+  const [reviewError, setReviewError] = createSignal<{ code: string; message: string }>();
+  let reviewController: AbortController | undefined;
   const input = createMemo<InputBuildResult>(() => buildCapabilityInput(model, editor()));
   const action = () => (props.selection.kind === "action" ? props.selection.operation : undefined);
   const idempotencyKey = () => (action()?.idempotency === "required" ? attemptKey() : undefined);
@@ -266,39 +276,93 @@ function CapabilityRunner(props: Props) {
       });
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (request.idempotencyKey) headers["Idempotency-Key"] = request.idempotencyKey;
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ input: request.input }),
-        signal: context.abortSignal,
-      });
-      return readCapabilityOutcome(response, performance.now() - startedAt);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ input: request.input }),
+          signal: context.abortSignal,
+        });
+        return preserveAmbiguousActionOutcome(await readCapabilityOutcome(response, performance.now() - startedAt), {
+          kind: props.selection.kind,
+          idempotencyKey: request.idempotencyKey,
+        });
+      } catch (cause) {
+        const ambiguous = ambiguousActionNetworkOutcome({
+          kind: props.selection.kind,
+          idempotencyKey: request.idempotencyKey,
+          durationMs: performance.now() - startedAt,
+        });
+        if (ambiguous) return ambiguous;
+        throw cause;
+      }
     },
   });
-  onCleanup(() => run.abort());
+  onCleanup(() => {
+    reviewController?.abort();
+    run.abort();
+  });
 
   const execute = async () => {
     setSubmitted(true);
     const built = input();
     if (!built.ok) return;
     const selectedAction = action();
-    if (selectedAction?.destructive) {
-      const confirmed = await prompts.confirm(`Run “${props.selection.operation.title}”? This action is marked as destructive.`, {
-        title: "Confirm destructive action",
-        variant: "danger",
-      });
-      if (!confirmed) return;
+    if (selectedAction) {
+      reviewController?.abort();
+      const controller = new AbortController();
+      reviewController = controller;
+      setReviewing(true);
+      setReviewError(undefined);
+      const decision = await confirmActionRun(
+        { appId: props.selection.app.id, operation: selectedAction, input: built.input, signal: controller.signal },
+        {
+          review: (request) => reviewCapabilityAction(request),
+          confirmReview: (review, operation) =>
+            prompts.confirm(<ActionReviewContent review={review} />, {
+              title: `Review “${operation.title}”`,
+              confirmText: "Run action",
+              variant: operation.destructive ? "danger" : "primary",
+              size: "large",
+            }),
+          confirmDestructive: (operation) =>
+            prompts.confirm(`Run “${operation.title}”? This action is marked as destructive.`, {
+              title: "Confirm destructive action",
+              variant: "danger",
+            }),
+        },
+      );
+      if (reviewController !== controller) return;
+      reviewController = undefined;
+      setReviewing(false);
+      if (decision.kind === "failed") {
+        setReviewError(decision.error);
+        return;
+      }
+      if (decision.kind === "cancelled") return;
     }
     setResultVisible(true);
     await run.mutate({ input: built.input, idempotencyKey: idempotencyKey() });
   };
 
   const reset = () => {
+    reviewController?.abort();
+    reviewController = undefined;
+    setReviewing(false);
+    setReviewError(undefined);
     run.abort();
     setAttemptKey(crypto.randomUUID());
     setSubmitted(false);
     setResultVisible(false);
     setEditor(createSchemaEditorState(model, props.selection.operation.inputSchema));
+  };
+
+  const updateEditor = (state: SchemaEditorState) => {
+    reviewController?.abort();
+    reviewController = undefined;
+    setReviewing(false);
+    setReviewError(undefined);
+    setEditor(state);
   };
 
   const curl = createMemo(() => {
@@ -364,11 +428,22 @@ function CapabilityRunner(props: Props) {
               <h3 class="detail-section-label mb-1">Request</h3>
               <p class="text-xs text-dimmed">Input is validated before it is sent.</p>
             </div>
-            <Button loading={run.loading()} loadingLabel="Running" onClick={() => void execute()}>
+            <Button
+              loading={reviewing() || run.loading()}
+              loadingLabel={reviewing() ? "Reviewing" : "Running"}
+              onClick={() => void execute()}
+            >
               <i class="ti ti-player-play" aria-hidden="true" /> Run
             </Button>
           </div>
-          <RequestEditor model={model} state={editor} errors={fieldErrors} formError={formError} onStateChange={setEditor} />
+          <RequestEditor model={model} state={editor} errors={fieldErrors} formError={formError} onStateChange={updateEditor} />
+          <Show when={reviewError()}>
+            {(error) => (
+              <div class="mt-4">
+                <Placeholder state="error" align="left" title={`Review failed: ${error().code}`} description={error().message} />
+              </div>
+            )}
+          </Show>
           <div class="mt-4 flex flex-col gap-3">
             <Disclosure summary="Request as cURL" icon="ti ti-terminal-2" disabled={!curl()}>
               <Show when={curl()}>{(value) => <CodeDisplay code={value()} language="script" lineNumbers={false} />}</Show>

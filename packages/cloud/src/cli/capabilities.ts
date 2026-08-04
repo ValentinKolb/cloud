@@ -1,5 +1,13 @@
-import { CapabilityCatalogSchema, capabilityResultSchema } from "../contracts/capabilities";
 import { z } from "zod";
+import { readBoundedJson } from "../_internal/bounded-json";
+import {
+  CAPABILITY_FRAMEWORK_ERROR_CODES,
+  CAPABILITY_MAX_CATALOG_BYTES,
+  CAPABILITY_MAX_RESULT_BYTES,
+  CapabilityCatalogSchema,
+  CapabilityErrorSchema,
+  capabilityResultSchema,
+} from "../contracts/capabilities";
 import { arg, type CliInputFlagValue, type CloudCliContext, command, defineCliCommands, flag, readCliInput } from "./index";
 
 const parseInput = async (input: CliInputFlagValue): Promise<unknown> => {
@@ -20,6 +28,38 @@ const printGenericResult = (ctx: CloudCliContext, value: unknown): void => {
   else ctx.print(JSON.stringify(value, null, 2));
 };
 
+class CapabilityCliResponseError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CapabilityCliResponseError";
+  }
+}
+
+const readCapabilityJson = async (response: Response, maxBytes: number): Promise<unknown> => {
+  const parsed = await readBoundedJson(response, maxBytes);
+  if (!parsed.ok) {
+    const code =
+      parsed.reason === "too_large"
+        ? CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge
+        : CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse;
+    throw new CapabilityCliResponseError(code, `${code}: Cloud returned invalid or oversized capability JSON.`);
+  }
+  if (!response.ok) {
+    const error = CapabilityErrorSchema.safeParse(parsed.data);
+    if (error.success) {
+      throw new CapabilityCliResponseError(error.data.code, `${response.status} ${error.data.code}: ${error.data.message}`);
+    }
+    throw new CapabilityCliResponseError(
+      CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse,
+      `${response.status} ${CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse}: Cloud returned an invalid capability error.`,
+    );
+  }
+  return parsed.data;
+};
+
 const invoke = async (config: {
   ctx: CloudCliContext;
   kind: "queries" | "actions";
@@ -30,15 +70,43 @@ const invoke = async (config: {
 }) => {
   const headers = new Headers({ "content-type": "application/json" });
   if (config.idempotencyKey) headers.set("idempotency-key", config.idempotencyKey);
-  const response = await config.ctx.fetch(
-    `/api/capabilities/v1/${config.kind}/${encodeURIComponent(config.appId)}/${encodeURIComponent(config.capabilityId)}`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ input: await parseInput(config.input) }),
-    },
-  );
-  const body = await config.ctx.readJson<unknown>(response);
+  let response: Response;
+  try {
+    response = await config.ctx.fetch(
+      `/api/capabilities/v1/${config.kind}/${encodeURIComponent(config.appId)}/${encodeURIComponent(config.capabilityId)}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ input: await parseInput(config.input) }),
+      },
+    );
+  } catch (error) {
+    if (config.kind === "actions" && !config.idempotencyKey) {
+      throw new Error(
+        `${CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown}: The Action response was lost and its outcome is unknown; do not retry automatically.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  let body: unknown;
+  try {
+    body = await readCapabilityJson(response, CAPABILITY_MAX_RESULT_BYTES);
+  } catch (error) {
+    if (
+      config.kind === "actions" &&
+      !config.idempotencyKey &&
+      error instanceof CapabilityCliResponseError &&
+      (error.code === CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse ||
+        error.code === CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge)
+    ) {
+      throw new Error(
+        `${CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown}: The Action response was lost and its outcome is unknown; do not retry automatically.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   printGenericResult(config.ctx, capabilityResultSchema(z.unknown()).parse(body));
 };
 
@@ -60,7 +128,9 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const query = new URLSearchParams({ limit: String(flags.limit ?? 10) });
         if (flags.cursor) query.set("cursor", flags.cursor);
-        const result = CapabilityCatalogSchema.parse(await ctx.readJson<unknown>(await ctx.fetch(`/api/capabilities/v1/catalog?${query}`)));
+        const result = CapabilityCatalogSchema.parse(
+          await readCapabilityJson(await ctx.fetch(`/api/capabilities/v1/catalog?${query}`), CAPABILITY_MAX_CATALOG_BYTES),
+        );
         if (ctx.options.output === "json" || ctx.options.output === "jsonl") {
           printGenericResult(ctx, result);
           return;

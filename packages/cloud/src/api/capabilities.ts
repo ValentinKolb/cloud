@@ -1,19 +1,20 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { getCapability, listApps } from "../_internal/registry";
 import { readBoundedJson } from "../_internal/bounded-json";
+import { getCapability, listApps } from "../_internal/registry";
 import {
-  CAPABILITY_PROTOCOL_VERSION,
   CAPABILITY_FRAMEWORK_ERROR_CODES,
-  CapabilityIdempotencyKeySchema,
+  CAPABILITY_MAX_CATALOG_BYTES,
   CAPABILITY_MAX_REQUEST_BYTES,
   CAPABILITY_MAX_RESULT_BYTES,
-  capabilityResultJsonSchema,
+  CAPABILITY_PROTOCOL_VERSION,
   CapabilityActionReviewSchema,
   type CapabilityCatalog,
   CapabilityCatalogSchema,
   CapabilityErrorSchema,
+  CapabilityIdempotencyKeySchema,
+  capabilityResultJsonSchema,
 } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { type AuthContext, auth, jsonResponse, requiresAuth, v } from "../server";
@@ -24,7 +25,6 @@ const QUERY_TIMEOUT_MS = 15_000;
 const ACTION_TIMEOUT_MS = 30_000;
 const DEFAULT_CATALOG_LIMIT = 10;
 const MAX_CATALOG_LIMIT = 25;
-const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
 const MAX_SCHEMA_VALIDATORS = 512;
 
 const schemaValidators = new Map<string, z.ZodType | null>();
@@ -71,6 +71,9 @@ export const loadCapabilityCatalogPage = async (
   query: { cursor?: string; limit: number },
   dependencies: Pick<CapabilityRouteDependencies, "listApps" | "getCapability"> = {},
 ): Promise<CapabilityCatalog> => {
+  if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > MAX_CATALOG_LIMIT) {
+    throw new RangeError(`Capability catalog limit must be between 1 and ${MAX_CATALOG_LIMIT}`);
+  }
   const registry = dependencies.listApps ?? listApps;
   const capabilityLookup = dependencies.getCapability ?? getCapability;
   const entries = await registry();
@@ -82,6 +85,13 @@ export const loadCapabilityCatalogPage = async (
   const apps: CapabilityCatalog["apps"] = [];
   let bytes = 0;
   let lastScannedAppId: string | undefined;
+  const envelopeBytes = new TextEncoder().encode(
+    JSON.stringify({
+      protocolVersion: CAPABILITY_PROTOCOL_VERSION,
+      apps: [],
+      page: { hasMore: true, nextCursor: "x".repeat(80) },
+    }),
+  ).byteLength;
   for (const entry of liveApps.slice(offset)) {
     if (apps.length === query.limit) break;
     const capability = await capabilityLookup(entry.id);
@@ -97,7 +107,8 @@ export const loadCapabilityCatalogPage = async (
       manifest: capability.manifest,
     };
     const projectedBytes = new TextEncoder().encode(JSON.stringify(projected)).byteLength;
-    if (apps.length > 0 && bytes + projectedBytes > MAX_CATALOG_BYTES) break;
+    const separatingCommas = apps.length;
+    if (apps.length > 0 && envelopeBytes + bytes + separatingCommas + projectedBytes > CAPABILITY_MAX_CATALOG_BYTES) break;
     apps.push(projected);
     bytes += projectedBytes;
     lastScannedAppId = entry.id;
@@ -155,7 +166,17 @@ export const dispatchCapability = async (params: {
 }): Promise<Response> => {
   const registryEntry = params.dependencies?.getCapability ?? getCapability;
   const fetchUpstream = params.dependencies?.fetch ?? globalThis.fetch;
-  const entry = await registryEntry(params.appId);
+  let entry: CapabilityRegistryEntry | null;
+  try {
+    entry = await registryEntry(params.appId);
+  } catch (error) {
+    log.warn("Capability registry unavailable", {
+      appId: params.appId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const unavailable = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable, "Capability registry is currently unavailable", 503);
+    return capabilityJsonResponse(unavailable.body, unavailable.status);
+  }
   if (!entry) {
     const error = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable, `App ${params.appId} is not currently available`, 503);
     return capabilityJsonResponse(error.body, error.status);
@@ -217,6 +238,18 @@ export const dispatchCapability = async (params: {
     return capabilityJsonResponse(invalid.body, invalid.status);
   }
 
+  let requestBody: string;
+  try {
+    requestBody = JSON.stringify({ input: input.data });
+  } catch {
+    const invalid = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed, "Capability input must be JSON-serializable", 400);
+    return capabilityJsonResponse(invalid.body, invalid.status);
+  }
+  if (new TextEncoder().encode(requestBody).byteLength > CAPABILITY_MAX_REQUEST_BYTES) {
+    const invalid = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.validationFailed, "Capability request is too large", 400);
+    return capabilityJsonResponse(invalid.body, invalid.status);
+  }
+
   const headers = capabilityCredentialHeaders(params.request);
   if (idempotencyKey?.success) headers.set("idempotency-key", idempotencyKey.data);
   headers.set("x-cloud-capability-schema-hash", operation.schemaHash);
@@ -226,6 +259,17 @@ export const dispatchCapability = async (params: {
       : (params.dependencies?.actionTimeoutMs ?? ACTION_TIMEOUT_MS),
   );
   const signal = AbortSignal.any([params.request.signal, timeout]);
+  const actionWithoutRetrySafety =
+    params.kind === "actions" && !params.review && "idempotency" in operation && operation.idempotency === "none";
+  const outcomeUnknown = (): Response => {
+    const unknown = errorResponse(
+      CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
+      "The Action response was lost and its outcome is unknown; do not retry automatically",
+      502,
+      { retrySafe: false },
+    );
+    return capabilityJsonResponse(unknown.body, unknown.status);
+  };
 
   let response: Response;
   try {
@@ -234,7 +278,7 @@ export const dispatchCapability = async (params: {
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ input: input.data }),
+        body: requestBody,
         signal,
       },
     );
@@ -245,17 +289,7 @@ export const dispatchCapability = async (params: {
       kind: params.kind,
       error: error instanceof Error ? error.message : String(error),
     });
-    const actionWithoutRetrySafety =
-      params.kind === "actions" && !params.review && "idempotency" in operation && operation.idempotency === "none";
-    if (actionWithoutRetrySafety) {
-      const unknown = errorResponse(
-        CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
-        "The Action response was lost and its outcome is unknown; do not retry automatically",
-        502,
-        { retrySafe: false },
-      );
-      return capabilityJsonResponse(unknown.body, unknown.status);
-    }
+    if (actionWithoutRetrySafety) return outcomeUnknown();
     if (params.request.signal.aborted) {
       const cancelled = errorResponse(CAPABILITY_FRAMEWORK_ERROR_CODES.requestCancelled, "Capability request was cancelled", 499, {
         retrySafe: params.kind === "queries" || ("idempotency" in operation && operation.idempotency === "required"),
@@ -279,6 +313,7 @@ export const dispatchCapability = async (params: {
 
   const upstreamBody = await readBoundedJson(response, CAPABILITY_MAX_RESULT_BYTES);
   if (!upstreamBody.ok) {
+    if (actionWithoutRetrySafety) return outcomeUnknown();
     const code =
       upstreamBody.reason === "too_large"
         ? CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge
@@ -292,6 +327,7 @@ export const dispatchCapability = async (params: {
     if (parsed.success && response.status >= 400 && response.status <= 599) {
       return capabilityJsonResponse(parsed.data, response.status);
     }
+    if (actionWithoutRetrySafety) return outcomeUnknown();
     const invalid = errorResponse("INVALID_APP_RESPONSE", `App ${params.appId} returned an invalid capability error`, 502);
     return capabilityJsonResponse(invalid.body, invalid.status);
   }
@@ -300,6 +336,7 @@ export const dispatchCapability = async (params: {
     ? CapabilityActionReviewSchema
     : schemaValidator(`${operation.schemaHash}:result`, capabilityResultJsonSchema(operation.dataSchema));
   if (!resultValidator || !resultValidator.safeParse(upstreamBody.data).success) {
+    if (actionWithoutRetrySafety) return outcomeUnknown();
     const invalid = errorResponse(
       "INVALID_APP_RESPONSE",
       `App ${params.appId} returned data outside its registered capability schema`,
@@ -324,12 +361,23 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
         responses: {
           200: jsonResponse(CapabilityCatalogSchema, "Live capability catalog"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
+          503: jsonResponse(CapabilityErrorSchema, "Capability registry unavailable"),
         },
       }),
       v("query", CapabilityCatalogQuerySchema),
       async (c) => {
         const query = c.req.valid("query");
-        return c.json(await loadCapabilityCatalogPage(query, dependencies));
+        try {
+          return c.json(await loadCapabilityCatalogPage(query, dependencies));
+        } catch (error) {
+          log.warn("Capability catalog unavailable", { error: error instanceof Error ? error.message : String(error) });
+          const unavailable = errorResponse(
+            CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable,
+            "Capability registry is currently unavailable",
+            503,
+          );
+          return capabilityJsonResponse(unavailable.body, unavailable.status);
+        }
       },
     )
     .post(

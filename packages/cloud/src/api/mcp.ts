@@ -1,14 +1,21 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { CallToolRequestSchema, type CallToolResult, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import { Hono, type MiddlewareHandler } from "hono";
-import { getCapability, listApps } from "../_internal/registry";
-import { readBoundedJson } from "../_internal/bounded-json";
 import {
-  CAPABILITY_PROTOCOL_VERSION,
+  CallToolRequestSchema,
+  type CallToolResult,
+  ErrorCode,
+  ListToolsRequestSchema,
+  McpError,
+  type Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import { Hono, type MiddlewareHandler } from "hono";
+import { readBoundedJson } from "../_internal/bounded-json";
+import { getCapability, listApps } from "../_internal/registry";
+import {
   CAPABILITY_FRAMEWORK_ERROR_CODES,
   CAPABILITY_MAX_REQUEST_BYTES,
   CAPABILITY_MAX_RESULT_BYTES,
+  CAPABILITY_PROTOCOL_VERSION,
   type CapabilityActionManifest,
   type CapabilityQueryManifest,
   capabilityResultJsonSchema,
@@ -193,11 +200,28 @@ const createMcpServer = (request: Request, dependencies: McpRouteDependencies): 
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async (message) => {
-    return capabilityToolPage(await registry(), message.params?.cursor, capabilityLookup);
+    try {
+      return await capabilityToolPage(await registry(), message.params?.cursor, capabilityLookup);
+    } catch {
+      throw new McpError(ErrorCode.InternalError, "Capability registry is currently unavailable", {
+        code: CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable,
+      });
+    }
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (message) => {
-    const selected = await findCapabilityTool(message.params.name, capabilityLookup);
+    let selected: CapabilityTool | null;
+    try {
+      selected = await findCapabilityTool(message.params.name, capabilityLookup);
+    } catch {
+      return boundedToolResult(
+        {
+          code: CAPABILITY_FRAMEWORK_ERROR_CODES.appUnavailable,
+          message: "Capability registry is currently unavailable",
+        },
+        true,
+      );
+    }
     if (!selected) {
       return boundedToolResult(
         {

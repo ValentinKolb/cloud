@@ -139,6 +139,35 @@ describe("capability MCP projection", () => {
     });
   });
 
+  test("returns structured registry failures for list and call", async () => {
+    const routes = createMcpRoutes({
+      listApps: async () => {
+        throw new Error("registry offline");
+      },
+      getCapability: async () => {
+        throw new Error("registry offline");
+      },
+      authenticate: async (_c, next) => next(),
+    });
+    const listed = await rpc(routes, { jsonrpc: "2.0", id: 20, method: "tools/list", params: {} });
+    expect(await listed.json()).toMatchObject({
+      error: { data: { code: "APP_UNAVAILABLE" }, message: expect.stringContaining("Capability registry is currently unavailable") },
+    });
+
+    const called = await rpc(routes, {
+      jsonrpc: "2.0",
+      id: 21,
+      method: "tools/call",
+      params: { name: "demo__query__get", arguments: { id: "one" } },
+    });
+    expect(await called.json()).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: { code: "APP_UNAVAILABLE", message: "Capability registry is currently unavailable" },
+      },
+    });
+  });
+
   test("paginates large live catalogs without materializing every tool schema", async () => {
     const apps = Array.from({ length: 150 }, (_, index): CapabilityRegistryEntry => {
       const id = `demo-${String(index).padStart(3, "0")}`;

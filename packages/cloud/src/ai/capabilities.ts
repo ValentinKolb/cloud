@@ -284,6 +284,18 @@ const resolveHelpRegistry = async (
   }
 };
 
+const resolveCapabilityRegistry = async (
+  listRegistry: () => Promise<CapabilityRegistryEntry[]>,
+  onError?: (error: unknown) => void,
+): Promise<CapabilityRegistryEntry[]> => {
+  try {
+    return await listRegistry();
+  } catch (error) {
+    onError?.(error);
+    return [];
+  }
+};
+
 /** Resolve the live Help corpus on every provider turn without coupling it to executable app capabilities. */
 export const createAiHelpToolResolver =
   (input: {
@@ -447,7 +459,7 @@ export const createLoadedAiCapabilityTools = (input: {
     return [
       defineAiTool({
         name: entry.name,
-        description: `${entry.title}. ${entry.description} Do not retry unchanged after INTERNAL or INVALID_APP_RESPONSE; report the provider error.`,
+        description: `${entry.title}. ${entry.description} Never retry ACTION_OUTCOME_UNKNOWN. Do not retry unchanged after INTERNAL or INVALID_APP_RESPONSE; report the provider error.`,
         inputSchema: aiCapabilityInputSchema(entry.operation.inputSchema),
         outputSchema: z.unknown(),
         // Capability Actions request a custom, non-rememberable approval after
@@ -479,6 +491,7 @@ export const createAiCapabilityToolResolver =
     staticTools: AiRuntimeTool[];
     store: Pick<AiConversationStore, "getLoadedCapabilities" | "loadCapabilities">;
     listRegistry: () => Promise<CapabilityRegistryEntry[]>;
+    onCapabilityRegistryError?: (error: unknown) => void;
     listHelpRegistry?: () => Promise<HelpRegistryEntry[]>;
     onHelpRegistryError?: (error: unknown) => void;
     maxLoadedCapabilities?: number;
@@ -488,7 +501,7 @@ export const createAiCapabilityToolResolver =
   }): ToolResolver =>
   async (): Promise<Tool[]> => {
     const [registry, persistedLoadedNames, helpRegistry] = await Promise.all([
-      input.listRegistry(),
+      resolveCapabilityRegistry(input.listRegistry, input.onCapabilityRegistryError),
       input.store.getLoadedCapabilities({ conversationId: input.conversationId }),
       input.listHelpRegistry ? resolveHelpRegistry(input.listHelpRegistry, input.onHelpRegistryError) : [],
     ]);

@@ -456,6 +456,10 @@ export class AiTurnExecutor {
           staticTools: activeTools,
           store: aiConversationStore,
           listRegistry: listCapabilities,
+          onCapabilityRegistryError: (error) =>
+            log.warn("AI Capability registry unavailable; continuing without app capabilities", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
           listHelpRegistry: listCurrentHelp,
           onHelpRegistryError: (error) =>
             log.warn("AI Help registry unavailable; continuing without Help documents", {

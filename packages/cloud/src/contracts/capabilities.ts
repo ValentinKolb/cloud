@@ -1,10 +1,10 @@
-import type { Result, ServiceError } from "@k2b/stdlib";
 import { z } from "zod";
 import type { AccessSubject, RequestActor, User } from "./shared";
 
 export const CAPABILITY_PROTOCOL_VERSION = 1 as const;
 export const CAPABILITY_MAX_REQUEST_BYTES = 256 * 1024;
 export const CAPABILITY_MAX_RESULT_BYTES = 256 * 1024;
+export const CAPABILITY_MAX_CATALOG_BYTES = 2 * 1024 * 1024;
 
 export const CAPABILITY_FRAMEWORK_ERROR_CODES = {
   appUnavailable: "APP_UNAVAILABLE",
@@ -22,7 +22,10 @@ export const CAPABILITY_FRAMEWORK_ERROR_CODES = {
   internal: "INTERNAL",
 } as const;
 
-export const capabilityIdempotencyConflict = (message: string, details?: Record<string, unknown>): CapabilityError => ({
+export const capabilityIdempotencyConflict = (
+  message: string,
+  details?: Record<string, unknown>,
+): CapabilityError & { code: "IDEMPOTENCY_CONFLICT"; status: 409 } => ({
   code: CAPABILITY_FRAMEWORK_ERROR_CODES.idempotencyConflict,
   message,
   status: 409,
@@ -143,9 +146,16 @@ export const CapabilityErrorSchema = z
   })
   .strict();
 
-export type CapabilityError = ServiceError & { details?: Record<string, unknown> };
-export type CapabilityInvocationResult<T> = Result<CapabilityResult<T>, CapabilityError>;
-export type CapabilityActionReviewResult = Result<CapabilityActionReview, CapabilityError>;
+export const CAPABILITY_ERROR_STATUSES = [400, 401, 403, 404, 409, 429, 499, 500, 502, 503, 504] as const;
+export type CapabilityErrorStatus = (typeof CAPABILITY_ERROR_STATUSES)[number];
+export type CapabilityError = {
+  code: string;
+  message: string;
+  status: CapabilityErrorStatus;
+  details?: Record<string, unknown>;
+};
+export type CapabilityInvocationResult<T> = { ok: true; data: CapabilityResult<T> } | { ok: false; error: CapabilityError };
+export type CapabilityActionReviewResult = { ok: true; data: CapabilityActionReview } | { ok: false; error: CapabilityError };
 
 export const CloudResourceViewSchema = z
   .object({

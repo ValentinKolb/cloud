@@ -158,10 +158,11 @@ renders that exact path as a Markdown link when directing the user to the
 resource. It does not infer routes from refs or IDs, and it prefers the Cloud
 resource link over secondary protocol actions such as `mailto:` or `tel:`.
 
-`INVALID_APP_RESPONSE` and `INTERNAL` indicate a provider defect. Do not retry
-the same capability with unchanged arguments; report the failure so the app can
-be fixed. Input validation and schema mismatch errors may be corrected or
-refreshed according to their structured error code.
+Never retry `ACTION_OUTCOME_UNKNOWN`. `INVALID_APP_RESPONSE` and `INTERNAL`
+indicate a provider defect. Do not retry the same capability with unchanged
+arguments; report the failure so the app can be fixed. Input validation and
+schema mismatch errors may be corrected or refreshed according to their
+structured error code.
 
 ### Approve every Capability Action
 

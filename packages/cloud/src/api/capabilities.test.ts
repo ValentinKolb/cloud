@@ -4,7 +4,7 @@ import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
-import { capabilityCredentialHeaders, createCapabilityRoutes, dispatchCapability } from "./capabilities";
+import { capabilityCredentialHeaders, createCapabilityRoutes, dispatchCapability, loadCapabilityCatalogPage } from "./capabilities";
 
 const compiled = compileCapabilities(
   "demo",
@@ -93,6 +93,29 @@ describe("capability API", () => {
     expect(await response.json()).toEqual({ code: "APP_UNAVAILABLE", message: "App missing is not currently available" });
   });
 
+  test("returns structured registry failures for dispatch and catalog", async () => {
+    const routes = createCapabilityRoutes({
+      listApps: async () => {
+        throw new Error("registry offline");
+      },
+      getCapability: async () => {
+        throw new Error("registry offline");
+      },
+      authenticate,
+    });
+    const invocation = await routes.request("/capabilities/v1/queries/demo/get", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one" } }),
+    });
+    expect(invocation.status).toBe(503);
+    expect(await invocation.json()).toMatchObject({ code: "APP_UNAVAILABLE" });
+
+    const catalog = await routes.request("/capabilities/v1/catalog");
+    expect(catalog.status).toBe(503);
+    expect(await catalog.json()).toMatchObject({ code: "APP_UNAVAILABLE" });
+  });
+
   test("forwards only caller credentials and protocol headers", async () => {
     let forwarded: Headers | undefined;
     const routes = createCapabilityRoutes({
@@ -175,6 +198,49 @@ describe("capability API", () => {
     expect(await response.json()).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } });
   });
 
+  test("marks unreadable and invalid non-idempotent Action responses as outcome unknown", async () => {
+    const responses = [
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"data":'));
+              controller.error(new Error("connection reset"));
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      () => Response.json({ data: { id: 42, name: "Two" } }),
+      () => Response.json({ data: { id: "one", name: "x".repeat(300 * 1024) } }),
+    ];
+
+    for (const appResponse of responses) {
+      const routes = createCapabilityRoutes({ getCapability: async () => entry(), authenticate, fetch: async () => appResponse() });
+      const response = await routes.request("/capabilities/v1/actions/demo/rename", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+      });
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } });
+    }
+  });
+
+  test("preserves valid provider errors for non-idempotent Actions", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => Response.json({ code: "CONFLICT", message: "Name already exists" }, { status: 409 }),
+    });
+    const response = await routes.request("/capabilities/v1/actions/demo/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: "CONFLICT", message: "Name already exists" });
+  });
+
   test("marks a cancelled in-flight non-idempotent Action as outcome unknown", async () => {
     const controller = new AbortController();
     const responsePromise = dispatchCapability({
@@ -248,6 +314,27 @@ describe("capability API", () => {
       body: JSON.stringify({ input: { id: 42 } }),
     });
 
+    expect(response.status).toBe(400);
+    expect(requested).toBe(false);
+    expect(await response.json()).toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  test("rejects oversized direct-dispatch input before calling the app", async () => {
+    let requested = false;
+    const response = await dispatchCapability({
+      request: new Request("http://cloud.internal/api/capabilities/v1"),
+      kind: "queries",
+      appId: "demo",
+      capabilityId: "get",
+      input: { id: "x".repeat(300 * 1024) },
+      dependencies: {
+        getCapability: async () => entry(),
+        fetch: async () => {
+          requested = true;
+          return Response.json({ data: { id: "one" } });
+        },
+      },
+    });
     expect(response.status).toBe(400);
     expect(requested).toBe(false);
     expect(await response.json()).toMatchObject({ code: "VALIDATION_FAILED" });
@@ -340,6 +427,10 @@ describe("capability API", () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toMatchObject({ code: "INVALID_APP_RESPONSE" });
   });
+});
+
+test("shared catalog loader rejects limits outside the public schema", async () => {
+  await expect(loadCapabilityCatalogPage({ limit: 26 }, { listApps: async () => [] })).rejects.toThrow("between 1 and 25");
 });
 
 test("capabilityCredentialHeaders never forwards internal identity headers", () => {

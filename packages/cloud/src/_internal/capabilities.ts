@@ -2,15 +2,19 @@ import { createHash } from "node:crypto";
 import { isServiceError, type Result, type ServiceError } from "@k2b/stdlib";
 import { z } from "zod";
 import {
-  CAPABILITY_PROTOCOL_VERSION,
+  CAPABILITY_ERROR_STATUSES,
   CAPABILITY_FRAMEWORK_ERROR_CODES,
-  CapabilityIdempotencyKeySchema,
+  CAPABILITY_MAX_RESULT_BYTES,
+  CAPABILITY_PROTOCOL_VERSION,
   type CapabilityActionDefinition,
   type CapabilityActionManifest,
   type CapabilityActionReviewResult,
   CapabilityActionReviewSchema,
   type CapabilityDefinitions,
+  type CapabilityError,
+  CapabilityErrorSchema,
   type CapabilityExecutionContext,
+  CapabilityIdempotencyKeySchema,
   type CapabilityInvocationResult,
   CapabilityLocalIdSchema,
   type CapabilityManifest,
@@ -42,6 +46,79 @@ export type CompiledCapabilities = {
   typeIds: ReadonlySet<string>;
   queries: ReadonlyMap<string, CompiledCapabilityQuery>;
   actions: ReadonlyMap<string, CompiledCapabilityAction>;
+};
+
+type CapabilityProviderResult = CapabilityInvocationResult<unknown> | CapabilityActionReviewResult;
+type CapabilityProviderFailure = { ok: false; error: CapabilityError };
+const capabilityProviderErrorStatuses = new Set<number>(CAPABILITY_ERROR_STATUSES);
+
+const isCapabilityProviderErrorStatus = (value: unknown): value is CapabilityError["status"] =>
+  typeof value === "number" && capabilityProviderErrorStatuses.has(value);
+
+const invalidProviderError = (message: string): CapabilityProviderFailure => ({
+  ok: false,
+  error: {
+    code: CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse,
+    message,
+    status: 500,
+  },
+});
+
+const normalizeProviderError = (value: unknown, message: string, onInvalid?: (error: unknown) => void): CapabilityProviderFailure => {
+  const error = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const parsed = CapabilityErrorSchema.safeParse({ code: error.code, message: error.message, details: error.details });
+  if (parsed.success && isCapabilityProviderErrorStatus(error.status)) {
+    return { ok: false, error: { ...parsed.data, status: error.status } };
+  }
+  try {
+    onInvalid?.(new Error(message));
+  } catch {
+    // Observability must not change the public failure contract.
+  }
+  return invalidProviderError(message);
+};
+
+const providerPayload = (code: string, message: string, details?: Record<string, unknown>): Record<string, unknown> => ({
+  code,
+  message,
+  ...(details ? { details } : {}),
+});
+
+/** Serializes one framework-owned provider response exactly once and enforces the public byte bound. */
+export const serializeCapabilityProviderResult = (
+  result: CapabilityProviderResult,
+  options: { nonIdempotentAction?: boolean } = {},
+): { body: string; status: number } => {
+  if (options.nonIdempotentAction && !result.ok && result.error.code === CAPABILITY_FRAMEWORK_ERROR_CODES.invalidAppResponse) {
+    const unknown = providerPayload(
+      CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
+      "The Action result could not be validated and its outcome is unknown; do not retry automatically",
+      { retrySafe: false },
+    );
+    return { body: JSON.stringify(unknown), status: 502 };
+  }
+  const payload = result.ok ? result.data : providerPayload(result.error.code, result.error.message, result.error.details);
+  try {
+    const body = JSON.stringify(payload);
+    if (new TextEncoder().encode(body).byteLength <= CAPABILITY_MAX_RESULT_BYTES) {
+      return { body, status: result.ok ? 200 : result.error.status };
+    }
+  } catch {
+    // Fall through to the fixed bounded framework error below.
+  }
+
+  const fallback = options.nonIdempotentAction
+    ? providerPayload(
+        CAPABILITY_FRAMEWORK_ERROR_CODES.actionOutcomeUnknown,
+        "The Action result could not be returned and its outcome is unknown; do not retry automatically",
+        { retrySafe: false },
+      )
+    : providerPayload(
+        CAPABILITY_FRAMEWORK_ERROR_CODES.responseTooLarge,
+        "Capability response exceeds the shared size limit; narrow the request before retrying",
+        { retrySafe: false },
+      );
+  return { body: JSON.stringify(fallback), status: options.nonIdempotentAction ? 502 : 500 };
 };
 
 const stableJsonValue = (value: unknown): unknown => {
@@ -562,7 +639,9 @@ export const invokeCompiledCapability = async (params: {
   }
   try {
     const invoked = await operation.definition.run(input.data, context);
-    if (!invoked.ok) return invoked;
+    if (!invoked.ok) {
+      return normalizeProviderError(invoked.error, "Capability returned an invalid error", params.onUnexpectedError);
+    }
     const validated = validateCapabilityResult(params.compiled, operation, invoked.data, params.onUnexpectedError);
     return validated.ok
       ? ({
@@ -571,7 +650,7 @@ export const invokeCompiledCapability = async (params: {
         } as CapabilityInvocationResult<unknown>)
       : { ok: false, error: validated.error };
   } catch (error) {
-    if (isServiceError(error)) return { ok: false, error };
+    if (isServiceError(error)) return normalizeProviderError(error, "Capability threw an invalid service error", params.onUnexpectedError);
     try {
       params.onUnexpectedError?.(error);
     } catch {
@@ -642,7 +721,9 @@ export const reviewCompiledCapability = async (params: {
   }
   try {
     const reviewed = await operation.definition.review(input.data, params.context);
-    if (!reviewed.ok) return reviewed;
+    if (!reviewed.ok) {
+      return normalizeProviderError(reviewed.error, "Capability review returned an invalid error", params.onUnexpectedError);
+    }
     const parsed = CapabilityActionReviewSchema.safeParse(reviewed.data);
     if (!parsed.success) {
       try {
@@ -668,7 +749,8 @@ export const reviewCompiledCapability = async (params: {
           },
         };
   } catch (error) {
-    if (isServiceError(error)) return { ok: false, error };
+    if (isServiceError(error))
+      return normalizeProviderError(error, "Capability review threw an invalid service error", params.onUnexpectedError);
     try {
       params.onUnexpectedError?.(error);
     } catch {

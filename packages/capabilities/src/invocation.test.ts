@@ -1,8 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { CAPABILITY_MAX_RESULT_BYTES } from "@valentinkolb/cloud/contracts";
-import { readCapabilityOutcome } from "./invocation";
+import { ambiguousActionNetworkOutcome, preserveAmbiguousActionOutcome, readCapabilityOutcome } from "./invocation";
 
 describe("capability invocation responses", () => {
+  test("turns a lost non-idempotent Action response into a non-retryable outcome", () => {
+    expect(ambiguousActionNetworkOutcome({ kind: "action", durationMs: 12 })).toMatchObject({
+      ok: false,
+      status: 502,
+      error: { code: "ACTION_OUTCOME_UNKNOWN", details: { retrySafe: false } },
+    });
+    expect(ambiguousActionNetworkOutcome({ kind: "action", idempotencyKey: "safe-1", durationMs: 12 })).toBeUndefined();
+    expect(ambiguousActionNetworkOutcome({ kind: "query", durationMs: 12 })).toBeUndefined();
+    expect(
+      preserveAmbiguousActionOutcome(
+        {
+          ok: false,
+          status: 502,
+          durationMs: 12,
+          error: { code: "INVALID_APP_RESPONSE", message: "Response stream failed" },
+        },
+        { kind: "action" },
+      ),
+    ).toMatchObject({ error: { code: "ACTION_OUTCOME_UNKNOWN" } });
+  });
+
   test("accepts a valid capability result", async () => {
     const response = new Response(JSON.stringify({ data: { id: "contact-1" }, refs: [{ type: "contacts.contact", id: "contact-1" }] }), {
       status: 200,

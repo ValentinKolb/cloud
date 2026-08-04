@@ -46,6 +46,18 @@ const authenticate: MiddlewareHandler<AuthContext> = async (c, next) => {
 };
 
 describe("global capability search", () => {
+  test("returns a structured unavailable error when capability discovery fails", async () => {
+    const routes = createSearchRoutes({
+      authenticate,
+      listCapabilities: async () => {
+        throw new Error("registry offline");
+      },
+    });
+    const response = await routes.request("/search?q=test");
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "APP_UNAVAILABLE", message: "Capability registry is currently unavailable" });
+  });
+
   test("discovers and routes multiple providers from one app", async () => {
     const multiManifest = compileCapabilities(
       "demo",

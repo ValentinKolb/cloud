@@ -434,6 +434,27 @@ describe("AI capability catalog", () => {
     expect(failures).toHaveLength(1);
   });
 
+  test("keeps static tools available when the Capability registry fails", async () => {
+    const failures: unknown[] = [];
+    const resolver = createAiCapabilityToolResolver({
+      conversationId: "conversation-1",
+      actor,
+      staticTools: [],
+      store: {
+        getLoadedCapabilities: async () => [],
+        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+      },
+      listRegistry: async () => {
+        throw new Error("registry unavailable");
+      },
+      onCapabilityRegistryError: (error) => failures.push(error),
+      execute: async () => ({ data: [] }),
+    });
+
+    expect((await resolver()).map((tool) => tool.def.name)).toEqual(["search_capabilities", "list_capabilities", "load_capabilities"]);
+    expect(failures).toHaveLength(1);
+  });
+
   test("persists automatic cleanup when a profile limit is reduced", async () => {
     let loaded = ["first", "contacts__query__list", "contacts__action__create"];
     const updates: Array<{ names: string[]; maxLoadedCapabilities?: number }> = [];

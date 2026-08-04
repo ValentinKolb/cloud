@@ -33,7 +33,7 @@ import {
 import { ok } from "@k2b/stdlib";
 
 export const inventoryCapabilities = defineCapabilities({
-  version: 1,
+  protocolVersion: 1,
   types: {
     item: {
       title: "Inventory item",

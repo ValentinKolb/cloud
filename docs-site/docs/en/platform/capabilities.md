@@ -383,10 +383,13 @@ Cloud validates the declaration at startup:
 - an app may declare at most 200 Types, 200 Queries, and 200 Actions;
 - the deterministic live manifest may not exceed 256 KiB.
 
-Every transport caps the complete JSON request and result at 256 KiB. Keep
-individual field limits comfortably below that envelope; large files, exports,
-and document bodies belong in app-owned upload or download APIs referenced by
-a capability.
+Every invocation transport caps the complete JSON request and result at 256
+KiB. The paginated discovery catalog has a separate 2 MiB page limit because
+one valid manifest may itself approach 256 KiB. Provider endpoints validate and
+serialize invocation results within the 256 KiB bound before returning them.
+Keep individual field limits comfortably below that envelope; large files,
+exports, and document bodies belong in app-owned upload or download APIs
+referenced by a capability.
 
 Each operation publishes input and data JSON Schema plus a stable schema hash.
 The result envelope is one fixed Core contract and is not repeated in every
@@ -494,12 +497,18 @@ Framework errors include `VALIDATION_FAILED`, `SCHEMA_MISMATCH`,
 `IDEMPOTENCY_CONFLICT`, `APP_UNAVAILABLE`, `CAPABILITY_NOT_FOUND`,
 `DEADLINE_EXCEEDED`, `ACTION_OUTCOME_UNKNOWN`, `REQUEST_CANCELLED`,
 `INVALID_APP_RESPONSE`, and `RESPONSE_TOO_LARGE`. Applications may return their
-own domain error codes. `DEADLINE_EXCEEDED` is retry-safe for Queries and
-required-idempotency Actions. `ACTION_OUTCOME_UNKNOWN` means a non-idempotent
+own domain error codes. Provider failures accept the explicit HTTP statuses
+`400`, `401`, `403`, `404`, `409`, `429`, `499`, `500`, `502`, `503`, and
+`504`; other statuses fail closed as an invalid provider response.
+`DEADLINE_EXCEEDED` is retry-safe for Queries and required-idempotency Actions.
+`ACTION_OUTCOME_UNKNOWN` means a non-idempotent
 Action may already have taken effect and must not be retried automatically.
 `INVALID_APP_RESPONSE` means the provider returned data outside its registered
 contract; callers must not retry the same request unchanged. The provider logs
-the validation path while the public error omits returned values.
+the validation path while the public error omits returned values. Once a
+non-idempotent Action has been dispatched, a lost, unreadable, oversized, or
+schema-invalid response is reported as `ACTION_OUTCOME_UNKNOWN`; clients must
+not offer an automatic retry.
 
 ## Invoke capabilities
 

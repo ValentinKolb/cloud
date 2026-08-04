@@ -1,6 +1,6 @@
+import type { CapabilityCatalogApp } from "@valentinkolb/cloud/capabilities/server";
 import { getCapabilityCatalogApp, listCapabilityCatalog } from "@valentinkolb/cloud/capabilities/server";
 import type { CapabilityActionManifest, CapabilityManifest, CapabilityQueryManifest } from "@valentinkolb/cloud/contracts";
-import type { CapabilityCatalogApp } from "@valentinkolb/cloud/capabilities/server";
 
 const CATALOG_PAGE_SIZE = 25;
 
@@ -37,6 +37,29 @@ const summary = (entry: CapabilityCatalogApp): CapabilityAppSummary => ({
   description: entry.appDescription,
 });
 
+type CatalogReader = typeof listCapabilityCatalog;
+type AppReader = typeof getCapabilityCatalogApp;
+
+const loadAllCapabilityCatalogApps = async (readCatalog: CatalogReader): Promise<CapabilityCatalogApp[]> => {
+  const apps = new Map<string, CapabilityCatalogApp>();
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  while (true) {
+    const catalog = await readCatalog({ cursor, limit: CATALOG_PAGE_SIZE });
+    if (!catalog.ok) break;
+    for (const app of catalog.data.apps) apps.set(app.appId, app);
+    if (!catalog.data.page.hasMore) break;
+
+    const nextCursor = catalog.data.page.nextCursor;
+    if (seenCursors.has(nextCursor)) break;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return [...apps.values()];
+};
+
 const parseCursor = (url: URL): string | undefined => {
   const value = url.searchParams.get("cursor")?.trim();
   return value && value.length <= 80 ? value : undefined;
@@ -59,14 +82,16 @@ export type LoadedCapabilityWorkspace = {
   selected: LoadedCapabilityApp;
 };
 
-export async function loadCapabilityWorkspace(appId: string): Promise<LoadedCapabilityWorkspace> {
+export async function loadCapabilityWorkspace(
+  appId: string,
+  readers: { list?: CatalogReader; get?: AppReader } = {},
+): Promise<LoadedCapabilityWorkspace> {
   const [catalog, selectedCatalog] = await Promise.all([
-    listCapabilityCatalog({ limit: CATALOG_PAGE_SIZE }),
-    getCapabilityCatalogApp(appId),
+    loadAllCapabilityCatalogApps(readers.list ?? listCapabilityCatalog),
+    (readers.get ?? getCapabilityCatalogApp)(appId),
   ]);
-  const catalogApps = catalog.ok ? catalog.data.apps : [];
   const selectedEntry = selectedCatalog.ok ? selectedCatalog.data : null;
-  const apps = [...catalogApps, ...(selectedEntry && !catalogApps.some((entry) => entry.appId === appId) ? [selectedEntry] : [])]
+  const apps = [...catalog, ...(selectedEntry && !catalog.some((entry) => entry.appId === appId) ? [selectedEntry] : [])]
     .sort((left, right) => left.appName.localeCompare(right.appName, undefined, { sensitivity: "base" }))
     .map(summary);
   if (!selectedCatalog.ok) {
