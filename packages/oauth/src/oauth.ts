@@ -46,6 +46,9 @@ const resolveRefreshScopes = (grantedScopes: OAuthScope[], requestedScope: strin
 
 const isPkceValue = (value: string | undefined): value is string => Boolean(value && PKCE_VALUE_PATTERN.test(value));
 
+const isAllowedResource = (client: { audiences: string[] }, resource: string | undefined): boolean =>
+  !resource || client.audiences.includes(resource);
+
 /**
  * Decode `Authorization: Basic base64(client_id:client_secret)` into its parts.
  * This is the OAuth `client_secret_basic` method (RFC 6749 §2.3.1). The
@@ -73,6 +76,7 @@ const AuthorizeQuerySchema = z.object({
   redirect_uri: z.url(),
   response_type: z.literal("code"),
   scope: z.string().optional(),
+  resource: z.url().optional(),
   state: z.string().optional(),
   nonce: z.string().optional(),
   code_challenge: z.string().optional(),
@@ -90,6 +94,7 @@ const TokenBodySchema = z.discriminatedUnion("grant_type", [
     client_id: z.string().min(1).optional(),
     client_secret: z.string().optional(),
     code_verifier: z.string().optional(),
+    resource: z.url().optional(),
   }),
   z.object({
     grant_type: z.literal("client_credentials"),
@@ -104,6 +109,7 @@ const TokenBodySchema = z.discriminatedUnion("grant_type", [
     client_id: z.string().min(1).optional(),
     client_secret: z.string().optional(),
     scope: z.string().optional(),
+    resource: z.url().optional(),
   }),
 ]);
 
@@ -126,6 +132,10 @@ const RevokeTokenBodySchema = z.object({
 /** OAuth 2.0 / OpenID Connect routes mounted at root-level standard paths. */
 const app = new Hono<AuthContext>()
   .get("/.well-known/openid-configuration", async (c) => {
+    const issuer = await getIssuer();
+    return c.json(oauth.tokens.getOpenIdConfiguration(issuer));
+  })
+  .get("/.well-known/oauth-authorization-server", async (c) => {
     const issuer = await getIssuer();
     return c.json(oauth.tokens.getOpenIdConfiguration(issuer));
   })
@@ -174,6 +184,9 @@ const app = new Hono<AuthContext>()
       if (!scopes) {
         return c.json({ message: "Requested scope is not allowed for this client" }, 400);
       }
+      if (!isAllowedResource(client, query.resource)) {
+        return c.json({ message: "Requested resource is not allowed for this client" }, 400);
+      }
 
       if (client.isPublic) {
         if (!code_challenge) {
@@ -218,6 +231,7 @@ const app = new Hono<AuthContext>()
         userId: user.id,
         redirectUri: redirect_uri,
         scopes,
+        resource: query.resource,
         nonce,
         codeChallenge: code_challenge,
         codeChallengeMethod: code_challenge_method,
@@ -308,7 +322,7 @@ const app = new Hono<AuthContext>()
       }
 
       if (body.grant_type === "refresh_token") {
-        const rotated = await oauth.refreshTokens.rotate(body.refresh_token, client_id);
+        const rotated = await oauth.refreshTokens.rotate(body.refresh_token, client_id, body.resource);
         if (!rotated.ok) {
           return c.json({ message: "invalid_grant" }, 400);
         }
@@ -343,6 +357,7 @@ const app = new Hono<AuthContext>()
         code,
         clientId: client_id,
         redirectUri: redirect_uri,
+        resource: body.resource,
         codeVerifier: code_verifier,
       });
 
@@ -362,6 +377,7 @@ const app = new Hono<AuthContext>()
           client: result.client,
           issuer,
           scopes: result.scopes,
+          audiences: result.resource ? [result.resource] : undefined,
           issueRefreshToken: true,
           nonce: result.nonce,
         });

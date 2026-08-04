@@ -13,6 +13,7 @@ type DbCode = {
   user_id: string;
   redirect_uri: string;
   scopes: string[];
+  resource: string | null;
   nonce: string | null;
   code_challenge: string | null;
   code_challenge_method: string | null;
@@ -30,19 +31,21 @@ export const create = async (params: {
   userId: string;
   redirectUri: string;
   scopes: OAuthScope[];
+  resource?: string;
   nonce?: string;
   codeChallenge?: string;
   codeChallengeMethod?: "S256" | "plain";
 }): Promise<string> => {
-  const { clientId, userId, redirectUri, scopes, nonce, codeChallenge, codeChallengeMethod } = params;
+  const { clientId, userId, redirectUri, scopes, resource, nonce, codeChallenge, codeChallengeMethod } = params;
 
   const [row] = await sql<{ code: string }[]>`
-    INSERT INTO oauth.codes (client_id, user_id, redirect_uri, scopes, nonce, code_challenge, code_challenge_method)
+    INSERT INTO oauth.codes (client_id, user_id, redirect_uri, scopes, resource, nonce, code_challenge, code_challenge_method)
     VALUES (
       ${clientId},
       ${userId},
       ${redirectUri},
       ${toPgTextArray(scopes)}::text[],
+      ${resource ?? null},
       ${nonce ?? null},
       ${codeChallenge ?? null},
       ${codeChallengeMethod ?? null}
@@ -61,13 +64,14 @@ export const consume = async (params: {
   code: string;
   clientId: string;
   redirectUri: string;
+  resource?: string;
   codeVerifier?: string;
-}): Promise<{ userId: string; client: OAuthClient; scopes: OAuthScope[]; nonce: string | null } | null> => {
-  const { code, clientId, redirectUri, codeVerifier } = params;
+}): Promise<{ userId: string; client: OAuthClient; scopes: OAuthScope[]; resource: string | null; nonce: string | null } | null> => {
+  const { code, clientId, redirectUri, resource, codeVerifier } = params;
 
   // Get and validate code
   const [row] = await sql<DbCode[]>`
-    SELECT code, client_id, user_id, redirect_uri, scopes, nonce, code_challenge, code_challenge_method, expires_at, used
+    SELECT code, client_id, user_id, redirect_uri, scopes, resource, nonce, code_challenge, code_challenge_method, expires_at, used
     FROM oauth.codes
     WHERE code = ${code}
   `;
@@ -85,6 +89,7 @@ export const consume = async (params: {
 
   // Validate redirect_uri matches
   if (row.redirect_uri !== redirectUri) return null;
+  if (row.resource !== (resource ?? null)) return null;
 
   // PKCE validation
   if (row.code_challenge) {
@@ -118,7 +123,7 @@ export const consume = async (params: {
   const client = await clients.getByClientId({ clientId });
   if (!client) return null;
 
-  return { userId: row.user_id, client, scopes: row.scopes as OAuthScope[], nonce: row.nonce };
+  return { userId: row.user_id, client, scopes: row.scopes as OAuthScope[], resource: row.resource, nonce: row.nonce };
 };
 
 /**

@@ -57,6 +57,8 @@ type RejectResult = string | Response | { message: string; status: number };
 
 type RoleOptions = {
   onReject?: (c: Context, reason: "unauthenticated" | "forbidden") => RejectResult;
+  /** Require this exact audience for OAuth bearer tokens. Sessions and API keys are unaffected. */
+  oauthAudience?: string;
 };
 
 type AccountOptions = RoleOptions & {
@@ -80,6 +82,7 @@ const handleReject = (c: Context, options: RoleOptions, reason: "unauthenticated
 
 const loadAuthenticatedActor = async (
   c: Context<AuthContext>,
+  options: Pick<RoleOptions, "oauthAudience"> = {},
 ): Promise<{
   token: string | null;
   user: User | null;
@@ -129,7 +132,7 @@ const loadAuthenticatedActor = async (
   }
 
   if (bearer) {
-    const authResult = await oauthTokens.verifyAccessToken(bearer);
+    const authResult = await oauthTokens.verifyAccessToken(bearer, options.oauthAudience);
     if (!authResult) return { token: null, user: null, actor: null };
 
     if (authResult.kind === "user") {
@@ -192,18 +195,18 @@ const loadAuthenticatedActor = async (
 const requireRole = (...args: (RoleOrSpecial | RoleOptions)[]) => {
   // Parse args: roles + optional options at the end
   const lastArg = args[args.length - 1];
-  const hasOptions = typeof lastArg === "object" && lastArg !== null && "onReject" in lastArg;
+  const hasOptions = typeof lastArg === "object" && lastArg !== null && ("onReject" in lastArg || "oauthAudience" in lastArg);
   const options: RoleOptions = hasOptions ? (args.pop() as RoleOptions) : {};
   const roles = args as RoleOrSpecial[];
 
   return createMiddleware<AuthContext>(async (c, next) => {
     // "*" = no check at all, pass through (but try to load user)
     if (roles.includes("*")) {
-      await loadAuthenticatedActor(c);
+      await loadAuthenticatedActor(c, options);
       return next();
     }
 
-    const { user, actor } = await loadAuthenticatedActor(c);
+    const { user, actor } = await loadAuthenticatedActor(c, options);
 
     // "anonymous" = must NOT be logged in
     if (roles.includes("anonymous")) {

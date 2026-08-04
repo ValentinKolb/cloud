@@ -42,6 +42,8 @@ export type HelpRegistryDocument = {
   description?: string;
   order: number;
   markdown: string;
+  /** Precomputed by the app. Older registry entries may omit it during rolling upgrades. */
+  searchText?: string;
 };
 
 /** Full Markdown lives separately so normal app discovery stays small. */

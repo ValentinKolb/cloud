@@ -30,12 +30,12 @@ export const compileHelp = (input: {
   const appId = encodeURIComponent(input.appId);
   const pageBase = `${normalizedBasePath(input.basePath)}/help`;
   const searchUrl = `/api/help/v1/${appId}/search`;
-  const documents = input.definition.documents.map(({ id, title, icon, description, order, markdown }) => {
+  const documents = input.definition.documents.map(({ id, title, icon, description, order, markdown, searchText }) => {
     const markdownBytes = new TextEncoder().encode(markdown).byteLength;
     if (markdownBytes > HELP_DOCUMENT_MAX_BYTES) {
       throw new Error(`Help document "${id}" exceeds the ${HELP_DOCUMENT_MAX_BYTES}-byte limit`);
     }
-    return { id, title, icon, description, order, markdown };
+    return { id, title, icon, description, order, markdown, searchText };
   });
   const manifestHash = helpHash({ appId: input.appId, documents });
   const manifest = documents.map<HelpDocumentManifest>(({ id, title, icon, description, order }) => ({

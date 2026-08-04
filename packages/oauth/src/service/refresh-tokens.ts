@@ -106,6 +106,7 @@ export const create = async (params: {
   userId: string;
   client: OAuthClient;
   scopes: OAuthScope[];
+  audiences?: string[];
   label?: string | null;
 }): Promise<{ refreshToken: string; refreshTokenExpiresAt: string; familyId: string }> => {
   const expiresAt = nowPlusDays(REFRESH_TOKEN_LIFETIME_DAYS);
@@ -124,7 +125,7 @@ export const create = async (params: {
         ${params.client.clientId},
         ${params.userId}::uuid,
         ${toPgTextArray(params.scopes)}::text[],
-        ${toPgTextArray(params.client.audiences)}::text[],
+        ${toPgTextArray(params.audiences ?? params.client.audiences)}::text[],
         ${params.label ?? null},
         ${expiresAt}
       )
@@ -165,7 +166,11 @@ const revokeFamily = async (familyId: string, reason: string): Promise<void> => 
   `;
 };
 
-export const rotate = async (refreshToken: string, expectedClientId?: string): Promise<RefreshTokenRotationResult> => {
+export const rotate = async (
+  refreshToken: string,
+  expectedClientId?: string,
+  expectedAudience?: string,
+): Promise<RefreshTokenRotationResult> => {
   const parsed = parseRefreshToken(refreshToken);
   if (!parsed) return { ok: false, error: "invalid_grant" };
 
@@ -194,6 +199,7 @@ export const rotate = async (refreshToken: string, expectedClientId?: string): P
     const valid = await Bun.password.verify(parsed.secret, row.secret_hash);
     if (!valid) return { ok: false as const, error: "invalid_grant" as const };
     if (expectedClientId && row.client_id !== expectedClientId) return { ok: false as const, error: "invalid_grant" as const };
+    if (expectedAudience && !row.audiences.includes(expectedAudience)) return { ok: false as const, error: "invalid_grant" as const };
 
     if (row.status !== "active") {
       if (row.status === "rotated") {

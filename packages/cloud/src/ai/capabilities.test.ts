@@ -107,6 +107,7 @@ describe("AI capability catalog", () => {
           description: "Query Grids data.",
           order: 10,
           markdown: "# GQL\n\nUse `from table Books` to query records.",
+          searchText: "preindexed query language",
         },
       ],
     };
@@ -120,7 +121,7 @@ describe("AI capability catalog", () => {
       requestApproval: async () => true,
       requestClientTool: async <T>() => undefined as T,
     };
-    expect(await search.execute({ query: "Books", appId: "grids" }, context)).toEqual({
+    expect(await search.execute({ query: "GQL preindexed", appId: "grids" }, context)).toEqual({
       documents: [
         {
           appId: "grids",
@@ -132,9 +133,62 @@ describe("AI capability catalog", () => {
         },
       ],
     });
-    expect(await read.execute({ appId: "grids", documentId: "grids-gql" }, context)).toMatchObject({
-      document: { kind: "help", markdown: expect.stringContaining("from table Books") },
+    expect(await read.execute({ appId: "grids", documentId: "grids-gql", query: "GQL preindexed" }, context)).toMatchObject({
+      document: { kind: "help", markdown: expect.stringContaining("from table Books"), truncated: false },
     });
+  });
+
+  test("ranks non-contiguous Help terms and bounds long reads to relevant sections", async () => {
+    const help: HelpRegistryEntry = {
+      appId: "contacts",
+      appName: "Contacts",
+      appIcon: "ti ti-address-book",
+      manifestHash: "hash",
+      documents: [
+        {
+          id: "contacts-start",
+          title: "Start",
+          description: "General contact overview and permissions.",
+          order: 10,
+          markdown: "# Start\n\nOpen Contacts to browse records.",
+        },
+        {
+          id: "contacts-permissions",
+          title: "Permissions",
+          description: "Share contact books safely.",
+          order: 20,
+          markdown: `# Permissions\n\n## Background\n\n${"Background details. ".repeat(700)}\n\n## Member permissions\n\nEditors can update contacts. Viewers can only read them.`,
+        },
+      ],
+    };
+    const prepared = prepareAiTools({ tools: createAiHelpTools([help]), actor, conversationId: "conversation-1" });
+    const search = prepared.tools[0];
+    const read = prepared.tools[1];
+    if (!search || search.kind !== "server" || !read || read.kind !== "server") throw new Error("Help tools missing");
+    const context = {
+      signal: AbortSignal.timeout(1_000),
+      requestApproval: async () => true,
+      requestClientTool: async <T>() => undefined as T,
+    };
+
+    const result = z
+      .object({ documents: z.array(z.object({ documentId: z.string(), title: z.string() }).passthrough()) })
+      .parse(await search.execute({ query: "contact permissions", appId: "contacts" }, context));
+    expect(result.documents[0]).toMatchObject({ documentId: "contacts-permissions", title: "Permissions" });
+
+    const article = z
+      .object({
+        document: z.object({ documentId: z.string(), markdown: z.string(), truncated: z.boolean() }).passthrough().nullable(),
+      })
+      .parse(await read.execute({ appId: "contacts", documentId: "contacts-permissions", query: "member permissions" }, context));
+    expect(article.document).toMatchObject({
+      documentId: "contacts-permissions",
+      truncated: true,
+    });
+    if (!article.document) throw new Error("Help article missing");
+    expect(article.document.markdown).toContain("Editors can update contacts");
+    expect(article.document.markdown.length).toBeLessThanOrEqual(7_000);
+    expect(article.document.markdown).not.toContain("Background details");
   });
 
   test("keeps Help isolated and retries the live registry after a failure", async () => {

@@ -1,16 +1,11 @@
+import { cloudMcpResourceUri, publicCloudOrigin } from "@valentinkolb/cloud/api";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { coreSettings, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import AccountHub, { AccountPageHeader, AccountProfileActions } from "./AccountHub";
 import ApiKeysSettings from "./ApiKeysSettings.island";
-
-const publicCloudUrl = (value: string): string => {
-  const raw = value.trim().replace(/\/+$/, "");
-  const configured = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-  const local = configured.hostname === "localhost" || configured.hostname === "127.0.0.1" || configured.hostname === "::1";
-  return new URL(/^https?:\/\//i.test(raw) || !local ? configured : `http://${raw}`).origin;
-};
+import McpSetup from "./McpSetup.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -22,14 +17,43 @@ export default ssr<AuthContext>(async (c) => {
   ]);
   const appName = rawAppName || "Cloud";
   const freeIpaEnabled = Boolean(freeIpaEnabledRaw);
-  const cloudUrl = publicCloudUrl(rawAppUrl);
+  const cloudUrl = publicCloudOrigin(rawAppUrl);
   const cliInstallCommand = `curl -fsSL ${cloudUrl}/cli | sh`;
+  const mcpResource = cloudMcpResourceUri(rawAppUrl);
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Account", href: "/me" }, { title: "Developer" }]}>
       <AccountHub user={user} active="developer">
         <div class="flex flex-col gap-2">
-          <AccountPageHeader title="Developer" description="Personal automation credentials, terminal setup, and SSH access." />
+          <AccountPageHeader title="Developer" description="Cloud MCP, personal automation credentials, terminal setup, and SSH access." />
+
+          <section class="paper p-5 sm:p-6">
+            <div class="mb-4">
+              <h3 class="flex items-center gap-2 text-sm font-semibold text-primary">
+                <i class="ti ti-plug-connected" />
+                Cloud MCP
+              </h3>
+              <p class="mt-1 text-xs text-dimmed">Connect agents to the live Capabilities and registered Help of this Cloud instance.</p>
+            </div>
+            <McpSetup endpoint={mcpResource} resource={mcpResource} />
+            <div class="mt-4 flex flex-col gap-2 text-xs text-dimmed">
+              <p>
+                OAuth is preferred for compatible preregistered clients. This release intentionally does not register MCP clients
+                dynamically; an administrator must add the exact endpoint as an allowed OAuth audience first.
+              </p>
+              <p>
+                For immediate personal use, create an API key below and set it as{" "}
+                <code class="font-mono text-secondary">CLOUD_API_KEY</code>. Claude Code stores the header in its local MCP configuration,
+                so use a dedicated expiring key.
+              </p>
+              <a
+                class="w-fit text-link hover:underline"
+                href="https://github.com/ValentinKolb/cloud/blob/main/docs-site/docs/en/platform/mcp.md"
+              >
+                Read the Cloud MCP guide
+              </a>
+            </div>
+          </section>
 
           <ApiKeysSettings initialKeys={apiKeys} />
 

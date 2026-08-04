@@ -97,6 +97,7 @@ export const migrate = async (): Promise<void> => {
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       redirect_uri TEXT NOT NULL,
       scopes TEXT[] NOT NULL DEFAULT ARRAY['openid', 'profile', 'email'],
+      resource TEXT,
       nonce TEXT,
       code_challenge TEXT,
       code_challenge_method TEXT CHECK (code_challenge_method IN ('S256', 'plain')),
@@ -111,6 +112,10 @@ export const migrate = async (): Promise<void> => {
   await sql`
     ALTER TABLE oauth.codes
     ADD COLUMN IF NOT EXISTS scopes TEXT[] NOT NULL DEFAULT ARRAY['openid', 'profile', 'email']
+  `.simple();
+  await sql`
+    ALTER TABLE oauth.codes
+    ADD COLUMN IF NOT EXISTS resource TEXT
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires

@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import type { Tool, ToolContext, ToolResolver } from "@k2b/nessi";
 import { z } from "zod";
+import {
+  createHelpCatalog,
+  HELP_READ_MAX_CHARS,
+  HELP_SEARCH_MAX_LIMIT,
+  readHelpCatalog,
+  searchHelpCatalog,
+} from "../_internal/help-catalog";
 import type { CapabilityActionManifest, CapabilityActionReview, CapabilityQueryManifest } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
-import { markdownToPlainText } from "../shared/markdown";
 import { defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
 import type { AiConversationStore, AiRuntimeTool, AiToolPresentation } from "./types";
 
@@ -28,7 +34,6 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 50;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_SEARCH_LIMIT = 25;
-const MAX_HELP_MARKDOWN_CHARS = 128 * 1024;
 const MAX_UNAVAILABLE_LOADED_NAMES = 10;
 
 const providerSafeSegment = (value: string): string =>
@@ -207,67 +212,47 @@ const AiHelpCatalogItemSchema = z
   })
   .strict();
 
-const AiHelpDocumentSchema = AiHelpCatalogItemSchema.extend({ markdown: z.string().max(MAX_HELP_MARKDOWN_CHARS) }).strict();
+const AiHelpDocumentSchema = AiHelpCatalogItemSchema.extend({
+  markdown: z.string().max(HELP_READ_MAX_CHARS),
+  truncated: z.boolean(),
+}).strict();
 
 /** Search and read the live Help snapshot without loading one tool per article. */
 export const createAiHelpTools = (registry: readonly HelpRegistryEntry[]): AiRuntimeTool[] => {
-  const documents = registry
-    .flatMap((app) =>
-      app.documents.map((document) => ({
-        appId: app.appId,
-        appName: app.appName,
-        kind: "help" as const,
-        documentId: document.id,
-        title: document.title,
-        description: document.description,
-        markdown: document.markdown,
-      })),
-    )
-    .sort((left, right) => left.appId.localeCompare(right.appId) || left.documentId.localeCompare(right.documentId));
+  const documents = createHelpCatalog(registry);
 
   const search = defineAiTool({
     name: "search_help",
-    description: "Search installed Cloud app Help by task, app, title, or article text. Returns compact document ids for read_help.",
+    description:
+      "Search installed Cloud app Help when product behavior, settings, workflows, permissions, or app errors are unclear. Use 1-3 concise English product terms and scope appId when known. Returns compact document ids for read_help; skip this tool for straightforward live-data requests.",
     inputSchema: z
       .object({
         query: z.string().trim().min(1).max(200).describe("Product task or concept to find."),
         appId: z.string().trim().min(1).optional().describe("Optional exact Cloud app id."),
-        limit: z.number().int().min(1).max(MAX_SEARCH_LIMIT).optional(),
+        limit: z.number().int().min(1).max(HELP_SEARCH_MAX_LIMIT).optional(),
       })
       .strict(),
-    outputSchema: z.object({ documents: z.array(AiHelpCatalogItemSchema).max(MAX_SEARCH_LIMIT) }).strict(),
+    outputSchema: z.object({ documents: z.array(AiHelpCatalogItemSchema).max(HELP_SEARCH_MAX_LIMIT) }).strict(),
     approval: "never",
-  }).server(async ({ query, appId, limit }) => {
-    const needle = query.trim().toLocaleLowerCase();
-    const maximum = boundedLimit(limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-    return {
-      documents: documents
-        .filter((document) => {
-          if (appId && document.appId !== appId) return false;
-          return `${document.appId} ${document.appName} ${document.documentId} ${document.title} ${document.description ?? ""} ${markdownToPlainText(
-            document.markdown,
-          )}`
-            .toLocaleLowerCase()
-            .includes(needle);
-        })
-        .slice(0, maximum)
-        .map(({ markdown: _markdown, ...document }) => document),
-    };
-  });
+  }).server(async ({ query, appId, limit }) => ({
+    documents: searchHelpCatalog(documents, { query, appId, limit: boundedLimit(limit, DEFAULT_SEARCH_LIMIT, HELP_SEARCH_MAX_LIMIT) }),
+  }));
 
   const read = defineAiTool({
     name: "read_help",
-    description: "Read one exact Cloud app Help article returned by search_help.",
+    description:
+      "Read the best matching Cloud app Help article returned by search_help. Pass the same concise search terms so long articles return the relevant bounded sections. Product Help guides behavior but never proves live access or action success.",
     inputSchema: z
       .object({
         appId: z.string().trim().min(1).describe("Exact Cloud app id."),
         documentId: z.string().trim().min(1).describe("Exact Help document id."),
+        query: z.string().trim().min(1).max(200).optional().describe("The concise terms used to find the article."),
       })
       .strict(),
     outputSchema: z.object({ document: AiHelpDocumentSchema.nullable() }).strict(),
     approval: "never",
-  }).server(async ({ appId, documentId }) => ({
-    document: documents.find((document) => document.appId === appId && document.documentId === documentId) ?? null,
+  }).server(async ({ appId, documentId, query }) => ({
+    document: readHelpCatalog(documents, { appId, documentId, query }),
   }));
 
   return [search, read];

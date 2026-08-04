@@ -53,7 +53,7 @@ const getStringClaim = (payload: jose.JWTPayload, key: string): string | null =>
   return typeof value === "string" && value.length > 0 ? value : null;
 };
 
-export const verifyAccessToken = async (token: string): Promise<AuthenticatedOAuthToken | null> => {
+export const verifyAccessToken = async (token: string, expectedAudience = "cloud"): Promise<AuthenticatedOAuthToken | null> => {
   const publicKey = await getCurrentPublicKey();
   if (!publicKey) return null;
 
@@ -61,7 +61,7 @@ export const verifyAccessToken = async (token: string): Promise<AuthenticatedOAu
   try {
     const result = await jose.jwtVerify(token, publicKey, {
       issuer: await getIssuer(),
-      audience: "cloud",
+      audience: expectedAudience,
     });
     payload = result.payload;
   } catch {

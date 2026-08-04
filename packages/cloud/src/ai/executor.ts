@@ -1,6 +1,7 @@
 import type { CompactEvent, NessiLoop, OutboundEvent } from "@k2b/nessi";
 import { compact, nessi } from "@k2b/nessi";
-import { listApps, listCapabilities, listHelp } from "../_internal/registry";
+import { loadCurrentHelp } from "../_internal/help-catalog";
+import { listCapabilities } from "../_internal/registry";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
@@ -50,12 +51,6 @@ const AI_COALESCE_MS = 25;
 const AI_COALESCE_MAX_CHARS = 512;
 const AI_SNAPSHOT_INTERVAL_MS = 1_000;
 const AI_ACTION_BUDGET_MS = 24 * 60 * 60_000;
-
-const listCurrentHelp = async () => {
-  const [apps, entries] = await Promise.all([listApps(), listHelp()]);
-  const manifestHashes = new Map(apps.flatMap((app) => (app.help ? [[app.id, app.help.manifestHash] as const] : [])));
-  return entries.filter((entry) => manifestHashes.get(entry.appId) === entry.manifestHash);
-};
 
 export type ExecutorConfig = {
   leaseOwner: string;
@@ -460,7 +455,7 @@ export class AiTurnExecutor {
             log.warn("AI Capability registry unavailable; continuing without app capabilities", {
               error: error instanceof Error ? error.message : String(error),
             }),
-          listHelpRegistry: listCurrentHelp,
+          listHelpRegistry: loadCurrentHelp,
           onHelpRegistryError: (error) =>
             log.warn("AI Help registry unavailable; continuing without Help documents", {
               error: error instanceof Error ? error.message : String(error),
@@ -498,7 +493,7 @@ export class AiTurnExecutor {
             conversationId,
             actor: helpActor,
             staticTools: activeTools,
-            listRegistry: listCurrentHelp,
+            listRegistry: loadCurrentHelp,
             onRegistryError: (error) =>
               log.warn("AI Help registry unavailable; continuing without Help documents", {
                 error: error instanceof Error ? error.message : String(error),

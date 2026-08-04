@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { ok } from "@k2b/stdlib";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { Hono } from "hono";
 import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
-import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
-import { createMcpRoutes } from "./mcp";
+import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
+import type { AuthContext } from "../server";
+import { createCapabilityRoutes } from "./capabilities";
+import { cloudMcpResourceUri, createMcpProtectedResourceRoutes, createMcpRoutes } from "./mcp";
 
 const compiled = compileCapabilities(
   "demo",
@@ -56,6 +61,23 @@ const app: CapabilityRegistryEntry = {
   manifest: compiled.manifest,
 };
 
+const help: HelpRegistryEntry = {
+  appId: "demo",
+  appName: "Demo",
+  appIcon: "ti ti-box",
+  manifestHash: "help-hash",
+  documents: [
+    {
+      id: "getting-started",
+      title: "Getting started",
+      description: "Create and inspect demo items.",
+      order: 10,
+      markdown: "# Getting started\n\nCreate an item, then inspect its current state.",
+      searchText: "getting started create inspect demo items current state",
+    },
+  ],
+};
+
 const summary = (capability: CapabilityRegistryEntry): AppRegistryEntry => ({
   id: capability.appId,
   name: capability.appName,
@@ -69,19 +91,92 @@ const summary = (capability: CapabilityRegistryEntry): AppRegistryEntry => ({
   },
 });
 
-const rpc = (routes: ReturnType<typeof createMcpRoutes>, body: unknown) =>
+const helpSummary = (): AppRegistryEntry => ({
+  ...summary(app),
+  help: {
+    manifestHash: help.manifestHash,
+    pageBase: "/app/demo/help",
+    documents: [
+      {
+        id: "getting-started",
+        title: "Getting started",
+        description: "Create and inspect demo items.",
+        order: 10,
+        searchUrl: "/api/help/v1/demo/search",
+        url: "/api/help/v1/demo/documents/getting-started",
+      },
+    ],
+  },
+});
+
+const rpc = (
+  routes: ReturnType<typeof createMcpRoutes>,
+  body: unknown,
+  protocolVersion = "2025-06-18",
+  headers: Record<string, string> = {},
+) =>
   routes.request("/mcp/v1", {
     method: "POST",
     headers: {
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
-      "mcp-protocol-version": "2025-06-18",
+      "mcp-protocol-version": protocolVersion,
       authorization: "Bearer caller",
+      ...headers,
     },
     body: JSON.stringify(body),
   });
 
 describe("capability MCP projection", () => {
+  test("works through the official Streamable HTTP client", async () => {
+    const routes = createMcpRoutes({
+      listApps: async () => [helpSummary()],
+      listHelp: async () => [help],
+      getCapability: async () => app,
+      authenticate: async (_c, next) => next(),
+    });
+    const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp/v1"), {
+      requestInit: { headers: { authorization: "Bearer caller" } },
+      fetch: async (input, init) => routes.fetch(new Request(input, init)),
+    });
+    const client = new Client({ name: "cloud-mcp-test", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(transport);
+    try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("demo__query__get");
+      expect((await client.listResources()).resources).toMatchObject([{ uri: "cloud://help/demo/getting-started" }]);
+      expect((await client.readResource({ uri: "cloud://help/demo/getting-started" })).contents[0]).toMatchObject({
+        mimeType: "text/markdown",
+        text: expect.stringContaining("Create an item"),
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("initializes current and compatible clients with self-contained server guidance", async () => {
+    const routes = createMcpRoutes({ authenticate: async (_c, next) => next() });
+    for (const version of ["2025-11-25", "2025-06-18"]) {
+      const response = await rpc(
+        routes,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: version, capabilities: {}, clientInfo: { name: "test", version: "1.0.0" } },
+        },
+        version,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        result: {
+          capabilities: { resources: {}, tools: {} },
+          instructions: expect.stringContaining("cloud__help__search"),
+          serverInfo: { name: "cloud", version: "1.0.0" },
+        },
+      });
+    }
+  });
+
   test("rejects oversized JSON-RPC bodies before the MCP transport parses them", async () => {
     const routes = createMcpRoutes({ authenticate: async (_c, next) => next() });
     const response = await rpc(routes, {
@@ -112,27 +207,36 @@ describe("capability MCP projection", () => {
         result: { tools: Array<Record<string, any>> };
       }
     ).result;
-    expect(result.tools.map((tool) => tool.name)).toEqual(["demo__action__create", "demo__action__update", "demo__query__get"]);
-    expect(result.tools[0]?.inputSchema.required).toContain("idempotencyKey");
-    expect(result.tools[0]?.annotations).toMatchObject({
+    expect(result.tools.map((tool) => tool.name)).toEqual([
+      "cloud__help__search",
+      "cloud__help__read",
+      "demo__action__create",
+      "demo__action__update",
+      "demo__query__get",
+    ]);
+    const create = result.tools.find((tool) => tool.name === "demo__action__create")!;
+    const update = result.tools.find((tool) => tool.name === "demo__action__update")!;
+    const get = result.tools.find((tool) => tool.name === "demo__query__get")!;
+    expect(create.inputSchema.required).toContain("idempotencyKey");
+    expect(create.annotations).toMatchObject({
       readOnlyHint: false,
       idempotentHint: true,
       destructiveHint: false,
       openWorldHint: false,
     });
-    expect(result.tools[0]?._meta).toMatchObject({
+    expect(create._meta).toMatchObject({
       "cloud/capabilityId": "demo.create",
       "cloud/idempotency": "required",
       "cloud/schemaHash": expect.any(String),
     });
-    expect(result.tools[1]?.inputSchema.properties).not.toHaveProperty("idempotencyKey");
-    expect(result.tools[1]?.annotations).toMatchObject({
+    expect(update.inputSchema.properties).not.toHaveProperty("idempotencyKey");
+    expect(update.annotations).toMatchObject({
       readOnlyHint: false,
       idempotentHint: false,
       destructiveHint: true,
       openWorldHint: false,
     });
-    expect(result.tools[2]?.annotations).toMatchObject({
+    expect(get.annotations).toMatchObject({
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: true,
@@ -201,7 +305,7 @@ describe("capability MCP projection", () => {
     ).result;
     expect(first.tools).toHaveLength(100);
     expect(first.nextCursor).toBe(first.tools.at(-1)?.name);
-    expect(lookups).toBe(101);
+    expect(lookups).toBe(99);
 
     lookups = 0;
     const secondResponse = await rpc(routes, {
@@ -215,9 +319,134 @@ describe("capability MCP projection", () => {
         result: { tools: Tool[]; nextCursor?: string };
       }
     ).result;
-    expect(second.tools).toHaveLength(50);
+    expect(second.tools).toHaveLength(52);
     expect(second.nextCursor).toBeUndefined();
-    expect(lookups).toBe(51);
+    expect(lookups).toBe(53);
+
+    const afterHelpResponse = await rpc(routes, {
+      jsonrpc: "2.0",
+      id: 12,
+      method: "tools/list",
+      params: { cursor: "cloud__help__search" },
+    });
+    const afterHelp = ((await afterHelpResponse.json()) as { result: { tools: Tool[] } }).result;
+    expect(afterHelp.tools[0]?.name).toBe("cloud__help__read");
+    expect(afterHelp.tools.some((tool) => tool.name === "demo-000__query__get")).toBe(true);
+  });
+
+  test("lists, reads, searches, and embeds the same live Help resource", async () => {
+    const routes = createMcpRoutes({
+      listApps: async () => [helpSummary()],
+      listHelp: async () => [help],
+      getCapability: async () => app,
+      authenticate: async (_c, next) => next(),
+    });
+    const listed = await rpc(routes, { jsonrpc: "2.0", id: 30, method: "resources/list", params: {} }, "2025-11-25");
+    expect(await listed.json()).toMatchObject({
+      result: {
+        resources: [
+          {
+            uri: "cloud://help/demo/getting-started",
+            mimeType: "text/markdown",
+            _meta: { "cloud/manifestHash": "help-hash" },
+          },
+        ],
+      },
+    });
+
+    const read = await rpc(
+      routes,
+      { jsonrpc: "2.0", id: 31, method: "resources/read", params: { uri: "cloud://help/demo/getting-started" } },
+      "2025-11-25",
+    );
+    expect(await read.json()).toMatchObject({ result: { contents: [{ text: expect.stringContaining("Create an item") }] } });
+
+    const searched = await rpc(routes, {
+      jsonrpc: "2.0",
+      id: 32,
+      method: "tools/call",
+      params: { name: "cloud__help__search", arguments: { query: "create item" } },
+    });
+    const searchResult = (await searched.json()) as { result: { structuredContent: unknown; content: Array<Record<string, unknown>> } };
+    expect(searchResult).toMatchObject({
+      result: {
+        structuredContent: { documents: [{ appId: "demo", documentId: "getting-started" }] },
+      },
+    });
+    expect(searchResult.result.content).toContainEqual(
+      expect.objectContaining({ type: "resource_link", uri: "cloud://help/demo/getting-started" }),
+    );
+
+    const toolRead = await rpc(routes, {
+      jsonrpc: "2.0",
+      id: 33,
+      method: "tools/call",
+      params: { name: "cloud__help__read", arguments: { appId: "demo", documentId: "getting-started", query: "current state" } },
+    });
+    const readResult = (await toolRead.json()) as { result: { structuredContent: unknown; content: Array<Record<string, unknown>> } };
+    expect(readResult).toMatchObject({
+      result: {
+        structuredContent: { document: { markdown: expect.stringContaining("current state"), truncated: false } },
+      },
+    });
+    expect(readResult.result.content).toContainEqual(
+      expect.objectContaining({
+        type: "resource",
+        resource: expect.objectContaining({ uri: "cloud://help/demo/getting-started", mimeType: "text/markdown" }),
+      }),
+    );
+  });
+
+  test("rejects cross-origin browser requests and advertises protected-resource discovery", async () => {
+    const routes = createMcpRoutes({ authenticate: async (_c, next) => next() });
+    const rejected = await routes.request("http://cloud.example/mcp/v1", {
+      method: "POST",
+      headers: { origin: "https://evil.example", "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    expect(rejected.status).toBe(403);
+    const forwarded = await rpc(
+      createMcpRoutes({ listApps: async () => [], authenticate: async (_c, next) => next() }),
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+      "2025-11-25",
+      { origin: "https://cloud.example", "x-forwarded-host": "cloud.example", "x-forwarded-proto": "https" },
+    );
+    expect(forwarded.status).toBe(200);
+
+    const protectedRoutes = createMcpRoutes({ getAppUrl: async () => "cloud.example" });
+    const unauthenticated = await protectedRoutes.request("/mcp/v1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get("www-authenticate")).toBe(
+      'Bearer resource_metadata="https://cloud.example/.well-known/oauth-protected-resource/api/mcp/v1", scope="read write"',
+    );
+
+    const discovery = createMcpProtectedResourceRoutes({ getAppUrl: async () => "cloud.example" });
+    expect(await (await discovery.request("/.well-known/oauth-protected-resource/api/mcp/v1")).json()).toEqual({
+      resource: cloudMcpResourceUri("cloud.example"),
+      authorization_servers: ["https://cloud.example"],
+      scopes_supported: ["read", "write"],
+      bearer_methods_supported: ["header"],
+      resource_name: "Cloud MCP",
+    });
+  });
+
+  test("keeps the MCP authorization challenge when Core composes capability routes first", async () => {
+    const routes = new Hono<AuthContext>()
+      .route("/", createCapabilityRoutes({ authenticate: async (c) => c.json({ message: "Capability authentication" }, 401) }))
+      .route("/", createMcpRoutes({ listApps: async () => [], getAppUrl: async () => "cloud.example" }));
+    const response = await routes.request("/mcp/v1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain(
+      'resource_metadata="https://cloud.example/.well-known/oauth-protected-resource/api/mcp/v1"',
+    );
   });
 
   test("calls the shared dispatcher with caller credentials and structured results", async () => {
@@ -234,15 +463,20 @@ describe("capability MCP projection", () => {
         });
       },
     });
-    const response = await rpc(routes, {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: {
-        name: "demo__action__create",
-        arguments: { title: "Test", idempotencyKey: "create-1" },
+    const response = await rpc(
+      routes,
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "demo__action__create",
+          arguments: { title: "Test", idempotencyKey: "create-1" },
+        },
       },
-    });
+      "2025-06-18",
+      { "x-forwarded-host": "cloud.example", "x-forwarded-proto": "https" },
+    );
     expect(response.status).toBe(200);
     const result = ((await response.json()) as { result: Record<string, any> }).result;
     expect(result.isError).toBeUndefined();
@@ -250,7 +484,7 @@ describe("capability MCP projection", () => {
     expect(result.content).toContainEqual(
       expect.objectContaining({
         type: "resource_link",
-        uri: "http://localhost/app/demo/created",
+        uri: "https://cloud.example/app/demo/created",
         name: "Edit item",
       }),
     );

@@ -92,7 +92,6 @@ const actorProbe = () =>
 
 suite("OAuth resource access tokens", () => {
   test("authorization-code access tokens resolve as user actors in Core auth", async () => {
-
     const userId = await insertUser();
     let clientId: string | null = null;
 
@@ -142,7 +141,6 @@ suite("OAuth resource access tokens", () => {
   });
 
   test("authorization codes can only be consumed once under concurrent exchange", async () => {
-
     const userId = await insertUser();
     let clientId: string | null = null;
 
@@ -194,7 +192,6 @@ suite("OAuth resource access tokens", () => {
   });
 
   test("authorization requests without scope use conservative default scopes", async () => {
-
     const userId = await insertUser();
     const sessionToken = await createSessionToken(userId);
     let clientId: string | null = null;
@@ -249,7 +246,6 @@ suite("OAuth resource access tokens", () => {
   });
 
   test("refresh tokens rotate and reused tokens revoke the token family", async () => {
-
     const userId = await insertUser();
     let clientId: string | null = null;
 
@@ -364,7 +360,7 @@ suite("OAuth resource access tokens", () => {
     ).toBe(false);
   });
 
-  test("openid configuration advertises native-cli compatible OAuth capabilities", () => {
+  test("OAuth discovery advertises native-client and RFC 8707 capabilities", async () => {
     const configuration = oauth.tokens.getOpenIdConfiguration("https://cloud.example.test");
 
     expect(configuration.grant_types_supported).toContain("authorization_code");
@@ -373,10 +369,13 @@ suite("OAuth resource access tokens", () => {
     expect(configuration.token_endpoint_auth_methods_supported).toContain("none");
     expect(configuration.revocation_endpoint).toBe("https://cloud.example.test/oauth/revoke");
     expect(configuration.code_challenge_methods_supported).toContain("S256");
+    expect(configuration.resource_parameter_supported).toBe(true);
+    const response = await oauthRoutes.request("/.well-known/oauth-authorization-server");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ resource_parameter_supported: true });
   });
 
   test("public clients must use PKCE S256", async () => {
-
     const userId = await insertUser();
     let clientId: string | null = null;
 
@@ -426,7 +425,6 @@ suite("OAuth resource access tokens", () => {
   });
 
   test("refresh tokens keep the original grant audiences after client changes", async () => {
-
     const userId = await insertUser();
     let clientId: string | null = null;
 
@@ -497,8 +495,94 @@ suite("OAuth resource access tokens", () => {
     }
   });
 
-  test("refresh token revocation invalidates the grant without exposing token details", async () => {
+  test("authorization codes and refresh families stay bound to one MCP resource", async () => {
+    const userId = await insertUser();
+    const resource = "https://cloud.example/api/mcp/v1";
+    let clientId: string | null = null;
 
+    try {
+      const created = await oauth.clients.create({
+        createdBy: userId,
+        data: {
+          name: `MCP resource client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "offline_access", "read", "write"],
+          audiences: [resource],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const code = await oauth.codes.create({
+        clientId: created.data.clientId,
+        userId,
+        redirectUri: "https://client.example.test/callback",
+        scopes: created.data.scopes,
+        resource,
+      });
+      const exchange = (requestedResource?: string) => {
+        const body = new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: created.data.clientId,
+          client_secret: created.data.clientSecret,
+          code,
+          redirect_uri: "https://client.example.test/callback",
+        });
+        if (requestedResource) body.set("resource", requestedResource);
+        return oauthRoutes.request("/oauth/token", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        });
+      };
+
+      expect((await exchange()).status).toBe(400);
+      const codeResponse = await exchange(resource);
+      expect(codeResponse.status).toBe(200);
+      const codeToken = (await codeResponse.json()) as { access_token: string; refresh_token: string };
+      expect(await oauthTokens.verifyAccessToken(codeToken.access_token, resource)).not.toBeNull();
+      expect(await oauthTokens.verifyAccessToken(codeToken.access_token, "https://other.example/api/mcp/v1")).toBeNull();
+      const resourceProbe = new Hono<AuthContext>()
+        .use(auth.requireRole("authenticated", { oauthAudience: resource }))
+        .get("/probe", (c) => c.json({ actor: c.get("actor").kind }));
+      expect(
+        (
+          await resourceProbe.request("/probe", {
+            headers: { Authorization: `Bearer ${codeToken.access_token}` },
+          })
+        ).status,
+      ).toBe(200);
+
+      const refresh = (requestedResource: string) =>
+        oauthRoutes.request("/oauth/token", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: created.data.clientId,
+            client_secret: created.data.clientSecret,
+            refresh_token: codeToken.refresh_token,
+            resource: requestedResource,
+          }),
+        });
+      expect((await refresh("https://other.example/api/mcp/v1")).status).toBe(400);
+      const refreshResponse = await refresh(resource);
+      expect(refreshResponse.status).toBe(200);
+      const refreshed = (await refreshResponse.json()) as { access_token: string };
+      expect(await oauthTokens.verifyAccessToken(refreshed.access_token, resource)).not.toBeNull();
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("refresh token revocation invalidates the grant without exposing token details", async () => {
     const userId = await insertUser();
     let clientId: string | null = null;
 
@@ -571,7 +655,6 @@ suite("OAuth resource access tokens", () => {
   });
 
   test("specific client access allows direct users and recursive group members only", async () => {
-
     const creatorId = await insertUser();
     const directUserId = await insertUser();
     const nestedUserId = await insertUser();
@@ -615,7 +698,6 @@ suite("OAuth resource access tokens", () => {
   });
 
   test("client credentials resolve as resource service-account actors and validate scope/resource", async () => {
-
     const userId = await insertUser();
     let clientId: string | null = null;
     let serviceAccountId: string | null = null;

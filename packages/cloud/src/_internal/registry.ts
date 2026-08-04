@@ -1,6 +1,6 @@
 import { ephemeral } from "@k2b/sync";
-import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { CapabilityManifest } from "../contracts/capabilities";
+import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
 import { parseCapabilityManifest } from "./capabilities";
 import { validateAppRegistryEntry } from "./registry-validation";
@@ -206,6 +206,7 @@ const isHelpRegistryEntry = (value: unknown): value is HelpRegistryEntry => {
         typeof document.title === "string" &&
         typeof document.order === "number" &&
         typeof document.markdown === "string" &&
+        (document.searchText === undefined || typeof document.searchText === "string") &&
         (document.icon === undefined || typeof document.icon === "string") &&
         (document.description === undefined || typeof document.description === "string"),
     )

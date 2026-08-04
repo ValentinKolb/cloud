@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileHelp } from "../_internal/help";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import { defineHelp } from "../server/help";
 import { createHelpRoutes } from "./help";
 
@@ -44,9 +44,20 @@ describe("Help API", () => {
   });
 
   test("searches and renders one live matching corpus", async () => {
+    const legacyHelp: HelpRegistryEntry = {
+      ...compiled.registryEntry,
+      documents: compiled.registryEntry.documents.map((document) => ({
+        id: document.id,
+        title: document.title,
+        icon: document.icon,
+        description: document.description,
+        order: document.order,
+        markdown: document.markdown,
+      })),
+    };
     const routes = createHelpRoutes({
       getApp: async () => app,
-      getHelp: async () => compiled.registryEntry,
+      getHelp: async () => legacyHelp,
       authenticate,
     });
 
@@ -62,6 +73,36 @@ describe("Help API", () => {
       markdown: expect.stringContaining("Create an item"),
       html: expect.stringContaining("<h2"),
     });
+  });
+
+  test("uses the registered search text and renders once per manifest", async () => {
+    let currentApp = app;
+    let currentHelp: HelpRegistryEntry = {
+      ...compiled.registryEntry,
+      documents: compiled.registryEntry.documents.map((document) => ({ ...document, searchText: "indexed alias" })),
+    };
+    let renderCount = 0;
+    const routes = createHelpRoutes({
+      getApp: async () => currentApp,
+      getHelp: async () => currentHelp,
+      authenticate,
+      renderMarkdown: (markdown) => {
+        renderCount += 1;
+        return `<p>${markdown.length}</p>`;
+      },
+    });
+
+    expect(await (await routes.request("/help/v1/inventory/search?q=indexed%20alias")).json()).toEqual({
+      ids: ["getting-started"],
+    });
+    expect((await routes.request("/help/v1/inventory/documents/getting-started")).status).toBe(200);
+    expect((await routes.request("/help/v1/inventory/documents/getting-started")).status).toBe(200);
+    expect(renderCount).toBe(1);
+
+    currentHelp = { ...currentHelp, manifestHash: "next-manifest" };
+    currentApp = { ...currentApp, help: { ...currentApp.help!, manifestHash: "next-manifest" } };
+    expect((await routes.request("/help/v1/inventory/documents/getting-started")).status).toBe(200);
+    expect(renderCount).toBe(2);
   });
 
   test("rejects missing, mismatched, and unknown Help", async () => {

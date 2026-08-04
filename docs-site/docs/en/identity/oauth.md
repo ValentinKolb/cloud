@@ -33,6 +33,7 @@ The authorization request accepts:
 | `redirect_uri` | Yes | Exact registered redirect URI |
 | `response_type` | Yes | Must be `code` |
 | `scope` | No | Space-separated allowed scopes |
+| `resource` | No | Exact allowed RFC 8707 resource audience |
 | `state` | No | Client state returned unchanged |
 | `nonce` | No | Included in OpenID Connect processing |
 | `code_challenge` | Public clients | PKCE challenge |
@@ -52,6 +53,11 @@ redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&
 client_id=<client-id>&
 code_verifier=<verifier>
 ```
+
+When the authorization request used `resource`, the token request must repeat
+the exact same value. Cloud binds the authorization code and any resulting
+refresh-token family to it. This is required by the
+[Cloud MCP server](/en/docs/platform/mcp).
 
 Confidential clients can send credentials through HTTP Basic or the form.
 

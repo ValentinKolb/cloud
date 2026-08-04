@@ -45,6 +45,7 @@ describe("Help registration compiler", () => {
     });
 
     expect(first.summary).toEqual(second.summary);
+    expect(first.registryEntry.documents[0]?.searchText).toContain("Read this article");
     expect(first.summary).toMatchObject({
       pageBase: "/app/inventory/help",
       documents: [

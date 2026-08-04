@@ -277,6 +277,7 @@ export const createTokens = async (params: {
           userId,
           client,
           scopes,
+          audiences,
           label: params.refreshTokenLabel,
         })
       : null;

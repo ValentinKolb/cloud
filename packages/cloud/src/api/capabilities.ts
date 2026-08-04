@@ -350,7 +350,7 @@ export const dispatchCapability = async (params: {
 
 export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies = {}) => {
   return new Hono<AuthContext>()
-    .use(dependencies.authenticate ?? auth.requireRole("authenticated"))
+    .use("/capabilities/v1/*", dependencies.authenticate ?? auth.requireRole("authenticated"))
     .get(
       "/capabilities/v1/catalog",
       describeRoute({

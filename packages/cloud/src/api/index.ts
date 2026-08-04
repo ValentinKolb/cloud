@@ -24,8 +24,8 @@ import { appDiscoveryRoutes } from "./apps";
 import { createAuthRoutes } from "./auth";
 import { createCapabilityRoutes } from "./capabilities";
 import { createHelpRoutes } from "./help";
-import meRoutes from "./me";
 import { createMcpRoutes } from "./mcp";
+import meRoutes from "./me";
 import { createSearchRoutes } from "./search";
 
 /**
@@ -71,3 +71,11 @@ export const createCoreApiRouter = (options: CoreApiOptions) => {
   api.all("/*", (c) => c.json({ message: "API route not found" }, 404));
   return { api };
 };
+
+export {
+  CLOUD_MCP_PATH,
+  CLOUD_MCP_PROTECTED_RESOURCE_PATH,
+  cloudMcpResourceUri,
+  createMcpProtectedResourceRoutes,
+  publicCloudOrigin,
+} from "./mcp";

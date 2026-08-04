@@ -3,7 +3,7 @@ title: In-product Help
 navTitle: In-product Help
 section: Platform services
 order: 580
-description: Declare app-owned Markdown once for the shared Help UI, full-page Help, and agents.
+description: Declare app-owned Markdown once for the shared Help UI, full-page Help, Assistant, and MCP.
 tags: [help, markdown, product, agents]
 updated: 2026-08-02
 ---
@@ -11,7 +11,8 @@ updated: 2026-08-02
 # In-product Help
 
 Declare an application's product guidance once. Cloud can then expose the same
-Markdown through the shared Layout, full-page Help, and agent search and reads.
+Markdown through the shared Layout, full-page Help, Assistant search and reads,
+and the authenticated [Cloud MCP server](/en/docs/platform/mcp).
 
 All supported built-in applications that own Help use this contract. OAuth
 intentionally owns no Help surface.
