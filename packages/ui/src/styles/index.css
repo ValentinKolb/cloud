@@ -101,16 +101,18 @@
 .k2b-ui[data-theme="dark"],
 .k2b-ui.k2b-dark,
 .dark .k2b-ui {
-  --k2b-surface-canvas: var(--k2b-neutral-950);
-  --k2b-surface: var(--k2b-neutral-900);
-  --k2b-surface-muted: var(--k2b-neutral-800);
-  --k2b-surface-elevated: var(--k2b-neutral-900);
+  /* Cool ink surfaces keep dark layouts deep without collapsing navigation,
+     content, and floating UI into one black plane. */
+  --k2b-surface-canvas: #090d12;
+  --k2b-surface: #11151b;
+  --k2b-surface-muted: #20242a;
+  --k2b-surface-elevated: #181d24;
   --k2b-text: var(--k2b-neutral-50);
   --k2b-text-secondary: var(--k2b-neutral-200);
   --k2b-text-muted: var(--k2b-neutral-400);
-  --k2b-border: var(--k2b-neutral-800);
-  --k2b-border-strong: var(--k2b-neutral-700);
-  --k2b-hover: var(--k2b-neutral-800);
+  --k2b-border: #29313a;
+  --k2b-border-strong: #3a4552;
+  --k2b-hover: #252c35;
   --k2b-selected: var(--k2b-accent-950);
   --k2b-action: var(--k2b-accent-300);
   --k2b-action-hover: var(--k2b-accent-200);

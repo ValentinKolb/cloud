@@ -128,15 +128,17 @@
 }
 
 .dark {
-  --ui-canvas: var(--color-zinc-950);
-  --ui-surface: rgb(20 21 21 / 0.98);
-  --ui-surface-subtle: rgb(24 25 25 / 0.97);
-  --ui-surface-muted: rgb(32 33 33 / 0.96);
-  --ui-surface-raised: rgb(26 27 27 / 0.99);
-  --ui-border: rgb(63 67 65 / 0.6);
-  --ui-border-strong: rgb(72 76 74 / 0.82);
-  --ui-hover: rgb(37 39 38 / 0.9);
-  --ui-active: rgb(48 51 49 / 0.94);
+  /* Mirror the portable UI ink hierarchy through Cloud-owned roles. Keeping
+     the two namespaces explicit preserves their package ownership boundary. */
+  --ui-canvas: #090d12;
+  --ui-surface: #11151b;
+  --ui-surface-subtle: color-mix(in srgb, var(--ui-surface) 68%, var(--ui-surface-muted));
+  --ui-surface-muted: #20242a;
+  --ui-surface-raised: #181d24;
+  --ui-border: #29313a;
+  --ui-border-strong: #3a4552;
+  --ui-hover: #252c35;
+  --ui-active: color-mix(in srgb, var(--ui-hover) 72%, var(--ui-border-strong));
   --ui-selected: color-mix(in srgb, var(--color-blue-400) 12%, var(--ui-surface));
   --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
   --ui-app-accent-border: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
@@ -162,12 +164,12 @@
   --ui-check-hover-transform: none;
   --ui-data-row-hover: rgb(255 255 255 / 0.045);
   --ui-data-column-hover: rgb(255 255 255 / 0.018);
-  --ui-dropdown-menu-surface: rgb(30 31 31 / 0.94);
+  --ui-dropdown-menu-surface: var(--ui-surface-raised);
   --ui-progress-primary: var(--color-blue-400);
   --ui-progress-success: var(--color-green-400);
   --ui-progress-danger: var(--color-red-400);
-  --ui-tooltip-surface: var(--color-zinc-800);
-  --ui-tooltip-border: var(--color-zinc-700);
+  --ui-tooltip-surface: var(--ui-surface-muted);
+  --ui-tooltip-border: var(--ui-border-strong);
   --ui-tooltip-text: var(--color-zinc-100);
   --ui-segment-inactive-text: var(--color-zinc-400);
   --ui-segment-hover-text: var(--color-zinc-200);

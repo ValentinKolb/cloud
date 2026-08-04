@@ -25,6 +25,12 @@ Override fonts through `--k2b-font-sans`, `--k2b-font-condensed`, and `--k2b-fon
 
 Accent, neutral, success, warning, and danger stacks are CSS variables. Semantic aliases such as `--k2b-action`, `--k2b-surface`, `--k2b-text`, and `--k2b-border` derive from those stacks.
 
+The default dark theme uses a cool ink hierarchy for canvas, content,
+navigation, elevated surfaces, borders, and hover states. These semantic dark
+surface roles are purpose-built rather than direct neutral-stack aliases. When
+customizing them, override the complete surface hierarchy together so nested
+layouts and floating UI keep their intended depth.
+
 Override a complete stack when its semantic aliases use several steps for hover, focus, selected, light, and dark states. Changing custom properties at runtime updates the scoped components immediately; the package does not maintain a separate theme store.
 
 AI presentation has a separate semantic theme:

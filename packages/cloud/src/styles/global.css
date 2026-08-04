@@ -79,9 +79,9 @@
 .dark .cloud-app-canvas {
   background: linear-gradient(
     var(--app-canvas-angle, 135deg),
-    color-mix(in srgb, var(--app-canvas-from, var(--color-zinc-950)) var(--app-canvas-dark-strength, 0%), var(--color-zinc-950)),
-    color-mix(in srgb, var(--app-canvas-via-dark, var(--color-zinc-950)) var(--app-canvas-dark-strength, 0%), var(--color-zinc-950)) 50%,
-    color-mix(in srgb, var(--app-canvas-to, var(--color-zinc-950)) var(--app-canvas-dark-strength, 0%), var(--color-zinc-950))
+    color-mix(in srgb, var(--app-canvas-from, var(--ui-canvas)) var(--app-canvas-dark-strength, 0%), var(--ui-canvas)),
+    color-mix(in srgb, var(--app-canvas-via-dark, var(--ui-canvas)) var(--app-canvas-dark-strength, 0%), var(--ui-canvas)) 50%,
+    color-mix(in srgb, var(--app-canvas-to, var(--ui-canvas)) var(--app-canvas-dark-strength, 0%), var(--ui-canvas))
   );
 }
 

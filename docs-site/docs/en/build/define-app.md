@@ -139,6 +139,10 @@ when their containing object is present.
 | `angle` | `135` | `0–360` |
 | `strength` | `20` | `0–100` |
 
+`strength` is applied as declared in light mode. Dark mode uses half of that
+strength so application identity remains visible without overpowering the
+shared dark surface hierarchy.
+
 ## Declare platform integrations
 
 The remaining options declare application-owned contributions:
