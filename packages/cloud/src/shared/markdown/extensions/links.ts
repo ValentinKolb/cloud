@@ -32,13 +32,10 @@ export function linksExtension(options: LinksExtensionOptions = {}): MarkedExten
         const targetAttrs = target === "_blank" ? ' target="_blank" rel="noopener noreferrer"' : "";
 
         return (
-          `<span class="${LINK_STYLES.wrapper}">` +
+          `<a href="${escapeHtml(href)}"${titleAttr}${targetAttrs} class="${LINK_STYLES.link}">` +
           `<span class="${LINK_STYLES.label}">[${escapeHtml(text)}]</span>` +
-          `<a href="${escapeHtml(href)}"${titleAttr}${targetAttrs} ` +
-          `class="${LINK_STYLES.icon}">` +
-          `<i class="ti ti-arrow-up-right text-xs"></i>` +
-          `</a>` +
-          `</span>`
+          `<i class="${LINK_STYLES.icon} ti ti-arrow-up-right text-xs" aria-hidden="true"></i>` +
+          `</a>`
         );
       },
     },

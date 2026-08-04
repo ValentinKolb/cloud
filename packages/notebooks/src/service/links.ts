@@ -28,7 +28,7 @@ const log = logger("notebooks:links");
  */
 const NOTE_LINK_HTML_REGEX = /<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>([\s\S]*?)<\/a>/g;
 const MARKED_NOTE_LINK_HTML_REGEX =
-  /<span class="md-link-widget[^"]*">\s*<span class="md-link-label[^"]*">\[([\s\S]*?)\]<\/span>\s*<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>[\s\S]*?<\/a>\s*<\/span>/g;
+  /<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*class="md-link-widget[^"]*">\s*<span class="md-link-label[^"]*">\[([\s\S]*?)\]<\/span>[\s\S]*?<\/a>/g;
 
 const NOTE_PILL_CLASS =
   "cm-note-link note-link inline-flex items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 no-underline align-baseline font-medium shadow-[var(--ui-shadow-surface)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35";
@@ -55,7 +55,7 @@ const renderBrokenNotePill = (shortId: string, label: string): string =>
  */
 export const transformNoteLinks = (html: string, params: { noteShortIdToHref: Map<string, string> }): string =>
   html
-    .replace(MARKED_NOTE_LINK_HTML_REGEX, (_match, label: string, shortId: string) => {
+    .replace(MARKED_NOTE_LINK_HTML_REGEX, (_match, shortId: string, label: string) => {
       const href = params.noteShortIdToHref.get(shortId);
       return href ? renderNotePill(href, label) : renderBrokenNotePill(shortId, label);
     })

@@ -30,7 +30,7 @@ export const IMAGE_STYLES = {
 
 /** Link widget styles */
 export const LINK_STYLES = {
-  wrapper: "md-link-widget inline-flex items-center align-baseline",
-  label: "md-link-label font-bold text-gray-800 dark:text-gray-200",
-  icon: "md-link-icon inline-flex items-center cursor-pointer text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-500 hover:underline opacity-70 hover:opacity-100 transition-opacity",
+  link: "md-link-widget",
+  label: "md-link-label",
+  icon: "md-link-icon",
 } as const;
