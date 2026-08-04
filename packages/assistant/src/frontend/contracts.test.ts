@@ -30,4 +30,13 @@ describe("Assistant frontend contracts", () => {
       expect(source).toContain("dialog-fixed-frame");
     }
   });
+
+  test("loads composer skills only through slash commands", async () => {
+    const workspace = await read("./AssistantWorkspace.island.tsx");
+
+    expect(workspace).toContain('name: `skill:${skill.name.replace(/\\s+/g, "-")}`');
+    expect(workspace).toContain("<Tag");
+    expect(workspace).not.toContain("<SelectChip");
+    expect(workspace).not.toContain("No skill");
+  });
 });

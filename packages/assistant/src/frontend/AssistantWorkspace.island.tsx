@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { AppWorkspace, Chat, type ChatCommand, prompts, SelectChip } from "@k2b/ui";
+import { AppWorkspace, Chat, type ChatCommand, prompts, Tag } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationTimelineEntry,
@@ -110,6 +110,7 @@ export default function AssistantWorkspace(props: Props) {
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
   const [selectedSkillId, setSelectedSkillId] = createSignal("");
   const [availableSkills] = createResource(async () => (await aiSkillsApi.list()).skills);
+  const selectedSkill = createMemo(() => (availableSkills() ?? []).find((skill) => skill.id === selectedSkillId()) ?? null);
   const [timelineViewport, setTimelineViewport] = createSignal<HTMLDivElement>();
   const [timelineContent, setTimelineContent] = createSignal<HTMLDivElement>();
 
@@ -295,6 +296,20 @@ export default function AssistantWorkspace(props: Props) {
         void chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
       },
     },
+    ...(!chat.running()
+      ? (availableSkills() ?? []).map(
+          (skill): ChatCommand => ({
+            name: `skill:${skill.name.replace(/\s+/g, "-")}`,
+            description: `${skill.scope === "workspace" ? "Workspace" : "Personal"} skill · ${skill.name}${
+              skill.description ? ` — ${skill.description}` : ""
+            }`,
+            icon: skill.scope === "workspace" ? "ti ti-building" : "ti ti-wand",
+            action: () => {
+              setSelectedSkillId(skill.id);
+            },
+          }),
+        )
+      : []),
     {
       name: "fork",
       description: "Fork this conversation into a new chat",
@@ -515,25 +530,20 @@ export default function AssistantWorkspace(props: Props) {
                   selectedModelId={selectedModelId()}
                   onModelChange={setSelectedModelId}
                   footerTools={
-                    <Show when={(availableSkills()?.length ?? 0) > 0}>
-                      <SelectChip
-                        aria-label="Choose a skill for this message"
-                        position="top-right"
-                        menuWidth="18rem"
-                        placeholder="Skill"
-                        value={selectedSkillId}
-                        options={[
-                          { value: "", label: "No skill", icon: "ti ti-wand-off" },
-                          ...(availableSkills() ?? []).map((skill) => ({
-                            value: skill.id,
-                            label: skill.name,
-                            description: skill.description,
-                            icon: skill.scope === "workspace" ? "ti ti-building" : "ti ti-wand",
-                          })),
-                        ]}
-                        disabled={chat.running()}
-                        onValueChange={setSelectedSkillId}
-                      />
+                    <Show when={selectedSkill()}>
+                      {(skill) => (
+                        <Tag
+                          size="sm"
+                          icon={skill().scope === "workspace" ? "ti ti-building" : "ti ti-wand"}
+                          removeLabel={`Remove ${skill().name} skill`}
+                          disabled={chat.running()}
+                          onRemove={() => {
+                            setSelectedSkillId("");
+                          }}
+                        >
+                          {skill().name}
+                        </Tag>
+                      )}
                     </Show>
                   }
                   commands={slashCommands()}

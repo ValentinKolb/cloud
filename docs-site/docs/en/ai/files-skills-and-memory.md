@@ -73,6 +73,11 @@ the queued turn, and applies that immutable snapshot only to that turn. Skills
 are not scanned or loaded automatically and do not remain active for later
 messages.
 
+In Assistant, type `/` to choose any visible personal or workspace skill
+directly from entries such as `/skill:Meeting-summary`. Selecting the command
+sets the skill for the next message without sending one. The composer shows the
+selection as a removable tag until that message is accepted, then clears it.
+
 Names are limited to 80 characters, descriptions to 500 characters, and
 instructions to 16,000 characters. Skill instructions remain subordinate to
 platform, organization, and application rules.
