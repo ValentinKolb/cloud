@@ -20,7 +20,9 @@ export type MailIntegrationRequest = {
   signal?: AbortSignal;
 };
 
-type IntegrationResult<T> = { ok: true; data: T } | { ok: false; message: string; status: number };
+type IntegrationFailure = { ok: false; code: string; message: string; status: number };
+type IntegrationResult<T> = { ok: true; data: T } | IntegrationFailure;
+type CapabilityFailure = { code: string; message: string; status: number };
 
 const mailboxListSchema = z.array(z.object({ id: z.uuid(), name: z.string().min(1) }).passthrough()).max(100);
 const senderIdentityListSchema = z
@@ -51,6 +53,16 @@ export const isMailInvitationIntegrationAvailable = async (): Promise<boolean> =
   }
 };
 
+export const projectMailCapabilityError = (error: CapabilityFailure): IntegrationFailure => {
+  const unavailable = error.code === "APP_UNAVAILABLE" || error.code === "CAPABILITY_NOT_FOUND";
+  return {
+    ok: false,
+    code: error.code,
+    message: error.message,
+    status: unavailable ? 503 : error.status,
+  };
+};
+
 const callMailCapability = async <T>(params: {
   kind: "query" | "action";
   capabilityId: string;
@@ -70,21 +82,28 @@ const callMailCapability = async <T>(params: {
     params.dataSchema,
     params.request,
   );
-  if (!result.ok) {
-    const appUnavailable = result.error.code === "APP_UNAVAILABLE" || result.error.code === "CAPABILITY_NOT_FOUND";
-    return { ok: false, message: result.error.message, status: appUnavailable ? 503 : result.error.status };
-  }
+  if (!result.ok) return projectMailCapabilityError(result.error);
   return { ok: true, data: result.data };
 };
 
-const listIdentities = (mailboxId: string, request: MailIntegrationRequest) =>
-  callMailCapability({
-    kind: "query",
-    capabilityId: "mailbox.identity.list",
-    request,
-    dataSchema: senderIdentityListSchema,
-    input: { mailboxId },
-  });
+const listIdentities = async (mailboxId: string, request: MailIntegrationRequest) => {
+  const identities: z.infer<typeof senderIdentityListSchema> = [];
+  let cursor: string | undefined;
+  while (identities.length < 100) {
+    const page = await callMailCapability({
+      kind: "query",
+      capabilityId: "mailbox.identity.list",
+      request,
+      dataSchema: senderIdentityListSchema,
+      input: { mailboxId, limit: 50, ...(cursor ? { cursor } : {}) },
+    });
+    if (!page.ok) return page;
+    identities.push(...page.data.data);
+    if (!page.data.page?.hasMore) return { ok: true as const, data: { data: identities } };
+    cursor = page.data.page.nextCursor;
+  }
+  return { ok: true as const, data: { data: identities, page: { hasMore: true as const, nextCursor: cursor! } } };
+};
 
 export const listInvitationMailboxes = async (request: MailIntegrationRequest): Promise<IntegrationResult<MailInvitationMailbox[]>> => {
   const mailboxes = await callMailCapability({
@@ -135,7 +154,7 @@ export const createInvitationDraft = async (
   const identities = await listIdentities(input.mailboxId, request);
   if (!identities.ok) return identities;
   const identity = identities.data.data.find((candidate) => candidate.id === input.senderIdentityId && candidate.status === "verified");
-  if (!identity) return { ok: false, message: "The selected verified sender identity is unavailable", status: 403 };
+  if (!identity) return { ok: false, code: "FORBIDDEN", message: "The selected verified sender identity is unavailable", status: 403 };
   const created = await callMailCapability({
     kind: "action",
     capabilityId: "draft.create",

@@ -1,12 +1,29 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
+import { CAPABILITY_MAX_RESULT_BYTES, CapabilityActionReviewSchema, type CapabilityExecutionContext } from "@valentinkolb/cloud/contracts";
 import { mailCapabilities } from "./capabilities";
 import {
+  CommentListDataSchema,
+  ConversationMarkInputSchema,
+  ConversationMoveInputSchema,
   DraftCreateInputSchema,
+  DraftListDataSchema,
   DraftSendInputSchema,
   MessageDataSchema,
   SubscriptionUnsubscribeInputSchema,
 } from "./capability-contracts";
+import { mailboxAccess, mailboxes, messages } from "./service";
+
+const mailboxId = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
+const conversationId = "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8";
+const context = {
+  actor: { kind: "user", user: { id: "dc1fe87d-c60b-4f63-a83d-9db6320da31d" } },
+  accessSubject: { type: "user", userId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d" },
+  user: { id: "dc1fe87d-c60b-4f63-a83d-9db6320da31d" },
+  signal: new AbortController().signal,
+} as CapabilityExecutionContext;
+
+afterEach(() => mock.restore());
 
 describe("mail capabilities", () => {
   test("compiles into a registrable v1 manifest", () => {
@@ -102,6 +119,124 @@ describe("mail capabilities", () => {
     ]);
   });
 
+  test("uses singular conversation mutations and agent-oriented discovery wording", () => {
+    const target = {
+      conversationId: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
+      sourceFolderId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",
+    };
+    expect(
+      ConversationMarkInputSchema.safeParse({
+        mailboxId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+        target,
+        read: false,
+      }).success,
+    ).toBeTrue();
+    expect(
+      ConversationMarkInputSchema.safeParse({
+        mailboxId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+        targets: [target, target],
+        read: false,
+      }).success,
+    ).toBeFalse();
+    expect(
+      ConversationMoveInputSchema.safeParse({
+        mailboxId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+        target,
+        destination: { kind: "role", role: "archive" },
+      }).success,
+    ).toBeTrue();
+    expect(mailCapabilities.actions["conversation.mark"].description).toContain("read, unread, flagged, or unflagged");
+    expect(mailCapabilities.actions["draft.send"].title).toBe("Send draft email");
+    expect(mailCapabilities.queries["draft.send.review"].description).toContain("does not send");
+  });
+
+  test("aligns action reviews with their run permissions", async () => {
+    const denied = { ok: false as const, error: { code: "FORBIDDEN", message: "Denied", status: 403 as const } };
+    const requirePermission = spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue(denied);
+
+    await mailCapabilities.actions["delivery.cancel"].review({ mailboxId, deliveryId: conversationId, disposition: "draft" }, context);
+    await mailCapabilities.actions["mailbox.tag.update"].review(
+      { mailboxId, tagId: conversationId, expectedRevision: 1, name: "Updated" },
+      context,
+    );
+    await mailCapabilities.actions["mailbox.tag.delete"].review({ mailboxId, tagId: conversationId, expectedRevision: 1 }, context);
+    await mailCapabilities.actions["mailing-list.unsubscribe"].review(
+      { mailboxId, listKey: "example", href: "https://example.test/unsubscribe" },
+      context,
+    );
+    await mailCapabilities.actions["conversation.reminder.set"].review(
+      { mailboxId, conversationId, dueAt: "2026-08-05T10:00:00.000Z", expectedRevision: null },
+      context,
+    );
+
+    expect(requirePermission.mock.calls.slice(0, 4).map((call) => call[2])).toEqual(["write", "write", "write", "write"]);
+    expect(requirePermission.mock.calls[4]?.[2]).toBe("read");
+  });
+
+  test("keeps remote conversation subjects inside the review envelope", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    spyOn(messages, "listConversationMessages").mockResolvedValue({
+      ok: true,
+      data: { items: [{ subject: "s".repeat(998) }], nextCursor: null },
+    } as never);
+    const review = await mailCapabilities.actions["conversation.mark"].review(
+      { mailboxId, target: { conversationId, sourceFolderId: mailboxId }, read: false },
+      context,
+    );
+    expect(review.ok).toBeTrue();
+    if (review.ok) expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
+  });
+
+  test("paginates capability-owned folder vocabulary in stable UUID order", async () => {
+    const folder = (id: string, name: string) => ({
+      id,
+      mailboxId,
+      parentId: null,
+      remoteId: id,
+      name,
+      role: "custom",
+      selectable: true,
+      showInSidebar: true,
+      total: 0,
+      unread: 0,
+      sortOrder: 0,
+      createdAt: "2026-08-02T10:00:00.000Z",
+      updatedAt: "2026-08-02T10:00:00.000Z",
+    });
+    spyOn(messages, "listFolders").mockResolvedValue({
+      ok: true,
+      data: [
+        folder("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "C"),
+        folder("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "A"),
+        folder("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "B"),
+      ],
+    });
+
+    const first = await mailCapabilities.queries["folder.list"].run({ mailboxId, limit: 2 }, context);
+    expect(first).toMatchObject({
+      ok: true,
+      data: {
+        data: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }],
+        page: { hasMore: true },
+      },
+    });
+    if (!first.ok || !first.data.page?.hasMore) throw new Error("Expected another folder page");
+    const second = await mailCapabilities.queries["folder.list"].run({ mailboxId, limit: 2, cursor: first.data.page.nextCursor }, context);
+    expect(second).toMatchObject({
+      ok: true,
+      data: { data: [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }], page: { hasMore: false } },
+    });
+  });
+
+  test("propagates Mail search discovery failures instead of returning empty success", async () => {
+    spyOn(mailboxes, "listMailboxes").mockResolvedValue({
+      ok: false,
+      error: { code: "INTERNAL", message: "Mailbox lookup failed", status: 500 },
+    });
+    const result = await mailCapabilities.queries.search.run({ query: "invoice", tags: [], limit: 10 }, context);
+    expect(result).toEqual({ ok: false, error: { code: "INTERNAL", message: "Mailbox lookup failed", status: 500 } });
+  });
+
   test("keeps draft creation bounded and closed", () => {
     const base = {
       mailboxId: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
@@ -135,20 +270,26 @@ describe("mail capabilities", () => {
       mailboxId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",
       conversationId: null,
       subject: "Hello",
+      subjectTruncated: false,
       messageId: null,
       internalDate: "2026-08-02T10:00:00.000Z",
       sentAt: null,
       from: [],
       to: [],
+      addressesTruncated: false,
       flags: [],
+      flagsTruncated: false,
       keywords: [],
+      keywordsTruncated: false,
       hydrationStatus: "ready",
       remoteAvailable: true,
       contentType: "text/html",
       sizeBytes: 10,
       replyTo: [],
       cc: [],
+      detailAddressesTruncated: false,
       headers: [{ name: "message-id", value: "<example@example.com>" }],
+      headersTruncated: false,
       text: "Hello",
       bodyTruncated: false,
       attachments: [],
@@ -167,5 +308,100 @@ describe("mail capabilities", () => {
     };
     expect(SubscriptionUnsubscribeInputSchema.safeParse(valid).success).toBeTrue();
     expect(SubscriptionUnsubscribeInputSchema.safeParse({ ...valid, allLists: true }).success).toBeFalse();
+  });
+
+  test("keeps compact high-cardinality results below the capability transport limit", () => {
+    const id = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
+    const timestamp = "2026-08-02T10:00:00.000Z";
+    const drafts = Array.from({ length: 100 }, () => ({
+      id,
+      mailboxId: id,
+      conversationId: id,
+      intent: "forward" as const,
+      senderIdentityId: id,
+      subject: "s".repeat(500),
+      subjectTruncated: true,
+      bodyPreview: "b".repeat(1000),
+      bodyTruncated: true,
+      format: "markdown" as const,
+      priority: "normal" as const,
+      attachmentCount: 1000,
+      revision: 1,
+      state: "draft" as const,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }));
+    const comments = Array.from({ length: 100 }, () => ({
+      id,
+      conversationId: id,
+      body: "c".repeat(1000),
+      bodyTruncated: true,
+      author: { kind: "user" as const, id, displayName: "Agent", avatarHash: null },
+      parentCommentId: null,
+      referencedMessageId: null,
+      revision: 1,
+      editedAt: null,
+      deletedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }));
+    const parsedDrafts = DraftListDataSchema.parse(drafts);
+    const parsedComments = CommentListDataSchema.parse(comments);
+    expect(Buffer.byteLength(JSON.stringify({ data: parsedDrafts }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+    expect(Buffer.byteLength(JSON.stringify({ data: parsedComments }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+
+    const address = { name: "n".repeat(200), address: `${"a".repeat(64)}@example.test` };
+    const attachmentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const message = MessageDataSchema.parse({
+      id,
+      mailboxId: id,
+      conversationId: id,
+      subject: "s".repeat(998),
+      subjectTruncated: true,
+      messageId: "m".repeat(998),
+      internalDate: timestamp,
+      sentAt: timestamp,
+      from: Array.from({ length: 20 }, () => address),
+      to: Array.from({ length: 20 }, () => address),
+      addressesTruncated: true,
+      flags: Array.from({ length: 10 }, () => "f".repeat(128)),
+      flagsTruncated: true,
+      keywords: Array.from({ length: 10 }, () => "k".repeat(128)),
+      keywordsTruncated: true,
+      hydrationStatus: "h".repeat(100),
+      remoteAvailable: true,
+      contentType: "c".repeat(255),
+      sizeBytes: 1,
+      replyTo: Array.from({ length: 20 }, () => address),
+      cc: Array.from({ length: 20 }, () => address),
+      detailAddressesTruncated: true,
+      headers: Array.from({ length: 25 }, () => ({ name: "h".repeat(128), value: "v".repeat(2048) })),
+      headersTruncated: true,
+      text: "b".repeat(96 * 1024),
+      bodyTruncated: true,
+      attachments: Array.from({ length: 50 }, () => ({
+        id: attachmentId,
+        filename: "f".repeat(255),
+        contentType: "c".repeat(255),
+        sizeBytes: 1,
+        downloadHref: `/api/mail/mailboxes/${id}/messages/${id}/attachments/${attachmentId}`,
+      })),
+      attachmentsTruncated: true,
+      delivery: {
+        id,
+        state: "scheduled",
+        scheduledAt: timestamp,
+        undoUntil: timestamp,
+        acceptedAt: null,
+        errorCode: "e".repeat(200),
+        errorMessage: "e".repeat(1000),
+      },
+    });
+    const messageEnvelope = {
+      data: message,
+      refs: Array.from({ length: 50 }, () => ({ type: "mail.attachment", id: attachmentId })),
+      links: Array.from({ length: 20 }, () => ({ rel: "download", href: `/api/mail/attachments/${attachmentId}` })),
+    };
+    expect(Buffer.byteLength(JSON.stringify(messageEnvelope), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
   });
 });

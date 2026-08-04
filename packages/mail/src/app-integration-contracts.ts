@@ -172,8 +172,6 @@ export const spaceDetailSchema = z
   })
   .passthrough();
 
-const relationSchema = z.object({ id: z.uuid(), displayName: z.string().min(1) }).passthrough();
-const itemTagSchema = z.object({ id: z.uuid(), name: z.string().min(1), color: z.string().min(1) }).passthrough();
 export const calendarEventSchema = z
   .object({
     kind: z.literal("event"),
@@ -181,27 +179,10 @@ export const calendarEventSchema = z
     spaceId: z.uuid(),
     columnId: z.uuid(),
     title: z.string().min(1),
-    description: nullableTextSchema,
-    completedAt: timestampSchema.nullable(),
-    assignees: z.array(relationSchema).max(100),
-    tags: z.array(itemTagSchema).max(100),
-    relationsTruncated: z.boolean(),
-    createdAt: timestampSchema,
-    updatedAt: timestampSchema,
     location: nullableTextSchema,
-    url: z.string().nullable(),
     startsAt: timestampSchema,
     endsAt: timestampSchema,
     allDay: z.boolean(),
-    recurrence: z
-      .object({
-        rrule: z.string().min(1).max(2000),
-        dtstart: timestampSchema.nullable().optional(),
-        exdate: z.array(timestampSchema).max(1000),
-      })
-      .passthrough()
-      .nullable(),
-    recurrenceExceptionsTruncated: z.boolean(),
   })
   .passthrough();
 export const calendarEventsSchema = z.array(calendarEventSchema).max(100);

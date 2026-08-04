@@ -56,16 +56,59 @@ const mapPage = <Source, Data>(
       })
     : result;
 
-const mapBoundedList = <Source, Data>(
-  result: Result<Source[]>,
-  map: (source: Source) => Data,
-  limit = 100,
-): CapabilityInvocationResult<Data[]> =>
-  !result.ok
-    ? result
-    : result.data.length > limit
-      ? fail({ code: "INTERNAL", message: `Mail returned more than ${limit} bounded list entries`, status: 500 })
-      : ok({ data: result.data.map(map) });
+const truncateText = (value: string, maxBytes: number): { text: string; truncated: boolean } => {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return { text: value, truncated: false };
+  const chunks: string[] = [];
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (bytes + characterBytes > maxBytes) break;
+    chunks.push(character);
+    bytes += characterBytes;
+  }
+  return { text: chunks.join(""), truncated: true };
+};
+
+const boundedText = (value: string | null, maxBytes: number): { text: string | null; truncated: boolean } =>
+  value === null ? { text: null, truncated: false } : truncateText(value, maxBytes);
+
+const encodeListCursor = (scope: string, afterId: string): string =>
+  Buffer.from(JSON.stringify({ v: 1, scope, afterId }), "utf8").toString("base64url");
+
+const decodeListCursor = (cursor: string | undefined, scope: string): Result<string | null> => {
+  if (!cursor) return ok(null);
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+      v?: unknown;
+      scope?: unknown;
+      afterId?: unknown;
+    };
+    return value.v === 1 && value.scope === scope && typeof value.afterId === "string" && value.afterId.length <= 100
+      ? ok(value.afterId)
+      : fail(err.badInput("Invalid cursor"));
+  } catch {
+    return fail(err.badInput("Invalid cursor"));
+  }
+};
+
+const paginateSortedList = <Source, Data>(params: {
+  result: Result<Source[]>;
+  scope: string;
+  cursor?: string;
+  limit: number;
+  id: (source: Source) => string;
+  map: (source: Source) => Data;
+}): CapabilityInvocationResult<Data[]> => {
+  if (!params.result.ok) return params.result;
+  const cursor = decodeListCursor(params.cursor, params.scope);
+  if (!cursor.ok) return cursor;
+  const sorted = [...params.result.data].sort((left, right) => params.id(left).localeCompare(params.id(right)));
+  const remaining = cursor.data === null ? sorted : sorted.filter((item) => params.id(item) > cursor.data!);
+  const items = remaining.slice(0, params.limit);
+  const nextCursor =
+    remaining.length > items.length && items.length > 0 ? encodeListCursor(params.scope, params.id(items.at(-1)!)) : undefined;
+  return ok({ data: items.map(params.map), page: capabilityPage(nextCursor) });
+};
 
 const stableUuid = (value: string): string => {
   const hex = createHash("sha256").update(value).digest("hex");
@@ -81,88 +124,148 @@ const requireIdempotencyKey = (context: CapabilityExecutionContext, actionId: st
   return ok(createHash("sha256").update(`mail:${actionId}:${subject}:${context.idempotencyKey}`).digest("hex"));
 };
 
-const mapMailbox = (mailbox: Mailbox & { permission: "read" | "write" | "admin" }) => ({
-  id: mailbox.id,
-  name: mailbox.name,
-  description: mailbox.description,
-  permission: mailbox.permission,
-  health: mailbox.health,
-  healthReason: mailbox.healthReason,
-  syncEnabled: mailbox.syncEnabled,
-  createdAt: mailbox.createdAt,
-  updatedAt: mailbox.updatedAt,
+const mapMailbox = (mailbox: Mailbox & { permission: "read" | "write" | "admin" }) => {
+  const description = boundedText(mailbox.description, 2000);
+  const healthReason = boundedText(mailbox.healthReason, 1000);
+  return {
+    id: mailbox.id,
+    name: truncateText(mailbox.name, 160).text,
+    description: description.text,
+    descriptionTruncated: description.truncated,
+    permission: mailbox.permission,
+    health: mailbox.health,
+    healthReason: healthReason.text,
+    healthReasonTruncated: healthReason.truncated,
+    syncEnabled: mailbox.syncEnabled,
+    createdAt: mailbox.createdAt,
+    updatedAt: mailbox.updatedAt,
+  };
+};
+
+const mapAddress = (address: { name?: string | null; address: string }) => ({
+  name: address.name == null ? null : truncateText(address.name, 200).text,
+  address: address.address,
 });
 
-const mapDraft = (draft: MailDraft) => ({
-  id: draft.id,
-  mailboxId: draft.mailboxId,
-  conversationId: draft.conversationId,
-  intent: draft.intent,
-  sourceMessageId: draft.sourceMessageId,
-  senderIdentityId: draft.senderIdentityId,
-  to: draft.to,
-  cc: draft.cc,
-  bcc: draft.bcc,
-  subject: draft.subject,
-  body: draft.body,
-  format: draft.format,
-  priority: draft.priority,
-  requestDeliveryReceipt: draft.requestDeliveryReceipt,
-  requestReadReceipt: draft.requestReadReceipt,
-  attachments: draft.attachments,
-  revision: draft.revision,
-  state: draft.state,
-  createdAt: draft.createdAt,
-  updatedAt: draft.updatedAt,
-});
+const mapDraft = (draft: MailDraft) => {
+  const body = truncateText(draft.body, 64 * 1024);
+  return {
+    id: draft.id,
+    mailboxId: draft.mailboxId,
+    conversationId: draft.conversationId,
+    intent: draft.intent,
+    sourceMessageId: draft.sourceMessageId,
+    senderIdentityId: draft.senderIdentityId,
+    to: draft.to.slice(0, 50).map(mapAddress),
+    cc: draft.cc.slice(0, 50).map(mapAddress),
+    bcc: draft.bcc.slice(0, 50).map(mapAddress),
+    subject: truncateText(draft.subject, 998).text,
+    body: body.text,
+    bodyTruncated: body.truncated,
+    format: draft.format,
+    priority: draft.priority,
+    requestDeliveryReceipt: draft.requestDeliveryReceipt,
+    requestReadReceipt: draft.requestReadReceipt,
+    toTruncated: draft.to.length > 50,
+    ccTruncated: draft.cc.length > 50,
+    bccTruncated: draft.bcc.length > 50,
+    attachments: draft.attachments.slice(0, 50).map((attachment) => ({
+      ...attachment,
+      filename: truncateText(attachment.filename, 255).text,
+      contentType: truncateText(attachment.contentType, 255).text,
+    })),
+    attachmentsTruncated: draft.attachments.length > 50,
+    revision: draft.revision,
+    state: draft.state,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+  };
+};
 
-const mapConversation = (mailboxId: string, conversation: ConversationSummary) => ({
-  id: conversation.id,
-  mailboxId,
-  primaryReference: conversation.primaryReference,
-  subject: conversation.subject,
-  participantSummary: conversation.participantSummary,
-  participantLabels: conversation.participantLabels,
-  latestMessageAt: conversation.latestMessageAt,
-  workStatus: conversation.workStatus,
-  assigneeUserId: conversation.assigneeUserId,
-  snoozedUntil: conversation.snoozedUntil,
-  revision: conversation.revision,
-  updatedAt: conversation.updatedAt,
-  unread: conversation.unread,
-  activeFolderIds: conversation.activeFolderIds,
-  flagged: conversation.flagged,
-  hasAttachments: conversation.hasAttachments,
-  messageCount: conversation.messageCount,
-  preview: conversation.preview,
-});
+const mapDraftSummary = (draft: MailDraft) => {
+  const subject = truncateText(draft.subject, 500);
+  const body = truncateText(draft.body, 1000);
+  return {
+    id: draft.id,
+    mailboxId: draft.mailboxId,
+    conversationId: draft.conversationId,
+    intent: draft.intent,
+    senderIdentityId: draft.senderIdentityId,
+    subject: subject.text,
+    subjectTruncated: subject.truncated,
+    bodyPreview: body.text,
+    bodyTruncated: body.truncated,
+    format: draft.format,
+    priority: draft.priority,
+    attachmentCount: draft.attachments.length,
+    revision: draft.revision,
+    state: draft.state,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+  };
+};
 
-const mapMessageSummary = (mailboxId: string, conversationId: string | null, message: MessageSummary) => ({
-  id: message.id,
-  mailboxId,
-  conversationId,
-  subject: message.subject,
-  messageId: message.messageId,
-  internalDate: message.internalDate,
-  sentAt: message.sentAt,
-  from: message.from,
-  to: message.to,
-  flags: message.flags,
-  keywords: message.keywords,
-  hydrationStatus: message.hydrationStatus,
-  remoteAvailable: message.remoteAvailable,
-});
+const mapConversation = (mailboxId: string, conversation: Omit<ConversationSummary, "folderId">) => {
+  const primaryReference = boundedText(conversation.primaryReference, 500);
+  const subject = truncateText(conversation.subject, 500);
+  const participantSummary = truncateText(conversation.participantSummary, 500);
+  const preview = boundedText(conversation.preview, 1000);
+  return {
+    id: conversation.id,
+    mailboxId,
+    primaryReference: primaryReference.text,
+    subject: subject.text,
+    subjectTruncated: subject.truncated,
+    participantSummary: participantSummary.text,
+    participantSummaryTruncated: participantSummary.truncated,
+    participantLabels: conversation.participantLabels.slice(0, 10).map((label) => truncateText(label, 128).text),
+    participantLabelsTruncated:
+      conversation.participantLabels.length > 10 || conversation.participantLabels.some((label) => truncateText(label, 128).truncated),
+    latestMessageAt: conversation.latestMessageAt,
+    workStatus: conversation.workStatus,
+    assigneeUserId: conversation.assigneeUserId,
+    snoozedUntil: conversation.snoozedUntil,
+    revision: conversation.revision,
+    updatedAt: conversation.updatedAt,
+    unread: conversation.unread,
+    activeFolderIds: conversation.activeFolderIds.slice(0, 20),
+    activeFolderIdsTruncated: conversation.activeFolderIds.length > 20,
+    flagged: conversation.flagged,
+    hasAttachments: conversation.hasAttachments,
+    messageCount: conversation.messageCount,
+    preview: preview.text,
+    previewTruncated: preview.truncated,
+  };
+};
 
-const boundedText = (value: string | null, max = 256 * 1024): { text: string | null; truncated: boolean } => {
-  if (value === null || value.length <= max) return { text: value, truncated: false };
-  return { text: value.slice(0, max), truncated: true };
+const mapMessageSummary = (mailboxId: string, conversationId: string | null, message: MessageSummary, addressLimit = 5) => {
+  const subject = truncateText(message.subject, 998);
+  return {
+    id: message.id,
+    mailboxId,
+    conversationId,
+    subject: subject.text,
+    subjectTruncated: subject.truncated,
+    messageId: message.messageId === null ? null : truncateText(message.messageId, 998).text,
+    internalDate: message.internalDate,
+    sentAt: message.sentAt,
+    from: message.from.slice(0, addressLimit).map(mapAddress),
+    to: message.to.slice(0, addressLimit).map(mapAddress),
+    addressesTruncated: message.from.length > addressLimit || message.to.length > addressLimit,
+    flags: message.flags.slice(0, 10).map((flag) => truncateText(flag, 128).text),
+    flagsTruncated: message.flags.length > 10 || message.flags.some((flag) => truncateText(flag, 128).truncated),
+    keywords: message.keywords.slice(0, 10).map((keyword) => truncateText(keyword, 128).text),
+    keywordsTruncated: message.keywords.length > 10 || message.keywords.some((keyword) => truncateText(keyword, 128).truncated),
+    hydrationStatus: truncateText(message.hydrationStatus, 100).text,
+    remoteAvailable: message.remoteAvailable,
+  };
 };
 
 const runSearch = async (input: UniversalSearchInput, capabilityContext: CapabilityExecutionContext) => {
   if (!input.query.trim()) return ok({ data: [] });
   const context = requestContext(capabilityContext);
   const mailboxResult = await mailboxes.listMailboxes(context, 20);
-  if (!mailboxResult.ok) return ok({ data: [] });
+  if (!mailboxResult.ok) return mailboxResult;
   const pages: Array<{ mailbox: (typeof mailboxResult.data)[number]; page: Awaited<ReturnType<typeof search.searchMessages>> }> = [];
   for (let offset = 0; offset < mailboxResult.data.length; offset += 4) {
     pages.push(
@@ -182,6 +285,8 @@ const runSearch = async (input: UniversalSearchInput, capabilityContext: Capabil
       )),
     );
   }
+  const failedPage = pages.find(({ page }) => !page.ok);
+  if (failedPage && !failedPage.page.ok) return failedPage.page;
   const data: CloudResourceView[] = pages
     .flatMap(({ mailbox, page }) => (page.ok ? page.data.items.map((message, mailboxRank) => ({ mailbox, message, mailboxRank })) : []))
     .sort((left, right) => left.mailboxRank - right.mailboxRank || right.message.internalDate.localeCompare(left.message.internalDate))
@@ -189,7 +294,7 @@ const runSearch = async (input: UniversalSearchInput, capabilityContext: Capabil
     .map(({ mailbox, message }) => ({
       ref: { type: "mail.message", id: message.id },
       title: message.subject || "(no subject)",
-      preview: message.snippet ?? message.from.map((address) => address.name || address.address).join(", "),
+      preview: truncateText(message.snippet ?? message.from.map((address) => address.name || address.address).join(", "), 2000).text,
       icon: "ti ti-mail",
       priority: 8,
       metadata: [
@@ -211,11 +316,13 @@ const runSearch = async (input: UniversalSearchInput, capabilityContext: Capabil
 const queryDefinitions = {
   search: {
     title: "Search mail",
-    description: "Search messages across mailboxes the current actor can read.",
+    description: "Search messages in up to the 20 most recently updated mailboxes the current actor can read.",
     input: UniversalSearchInputSchema,
     data: UniversalSearchDataSchema,
     openWorld: true,
-    universalSearch: { tags: [{ tag: "mail", title: "Mail", description: "Search mail messages.", aliases: ["message"] }] },
+    universalSearch: {
+      tags: [{ tag: "mail", title: "Mail", description: "Search recent accessible mailboxes for messages.", aliases: ["message"] }],
+    },
     run: runSearch,
   },
   "mailbox.list": {
@@ -252,24 +359,32 @@ const queryDefinitions = {
     data: c.SenderIdentityListDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.SenderIdentityListInputSchema>, context: CapabilityExecutionContext) =>
-      mapBoundedList(await senderIdentities.listSenderIdentities(requestContext(context), input.mailboxId), (item) => ({
-        id: item.id,
-        mailboxId: item.mailboxId,
-        label: item.label,
-        displayName: item.displayName,
-        fromAddress: item.fromAddress,
-        replyTo: item.replyTo,
-        defaultCc: item.defaultCc,
-        defaultBcc: item.defaultBcc,
-        defaultFormat: item.defaultFormat,
-        defaultPriority: item.defaultPriority,
-        defaultDeliveryReceipt: item.defaultDeliveryReceipt,
-        defaultReadReceipt: item.defaultReadReceipt,
-        isDefault: item.isDefault,
-        status: item.status as "unverified" | "verified" | "rejected",
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })),
+      paginateSortedList({
+        result: await senderIdentities.listSenderIdentities(requestContext(context), input.mailboxId),
+        scope: `mailbox.identity.list:${input.mailboxId}`,
+        cursor: input.cursor,
+        limit: input.limit,
+        id: (item) => item.id,
+        map: (item) => ({
+          id: item.id,
+          mailboxId: item.mailboxId,
+          label: truncateText(item.label, 200).text,
+          displayName: truncateText(item.displayName, 200).text,
+          fromAddress: item.fromAddress,
+          replyTo: item.replyTo,
+          defaultCc: item.defaultCc.slice(0, 10).map(mapAddress),
+          defaultBcc: item.defaultBcc.slice(0, 10).map(mapAddress),
+          recipientsTruncated: item.defaultCc.length > 10 || item.defaultBcc.length > 10,
+          defaultFormat: item.defaultFormat,
+          defaultPriority: item.defaultPriority,
+          defaultDeliveryReceipt: item.defaultDeliveryReceipt,
+          defaultReadReceipt: item.defaultReadReceipt,
+          isDefault: item.isDefault,
+          status: item.status as "unverified" | "verified" | "rejected",
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        }),
+      }),
   },
   "mailbox.member.list": {
     title: "List mailbox members",
@@ -295,19 +410,27 @@ const queryDefinitions = {
     data: c.FolderListDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.FolderListInputSchema>, context: CapabilityExecutionContext) =>
-      mapBoundedList(
-        await messages.listFolders(requestContext(context), input.mailboxId),
-        ({ id, parentId, name, role, selectable, showInSidebar, total, unread }) => ({
-          id,
-          parentId,
-          name,
-          role,
-          selectable,
-          showInSidebar,
-          total,
-          unread,
-        }),
-      ),
+      paginateSortedList({
+        result: await messages.listFolders(requestContext(context), input.mailboxId),
+        scope: `folder.list:${input.mailboxId}`,
+        cursor: input.cursor,
+        limit: input.limit,
+        id: (item) => item.id,
+        map: ({ id, parentId, name, role, selectable, showInSidebar, total, unread }) => {
+          const boundedName = truncateText(name, 500);
+          return {
+            id,
+            parentId,
+            name: boundedName.text,
+            nameTruncated: boundedName.truncated,
+            role,
+            selectable,
+            showInSidebar,
+            total,
+            unread,
+          };
+        },
+      }),
   },
   "conversation.list": {
     title: "List conversations",
@@ -346,26 +469,9 @@ const queryDefinitions = {
       return ok({
         data: result.data.items
           .filter((item) => item.conversationId)
-          .map((item) => ({
-            id: item.conversationId!,
-            mailboxId: input.mailboxId,
-            primaryReference: item.primaryReference,
-            subject: item.subject,
-            participantSummary: item.participantSummary,
-            participantLabels: item.participantLabels,
-            latestMessageAt: item.latestMessageAt,
-            workStatus: item.workStatus ?? "needs_action",
-            assigneeUserId: item.assigneeUserId,
-            snoozedUntil: item.snoozedUntil,
-            revision: item.revision,
-            updatedAt: item.updatedAt,
-            unread: item.unread,
-            activeFolderIds: item.activeFolderIds,
-            flagged: item.flagged,
-            hasAttachments: item.hasAttachments,
-            messageCount: item.messageCount,
-            preview: item.snippet,
-          })),
+          .map((item) =>
+            mapConversation(input.mailboxId, { ...item, workStatus: item.workStatus ?? "needs_action", preview: item.snippet }),
+          ),
         page: capabilityPage(result.data.nextCursor),
       });
     },
@@ -389,7 +495,7 @@ const queryDefinitions = {
           context: mailContext,
           mailboxId: input.mailboxId,
           conversationId: input.conversationId,
-          limit: 100,
+          limit: 50,
         }),
       ]);
       if (!state.ok) return state;
@@ -443,29 +549,35 @@ const queryDefinitions = {
       });
       if (!result.ok) return result;
       const item = result.data;
-      const body = boundedText(item.plainText ?? item.forwardText);
-      const attachments = item.attachments.slice(0, 100).map(({ id, filename, contentType, sizeBytes }) => ({
+      const body = boundedText(item.plainText ?? item.forwardText, 96 * 1024);
+      const attachments = item.attachments.slice(0, 50).map(({ id, filename, contentType, sizeBytes }) => ({
         id,
-        filename,
-        contentType,
+        filename: filename === null ? null : truncateText(filename, 255).text,
+        contentType: truncateText(contentType, 255).text,
         sizeBytes,
         downloadHref: `/api/mail/mailboxes/${input.mailboxId}/messages/${input.messageId}/attachments/${id}`,
       }));
       return ok({
         data: {
-          ...mapMessageSummary(input.mailboxId, null, item),
-          contentType: item.contentType,
+          ...mapMessageSummary(input.mailboxId, null, item, 20),
+          contentType: item.contentType === null ? null : truncateText(item.contentType, 255).text,
           sizeBytes: item.sizeBytes,
-          replyTo: item.replyTo,
-          cc: item.cc,
+          replyTo: item.replyTo.slice(0, 20).map(mapAddress),
+          cc: item.cc.slice(0, 20).map(mapAddress),
+          detailAddressesTruncated: item.replyTo.length > 20 || item.cc.length > 20,
           headers: Object.entries(item.selectedHeaders)
             .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-            .slice(0, 50)
-            .map(([name, value]) => ({ name: name.slice(0, 128), value: value.slice(0, 8192) })),
+            .slice(0, 25)
+            .map(([name, value]) => ({ name: truncateText(name, 128).text, value: truncateText(value, 2048).text })),
+          headersTruncated:
+            Object.values(item.selectedHeaders).filter((value): value is string => typeof value === "string").length > 25 ||
+            Object.entries(item.selectedHeaders).some(
+              ([name, value]) => typeof value === "string" && (truncateText(name, 128).truncated || truncateText(value, 2048).truncated),
+            ),
           text: body.text,
           bodyTruncated: body.truncated,
           attachments,
-          attachmentsTruncated: item.attachments.length > 100,
+          attachmentsTruncated: item.attachments.length > 50,
           delivery: item.delivery
             ? {
                 id: item.delivery.submissionId,
@@ -473,8 +585,8 @@ const queryDefinitions = {
                 scheduledAt: item.delivery.scheduledAt,
                 undoUntil: item.delivery.undoUntil,
                 acceptedAt: item.delivery.acceptedAt,
-                errorCode: item.delivery.lastErrorCode,
-                errorMessage: item.delivery.lastErrorMessage,
+                errorCode: boundedText(item.delivery.lastErrorCode, 200).text,
+                errorMessage: boundedText(item.delivery.lastErrorMessage, 1000).text,
               }
             : null,
         },
@@ -500,7 +612,7 @@ const queryDefinitions = {
     data: c.DraftListDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.DraftListInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await drafts.listDrafts(requestContext(context), input.mailboxId, input.limit), (items) => items.map(mapDraft)),
+      mapResult(await drafts.listDrafts(requestContext(context), input.mailboxId, input.limit), (items) => items.map(mapDraftSummary)),
   },
   "draft.get": {
     title: "Get draft",
@@ -513,7 +625,7 @@ const queryDefinitions = {
   },
   "draft.send.review": {
     title: "Review draft before sending",
-    description: "Return the current bounded safety warnings and approval fingerprint required by draft.send.",
+    description: "Review safety warnings and obtain approval for draft.send; this does not send the draft email.",
     input: c.DraftSendReviewInputSchema,
     data: c.DraftSendReviewDataSchema,
     openWorld: false,
@@ -527,7 +639,14 @@ const queryDefinitions = {
     data: c.TagListDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.TagListInputSchema>, context: CapabilityExecutionContext) =>
-      mapBoundedList(await localTags.listLocalTags(requestContext(context), input.mailboxId), (item) => item),
+      paginateSortedList({
+        result: await localTags.listLocalTags(requestContext(context), input.mailboxId),
+        scope: `mailbox.tag.list:${input.mailboxId}`,
+        cursor: input.cursor,
+        limit: input.limit,
+        id: (item) => item.id,
+        map: (item) => item,
+      }),
   },
   "conversation.comment.list": {
     title: "List conversation comments",
@@ -536,7 +655,10 @@ const queryDefinitions = {
     data: c.CommentListDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.CommentListInputSchema>, context: CapabilityExecutionContext) =>
-      mapPage(await collaboration.listConversationComments({ context: requestContext(context), ...input }), (item) => item),
+      mapPage(await collaboration.listConversationComments({ context: requestContext(context), ...input }), (item) => {
+        const body = boundedText(item.body, 1000);
+        return { ...item, body: body.text, bodyTruncated: body.truncated };
+      }),
   },
   "conversation.activity.list": {
     title: "List mail activity",
@@ -571,12 +693,12 @@ const queryDefinitions = {
           commandId: item.commandId,
           draftId: item.draftId,
           conversationId: item.conversationId,
-          subject: item.subject,
+          subject: truncateText(item.subject, 998).text,
           scheduledAt: item.scheduledAt,
           nextAttemptAt: item.nextAttemptAt,
           state: item.state,
           attempt: item.attempt,
-          lastError: item.lastError,
+          lastError: boundedText(item.lastError, 1000).text,
           createdAt: item.createdAt,
         })),
         page: capabilityPage(result.data.nextCursor),
@@ -601,12 +723,12 @@ const queryDefinitions = {
           commandId: item.commandId,
           draftId: item.draftId,
           conversationId: item.conversationId,
-          subject: item.subject,
+          subject: truncateText(item.subject, 998).text,
           scheduledAt: item.scheduledAt,
           nextAttemptAt: item.nextAttemptAt,
           state: item.state,
           attempt: item.attempt,
-          lastError: item.lastError,
+          lastError: boundedText(item.lastError, 1000).text,
           createdAt: item.createdAt,
         }),
       ),
@@ -640,34 +762,34 @@ const requireDraftForReview = async (mailboxId: string, draftId: string, context
 
 const recipientSummary = (draft: Pick<MailDraft, "to" | "cc" | "bcc">): string => {
   const recipients = [...draft.to, ...draft.cc, ...draft.bcc];
-  return recipients
-    .slice(0, 20)
-    .map((recipient) => recipient.name?.trim() || recipient.address)
-    .join(", ");
+  return truncateText(
+    recipients
+      .slice(0, 20)
+      .map((recipient) => recipient.name?.trim() || recipient.address)
+      .join(", "),
+    900,
+  ).text;
 };
 
-const requireConversationForReview = async (mailboxId: string, conversationId: string, context: CapabilityExecutionContext) => {
+const reviewSubject = (value: string | null | undefined): string => truncateText(value || "(no subject)", 700).text;
+
+const requireConversationForReview = async (
+  mailboxId: string,
+  conversationId: string,
+  context: CapabilityExecutionContext,
+  permission: "read" | "write" = "write",
+) => {
   const mailContext = requestContext(context);
-  const access = await mailboxAccess.requireMailboxPermission(mailContext, mailboxId, "write");
+  const access = await mailboxAccess.requireMailboxPermission(mailContext, mailboxId, permission);
   if (!access.ok) return access;
   const page = await messages.listConversationMessages({ context: mailContext, mailboxId, conversationId, limit: 1 });
   if (!page.ok) return page;
   const message = page.data.items[0];
   if (!message) return fail(err.notFound("Conversation"));
   return ok({
-    subject: message.subject || "(no subject)",
+    subject: reviewSubject(message.subject),
     href: `/app/mail/${mailboxId}?conversation=${conversationId}`,
   });
-};
-
-const reviewConversationBatch = async (mailboxId: string, conversationIds: readonly string[], context: CapabilityExecutionContext) => {
-  const conversations: string[] = [];
-  for (const conversationId of conversationIds.slice(0, 5)) {
-    const conversation = await requireConversationForReview(mailboxId, conversationId, context);
-    if (!conversation.ok) return conversation;
-    conversations.push(conversation.data.subject);
-  }
-  return ok(conversations);
 };
 
 const actionDefinitions = {
@@ -750,9 +872,9 @@ const actionDefinitions = {
       if (!current.ok) return current;
       if (current.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
       return ok({
-        message: `Replace the editable content of draft ${current.data.subject || "(no subject)"}.`,
+        message: `Replace the editable content of draft ${reviewSubject(current.data.subject)}.`,
         details: [
-          { label: "Current subject", value: current.data.subject || "(no subject)" },
+          { label: "Current subject", value: reviewSubject(current.data.subject) },
           { label: "New subject", value: input.draft.subject || "(no subject)" },
           { label: "Recipients", value: recipientSummary(input.draft) || "None" },
         ],
@@ -784,9 +906,9 @@ const actionDefinitions = {
       if (!draft.ok) return draft;
       if (draft.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
       return ok({
-        message: `Discard draft ${draft.data.subject || "(no subject)"}.`,
+        message: `Discard draft ${reviewSubject(draft.data.subject)}.`,
         details: [
-          { label: "Subject", value: draft.data.subject || "(no subject)" },
+          { label: "Subject", value: reviewSubject(draft.data.subject) },
           { label: "Recipients", value: recipientSummary(draft.data) || "None" },
           { label: "Attachments", value: String(draft.data.attachments.length) },
         ],
@@ -837,9 +959,9 @@ const actionDefinitions = {
       const attachment = draft.data.attachments.find((candidate) => candidate.id === input.attachmentId);
       if (!attachment) return fail(err.notFound("Draft attachment"));
       return ok({
-        message: `Remove attachment ${attachment.filename} from draft ${draft.data.subject || "(no subject)"}.`,
+        message: `Remove attachment ${truncateText(attachment.filename, 200).text} from draft ${reviewSubject(draft.data.subject)}.`,
         details: [
-          { label: "Draft", value: draft.data.subject || "(no subject)" },
+          { label: "Draft", value: reviewSubject(draft.data.subject) },
           { label: "Attachment", value: attachment.filename },
         ],
         links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
@@ -849,8 +971,8 @@ const actionDefinitions = {
       mapResult(await drafts.removeDraftAttachment({ context: requestContext(context), ...input }), mapDraft),
   },
   "draft.send": {
-    title: "Send draft",
-    description: "Queue a reviewed draft for immediate or scheduled external delivery.",
+    title: "Send draft email",
+    description: "Send or schedule a reviewed draft email for external delivery.",
     input: c.DraftSendInputSchema,
     data: c.DraftSendDataSchema,
     destructive: false,
@@ -869,9 +991,9 @@ const actionDefinitions = {
       if (!draft.ok) return draft;
       if (!safety.ok) return safety;
       return ok({
-        message: `${input.scheduledAt ? "Schedule" : "Send"} draft ${draft.data.subject || "(no subject)"} to external recipients.`,
+        message: `${input.scheduledAt ? "Schedule" : "Send"} draft ${reviewSubject(draft.data.subject)} to external recipients.`,
         details: [
-          { label: "Subject", value: draft.data.subject || "(no subject)" },
+          { label: "Subject", value: reviewSubject(draft.data.subject) },
           { label: "Recipients", value: recipientSummary(draft.data) || "None" },
           { label: "Delivery", value: input.scheduledAt ?? `After a ${input.undoSeconds}-second undo window` },
           ...safety.data.warnings.map((warning) => ({ label: warning.title, value: warning.description })),
@@ -918,6 +1040,8 @@ const actionDefinitions = {
     openWorld: false,
     idempotency: "none",
     review: async (input: z.output<typeof c.DeliveryCancelInputSchema>, context: CapabilityExecutionContext) => {
+      const access = await mailboxAccess.requireMailboxPermission(requestContext(context), input.mailboxId, "write");
+      if (!access.ok) return access;
       const delivery = await scheduledSends.getScheduledSend({
         context: requestContext(context),
         mailboxId: input.mailboxId,
@@ -925,9 +1049,9 @@ const actionDefinitions = {
       });
       if (!delivery.ok) return delivery;
       return ok({
-        message: `Cancel delivery of ${delivery.data.subject || "(no subject)"}.`,
+        message: `Cancel delivery of ${reviewSubject(delivery.data.subject)}.`,
         details: [
-          { label: "Subject", value: delivery.data.subject || "(no subject)" },
+          { label: "Subject", value: reviewSubject(delivery.data.subject) },
           { label: "Scheduled for", value: delivery.data.scheduledAt },
           { label: "Draft", value: input.disposition === "draft" ? "Restore as draft" : "Discard" },
         ],
@@ -946,28 +1070,24 @@ const actionDefinitions = {
       ),
   },
   "conversation.mark": {
-    title: "Mark conversations",
-    description: "Mark up to 100 conversations read or flagged in their source folder.",
+    title: "Mark email conversation",
+    description: "Mark one email conversation read, unread, flagged, or unflagged in its current source folder.",
     input: c.ConversationMarkInputSchema,
     data: c.ConversationMutationDataSchema,
     destructive: true,
     openWorld: false,
     idempotency: "required",
     review: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
-      const conversations = await reviewConversationBatch(
-        input.mailboxId,
-        input.targets.map((target) => target.conversationId),
-        context,
-      );
-      if (!conversations.ok) return conversations;
+      const conversation = await requireConversationForReview(input.mailboxId, input.target.conversationId, context);
+      if (!conversation.ok) return conversation;
       const changes = [
         ...(input.read === undefined ? [] : [input.read ? "mark read" : "mark unread"]),
         ...(input.flagged === undefined ? [] : [input.flagged ? "flag" : "unflag"]),
       ];
       return ok({
-        message: `${changes.join(" and ")} ${input.targets.length} conversation${input.targets.length === 1 ? "" : "s"}.`,
+        message: `${changes.join(" and ")} ${conversation.data.subject}.`,
         details: [
-          { label: "Conversations", value: conversations.data.join(", ") },
+          { label: "Conversation", value: conversation.data.subject },
           { label: "Change", value: changes.join(", ") },
         ],
         links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}` }],
@@ -976,59 +1096,53 @@ const actionDefinitions = {
     run: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context, "conversation.mark");
       if (!key.ok) return key;
-      const data = [];
-      for (const target of input.targets) {
-        const addFlags: Array<"seen" | "flagged"> = [];
-        const removeFlags: Array<"seen" | "flagged"> = [];
-        if (input.read !== undefined) (input.read ? addFlags : removeFlags).push("seen");
-        if (input.flagged !== undefined) (input.flagged ? addFlags : removeFlags).push("flagged");
-        const result = await triage.createConversationTriageCommands({
-          context: requestContext(context),
-          mailboxId: input.mailboxId,
-          conversationId: target.conversationId,
-          input: {
-            kind: "change_state",
-            sourceFolderId: target.sourceFolderId,
-            change: { addFlags, removeFlags, addKeywords: [], removeKeywords: [] },
-            idempotencyKey: `${key.data}:${target.conversationId}`,
-          },
-        });
-        if (!result.ok) return result;
-        data.push({
-          conversationId: target.conversationId,
+      const addFlags: Array<"seen" | "flagged"> = [];
+      const removeFlags: Array<"seen" | "flagged"> = [];
+      if (input.read !== undefined) (input.read ? addFlags : removeFlags).push("seen");
+      if (input.flagged !== undefined) (input.flagged ? addFlags : removeFlags).push("flagged");
+      const result = await triage.createConversationTriageCommands({
+        context: requestContext(context),
+        mailboxId: input.mailboxId,
+        conversationId: input.target.conversationId,
+        input: {
+          kind: "change_state",
+          sourceFolderId: input.target.sourceFolderId,
+          change: { addFlags, removeFlags, addKeywords: [], removeKeywords: [] },
+          idempotencyKey: key.data,
+        },
+      });
+      if (!result.ok) return result;
+      return ok({
+        data: {
+          conversationId: input.target.conversationId,
           correlationId: result.data.correlationId,
           commands: result.data.commands.map((command) => ({ id: command.id, state: command.state })),
-        });
-      }
-      return ok({ data });
+        },
+      });
     },
   },
   "conversation.move": {
-    title: "Move conversations",
-    description: "Move up to 100 conversations to a standard role or an explicit folder.",
+    title: "Move email conversation",
+    description: "Move one email conversation to a standard role or an explicit folder.",
     input: c.ConversationMoveInputSchema,
     data: c.ConversationMutationDataSchema,
     destructive: true,
     openWorld: false,
     idempotency: "required",
     review: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
-      const conversations = await reviewConversationBatch(
-        input.mailboxId,
-        input.targets.map((target) => target.conversationId),
-        context,
-      );
-      if (!conversations.ok) return conversations;
+      const conversation = await requireConversationForReview(input.mailboxId, input.target.conversationId, context);
+      if (!conversation.ok) return conversation;
       let destination = input.destination.kind === "role" ? input.destination.role : input.destination.folderId;
       if (input.destination.kind === "folder") {
         const folderId = input.destination.folderId;
         const folders = await messages.listFolders(requestContext(context), input.mailboxId);
         if (!folders.ok) return folders;
-        destination = folders.data.find((folder) => folder.id === folderId)?.name ?? folderId;
+        destination = truncateText(folders.data.find((folder) => folder.id === folderId)?.name ?? folderId, 200).text;
       }
       return ok({
-        message: `Move ${input.targets.length} conversation${input.targets.length === 1 ? "" : "s"} to ${destination}.`,
+        message: `Move ${conversation.data.subject} to ${destination}.`,
         details: [
-          { label: "Conversations", value: conversations.data.join(", ") },
+          { label: "Conversation", value: conversation.data.subject },
           { label: "Destination", value: destination },
         ],
         links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}` }],
@@ -1037,26 +1151,28 @@ const actionDefinitions = {
     run: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context, "conversation.move");
       if (!key.ok) return key;
-      const data = [];
-      for (const target of input.targets) {
-        const move =
-          input.destination.kind === "role"
-            ? { kind: "move_to_role" as const, sourceFolderId: target.sourceFolderId, role: input.destination.role }
-            : { kind: "move_to_folder" as const, sourceFolderId: target.sourceFolderId, destinationFolderId: input.destination.folderId };
-        const result = await triage.createConversationTriageCommands({
-          context: requestContext(context),
-          mailboxId: input.mailboxId,
-          conversationId: target.conversationId,
-          input: { ...move, idempotencyKey: `${key.data}:${target.conversationId}` },
-        });
-        if (!result.ok) return result;
-        data.push({
-          conversationId: target.conversationId,
+      const move =
+        input.destination.kind === "role"
+          ? { kind: "move_to_role" as const, sourceFolderId: input.target.sourceFolderId, role: input.destination.role }
+          : {
+              kind: "move_to_folder" as const,
+              sourceFolderId: input.target.sourceFolderId,
+              destinationFolderId: input.destination.folderId,
+            };
+      const result = await triage.createConversationTriageCommands({
+        context: requestContext(context),
+        mailboxId: input.mailboxId,
+        conversationId: input.target.conversationId,
+        input: { ...move, idempotencyKey: key.data },
+      });
+      if (!result.ok) return result;
+      return ok({
+        data: {
+          conversationId: input.target.conversationId,
           correlationId: result.data.correlationId,
           commands: result.data.commands.map((command) => ({ id: command.id, state: command.state })),
-        });
-      }
-      return ok({ data });
+        },
+      });
     },
   },
   "conversation.tag.update": {
@@ -1152,7 +1268,7 @@ const actionDefinitions = {
     openWorld: false,
     idempotency: "none",
     review: async (input: z.output<typeof c.ReminderSetInputSchema>, context: CapabilityExecutionContext) => {
-      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
+      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context, "read");
       if (!conversation.ok) return conversation;
       return ok({
         message: `Set your reminder for ${conversation.data.subject}.`,
@@ -1184,7 +1300,7 @@ const actionDefinitions = {
     idempotency: "none",
     review: async (input: z.output<typeof c.ReminderCancelInputSchema>, context: CapabilityExecutionContext) => {
       const [conversation, reminder] = await Promise.all([
-        requireConversationForReview(input.mailboxId, input.conversationId, context),
+        requireConversationForReview(input.mailboxId, input.conversationId, context, "read"),
         reminders.getConversationReminder({
           context: requestContext(context),
           mailboxId: input.mailboxId,
@@ -1323,6 +1439,8 @@ const actionDefinitions = {
     openWorld: false,
     idempotency: "none",
     review: async (input: z.output<typeof c.TagUpdateInputSchema>, context: CapabilityExecutionContext) => {
+      const access = await mailboxAccess.requireMailboxPermission(requestContext(context), input.mailboxId, "write");
+      if (!access.ok) return access;
       const tags = await localTags.listLocalTags(requestContext(context), input.mailboxId);
       if (!tags.ok) return tags;
       const tag = tags.data.find((candidate) => candidate.id === input.tagId);
@@ -1356,6 +1474,8 @@ const actionDefinitions = {
     openWorld: false,
     idempotency: "none",
     review: async (input: z.output<typeof c.TagDeleteInputSchema>, context: CapabilityExecutionContext) => {
+      const access = await mailboxAccess.requireMailboxPermission(requestContext(context), input.mailboxId, "write");
+      if (!access.ok) return access;
       const tags = await localTags.listLocalTags(requestContext(context), input.mailboxId);
       if (!tags.ok) return tags;
       const tag = tags.data.find((candidate) => candidate.id === input.tagId);
@@ -1385,6 +1505,8 @@ const actionDefinitions = {
     openWorld: true,
     idempotency: "none",
     review: async (input: z.output<typeof c.SubscriptionUnsubscribeInputSchema>, context: CapabilityExecutionContext) => {
+      const access = await mailboxAccess.requireMailboxPermission(requestContext(context), input.mailboxId, "write");
+      if (!access.ok) return access;
       const subscription = await listSubscriptions.getSubscription(requestContext(context), input.mailboxId, input.listKey);
       if (!subscription.ok) return subscription;
       if (!subscription.data) return fail(err.notFound("Mailing-list subscription"));

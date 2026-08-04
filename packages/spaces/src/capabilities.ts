@@ -46,6 +46,8 @@ import {
   ItemDeleteDataSchema,
   ItemDeleteInputSchema,
   ItemGetInputSchema,
+  SpaceAssigneeListDataSchema,
+  SpaceAssigneeListInputSchema,
   SpaceDetailDataSchema,
   SpaceGetInputSchema,
   SpaceListDataSchema,
@@ -69,6 +71,22 @@ const stableUuid = (value: string): string => {
   const hex = createHash("sha256").update(value).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 };
+
+const truncateText = (value: string, maxBytes: number): { text: string; truncated: boolean } => {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return { text: value, truncated: false };
+  const chunks: string[] = [];
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (bytes + characterBytes > maxBytes) break;
+    chunks.push(character);
+    bytes += characterBytes;
+  }
+  return { text: chunks.join(""), truncated: true };
+};
+
+const boundedText = (value: string | null, maxBytes: number): { text: string | null; truncated: boolean } =>
+  value === null ? { text: null, truncated: false } : truncateText(value, maxBytes);
 
 const eventInvitationIdempotencyId = (context: CapabilityExecutionContext, key: string): string => {
   const subject =
@@ -145,47 +163,131 @@ const requireItem = async (itemId: string, context: CapabilityExecutionContext, 
 const isEvent = (item: SpaceItem): item is SpaceItem & { startsAt: string; endsAt: string } => Boolean(item.startsAt && item.endsAt);
 
 const mapRelations = (item: SpaceItem) => ({
-  assignees: (item.assignees ?? []).slice(0, 100).map((entry) => ({ id: entry.id, displayName: entry.displayName })),
-  tags: (item.tags ?? []).slice(0, 100).map((entry) => ({ id: entry.id, name: entry.name, color: entry.color })),
-  relationsTruncated: (item.assignees?.length ?? 0) > 100 || (item.tags?.length ?? 0) > 100,
+  assignees: (item.assignees ?? [])
+    .slice(0, 100)
+    .map((entry) => ({ id: entry.id, displayName: truncateText(entry.displayName, 200).text })),
+  tags: (item.tags ?? [])
+    .slice(0, 100)
+    .map((entry) => ({ id: entry.id, name: truncateText(entry.name, 100).text, color: truncateText(entry.color, 100).text })),
+  relationsTruncated:
+    (item.assignees?.length ?? 0) > 100 ||
+    (item.tags?.length ?? 0) > 100 ||
+    (item.assignees ?? []).some((entry) => truncateText(entry.displayName, 200).truncated) ||
+    (item.tags ?? []).some((entry) => truncateText(entry.name, 100).truncated || truncateText(entry.color, 100).truncated),
 });
 
-const mapTask = (item: SpaceItem) => ({
-  kind: "task" as const,
-  id: item.id,
-  spaceId: item.spaceId,
-  columnId: item.columnId,
-  title: item.title,
-  description: item.description,
-  deadline: item.deadline,
-  priority: item.priority,
-  completedAt: item.completedAt,
-  ...mapRelations(item),
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
+const mapListRelations = (item: SpaceItem) => ({
+  assignees: (item.assignees ?? []).slice(0, 3).map((entry) => ({ id: entry.id, displayName: truncateText(entry.displayName, 100).text })),
+  tags: (item.tags ?? [])
+    .slice(0, 3)
+    .map((entry) => ({ id: entry.id, name: truncateText(entry.name, 50).text, color: truncateText(entry.color, 20).text })),
+  relationsTruncated:
+    (item.assignees?.length ?? 0) > 3 ||
+    (item.tags?.length ?? 0) > 3 ||
+    (item.assignees ?? []).some((entry) => truncateText(entry.displayName, 100).truncated) ||
+    (item.tags ?? []).some((entry) => truncateText(entry.name, 50).truncated || truncateText(entry.color, 20).truncated),
 });
 
-const mapEvent = (item: SpaceItem & { startsAt: string; endsAt: string }) => ({
-  kind: "event" as const,
-  id: item.id,
-  spaceId: item.spaceId,
-  columnId: item.columnId,
-  title: item.title,
-  description: item.description,
-  location: item.location,
-  url: item.url,
-  startsAt: item.startsAt,
-  endsAt: item.endsAt,
-  allDay: item.allDay,
-  recurrence: item.recurrence ? { ...item.recurrence, exdate: item.recurrence.exdate.slice(0, 1000) } : null,
-  recurrenceExceptionsTruncated: (item.recurrence?.exdate.length ?? 0) > 1000,
-  completedAt: item.completedAt,
-  ...mapRelations(item),
-  createdAt: item.createdAt,
-  updatedAt: item.updatedAt,
-});
+const mapTask = (item: SpaceItem) => {
+  const title = truncateText(item.title, 200);
+  const description = boundedText(item.description, 5000);
+  return {
+    kind: "task" as const,
+    id: item.id,
+    spaceId: item.spaceId,
+    columnId: item.columnId,
+    title: title.text,
+    titleTruncated: title.truncated,
+    description: description.text,
+    descriptionTruncated: description.truncated,
+    deadline: item.deadline,
+    priority: item.priority,
+    completedAt: item.completedAt,
+    ...mapRelations(item),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
+
+const mapEvent = (item: SpaceItem & { startsAt: string; endsAt: string }) => {
+  const title = truncateText(item.title, 200);
+  const description = boundedText(item.description, 5000);
+  const location = boundedText(item.location, 500);
+  const url = boundedText(item.url, 2000);
+  const recurrenceRule = item.recurrence ? truncateText(item.recurrence.rrule, 2000) : null;
+  return {
+    kind: "event" as const,
+    id: item.id,
+    spaceId: item.spaceId,
+    columnId: item.columnId,
+    title: title.text,
+    titleTruncated: title.truncated,
+    description: description.text,
+    descriptionTruncated: description.truncated,
+    location: location.text,
+    locationTruncated: location.truncated,
+    url: url.text,
+    urlTruncated: url.truncated,
+    startsAt: item.startsAt,
+    endsAt: item.endsAt,
+    allDay: item.allDay,
+    recurrence: item.recurrence ? { ...item.recurrence, rrule: recurrenceRule!.text, exdate: item.recurrence.exdate.slice(0, 1000) } : null,
+    recurrenceTruncated: recurrenceRule?.truncated ?? false,
+    recurrenceExceptionsTruncated: (item.recurrence?.exdate.length ?? 0) > 1000,
+    completedAt: item.completedAt,
+    ...mapRelations(item),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
 
 const mapItem = (item: SpaceItem) => (isEvent(item) ? mapEvent(item) : mapTask(item));
+
+const mapTaskSummary = (item: SpaceItem) => {
+  const description = boundedText(item.description, 1000);
+  return {
+    kind: "task" as const,
+    id: item.id,
+    spaceId: item.spaceId,
+    columnId: item.columnId,
+    title: truncateText(item.title, 200).text,
+    descriptionPreview: description.text,
+    descriptionTruncated: description.truncated,
+    deadline: item.deadline,
+    priority: item.priority,
+    completedAt: item.completedAt,
+    ...mapListRelations(item),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
+
+const mapEventSummary = (item: SpaceItem & { startsAt: string; endsAt: string }) => {
+  const description = boundedText(item.description, 1000);
+  const location = boundedText(item.location, 200);
+  const url = boundedText(item.url, 500);
+  return {
+    kind: "event" as const,
+    id: item.id,
+    spaceId: item.spaceId,
+    columnId: item.columnId,
+    title: truncateText(item.title, 200).text,
+    descriptionPreview: description.text,
+    descriptionTruncated: description.truncated,
+    location: location.text,
+    locationTruncated: location.truncated,
+    url: url.text,
+    urlTruncated: url.truncated,
+    startsAt: item.startsAt,
+    endsAt: item.endsAt,
+    allDay: item.allDay,
+    hasRecurrence: item.recurrence !== null,
+    completedAt: item.completedAt,
+    ...mapListRelations(item),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+};
 
 const mapComment = (comment: SpaceComment) => ({
   id: comment.id,
@@ -198,6 +300,11 @@ const mapComment = (comment: SpaceComment) => ({
   updatedAt: comment.updatedAt,
   canDelete: comment.canDelete,
 });
+
+const mapCommentSummary = (comment: SpaceComment) => {
+  const content = truncateText(comment.content, 1000);
+  return { ...mapComment(comment), content: content.text, contentTruncated: content.truncated };
+};
 
 const mapSpace = (space: SpaceWithPermission, context: CapabilityExecutionContext) => ({
   id: space.id,
@@ -253,7 +360,7 @@ const runItemSearch = async (input: UniversalSearchInput, context: CapabilityExe
   const data: CloudResourceView[] = hits.map(({ item, space }) => ({
     ref: { type: "spaces.item", id: item.id },
     title: item.title,
-    preview: item.description ?? undefined,
+    preview: item.description === null ? undefined : truncateText(item.description, 2000).text,
     icon: isEvent(item) ? "ti ti-calendar-event" : "ti ti-checkbox",
     priority: 8,
     metadata: [
@@ -315,6 +422,23 @@ const runSpaceGet = async (input: z.infer<typeof SpaceGetInputSchema>, context: 
   });
 };
 
+const runSpaceAssigneeList = async (input: z.infer<typeof SpaceAssigneeListInputSchema>, context: CapabilityExecutionContext) => {
+  const access = await requireSpace(input.spaceId, context, "write");
+  if (!access.ok) return access;
+  const users = await spacesService.item.listAssignableUsers({
+    spaceId: input.spaceId,
+    search: input.query,
+    limit: input.limit,
+  });
+  return ok({
+    data: users.map((user) => ({
+      id: user.id,
+      displayName: truncateText(user.displayName, 200).text,
+      description: truncateText(user.description ?? "", 300).text,
+    })),
+  });
+};
+
 type ItemListInput = z.infer<typeof TaskListInputSchema> | z.infer<typeof EventListInputSchema>;
 
 const runItemList = async (input: ItemListInput, context: CapabilityExecutionContext, kind: "task" | "event") => {
@@ -343,7 +467,8 @@ const runItemList = async (input: ItemListInput, context: CapabilityExecutionCon
       pageSize: input.limit,
     },
   });
-  const items = kind === "event" ? page.items.filter(isEvent).map(mapEvent) : page.items.filter((item) => !isEvent(item)).map(mapTask);
+  const items =
+    kind === "event" ? page.items.filter(isEvent).map(mapEventSummary) : page.items.filter((item) => !isEvent(item)).map(mapTaskSummary);
   return pageResult(
     { items: page.items, page: page.page, perPage: page.pageSize, total: page.total, hasNext: page.page < page.totalPages },
     items,
@@ -373,7 +498,7 @@ const runCommentList = async (input: z.infer<typeof CommentListInputSchema>, con
     pagination: { page: cursor.data, perPage: input.limit },
     filter: { query: input.query },
   });
-  const data = page.items.map(mapComment);
+  const data = page.items.map(mapCommentSummary);
   return pageResult(
     page,
     data,
@@ -697,6 +822,14 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       run: runSpaceGet,
     },
+    "space.assignee.list": {
+      title: "List assignable Space members",
+      description: "Find people who can be assigned to a task or calendar event in one writable Space.",
+      input: SpaceAssigneeListInputSchema,
+      data: SpaceAssigneeListDataSchema,
+      openWorld: false,
+      run: runSpaceAssigneeList,
+    },
     "task.list": {
       title: "List tasks",
       description: "List task-shaped items in one readable Space with bounded filters and pagination.",
@@ -823,8 +956,8 @@ export const spacesCapabilities = defineCapabilities({
       run: runTaskSetCompleted,
     },
     "event.create": {
-      title: "Create event",
-      description: "Create one event with an explicit valid time range in a writable Space.",
+      title: "Create calendar event",
+      description: "Create one calendar event with an explicit valid time range in a writable Space.",
       input: EventCreateInputSchema,
       data: EventDataSchema,
       destructive: false,

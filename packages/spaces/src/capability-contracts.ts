@@ -21,8 +21,8 @@ const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const SpaceColumnDataSchema = z
   .object({
     id: z.uuid(),
-    name: z.string().min(1),
-    color: NullableTextSchema,
+    name: z.string().min(1).max(50),
+    color: z.string().max(100).nullable(),
     isDone: z.boolean(),
   })
   .strict();
@@ -30,17 +30,17 @@ const SpaceColumnDataSchema = z
 const SpaceTagDataSchema = z
   .object({
     id: z.uuid(),
-    name: z.string().min(1),
-    color: z.string().min(1),
+    name: z.string().min(1).max(30),
+    color: z.string().min(1).max(100),
   })
   .strict();
 
 export const SpaceSummaryDataSchema = z
   .object({
     id: z.uuid(),
-    name: z.string().min(1),
-    description: NullableTextSchema,
-    color: z.string().min(1),
+    name: z.string().min(1).max(100),
+    description: z.string().max(500).nullable(),
+    color: z.string().min(1).max(100),
     permission: z.enum(["read", "write", "admin"]),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
@@ -68,15 +68,17 @@ export const SpaceListInputSchema = z
 export const SpaceListDataSchema = z.array(SpaceSummaryDataSchema).max(100);
 export const SpaceGetInputSchema = z.object({ spaceId: z.uuid().describe("Stable Space UUID.") }).strict();
 
-const ItemAssigneeDataSchema = z.object({ id: z.uuid(), displayName: z.string().min(1) }).strict();
-const ItemTagDataSchema = z.object({ id: z.uuid(), name: z.string().min(1), color: z.string().min(1) }).strict();
+const ItemAssigneeDataSchema = z.object({ id: z.uuid(), displayName: z.string().min(1).max(200) }).strict();
+const ItemTagDataSchema = z.object({ id: z.uuid(), name: z.string().min(1).max(100), color: z.string().min(1).max(100) }).strict();
 
 const ItemBaseDataShape = {
   id: z.uuid(),
   spaceId: z.uuid(),
   columnId: z.uuid(),
-  title: z.string().min(1),
-  description: NullableTextSchema,
+  title: z.string().min(1).max(200),
+  titleTruncated: z.boolean(),
+  description: z.string().max(5000).nullable(),
+  descriptionTruncated: z.boolean(),
   completedAt: TimestampSchema.nullable(),
   assignees: z.array(ItemAssigneeDataSchema).max(100),
   tags: z.array(ItemTagDataSchema).max(100),
@@ -106,19 +108,53 @@ export const EventDataSchema = z
   .object({
     kind: z.literal("event"),
     ...ItemBaseDataShape,
-    location: NullableTextSchema,
-    url: z.string().nullable(),
+    location: z.string().max(500).nullable(),
+    locationTruncated: z.boolean(),
+    url: z.string().max(2000).nullable(),
+    urlTruncated: z.boolean(),
     startsAt: TimestampSchema,
     endsAt: TimestampSchema,
     allDay: z.boolean(),
     recurrence: RecurrenceDataSchema.nullable(),
+    recurrenceTruncated: z.boolean(),
     recurrenceExceptionsTruncated: z.boolean(),
   })
   .strict();
 
 export const ItemDataSchema = z.discriminatedUnion("kind", [TaskDataSchema, EventDataSchema]);
-export const TaskListDataSchema = z.array(TaskDataSchema).max(100);
-export const EventListDataSchema = z.array(EventDataSchema).max(100);
+const ItemListBaseDataShape = {
+  id: z.uuid(),
+  spaceId: z.uuid(),
+  columnId: z.uuid(),
+  title: z.string().min(1).max(200),
+  descriptionPreview: z.string().max(1000).nullable(),
+  descriptionTruncated: z.boolean(),
+  completedAt: TimestampSchema.nullable(),
+  assignees: z.array(z.object({ id: z.uuid(), displayName: z.string().min(1).max(100) }).strict()).max(3),
+  tags: z.array(z.object({ id: z.uuid(), name: z.string().min(1).max(50), color: z.string().min(1).max(20) }).strict()).max(3),
+  relationsTruncated: z.boolean(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+};
+export const TaskListItemDataSchema = z
+  .object({ kind: z.literal("task"), ...ItemListBaseDataShape, deadline: TimestampSchema.nullable(), priority: PrioritySchema.nullable() })
+  .strict();
+export const EventListItemDataSchema = z
+  .object({
+    kind: z.literal("event"),
+    ...ItemListBaseDataShape,
+    location: z.string().max(200).nullable(),
+    locationTruncated: z.boolean(),
+    url: z.string().max(500).nullable(),
+    urlTruncated: z.boolean(),
+    startsAt: TimestampSchema,
+    endsAt: TimestampSchema,
+    allDay: z.boolean(),
+    hasRecurrence: z.boolean(),
+  })
+  .strict();
+export const TaskListDataSchema = z.array(TaskListItemDataSchema).max(100);
+export const EventListDataSchema = z.array(EventListItemDataSchema).max(100);
 
 const ItemListBaseShape = {
   spaceId: z.uuid().describe("Space whose items should be listed."),
@@ -140,6 +176,18 @@ const ItemListBaseShape = {
 export const TaskListInputSchema = z.object(ItemListBaseShape).strict();
 export const EventListInputSchema = z.object(ItemListBaseShape).strict();
 export const ItemGetInputSchema = z.object({ itemId: z.uuid().describe("Stable Space item UUID.") }).strict();
+
+export const SpaceAssigneeListInputSchema = z
+  .object({
+    spaceId: z.uuid().describe("Writable Space whose assignable members should be listed."),
+    query: QuerySchema,
+    limit: LimitSchema,
+  })
+  .strict();
+export const SpaceAssigneeDataSchema = z
+  .object({ id: z.uuid(), displayName: z.string().min(1).max(200), description: z.string().max(300) })
+  .strict();
+export const SpaceAssigneeListDataSchema = z.array(SpaceAssigneeDataSchema).max(100);
 
 const ItemRelationInputShape = {
   assigneeIds: IdListSchema.optional().describe("Complete replacement set of assignee user UUIDs from this Space."),
@@ -249,7 +297,11 @@ export const CommentListInputSchema = z
   })
   .strict();
 
-export const CommentListDataSchema = z.array(CommentDataSchema).max(100);
+export const CommentListItemDataSchema = CommentDataSchema.omit({ content: true }).extend({
+  content: z.string().min(1).max(1000),
+  contentTruncated: z.boolean(),
+});
+export const CommentListDataSchema = z.array(CommentListItemDataSchema).max(100);
 export const CommentGetInputSchema = z.object({ commentId: z.uuid().describe("Stable comment UUID.") }).strict();
 export const CommentCreateInputSchema = z
   .object({

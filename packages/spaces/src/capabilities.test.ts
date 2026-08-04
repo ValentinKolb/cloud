@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
-import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
+import { CAPABILITY_MAX_RESULT_BYTES, type CapabilityExecutionContext, type User } from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
 import { decodeSpacesCapabilityCursor, spacesCapabilities } from "./capabilities";
 import {
   CommentCreateInputSchema,
+  CommentListDataSchema,
   EventCreateInputSchema,
   EventUpdateInputSchema,
   SpaceDetailDataSchema,
   SpaceListInputSchema,
   TaskCreateInputSchema,
+  TaskListDataSchema,
   TaskUpdateInputSchema,
 } from "./capability-contracts";
 import type { SpaceComment, SpaceItem } from "./contracts";
@@ -171,6 +173,7 @@ describe("spaces capabilities", () => {
       "event.list",
       "item.get",
       "item.search",
+      "space.assignee.list",
       "space.get",
       "space.list",
       "space.search",
@@ -217,6 +220,28 @@ describe("spaces capabilities", () => {
       openWorld: false,
       idempotency: "none",
     });
+  });
+
+  test("exposes bounded assignable members through the existing write boundary", async () => {
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("write");
+    const listAssignable = spyOn(spacesService.item, "listAssignableUsers").mockResolvedValue([
+      { id: userId, displayName: user.displayName, avatarHash: null, description: "spaces-user · direct access" },
+    ]);
+
+    const result = await spacesCapabilities.queries["space.assignee.list"].run({ spaceId, query: "Spaces", limit: 5 }, userContext);
+
+    expect(listAssignable).toHaveBeenCalledWith({ spaceId, search: "Spaces", limit: 5 });
+    expect(result).toEqual({
+      ok: true,
+      data: { data: [{ id: userId, displayName: user.displayName, description: "spaces-user · direct access" }] },
+    });
+  });
+
+  test("uses agent-oriented calendar creation wording", () => {
+    expect(spacesCapabilities.actions["event.create"].title).toBe("Create calendar event");
+    expect(spacesCapabilities.actions["event.create"].description).toContain("calendar event");
+    expect(spacesCapabilities.actions["calendar-invitation.import"].title).toBe("Import calendar invitation");
   });
 
   test("keeps Space and item search as focused Universal Search providers", async () => {
@@ -460,6 +485,42 @@ describe("spaces capabilities", () => {
 
     expect(expired).toMatchObject({ ok: false, error: { code: "FORBIDDEN", status: 403 } });
     expect(recordDenied).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps compact item and comment pages below the capability transport limit", () => {
+    const tasks = Array.from({ length: 100 }, () => ({
+      kind: "task" as const,
+      id: itemId,
+      spaceId,
+      columnId,
+      title: "t".repeat(200),
+      descriptionPreview: "d".repeat(1000),
+      descriptionTruncated: true,
+      deadline: null,
+      priority: "urgent" as const,
+      completedAt: null,
+      assignees: Array.from({ length: 3 }, () => ({ id: userId, displayName: "a".repeat(100) })),
+      tags: Array.from({ length: 3 }, () => ({ id: itemId, name: "n".repeat(50), color: "c".repeat(20) })),
+      relationsTruncated: true,
+      createdAt,
+      updatedAt: createdAt,
+    }));
+    const comments = Array.from({ length: 100 }, () => ({
+      id: commentId,
+      itemId,
+      recurrenceId: null,
+      userId,
+      userName: "Agent",
+      content: "c".repeat(1000),
+      contentTruncated: true,
+      createdAt,
+      updatedAt: createdAt,
+      canDelete: true,
+    }));
+    const parsedTasks = TaskListDataSchema.parse(tasks);
+    const parsedComments = CommentListDataSchema.parse(comments);
+    expect(Buffer.byteLength(JSON.stringify({ data: parsedTasks }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+    expect(Buffer.byteLength(JSON.stringify({ data: parsedComments }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
   });
 });
 

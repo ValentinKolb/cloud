@@ -36,7 +36,9 @@ export type AppIntegrationRequest = {
   signal?: AbortSignal;
 };
 
-type AppIntegrationResult<T> = { ok: true; data: T } | { ok: false; code: "unavailable" | "rejected"; message: string; status: number };
+type AppIntegrationFailure = { ok: false; code: string; message: string; status: number };
+type AppIntegrationResult<T> = { ok: true; data: T } | AppIntegrationFailure;
+type CapabilityFailure = { code: string; message: string; status: number };
 
 export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitations: boolean; settings: boolean; composer: boolean }> => {
   try {
@@ -58,12 +60,20 @@ export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitati
   }
 };
 
-const unavailable = (message = "The connected app is temporarily unavailable"): AppIntegrationResult<never> => ({
-  ok: false,
-  code: "unavailable",
-  message,
-  status: 503,
-});
+export const projectAppCapabilityError = (error: CapabilityFailure): AppIntegrationFailure => {
+  const unavailable =
+    error.code === "APP_UNAVAILABLE" ||
+    error.code === "CAPABILITY_NOT_FOUND" ||
+    error.code === "INVALID_APP_RESPONSE" ||
+    error.status === 502 ||
+    error.status === 503;
+  return {
+    ok: false,
+    code: error.code,
+    message: error.message,
+    status: unavailable && error.status < 500 ? 503 : error.status,
+  };
+};
 
 const fetchAppCapability = async <T>(params: {
   appId: string;
@@ -85,20 +95,7 @@ const fetchAppCapability = async <T>(params: {
     params.dataSchema,
     params.request,
   );
-  if (!result.ok) {
-    const appUnavailable =
-      result.error.code === "APP_UNAVAILABLE" ||
-      result.error.code === "CAPABILITY_NOT_FOUND" ||
-      result.error.code === "INVALID_APP_RESPONSE" ||
-      result.error.status === 502 ||
-      result.error.status === 503;
-    return {
-      ok: false,
-      code: appUnavailable ? "unavailable" : "rejected",
-      message: result.error.message,
-      status: appUnavailable && result.error.status < 500 ? 503 : result.error.status,
-    };
-  }
+  if (!result.ok) return projectAppCapabilityError(result.error);
   return { ok: true, data: result.data };
 };
 

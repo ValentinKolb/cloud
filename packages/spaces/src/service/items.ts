@@ -1,6 +1,6 @@
+import { type DateContext, dates } from "@k2b/stdlib";
 import { type AccessSubject, type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server";
 import { logger, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
-import { type DateContext, dates } from "@k2b/stdlib";
 import { sql } from "bun";
 import type {
   AssignedToFilter,
@@ -689,27 +689,27 @@ export const listFiltered = async (params: {
   }
 
   // Build ORDER BY clause as SQL fragment
-  let orderClause = sql`c.rank ASC, i.rank ASC`;
+  let orderClause = sql`c.rank ASC, i.rank ASC, i.id ASC`;
   switch (sort) {
     case "priority":
       // Custom order: urgent > high > medium > low > null
       orderClause = sortDesc
-        ? sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END DESC, i.rank ASC`
-        : sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC, i.rank ASC`;
+        ? sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END DESC, i.rank ASC, i.id ASC`
+        : sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC, i.rank ASC, i.id ASC`;
       break;
     case "deadline":
       orderClause = sortDesc
-        ? sql`CASE WHEN i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL THEN i.starts_at ELSE i.deadline END DESC NULLS FIRST, i.rank ASC`
-        : sql`CASE WHEN i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL THEN i.starts_at ELSE i.deadline END ASC NULLS LAST, i.rank ASC`;
+        ? sql`CASE WHEN i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL THEN i.starts_at ELSE i.deadline END DESC NULLS FIRST, i.rank ASC, i.id ASC`
+        : sql`CASE WHEN i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL THEN i.starts_at ELSE i.deadline END ASC NULLS LAST, i.rank ASC, i.id ASC`;
       break;
     case "created":
-      orderClause = sortDesc ? sql`i.created_at DESC` : sql`i.created_at ASC`;
+      orderClause = sortDesc ? sql`i.created_at DESC, i.id ASC` : sql`i.created_at ASC, i.id ASC`;
       break;
     case "updated":
-      orderClause = sortDesc ? sql`i.updated_at DESC` : sql`i.updated_at ASC`;
+      orderClause = sortDesc ? sql`i.updated_at DESC, i.id ASC` : sql`i.updated_at ASC, i.id ASC`;
       break;
     case "title":
-      orderClause = sortDesc ? sql`i.title DESC` : sql`i.title ASC`;
+      orderClause = sortDesc ? sql`i.title DESC, i.id ASC` : sql`i.title ASC, i.id ASC`;
       break;
     case "column":
       break;
