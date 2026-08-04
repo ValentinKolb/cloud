@@ -947,7 +947,7 @@ export default function MailConversationReader(props: {
                 </For>
               </div>
               <Dropdown.Root position="bottom-left" width="14rem" items={overflowActions()}>
-                <Dropdown.Trigger iconOnly type="button" label="More conversation actions">
+                <Dropdown.Trigger iconOnly type="button" variant="ghost" label="More conversation actions">
                   <i class="ti ti-dots" aria-hidden="true" />
                 </Dropdown.Trigger>
               </Dropdown.Root>

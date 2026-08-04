@@ -1045,7 +1045,7 @@ export default function MailRuleSettings(props: {
                   },
                 ]}
               >
-                <Dropdown.Trigger iconOnly size="sm" type="button" label={`Actions for ${row.name}`}>
+                <Dropdown.Trigger iconOnly size="sm" type="button" variant="ghost" label={`Actions for ${row.name}`}>
                   <i class="ti ti-dots" aria-hidden="true" />
                 </Dropdown.Trigger>
               </Dropdown.Root>

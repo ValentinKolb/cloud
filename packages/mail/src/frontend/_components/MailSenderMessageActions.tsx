@@ -413,7 +413,7 @@ export default function MailSenderMessageActions(props: {
           : []),
       ]}
     >
-      <Dropdown.Trigger iconOnly size="sm" type="button" label="Message actions" disabled={pending()}>
+      <Dropdown.Trigger iconOnly size="sm" type="button" variant="ghost" label="Message actions" disabled={pending()}>
         <i class={`ti ${pending() ? "ti-loader-2 animate-spin" : "ti-dots"}`} aria-hidden="true" />
       </Dropdown.Trigger>
     </Dropdown.Root>

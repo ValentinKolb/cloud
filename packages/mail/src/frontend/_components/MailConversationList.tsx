@@ -272,6 +272,7 @@ export default function MailConversationList(props: {
                 <Dropdown.Trigger
                   iconOnly
                   type="button"
+                  variant="ghost"
                   label="Choose list view"
                   tooltip={props.listMode === "conversations" ? "Conversation view" : "Message view"}
                 >

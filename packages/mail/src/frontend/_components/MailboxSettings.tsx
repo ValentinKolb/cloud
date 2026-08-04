@@ -66,6 +66,14 @@ export default function MailboxSettings(props: {
   const [childDirtyStates, setChildDirtyStates] = createSignal<Record<string, boolean>>({});
   const [navigationPending, setNavigationPending] = createSignal(false);
   const healthPresentation = createMemo(() => mailboxHealthPresentation(props.context.mailbox));
+  const mailboxDetailsDirty = createMemo(
+    () => name().trim() !== props.context.mailbox.name || description().trim() !== (props.context.mailbox.description ?? ""),
+  );
+  const sendingSafeguardsDirty = createMemo(
+    () =>
+      internalDomains() !== props.context.mailbox.composeSafety.internalDomains.join(", ") ||
+      largeRecipientThreshold() !== props.context.mailbox.composeSafety.largeRecipientThreshold,
+  );
 
   const ownDirty = createMemo(() => {
     if (activeTab() === "reading") {
@@ -75,12 +83,7 @@ export default function MailboxSettings(props: {
       return composeFormat() !== savedComposeFormat() || undoSeconds() !== savedUndoSeconds();
     }
     if (activeTab() === "mailbox") {
-      return (
-        name().trim() !== props.context.mailbox.name ||
-        description().trim() !== (props.context.mailbox.description ?? "") ||
-        internalDomains() !== props.context.mailbox.composeSafety.internalDomains.join(", ") ||
-        largeRecipientThreshold() !== props.context.mailbox.composeSafety.largeRecipientThreshold
-      );
+      return mailboxDetailsDirty() || sendingSafeguardsDirty();
     }
     if (activeTab() === "access") {
       return automaticReplyManagementPermission() !== props.context.mailbox.automaticReplyManagementPermission;
@@ -161,7 +164,7 @@ export default function MailboxSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const saveMailbox = mutation.create<Mailbox, void>({
+  const saveMailboxDetails = mutation.create<Mailbox, void>({
     mutation: async (_input, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].$patch(
         {
@@ -169,6 +172,29 @@ export default function MailboxSettings(props: {
           json: {
             name: name().trim(),
             description: description().trim() || null,
+          },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox"));
+      return response.json();
+    },
+    onSuccess: (mailbox) => {
+      setName(mailbox.name);
+      setDescription(mailbox.description ?? "");
+      props.onContextChange((context) => ({ ...context, mailbox }));
+      toast.success("Mailbox details saved");
+      props.onWorkspaceChange();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const saveSendingSafeguards = mutation.create<Mailbox, void>({
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].$patch(
+        {
+          param: { mailboxId: props.context.mailbox.id },
+          json: {
             composeSafety: {
               internalDomains: [
                 ...new Set(
@@ -184,17 +210,14 @@ export default function MailboxSettings(props: {
         },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox"));
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update sending safeguards"));
       return response.json();
     },
     onSuccess: (mailbox) => {
-      setName(mailbox.name);
-      setDescription(mailbox.description ?? "");
       setInternalDomains(mailbox.composeSafety.internalDomains.join(", "));
       setLargeRecipientThreshold(mailbox.composeSafety.largeRecipientThreshold);
       props.onContextChange((context) => ({ ...context, mailbox }));
-      toast.success("Mailbox details saved");
-      props.onWorkspaceChange();
+      toast.success("Sending safeguards saved");
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -292,7 +315,8 @@ export default function MailboxSettings(props: {
   onCleanup(() => {
     saveReadingPreferences.abort();
     saveWritingPreferences.abort();
-    saveMailbox.abort();
+    saveMailboxDetails.abort();
+    saveSendingSafeguards.abort();
     updateFolderRole.abort();
     saveAutomaticReplyAccess.abort();
     deleteMailbox.abort();
@@ -358,51 +382,78 @@ export default function MailboxSettings(props: {
 
       <Show when={canAdmin() && props.context.admin}>
         <SettingsModal.Tab id="mailbox" title="Mailbox" icon="ti ti-id" description="The name and context collaborators see.">
-          <div class="flex flex-col gap-2">
-            <TextInput label="Name" description="The label collaborators see." value={name} onValueChange={setName} required />
-            <TextInput
-              label="Description"
-              description="Optional context for this mailbox."
-              value={description}
-              onValueChange={setDescription}
-              multiline
-              lines={3}
-            />
-            <div class="mt-4">
-              <h3 class="text-sm font-semibold text-primary">Sending safeguards</h3>
-              <p class="text-xs text-dimmed">Warn collaborators before messages leave expected boundaries or reach many people.</p>
-            </div>
-            <TextInput
-              label="Internal email domains"
-              description="Comma-separated domains. Recipients outside these domains trigger a review."
-              value={internalDomains}
-              onValueChange={setInternalDomains}
-              placeholder="example.org, subsidiary.example"
-            />
-            <NumberInput
-              label="Large recipient warning"
-              description="Show a review when a message reaches at least this many unique recipients."
-              value={largeRecipientThreshold}
-              onValueChange={(value) => setLargeRecipientThreshold(value ?? 20)}
-              min={5}
-              max={200}
-              allowNegative={false}
-              suffix="recipients"
-            />
+          <div class="flex flex-col gap-6">
+            <section class="flex flex-col gap-2">
+              <div>
+                <h3 class="text-sm font-semibold text-primary">Mailbox details</h3>
+                <p class="text-xs text-dimmed">Set the name and context collaborators see.</p>
+              </div>
+              <TextInput label="Name" description="The label collaborators see." value={name} onValueChange={setName} required />
+              <TextInput
+                label="Description"
+                description="Optional context for this mailbox."
+                value={description}
+                onValueChange={setDescription}
+                multiline
+                lines={3}
+              />
+              <div class="flex justify-end pt-1">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => saveMailboxDetails.mutate()}
+                  disabled={
+                    saveMailboxDetails.loading() ||
+                    saveSendingSafeguards.loading() ||
+                    props.reloading ||
+                    !name().trim() ||
+                    !mailboxDetailsDirty()
+                  }
+                >
+                  <i class={`ti ${saveMailboxDetails.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+                  Save details
+                </Button>
+              </div>
+            </section>
+            <section class="flex flex-col gap-2">
+              <div>
+                <h3 class="text-sm font-semibold text-primary">Sending safeguards</h3>
+                <p class="text-xs text-dimmed">Warn collaborators before messages leave expected boundaries or reach many people.</p>
+              </div>
+              <TextInput
+                label="Internal email domains"
+                description="Comma-separated domains. Recipients outside these domains trigger a review."
+                value={internalDomains}
+                onValueChange={setInternalDomains}
+                placeholder="example.org, subsidiary.example"
+              />
+              <NumberInput
+                label="Large recipient warning"
+                description="Show a review when a message reaches at least this many unique recipients."
+                value={largeRecipientThreshold}
+                onValueChange={(value) => setLargeRecipientThreshold(value ?? 20)}
+                min={5}
+                max={200}
+                allowNegative={false}
+                suffix="recipients"
+              />
+              <div class="flex justify-end pt-1">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => saveSendingSafeguards.mutate()}
+                  disabled={saveMailboxDetails.loading() || saveSendingSafeguards.loading() || props.reloading || !sendingSafeguardsDirty()}
+                >
+                  <i class={`ti ${saveSendingSafeguards.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+                  Save safeguards
+                </Button>
+              </div>
+            </section>
             <Show when={props.context.integrations.spacesCalendar}>
-              <MailCalendarSettings mailboxId={props.context.mailbox.id} />
+              <MailCalendarSettings mailboxId={props.context.mailbox.id} onDirtyChange={(dirty) => setChildDirty("calendar", dirty)} />
             </Show>
-            <div class="flex justify-end pt-1">
-              <Button
-                size="sm"
-                type="button"
-                onClick={() => saveMailbox.mutate()}
-                disabled={saveMailbox.loading() || props.reloading || !name().trim() || !ownDirty()}
-              >
-                <i class={`ti ${saveMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
-                Save mailbox
-              </Button>
-            </div>
           </div>
         </SettingsModal.Tab>
       </Show>

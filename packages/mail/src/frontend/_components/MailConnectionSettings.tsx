@@ -668,6 +668,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               <Dropdown.Trigger
                 iconOnly
                 type="button"
+                variant="ghost"
                 class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                 label="Connected account actions"
                 disabled={props.reloading || revoke.loading() || startOAuth.loading()}

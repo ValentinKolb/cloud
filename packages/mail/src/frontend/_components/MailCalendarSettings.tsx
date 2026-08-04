@@ -1,10 +1,10 @@
 import { mutation } from "@k2b/stdlib/solid";
 import { Button, Placeholder, Select, toast } from "@k2b/ui";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
 
-export default function MailCalendarSettings(props: { mailboxId: string }) {
+export default function MailCalendarSettings(props: { mailboxId: string; onDirtyChange?: (dirty: boolean) => void }) {
   const [savedSpaceId, setSavedSpaceId] = createSignal<string | null>(null);
   const [spaceId, setSpaceId] = createSignal<string | null>(null);
   const [items, setItems] = createSignal<Array<{ id: string; name: string; color: string }>>([]);
@@ -39,14 +39,16 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
     },
   });
 
+  createEffect(() => props.onDirtyChange?.(spaceId() !== savedSpaceId()));
   onMount(() => load.mutate());
   onCleanup(() => {
     load.abort();
     save.abort();
+    props.onDirtyChange?.(false);
   });
 
   return (
-    <section class="flex flex-col gap-2 border-t border-subtle pt-4">
+    <section class="flex flex-col gap-2">
       <div>
         <h3 class="text-sm font-semibold text-primary">Calendar invitations</h3>
         <p class="text-xs text-dimmed">Choose the Space suggested when you add an invitation. Mail never imports events automatically.</p>

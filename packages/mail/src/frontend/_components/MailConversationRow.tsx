@@ -251,7 +251,13 @@ export default function MailConversationRow(props: {
               },
             ]}
           >
-            <Dropdown.Trigger iconOnly size="sm" type="button" label={`Actions for ${props.item.subject || "conversation"}`}>
+            <Dropdown.Trigger
+              iconOnly
+              size="sm"
+              type="button"
+              variant="ghost"
+              label={`Actions for ${props.item.subject || "conversation"}`}
+            >
               <i class="ti ti-dots" aria-hidden="true" />
             </Dropdown.Trigger>
           </Dropdown.Root>

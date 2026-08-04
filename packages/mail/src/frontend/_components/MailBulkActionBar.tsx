@@ -56,7 +56,7 @@ export default function MailBulkActionBar(props: {
             }),
           ]}
         >
-          <Dropdown.Trigger iconOnly type="button" label="More selected conversation actions" disabled={props.busy}>
+          <Dropdown.Trigger iconOnly type="button" variant="ghost" label="More selected conversation actions" disabled={props.busy}>
             <i class="ti ti-dots" aria-hidden="true" />
           </Dropdown.Trigger>
         </Dropdown.Root>
