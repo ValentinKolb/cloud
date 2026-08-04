@@ -330,7 +330,7 @@ function LegalField(props: {
             )}
           </Show>
         </div>
-        <Tooltip content="Stage the default value. Save applies it; Discard cancels it.">
+        <Tooltip.Anchor content="Stage the default value. Save applies it; Discard cancels it.">
           <Button
             type="button"
             variant="secondary"
@@ -341,7 +341,7 @@ function LegalField(props: {
           >
             <i class="ti ti-arrow-back-up" /> Use default
           </Button>
-        </Tooltip>
+        </Tooltip.Anchor>
       </div>
       {props.children}
       <Show when={props.error()}>

@@ -72,7 +72,7 @@ export default function MailAdminMailboxActions(props: MailAdminMailboxActionsPr
   });
 
   return (
-    <Tooltip content="Manage permissions">
+    <Tooltip.Anchor content="Manage permissions">
       <IconButton
         type="button"
         class="h-7 w-7"
@@ -82,6 +82,6 @@ export default function MailAdminMailboxActions(props: MailAdminMailboxActionsPr
       >
         <i class={accessMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-shield text-sm"} aria-hidden="true" />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 }

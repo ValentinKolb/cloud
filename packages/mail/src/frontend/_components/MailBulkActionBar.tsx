@@ -17,7 +17,7 @@ export default function MailBulkActionBar(props: {
         {props.selectedCount > 0 ? `${props.selectedCount} selected` : "Select conversations"}
       </span>
       <Show when={props.selectedCount > 0}>
-        <Tooltip content="Add tags">
+        <Tooltip.Anchor content="Add tags">
           <IconButton
             type="button"
             label={`Add tags to ${props.selectedCount} selected conversations`}
@@ -26,11 +26,11 @@ export default function MailBulkActionBar(props: {
           >
             <i class="ti ti-tags" aria-hidden="true" />
           </IconButton>
-        </Tooltip>
+        </Tooltip.Anchor>
         {primaryActions.map((actionId) => {
           const action = getMailAction(actionId);
           return (
-            <Tooltip content={action.label}>
+            <Tooltip.Anchor content={action.label}>
               <IconButton
                 type="button"
                 label={`${action.label} ${props.selectedCount} selected conversations`}
@@ -39,18 +39,13 @@ export default function MailBulkActionBar(props: {
               >
                 <i class={action.icon} aria-hidden="true" />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           );
         })}
-        <Dropdown
-          trigger={
-            <IconButton type="button" label="More selected conversation actions" disabled={props.busy}>
-              <i class="ti ti-dots" aria-hidden="true" />
-            </IconButton>
-          }
+        <Dropdown.Root
           position="bottom-left"
           width="14rem"
-          elements={[
+          items={[
             ...(["mark_unread", "unflag", props.selectedInJunk ? "not_spam" : "junk"] as const).map((actionId) => {
               const action = getMailAction(actionId);
               return {
@@ -60,13 +55,17 @@ export default function MailBulkActionBar(props: {
               };
             }),
           ]}
-        />
+        >
+          <Dropdown.Trigger iconOnly type="button" label="More selected conversation actions" disabled={props.busy}>
+            <i class="ti ti-dots" aria-hidden="true" />
+          </Dropdown.Trigger>
+        </Dropdown.Root>
       </Show>
-      <Tooltip content="Exit selection">
+      <Tooltip.Anchor content="Exit selection">
         <IconButton type="button" label="Exit conversation selection" disabled={props.busy} onClick={props.onClear}>
           <i class="ti ti-x" aria-hidden="true" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     </div>
   );
 }

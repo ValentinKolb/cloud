@@ -2,22 +2,8 @@ import { createMemo, createSignal, createUniqueId, type JSX, onCleanup, onMount,
 import { Portal } from "solid-js/web";
 import { type DropdownItem, DropdownItems, type DropdownPosition, dropdownPosition } from "./Dropdown";
 
-export type ContextMenuItem = {
-  id: string;
-  label: string;
-  icon?: string;
-  danger?: boolean;
-  disabled?: boolean;
-  href?: string;
-  external?: boolean;
-  onSelect?: () => void;
-};
-
-export type ContextMenuContent =
-  | { elements: readonly DropdownItem[]; items?: readonly ContextMenuItem[] }
-  | { elements?: readonly DropdownItem[]; items: readonly ContextMenuItem[] };
-
-export type ContextMenuProps = ContextMenuContent & {
+export type ContextMenuProps = {
+  items: readonly DropdownItem[];
   children: JSX.Element;
   class?: string | ((isOpen: boolean) => string);
   /** Tab order of the context-menu host. Descendant-focused composite widgets use -1. */
@@ -55,20 +41,7 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
 
   const isOpen = () => position() !== undefined;
   const hostClass = createMemo(() => (typeof props.class === "function" ? props.class(isOpen()) : props.class));
-  const elements = createMemo<readonly DropdownItem[]>(() =>
-    props.elements ??
-    (props.items ?? []).map((item) => ({
-      label: item.label,
-      icon: item.icon,
-      variant: item.danger ? ("danger" as const) : undefined,
-      disabled: item.disabled,
-      ...(item.href
-        ? { href: item.href, external: item.external }
-        : {
-            action: () => item.onSelect?.(),
-          }),
-    })),
-  );
+  const items = createMemo<readonly DropdownItem[]>(() => props.items);
 
   const dismiss = (event: PointerEvent) => {
     if (menu?.contains(event.target as Node)) return;
@@ -113,7 +86,7 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
     const point = dropdownPosition(
       new DOMRect(x, y, 0, 0),
       // Matches the fixed 13rem `.k2b-context-menu` surface (border-box).
-      { width: 208, height: Math.min(elements().length * 38 + 12, 384) },
+      { width: 208, height: Math.min(items().length * 38 + 12, 384) },
       "bottom-right" satisfies DropdownPosition,
       { width: window.innerWidth, height: window.innerHeight },
       0,
@@ -193,7 +166,7 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
               style={{ left: `${point().x}px`, top: `${point().y}px` }}
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <DropdownItems items={elements()} close={close} />
+              <DropdownItems items={items()} close={close} />
             </div>
           </Portal>
         )}

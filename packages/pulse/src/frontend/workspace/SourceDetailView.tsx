@@ -80,11 +80,11 @@ export default function SourceDetailView(props: Props) {
           </>
         }
         actions={
-          <Tooltip content="Close details">
+          <Tooltip.Anchor content="Close details">
             <IconButton label="Close source details" variant="ghost" size="sm" onClick={props.close}>
               <i class="ti ti-x" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         }
         quickActions={
           <>

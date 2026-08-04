@@ -426,16 +426,16 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
               )}
             </For>
             <Show when={canAdmin(venue()) || props.dashboard.sections.length > 0}>
-              <Dropdown
-                trigger={
-                  <AppWorkspace.SidebarIconAction icon="ti ti-layout-list" label="Public content" active={Boolean(selectedSectionId())} />
-                }
-                elements={collapsedPublicContentMenu()}
-                position="right-start"
-                width="16rem"
-                triggerClass="flex w-full"
-                openOnHover
-              />
+              <Dropdown.Root items={collapsedPublicContentMenu()} position="right-start" width="16rem">
+                <Dropdown.Trigger
+                  appearance="plain"
+                  iconOnly
+                  label="Public content"
+                  class={`k2b-app-workspace__sidebar-icon-action ${selectedSectionId() ? "is-active" : ""}`}
+                >
+                  <i class="ti ti-layout-list" aria-hidden="true" />
+                </Dropdown.Trigger>
+              </Dropdown.Root>
             </Show>
           </AppWorkspace.SidebarIconGrid>
 
@@ -448,11 +448,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
               </Show>
               <For
                 each={props.dashboard.sections}
-                fallback={
-                  <Placeholder align="left" class="px-2 py-2" description={<>
-                    No sections yet.
-                  </>} />
-                }
+                fallback={<Placeholder align="left" class="px-2 py-2" description={<>No sections yet.</>} />}
               >
                 {(section) => (
                   <AppWorkspace.SidebarItem
@@ -506,7 +502,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                             >
                               <i class={editSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} /> Edit
                             </Button>
-                            <Tooltip content="Duplicate section">
+                            <Tooltip.Anchor content="Duplicate section">
                               <Button
                                 type="button"
                                 variant="secondary"
@@ -517,8 +513,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                               >
                                 <i class={duplicateSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-copy"} />
                               </Button>
-                            </Tooltip>
-                            <Tooltip content="Delete section">
+                            </Tooltip.Anchor>
+                            <Tooltip.Anchor content="Delete section">
                               <Button
                                 type="button"
                                 variant="danger"
@@ -529,7 +525,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                               >
                                 <i class={deleteSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
                               </Button>
-                            </Tooltip>
+                            </Tooltip.Anchor>
                           </Show>
                         </>
                       }
@@ -656,11 +652,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                   <section class="paper p-2">
                     <Show
                       when={props.dashboard.myUpcomingShifts.length > 0}
-                      fallback={
-                        <Placeholder align="left" class="px-2 py-6" description={<>
-                          You have no upcoming shifts.
-                        </>} />
-                      }
+                      fallback={<Placeholder align="left" class="px-2 py-6" description={<>You have no upcoming shifts.</>} />}
                     >
                       <div class="grid gap-1">
                         <For each={props.dashboard.myUpcomingShifts}>

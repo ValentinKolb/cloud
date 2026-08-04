@@ -18,18 +18,21 @@ import {
 } from "@k2b/ui";
 ```
 
-## Properties
+## Contracts
+
+Buttons expose tooltip properties directly:
 
 | Property | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `content` | `JSX.Element` | required | Supplies the non-interactive hint. |
-| `children` | `JSX.Element` | none | Contains the control being described. Typed optional through `ParentProps`, but a tooltip without a trigger has nothing to describe. |
-| `placement` | `"top" \| "bottom"` | `"top"` | Requests the preferred vertical placement. |
-| `delay` | `number` | `250` | Sets the open delay in milliseconds. |
-| `disabled` | `boolean` | `false` | Prevents the tooltip from opening and closes an open tooltip when changed to `true`. |
-| `class` | `string` | none | Adds classes to the inline wrapper. |
+| `tooltip` | `JSX.Element \| false` | none | Supplies the non-interactive hint. |
+| `tooltipPlacement` | `"top" \| "bottom"` | `"top"` | Requests the preferred vertical placement. |
+| `tooltipDelay` | `number` | `250` | Sets the open delay in milliseconds. |
 
-The tooltip searches its children for the first button, link, input, select, textarea, role button, or focusable element. If none exists, the wrapper becomes the target. Both pointer hover and keyboard focus use the same open delay and surface.
+Use `Tooltip.Anchor` as an explicit wrapper for non-button content. It accepts
+`content`, `placement`, `delay`, `disabled`, and ordinary span attributes. Use
+`Tooltip.Trigger` only for a specialized native button that does not use the
+shared `Button` components. Neither contract searches or rewrites descendant
+DOM.
 
 Placement is a preference. The surface flips vertically when the requested side does not fit and clamps horizontally to the viewport. Positioning measures twice: it first fixes the available horizontal position, then remeasures wrapped content before calculating the final top and left coordinates.
 
@@ -43,23 +46,23 @@ Keep content short and non-interactive. Do not communicate required state throug
 
 ## Runtime
 
-The wrapper and tooltip surface render on the server. Hydration attaches `aria-describedby`, opens the Popover API surface, positions it, and handles dismissal.
+The target and tooltip surface render on the server. Hydration attaches
+`aria-describedby` to the explicitly owned target, opens the Popover API
+surface, positions it, and handles dismissal.
 
 Long content wraps to the surface maximum width. Keep it concise even though the second measurement prevents wrapping from producing stale vertical placement.
 
 ## Example
 
 ```tsx
-<Tooltip content="Application settings">
-  <IconButton label="Settings">
-    <i class="ti ti-settings" aria-hidden="true" />
-  </IconButton>
-</Tooltip>
+<IconButton label="Settings" tooltip="Application settings">
+  <i class="ti ti-settings" aria-hidden="true" />
+</IconButton>
 
-<Tooltip
+<Tooltip.Anchor
   placement="bottom"
   content="This longer explanation wraps and remains inside the viewport."
 >
-  <button type="button">Focus or hover</button>
-</Tooltip>
+  <span tabindex="0">Focus or hover</span>
+</Tooltip.Anchor>
 ```

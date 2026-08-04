@@ -121,9 +121,11 @@ export default function CommentsSection(props: Props) {
       <Show
         when={sortedComments().length > 0}
         fallback={
-          <Placeholder align="left" class="px-0 py-2" description={<>
-            {props.recurrenceId ? "No comments for this occurrence yet." : "No comments yet."}
-          </>} />
+          <Placeholder
+            align="left"
+            class="px-0 py-2"
+            description={<>{props.recurrenceId ? "No comments for this occurrence yet." : "No comments yet."}</>}
+          />
         }
       >
         <>
@@ -153,7 +155,7 @@ export default function CommentsSection(props: Props) {
                         {formatDate(comment.createdAt)}
                       </span>
                       <Show when={props.canWrite && comment.canDelete}>
-                        <Tooltip content="Delete comment" class="ml-auto">
+                        <Tooltip.Anchor content="Delete comment" class="ml-auto">
                           <IconButton
                             label="Delete comment"
                             size="sm"
@@ -163,7 +165,7 @@ export default function CommentsSection(props: Props) {
                           >
                             <i class="ti ti-trash" />
                           </IconButton>
-                        </Tooltip>
+                        </Tooltip.Anchor>
                       </Show>
                     </div>
                     <div class="mt-1">

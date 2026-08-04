@@ -119,14 +119,7 @@ export default function FormsManager(props: Props) {
 
   return (
     <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-      <Show
-        when={forms().length > 0}
-        fallback={
-          <Placeholder surface="paper" align="left" description={<>
-            No custom forms yet.
-          </>} />
-        }
-      >
+      <Show when={forms().length > 0} fallback={<Placeholder surface="paper" align="left" description={<>No custom forms yet.</>} />}>
         <ul class="flex flex-col gap-2">
           <For each={forms()}>
             {(form) => (
@@ -154,7 +147,7 @@ export default function FormsManager(props: Props) {
                   </button>
                   <div class="flex shrink-0 items-center gap-0">
                     <Show when={form.publicToken}>{(token) => <CopyButton text={publicFormUrl(token())} />}</Show>
-                    <Tooltip content="Edit form">
+                    <Tooltip.Anchor content="Edit form">
                       <IconButton
                         variant="ghost"
                         size="sm"
@@ -164,7 +157,7 @@ export default function FormsManager(props: Props) {
                       >
                         <i class="ti ti-pencil" />
                       </IconButton>
-                    </Tooltip>
+                    </Tooltip.Anchor>
                   </div>
                 </div>
               </li>

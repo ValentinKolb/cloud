@@ -84,7 +84,7 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
   };
 
   return (
-    <Tooltip content="Edit FAQ entry">
+    <Tooltip.Anchor content="Edit FAQ entry">
       <IconButton
         size="sm"
         label={`Edit ${props.entry.question}`}
@@ -94,6 +94,6 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
       >
         <i class="ti ti-pencil" aria-hidden="true" />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 }

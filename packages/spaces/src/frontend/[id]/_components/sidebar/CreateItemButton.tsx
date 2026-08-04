@@ -94,11 +94,11 @@ export default function CreateItemButton(props: Props) {
 
   if (props.variant === "icon") {
     return (
-      <Tooltip content={label()}>
+      <Tooltip.Anchor content={label()}>
         <IconButton label={label()} size="sm" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()}>
           <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     );
   }
 

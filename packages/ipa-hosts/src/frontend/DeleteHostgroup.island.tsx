@@ -39,7 +39,7 @@ const DeleteHostgroup = (props: DeleteHostgroupProps) => {
   };
 
   return (
-    <Tooltip content={`Delete hostgroup ${props.cn}`}>
+    <Tooltip.Anchor content={`Delete hostgroup ${props.cn}`}>
       <IconButton
         size="xs"
         variant="danger"
@@ -50,7 +50,7 @@ const DeleteHostgroup = (props: DeleteHostgroupProps) => {
       >
         <i class="ti ti-trash" aria-hidden="true" />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 };
 

@@ -237,14 +237,16 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
         </AppWorkspace.SidebarSection>
 
         <AppWorkspace.SidebarSection sidebarMode="collapsed">
-          <Dropdown
-            trigger={<AppWorkspace.SidebarIconAction icon="ti ti-messages" label="Recent and all chats" active={activeView() === "all"} />}
-            elements={collapsedChatMenu()}
-            position="right-start"
-            width="16rem"
-            triggerClass="flex w-full"
-            openOnHover
-          />
+          <Dropdown.Root items={collapsedChatMenu()} position="right-start" width="16rem">
+            <Dropdown.Trigger
+              appearance="plain"
+              iconOnly
+              label="Recent and all chats"
+              class={`k2b-app-workspace__sidebar-icon-action ${activeView() === "all" ? "is-active" : ""}`}
+            >
+              <i class="ti ti-messages" aria-hidden="true" />
+            </Dropdown.Trigger>
+          </Dropdown.Root>
         </AppWorkspace.SidebarSection>
 
         <AppWorkspace.SidebarBody scrollPreserveKey="assistant-sidebar" sidebarMode="expanded">

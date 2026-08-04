@@ -497,7 +497,7 @@ function InlineRelationCreate(props: {
               <div class="flex flex-col gap-2">
                 <Show when={props.multi}>
                   <div class="flex justify-end">
-                    <Tooltip content="Remove draft">
+                    <Tooltip.Anchor content="Remove draft">
                       <IconButton
                         variant="ghost"
                         size="sm"
@@ -508,7 +508,7 @@ function InlineRelationCreate(props: {
                       >
                         <i class="ti ti-x" />
                       </IconButton>
-                    </Tooltip>
+                    </Tooltip.Anchor>
                   </div>
                 </Show>
                 <For each={inlineFields()}>

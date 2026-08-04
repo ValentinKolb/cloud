@@ -33,7 +33,7 @@ type SignalCatalogViewProps = {
 };
 
 const SignalInfoButton = (props: { label: string; onClick: () => void }) => (
-  <Tooltip content={props.label}>
+  <Tooltip.Anchor content={props.label}>
     <IconButton
       label={props.label}
       variant="ghost"
@@ -46,7 +46,7 @@ const SignalInfoButton = (props: { label: string; onClick: () => void }) => (
     >
       <i class="ti ti-info-circle" />
     </IconButton>
-  </Tooltip>
+  </Tooltip.Anchor>
 );
 
 const renderSignalNameCell = (label: string, value: string, onClick: () => void): JSX.Element => (

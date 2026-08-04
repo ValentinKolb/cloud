@@ -502,18 +502,14 @@ export default function MailFolderSettings(props: {
                     )}
                   </Show>
                   <Show when={menuItems().length > 0}>
-                    <Dropdown
-                      trigger={
-                        <IconButton type="button" disabled={busy()} label={`Actions for ${folder.name}`}>
-                          <i
-                            class={busy() && pendingFolderId() === folder.id ? "ti ti-loader-2 animate-spin" : "ti ti-dots"}
-                            aria-hidden="true"
-                          />
-                        </IconButton>
-                      }
-                      elements={menuItems()}
-                      position="bottom-left"
-                    />
+                    <Dropdown.Root position="bottom-left" items={menuItems()}>
+                      <Dropdown.Trigger iconOnly type="button" disabled={busy()} label={`Actions for ${folder.name}`}>
+                        <i
+                          class={busy() && pendingFolderId() === folder.id ? "ti ti-loader-2 animate-spin" : "ti ti-dots"}
+                          aria-hidden="true"
+                        />
+                      </Dropdown.Trigger>
+                    </Dropdown.Root>
                   </Show>
                 </div>
               );

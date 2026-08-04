@@ -3,9 +3,9 @@ import { AppWorkspace, Tooltip } from "@k2b/ui";
 export default function SidebarTableMeta(props: { tableName: string }) {
   return (
     <AppWorkspace.SidebarItemMeta>
-      <Tooltip content={props.tableName}>
+      <Tooltip.Anchor content={props.tableName}>
         <span class="block max-w-20 truncate text-[9px] uppercase tracking-wider">{props.tableName}</span>
-      </Tooltip>
+      </Tooltip.Anchor>
     </AppWorkspace.SidebarItemMeta>
   );
 }

@@ -44,7 +44,7 @@ export function ScheduleActionButton(props: {
   onClick: () => void;
 }) {
   return (
-    <Tooltip content={props.label}>
+    <Tooltip.Anchor content={props.label}>
       <IconButton
         label={props.label}
         size="xs"
@@ -55,7 +55,7 @@ export function ScheduleActionButton(props: {
       >
         <i class={props.loading ? "ti ti-loader-2 animate-spin" : props.icon} />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 }
 

@@ -99,17 +99,10 @@ const deleteNotebook = async (props: AdminNotebookActionsProps) => {
 
 const AdminNotebookActions = (props: AdminNotebookActionsProps) => {
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Notebook actions">
-          <IconButton label={`Actions for ${props.notebookName}`} size="xs">
-            <i class="ti ti-settings text-sm" />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="13rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -130,7 +123,11 @@ const AdminNotebookActions = (props: AdminNotebookActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly label={`Actions for ${props.notebookName}`} size="xs" tooltip="Notebook actions">
+        <i class="ti ti-settings text-sm" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

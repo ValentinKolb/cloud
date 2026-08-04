@@ -438,7 +438,7 @@ function TableSettingsBody(props: {
                       {publication.revokedAt ? "Revoked" : publication.status === "active" ? "Active" : "Action required"}
                     </span>
                     <Show when={!publication.revokedAt}>
-                      <Tooltip content="Revoke publication">
+                      <Tooltip.Anchor content="Revoke publication">
                         <IconButton
                           variant="ghost"
                           size="sm"
@@ -449,7 +449,7 @@ function TableSettingsBody(props: {
                         >
                           <i class="ti ti-unlink" aria-hidden="true" />
                         </IconButton>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     </Show>
                   </div>
                 )}

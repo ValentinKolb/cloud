@@ -226,7 +226,7 @@ export default function FileTree(props: FileTreeProps) {
       class="k2b-content-file-tree__context-host"
       tabIndex={-1}
       label={contextNode() ? `Actions for ${contextNode()!.name}` : "File actions"}
-      elements={contextItems()}
+      items={contextItems()}
       disabled={contextItems().length === 0}
       onOpen={() => setContextMenuOpen(true)}
       onClose={() => {
@@ -330,17 +330,18 @@ export default function FileTree(props: FileTreeProps) {
                         </Show>
                       </button>
                       <Show when={hasItems()}>
-                        <Dropdown
-                          position="bottom-left"
-                          elements={menuItems(node)}
-                          label={`Actions for ${currentNode().name}`}
-                          trigger={
-                            <button type="button" tabIndex={-1} class="k2b-content-file-tree__actions" title="Actions">
-                              <i class="ti ti-dots" aria-hidden="true" />
-                              <span class="k2b-sr-only">Actions for {currentNode().name}</span>
-                            </button>
-                          }
-                        />
+                        <Dropdown.Root position="bottom-left" items={menuItems(node)} label={`Actions for ${currentNode().name}`}>
+                          <Dropdown.Trigger
+                            appearance="plain"
+                            tabIndex={-1}
+                            class="k2b-content-file-tree__actions"
+                            label={`Actions for ${currentNode().name}`}
+                            title="Actions"
+                          >
+                            <i class="ti ti-dots" aria-hidden="true" />
+                            <span class="k2b-sr-only">Actions for {currentNode().name}</span>
+                          </Dropdown.Trigger>
+                        </Dropdown.Root>
                       </Show>
                     </div>
                   }

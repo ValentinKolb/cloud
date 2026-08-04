@@ -35,7 +35,7 @@ const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T
     {props.index === 0 ? (
       <span class="mr-1 text-[11px] font-medium text-secondary">Primary</span>
     ) : (
-      <Tooltip content={`Make primary ${props.label}`}>
+      <Tooltip.Anchor content={`Make primary ${props.label}`}>
         <IconButton
           size="xs"
           class="text-dimmed"
@@ -44,9 +44,9 @@ const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T
         >
           <i class="ti ti-star" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     )}
-    <Tooltip content="Move up">
+    <Tooltip.Anchor content="Move up">
       <IconButton
         size="xs"
         class="text-dimmed"
@@ -56,8 +56,8 @@ const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T
       >
         <i class="ti ti-chevron-up" />
       </IconButton>
-    </Tooltip>
-    <Tooltip content="Move down">
+    </Tooltip.Anchor>
+    <Tooltip.Anchor content="Move down">
       <IconButton
         size="xs"
         class="text-dimmed"
@@ -67,7 +67,7 @@ const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T
       >
         <i class="ti ti-chevron-down" />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
     <RemoveButton ariaLabel={`Remove ${props.label}`} onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== props.index))} />
   </div>
 );

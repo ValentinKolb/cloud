@@ -38,11 +38,11 @@ export default function CopyICalButton(props: Props) {
   if (props.variant === "icon") {
     const label = () => (copied() ? "Copied iCal URL" : "Copy iCal URL");
     return (
-      <Tooltip content={label()}>
+      <Tooltip.Anchor content={label()}>
         <IconButton label={label()} size="sm" onClick={handleCopy}>
           <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-base`} />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     );
   }
 

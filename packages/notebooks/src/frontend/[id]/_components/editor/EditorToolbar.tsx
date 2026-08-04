@@ -131,11 +131,11 @@ export default function EditorToolbar(props: Props) {
   const toggleDetailPanel = () => window.dispatchEvent(new CustomEvent(DETAIL_PANEL_TOGGLE_EVENT));
 
   const Btn = (p: { icon: string; title: string; onClick: () => void }) => (
-    <Tooltip content={p.title}>
+    <Tooltip.Anchor content={p.title}>
       <IconButton label={p.title} size="xs" onClick={p.onClick} class="text-dimmed">
         <i class={`ti ${p.icon} text-sm`} />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 
   return (
@@ -149,18 +149,10 @@ export default function EditorToolbar(props: Props) {
         <Btn icon="ti-file-symlink" title="Link to note (Mod+Alt+K)" onClick={linkToNote} />
         <Btn icon="ti-paperclip" title="Attach file or image" onClick={() => void openAttachmentPicker(props.notebookId)} />
 
-        <Dropdown
-          trigger={
-            <Tooltip content="Insert content">
-              <IconButton label="Insert content" size="xs" class="text-dimmed">
-                <i class="ti ti-layout-grid-add text-sm" />
-                <i class="ti ti-chevron-down text-[10px]" />
-              </IconButton>
-            </Tooltip>
-          }
+        <Dropdown.Root
           position="top-right"
           width="13rem"
-          elements={[
+          items={[
             {
               sectionLabel: "Lists",
               items: [
@@ -187,7 +179,12 @@ export default function EditorToolbar(props: Props) {
               ],
             },
           ]}
-        />
+        >
+          <Dropdown.Trigger iconOnly label="Insert content" size="xs" class="text-dimmed" tooltip="Insert content">
+            <i class="ti ti-layout-grid-add text-sm" />
+            <i class="ti ti-chevron-down text-[10px]" />
+          </Dropdown.Trigger>
+        </Dropdown.Root>
       </div>
 
       <Show when={showDisconnected()}>

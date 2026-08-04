@@ -338,9 +338,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           )}
         </For>
         <Show when={entries().length === 0}>
-          <Placeholder align="left" class="px-1 py-2" description={<>
-            No direct grants yet.
-          </>} />
+          <Placeholder align="left" class="px-1 py-2" description={<>No direct grants yet.</>} />
         </Show>
       </div>
 
@@ -448,7 +446,7 @@ function AccessEntryRow(props: {
       {/* Destructive row actions stay quiet until the row is engaged. They
           remain keyboard reachable and stay visible on touch-sized layouts. */}
       <Show when={props.canEdit}>
-        <Tooltip
+        <Tooltip.Anchor
           content={`Remove ${getEntryDisplayName(props.entry)}`}
           class="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/access-row:opacity-100 sm:group-focus-within/access-row:opacity-100"
         >
@@ -464,7 +462,7 @@ function AccessEntryRow(props: {
           >
             <i class="ti ti-x text-sm" />
           </IconButton>
-        </Tooltip>
+        </Tooltip.Anchor>
       </Show>
     </div>
   );

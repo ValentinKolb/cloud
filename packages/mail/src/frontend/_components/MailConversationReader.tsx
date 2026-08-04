@@ -875,11 +875,11 @@ export default function MailConversationReader(props: {
               <i class="ti ti-arrow-left" aria-hidden="true" />
             </IconButtonLink>
             <Show when={props.listCollapsed}>
-              <Tooltip content="Show conversation list">
+              <Tooltip.Anchor content="Show conversation list">
                 <IconButton type="button" class="hidden lg:inline-flex" label="Show conversation list" onClick={props.onRestoreList}>
                   <i class="ti ti-layout-sidebar-left-expand" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
             <div class="min-w-0 flex-1">
               <div class="flex min-w-0 items-center gap-2">
@@ -887,7 +887,7 @@ export default function MailConversationReader(props: {
                   {props.subject || "(no subject)"}
                 </h1>
                 <Show when={props.flagged}>
-                  <Tooltip content="Flagged conversation">
+                  <Tooltip.Anchor content="Flagged conversation">
                     <span
                       class="flex h-7 w-7 shrink-0 items-center justify-center text-orange-600 dark:text-orange-400"
                       role="img"
@@ -895,7 +895,7 @@ export default function MailConversationReader(props: {
                     >
                       <i class={getMailAction("flag").icon} aria-hidden="true" />
                     </span>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </Show>
                 <Show when={props.reference}>
                   <button
@@ -928,7 +928,7 @@ export default function MailConversationReader(props: {
                     <div class="flex shrink-0 items-center gap-1" data-mail-toolbar-section={section.id}>
                       <For each={section.actions}>
                         {(action) => (
-                          <Tooltip content={action.label}>
+                          <Tooltip.Anchor content={action.label}>
                             <IconButton
                               type="button"
                               class="shrink-0"
@@ -939,24 +939,19 @@ export default function MailConversationReader(props: {
                             >
                               <i class={action.icon} aria-hidden="true" />
                             </IconButton>
-                          </Tooltip>
+                          </Tooltip.Anchor>
                         )}
                       </For>
                     </div>
                   )}
                 </For>
               </div>
-              <Dropdown
-                trigger={
-                  <IconButton type="button" label="More conversation actions">
-                    <i class="ti ti-dots" aria-hidden="true" />
-                  </IconButton>
-                }
-                position="bottom-left"
-                width="14rem"
-                elements={overflowActions()}
-              />
-              <Tooltip content="Conversation details">
+              <Dropdown.Root position="bottom-left" width="14rem" items={overflowActions()}>
+                <Dropdown.Trigger iconOnly type="button" label="More conversation actions">
+                  <i class="ti ti-dots" aria-hidden="true" />
+                </Dropdown.Trigger>
+              </Dropdown.Root>
+              <Tooltip.Anchor content="Conversation details">
                 <IconButton
                   type="button"
                   classList={{ "bg-[var(--ui-selected)]": props.detailsOpen }}
@@ -967,7 +962,7 @@ export default function MailConversationReader(props: {
                 >
                   <i class="ti ti-layout-sidebar-right" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </div>
           </div>
         </header>

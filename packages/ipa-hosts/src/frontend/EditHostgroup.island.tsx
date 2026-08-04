@@ -47,7 +47,7 @@ const EditHostgroup = (props: Props) => {
   };
 
   return (
-    <Tooltip content={`Edit hostgroup ${props.cn}`}>
+    <Tooltip.Anchor content={`Edit hostgroup ${props.cn}`}>
       <IconButton
         size="xs"
         label={`Edit hostgroup ${props.cn}`}
@@ -57,7 +57,7 @@ const EditHostgroup = (props: Props) => {
       >
         <i class="ti ti-pencil" aria-hidden="true" />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 };
 

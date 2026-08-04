@@ -96,11 +96,7 @@ export function FormFieldsEditor(props: {
         </div>
         <Show
           when={props.entries().length > 0}
-          fallback={
-            <Placeholder surface="paper" align="left" class="p-3" description={<>
-              No fields yet.
-            </>} />
-          }
+          fallback={<Placeholder surface="paper" align="left" class="p-3" description={<>No fields yet.</>} />}
         >
           <ul class="flex min-h-0 flex-col gap-1 overflow-y-auto">
             <Index each={props.entries()}>
@@ -136,7 +132,7 @@ export function FormFieldsEditor(props: {
                         <Tag size="sm">Required</Tag>
                       </Show>
                       <div class="flex shrink-0 items-center gap-0.5">
-                        <Tooltip content="Move field up">
+                        <Tooltip.Anchor content="Move field up">
                           <IconButton
                             variant="ghost"
                             size="sm"
@@ -147,8 +143,8 @@ export function FormFieldsEditor(props: {
                           >
                             <i class="ti ti-arrow-up" />
                           </IconButton>
-                        </Tooltip>
-                        <Tooltip content="Move field down">
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Move field down">
                           <IconButton
                             variant="ghost"
                             size="sm"
@@ -159,8 +155,8 @@ export function FormFieldsEditor(props: {
                           >
                             <i class="ti ti-arrow-down" />
                           </IconButton>
-                        </Tooltip>
-                        <Tooltip content="Edit field settings" class="md:hidden">
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Edit field settings" class="md:hidden">
                           <IconButton
                             variant="ghost"
                             size="sm"
@@ -170,8 +166,8 @@ export function FormFieldsEditor(props: {
                           >
                             <i class="ti ti-pencil" />
                           </IconButton>
-                        </Tooltip>
-                        <Tooltip content="Remove from form">
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Remove from form">
                           <IconButton
                             variant="ghost"
                             size="sm"
@@ -182,7 +178,7 @@ export function FormFieldsEditor(props: {
                           >
                             <i class="ti ti-trash" />
                           </IconButton>
-                        </Tooltip>
+                        </Tooltip.Anchor>
                       </div>
                     </div>
                   </li>

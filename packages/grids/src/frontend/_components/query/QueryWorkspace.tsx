@@ -586,7 +586,7 @@ export default function QueryWorkspace(props: Props) {
                       return (
                         <article class="paper px-2 py-1.5">
                           <div class="flex items-start justify-between gap-2">
-                            <Tooltip content={`Insert ${source.fromLine}`} class="min-w-0 flex-1">
+                            <Tooltip.Anchor content={`Insert ${source.fromLine}`} class="min-w-0 flex-1">
                               <button
                                 type="button"
                                 class="group flex min-w-0 flex-1 items-center gap-2 text-left"
@@ -607,18 +607,18 @@ export default function QueryWorkspace(props: Props) {
                                   </Show>
                                 </span>
                               </button>
-                            </Tooltip>
-                            <Tooltip content={`Insert ${source.fromLine}`}>
+                            </Tooltip.Anchor>
+                            <Tooltip.Anchor content={`Insert ${source.fromLine}`}>
                               <Button variant="ghost" size="sm" type="button" class="shrink-0 px-2" onClick={() => insertSource(source)}>
                                 from
                               </Button>
-                            </Tooltip>
+                            </Tooltip.Anchor>
                           </div>
 
                           <div class="mt-1.5 flex flex-wrap gap-1">
                             <For each={shown()}>
                               {(field) => (
-                                <Tooltip content={field.description || `${field.name} (${field.type})`}>
+                                <Tooltip.Anchor content={field.description || `${field.name} (${field.type})`}>
                                   <button
                                     type="button"
                                     class="inline-flex max-w-full items-baseline gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] leading-4 text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
@@ -627,7 +627,7 @@ export default function QueryWorkspace(props: Props) {
                                     <span class="truncate">{field.name}</span>
                                     <span class="text-dimmed">{field.type}</span>
                                   </button>
-                                </Tooltip>
+                                </Tooltip.Anchor>
                               )}
                             </For>
                             <Show when={hidden() > 0}>

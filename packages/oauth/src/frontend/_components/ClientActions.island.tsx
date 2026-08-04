@@ -144,17 +144,10 @@ const ClientActions = (props: ClientActionsProps) => {
   };
 
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="OAuth client actions">
-          <IconButton size="xs" label="OAuth client actions">
-            <i class="ti ti-dots-vertical text-sm" />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="12rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -189,7 +182,11 @@ const ClientActions = (props: ClientActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly size="xs" label="OAuth client actions" tooltip="OAuth client actions">
+        <i class="ti ti-dots-vertical text-sm" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

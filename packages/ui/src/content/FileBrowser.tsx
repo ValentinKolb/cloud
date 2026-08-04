@@ -86,8 +86,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
     onSuccess: () => void refetch(),
     onError: (error) => void prompts.error(error.message),
   });
-  const pathMutable = (path: string) =>
-    !fileMutation.loading() && !props.readOnly && !props.source.isReadOnly?.(path);
+  const pathMutable = (path: string) => !fileMutation.loading() && !props.readOnly && !props.source.isReadOnly?.(path);
   const pathWritable = (path: string) => pathMutable(path) && Boolean(props.source.write);
   const run = (work: () => Promise<void>) => void fileMutation.mutate(work);
 
@@ -96,9 +95,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
       const confirmed = await prompts.confirm(`Delete ${path}?`, { title: "Delete file", variant: "danger" });
       if (!confirmed) return;
       await props.source.remove!(path);
-      setPendingFolders((folders) =>
-        folders.filter((candidate) => candidate !== path && !candidate.startsWith(`${path}/`)),
-      );
+      setPendingFolders((folders) => folders.filter((candidate) => candidate !== path && !candidate.startsWith(`${path}/`)));
       const selected = selectedPath();
       if (selected === path || selected?.startsWith(`${path}/`)) setSelectedPath(null);
     });
@@ -219,9 +216,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   const addMenuItems = () => [
     ...(pathWritable("/") ? [{ icon: "ti ti-file-plus", label: "New file", action: () => createFile("/") }] : []),
     ...(pathWritable("/") ? [{ icon: "ti ti-folder-plus", label: "New folder", action: () => createFolder("/") }] : []),
-    ...(pathMutable("/") && props.source.upload
-      ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }]
-      : []),
+    ...(pathMutable("/") && props.source.upload ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }] : []),
   ];
 
   return (
@@ -230,16 +225,12 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
         <div class="k2b-content-file-browser__header">
           <p class="k2b-content-file-browser__title">Files</p>
           <Show when={addMenuItems().length > 0}>
-            <Dropdown
-              position="bottom-left"
-              elements={addMenuItems()}
-              trigger={
-                <button type="button" class="k2b-content-file-browser__add" title="Add">
-                  <i class="ti ti-plus" aria-hidden="true" />
-                  <span class="k2b-sr-only">Add file, folder, or upload</span>
-                </button>
-              }
-            />
+            <Dropdown.Root position="bottom-left" items={addMenuItems()} label="Add file, folder, or upload">
+              <Dropdown.Trigger appearance="plain" class="k2b-content-file-browser__add" label="Add file, folder, or upload" title="Add">
+                <i class="ti ti-plus" aria-hidden="true" />
+                <span class="k2b-sr-only">Add file, folder, or upload</span>
+              </Dropdown.Trigger>
+            </Dropdown.Root>
           </Show>
         </div>
         <Switch>

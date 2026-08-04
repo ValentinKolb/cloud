@@ -369,18 +369,11 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       <footer class="k2b-chat-composer__footer">
         <div class="k2b-chat-composer__tools">
           <Show when={hasAddMenu()}>
-            <Dropdown
-              position="top-right"
-              width="12rem"
-              label="Add to chat"
-              elements={menuItems()}
-              disabled={blocked()}
-              trigger={
-                <button type="button" class="k2b-chat-composer__icon-action" aria-label="Add to chat" title="Add to chat">
-                  <i class="ti ti-plus" aria-hidden="true" />
-                </button>
-              }
-            />
+            <Dropdown.Root position="top-right" width="12rem" label="Add to chat" items={menuItems()} disabled={blocked()}>
+              <Dropdown.Trigger appearance="plain" class="k2b-chat-composer__icon-action" label="Add to chat" title="Add to chat">
+                <i class="ti ti-plus" aria-hidden="true" />
+              </Dropdown.Trigger>
+            </Dropdown.Root>
           </Show>
           <Show when={props.fileSelection}>
             <input

@@ -139,16 +139,11 @@ export default function UserActions(props: UserActionsProps) {
   ];
 
   return (
-    <Dropdown
-      trigger={
-        <Button size="sm" variant="subtle" aria-label="User actions">
-          <i class="ti ti-dots-vertical text-sm" />
-          Actions
-        </Button>
-      }
-      position="bottom-left"
-      width="14rem"
-      elements={menuElements}
-    />
+    <Dropdown.Root position="bottom-left" width="14rem" items={menuElements}>
+      <Dropdown.Trigger size="sm" variant="subtle" aria-label="User actions">
+        <i class="ti ti-dots-vertical text-sm" />
+        Actions
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 }

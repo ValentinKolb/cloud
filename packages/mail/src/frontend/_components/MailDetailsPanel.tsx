@@ -499,11 +499,11 @@ export default function MailDetailsPanel(props: {
         <section class="detail-section">
           <div class="mb-3 flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Tags</h3>
-            <Tooltip content="Create tag">
+            <Tooltip.Anchor content="Create tag">
               <IconButton type="button" label="Create tag" disabled={!props.canWrite} onClick={() => void createTag()}>
                 <i class="ti ti-tag-plus" aria-hidden="true" />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
           <MultiSelectInput
             value={() => tagState().tags.map((tag) => tag.id)}
@@ -639,20 +639,20 @@ export default function MailDetailsPanel(props: {
                         <span class="ml-auto flex shrink-0 items-center gap-0.5">
                           <Show when={canModerate()}>
                             <span class="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                              <Tooltip content="Edit comment">
+                              <Tooltip.Anchor content="Edit comment">
                                 <IconButton type="button" label="Edit comment" onClick={() => editComment.mutate(comment)}>
                                   <i class="ti ti-edit" aria-hidden="true" />
                                 </IconButton>
-                              </Tooltip>
-                              <Tooltip content="Delete comment">
+                              </Tooltip.Anchor>
+                              <Tooltip.Anchor content="Delete comment">
                                 <IconButton type="button" label="Delete comment" onClick={() => removeComment.mutate(comment)}>
                                   <i class="ti ti-trash" aria-hidden="true" />
                                 </IconButton>
-                              </Tooltip>
+                              </Tooltip.Anchor>
                             </span>
                           </Show>
                           <Show when={!comment.deletedAt}>
-                            <Tooltip content={`Reply to ${comment.author.displayName}`}>
+                            <Tooltip.Anchor content={`Reply to ${comment.author.displayName}`}>
                               <IconButton
                                 type="button"
                                 label={`Reply to ${comment.author.displayName}`}
@@ -663,7 +663,7 @@ export default function MailDetailsPanel(props: {
                               >
                                 <i class="ti ti-arrow-back-up" aria-hidden="true" />
                               </IconButton>
-                            </Tooltip>
+                            </Tooltip.Anchor>
                           </Show>
                         </span>
                       </div>
@@ -688,11 +688,11 @@ export default function MailDetailsPanel(props: {
                 <div class="mb-2 flex items-center gap-2 text-xs text-dimmed">
                   <i class="ti ti-arrow-back-up" aria-hidden="true" />
                   <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
-                  <Tooltip content="Cancel reply">
+                  <Tooltip.Anchor content="Cancel reply">
                     <IconButton type="button" label="Cancel reply" onClick={() => setReplyingTo(null)}>
                       <i class="ti ti-x" aria-hidden="true" />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </div>
               )}
             </Show>

@@ -797,22 +797,18 @@ export default function MailComposer(props: {
           </span>
         }
       >
-        <Dropdown
-          position="bottom-right"
-          width="18rem"
-          elements={identityMenuItems()}
-          trigger={
-            <button
-              type="button"
-              class="focus-ui flex max-w-[min(18rem,45vw)] min-w-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] px-1.5 py-1 text-sm hover:bg-[var(--ui-hover)] disabled:cursor-default"
-              aria-label={`Change sender identity. Current sender: ${label()}${address() ? `, ${address()}` : ""}`}
-              disabled={!editable()}
-            >
-              <Content />
-              <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" aria-hidden="true" />
-            </button>
-          }
-        />
+        <Dropdown.Root position="bottom-right" width="18rem" items={identityMenuItems()}>
+          <Dropdown.Trigger
+            appearance="plain"
+            type="button"
+            class="focus-ui flex max-w-[min(18rem,45vw)] min-w-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] px-1.5 py-1 text-sm hover:bg-[var(--ui-hover)] disabled:cursor-default"
+            aria-label={`Change sender identity. Current sender: ${label()}${address() ? `, ${address()}` : ""}`}
+            disabled={!editable()}
+          >
+            <Content />
+            <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" aria-hidden="true" />
+          </Dropdown.Trigger>
+        </Dropdown.Root>
       </Show>
     );
   };
@@ -854,7 +850,7 @@ export default function MailComposer(props: {
     <div class="mail-composer-surface h-full min-w-0 overflow-hidden">
       <Show when={!props.popout}>
         <header class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
-          <Tooltip content="Back to mailbox">
+          <Tooltip.Anchor content="Back to mailbox">
             <IconButton
               type="button"
               label="Back to mailbox"
@@ -863,7 +859,7 @@ export default function MailComposer(props: {
             >
               <i class="ti ti-arrow-left" aria-hidden="true" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
           <span class="shrink-0 text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
           <IdentitySwitcher />
           <span class="min-w-0 flex-1" />
@@ -882,11 +878,11 @@ export default function MailComposer(props: {
               <i class="ti ti-history" aria-hidden="true" /> Recover changes
             </Button>
           </Show>
-          <Tooltip content="Open in new window">
+          <Tooltip.Anchor content="Open in new window">
             <IconButton type="button" label="Open in new window" disabled={!editable()} onClick={openWindow}>
               <i class="ti ti-app-window" aria-hidden="true" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         </header>
       </Show>
 
@@ -990,7 +986,7 @@ export default function MailComposer(props: {
             <i class={`ti ${send.loading() ? "ti-loader-2 animate-spin" : intentIcon(composerIntent())}`} aria-hidden="true" />
             {intentLabel(composerIntent())}
           </Button>
-          <Tooltip content="Schedule delivery">
+          <Tooltip.Anchor content="Schedule delivery">
             <Button
               size="sm"
               type="button"
@@ -1001,13 +997,13 @@ export default function MailComposer(props: {
             >
               <i class="ti ti-clock" aria-hidden="true" />
             </Button>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
-        <Tooltip content="Attach files">
+        <Tooltip.Anchor content="Attach files">
           <IconButton type="button" label="Attach files" disabled={!editable()} onClick={() => attachmentInput?.click()}>
             <i class="ti ti-paperclip" aria-hidden="true" />
           </IconButton>
-        </Tooltip>
+        </Tooltip.Anchor>
         <input
           ref={attachmentInput}
           type="file"
@@ -1021,11 +1017,11 @@ export default function MailComposer(props: {
           }}
         />
         <Show when={props.calendarIntegrationAvailable}>
-          <Tooltip content="Add calendar invitation">
+          <Tooltip.Anchor content="Add calendar invitation">
             <IconButton type="button" label="Add calendar invitation" disabled={!editable()} onClick={() => void addCalendarInvitation()}>
               <i class="ti ti-calendar-plus" aria-hidden="true" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         </Show>
         <Select
           placeholder="Message format"
@@ -1039,7 +1035,7 @@ export default function MailComposer(props: {
           ]}
           disabled={!editable()}
         />
-        <Tooltip
+        <Tooltip.Anchor
           content={deliveryOptionsSummary().length > 0 ? `Delivery options: ${deliveryOptionsSummary().join(", ")}` : "Delivery options"}
         >
           <IconButton
@@ -1054,13 +1050,13 @@ export default function MailComposer(props: {
               <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
             </Show>
           </IconButton>
-        </Tooltip>
+        </Tooltip.Anchor>
         <span class="flex-1" />
-        <Tooltip content="Discard draft">
+        <Tooltip.Anchor content="Discard draft">
           <IconButton type="button" label="Discard draft" disabled={!editable() || discard.loading()} onClick={() => void discardDraft()}>
             <i class={`ti ${discard.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
           </IconButton>
-        </Tooltip>
+        </Tooltip.Anchor>
       </footer>
     </div>
   );

@@ -322,7 +322,7 @@ function DashboardRowGrid(props: {
         </Show>
         <Show when={props.edit}>
           {(edit) => (
-            <Tooltip content="Add widget to row">
+            <Tooltip.Anchor content="Add widget to row">
               <Button
                 aria-label={`Add widget to row ${props.rowIdx + 1}`}
                 ref={(element) => {
@@ -342,7 +342,7 @@ function DashboardRowGrid(props: {
               >
                 <i class="ti ti-plus" />
               </Button>
-            </Tooltip>
+            </Tooltip.Anchor>
           )}
         </Show>
         <Show when={props.row.cells.length === 0 && !props.edit}>
@@ -425,7 +425,7 @@ function RowEditRail(props: {
       <span class={EDIT_HANDLE_CLASS} data-dashboard-row-drag aria-hidden="true">
         <i class="ti ti-grip-vertical" />
       </span>
-      <Tooltip content="Move row up">
+      <Tooltip.Anchor content="Move row up">
         <IconButton
           label={`Move row ${props.rowIdx + 1} up`}
           size="sm"
@@ -435,8 +435,8 @@ function RowEditRail(props: {
         >
           <i class="ti ti-arrow-up" />
         </IconButton>
-      </Tooltip>
-      <Tooltip content="Move row down">
+      </Tooltip.Anchor>
+      <Tooltip.Anchor content="Move row down">
         <IconButton
           label={`Move row ${props.rowIdx + 1} down`}
           size="sm"
@@ -446,12 +446,12 @@ function RowEditRail(props: {
         >
           <i class="ti ti-arrow-down" />
         </IconButton>
-      </Tooltip>
-      <Tooltip content="Row settings">
+      </Tooltip.Anchor>
+      <Tooltip.Anchor content="Row settings">
         <IconButton label={`Settings for row ${props.rowIdx + 1}`} size="sm" onClick={() => props.edit?.onEditRow(props.rowIdx)}>
           <i class="ti ti-settings" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     </div>
   );
 }
@@ -496,7 +496,7 @@ function EditCellControls(props: {
           <span class={EDIT_HANDLE_CLASS} data-dashboard-cell-drag aria-hidden="true">
             <i class="ti ti-grip-vertical" />
           </span>
-          <Tooltip content="Move widget left">
+          <Tooltip.Anchor content="Move widget left">
             <IconButton
               label={`Move ${props.label} left`}
               size="sm"
@@ -506,8 +506,8 @@ function EditCellControls(props: {
             >
               <i class="ti ti-arrow-left" />
             </IconButton>
-          </Tooltip>
-          <Tooltip content="Move widget right">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Move widget right">
             <IconButton
               label={`Move ${props.label} right`}
               size="sm"
@@ -517,8 +517,8 @@ function EditCellControls(props: {
             >
               <i class="ti ti-arrow-right" />
             </IconButton>
-          </Tooltip>
-          <Tooltip content="Move widget up">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Move widget up">
             <IconButton
               label={`Move ${props.label} up`}
               size="sm"
@@ -528,8 +528,8 @@ function EditCellControls(props: {
             >
               <i class="ti ti-arrow-up" />
             </IconButton>
-          </Tooltip>
-          <Tooltip content="Move widget down">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Move widget down">
             <IconButton
               label={`Move ${props.label} down`}
               size="sm"
@@ -539,12 +539,12 @@ function EditCellControls(props: {
             >
               <i class="ti ti-arrow-down" />
             </IconButton>
-          </Tooltip>
-          <Tooltip content="Widget settings">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Widget settings">
             <IconButton label={`Settings for ${props.label}`} size="sm" onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}>
               <i class="ti ti-settings" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
       )}
     </Show>

@@ -108,7 +108,7 @@ export default function PulseSidebar(props: Props) {
         subtitle={props.subtitle}
         icon="ti ti-activity-heartbeat"
         action={
-          <Tooltip content={`Settings for ${props.title}`} class="absolute right-0 top-0">
+          <Tooltip.Anchor content={`Settings for ${props.title}`} class="absolute right-0 top-0">
             <IconButton
               label={`Settings for ${props.title}`}
               size="xs"
@@ -118,7 +118,7 @@ export default function PulseSidebar(props: Props) {
             >
               <i class="ti ti-settings" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         }
       />
       <AppWorkspace.SidebarMobile>
@@ -133,20 +133,18 @@ export default function PulseSidebar(props: Props) {
           <SidebarSections {...props} />
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarSection sidebarMode="collapsed">
-          <Dropdown
-            trigger={
-              <AppWorkspace.SidebarIconAction
-                icon="ti ti-chart-area-line"
-                label="Dashboards"
-                active={props.activeView === "dashboard" || props.activeView === "dashboard-edit"}
-              />
-            }
-            elements={collapsedDashboardMenu()}
-            position="right-start"
-            width="16rem"
-            triggerClass="flex w-full"
-            openOnHover
-          />
+          <Dropdown.Root items={collapsedDashboardMenu()} position="right-start" width="16rem">
+            <Dropdown.Trigger
+              appearance="plain"
+              iconOnly
+              label="Dashboards"
+              class={`k2b-app-workspace__sidebar-icon-action ${
+                props.activeView === "dashboard" || props.activeView === "dashboard-edit" ? "is-active" : ""
+              }`}
+            >
+              <i class="ti ti-chart-area-line" aria-hidden="true" />
+            </Dropdown.Trigger>
+          </Dropdown.Root>
         </AppWorkspace.SidebarSection>
         <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
           <AppWorkspace.SidebarIconAction

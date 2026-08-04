@@ -59,7 +59,7 @@ function TagRow(props: { tag: ContactTag; onEdit: () => void; onDelete: () => vo
       <span class="h-4 w-4 shrink-0 rounded-full" style={`background-color: ${safeTagColor(props.tag.color)}`} />
       <span class="flex-1 truncate text-sm">{props.tag.name}</span>
       <div class="flex items-center gap-1 opacity-0 transition-opacity group-hover/tag:opacity-100 group-focus-within/tag:opacity-100">
-        <Tooltip content="Edit tag">
+        <Tooltip.Anchor content="Edit tag">
           <button
             type="button"
             onClick={props.onEdit}
@@ -68,8 +68,8 @@ function TagRow(props: { tag: ContactTag; onEdit: () => void; onDelete: () => vo
           >
             <i class="ti ti-pencil text-sm" />
           </button>
-        </Tooltip>
-        <Tooltip content="Delete tag">
+        </Tooltip.Anchor>
+        <Tooltip.Anchor content="Delete tag">
           <button
             type="button"
             onClick={props.onDelete}
@@ -78,7 +78,7 @@ function TagRow(props: { tag: ContactTag; onEdit: () => void; onDelete: () => vo
           >
             <i class="ti ti-x text-sm" />
           </button>
-        </Tooltip>
+        </Tooltip.Anchor>
       </div>
     </div>
   );
@@ -179,14 +179,7 @@ export default function BookTagsManager(props: Props) {
 
   return (
     <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
-      <For
-        each={tags()}
-        fallback={
-          <Placeholder align="left" class="py-2 pl-3" description={<>
-            No tags yet — add one below.
-          </>} />
-        }
-      >
+      <For each={tags()} fallback={<Placeholder align="left" class="py-2 pl-3" description={<>No tags yet — add one below.</>} />}>
         {(tag) => (
           <Show
             when={editingId() === tag.id}

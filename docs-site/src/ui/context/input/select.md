@@ -16,10 +16,11 @@ Choose from the state transition, not from the desired visual shape:
 | Find an item, perform an action, then clear | `Combobox`         | selected item callback         |
 | Run a secondary action or open a link       | `Dropdown`         | no field value                 |
 
-Do not rebuild select rows inside `Dropdown.element`. That loses the shared
-field, listbox or radio semantics and makes alignment and keyboard behavior the
-consumer's responsibility. See [Dropdown and ContextMenu](../actions/menus) for
-action menus and composite custom content.
+Do not rebuild select rows in a `Dropdown`. That loses the shared field,
+listbox, or radio semantics and makes alignment and keyboard behavior the
+consumer's responsibility. `Dropdown` therefore accepts only declarative
+actions and choices. See [Dropdown and ContextMenu](../actions/menus) for
+action menus.
 
 ## Import
 

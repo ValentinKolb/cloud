@@ -207,9 +207,7 @@ export default function ContactDetailPanel(props: Props) {
       when={contact()}
       fallback={
         props.showEmpty === false ? null : (
-          <Placeholder icon="ti ti-id" class="h-full min-h-0 justify-center" description={<>
-            Select a contact to see details
-          </>} />
+          <Placeholder icon="ti ti-id" class="h-full min-h-0 justify-center" description={<>Select a contact to see details</>} />
         )
       }
     >
@@ -230,15 +228,9 @@ export default function ContactDetailPanel(props: Props) {
                     <span class="text-xs font-semibold text-secondary">Contact details</span>
                     <div class="flex shrink-0 items-center gap-1">
                       <ContactFavoriteButton bookId={c().bookId} contactId={c().id} initialFavorite={selectedFavorite()} />
-                      <Dropdown
-                        trigger={
-                          <Tooltip content="More contact actions">
-                            <IconButton label="More contact actions">
-                              <i class="ti ti-dots" />
-                            </IconButton>
-                          </Tooltip>
-                        }
-                        elements={[
+                      <Dropdown.Root
+                        position="bottom-left"
+                        items={[
                           {
                             label: "Download vCard",
                             icon: "ti ti-download",
@@ -263,13 +255,16 @@ export default function ContactDetailPanel(props: Props) {
                               ]
                             : []),
                         ]}
-                        position="bottom-left"
-                      />
-                      <Tooltip content="Close details">
+                      >
+                        <Dropdown.Trigger iconOnly label="More contact actions" tooltip="More contact actions">
+                          <i class="ti ti-dots" />
+                        </Dropdown.Trigger>
+                      </Dropdown.Root>
+                      <Tooltip.Anchor content="Close details">
                         <IconButton label="Close contact detail panel" onClick={() => clearSelectedContactInUrl()}>
                           <i class="ti ti-x" />
                         </IconButton>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     </div>
                   </div>
 
@@ -607,7 +602,7 @@ export default function ContactDetailPanel(props: Props) {
                                     </div>
                                   </button>
                                   <Show when={actions.canEdit()}>
-                                    <Tooltip content="Remove from members">
+                                    <Tooltip.Anchor content="Remove from members">
                                       <button
                                         type="button"
                                         onClick={() => actions.unlinkMember(member, c())}
@@ -616,7 +611,7 @@ export default function ContactDetailPanel(props: Props) {
                                       >
                                         <i class="ti ti-unlink text-sm" />
                                       </button>
-                                    </Tooltip>
+                                    </Tooltip.Anchor>
                                   </Show>
                                 </li>
                               )}

@@ -199,21 +199,10 @@ const AdminGridsActions = (props: AdminGridsActionsProps) => {
   });
 
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Base actions">
-          <IconButton variant="ghost" size="sm" type="button" class="h-7 w-7" label={`Actions for ${props.baseName}`}>
-            <i
-              class={
-                permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
-              }
-            />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="13rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -234,7 +223,23 @@ const AdminGridsActions = (props: AdminGridsActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger
+        iconOnly
+        variant="ghost"
+        size="sm"
+        type="button"
+        class="h-7 w-7"
+        label={`Actions for ${props.baseName}`}
+        tooltip="Base actions"
+      >
+        <i
+          class={
+            permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
+          }
+        />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

@@ -460,7 +460,7 @@ export function WorkflowRunDetailPanel(props: {
             </div>
             <p class="mt-0.5 text-xs text-dimmed">{run() ? formatDate(run()!.createdAt) : "Loading..."}</p>
           </div>
-          <Tooltip content="Refresh run details">
+          <Tooltip.Anchor content="Refresh run details">
             <IconButton
               variant="ghost"
               size="sm"
@@ -471,9 +471,9 @@ export function WorkflowRunDetailPanel(props: {
             >
               <i class={loadMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
           <Show when={run() && canWrite()}>
-            <Tooltip content="Run again with these inputs">
+            <Tooltip.Anchor content="Run again with these inputs">
               <IconButton
                 variant="ghost"
                 size="sm"
@@ -484,10 +484,10 @@ export function WorkflowRunDetailPanel(props: {
               >
                 <i class={rerunMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-repeat"} />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           </Show>
           <Show when={run() && !isTerminalWorkflowRunStatus(run()!.status) && canWrite()}>
-            <Tooltip content="Cancel workflow run">
+            <Tooltip.Anchor content="Cancel workflow run">
               <IconButton
                 variant="ghost"
                 size="sm"
@@ -499,13 +499,13 @@ export function WorkflowRunDetailPanel(props: {
               >
                 <i class={cancelMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-stop"} />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           </Show>
-          <Tooltip content="Close run details">
+          <Tooltip.Anchor content="Close run details">
             <IconButton variant="ghost" size="sm" type="button" onClick={props.onClose} label="Close run details">
               <i class="ti ti-x" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
       </header>
 

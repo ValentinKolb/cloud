@@ -364,19 +364,23 @@ export default function FileActions(props: FileActionsProps) {
   const fileActions = createFileActionMutations();
 
   return (
-    <Dropdown
-      trigger={
-        <span class="inline-flex h-8 w-8 items-center justify-center text-dimmed transition-colors hover:app-accent-text" data-dnd-ignore>
-          <i class="ti ti-dots" />
-        </span>
-      }
-      elements={fileActions.buildFileMenuElements({
+    <Dropdown.Root
+      position="bottom-left"
+      width="12rem"
+      items={fileActions.buildFileMenuElements({
         item: props.item,
         itemPath: props.itemPath,
         ctx,
       })}
-      position="bottom-left"
-      width="12rem"
-    />
+    >
+      <Dropdown.Trigger
+        label="Actions"
+        appearance="plain"
+        class="inline-flex h-8 w-8 items-center justify-center text-dimmed transition-colors hover:app-accent-text"
+        data-dnd-ignore
+      >
+        <i class="ti ti-dots" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 }

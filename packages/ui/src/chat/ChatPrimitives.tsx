@@ -202,17 +202,11 @@ export function ChatMessage(props: ChatMessageProps): JSX.Element {
           </span>
         </Show>
         <Show when={actions().length > 0 && actionDisplay() === "menu"}>
-          <Dropdown
-            position="bottom-left"
-            width="12rem"
-            label="Message actions"
-            elements={menuItems()}
-            trigger={
-              <button type="button" class="k2b-chat-message__menu" aria-label="Message actions" title="Message actions">
-                <i class="ti ti-dots" aria-hidden="true" />
-              </button>
-            }
-          />
+          <Dropdown.Root position="bottom-left" width="12rem" label="Message actions" items={menuItems()}>
+            <Dropdown.Trigger appearance="plain" class="k2b-chat-message__menu" label="Message actions" title="Message actions">
+              <i class="ti ti-dots" aria-hidden="true" />
+            </Dropdown.Trigger>
+          </Dropdown.Root>
         </Show>
       </footer>
     </article>
@@ -286,9 +280,8 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
   };
 
   return (
-    <Tooltip
+    <Tooltip.Trigger
       placement="top"
-      class={props.class}
       content={
         <div class="k2b-chat-context__tooltip">
           <strong>Last request context</strong>
@@ -331,16 +324,13 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
           </dl>
         </div>
       }
+      type="button"
+      class={`k2b-chat-context ${props.class ?? ""}`}
+      data-warning={reported() && (percent() ?? 0) >= 85 ? "true" : undefined}
+      aria-label={accessibleLabel()}
     >
-      <button
-        type="button"
-        class="k2b-chat-context"
-        data-warning={reported() && (percent() ?? 0) >= 85 ? "true" : undefined}
-        aria-label={accessibleLabel()}
-      >
-        <i class="ti ti-brain" aria-hidden="true" />
-        <span>{percent() === null ? "–" : `${percent()}%`}</span>
-      </button>
-    </Tooltip>
+      <i class="ti ti-brain" aria-hidden="true" />
+      <span>{percent() === null ? "–" : `${percent()}%`}</span>
+    </Tooltip.Trigger>
   );
 }

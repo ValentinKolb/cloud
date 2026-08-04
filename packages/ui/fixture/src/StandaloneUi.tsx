@@ -51,23 +51,13 @@ export default function StandaloneUi() {
               <p style={{ margin: "0", color: "var(--k2b-text-muted)", "font-size": "12px" }}>No Cloud CSS or runtime</p>
               <h1 style={{ margin: "3px 0 0", "font-size": "24px" }}>@k2b/ui standalone certification</h1>
             </div>
-            <Button
-              variant="secondary"
-              data-testid="theme-toggle"
-              onClick={() => setTheme(theme() === "light" ? "dark" : "light")}
-            >
+            <Button variant="secondary" data-testid="theme-toggle" onClick={() => setTheme(theme() === "light" ? "dark" : "light")}>
               Toggle theme
             </Button>
           </header>
 
           <section style={{ display: "grid", gap: "16px", "grid-template-columns": "repeat(auto-fit,minmax(220px,1fr))" }}>
-            <TextInput
-              label="Display name"
-              value={name}
-              onValueChange={setName}
-              clearable
-              description="Hydrated controlled input"
-            />
+            <TextInput label="Display name" value={name} onValueChange={setName} clearable description="Hydrated controlled input" />
             <Select
               label="Role"
               value={role}
@@ -86,9 +76,9 @@ export default function StandaloneUi() {
           </StatGrid>
 
           <section style={{ display: "flex", "align-items": "center", "flex-wrap": "wrap", gap: "12px" }}>
-            <Tooltip content="Rendered by the package portal">
+            <Tooltip.Anchor content="Rendered by the package portal">
               <Button variant="secondary">Focus or hover</Button>
-            </Tooltip>
+            </Tooltip.Anchor>
             <Button data-testid="toast-trigger" onClick={() => toast.success("Standalone toast")}>
               Show toast
             </Button>
@@ -139,15 +129,15 @@ export default function StandaloneUi() {
                 { value: "compact", label: "Compact" },
               ]}
             />
-            <Dropdown
-              label="Record actions"
-              trigger="Actions"
-              width="12rem"
-              elements={[
+            <Dropdown.Root
+              items={[
                 { label: "Rename", icon: "ti ti-pencil", action: () => {} },
                 { sectionLabel: "Links", items: [{ label: "Documentation", href: "/docs" }] },
               ]}
-            />
+              width="12rem"
+            >
+              <Dropdown.Trigger label="Record actions">Actions</Dropdown.Trigger>
+            </Dropdown.Root>
             <StatusBadge tone="ok" label="Healthy" />
             <StatusBadge tone="warning" label="Degraded" variant="dot" />
           </section>
@@ -169,7 +159,7 @@ export default function StandaloneUi() {
 
           <Pagination currentPage={2} totalPages={7} baseUrl="/ui?page=" />
 
-          <CodeDisplay title="server.ts" language="ts" code={'export const port = 3000;\nconsole.log(port);\n'} />
+          <CodeDisplay title="server.ts" language="ts" code={"export const port = 3000;\nconsole.log(port);\n"} />
 
           <StructuredDataPreview title="Request" data={{ method: "GET", path: "/health", ok: true }} />
 

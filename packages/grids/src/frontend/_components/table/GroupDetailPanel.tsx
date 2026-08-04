@@ -164,11 +164,11 @@ export default function GroupDetailPanel(props: Props) {
       <header class="detail-header">
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold text-secondary">Group details</span>
-          <Tooltip content="Close details">
+          <Tooltip.Anchor content="Close details">
             <IconButton variant="ghost" size="sm" type="button" label="Close group detail panel" onClick={() => props.onClose()}>
               <i class="ti ti-x" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
 
         <div class="mt-4 flex flex-col items-center text-center">

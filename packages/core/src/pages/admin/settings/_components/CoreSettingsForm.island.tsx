@@ -397,17 +397,19 @@ export default function CoreSettingsForm(props: Props) {
   const headerActions = () => (
     <>
       <Show when={props.showTestEmailAction}>
-        <Tooltip
+        <Tooltip.Anchor
           content={hasChanges() ? "Save pending changes before sending a test email" : "Send a test email with the saved SMTP settings"}
         >
           <Button type="button" variant="secondary" size="sm" class="justify-center" onClick={openTestEmailDialog} disabled={hasChanges()}>
             <i class="ti ti-send" /> Test email
           </Button>
-        </Tooltip>
+        </Tooltip.Anchor>
       </Show>
 
       <Show when={props.showTestPdfAction}>
-        <Tooltip content={hasChanges() ? "Save pending changes before testing Gotenberg" : "Render a test PDF with the saved settings"}>
+        <Tooltip.Anchor
+          content={hasChanges() ? "Save pending changes before testing Gotenberg" : "Render a test PDF with the saved settings"}
+        >
           <Button
             type="button"
             variant="secondary"
@@ -420,11 +422,13 @@ export default function CoreSettingsForm(props: Props) {
           >
             <i class={testPdf.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-file-type-pdf"} /> Test renderer
           </Button>
-        </Tooltip>
+        </Tooltip.Anchor>
       </Show>
 
       <Show when={props.showTestFreeIpaAction}>
-        <Tooltip content={hasChanges() ? "Save pending changes before testing FreeIPA" : "Test TLS, service account login, and ping"}>
+        <Tooltip.Anchor
+          content={hasChanges() ? "Save pending changes before testing FreeIPA" : "Test TLS, service account login, and ping"}
+        >
           <Button
             type="button"
             variant="secondary"
@@ -437,7 +441,7 @@ export default function CoreSettingsForm(props: Props) {
           >
             <i class={testFreeIpa.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} /> Test connection
           </Button>
-        </Tooltip>
+        </Tooltip.Anchor>
       </Show>
     </>
   );
@@ -853,14 +857,22 @@ function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview; show
           value={props.overview.dirtyConversations}
           sub={`Oldest ${formatAiDate(props.overview.oldestDirtyAt)}`}
         />
-        <StatCell label="Failed chats" value={props.overview.failedConversations} sub={`${props.overview.totalConversations} active total`} />
+        <StatCell
+          label="Failed chats"
+          value={props.overview.failedConversations}
+          sub={`${props.overview.totalConversations} active total`}
+        />
         <StatCell
           label="Error rate 24h"
           value={formatAiPercent(props.overview.errorRate24h)}
           sub={`${props.overview.failedRuns24h} / ${props.overview.totalRuns24h} failed`}
           accent={props.overview.failedRuns24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
         />
-        <StatCell label="Avg runtime" value={formatAiDuration(props.overview.avgDurationMs)} sub={`Last run ${formatAiDate(props.overview.lastRunAt)}`} />
+        <StatCell
+          label="Avg runtime"
+          value={formatAiDuration(props.overview.avgDurationMs)}
+          sub={`Last run ${formatAiDate(props.overview.lastRunAt)}`}
+        />
       </StatGrid>
 
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -1074,11 +1086,7 @@ function AiSettingsPanel(props: {
   return (
     <div class="flex flex-col gap-2">
       <Show when={props.section === "general"}>
-        <SettingsSection
-          title="Cloud AI"
-          subtitle="Global switch, default model, and workspace-wide instructions."
-          icon="ti ti-sparkles"
-        >
+        <SettingsSection title="Cloud AI" subtitle="Global switch, default model, and workspace-wide instructions." icon="ti ti-sparkles">
           <div class="flex flex-col gap-2">
             <Switch
               label={props.valueOf(AI_ENABLED_SETTING_KEY) ? "AI enabled" : "AI disabled"}
@@ -1141,11 +1149,7 @@ function AiSettingsPanel(props: {
           </details>
         </SettingsSection>
 
-        <SettingsSection
-          title="Context"
-          subtitle="Compaction behavior for long conversations and large tool outputs."
-          icon="ti ti-package"
-        >
+        <SettingsSection title="Context" subtitle="Compaction behavior for long conversations and large tool outputs." icon="ti ti-package">
           <TextInput
             variant="ai"
             multiline
@@ -1217,11 +1221,7 @@ function AiSettingsPanel(props: {
       </Show>
 
       <Show when={props.section === "general"}>
-        <SettingsSection
-          title="Web tools"
-          subtitle="Firecrawl-backed search and page extraction for AI tools."
-          icon="ti ti-world-search"
-        >
+        <SettingsSection title="Web tools" subtitle="Firecrawl-backed search and page extraction for AI tools." icon="ti ti-world-search">
           <TextInput
             variant="ai"
             label="Firecrawl API key"
@@ -1247,11 +1247,11 @@ function AiSettingsPanel(props: {
         <DataTable.Panel>
           <DataTable.Header title="Model profiles" subtitle="Models, credentials, capabilities, and endpoint policy.">
             <div class="flex flex-wrap items-center justify-end gap-2">
-              <Tooltip content="API keys are never exported">
+              <Tooltip.Anchor content="API keys are never exported">
                 <Button type="button" variant="secondary" size="sm" onClick={exportJson}>
                   <i class="ti ti-file-export" /> Export JSON
                 </Button>
-              </Tooltip>
+              </Tooltip.Anchor>
               <Button type="button" variant="secondary" size="sm" onClick={() => void importJson()}>
                 <i class="ti ti-file-import" /> Import JSON
               </Button>
@@ -1267,10 +1267,7 @@ function AiSettingsPanel(props: {
                 class="m-3"
                 tone={profilesState().error ? "danger" : "info"}
                 title={profilesState().error ? "Model profiles need attention" : "No providers configured"}
-                detail={
-                  profilesState().error ??
-                  "Add a hosted or private model profile before Cloud AI can start conversations."
-                }
+                detail={profilesState().error ?? "Add a hosted or private model profile before Cloud AI can start conversations."}
               />
             }
           >
@@ -1406,7 +1403,7 @@ function AiProfilesTable(props: {
           const isDefault = profile.id === props.defaultModelId;
           return (
             <div class="flex items-center justify-end gap-1">
-              <Tooltip content={isDefault ? "Default provider" : "Set as default"}>
+              <Tooltip.Anchor content={isDefault ? "Default provider" : "Set as default"}>
                 <IconButton
                   label={isDefault ? "Default provider" : "Set as default"}
                   size="sm"
@@ -1415,22 +1412,22 @@ function AiProfilesTable(props: {
                 >
                   <i class="ti ti-star" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Edit profile">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Edit profile">
                 <IconButton label="Edit profile" size="sm" onClick={() => props.onEdit(profile)}>
                   <i class="ti ti-pencil" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Duplicate profile">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Duplicate profile">
                 <IconButton label="Duplicate profile" size="sm" onClick={() => props.onDuplicate(profile)}>
                   <i class="ti ti-copy" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Remove profile">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Remove profile">
                 <IconButton label="Remove profile" size="sm" class="text-danger" onClick={() => props.onRemove(profile)}>
                   <i class="ti ti-trash" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </div>
           );
         }
@@ -1777,7 +1774,7 @@ function FieldRow(props: {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
-          <Tooltip content="Stage the default value. Save applies it; Discard cancels it.">
+          <Tooltip.Anchor content="Stage the default value. Save applies it; Discard cancels it.">
             <Button
               type="button"
               variant="secondary"
@@ -1788,7 +1785,7 @@ function FieldRow(props: {
             >
               <i class="ti ti-arrow-back-up" /> Use default
             </Button>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
       </div>
 

@@ -52,7 +52,7 @@ function RecordFilePreviewDialog(props: { location: RecordFileLocation; file: Gr
           mimeType: props.file.mimeType,
         })}`}
         actions={
-          <Tooltip content="Download file">
+          <Tooltip.Anchor content="Download file">
             <IconButtonLink
               variant="ghost"
               size="sm"
@@ -63,7 +63,7 @@ function RecordFilePreviewDialog(props: { location: RecordFileLocation; file: Gr
               <i class="ti ti-download" aria-hidden="true" />
               <span class="sr-only">Download {props.file.filename}</span>
             </IconButtonLink>
-          </Tooltip>
+          </Tooltip.Anchor>
         }
         close={props.close}
       />
@@ -191,17 +191,17 @@ export default function RecordFileField(props: {
                     mimeType: file.mimeType,
                   })} shrink-0 text-base`}
                 />
-                <Tooltip content={file.filename} class="min-w-0 flex-1">
+                <Tooltip.Anchor content={file.filename} class="min-w-0 flex-1">
                   <a
                     class="min-w-0 flex-1 truncate text-secondary transition-colors hover:text-primary"
                     href={recordFileContentHref(location(), file)}
                   >
                     {file.filename}
                   </a>
-                </Tooltip>
+                </Tooltip.Anchor>
                 <span class="shrink-0 text-xs text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
                 <Show when={previewable(file)}>
-                  <Tooltip content="Preview file">
+                  <Tooltip.Anchor content="Preview file">
                     <IconButton
                       variant="ghost"
                       size="sm"
@@ -212,10 +212,10 @@ export default function RecordFileField(props: {
                     >
                       <i class="ti ti-eye" aria-hidden="true" />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </Show>
                 <Show when={props.canWrite}>
-                  <Tooltip content="Delete file">
+                  <Tooltip.Anchor content="Delete file">
                     <IconButton
                       variant="ghost"
                       size="sm"
@@ -226,7 +226,7 @@ export default function RecordFileField(props: {
                     >
                       <i class="ti ti-trash" />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </Show>
               </div>
             )}

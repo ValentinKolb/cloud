@@ -276,11 +276,11 @@ export default function DatabaseTable(props: Props) {
           const label = spec.label?.trim() || fallbackLabel;
           return (
             <Show when={value() !== undefined && value() !== null}>
-              <Tooltip content={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}>
+              <Tooltip.Anchor content={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}>
                 <span class="block whitespace-nowrap">
                   <span class="font-medium text-secondary">{displayValue()}</span> <span>{label}</span>
                 </span>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
           );
         }}
@@ -341,7 +341,7 @@ export default function DatabaseTable(props: Props) {
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{renderAdminHeader(field, subtitle, computed)}</div>
               <div class="flex shrink-0 items-center gap-0">
-                <Tooltip content="Move column left">
+                <Tooltip.Anchor content="Move column left">
                   <IconButton
                     label={`Move ${field.name} left`}
                     size="xs"
@@ -355,8 +355,8 @@ export default function DatabaseTable(props: Props) {
                   >
                     <i class="ti ti-chevron-left text-xs" />
                   </IconButton>
-                </Tooltip>
-                <Tooltip content="Move column right">
+                </Tooltip.Anchor>
+                <Tooltip.Anchor content="Move column right">
                   <IconButton
                     label={`Move ${field.name} right`}
                     size="xs"
@@ -370,8 +370,8 @@ export default function DatabaseTable(props: Props) {
                   >
                     <i class="ti ti-chevron-right text-xs" />
                   </IconButton>
-                </Tooltip>
-                <Tooltip content={isViewColumnEdit ? "Column settings" : "Field settings"}>
+                </Tooltip.Anchor>
+                <Tooltip.Anchor content={isViewColumnEdit ? "Column settings" : "Field settings"}>
                   <IconButton
                     label={`${isViewColumnEdit ? "Column" : "Field"} settings for ${field.name}`}
                     size="xs"
@@ -385,7 +385,7 @@ export default function DatabaseTable(props: Props) {
                   >
                     <i class="ti ti-settings text-xs" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </div>
             </div>
           );

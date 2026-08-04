@@ -727,7 +727,7 @@ export default function WorkflowScannerSurface(props: Props) {
     <div class={shellClass}>
       <Show when={props.mode === "page"}>
         <header class="flex shrink-0 items-center gap-3 px-4 py-3">
-          <Tooltip content="Back to workflow" placement="bottom">
+          <Tooltip.Anchor content="Back to workflow" placement="bottom">
             <IconButtonLink
               variant="ghost"
               size="sm"
@@ -739,7 +739,7 @@ export default function WorkflowScannerSurface(props: Props) {
             >
               <i class="ti ti-arrow-left" />
             </IconButtonLink>
-          </Tooltip>
+          </Tooltip.Anchor>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold">{props.state.workflowName}</p>
             <p class="truncate text-xs text-dimmed">Scanner</p>

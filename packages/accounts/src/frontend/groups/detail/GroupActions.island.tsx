@@ -145,17 +145,10 @@ export default function GroupActions(props: GroupActionsProps) {
   };
 
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Manage group">
-          <IconButton size="sm" label="Group actions">
-            <i class="ti ti-dots-vertical text-sm" />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="12rem"
-      elements={[
+      items={[
         {
           items: [
             ...(!props.isPosix
@@ -181,6 +174,10 @@ export default function GroupActions(props: GroupActionsProps) {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly size="sm" label="Group actions" tooltip="Manage group">
+        <i class="ti ti-dots-vertical text-sm" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 }

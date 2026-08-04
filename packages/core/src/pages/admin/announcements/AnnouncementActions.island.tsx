@@ -185,12 +185,12 @@ function AnnouncementRowActions(props: { entry: AnnouncementEntry }) {
 
   return (
     <div class="flex justify-end gap-1">
-      <Tooltip content="Edit announcement">
+      <Tooltip.Anchor content="Edit announcement">
         <IconButton label="Edit announcement" size="sm" onClick={handleEdit} loading={update.loading()} loadingLabel="Editing announcement">
           <i class="ti ti-pencil" aria-hidden="true" />
         </IconButton>
-      </Tooltip>
-      <Tooltip content="Delete announcement">
+      </Tooltip.Anchor>
+      <Tooltip.Anchor content="Delete announcement">
         <IconButton
           label="Delete announcement"
           variant="danger"
@@ -201,7 +201,7 @@ function AnnouncementRowActions(props: { entry: AnnouncementEntry }) {
         >
           <i class="ti ti-trash" aria-hidden="true" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     </div>
   );
 }

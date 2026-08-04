@@ -74,17 +74,10 @@ const AdminBookActions = (props: AdminBookActionsProps) => {
   });
 
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Manage permissions">
-          <IconButton label={`Manage permissions for ${props.bookName}`} size="xs">
-            <i class={permissionDialogMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"} />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="13rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -95,7 +88,11 @@ const AdminBookActions = (props: AdminBookActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly label={`Manage permissions for ${props.bookName}`} size="xs" tooltip="Manage permissions">
+        <i class={permissionDialogMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"} />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

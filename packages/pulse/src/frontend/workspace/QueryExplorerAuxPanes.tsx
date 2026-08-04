@@ -35,7 +35,7 @@ export function SavedQueriesPane(props: {
                   <span class="block truncate text-sm font-medium text-secondary">{item.name}</span>
                   <code class="block truncate font-mono text-[11px] text-dimmed">{item.query}</code>
                 </button>
-                <Tooltip content="Remove saved query">
+                <Tooltip.Anchor content="Remove saved query">
                   <IconButton
                     label={`Remove saved query ${item.name}`}
                     variant="ghost"
@@ -45,7 +45,7 @@ export function SavedQueriesPane(props: {
                   >
                     <i class="ti ti-trash" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </div>
             )}
           </For>

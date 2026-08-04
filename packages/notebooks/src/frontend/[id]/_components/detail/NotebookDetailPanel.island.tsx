@@ -295,11 +295,11 @@ export default function NotebookDetailPanel(props: Props) {
         <header class="detail-header" style="view-transition-name: notebook-detail-panel">
           <div class="flex items-center justify-between gap-2">
             <span class="text-xs font-semibold text-secondary">Note details</span>
-            <Tooltip content="Close details">
+            <Tooltip.Anchor content="Close details">
               <IconButton label="Close note details" size="sm" onClick={closePanel}>
                 <i class="ti ti-x" />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
 
           <div class="mt-4 flex min-w-0 items-start gap-3">
@@ -316,40 +316,32 @@ export default function NotebookDetailPanel(props: Props) {
 
           <div class="mt-3 flex flex-wrap items-center gap-1">
             <Show when={props.mode === "edit"}>
-              <Tooltip content={isRich() ? "Show Markdown source" : "Show rich text"}>
+              <Tooltip.Anchor content={isRich() ? "Show Markdown source" : "Show rich text"}>
                 <IconButton label={isRich() ? "Show Markdown source" : "Show rich text"} size="sm" onClick={toggleRichMode}>
                   <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
-            <Tooltip content="Copy content">
+            <Tooltip.Anchor content="Copy content">
               <IconButton label="Copy note content" size="sm" onClick={copyContent}>
                 <i class="ti ti-copy" />
               </IconButton>
-            </Tooltip>
-            <Tooltip content="Download Markdown">
+            </Tooltip.Anchor>
+            <Tooltip.Anchor content="Download Markdown">
               <IconButton label="Download note as Markdown" size="sm" onClick={downloadContent}>
                 <i class="ti ti-download" />
               </IconButton>
-            </Tooltip>
-            <Tooltip content="Version history">
-              <IconButtonLink
-                href={buildVersionsUrl(props.notebookId, noteId())}
-                size="sm"
-                label="Open version history"
-              >
+            </Tooltip.Anchor>
+            <Tooltip.Anchor content="Version history">
+              <IconButtonLink href={buildVersionsUrl(props.notebookId, noteId())} size="sm" label="Open version history">
                 <i class="ti ti-history" />
               </IconButtonLink>
-            </Tooltip>
-            <Tooltip content="Graph view">
-              <IconButtonLink
-                href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`}
-                size="sm"
-                label="Open graph view"
-              >
+            </Tooltip.Anchor>
+            <Tooltip.Anchor content="Graph view">
+              <IconButtonLink href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} size="sm" label="Open graph view">
                 <i class="ti ti-affiliate" />
               </IconButtonLink>
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
         </header>
 
@@ -420,7 +412,7 @@ export default function NotebookDetailPanel(props: Props) {
                         </span>
                         <span class="text-dimmed capitalize">{block.type}</span>
                       </button>
-                      <Tooltip content={`Copy script snippet for @${block.name}`} class="shrink-0">
+                      <Tooltip.Anchor content={`Copy script snippet for @${block.name}`} class="shrink-0">
                         <IconButton
                           label={`Copy script snippet for ${block.name}`}
                           size="xs"
@@ -429,7 +421,7 @@ export default function NotebookDetailPanel(props: Props) {
                         >
                           <i class="ti ti-copy text-xs" />
                         </IconButton>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     </li>
                   )}
                 </For>

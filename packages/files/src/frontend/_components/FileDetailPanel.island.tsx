@@ -150,9 +150,7 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       when={file()}
       fallback={
         props.showEmpty === false ? null : (
-          <Placeholder icon="ti ti-file-info" class="h-full min-h-0 justify-center" description={<>
-            Select a file to view details
-          </>} />
+          <Placeholder icon="ti ti-file-info" class="h-full min-h-0 justify-center" description={<>Select a file to view details</>} />
         )
       }
     >
@@ -181,16 +179,11 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
                   </p>
                 </div>
               </div>
-              <Tooltip content="Close details" class="absolute right-0 top-0 z-10">
-                <IconButton
-                  onClick={handleClose}
-                  label="Close file detail panel"
-                  size="sm"
-                  variant="ghost"
-                >
+              <Tooltip.Anchor content="Close details" class="absolute right-0 top-0 z-10">
+                <IconButton onClick={handleClose} label="Close file detail panel" size="sm" variant="ghost">
                   <i class="ti ti-x" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </div>
           </section>
 

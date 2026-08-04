@@ -14,11 +14,11 @@ function AssistantFilesDialog(props: AssistantFilesDialogProps) {
 
   return (
     <div class="dialog-fixed-frame relative flex min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--k2b-surface)] [box-shadow:var(--ui-shadow-float)]">
-      <Tooltip content="Close files" class="absolute right-3 top-3 z-20">
+      <Tooltip.Anchor content="Close files" class="absolute right-3 top-3 z-20">
         <IconButton label="Close files" onClick={props.close}>
           <i class="ti ti-x" aria-hidden="true" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
       <FileBrowserPanel
         source={source}
         readOnly

@@ -1,19 +1,25 @@
-import { createEffect, createUniqueId, type JSX, onCleanup, onMount, type ParentProps } from "solid-js";
+import { createEffect, createUniqueId, type JSX, onCleanup, onMount, splitProps } from "solid-js";
 import { positionTooltipSurface, type TooltipPlacement } from "./tooltip-position";
 
-export type TooltipProps = ParentProps<{
+export type TooltipProps = {
   content: JSX.Element;
+  target: () => HTMLElement | undefined;
   placement?: TooltipPlacement;
   delay?: number;
   disabled?: boolean;
-  class?: string;
-}>;
+};
 
-export function Tooltip(props: TooltipProps): JSX.Element {
-  // Unlike Cloud's browser-only crypto.randomUUID(), Solid's unique id stays
-  // stable across SSR and hydration in standalone @k2b/ssr consumers.
+export type TooltipAnchorProps = Omit<JSX.HTMLAttributes<HTMLSpanElement>, "content"> & Omit<TooltipProps, "target">;
+
+export type TooltipTriggerProps = Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "content"> & Omit<TooltipProps, "target">;
+
+/**
+ * Low-level tooltip surface for components that already own their target DOM
+ * element. Most callers should use Button.tooltip, IconButton.tooltip, or
+ * Tooltip.Anchor instead.
+ */
+function TooltipSurface(props: TooltipProps): JSX.Element {
   const tooltipId = `k2b-tooltip-${createUniqueId()}`;
-  let wrapper: HTMLSpanElement | undefined;
   let surface: HTMLSpanElement | undefined;
   let target: HTMLElement | undefined;
   let openTimer: ReturnType<typeof setTimeout> | undefined;
@@ -44,10 +50,6 @@ export function Tooltip(props: TooltipProps): JSX.Element {
     window.removeEventListener("resize", close);
   }
 
-  createEffect(() => {
-    if (props.disabled) close();
-  });
-
   const open = () => {
     clearTimer();
     if (props.disabled || dismissedUntilLeave || !surface || !target || surface.matches(":popover-open")) return;
@@ -66,71 +68,108 @@ export function Tooltip(props: TooltipProps): JSX.Element {
     }, props.delay ?? 250);
   };
 
+  createEffect(() => {
+    if (props.disabled) close();
+  });
+
   onMount(() => {
-    if (!wrapper) return;
-    target =
-      wrapper.querySelector<HTMLElement>("button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])") ??
-      wrapper;
+    target = props.target();
+    if (!target) return;
+
     const originalDescription = target.getAttribute("aria-describedby");
     const descriptions = new Set(originalDescription?.split(/\s+/).filter(Boolean) ?? []);
     descriptions.add(tooltipId);
     target.setAttribute("aria-describedby", [...descriptions].join(" "));
 
-    const focusOut = (event: FocusEvent) => {
-      if (!wrapper?.contains(event.relatedTarget as Node | null)) {
-        dismissedUntilLeave = false;
-        close();
-      }
-    };
     const leave = () => {
       dismissedUntilLeave = false;
       close();
+    };
+    const focusOut = (event: FocusEvent) => {
+      if (!target?.contains(event.relatedTarget as Node | null)) leave();
     };
     const pointerDown = () => {
       dismissedUntilLeave = true;
       close();
     };
 
-    wrapper.addEventListener("pointerenter", open);
-    wrapper.addEventListener("pointerleave", leave);
-    wrapper.addEventListener("pointerdown", pointerDown);
-    wrapper.addEventListener("focusin", open);
-    wrapper.addEventListener("focusout", focusOut);
+    target.addEventListener("pointerenter", open);
+    target.addEventListener("pointerleave", leave);
+    target.addEventListener("pointerdown", pointerDown);
+    target.addEventListener("focusin", open);
+    target.addEventListener("focusout", focusOut);
 
     onCleanup(() => {
       close();
       if (originalDescription) target?.setAttribute("aria-describedby", originalDescription);
       else target?.removeAttribute("aria-describedby");
-      wrapper?.removeEventListener("pointerenter", open);
-      wrapper?.removeEventListener("pointerleave", leave);
-      wrapper?.removeEventListener("pointerdown", pointerDown);
-      wrapper?.removeEventListener("focusin", open);
-      wrapper?.removeEventListener("focusout", focusOut);
+      target?.removeEventListener("pointerenter", open);
+      target?.removeEventListener("pointerleave", leave);
+      target?.removeEventListener("pointerdown", pointerDown);
+      target?.removeEventListener("focusin", open);
+      target?.removeEventListener("focusout", focusOut);
     });
   });
 
   return (
-    <span
-      ref={(element) => {
-        wrapper = element;
-      }}
-      class={`k2b-tooltip-wrapper ${props.class ?? ""}`}
-    >
-      {props.children}
-      <span
-        ref={(element) => {
-          surface = element;
-        }}
-        id={tooltipId}
-        role="tooltip"
-        popover="manual"
-        class="k2b-tooltip"
-      >
-        {props.content}
-      </span>
+    <span ref={surface} id={tooltipId} role="tooltip" popover="manual" class="k2b-tooltip">
+      {props.content}
     </span>
   );
 }
+
+/** Explicit tooltip target for non-button content. */
+function TooltipAnchor(props: TooltipAnchorProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["children", "class", "content", "delay", "disabled", "placement"]);
+  let target: HTMLSpanElement | undefined;
+
+  return (
+    <span {...rest} ref={target} class={`k2b-tooltip-wrapper ${local.class ?? ""}`}>
+      {local.children}
+      <TooltipSurface
+        content={local.content}
+        target={() => target}
+        delay={local.delay}
+        disabled={local.disabled}
+        placement={local.placement}
+      />
+    </span>
+  );
+}
+
+/** Native button target for specialized controls that do not use Button. */
+function TooltipTrigger(props: TooltipTriggerProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["children", "content", "delay", "disabled", "placement", "ref"]);
+  let target: HTMLButtonElement | undefined;
+  const register = (element: HTMLButtonElement) => {
+    target = element;
+    if (typeof local.ref === "function") local.ref(element);
+  };
+
+  return (
+    <>
+      <button {...rest} ref={register} disabled={local.disabled}>
+        {local.children}
+      </button>
+      <TooltipSurface
+        content={local.content}
+        target={() => target}
+        delay={local.delay}
+        disabled={local.disabled}
+        placement={local.placement}
+      />
+    </>
+  );
+}
+
+type TooltipComponent = ((props: TooltipProps) => JSX.Element) & {
+  Anchor: (props: TooltipAnchorProps) => JSX.Element;
+  Trigger: (props: TooltipTriggerProps) => JSX.Element;
+};
+
+export const Tooltip = TooltipSurface as TooltipComponent;
+Tooltip.Anchor = TooltipAnchor;
+Tooltip.Trigger = TooltipTrigger;
 
 export type { TooltipPlacement } from "./tooltip-position";
 

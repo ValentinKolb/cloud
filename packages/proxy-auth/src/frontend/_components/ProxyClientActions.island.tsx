@@ -158,15 +158,10 @@ const ProxyClientActions = (props: Props) => {
   };
 
   return (
-    <Dropdown
-      trigger={
-        <IconButton label="Proxy auth client actions" size="sm">
-          <i class="ti ti-dots-vertical" />
-        </IconButton>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="12rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -192,7 +187,11 @@ const ProxyClientActions = (props: Props) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly label="Proxy auth client actions" size="sm">
+        <i class="ti ti-dots-vertical" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

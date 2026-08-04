@@ -136,7 +136,7 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
                             required
                           />
                         </div>
-                        <Tooltip content="Remove option">
+                        <Tooltip.Anchor content="Remove option">
                           <IconButton
                             variant="ghost"
                             size="sm"
@@ -148,7 +148,7 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
                           >
                             <i class="ti ti-trash" />
                           </IconButton>
-                        </Tooltip>
+                        </Tooltip.Anchor>
                       </div>
                     )}
                   </For>
@@ -209,13 +209,13 @@ function RequirementQuestions(props: { questions: () => AuditQuestion[]; onChang
                 {question.required ? "Required" : "Optional"} · {QUESTION_TYPE_OPTIONS.find((option) => option.id === question.type)?.label}
               </div>
             </div>
-            <Tooltip content="Edit question">
+            <Tooltip.Anchor content="Edit question">
               <IconButton variant="ghost" size="sm" type="button" label={`Edit ${question.label}`} onClick={() => void edit(question)}>
                 <i class="ti ti-pencil" />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
             <CopyButton text={question.id} label="Copy ID" variant="ghost" size="sm" />
-            <Tooltip content="Remove question">
+            <Tooltip.Anchor content="Remove question">
               <IconButton
                 variant="ghost"
                 size="sm"
@@ -226,7 +226,7 @@ function RequirementQuestions(props: { questions: () => AuditQuestion[]; onChang
               >
                 <i class="ti ti-trash" />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
         )}
       </For>

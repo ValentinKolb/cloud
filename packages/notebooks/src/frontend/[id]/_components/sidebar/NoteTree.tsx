@@ -364,16 +364,11 @@ function NoteTreeItems(props: {
                   </Show>
                   <Show when={props.canWrite}>
                     <AppWorkspace.SidebarItemActions visibility="hover">
-                      <Dropdown
-                        trigger={
-                          <IconButton label={`Actions for ${label()}`} size="xs">
-                            <i class="ti ti-dots text-xs" />
-                          </IconButton>
-                        }
-                        position="bottom-right"
-                        width="12rem"
-                        elements={noteActionItems(node, props.actions)}
-                      />
+                      <Dropdown.Root position="bottom-right" width="12rem" items={noteActionItems(node, props.actions)}>
+                        <Dropdown.Trigger iconOnly label={`Actions for ${label()}`} size="xs">
+                          <i class="ti ti-dots text-xs" />
+                        </Dropdown.Trigger>
+                      </Dropdown.Root>
                     </AppWorkspace.SidebarItemActions>
                   </Show>
                 </>
@@ -464,11 +459,7 @@ export default function NoteTree(props: Props) {
         </AppWorkspace.NavTree>
       </div>
 
-      {props.tree.length === 0 && (
-        <Placeholder icon="ti ti-file-text" class="py-4" description={<>
-          No notes yet
-        </>} />
-      )}
+      {props.tree.length === 0 && <Placeholder icon="ti ti-file-text" class="py-4" description={<>No notes yet</>} />}
     </div>
   );
 }

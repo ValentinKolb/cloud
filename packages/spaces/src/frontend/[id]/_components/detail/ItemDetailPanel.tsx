@@ -71,7 +71,7 @@ const PRIORITY_OPTIONS = [
 
 function IconActionButton(props: { icon: string; title: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
   return (
-    <Tooltip content={props.title}>
+    <Tooltip.Anchor content={props.title}>
       <IconButton
         label={props.title}
         size="sm"
@@ -81,7 +81,7 @@ function IconActionButton(props: { icon: string; title: string; onClick: () => v
       >
         <i class={props.icon} />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 }
 
@@ -453,19 +453,13 @@ export default function ItemDetailPanel(props: Props) {
           </div>
           <div class="flex shrink-0 items-center gap-1">
             <Show when={canEditItem()}>
-              <Dropdown
-                trigger={
-                  <Tooltip content="More item actions">
-                    <IconButton label="More item actions">
-                      <i class="ti ti-dots" />
-                    </IconButton>
-                  </Tooltip>
-                }
-                elements={itemActions()}
-                position="bottom-left"
-              />
+              <Dropdown.Root position="bottom-left" items={itemActions()}>
+                <Dropdown.Trigger iconOnly label="More item actions" tooltip="More item actions">
+                  <i class="ti ti-dots" />
+                </Dropdown.Trigger>
+              </Dropdown.Root>
             </Show>
-            <Tooltip content="Close details">
+            <Tooltip.Anchor content="Close details">
               <ButtonLink
                 href={props.baseUrl}
                 onClick={(event) => {
@@ -480,7 +474,7 @@ export default function ItemDetailPanel(props: Props) {
               >
                 <i class="ti ti-x" />
               </ButtonLink>
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
         </div>
 

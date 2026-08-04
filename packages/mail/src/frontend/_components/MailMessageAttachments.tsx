@@ -70,12 +70,12 @@ function MailAttachmentPreviewDialog(props: { attachment: Attachment; downloadHr
           mimeType: props.attachment.contentType,
         })}`}
         actions={
-          <Tooltip content="Download attachment">
+          <Tooltip.Anchor content="Download attachment">
             <IconButtonLink href={props.downloadHref} download={filename()} label={`Download ${filename()}`}>
               <i class="ti ti-download" aria-hidden="true" />
               <span class="sr-only">Download {filename()}</span>
             </IconButtonLink>
-          </Tooltip>
+          </Tooltip.Anchor>
         }
         close={props.close}
       />

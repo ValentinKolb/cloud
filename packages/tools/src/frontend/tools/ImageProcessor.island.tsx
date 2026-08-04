@@ -678,9 +678,7 @@ export default function ImageProcessor() {
             for (let i = 0; i < entries.length; i++) {
               setProgress((i + 0.5) / entries.length);
               const entry = entries[i]!;
-              const blob = await buildImagePipeline(entry, mw() ?? undefined, mh() ?? undefined).then(
-                imageTools.toBlob(fmt(), qual()),
-              );
+              const blob = await buildImagePipeline(entry, mw() ?? undefined, mh() ?? undefined).then(imageTools.toBlob(fmt(), qual()));
               const name = entry.name.replace(/\.[^.]+$/, "") + `.${fmt()}`;
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
@@ -962,9 +960,9 @@ export default function ImageProcessor() {
                 />
               )}
             </For>
-            <Tooltip content="Custom color">
+            <Tooltip.Anchor content="Custom color">
               <ColorInput compact label="Custom color" value={markupColor} onValueChange={setMarkupColor} />
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
         </div>
 
@@ -1000,7 +998,7 @@ export default function ImageProcessor() {
             class="relative min-h-75 min-w-0 flex-1 overflow-auto bg-[var(--ui-surface)] p-[var(--ui-space-shell)]"
           >
             <Show when={!inspectorOpen()}>
-              <Tooltip content="Open image controls">
+              <Tooltip.Anchor content="Open image controls">
                 <IconButton
                   label="Open image controls"
                   class="absolute right-[var(--ui-space-shell)] top-[var(--ui-space-shell)] z-10 lg:hidden"
@@ -1008,7 +1006,7 @@ export default function ImageProcessor() {
                 >
                   <i class="ti ti-adjustments-horizontal" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
 
             {/* Loading overlay */}
@@ -1200,7 +1198,7 @@ export default function ImageProcessor() {
               </Show>
             </div>
             <Show when={hasImages()}>
-              <Tooltip content="Add images">
+              <Tooltip.Anchor content="Add images">
                 <IconButton
                   label="Add images"
                   size="sm"
@@ -1210,8 +1208,8 @@ export default function ImageProcessor() {
                 >
                   <i class="ti ti-photo-plus" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Remove image">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Remove image">
                 <IconButton
                   label="Remove image"
                   size="sm"
@@ -1221,7 +1219,7 @@ export default function ImageProcessor() {
                 >
                   <i class="ti ti-trash" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
             <IconButton label="Show image canvas" size="sm" class="h-8 w-8 shrink-0 lg:hidden" onClick={() => setInspectorOpen(false)}>
               <i class="ti ti-x" />
@@ -1270,7 +1268,7 @@ export default function ImageProcessor() {
                   <span class="text-xs tabular-nums text-dimmed">{Math.round(previewZoom() * 100)}%</span>
                 </div>
                 <div class="flex items-center gap-1">
-                  <Tooltip content="Zoom out">
+                  <Tooltip.Anchor content="Zoom out">
                     <IconButton
                       label="Zoom out"
                       size="sm"
@@ -1280,8 +1278,8 @@ export default function ImageProcessor() {
                     >
                       <i class="ti ti-minus" />
                     </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Zoom in">
+                  </Tooltip.Anchor>
+                  <Tooltip.Anchor content="Zoom in">
                     <IconButton
                       label="Zoom in"
                       size="sm"
@@ -1291,12 +1289,12 @@ export default function ImageProcessor() {
                     >
                       <i class="ti ti-plus" />
                     </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Fit image">
+                  </Tooltip.Anchor>
+                  <Tooltip.Anchor content="Fit image">
                     <IconButton label="Fit image" size="sm" class="h-8 w-8" onClick={fitPreview}>
                       <i class="ti ti-focus-centered" />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </div>
               </div>
 
@@ -1317,7 +1315,7 @@ export default function ImageProcessor() {
                         ]}
                       >
                         {(tool) => (
-                          <Tooltip content={tool.label}>
+                          <Tooltip.Anchor content={tool.label}>
                             <IconButton
                               label={tool.label}
                               size="sm"
@@ -1327,22 +1325,22 @@ export default function ImageProcessor() {
                             >
                               <i class={`ti ${tool.icon}`} />
                             </IconButton>
-                          </Tooltip>
+                          </Tooltip.Anchor>
                         )}
                       </For>
                     </div>
                     <div class="flex items-center gap-1">
-                      <Tooltip content="Undo">
+                      <Tooltip.Anchor content="Undo">
                         <IconButton label="Undo markup" size="sm" class="h-8 w-8" onClick={undoMarkup} disabled={!canUndoMarkup()}>
                           <i class="ti ti-arrow-back-up" />
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip content="Redo">
+                      </Tooltip.Anchor>
+                      <Tooltip.Anchor content="Redo">
                         <IconButton label="Redo markup" size="sm" class="h-8 w-8" onClick={redoMarkup} disabled={!canRedoMarkup()}>
                           <i class="ti ti-arrow-forward-up" />
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip content="Delete selected markup">
+                      </Tooltip.Anchor>
+                      <Tooltip.Anchor content="Delete selected markup">
                         <IconButton
                           label="Delete selected markup"
                           size="sm"
@@ -1352,8 +1350,8 @@ export default function ImageProcessor() {
                         >
                           <i class="ti ti-trash" />
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip content="Clear markup">
+                      </Tooltip.Anchor>
+                      <Tooltip.Anchor content="Clear markup">
                         <IconButton
                           label="Clear markup"
                           size="sm"
@@ -1363,7 +1361,7 @@ export default function ImageProcessor() {
                         >
                           <i class="ti ti-trash-x" />
                         </IconButton>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     </div>
                   </div>
                   <MarkupSettings />
@@ -1388,14 +1386,9 @@ export default function ImageProcessor() {
                           <i class="ti ti-check" /> Apply
                         </Button>
                       </Show>
-                      <Dropdown
-                        trigger={
-                          <Button variant="secondary" size="sm">
-                            {cropAspect() === "free" ? "Free" : cropAspect()} <i class="ti ti-chevron-down text-[10px]" />
-                          </Button>
-                        }
+                      <Dropdown.Root
                         position="bottom-left"
-                        elements={(
+                        items={(
                           [
                             ["free", "Free"],
                             ["1:1", "1:1"],
@@ -1408,7 +1401,11 @@ export default function ImageProcessor() {
                           icon: cropAspect() === id ? "ti ti-check" : undefined,
                           action: () => selectCropAspect(id),
                         }))}
-                      />
+                      >
+                        <Dropdown.Trigger variant="secondary" size="sm">
+                          {cropAspect() === "free" ? "Free" : cropAspect()} <i class="ti ti-chevron-down text-[10px]" />
+                        </Dropdown.Trigger>
+                      </Dropdown.Root>
                       <Show when={!cropActive() && activeImage()?.cropped}>
                         <IconButton label="Reset crop" size="sm" onClick={resetCrop} loading={cropBusy()} loadingLabel="Resetting crop">
                           <i class="ti ti-arrow-back-up" />

@@ -161,7 +161,7 @@ export default function GroupedTable(props: Props) {
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{render()}</div>
               <div class="flex shrink-0 items-center gap-0">
-                <Tooltip content="Move column left">
+                <Tooltip.Anchor content="Move column left">
                   <IconButton
                     label="Move column left"
                     size="xs"
@@ -174,8 +174,8 @@ export default function GroupedTable(props: Props) {
                   >
                     <i class="ti ti-chevron-left text-xs" />
                   </IconButton>
-                </Tooltip>
-                <Tooltip content="Move column right">
+                </Tooltip.Anchor>
+                <Tooltip.Anchor content="Move column right">
                   <IconButton
                     label="Move column right"
                     size="xs"
@@ -188,8 +188,8 @@ export default function GroupedTable(props: Props) {
                   >
                     <i class="ti ti-chevron-right text-xs" />
                   </IconButton>
-                </Tooltip>
-                <Tooltip content="Column settings">
+                </Tooltip.Anchor>
+                <Tooltip.Anchor content="Column settings">
                   <IconButton
                     label="Column settings"
                     size="xs"
@@ -202,7 +202,7 @@ export default function GroupedTable(props: Props) {
                   >
                     <i class="ti ti-settings text-xs" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </div>
             </div>
           );

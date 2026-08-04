@@ -628,18 +628,9 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 Finish setup
               </Button>
             </Show>
-            <Dropdown
-              trigger={
-                <IconButton
-                  type="button"
-                  class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                  label="Connected account actions"
-                  disabled={props.reloading || revoke.loading() || startOAuth.loading()}
-                >
-                  <i class="ti ti-dots" aria-hidden="true" />
-                </IconButton>
-              }
-              elements={[
+            <Dropdown.Root
+              position="bottom-left"
+              items={[
                 {
                   label: "Edit account",
                   icon: "ti ti-pencil",
@@ -673,8 +664,17 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                   ],
                 },
               ]}
-              position="bottom-left"
-            />
+            >
+              <Dropdown.Trigger
+                iconOnly
+                type="button"
+                class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                label="Connected account actions"
+                disabled={props.reloading || revoke.loading() || startOAuth.loading()}
+              >
+                <i class="ti ti-dots" aria-hidden="true" />
+              </Dropdown.Trigger>
+            </Dropdown.Root>
           </div>
         )}
       </Show>

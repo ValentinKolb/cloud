@@ -187,16 +187,8 @@ export default function MailSidebar(props: {
   );
 
   const mailboxTools = () => (
-    <Dropdown
-      trigger={
-        <AppWorkspace.SidebarItem
-          icon={props.managementOpening || sync.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-tool"}
-          disabled={props.managementOpening !== null || sync.loading()}
-        >
-          Mailbox tools
-        </AppWorkspace.SidebarItem>
-      }
-      elements={[
+    <Dropdown.Root
+      items={[
         ...(props.canAdmin
           ? [
               {
@@ -239,7 +231,21 @@ export default function MailSidebar(props: {
         },
       ]}
       position="top-right"
-    />
+    >
+      <Dropdown.Trigger
+        appearance="plain"
+        class="k2b-app-workspace__sidebar-item"
+        label="Mailbox tools"
+        disabled={props.managementOpening !== null || sync.loading()}
+      >
+        <span class="k2b-app-workspace__sidebar-item-icon" aria-hidden="true">
+          <i class={props.managementOpening || sync.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-tool"} />
+        </span>
+        <span class="k2b-app-workspace__sidebar-item-label">
+          <span class="k2b-app-workspace__sidebar-item-label-text">Mailbox tools</span>
+        </span>
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 
   const toggleFolder = (folderId: string) =>

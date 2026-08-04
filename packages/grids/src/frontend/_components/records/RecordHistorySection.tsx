@@ -50,9 +50,7 @@ export function RecordHistoryList(props: HistoryProps) {
   return (
     <div class="flex flex-col gap-2">
       <Show when={props.entries.length === 0}>
-        <Placeholder align="left" class="px-0 py-2" description={<>
-          No history yet.
-        </>} />
+        <Placeholder align="left" class="px-0 py-2" description={<>No history yet.</>} />
       </Show>
       <For each={props.entries}>
         {(entry) => {
@@ -106,9 +104,9 @@ export function RecordHistoryList(props: HistoryProps) {
                       </span>
                     )}
                   </Show>
-                  <Tooltip content={entry.createdAt} class="ml-auto shrink-0">
+                  <Tooltip.Anchor content={entry.createdAt} class="ml-auto shrink-0">
                     <span class="text-[10px] text-dimmed">{formatRecordRelativeTime(entry.createdAt, props.dateConfig)}</span>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </summary>
                 <Show when={summary}>
                   <p class="ml-5 text-[11px] text-dimmed">changed {summary}</p>
@@ -156,7 +154,7 @@ export function RecordHistoryList(props: HistoryProps) {
                 </Show>
               </details>
               <Show when={props.onOpenRecord && entry.recordId}>
-                <Tooltip content="Open record" class="absolute right-0 top-0">
+                <Tooltip.Anchor content="Open record" class="absolute right-0 top-0">
                   <IconButton
                     variant="ghost"
                     size="sm"
@@ -169,7 +167,7 @@ export function RecordHistoryList(props: HistoryProps) {
                   >
                     <i class="ti ti-arrow-up-right" aria-hidden="true" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </Show>
             </div>
           );

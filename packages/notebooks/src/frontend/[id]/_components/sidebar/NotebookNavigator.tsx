@@ -353,11 +353,7 @@ export default function NotebookNavigator(props: Props) {
       <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.shortId}`}>
         <Show
           when={visibleNotes().length > 0 || pinnedNote()}
-          fallback={
-            <Placeholder surface="paper" align="left" description={<>
-              No notes here yet.
-            </>} />
-          }
+          fallback={<Placeholder surface="paper" align="left" description={<>No notes here yet.</>} />}
         >
           <div class="flex flex-col gap-2">
             <Show when={pinnedNote()}>
@@ -390,20 +386,16 @@ export default function NotebookNavigator(props: Props) {
                     </a>
                     <div class="absolute right-2 top-2">
                       <Show when={props.canWrite}>
-                        <Dropdown
-                          trigger={
-                            <IconButton
-                              label={`Actions for ${note().title || "Untitled"}`}
-                              size="xs"
-                              class="opacity-70 group-hover:opacity-100"
-                            >
-                              <i class="ti ti-dots text-xs" />
-                            </IconButton>
-                          }
-                          position="bottom-right"
-                          width="12rem"
-                          elements={noteActionItems(note(), actions)}
-                        />
+                        <Dropdown.Root position="bottom-right" width="12rem" items={noteActionItems(note(), actions)}>
+                          <Dropdown.Trigger
+                            iconOnly
+                            label={`Actions for ${note().title || "Untitled"}`}
+                            size="xs"
+                            class="opacity-70 group-hover:opacity-100"
+                          >
+                            <i class="ti ti-dots text-xs" />
+                          </Dropdown.Trigger>
+                        </Dropdown.Root>
                       </Show>
                     </div>
                   </div>
@@ -463,20 +455,16 @@ export default function NotebookNavigator(props: Props) {
                         <i class="ti ti-star" />
                       </IconButton>
                       <Show when={props.canWrite}>
-                        <Dropdown
-                          trigger={
-                            <IconButton
-                              label={`Actions for ${note.title || "Untitled"}`}
-                              size="xs"
-                              class="opacity-70 group-hover:opacity-100"
-                            >
-                              <i class="ti ti-dots text-xs" />
-                            </IconButton>
-                          }
-                          position="bottom-right"
-                          width="12rem"
-                          elements={noteActionItems(note, actions)}
-                        />
+                        <Dropdown.Root position="bottom-right" width="12rem" items={noteActionItems(note, actions)}>
+                          <Dropdown.Trigger
+                            iconOnly
+                            label={`Actions for ${note.title || "Untitled"}`}
+                            size="xs"
+                            class="opacity-70 group-hover:opacity-100"
+                          >
+                            <i class="ti ti-dots text-xs" />
+                          </Dropdown.Trigger>
+                        </Dropdown.Root>
                       </Show>
                     </div>
                   </div>

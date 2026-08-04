@@ -142,7 +142,7 @@ export default function MailConversationRow(props: {
             </Show>
             <span class="min-w-0 truncate">{primaryCorrespondent()}</span>
             <Show when={additionalCorrespondents() > 0}>
-              <Tooltip content={correspondents().join(", ")}>
+              <Tooltip.Anchor content={correspondents().join(", ")}>
                 <span
                   class="shrink-0 text-xs font-normal text-dimmed"
                   role="img"
@@ -152,7 +152,7 @@ export default function MailConversationRow(props: {
                 >
                   +{additionalCorrespondents()}
                 </span>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
           </span>
           <span
@@ -179,7 +179,7 @@ export default function MailConversationRow(props: {
           </time>
           <span class="mail-list-meta-icons">
             <Show when={props.item.localTags.length > 0}>
-              <Tooltip content={`Tags: ${tagLabel()}`}>
+              <Tooltip.Anchor content={`Tags: ${tagLabel()}`}>
                 <span class="mail-list-tag-markers" role="img" aria-label={`Tags: ${tagLabel()}`}>
                   <For each={props.item.localTags.slice(0, 2)}>
                     {(tag) => <span class="mail-list-tag-dot" style={{ "background-color": tag.color }} aria-hidden="true" />}
@@ -190,43 +190,38 @@ export default function MailConversationRow(props: {
                     </span>
                   </Show>
                 </span>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
             <Show when={props.item.flagged}>
-              <Tooltip content="Flagged">
+              <Tooltip.Anchor content="Flagged">
                 <span class="inline-flex text-orange-600 dark:text-orange-400" role="img" aria-label="Flagged conversation">
                   <i class={getMailAction("flag").icon} aria-hidden="true" />
                 </span>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
             <Show when={stateLabel() && stateIcon()}>
-              <Tooltip content={stateLabel() ?? ""}>
+              <Tooltip.Anchor content={stateLabel() ?? ""}>
                 <span class="inline-flex" role="img" aria-label={`Status: ${stateLabel()}`}>
                   <i class={stateIcon() ?? ""} aria-hidden="true" />
                 </span>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
             <Show when={props.item.hasAttachments}>
-              <Tooltip content="Has attachments">
+              <Tooltip.Anchor content="Has attachments">
                 <span class="inline-flex" role="img" aria-label="Has attachments">
                   <i class="ti ti-paperclip" aria-hidden="true" />
                 </span>
-              </Tooltip>
+              </Tooltip.Anchor>
             </Show>
           </span>
         </span>
       </a>
       <Show when={props.state.canWrite && !props.state.selectionMode && props.item.conversationId}>
         <div class="absolute right-3 top-2 z-10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
-          <Dropdown
-            trigger={
-              <IconButton size="sm" type="button" label={`Actions for ${props.item.subject || "conversation"}`}>
-                <i class="ti ti-dots" aria-hidden="true" />
-              </IconButton>
-            }
+          <Dropdown.Root
             position="bottom-left"
             width="13rem"
-            elements={[
+            items={[
               {
                 label: getMailAction(props.item.unread ? "mark_read" : "mark_unread").label,
                 icon: getMailAction(props.item.unread ? "mark_read" : "mark_unread").icon,
@@ -255,7 +250,11 @@ export default function MailConversationRow(props: {
                 action: () => props.actions.merge(props.item),
               },
             ]}
-          />
+          >
+            <Dropdown.Trigger iconOnly size="sm" type="button" label={`Actions for ${props.item.subject || "conversation"}`}>
+              <i class="ti ti-dots" aria-hidden="true" />
+            </Dropdown.Trigger>
+          </Dropdown.Root>
         </div>
       </Show>
     </div>

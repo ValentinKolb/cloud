@@ -273,15 +273,10 @@ export default function MailSenderMessageActions(props: {
   });
 
   return (
-    <Dropdown
-      trigger={
-        <IconButton size="sm" type="button" label="Message actions" disabled={pending()}>
-          <i class={`ti ${pending() ? "ti-loader-2 animate-spin" : "ti-dots"}`} aria-hidden="true" />
-        </IconButton>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="16rem"
-      elements={[
+      items={[
         ...(props.primaryActions ?? []),
         ...(sender() && actionVisibility().findSender
           ? [
@@ -417,6 +412,10 @@ export default function MailSenderMessageActions(props: {
             ]
           : []),
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly size="sm" type="button" label="Message actions" disabled={pending()}>
+        <i class={`ti ${pending() ? "ti-loader-2 animate-spin" : "ti-dots"}`} aria-hidden="true" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 }

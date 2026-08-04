@@ -205,7 +205,7 @@ export default function ContactsList(props: Props) {
                 <span class="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 sm:right-4">
                   <Show when={phone()}>
                     {(number) => (
-                      <Tooltip content={`Call ${name()}`}>
+                      <Tooltip.Anchor content={`Call ${name()}`}>
                         <a
                           href={`tel:${number()}`}
                           class="focus-ui hidden h-7 w-7 items-center justify-center rounded text-dimmed hover:bg-[var(--ui-hover)] hover:text-primary sm:flex"
@@ -213,12 +213,12 @@ export default function ContactsList(props: Props) {
                         >
                           <i class="ti ti-phone text-sm" />
                         </a>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     )}
                   </Show>
                   <Show when={email()}>
                     {(address) => (
-                      <Tooltip content={`Email ${name()}`}>
+                      <Tooltip.Anchor content={`Email ${name()}`}>
                         <a
                           href={`mailto:${address()}`}
                           class="focus-ui hidden h-7 w-7 items-center justify-center rounded text-dimmed hover:bg-[var(--ui-hover)] hover:text-primary sm:flex"
@@ -226,7 +226,7 @@ export default function ContactsList(props: Props) {
                         >
                           <i class="ti ti-mail text-sm" />
                         </a>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     )}
                   </Show>
                   <ContactFavoriteButton

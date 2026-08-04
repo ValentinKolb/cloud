@@ -545,7 +545,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                           {(diagnostic) => <span class="mt-1 block text-xs text-red-600 dark:text-red-400">{diagnostic.message}</span>}
                         </For>
                       </span>
-                      <Tooltip content="Edit run option">
+                      <Tooltip.Anchor content="Edit run option">
                         <IconButton
                           variant="ghost"
                           size="sm"
@@ -556,8 +556,8 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                         >
                           <i class="ti ti-pencil" />
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip content="Delete run option">
+                      </Tooltip.Anchor>
+                      <Tooltip.Anchor content="Delete run option">
                         <IconButton
                           variant="ghost"
                           size="sm"
@@ -569,7 +569,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                         >
                           <i class="ti ti-trash" />
                         </IconButton>
-                      </Tooltip>
+                      </Tooltip.Anchor>
                     </div>
                   );
                 }}

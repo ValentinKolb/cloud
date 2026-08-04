@@ -1,12 +1,29 @@
-import { createContext, createEffect, createSignal, createUniqueId, For, type JSX, onCleanup, onMount, Show, useContext } from "solid-js";
+import {
+  createContext,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+  splitProps,
+  useContext,
+} from "solid-js";
+import { Tooltip, type TooltipPlacement } from "../feedback/Tooltip";
+import { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 
 export type DropdownPosition = "bottom-right" | "bottom-left" | "top-right" | "top-left" | "right-start";
 
 export type DropdownActionBase = {
-  icon?: string;
-  label: string;
-  variant?: "danger";
+  class?: string;
   disabled?: boolean;
+  icon?: string;
+  image?: string;
+  label: string;
+  description?: string;
+  variant?: "danger";
 };
 
 export type DropdownAction =
@@ -19,40 +36,38 @@ export type DropdownAction =
       href: string;
       external?: boolean;
       action?: never;
+    })
+  | (DropdownActionBase & {
+      disabled: true;
+      action?: never;
+      href?: never;
+      external?: never;
     });
 
-export type DropdownElement = {
-  /**
-   * Escape hatch for static or composite menu content. Action rows should use
-   * `DropdownAction`; selection belongs in Select, SelectChip, or
-   * MultiSelectInput. Interactive descendants own their complete role,
-   * keyboard, focus, and close behavior.
-   */
-  element: JSX.Element | ((close: () => void) => JSX.Element);
+/** Declarative radio or checkbox row for compact action menus. */
+export type DropdownChoice = DropdownActionBase & {
+  action: () => void;
+  checked: boolean | (() => boolean);
+  choice: "checkbox" | "radio";
+  closeOnSelect?: boolean;
+  color?: string;
 };
 
 export type DropdownSection = {
   sectionLabel?: string;
-  items: readonly (DropdownAction | DropdownElement)[];
+  items: readonly (DropdownAction | DropdownChoice)[];
 };
 
-export type DropdownItem = DropdownAction | DropdownElement | DropdownSection;
+export type DropdownItem = DropdownAction | DropdownChoice | DropdownSection;
 
 export type DropdownProps = {
-  trigger: JSX.Element;
-  elements?: readonly DropdownItem[];
-  children?: JSX.Element;
+  items: readonly DropdownItem[];
+  children: JSX.Element;
   position?: DropdownPosition | (() => DropdownPosition);
-  /**
-   * Menu width as a CSS length, for example `"10rem"`. Defaults to `12rem`.
-   * This is not a class name: the package ships no utility classes, so a
-   * standalone consumer has nothing to pass one from.
-   */
+  /** Menu width as a CSS length. Defaults to `12rem`. */
   width?: string;
-  className?: string;
   class?: string;
-  triggerClass?: string;
-  openOnHover?: boolean;
+  menuClass?: string;
   onClose?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -61,9 +76,28 @@ export type DropdownProps = {
   align?: "start" | "end";
 };
 
+export type DropdownTriggerProps = Omit<
+  ButtonProps,
+  "aria-controls" | "aria-expanded" | "aria-haspopup" | "children" | "disabled" | "onClick" | "onKeyDown"
+> & {
+  children: JSX.Element;
+  /** Use `plain` when a specialized component class owns the complete visual treatment. */
+  appearance?: "button" | "plain";
+  disabled?: boolean;
+  iconOnly?: boolean;
+  label?: string;
+  size?: ButtonSize;
+  tooltip?: JSX.Element | false;
+  tooltipDelay?: number;
+  tooltipPlacement?: TooltipPlacement;
+  variant?: ButtonVariant;
+};
+
 export type DropdownItemProps = {
   children: JSX.Element;
   icon?: string;
+  image?: string;
+  description?: string;
   disabled?: boolean;
   danger?: boolean;
   variant?: "danger";
@@ -77,7 +111,17 @@ type MenuContextValue = {
   close: (restoreFocus?: boolean) => void;
 };
 
+type DropdownContextValue = {
+  disabled: () => boolean;
+  menuId: string;
+  open: () => boolean;
+  registerTrigger: (element: HTMLButtonElement) => void;
+  toggle: () => void;
+  triggerKeyDown: JSX.EventHandlerUnion<HTMLButtonElement, KeyboardEvent>;
+};
+
 const MenuContext = createContext<MenuContextValue>();
+const DropdownContext = createContext<DropdownContextValue>();
 
 const actionableItems = (menu: HTMLElement | undefined): HTMLElement[] =>
   menu
@@ -121,15 +165,22 @@ export const dropdownPosition = (
   };
 };
 
+const itemContent = (props: { description?: string; icon?: string; image?: string; children: JSX.Element }): JSX.Element => (
+  <>
+    <Show when={props.image} fallback={<Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>}>
+      {(image) => <img class="k2b-dropdown__image" src={image()} alt="" />}
+    </Show>
+    <span class="k2b-dropdown__copy">
+      <span>{props.children}</span>
+      <Show when={props.description}>{(description) => <small>{description()}</small>}</Show>
+    </span>
+  </>
+);
+
 export function DropdownItem(props: DropdownItemProps): JSX.Element {
   const menu = useContext(MenuContext);
   const danger = () => props.danger || props.variant === "danger";
-  const content = (
-    <>
-      <Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-      <span>{props.children}</span>
-    </>
-  );
+  const content = itemContent(props);
 
   return (
     <Show
@@ -175,14 +226,63 @@ export function DropdownItem(props: DropdownItemProps): JSX.Element {
   );
 }
 
+function DropdownChoiceItem(props: DropdownChoice): JSX.Element {
+  const menu = useContext(MenuContext);
+  const checked = () => (typeof props.checked === "function" ? props.checked() : props.checked);
+  return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the runtime role is always menuitemcheckbox or menuitemradio, both of which support aria-checked.
+    <button
+      type="button"
+      role={props.choice === "checkbox" ? "menuitemcheckbox" : "menuitemradio"}
+      aria-checked={checked()}
+      aria-disabled={props.disabled ? "true" : undefined}
+      tabIndex={-1}
+      class={`k2b-dropdown__item k2b-dropdown__choice ${props.class ?? ""}`}
+      data-selected={checked() ? "true" : undefined}
+      disabled={props.disabled}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (props.closeOnSelect !== false) menu?.close();
+        props.action();
+      }}
+    >
+      <Show when={props.choice === "checkbox"}>
+        <span class="k2b-dropdown__checkbox" aria-hidden="true">
+          <Show when={checked()}>
+            <i class="ti ti-check" />
+          </Show>
+        </span>
+      </Show>
+      <Show when={props.image} fallback={<Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>}>
+        {(image) => <img class="k2b-dropdown__image" src={image()} alt="" />}
+      </Show>
+      <Show when={props.color}>
+        {(color) => <span class="k2b-dropdown__color" style={{ "--k2b-dropdown-color": color() }} aria-hidden="true" />}
+      </Show>
+      <span class="k2b-dropdown__copy">
+        <span>{props.label}</span>
+        <Show when={props.description}>{(description) => <small>{description()}</small>}</Show>
+      </span>
+      <Show when={props.choice === "radio" && checked()}>
+        <i class="ti ti-check k2b-dropdown__check" aria-hidden="true" />
+      </Show>
+    </button>
+  );
+}
+
 export function DropdownItems(props: { items: readonly DropdownItem[]; close: (restoreFocus?: boolean) => void }): JSX.Element {
-  const renderItem = (item: DropdownAction | DropdownElement): JSX.Element => {
-    if ("element" in item) return typeof item.element === "function" ? item.element(props.close) : item.element;
-    return (
+  const renderItem = (item: DropdownAction | DropdownChoice): JSX.Element =>
+    "choice" in item ? (
+      <DropdownChoiceItem {...item} />
+    ) : (
       <DropdownItem
         icon={item.icon}
+        image={item.image}
+        description={item.description}
         variant={item.variant}
         disabled={item.disabled}
+        class={item.class}
         href={"href" in item ? item.href : undefined}
         external={"external" in item ? item.external : undefined}
         onSelect={"action" in item ? item.action : undefined}
@@ -190,13 +290,12 @@ export function DropdownItems(props: { items: readonly DropdownItem[]; close: (r
         {item.label}
       </DropdownItem>
     );
-  };
 
   return (
     <MenuContext.Provider value={{ close: props.close }}>
       <For each={props.items}>
         {(item, index) => (
-          <Show when={"items" in item} fallback={renderItem(item as DropdownAction | DropdownElement)}>
+          <Show when={"items" in item} fallback={renderItem(item as DropdownAction | DropdownChoice)}>
             <div
               class="k2b-dropdown__section"
               data-divided={index() > 0 ? "true" : undefined}
@@ -213,61 +312,110 @@ export function DropdownItems(props: { items: readonly DropdownItem[]; close: (r
   );
 }
 
-/** Accessible top-layer menu with keyboard navigation, light dismiss, and viewport-aware positioning. */
-export function Dropdown(props: DropdownProps): JSX.Element {
+function DropdownTrigger(props: DropdownTriggerProps): JSX.Element {
+  const context = useContext(DropdownContext);
+  if (!context) throw new Error("Dropdown.Trigger must be used inside Dropdown.Root");
+  const [local, rest] = splitProps(props, [
+    "appearance",
+    "children",
+    "class",
+    "disabled",
+    "iconOnly",
+    "label",
+    "ref",
+    "size",
+    "tabIndex",
+    "tooltip",
+    "tooltipDelay",
+    "tooltipPlacement",
+    "type",
+    "variant",
+  ]);
+  let target: HTMLButtonElement | undefined;
+  const disabled = () => Boolean(context.disabled() || local.disabled);
+  const register = (element: HTMLButtonElement) => {
+    target = element;
+    context.registerTrigger(element);
+    if (typeof local.ref === "function") local.ref(element);
+  };
+  const click: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent> = (event) => {
+    event.stopPropagation();
+    context.toggle();
+  };
+
+  if (local.appearance !== "plain") {
+    return (
+      <Button
+        {...rest}
+        ref={register}
+        aria-controls={context.menuId}
+        aria-expanded={context.open()}
+        aria-haspopup="menu"
+        aria-label={local.label}
+        disabled={disabled()}
+        tabIndex={disabled() ? -1 : local.tabIndex}
+        onClick={click}
+        onKeyDown={context.triggerKeyDown}
+        type={local.type ?? "button"}
+        class={`${local.iconOnly ? "k2b-icon-button" : ""} k2b-dropdown__trigger ${local.class ?? ""}`}
+        size={local.size}
+        variant={local.variant}
+        tooltip={local.tooltip}
+        tooltipDelay={local.tooltipDelay}
+        tooltipPlacement={local.tooltipPlacement}
+      >
+        {local.children}
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <button
+        {...rest}
+        ref={register}
+        aria-controls={context.menuId}
+        aria-expanded={context.open()}
+        aria-haspopup="menu"
+        aria-label={local.label}
+        disabled={disabled()}
+        tabIndex={disabled() ? -1 : local.tabIndex}
+        onClick={click}
+        onKeyDown={context.triggerKeyDown}
+        type={local.type ?? "button"}
+        class={`k2b-dropdown__trigger ${local.class ?? ""}`}
+      >
+        {local.children}
+      </button>
+      <Show when={local.tooltip !== false && local.tooltip !== undefined}>
+        <Tooltip
+          content={local.tooltip as JSX.Element}
+          target={() => target}
+          delay={local.tooltipDelay}
+          disabled={disabled()}
+          placement={local.tooltipPlacement}
+        />
+      </Show>
+    </>
+  );
+}
+
+/** Accessible top-layer menu with explicit trigger ownership. */
+function DropdownRoot(props: DropdownProps): JSX.Element {
   const id = createUniqueId().replace(/[^a-zA-Z0-9_-]/g, "-");
   const menuId = `k2b-dropdown-${id}`;
   const [internalOpen, setInternalOpen] = createSignal(false);
-  let triggerRef: HTMLSpanElement | undefined;
-  let triggerContentRef: HTMLSpanElement | undefined;
+  let triggerRef: HTMLButtonElement | undefined;
   let menuRef: HTMLDivElement | undefined;
   let mounted = false;
-  let hoverCloseTimer: ReturnType<typeof setTimeout> | undefined;
-  let managedTrigger: HTMLElement | undefined;
-  let triggerAttributes: Map<string, string | null> | undefined;
-  let triggerWasDisabled = false;
   let viewportListenersAttached = false;
 
   const isOpen = () => props.open ?? internalOpen();
-  const triggerTarget = () =>
-    triggerContentRef?.querySelector<HTMLElement>(
-      "button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])",
-    ) ?? triggerContentRef;
   const position = (): DropdownPosition =>
     typeof props.position === "function" ? props.position() : (props.position ?? (props.align === "end" ? "bottom-left" : "bottom-right"));
 
-  const restoreAttribute = (target: HTMLElement, name: string, value: string | null): void => {
-    if (value === null) target.removeAttribute(name);
-    else target.setAttribute(name, value);
-  };
-
-  const syncTrigger = (open: boolean) => {
-    const target = managedTrigger ?? triggerTarget();
-    if (!target) return;
-    const nativeButton = target.matches("button") ? (target as HTMLButtonElement) : undefined;
-    const originallyDisabled = triggerAttributes?.get("aria-disabled") === "true" || triggerWasDisabled;
-    const disabled = Boolean(props.disabled || originallyDisabled);
-
-    if (target === triggerContentRef) {
-      target.setAttribute("role", "button");
-      target.tabIndex = disabled ? -1 : 0;
-    } else if (disabled) {
-      target.tabIndex = -1;
-    } else if (target.getAttribute("role") === "button" && triggerAttributes?.get("tabindex") === null) {
-      target.tabIndex = 0;
-    } else if (triggerAttributes) {
-      restoreAttribute(target, "tabindex", triggerAttributes.get("tabindex") ?? null);
-    }
-    if (nativeButton) nativeButton.disabled = triggerWasDisabled || Boolean(props.disabled);
-    target.setAttribute("aria-haspopup", "menu");
-    target.setAttribute("aria-expanded", String(open));
-    target.setAttribute("aria-controls", menuId);
-    target.setAttribute("aria-disabled", String(disabled));
-    if (props.label && !target.getAttribute("aria-label")) target.setAttribute("aria-label", props.label);
-  };
-
   const place = () => {
-    if (!triggerRef || !menuRef || props.className) return;
+    if (!triggerRef || !menuRef) return;
     const rect = dropdownPosition(triggerRef.getBoundingClientRect(), menuRef.getBoundingClientRect(), position(), {
       width: window.innerWidth,
       height: window.innerHeight,
@@ -275,7 +423,6 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     menuRef.style.left = `${rect.left}px`;
     menuRef.style.top = `${rect.top}px`;
   };
-
   const reposition = () => {
     if (isOpen()) place();
   };
@@ -291,13 +438,11 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     window.removeEventListener("resize", reposition);
     window.removeEventListener("scroll", reposition, true);
   };
-
   const close = (restoreFocus = true) => {
     if (menuRef?.matches(":popover-open")) menuRef.hidePopover();
     detachViewportListeners();
-    if (restoreFocus) queueMicrotask(() => triggerTarget()?.focus());
+    if (restoreFocus) queueMicrotask(() => triggerRef?.focus());
   };
-
   const open = (focus: "first" | "last" | false = "first") => {
     if (props.disabled || !menuRef || menuRef.matches(":popover-open")) return;
     menuRef.showPopover();
@@ -307,8 +452,8 @@ export function Dropdown(props: DropdownProps): JSX.Element {
       if (focus) focusMenuItem(menuRef, focus === "first" ? 0 : -1);
     });
   };
-
   const requestOpen = (next: boolean, focus: "first" | "last" | false = "first") => {
+    if (props.disabled && next) return;
     if (props.open !== undefined) {
       props.onOpenChange?.(next);
       return;
@@ -316,18 +461,6 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     if (next) open(focus);
     else close(false);
   };
-
-  const handleTriggerKeyDown = (event: KeyboardEvent) => {
-    if (!["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (isOpen()) {
-      focusMenuItem(menuRef, event.key === "ArrowUp" ? -1 : 0);
-      return;
-    }
-    requestOpen(true, event.key === "ArrowUp" ? "last" : "first");
-  };
-
   const handleMenuKeyDown = (event: KeyboardEvent) => {
     const items = actionableItems(menuRef);
     const current = items.indexOf(document.activeElement as HTMLElement);
@@ -340,13 +473,30 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     } else if (event.key === "Escape") {
       event.preventDefault();
       requestOpen(false);
-      if (props.open !== undefined) triggerTarget()?.focus();
+      queueMicrotask(() => triggerRef?.focus());
     } else if (event.key === "Tab") {
-      const target = event.target;
-      if (target instanceof HTMLElement && target.matches("[role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']")) {
-        requestOpen(false);
-      }
+      requestOpen(false);
     }
+  };
+
+  const context: DropdownContextValue = {
+    disabled: () => Boolean(props.disabled),
+    menuId,
+    open: isOpen,
+    registerTrigger: (element) => {
+      triggerRef = element;
+    },
+    toggle: () => requestOpen(!isOpen()),
+    triggerKeyDown: (event) => {
+      if (!["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (isOpen()) {
+        focusMenuItem(menuRef, event.key === "ArrowUp" ? -1 : 0);
+        return;
+      }
+      requestOpen(true, event.key === "ArrowUp" ? "last" : "first");
+    },
   };
 
   createEffect(() => {
@@ -355,113 +505,56 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     if (controlled && !menuRef.matches(":popover-open")) open(false);
     if (!controlled && menuRef.matches(":popover-open")) close(false);
   });
-
-  // `syncTrigger` writes the trigger's tabIndex from `props.disabled`, so it has to
-  // re-run when that prop flips; otherwise a disabled trigger stays tabbable.
   createEffect(() => {
-    const disabled = props.disabled;
-    if (!mounted) return;
-    if (disabled) close(false);
-    syncTrigger(isOpen());
+    if (mounted && props.disabled) close(false);
   });
-
   onMount(() => {
     mounted = true;
-    const target = triggerTarget();
-    if (!target || !triggerRef || !menuRef) return;
-
-    const handleClick = (event: MouseEvent) => {
-      event.stopPropagation();
-      if (props.disabled) {
-        event.preventDefault();
-        return;
-      }
-      requestOpen(!isOpen());
-    };
-    const cancelHoverClose = () => {
-      if (hoverCloseTimer) clearTimeout(hoverCloseTimer);
-      hoverCloseTimer = undefined;
-    };
-    const scheduleHoverClose = () => {
-      cancelHoverClose();
-      hoverCloseTimer = setTimeout(() => requestOpen(false), 120);
-    };
-    const openFromHover = () => {
-      cancelHoverClose();
-      if (!isOpen()) requestOpen(true, false);
-    };
-    managedTrigger = target;
-    triggerAttributes = new Map(
-      ["role", "tabindex", "aria-haspopup", "aria-expanded", "aria-controls", "aria-disabled", "aria-label"].map((name) => [
-        name,
-        target.getAttribute(name),
-      ]),
-    );
-    triggerWasDisabled = target.matches("button") ? (target as HTMLButtonElement).disabled : false;
-    syncTrigger(false);
-    target.addEventListener("click", handleClick);
-    target.addEventListener("keydown", handleTriggerKeyDown);
-    if (props.openOnHover) {
-      triggerRef.addEventListener("pointerenter", openFromHover);
-      triggerRef.addEventListener("pointerleave", scheduleHoverClose);
-      menuRef.addEventListener("pointerenter", cancelHoverClose);
-      menuRef.addEventListener("pointerleave", scheduleHoverClose);
-    }
     if (props.open) open(false);
-
-    onCleanup(() => {
-      cancelHoverClose();
-      detachViewportListeners();
-      target.removeEventListener("click", handleClick);
-      target.removeEventListener("keydown", handleTriggerKeyDown);
-      triggerRef?.removeEventListener("pointerenter", openFromHover);
-      triggerRef?.removeEventListener("pointerleave", scheduleHoverClose);
-      menuRef?.removeEventListener("pointerenter", cancelHoverClose);
-      menuRef?.removeEventListener("pointerleave", scheduleHoverClose);
-      for (const [name, value] of triggerAttributes ?? []) restoreAttribute(target, name, value);
-      if (target.matches("button")) (target as HTMLButtonElement).disabled = triggerWasDisabled;
-    });
+    onCleanup(detachViewportListeners);
   });
 
   return (
-    <span class={`k2b-dropdown ${props.class ?? ""}`} ref={triggerRef}>
-      <span class={`k2b-dropdown__trigger ${props.triggerClass ?? ""}`} ref={triggerContentRef}>
-        {props.trigger}
-      </span>
-      <div
-        ref={(element) => {
-          menuRef = element;
-          element.addEventListener("toggle", (event) => {
+    <DropdownContext.Provider value={context}>
+      <span class={`k2b-dropdown ${props.class ?? ""}`}>
+        {props.children}
+        <div
+          ref={menuRef}
+          id={menuId}
+          popover="auto"
+          role="menu"
+          aria-label={props.label ?? "Dropdown menu"}
+          class={`k2b-dropdown__menu ${props.menuClass ?? ""}`}
+          style={props.width ? { "--k2b-dropdown-width": props.width } : undefined}
+          data-position={position()}
+          onKeyDown={handleMenuKeyDown}
+          onToggle={(event) => {
             const nextOpen = (event as ToggleEvent).newState === "open";
             const wasOpen = internalOpen();
             setInternalOpen(nextOpen);
             if (nextOpen) attachViewportListeners();
             else detachViewportListeners();
-            syncTrigger(nextOpen);
             if (props.open === undefined || props.open !== nextOpen) props.onOpenChange?.(nextOpen);
             if (wasOpen && !nextOpen) props.onClose?.();
-            if (!nextOpen && props.open === true) {
-              queueMicrotask(() => {
-                if (props.open === true) open(false);
-              });
-            }
-          });
-        }}
-        id={menuId}
-        popover="auto"
-        role="menu"
-        aria-label={props.label ?? "Dropdown menu"}
-        class={`k2b-dropdown__menu ${props.className ?? ""}`}
-        style={props.width ? { "--k2b-dropdown-width": props.width } : undefined}
-        data-position={position()}
-        onKeyDown={handleMenuKeyDown}
-      >
-        <Show when={props.elements} fallback={<MenuContext.Provider value={{ close }}>{props.children}</MenuContext.Provider>}>
-          {(items) => <DropdownItems items={items()} close={close} />}
-        </Show>
-      </div>
-    </span>
+            if (!nextOpen && props.open === true) queueMicrotask(() => props.open === true && open(false));
+          }}
+        >
+          <DropdownItems items={props.items} close={close} />
+        </div>
+      </span>
+    </DropdownContext.Provider>
   );
 }
+
+type DropdownComponent = ((props: DropdownProps) => JSX.Element) & {
+  Root: (props: DropdownProps) => JSX.Element;
+  Trigger: (props: DropdownTriggerProps) => JSX.Element;
+  Item: (props: DropdownItemProps) => JSX.Element;
+};
+
+export const Dropdown = DropdownRoot as DropdownComponent;
+Dropdown.Root = DropdownRoot;
+Dropdown.Trigger = DropdownTrigger;
+Dropdown.Item = DropdownItem;
 
 export default Dropdown;

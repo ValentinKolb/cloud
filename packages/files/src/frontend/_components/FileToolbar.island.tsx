@@ -234,22 +234,10 @@ export default function FileToolbar({
   return (
     <div class="flex flex-col gap-2 w-full">
       <div class="flex flex-wrap items-center gap-2">
-        <Dropdown
-          trigger={
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={isLoading() || uploadManager.state.isUploading}
-              classList={{
-                "opacity-50 pointer-events-none": isLoading() || uploadManager.state.isUploading,
-              }}
-            >
-              <i class={`ti text-sm ${uploadManager.state.isUploading ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
-              <span>New</span>
-              <i class="ti ti-chevron-down text-[10px]" />
-            </Button>
-          }
-          elements={[
+        <Dropdown.Root
+          position="bottom-right"
+          width="11rem"
+          items={[
             {
               sectionLabel: "Upload",
               items: [
@@ -276,20 +264,26 @@ export default function FileToolbar({
               ],
             },
           ]}
-          position="bottom-right"
-          width="11rem"
-        />
+        >
+          <Dropdown.Trigger
+            variant="secondary"
+            size="sm"
+            disabled={isLoading() || uploadManager.state.isUploading}
+            classList={{
+              "opacity-50 pointer-events-none": isLoading() || uploadManager.state.isUploading,
+            }}
+          >
+            <i class={`ti text-sm ${uploadManager.state.isUploading ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
+            <span>New</span>
+            <i class="ti ti-chevron-down text-[10px]" />
+          </Dropdown.Trigger>
+        </Dropdown.Root>
 
         <Show when={selectionCount() > 0}>
-          <Dropdown
-            trigger={
-              <Button variant="secondary" size="sm">
-                <i class="ti ti-checks text-sm" />
-                <span class="text-[10px]">{selectionCount()}</span>
-                <i class="ti ti-chevron-down text-[10px]" />
-              </Button>
-            }
-            elements={[
+          <Dropdown.Root
+            position="bottom-right"
+            width="10rem"
+            items={[
               ...(bases.length > 0
                 ? [
                     {
@@ -325,9 +319,13 @@ export default function FileToolbar({
                 action: clearSelection,
               },
             ]}
-            position="bottom-right"
-            width="10rem"
-          />
+          >
+            <Dropdown.Trigger variant="secondary" size="sm">
+              <i class="ti ti-checks text-sm" />
+              <span class="text-[10px]">{selectionCount()}</span>
+              <i class="ti ti-chevron-down text-[10px]" />
+            </Dropdown.Trigger>
+          </Dropdown.Root>
         </Show>
 
         <form onSubmit={handleFilterSubmit} class="min-w-[14rem] flex-1" role="search">

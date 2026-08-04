@@ -769,11 +769,11 @@ export default function KanbanBoard(props: Props) {
               <header class="flex items-center gap-2 px-1.5 py-1.5">
                 <i class="ti ti-arrow-bounce shrink-0 text-sm text-dimmed" />
                 <h3 class="flex-1 truncate text-xs font-medium">Wormholes</h3>
-                <Tooltip content="Drop an item into a wormhole to move it directly into a status in another Space.">
+                <Tooltip.Anchor content="Drop an item into a wormhole to move it directly into a status in another Space.">
                   <IconButton label="About wormholes" size="xs" class="h-5 w-5">
                     <i class="ti ti-info-circle text-xs" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </header>
 
               <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-[var(--ui-radius-control)] p-1.5">

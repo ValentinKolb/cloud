@@ -38,30 +38,38 @@ Both components accept `DropdownItem[]`. An item is one of:
 
 - an action with `label`, optional `icon`, and `action`;
 - a link with `label`, `href`, and optional `external`;
-- custom static or composite content through `element`, optionally as a function receiving `close`;
-- a section with optional `sectionLabel` and nested actions or elements.
+- a radio or checkbox choice with `choice`, `checked`, and `action`;
+- a section with optional `sectionLabel` and nested actions or choices.
 
 Set `variant: "danger"` only on destructive items.
 
-Prefer the declarative action and link items. `element` is an escape hatch for
-content such as an embedded form or a richer static block; it is not a shortcut
-for rebuilding menu rows. Interactive descendants must provide their complete
-role, focus, keyboard, and close behavior. In particular, do not place a
-general `Button` in `element` to imitate a selection row.
+Menus deliberately do not accept arbitrary interactive content. Use a dialog
+for a form or richer workflow. Use `Select`, `MultiSelectInput`, `SelectChip`,
+or `FilterChip` when the interaction edits a value or filter.
 
-`Dropdown` also accepts `open`, `onOpenChange`, `position`, `align`, `width`, `triggerClass`, `class`, `label`, `disabled`, `openOnHover`, and `onClose`. Its trigger should be a real button or link.
+`Dropdown.Root` accepts `items`, `open`, `onOpenChange`, `position`, `align`,
+`width`, `class`, `menuClass`, `label`, `disabled`, and `onClose`.
+`Dropdown.Trigger` owns the native button and its SSR-visible menu semantics.
+Use its normal button appearance by default. Set `appearance="plain"` only
+when a specialized component class owns the complete visual treatment.
 
 `width` is a **CSS length string**, not a class name. It sets the menu's `--k2b-dropdown-width` and defaults to `12rem`:
 
 ```tsx
-<Dropdown width="18rem" position="bottom-left" trigger={trigger} elements={actions} />
+<Dropdown.Root items={actions} width="18rem" position="bottom-left">
+  <Dropdown.Trigger variant="secondary">Actions</Dropdown.Trigger>
+</Dropdown.Root>
 ```
 
-`ContextMenu` wraps `children` and adds `elements`, `disabled`, `onOpen`, `onClose`, an optional stable `id`, and an accessible `label`. The additive `items` form maps compact `{ id, label, onSelect }` records to the shared dropdown model.
+`ContextMenu` wraps `children` and uses the same `items` model. It also accepts
+`disabled`, `onOpen`, `onClose`, an optional stable `id`, and an accessible
+`label`.
 
 ## Accessibility
 
-`Dropdown` adds menu state to its focusable trigger. Enter, Space, and arrow keys open it. Arrow keys, Home, End, Escape, and Tab manage the open menu.
+`Dropdown.Trigger` renders `aria-haspopup`, `aria-expanded`, and
+`aria-controls` in server HTML. Enter, Space, and arrow keys open it. Arrow
+keys, Home, End, Escape, and Tab manage the open menu.
 
 Declarative actions close the visible menu before their callback runs. A state
 update in the callback therefore cannot briefly repaint stale menu content.
@@ -96,12 +104,9 @@ const actions: DropdownItem[] = [
   },
 ];
 
-<Dropdown
-  trigger={
-    <IconButton label="Actions">
-      <i class="ti ti-dots" aria-hidden="true" />
-    </IconButton>
-  }
-  elements={actions}
-/>;
+<Dropdown.Root items={actions}>
+  <Dropdown.Trigger iconOnly label="Actions" variant="ghost">
+    <i class="ti ti-dots" aria-hidden="true" />
+  </Dropdown.Trigger>
+</Dropdown.Root>;
 ```

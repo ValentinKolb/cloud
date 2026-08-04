@@ -294,16 +294,11 @@ export default function NotebookGraph(props: Props) {
   return (
     <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)]">
       <Show when={simNodes.length > 0} fallback={<EmptyState />}>
-        <Tooltip content="Close graph">
-          <IconButtonLink
-            href={closeHref()}
-            size="sm"
-            class="absolute left-2 top-2 z-10"
-            label="Close graph"
-          >
+        <Tooltip.Anchor content="Close graph">
+          <IconButtonLink href={closeHref()} size="sm" class="absolute left-2 top-2 z-10" label="Close graph">
             <i class="ti ti-x" />
           </IconButtonLink>
-        </Tooltip>
+        </Tooltip.Anchor>
 
         <svg
           ref={svgRef}
@@ -374,21 +369,21 @@ export default function NotebookGraph(props: Props) {
         </svg>
 
         <div class="absolute bottom-2 right-2 z-10 flex flex-col gap-1 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1 shadow-[var(--ui-shadow-float)]">
-          <Tooltip content="Zoom in">
+          <Tooltip.Anchor content="Zoom in">
             <IconButton label="Zoom in" size="sm" onClick={() => setClampedZoom(zoom() * ZOOM_STEP)}>
               <i class="ti ti-plus" />
             </IconButton>
-          </Tooltip>
-          <Tooltip content="Zoom out">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Zoom out">
             <IconButton label="Zoom out" size="sm" onClick={() => setClampedZoom(zoom() / ZOOM_STEP)}>
               <i class="ti ti-minus" />
             </IconButton>
-          </Tooltip>
-          <Tooltip content="Fit graph">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Fit graph">
             <IconButton label="Fit graph" size="sm" onClick={fitGraph}>
               <i class="ti ti-focus-centered" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
       </Show>
     </div>

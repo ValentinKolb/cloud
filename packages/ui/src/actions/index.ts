@@ -7,20 +7,17 @@ export { Disclosure } from "./Disclosure";
 export type {
   DropdownAction,
   DropdownActionBase,
-  DropdownElement,
+  DropdownChoice,
   DropdownItemProps,
   DropdownPosition,
   DropdownProps,
   DropdownSection,
+  DropdownTriggerProps,
 } from "./Dropdown";
 export { Dropdown, DropdownItem, dropdownPosition } from "./Dropdown";
 export type { FilterChipOption, FilterChipProps, FilterChipSection } from "./FilterChip";
 export { FilterChip } from "./FilterChip";
-export type {
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuProps,
-} from "./ContextMenu";
+export type { ContextMenuProps } from "./ContextMenu";
 export { ContextMenu } from "./ContextMenu";
 export type { RemoveButtonProps } from "./RemoveButton";
 export { RemoveButton } from "./RemoveButton";

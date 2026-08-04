@@ -247,23 +247,16 @@ export default function MailConversationList(props: {
                 </p>
               </div>
               <Show when={props.canWrite && props.listMode === "conversations"}>
-                <Tooltip content="Select conversations">
+                <Tooltip.Anchor content="Select conversations">
                   <IconButton type="button" label="Select conversations" aria-pressed="false" onClick={props.onToggleSelectionMode}>
                     <i class="ti ti-checkbox" aria-hidden="true" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </Show>
-              <Dropdown
+              <Dropdown.Root
                 position="bottom-right"
                 width="14rem"
-                trigger={
-                  <Tooltip content={props.listMode === "conversations" ? "Conversation view" : "Message view"}>
-                    <IconButton type="button" label="Choose list view">
-                      <i class="ti ti-layout-list" aria-hidden="true" />
-                    </IconButton>
-                  </Tooltip>
-                }
-                elements={[
+                items={[
                   {
                     label: "Conversation view",
                     icon: props.listMode === "conversations" ? "ti ti-check" : "ti ti-messages",
@@ -275,8 +268,17 @@ export default function MailConversationList(props: {
                     action: () => props.onListModeChange("messages"),
                   },
                 ]}
-              />
-              <Tooltip content="Search filters">
+              >
+                <Dropdown.Trigger
+                  iconOnly
+                  type="button"
+                  label="Choose list view"
+                  tooltip={props.listMode === "conversations" ? "Conversation view" : "Message view"}
+                >
+                  <i class="ti ti-layout-list" aria-hidden="true" />
+                </Dropdown.Trigger>
+              </Dropdown.Root>
+              <Tooltip.Anchor content="Search filters">
                 <IconButton
                   type="button"
                   class={structuredSummary() ? "text-[var(--app-accent)]" : undefined}
@@ -286,13 +288,13 @@ export default function MailConversationList(props: {
                 >
                   <i class="ti ti-adjustments-search" aria-hidden="true" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
               <Show when={props.selectedConversationId || props.selectedMessageId}>
-                <Tooltip content="Hide conversation list">
+                <Tooltip.Anchor content="Hide conversation list">
                   <IconButton type="button" class="hidden lg:inline-flex" label="Hide conversation list" onClick={props.onCollapse}>
                     <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
                   </IconButton>
-                </Tooltip>
+                </Tooltip.Anchor>
               </Show>
             </div>
           }

@@ -8,11 +8,11 @@ export function SelectValueBadges(props: { items: SelectBadgeItem[]; empty?: JSX
       {props.items.length === 0
         ? (props.empty ?? "")
         : props.items.map((item) => (
-            <Tooltip content={`Unknown option: ${item.id}`} disabled={item.known}>
+            <Tooltip.Anchor content={`Unknown option: ${item.id}`} disabled={item.known}>
               <Tag size="sm" color={item.color} class={`max-w-full shrink-0 ${item.known ? "" : "opacity-75"}`}>
                 {item.label}
               </Tag>
-            </Tooltip>
+            </Tooltip.Anchor>
           ))}
     </span>
   );

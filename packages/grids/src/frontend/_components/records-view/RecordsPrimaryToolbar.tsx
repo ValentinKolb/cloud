@@ -55,7 +55,7 @@ export default function RecordsPrimaryToolbar(props: Props) {
         {props.recordCountText}
       </span>
       <Show when={props.livePending || props.liveRefreshing}>
-        <Tooltip content="Refresh records">
+        <Tooltip.Anchor content="Refresh records">
           <Button
             variant="secondary"
             size="sm"
@@ -67,7 +67,7 @@ export default function RecordsPrimaryToolbar(props: Props) {
             <i class={`ti ${props.liveRefreshing ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
             Updates available
           </Button>
-        </Tooltip>
+        </Tooltip.Anchor>
       </Show>
       <Show when={props.cardsMode && (props.viewMode || props.trashMode)}>
         <CardSizeDropdown value={props.cardSize} onChange={props.onCardSizeChange} />
@@ -97,15 +97,9 @@ export default function RecordsPrimaryToolbar(props: Props) {
             <i class="ti ti-x text-[10px] opacity-60" />
           </Button>
         </Show>
-        <Dropdown
+        <Dropdown.Root
           position="bottom-left"
-          trigger={
-            <Button variant="secondary" size="sm">
-              Actions
-              <i class="ti ti-chevron-down text-[10px] opacity-60" />
-            </Button>
-          }
-          elements={[
+          items={[
             {
               sectionLabel: "Records",
               items: [
@@ -144,7 +138,12 @@ export default function RecordsPrimaryToolbar(props: Props) {
               ],
             },
           ]}
-        />
+        >
+          <Dropdown.Trigger variant="secondary" size="sm">
+            Actions
+            <i class="ti ti-chevron-down text-[10px] opacity-60" />
+          </Dropdown.Trigger>
+        </Dropdown.Root>
       </Show>
     </div>
   );

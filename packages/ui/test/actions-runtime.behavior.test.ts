@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { createComponent, createSignal, type JSX } from "solid-js";
+import { createComponent, createSignal } from "solid-js";
 import { isServer, render } from "solid-js/web";
 import { createDomTestHarness } from "./dom";
 
@@ -37,22 +37,13 @@ const installPopoverStub = (): void => {
   };
 };
 
-const buttonElement = (document: Document, text: string, id?: string, tabIndex?: number): JSX.Element => {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = text;
-  if (id) button.id = id;
-  if (tabIndex !== undefined) button.tabIndex = tabIndex;
-  return button as unknown as JSX.Element;
-};
-
 describe("@k2b/ui action runtime behavior", () => {
   if (isServer) {
     test.skip("runs in the dedicated browser-conditions test process", () => {});
     return;
   }
 
-  test("scopes dropdown viewport listeners, preserves custom content, and reacts to disabled", async () => {
+  test("scopes dropdown viewport listeners, closes actions, and reacts to disabled", async () => {
     const dom = createDomTestHarness();
     installPopoverStub();
     const { Dropdown } = await import("../src/actions/Dropdown");
@@ -64,16 +55,11 @@ describe("@k2b/ui action runtime behavior", () => {
     const dispose = render(() => {
       const [disabled, updateDisabled] = createSignal(false);
       setDisabled = updateDisabled;
-      return createComponent(Dropdown, {
+      return createComponent(Dropdown.Root, {
         get disabled() {
           return disabled();
         },
-        label: "Project actions",
-        trigger: buttonElement(dom.document, "Open"),
-        elements: [
-          {
-            element: buttonElement(dom.document, "Consumer action", "consumer-action", 5),
-          },
+        items: [
           {
             label: "Rename",
             action: () => {
@@ -81,11 +67,14 @@ describe("@k2b/ui action runtime behavior", () => {
             },
           },
         ],
+        get children() {
+          return createComponent(Dropdown.Trigger, { label: "Project actions", children: "Open" });
+        },
       });
     }, dom.root);
 
-    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-dropdown__trigger > button");
-    expect(trigger?.getAttribute("aria-disabled")).toBe("false");
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-dropdown__trigger");
+    expect(trigger?.disabled).toBe(false);
     expect(trigger?.hasAttribute("tabindex")).toBe(false);
     expect(addListener.mock.calls.some(([type]) => type === "scroll" || type === "resize")).toBe(false);
 
@@ -93,10 +82,6 @@ describe("@k2b/ui action runtime behavior", () => {
     await flush();
     expect(addListener.mock.calls.filter(([type]) => type === "scroll")).toHaveLength(1);
     expect(addListener.mock.calls.filter(([type]) => type === "resize")).toHaveLength(1);
-
-    const custom = dom.root.querySelector<HTMLButtonElement>("#consumer-action");
-    expect(custom?.getAttribute("role")).toBeNull();
-    expect(custom?.tabIndex).toBe(5);
 
     dom.root.querySelectorAll<HTMLButtonElement>("[role='menuitem']")[0]?.click();
     await flush();
@@ -107,12 +92,10 @@ describe("@k2b/ui action runtime behavior", () => {
     setDisabled(true);
     expect(trigger?.disabled).toBe(true);
     expect(trigger?.tabIndex).toBe(-1);
-    expect(trigger?.getAttribute("aria-disabled")).toBe("true");
 
     setDisabled(false);
     expect(trigger?.disabled).toBe(false);
     expect(trigger?.hasAttribute("tabindex")).toBe(false);
-    expect(trigger?.getAttribute("aria-disabled")).toBe("false");
 
     dispose();
     addListener.mockRestore();
@@ -157,49 +140,73 @@ describe("@k2b/ui action runtime behavior", () => {
     dom.cleanup();
   });
 
-  test("keeps embedded form controls in the open dropdown Tab flow", async () => {
+  test("keeps explicit checkbox choices open when requested", async () => {
     const dom = createDomTestHarness();
     installPopoverStub();
     const { Dropdown } = await import("../src/actions/Dropdown");
-    const form = dom.document.createElement("form");
-    const input = dom.document.createElement("input");
-    const save = dom.document.createElement("button");
-    input.name = "name";
-    save.type = "button";
-    save.textContent = "Save";
-    form.append(input, save);
+    const [checked, setChecked] = createSignal(false);
 
     const dispose = render(
       () =>
-        createComponent(Dropdown, {
-          label: "Edit project",
-          trigger: buttonElement(dom.document, "Edit"),
-          elements: [{ element: form as unknown as JSX.Element }],
+        createComponent(Dropdown.Root, {
+          items: [
+            {
+              label: "Pinned",
+              choice: "checkbox",
+              get checked() {
+                return checked();
+              },
+              closeOnSelect: false,
+              action: () => setChecked((value) => !value),
+            },
+          ],
+          get children() {
+            return createComponent(Dropdown.Trigger, { label: "Edit project", children: "Edit" });
+          },
         }),
       dom.root,
     );
 
-    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-dropdown__trigger > button");
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-dropdown__trigger");
     trigger?.click();
     await flush();
 
-    const menu = dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu");
-    const menuKeyDown = (menu as unknown as { $$keydown?: (event: KeyboardEvent) => void })?.$$keydown;
-    const tab = new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      key: "Tab",
-    });
-    Object.defineProperty(tab, "target", { value: input });
-    menuKeyDown?.(tab);
-
-    expect(tab.defaultPrevented).toBe(false);
+    const choice = dom.root.querySelector<HTMLButtonElement>("[role='menuitemcheckbox']");
+    choice?.click();
+    await flush();
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");
-    expect(input.tabIndex).toBe(0);
-    expect(save.tabIndex).toBe(0);
-    expect(save.getAttribute("role")).toBeNull();
-    save.focus();
-    expect(dom.document.activeElement).toBe(save as unknown as Element);
+    expect(choice?.getAttribute("aria-checked")).toBe("true");
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("restores trigger focus when Escape closes a dropdown", async () => {
+    const dom = createDomTestHarness();
+    installPopoverStub();
+    const { Dropdown } = await import("../src/actions/Dropdown");
+
+    const dispose = render(
+      () =>
+        createComponent(Dropdown.Root, {
+          items: [{ label: "Rename", action: () => {} }],
+          get children() {
+            return createComponent(Dropdown.Trigger, { label: "Project actions", children: "Open" });
+          },
+        }),
+      dom.root,
+    );
+
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-dropdown__trigger");
+    trigger?.click();
+    await flush();
+    const menu = dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu");
+    const keyDown = (menu as unknown as { $$keydown?: (event: KeyboardEvent) => void })?.$$keydown;
+    keyDown?.(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+    await flush();
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(dom.document.activeElement).toBe(trigger ?? null);
 
     dispose();
     dom.cleanup();
@@ -349,12 +356,7 @@ describe("@k2b/ui action runtime behavior", () => {
       () =>
         createComponent(ContextMenu, {
           label: "File actions",
-          elements: [
-            {
-              element: buttonElement(dom.document, "Custom", "custom-context-action", 4),
-            },
-            { label: "Rename", action: () => {} },
-          ],
+          items: [{ label: "Rename", action: () => {} }],
           children: "README.md",
         }),
       dom.root,
@@ -384,10 +386,6 @@ describe("@k2b/ui action runtime behavior", () => {
     expect(windowAdd.mock.calls.filter(([type]) => type === "scroll")).toHaveLength(1);
     expect(windowAdd.mock.calls.filter(([type]) => type === "resize")).toHaveLength(1);
     expect(documentAdd.mock.calls.filter(([type]) => type === "pointerdown")).toHaveLength(1);
-
-    const custom = dom.document.getElementById("custom-context-action") as HTMLButtonElement | null;
-    expect(custom?.getAttribute("role")).toBeNull();
-    expect(custom?.tabIndex).toBe(4);
 
     menu?.dispatchEvent(new Event("scroll", { bubbles: false }));
     expect(host?.getAttribute("aria-expanded")).toBe("true");

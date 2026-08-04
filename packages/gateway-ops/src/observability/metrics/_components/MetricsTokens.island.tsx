@@ -146,7 +146,7 @@ export default function MetricsTokens(props: Props) {
                   <td class="px-3 py-2 text-dimmed">{formatDate(token.expiresAt)}</td>
                   <td class="px-3 py-2 text-dimmed">{formatDate(token.lastUsedAt)}</td>
                   <td class="px-3 py-2 text-right">
-                    <Tooltip content="Revoke metrics token">
+                    <Tooltip.Anchor content="Revoke metrics token">
                       <IconButton
                         type="button"
                         variant="danger"
@@ -157,7 +157,7 @@ export default function MetricsTokens(props: Props) {
                       >
                         <i class={revokeMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-key-off"} />
                       </IconButton>
-                    </Tooltip>
+                    </Tooltip.Anchor>
                   </td>
                 </tr>
               ))}

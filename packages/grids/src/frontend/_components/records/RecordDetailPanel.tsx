@@ -229,15 +229,9 @@ export default function RecordDetailPanel(props: Props) {
           headerActions={
             <>
               <Show when={props.canWrite && mode() === "live"}>
-                <Dropdown
-                  trigger={
-                    <Tooltip content="More record actions">
-                      <IconButton variant="ghost" size="sm" type="button" label="More record actions" disabled={deleteMut.loading()}>
-                        <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} />
-                      </IconButton>
-                    </Tooltip>
-                  }
-                  elements={[
+                <Dropdown.Root
+                  position="bottom-left"
+                  items={[
                     {
                       sectionLabel: "Danger zone",
                       items: [
@@ -250,14 +244,25 @@ export default function RecordDetailPanel(props: Props) {
                       ],
                     },
                   ]}
-                  position="bottom-left"
-                />
+                >
+                  <Dropdown.Trigger
+                    iconOnly
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    label="More record actions"
+                    disabled={deleteMut.loading()}
+                    tooltip="More record actions"
+                  >
+                    <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} />
+                  </Dropdown.Trigger>
+                </Dropdown.Root>
               </Show>
-              <Tooltip content="Close details">
+              <Tooltip.Anchor content="Close details">
                 <IconButton variant="ghost" size="sm" type="button" label="Close detail panel" onClick={() => props.onClose()}>
                   <i class="ti ti-x" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </>
           }
           quickActions={

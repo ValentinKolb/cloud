@@ -100,7 +100,7 @@ export default function AssistantAllChatsList(props: Props) {
             </Show>
             <ConversationStatusMeta conversation={conversation} labels />
             <span class="hidden shrink-0 text-xs text-dimmed sm:block">{formatUpdatedAt(conversation.updatedAt)}</span>
-            <Tooltip content={props.archived ? "Restore chat" : "Edit chat"}>
+            <Tooltip.Anchor content={props.archived ? "Restore chat" : "Edit chat"}>
               <IconButton
                 size="sm"
                 variant="ghost"
@@ -113,7 +113,7 @@ export default function AssistantAllChatsList(props: Props) {
               >
                 <i class={`ti ${props.archived ? "ti-restore" : "ti-settings"}`} aria-hidden="true" />
               </IconButton>
-            </Tooltip>
+            </Tooltip.Anchor>
           </div>
         )}
       </For>

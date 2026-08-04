@@ -350,11 +350,11 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
               metric().latestSampleAt ? ` · ${compactDateWithDelta(metric().latestSampleAt!, props.dateContext)}` : ""
             }`}
             actions={
-              <Tooltip content="Close details">
+              <Tooltip.Anchor content="Close details">
                 <IconButton label="Close metric details" variant="ghost" size="sm" onClick={props.selection.close}>
                   <i class="ti ti-x" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             }
             quickActions={
               <>
@@ -389,11 +389,11 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             icon="ti ti-toggle-right"
             description={compactDateWithDelta(state().updatedAt, props.dateContext)}
             actions={
-              <Tooltip content="Close details">
+              <Tooltip.Anchor content="Close details">
                 <IconButton label="Close state details" variant="ghost" size="sm" onClick={props.selection.close}>
                   <i class="ti ti-x" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             }
             quickActions={
               <>
@@ -428,11 +428,11 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
             icon="ti ti-bolt"
             description={`${signalSubject(event())} · ${compactDateWithDelta(event().ts, props.dateContext)}`}
             actions={
-              <Tooltip content="Close details">
+              <Tooltip.Anchor content="Close details">
                 <IconButton label="Close event details" variant="ghost" size="sm" onClick={props.selection.close}>
                   <i class="ti ti-x" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             }
             quickActions={
               <>

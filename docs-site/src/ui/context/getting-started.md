@@ -118,7 +118,6 @@ semantics; selection components own field state and selected-option semantics.
 When a dropdown needs a fixed width, pass a CSS length such as `width="16rem"`,
 not a utility class such as `w-64`.
 
-Use `Dropdown.element` only for static or genuinely composite content. Any
-interactive descendant then owns its full role, focus, keyboard, and close
-contract. Prefer a standard component whenever the interaction already maps to
-the catalog.
+Dropdown menus are declarative action surfaces. They do not accept arbitrary
+interactive content. Use a dialog for composite workflows and a selection
+component for controlled values.

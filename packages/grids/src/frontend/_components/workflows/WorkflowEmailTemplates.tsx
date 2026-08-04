@@ -405,7 +405,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                   </Show>
                 </button>
                 <div class="flex items-center gap-1">
-                  <Tooltip content="Edit email template">
+                  <Tooltip.Anchor content="Edit email template">
                     <IconButton
                       variant="ghost"
                       size="sm"
@@ -415,8 +415,8 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                     >
                       <i class="ti ti-pencil" />
                     </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Delete email template">
+                  </Tooltip.Anchor>
+                  <Tooltip.Anchor content="Delete email template">
                     <IconButton
                       variant="ghost"
                       size="sm"
@@ -428,7 +428,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                     >
                       <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </div>
               </article>
             )}

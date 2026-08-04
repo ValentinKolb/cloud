@@ -123,7 +123,7 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
 
   test("renders accessible tooltip markup on the server", () => {
     const html = renderToString(() =>
-      createComponent(Tooltip, {
+      createComponent(Tooltip.Anchor, {
         content: "Settings",
         placement: "bottom",
         children: "Open",

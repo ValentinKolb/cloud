@@ -1,4 +1,4 @@
-import { Avatar, Dropdown, IconButton, type DropdownItem } from "@k2b/ui";
+import { Dropdown, type DropdownItem } from "@k2b/ui";
 import type { Role } from "../contracts/shared";
 
 /**
@@ -28,24 +28,15 @@ export default function NavMenu(props: NavMenuProps) {
       ? `/api/accounts/users/${encodeURIComponent(props.user.id)}/avatar?rev=${encodeURIComponent(props.user.avatarHash)}`
       : undefined;
 
-  const getElements = (): DropdownItem[] => [
-    // Top: Profile or Login
+  const getItems = (): DropdownItem[] => [
     ...(props.user
       ? [
           {
-            element: (
-              <a href="/me" role="menuitem" tabIndex={-1} class="k2b-dropdown__item">
-                <div class="flex items-center gap-3">
-                  <Avatar name={avatarName()} src={avatarSrc()} fallback={avatarName().slice(0, 2).toUpperCase()} size="sm" />
-                  <div class="flex-1">
-                    <div class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{props.user.displayName || props.user.uid}</div>
-                    {props.user.displayName && props.user.profile !== "guest" && (
-                      <div class="hidden sm:block text-xs text-dimmed">{props.user.uid}</div>
-                    )}
-                  </div>
-                </div>
-              </a>
-            ),
+            href: "/me",
+            icon: avatarSrc() ? undefined : "ti ti-user",
+            image: avatarSrc(),
+            label: avatarName(),
+            description: props.user.displayName && props.user.profile !== "guest" ? props.user.uid : undefined,
           },
         ]
       : [
@@ -58,15 +49,10 @@ export default function NavMenu(props: NavMenuProps) {
   ];
 
   return (
-    <Dropdown
-      trigger={
-        <IconButton label="Menu">
-          <i class="ti ti-menu-2 text-lg" />
-        </IconButton>
-      }
-      position="bottom-left"
-      width="16rem"
-      elements={getElements()}
-    />
+    <Dropdown.Root position="bottom-left" width="16rem" items={getItems()}>
+      <Dropdown.Trigger iconOnly label="Menu">
+        <i class="ti ti-menu-2 text-lg" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 }

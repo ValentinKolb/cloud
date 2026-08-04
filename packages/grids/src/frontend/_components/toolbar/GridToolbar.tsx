@@ -294,14 +294,14 @@ export default function GridToolbar(props: Props) {
         </Show>
 
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
-        <Tooltip content={hasFilterableFields() ? "" : "This table has no filterable fields."} disabled={hasFilterableFields()}>
+        <Tooltip.Anchor content={hasFilterableFields() ? "" : "This table has no filterable fields."} disabled={hasFilterableFields()}>
           <span class="inline-flex">
             <Button variant="secondary" size="sm" aria-pressed={hasFilter()} onClick={onFilterClick} disabled={!hasFilterableFields()}>
               <i class="ti ti-filter" />
               Filter
             </Button>
           </span>
-        </Tooltip>
+        </Tooltip.Anchor>
 
         {/* Sort */}
         <Button variant="secondary" size="sm" aria-pressed={hasSort()} onClick={onSortClick}>

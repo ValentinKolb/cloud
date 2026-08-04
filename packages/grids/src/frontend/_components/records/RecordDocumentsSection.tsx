@@ -1,14 +1,4 @@
-import {
-  Dropdown,
-  dialogCore,
-  PanelDialog,
-  PdfPreview,
-  panelDialogOptions,
-  prompts,
-  StructuredDataPreview,
-  toast,
-  Button,
-} from "@k2b/ui";
+import { Dropdown, dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, StructuredDataPreview, toast, Button } from "@k2b/ui";
 import { fileIcons } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -334,18 +324,13 @@ export default function RecordDocumentsSection(props: {
           <div class="flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Documents</h3>
             <Show when={props.live && availableTemplates().length > 0}>
-              <Dropdown
-                trigger={
-                  <Button variant="secondary" size="sm" type="button" disabled={refreshDocumentsMut.loading()}>
-                    <i class="ti ti-file-plus" />
-                    Generate
-                    <i class="ti ti-chevron-down text-xs" />
-                  </Button>
-                }
-                elements={generationActions()}
-                position="bottom-left"
-                width="16rem"
-              />
+              <Dropdown.Root position="bottom-left" width="16rem" items={generationActions()}>
+                <Dropdown.Trigger variant="secondary" size="sm" type="button" disabled={refreshDocumentsMut.loading()}>
+                  <i class="ti ti-file-plus" />
+                  Generate
+                  <i class="ti ti-chevron-down text-xs" />
+                </Dropdown.Trigger>
+              </Dropdown.Root>
             </Show>
           </div>
           <Show when={generatedRuns().length === 0}>

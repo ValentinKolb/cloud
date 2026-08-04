@@ -40,11 +40,11 @@ export default function SpaceSettingsDialog(props: Props) {
       when={load.data()}
       fallback={
         <div class={`paper relative ${settingsDialogFrameClass} rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]`}>
-          <Tooltip content="Close settings" class="absolute right-4 top-4 z-10">
+          <Tooltip.Anchor content="Close settings" class="absolute right-4 top-4 z-10">
             <IconButton label="Close settings" onClick={props.close}>
               <i class="ti ti-x" />
             </IconButton>
-          </Tooltip>
+          </Tooltip.Anchor>
           <Show
             when={load.error()}
             fallback={<Placeholder state="loading" variant="panel" title="Loading Space settings" class="flex-1" />}

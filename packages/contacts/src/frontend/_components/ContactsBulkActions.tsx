@@ -170,11 +170,11 @@ export default function ContactsBulkActions(props: {
       >
         <i class="ti ti-trash" /> Delete
       </Button>
-      <Tooltip content="Exit selection">
+      <Tooltip.Anchor content="Exit selection">
         <IconButton size="xs" label="Exit selection" onClick={props.onClear}>
           <i class="ti ti-x" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     </div>
   );
 }

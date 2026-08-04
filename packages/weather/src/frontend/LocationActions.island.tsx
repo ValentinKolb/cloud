@@ -114,17 +114,10 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
         <i class="ti ti-device-tv" aria-hidden="true" />
         Display
       </Button>
-      <Dropdown
-        trigger={
-          <Tooltip content="Location options">
-            <IconButton label="Location options" size="sm" disabled={remove.loading()} loading={remove.loading()}>
-              <i class="ti ti-dots" aria-hidden="true" />
-            </IconButton>
-          </Tooltip>
-        }
+      <Dropdown.Root
         position="bottom-left"
         width="12rem"
-        elements={[
+        items={[
           {
             items: [
               {
@@ -136,7 +129,18 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
             ],
           },
         ]}
-      />
+      >
+        <Dropdown.Trigger
+          iconOnly
+          label="Location options"
+          size="sm"
+          disabled={remove.loading()}
+          loading={remove.loading()}
+          tooltip="Location options"
+        >
+          <i class="ti ti-dots" aria-hidden="true" />
+        </Dropdown.Trigger>
+      </Dropdown.Root>
     </div>
   );
 }

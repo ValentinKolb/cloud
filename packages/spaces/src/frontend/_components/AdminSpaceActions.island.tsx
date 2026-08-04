@@ -110,21 +110,10 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
   });
 
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Space actions">
-          <IconButton label={`Actions for ${props.spaceName}`} size="sm" class="h-7 w-7">
-            <i
-              class={
-                permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
-              }
-            />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="13rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -145,7 +134,15 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly label={`Actions for ${props.spaceName}`} size="sm" class="h-7 w-7" tooltip="Space actions">
+        <i
+          class={
+            permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
+          }
+        />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

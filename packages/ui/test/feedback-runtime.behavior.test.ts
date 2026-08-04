@@ -189,7 +189,7 @@ describe("@k2b/ui feedback runtime", () => {
 
     const dispose = render(
       () =>
-        createComponent(Tooltip, {
+        createComponent(Tooltip.Anchor, {
           content: "Helpful context",
           delay: 0,
           get disabled() {
@@ -322,8 +322,9 @@ describe("@k2b/ui feedback runtime", () => {
 
     dom.document.querySelector<HTMLButtonElement>(".k2b-date-trigger")?.click();
     await settle();
-    const nextDay = Array.from(dom.document.querySelectorAll<HTMLButtonElement>("[data-date-day]"))
-      .find((day) => day.dataset.dateDay !== "2026-08-03" && day.dataset.outside !== "true");
+    const nextDay = Array.from(dom.document.querySelectorAll<HTMLButtonElement>("[data-date-day]")).find(
+      (day) => day.dataset.dateDay !== "2026-08-03" && day.dataset.outside !== "true",
+    );
     expect(nextDay).toBeDefined();
     nextDay?.click();
     await settle();

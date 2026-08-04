@@ -98,7 +98,9 @@ counts, and other important state visible with the default `"always"` value.
   actions={
     <AppWorkspace.SidebarItemActions visibility="hover">
       <IconButton size="xs" label="Pin draft">…</IconButton>
-      <Dropdown trigger={…} elements={draftActions} />
+      <Dropdown.Root items={draftActions}>
+        <Dropdown.Trigger iconOnly label="Draft actions" variant="ghost">…</Dropdown.Trigger>
+      </Dropdown.Root>
     </AppWorkspace.SidebarItemActions>
   }
 />

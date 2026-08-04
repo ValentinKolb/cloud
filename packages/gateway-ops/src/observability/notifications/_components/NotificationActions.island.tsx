@@ -133,17 +133,10 @@ const NotificationActions = (props: NotificationActionsProps) => {
   const sendLabel = props.status === "pending" ? "Send" : "Resend";
 
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Manage notification">
-          <IconButton type="button" size="sm" label="Notification actions">
-            <i class="ti ti-dots-vertical text-sm" />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="10rem"
-      elements={[
+      items={[
         {
           items: [
             {
@@ -172,7 +165,11 @@ const NotificationActions = (props: NotificationActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly type="button" size="sm" label="Notification actions" tooltip="Manage notification">
+        <i class="ti ti-dots-vertical text-sm" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 

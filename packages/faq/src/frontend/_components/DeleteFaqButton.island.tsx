@@ -31,7 +31,7 @@ export default function DeleteFaqButton(props: { id: string; question: string })
   };
 
   return (
-    <Tooltip content="Delete FAQ entry">
+    <Tooltip.Anchor content="Delete FAQ entry">
       <IconButton
         size="sm"
         variant="danger"
@@ -42,6 +42,6 @@ export default function DeleteFaqButton(props: { id: string; question: string })
       >
         <i class="ti ti-trash" aria-hidden="true" />
       </IconButton>
-    </Tooltip>
+    </Tooltip.Anchor>
   );
 }

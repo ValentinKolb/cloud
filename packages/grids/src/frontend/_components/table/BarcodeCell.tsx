@@ -25,7 +25,7 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
   const openButton = () => (
     <Show when={props.showOpenAction && sizedSvg() && openUrl()}>
       {(url) => (
-        <Tooltip content="Open URL" disabled={detail()}>
+        <Tooltip.Anchor content="Open URL" disabled={detail()}>
           <ButtonLink
             href={url()}
             target="_blank"
@@ -41,7 +41,7 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
               <span>Open</span>
             </Show>
           </ButtonLink>
-        </Tooltip>
+        </Tooltip.Anchor>
       )}
     </Show>
   );
@@ -54,9 +54,9 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
           <Show
             when={openUrl()}
             fallback={
-              <Tooltip content={fallback()}>
+              <Tooltip.Anchor content={fallback()}>
                 <span class={fallbackClass()}>{fallback()}</span>
-              </Tooltip>
+              </Tooltip.Anchor>
             }
           >
             {(url) => (
@@ -74,9 +74,9 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
         }
       >
         {(html) => (
-          <Tooltip content={fallback()}>
+          <Tooltip.Anchor content={fallback()}>
             <span class={svgClass()} innerHTML={html()} />
-          </Tooltip>
+          </Tooltip.Anchor>
         )}
       </Show>
       {openButton()}

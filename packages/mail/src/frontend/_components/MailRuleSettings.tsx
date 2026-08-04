@@ -419,23 +419,22 @@ function MailRuleActionsEditor(props: {
             )}
           </For>
           <Show when={props.actions.length < 8 && actionKindsFor().length > 0}>
-            <Dropdown
-              trigger={
-                <Button variant="secondary" size="sm" type="button" class="self-start">
-                  <i class="ti ti-plus" aria-hidden="true" />
-                  Add action
-                </Button>
-              }
+            <Dropdown.Root
               position="bottom-right"
               width="14rem"
-              elements={actionKindsFor().map((kind) => ({
+              items={actionKindsFor().map((kind) => ({
                 label: mailRuleActionKindLabels[kind],
                 action: () => {
                   const action = createAction(kind);
                   if (action) props.onChange([...props.actions, action]);
                 },
               }))}
-            />
+            >
+              <Dropdown.Trigger variant="secondary" size="sm" type="button" class="self-start">
+                <i class="ti ti-plus" aria-hidden="true" />
+                Add action
+              </Dropdown.Trigger>
+            </Dropdown.Root>
           </Show>
           <Show when={props.validationMessage}>
             {(message) => (
@@ -1004,14 +1003,9 @@ export default function MailRuleSettings(props: {
             const backfill = backfills()[row.id];
             const backfillActive = Boolean(backfill && activeBackfillStates.has(backfill.state));
             return (
-              <Dropdown
-                trigger={
-                  <IconButton size="sm" type="button" label={`Actions for ${row.name}`}>
-                    <i class="ti ti-dots" aria-hidden="true" />
-                  </IconButton>
-                }
+              <Dropdown.Root
                 position="bottom-left"
-                elements={[
+                items={[
                   {
                     label: "Edit rule",
                     icon: "ti ti-pencil",
@@ -1050,7 +1044,11 @@ export default function MailRuleSettings(props: {
                     action: () => void remove.mutate(row),
                   },
                 ]}
-              />
+              >
+                <Dropdown.Trigger iconOnly size="sm" type="button" label={`Actions for ${row.name}`}>
+                  <i class="ti ti-dots" aria-hidden="true" />
+                </Dropdown.Trigger>
+              </Dropdown.Root>
             );
           }
           return render(col.value instanceof Function ? col.value(row) : col.value ? row[col.value] : undefined);

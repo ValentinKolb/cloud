@@ -1,7 +1,6 @@
 import { copyToClipboard } from "@k2b/stdlib/browser";
 import { createSignal, type JSX, onCleanup, splitProps } from "solid-js";
-import { Tooltip } from "../feedback/Tooltip";
-import type { ButtonProps } from "./Button";
+import { Button, type ButtonProps } from "./Button";
 
 export type CopyButtonValue = { text: string; value?: string } | { text?: string; value: string };
 
@@ -73,36 +72,33 @@ export function CopyButton(props: CopyButtonProps): JSX.Element {
   const icon = () => (copied() ? "ti ti-check" : "ti ti-copy");
   const iconOnly = () => local.iconOnly ?? local.label === undefined;
   const buttonLabel = () => (local.loading && local.loadingLabel ? local.loadingLabel : visibleLabel());
-  const button = () => (
-    <button
+  const button = (tooltip?: string) => (
+    <Button
       {...rest}
-      type={local.type ?? "button"}
-      // Compose rather than replace: `k2b-button` carries every layout, size
-      // and variant rule, so a consumer class must not be able to strip it.
-      // (Cloud replaced the class here, which was safe only because its base
-      // was a Tailwind utility set the consumer was expected to swap out.)
-      class={`k2b-button k2b-copy-button ${local.class ?? ""}`}
-      data-size={local.size ?? "sm"}
-      data-variant={local.variant ?? "ghost"}
+      tooltip={tooltip}
       disabled={local.disabled || local.loading}
+      type={local.type ?? "button"}
+      class={`k2b-copy-button ${local.class ?? ""}`}
+      size={local.size ?? "sm"}
+      variant={local.variant ?? "ghost"}
       aria-busy={local.loading ? "true" : undefined}
       aria-label={iconOnly() ? buttonLabel() : undefined}
       onClick={copy}
     >
       <i class={local.loading ? "ti ti-loader-2 k2b-spin" : icon()} aria-hidden="true" />
       {!iconOnly() && <span>{buttonLabel()}</span>}
-    </button>
+    </Button>
   );
 
   return iconOnly() ? (
-    <Tooltip content={visibleLabel()}>
-      {button()}
+    <>
+      {button(visibleLabel())}
       <span class="k2b-sr-only" aria-live="polite">
         {copied() ? visibleLabel() : ""}
       </span>
-    </Tooltip>
+    </>
   ) : (
-    button()
+    button(undefined)
   );
 }
 

@@ -122,7 +122,7 @@ export default function LogFilterBar(props: Props) {
           </a>
         )}
         <div class="ml-auto flex items-center gap-2 shrink-0">
-          <Tooltip content="Configure log retention">
+          <Tooltip.Anchor content="Configure log retention">
             <Button
               type="button"
               variant="secondary"
@@ -134,8 +134,8 @@ export default function LogFilterBar(props: Props) {
               <i class={saveMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"} />
               <span class="hidden sm:inline">Settings</span>
             </Button>
-          </Tooltip>
-          <Tooltip content="Delete old log entries">
+          </Tooltip.Anchor>
+          <Tooltip.Anchor content="Delete old log entries">
             <Button
               type="button"
               variant="secondary"
@@ -147,7 +147,7 @@ export default function LogFilterBar(props: Props) {
               <i class={cleanupMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
               <span class="hidden sm:inline">Cleanup</span>
             </Button>
-          </Tooltip>
+          </Tooltip.Anchor>
         </div>
       </div>
     </div>

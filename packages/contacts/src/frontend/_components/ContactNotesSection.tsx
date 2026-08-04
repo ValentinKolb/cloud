@@ -230,14 +230,7 @@ export default function ContactNotesSection(props: Props) {
         </form>
       </Show>
 
-      <Show
-        when={notes().length > 0}
-        fallback={
-          <Placeholder align="left" class="px-0 py-2" description={<>
-            No notes yet.
-          </>} />
-        }
-      >
+      <Show when={notes().length > 0} fallback={<Placeholder align="left" class="px-0 py-2" description={<>No notes yet.</>} />}>
         <ol class="flex flex-col gap-3">
           <For each={notes()}>
             {(note) => {
@@ -268,7 +261,7 @@ export default function ContactNotesSection(props: Props) {
                     <Show when={props.canWrite && !isEditing() && (isOwn() || props.isBookAdmin)}>
                       <div class="ml-auto flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                         <Show when={isOwn()}>
-                          <Tooltip content="Edit note">
+                          <Tooltip.Anchor content="Edit note">
                             <IconButton
                               size="xs"
                               onClick={() => startEdit(note)}
@@ -277,9 +270,9 @@ export default function ContactNotesSection(props: Props) {
                             >
                               <i class="ti ti-pencil" />
                             </IconButton>
-                          </Tooltip>
+                          </Tooltip.Anchor>
                         </Show>
-                        <Tooltip content={isOwn() ? "Delete note" : "Delete note as admin"}>
+                        <Tooltip.Anchor content={isOwn() ? "Delete note" : "Delete note as admin"}>
                           <IconButton
                             size="xs"
                             onClick={() => deleteMutation.mutate(note)}
@@ -289,7 +282,7 @@ export default function ContactNotesSection(props: Props) {
                           >
                             <i class="ti ti-trash" />
                           </IconButton>
-                        </Tooltip>
+                        </Tooltip.Anchor>
                       </div>
                     </Show>
                   </div>

@@ -152,7 +152,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
               </Show>
             </div>
             <div class="flex shrink-0 items-center gap-0.5">
-              <Tooltip content={template.enabled ? "Disable template" : "Enable template"}>
+              <Tooltip.Anchor content={template.enabled ? "Disable template" : "Enable template"}>
                 <IconButton
                   variant="ghost"
                   size="sm"
@@ -162,8 +162,8 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
                 >
                   <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Move template up">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Move template up">
                 <IconButton
                   variant="ghost"
                   size="sm"
@@ -174,8 +174,8 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
                 >
                   <i class="ti ti-arrow-up" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Move template down">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Move template down">
                 <IconButton
                   variant="ghost"
                   size="sm"
@@ -186,8 +186,8 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
                 >
                   <i class="ti ti-arrow-down" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Duplicate template">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Duplicate template">
                 <IconButton
                   variant="ghost"
                   size="sm"
@@ -197,13 +197,13 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
                 >
                   <i class="ti ti-copy" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Edit template">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Edit template">
                 <IconButton variant="ghost" size="sm" type="button" label="Edit template" onClick={() => openEditor(template)}>
                   <i class="ti ti-pencil" />
                 </IconButton>
-              </Tooltip>
-              <Tooltip content="Delete template">
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Delete template">
                 <IconButton
                   variant="ghost"
                   size="sm"
@@ -214,7 +214,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
                 >
                   <i class="ti ti-trash" />
                 </IconButton>
-              </Tooltip>
+              </Tooltip.Anchor>
             </div>
           </div>
         )}

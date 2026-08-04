@@ -82,21 +82,20 @@ export function GridCreateActions(props: Props) {
         <Show
           when={activeForms().length === 1 ? activeForms()[0] : undefined}
           fallback={
-            <Dropdown
+            <Dropdown.Root
               position="bottom-right"
-              trigger={
-                <Button variant="primary" size="sm">
-                  <i class="ti ti-forms" />
-                  Add with form
-                  <i class="ti ti-chevron-down text-[10px] opacity-60" />
-                </Button>
-              }
-              elements={activeForms().map((form) => ({
+              items={activeForms().map((form) => ({
                 icon: "ti ti-forms",
                 label: form.name,
                 action: () => void submitForm(form),
               }))}
-            />
+            >
+              <Dropdown.Trigger variant="primary" size="sm">
+                <i class="ti ti-forms" />
+                Add with form
+                <i class="ti ti-chevron-down text-[10px] opacity-60" />
+              </Dropdown.Trigger>
+            </Dropdown.Root>
           }
         >
           {(form) => (

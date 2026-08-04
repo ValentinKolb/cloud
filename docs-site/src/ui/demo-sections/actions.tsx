@@ -57,18 +57,36 @@ const ButtonsDemo = () => (
       <Button variant="subtle" size="xs">
         <i class="ti ti-activity" aria-hidden="true" /> Status
       </Button>
-      <Button variant="danger" size="sm">Delete</Button>
-      <Button loading loadingLabel="Saving">Save</Button>
+      <Button variant="danger" size="sm">
+        Delete
+      </Button>
+      <Button loading loadingLabel="Saving">
+        Save
+      </Button>
       <Button disabled>Disabled</Button>
     </div>
     <div class="ui-demo-row">
-      <IconButton label="Settings"><i class="ti ti-settings" aria-hidden="true" /></IconButton>
-      <IconButton label="Publish" variant="primary"><i class="ti ti-rocket" aria-hidden="true" /></IconButton>
-      <IconButton label="Refresh" variant="secondary"><i class="ti ti-refresh" aria-hidden="true" /></IconButton>
-      <IconButton label="Delete" variant="danger"><i class="ti ti-trash" aria-hidden="true" /></IconButton>
-      <IconButton label="Saving" loading loadingLabel="Saving"><i class="ti ti-device-floppy" aria-hidden="true" /></IconButton>
-      <ButtonLink href="#buttons" variant="secondary">Button links</ButtonLink>
-      <IconButtonLink href="#buttons" label="Open button links"><i class="ti ti-external-link" aria-hidden="true" /></IconButtonLink>
+      <IconButton label="Settings">
+        <i class="ti ti-settings" aria-hidden="true" />
+      </IconButton>
+      <IconButton label="Publish" variant="primary">
+        <i class="ti ti-rocket" aria-hidden="true" />
+      </IconButton>
+      <IconButton label="Refresh" variant="secondary">
+        <i class="ti ti-refresh" aria-hidden="true" />
+      </IconButton>
+      <IconButton label="Delete" variant="danger">
+        <i class="ti ti-trash" aria-hidden="true" />
+      </IconButton>
+      <IconButton label="Saving" loading loadingLabel="Saving">
+        <i class="ti ti-device-floppy" aria-hidden="true" />
+      </IconButton>
+      <ButtonLink href="#buttons" variant="secondary">
+        Button links
+      </ButtonLink>
+      <IconButtonLink href="#buttons" label="Open button links">
+        <i class="ti ti-external-link" aria-hidden="true" />
+      </IconButtonLink>
     </div>
   </DemoCard>
 );
@@ -123,39 +141,42 @@ const MenusDemo = () => (
       { kind: "component", name: "ContextMenu", from: "@k2b/ui" },
     ]}
     description="Top-layer menus with keyboard navigation, focus restoration, viewport clamping, and light dismiss. `width` is a CSS length, not a class name, and defaults to 12rem."
-    code={`<Dropdown
-  trigger={<Button variant="secondary">Actions</Button>}
-  elements={[{ label: "Duplicate", action: duplicate }]}
-/>
+    code={`<Dropdown.Root items={[{ label: "Duplicate", action: duplicate }]}>
+  <Dropdown.Trigger variant="secondary">Actions</Dropdown.Trigger>
+</Dropdown.Root>
 
 {/* width is a CSS length */}
-<Dropdown width="18rem" position="bottom-left" trigger={…} elements={…} />
+<Dropdown.Root items={items} width="18rem" position="bottom-left">
+  <Dropdown.Trigger variant="secondary">Wide menu</Dropdown.Trigger>
+</Dropdown.Root>
 
 <ContextMenu items={items}><div>Right click</div></ContextMenu>`}
   >
     <div class="ui-demo-row">
-      <Dropdown
-        trigger={<Button variant="secondary">Actions</Button>}
-        elements={[
+      <Dropdown.Root
+        items={[
           { label: "Duplicate", icon: "ti ti-copy", action: () => {} },
           { label: "Archive", icon: "ti ti-archive", action: () => {} },
           { label: "Delete", icon: "ti ti-trash", variant: "danger", action: () => {} },
         ]}
-      />
-      <Dropdown
+      >
+        <Dropdown.Trigger variant="secondary">Actions</Dropdown.Trigger>
+      </Dropdown.Root>
+      <Dropdown.Root
         width="18rem"
         position="bottom-left"
-        trigger={<Button variant="secondary">Wide menu (18rem)</Button>}
-        elements={[
+        items={[
           { label: "Export every record as CSV", icon: "ti ti-file-export", action: () => {} },
           { label: "Recalculate derived columns", icon: "ti ti-refresh", action: () => {} },
         ]}
-      />
+      >
+        <Dropdown.Trigger variant="secondary">Wide menu (18rem)</Dropdown.Trigger>
+      </Dropdown.Root>
       <ContextMenu
         label="Record actions"
         items={[
-          { id: "open", label: "Open", icon: "ti ti-external-link", onSelect: () => {} },
-          { id: "remove", label: "Remove", icon: "ti ti-trash", danger: true, onSelect: () => {} },
+          { label: "Open", icon: "ti ti-external-link", action: () => {} },
+          { label: "Remove", icon: "ti ti-trash", variant: "danger", action: () => {} },
         ]}
       >
         <div class="ui-demo-context-target">Right click or press Shift+F10</div>
@@ -262,11 +283,18 @@ const ToolbarDemo = () => (
   >
     <Toolbar label="Document actions" wrap>
       <Toolbar.Group label="History">
-        <IconButton size="xs" label="Undo"><i class="ti ti-arrow-back-up" aria-hidden="true" /></IconButton>
-        <IconButton size="xs" label="Redo"><i class="ti ti-arrow-forward-up" aria-hidden="true" /></IconButton>
+        <IconButton size="xs" label="Undo">
+          <i class="ti ti-arrow-back-up" aria-hidden="true" />
+        </IconButton>
+        <IconButton size="xs" label="Redo">
+          <i class="ti ti-arrow-forward-up" aria-hidden="true" />
+        </IconButton>
       </Toolbar.Group>
       <Toolbar.Separator />
-      <Button size="xs" variant="subtle"><i class="ti ti-activity" aria-hidden="true" />Status</Button>
+      <Button size="xs" variant="subtle">
+        <i class="ti ti-activity" aria-hidden="true" />
+        Status
+      </Button>
       <Toolbar.Spacer />
       <Button size="sm">Publish</Button>
     </Toolbar>
@@ -277,11 +305,20 @@ export const FilterDemo = () => {
   const [clearValue, setClearValue] = createSignal<string[]>(["open", "ui"]);
   const [resetValue, setResetValue] = createSignal<string[]>(["done"]);
   const sections = [
-    { label: "State", options: [{ value: "open", label: "Open" }, { value: "done", label: "Done" }] },
+    {
+      label: "State",
+      options: [
+        { value: "open", label: "Open" },
+        { value: "done", label: "Done" },
+      ],
+    },
     {
       label: "Tags",
       multiple: true,
-      options: [{ value: "ui", label: "UI", color: "#06b6d4" }, { value: "api", label: "API", color: "#8b5cf6" }],
+      options: [
+        { value: "ui", label: "UI", color: "#06b6d4" },
+        { value: "api", label: "API", color: "#8b5cf6" },
+      ],
     },
   ];
   return (
@@ -337,9 +374,7 @@ const spotlightProjects = [
 
 const resolveSpotlightProjects: SpotlightSearchResolver<string> = ({ query }) => {
   const normalizedQuery = query.trim().toLowerCase();
-  return spotlightProjects.filter((project) =>
-    `${project.label} ${project.desc}`.toLowerCase().includes(normalizedQuery),
-  );
+  return spotlightProjects.filter((project) => `${project.label} ${project.desc}`.toLowerCase().includes(normalizedQuery));
 };
 
 const openSearch = async () => {
@@ -423,15 +458,51 @@ const openSearch = async () => {
 );
 
 const demos: DemoSection = {
-  buttons: () => <DemoGrid columns="one"><ButtonsDemo /></DemoGrid>,
-  "copy-remove": () => <DemoGrid columns="one"><CopyRemoveDemo /></DemoGrid>,
-  menus: () => <DemoGrid columns="one"><MenusDemo /></DemoGrid>,
-  "segmented-control": () => <DemoGrid columns="one"><SegmentedDemo /></DemoGrid>,
-  filters: () => <DemoGrid columns="one"><FilterDemo /></DemoGrid>,
-  tabs: () => <DemoGrid columns="one"><TabsDemo /></DemoGrid>,
-  disclosure: () => <DemoGrid columns="one"><DisclosureDemo /></DemoGrid>,
-  toolbar: () => <DemoGrid columns="one"><ToolbarDemo /></DemoGrid>,
-  spotlight: () => <DemoGrid columns="one"><SpotlightDemo /></DemoGrid>,
+  buttons: () => (
+    <DemoGrid columns="one">
+      <ButtonsDemo />
+    </DemoGrid>
+  ),
+  "copy-remove": () => (
+    <DemoGrid columns="one">
+      <CopyRemoveDemo />
+    </DemoGrid>
+  ),
+  menus: () => (
+    <DemoGrid columns="one">
+      <MenusDemo />
+    </DemoGrid>
+  ),
+  "segmented-control": () => (
+    <DemoGrid columns="one">
+      <SegmentedDemo />
+    </DemoGrid>
+  ),
+  filters: () => (
+    <DemoGrid columns="one">
+      <FilterDemo />
+    </DemoGrid>
+  ),
+  tabs: () => (
+    <DemoGrid columns="one">
+      <TabsDemo />
+    </DemoGrid>
+  ),
+  disclosure: () => (
+    <DemoGrid columns="one">
+      <DisclosureDemo />
+    </DemoGrid>
+  ),
+  toolbar: () => (
+    <DemoGrid columns="one">
+      <ToolbarDemo />
+    </DemoGrid>
+  ),
+  spotlight: () => (
+    <DemoGrid columns="one">
+      <SpotlightDemo />
+    </DemoGrid>
+  ),
 };
 
 export default demos;

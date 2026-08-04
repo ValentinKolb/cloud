@@ -98,7 +98,7 @@ function MailMessageInspectorDialog(props: {
         icon="ti ti-file-search"
         actions={
           <Show when={inspector()?.source.available}>
-            <Tooltip content="Download original message">
+            <Tooltip.Anchor content="Download original message">
               <IconButtonLink
                 href={sourceHref(props.mailboxId, selectedMessageId())}
                 download={downloadName()}
@@ -107,7 +107,7 @@ function MailMessageInspectorDialog(props: {
                 <i class="ti ti-download" aria-hidden="true" />
                 <span class="sr-only">Download original message</span>
               </IconButtonLink>
-            </Tooltip>
+            </Tooltip.Anchor>
           </Show>
         }
         close={props.close}

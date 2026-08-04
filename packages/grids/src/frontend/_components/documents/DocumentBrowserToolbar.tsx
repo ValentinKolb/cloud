@@ -1,4 +1,4 @@
-import { Button, Dropdown, DropdownItem, TextInput, Tooltip } from "@k2b/ui";
+import { Button, Dropdown, type DropdownItem, TextInput } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { Show } from "solid-js";
 
@@ -16,23 +16,18 @@ type Props = {
   onMode: (mode: ViewMode) => void;
 };
 
-function DisabledItem(props: { icon: string; label: string; title: string }) {
-  return (
-    <Tooltip content={props.title} class="w-full">
-      <DropdownItem icon={props.icon} disabled>
-        {props.label}
-      </DropdownItem>
-    </Tooltip>
-  );
-}
-
 export default function DocumentBrowserToolbar(props: Props) {
   const activeLabel = () => (props.activeMode === "folders" ? "Folders" : "Table");
   const activeIcon = () => (props.activeMode === "folders" ? "ti ti-folder" : "ti ti-table");
-  const modeElements = () => [
+  const modeItems = (): DropdownItem[] => [
     { icon: "ti ti-table", label: "Table", action: () => props.onMode("list") },
     props.searching
-      ? { element: <DisabledItem icon="ti ti-folder" label="Folders" title="Folder view is disabled while searching." /> }
+      ? {
+          icon: "ti ti-folder",
+          label: "Folders",
+          description: "Unavailable while searching",
+          disabled: true,
+        }
       : { icon: "ti ti-folder", label: "Folders", action: () => props.onMode("folders") },
   ];
 
@@ -56,17 +51,13 @@ export default function DocumentBrowserToolbar(props: Props) {
           onClear={props.clearSearch}
         />
       </div>
-      <Dropdown
-        position="bottom-left"
-        trigger={
-          <Button variant="secondary" size="sm">
-            <i class={activeIcon()} />
-            {activeLabel()}
-            <i class="ti ti-chevron-down text-[10px] opacity-60" />
-          </Button>
-        }
-        elements={modeElements()}
-      />
+      <Dropdown.Root position="bottom-left" items={modeItems()}>
+        <Dropdown.Trigger variant="secondary" size="sm">
+          <i class={activeIcon()} />
+          {activeLabel()}
+          <i class="ti ti-chevron-down text-[10px] opacity-60" />
+        </Dropdown.Trigger>
+      </Dropdown.Root>
       <span class="whitespace-nowrap text-xs text-dimmed">{props.countLabel}</span>
     </div>
   );

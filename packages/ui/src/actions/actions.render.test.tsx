@@ -210,19 +210,20 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).not.toContain("<button");
   });
 
-  test("renders sections, links, actions, and custom static dropdown content", () => {
+  test("renders an explicit SSR trigger with declarative sections, links, and actions", () => {
     const elements: PublicDropdownItem[] = [
       { label: "Rename", icon: "ti ti-pencil", action: () => {} },
       {
         sectionLabel: "Links",
-        items: [{ label: "Documentation", href: "/docs" }, { element: "Custom" }],
+        items: [{ label: "Documentation", href: "/docs" }],
       },
     ];
     const html = renderToString(() =>
-      createComponent(Dropdown, {
-        label: "Project actions",
-        trigger: "Open",
-        elements,
+      createComponent(Dropdown.Root, {
+        items: elements,
+        get children() {
+          return createComponent(Dropdown.Trigger, { label: "Project actions", children: "Open" });
+        },
       }),
     );
 
@@ -233,7 +234,9 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).toContain('role="group"');
     expect(html).toContain('aria-label="Links"');
     expect(html).toContain('href="/docs"');
-    expect(html).toContain("Custom");
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-controls="k2b-dropdown-');
   });
 
   test("clamps every dropdown position to the viewport", () => {
@@ -298,9 +301,22 @@ describe("@k2b/ui complete action migrations", () => {
 
   test("applies the dropdown width as a real CSS length, not a class name", () => {
     const sized = renderToString(() =>
-      createComponent(Dropdown, { trigger: "Open", width: "10rem", elements: [{ label: "Rename", action: () => {} }] }),
+      createComponent(Dropdown.Root, {
+        width: "10rem",
+        items: [{ label: "Rename", action: () => {} }],
+        get children() {
+          return createComponent(Dropdown.Trigger, { children: "Open" });
+        },
+      }),
     );
-    const unsized = renderToString(() => createComponent(Dropdown, { trigger: "Open", elements: [{ label: "Rename", action: () => {} }] }));
+    const unsized = renderToString(() =>
+      createComponent(Dropdown.Root, {
+        items: [{ label: "Rename", action: () => {} }],
+        get children() {
+          return createComponent(Dropdown.Trigger, { children: "Open" });
+        },
+      }),
+    );
 
     // The package ships no utility classes, so a class-name passthrough would be
     // dead API for every standalone consumer.
@@ -463,7 +479,7 @@ describe("@k2b/ui complete action migrations", () => {
     const remove = renderToString(() => createComponent(RemoveButton, { ariaLabel: "Remove member", loading: true }));
     const context = renderToString(() =>
       createComponent(ContextMenu, {
-        items: [{ id: "remove", label: "Remove", danger: true }],
+        items: [{ label: "Remove", variant: "danger", action: () => {} }],
         children: "Target",
       }),
     );

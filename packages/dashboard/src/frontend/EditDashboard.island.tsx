@@ -349,7 +349,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
         <div class="flex flex-wrap gap-2">
           <For each={gradients.gradientPresets}>
             {(preset) => (
-              <Tooltip content={preset.label}>
+              <Tooltip.Anchor content={preset.label}>
                 <button
                   type="button"
                   aria-label={`${preset.label} name color`}
@@ -362,7 +362,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                   }`}
                   style={`background:${preset.preview}`}
                 />
-              </Tooltip>
+              </Tooltip.Anchor>
             )}
           </For>
         </div>
@@ -378,11 +378,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
         </div>
         <Show
           when={shortcuts().length > 0}
-          fallback={
-            <Placeholder align="left" class="px-0 py-2" description={<>
-              No custom shortcuts yet.
-            </>} />
-          }
+          fallback={<Placeholder align="left" class="px-0 py-2" description={<>No custom shortcuts yet.</>} />}
         >
           <ul class="flex flex-col gap-2">
             <For each={shortcuts()}>
@@ -400,11 +396,11 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                       <span class="block truncate text-sm font-medium text-primary">{title}</span>
                       <span class="block truncate text-xs text-dimmed">{meta}</span>
                     </span>
-                    <Tooltip content="Remove shortcut">
+                    <Tooltip.Anchor content="Remove shortcut">
                       <IconButton size="sm" label={`Remove ${title}`} onClick={() => removeShortcut(shortcut.id)}>
                         <i class="ti ti-trash" />
                       </IconButton>
-                    </Tooltip>
+                    </Tooltip.Anchor>
                   </li>
                 );
               }}
@@ -450,7 +446,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                         }
                       />
                       <div class="flex shrink-0 items-center gap-1">
-                        <Tooltip content="Move widget up" disabled={index() === 0}>
+                        <Tooltip.Anchor content="Move widget up" disabled={index() === 0}>
                           <IconButton
                             size="sm"
                             label={`Move ${widget.title} up`}
@@ -459,8 +455,8 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                           >
                             <i class="ti ti-arrow-up" />
                           </IconButton>
-                        </Tooltip>
-                        <Tooltip content="Move widget down" disabled={index() === orderedWidgets().length - 1}>
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Move widget down" disabled={index() === orderedWidgets().length - 1}>
                           <IconButton
                             size="sm"
                             label={`Move ${widget.title} down`}
@@ -469,7 +465,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
                           >
                             <i class="ti ti-arrow-down" />
                           </IconButton>
-                        </Tooltip>
+                        </Tooltip.Anchor>
                       </div>
                     </div>
 

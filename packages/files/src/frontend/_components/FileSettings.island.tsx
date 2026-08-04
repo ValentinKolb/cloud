@@ -93,7 +93,7 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
       {/* Header with minimize toggle */}
       <div class="flex items-center justify-between">
         <p class="sidebar-section-title pt-0">Panel</p>
-        <Tooltip content={settings().hideSettings ? "Expand settings" : "Minimize settings"}>
+        <Tooltip.Anchor content={settings().hideSettings ? "Expand settings" : "Minimize settings"}>
           <IconButton
             onClick={toggleMinimize}
             label={settings().hideSettings ? "Expand settings" : "Minimize settings"}
@@ -102,7 +102,7 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
           >
             <i class={`ti ${settings().hideSettings ? "ti-chevron-down" : "ti-chevron-up"} text-sm`} />
           </IconButton>
-        </Tooltip>
+        </Tooltip.Anchor>
       </div>
 
       <Show when={!settings().hideSettings}>

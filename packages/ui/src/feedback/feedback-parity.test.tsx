@@ -223,12 +223,12 @@ describe("@k2b/ui Cloud feedback parity", () => {
   });
 
   test("renders a tooltip surface that is inert until the browser mounts it", () => {
-    const html = renderToString(() => createComponent(Tooltip, { content: "Copy link", children: "trigger" }));
+    const html = renderToString(() => createComponent(Tooltip.Anchor, { content: "Copy link", children: "trigger" }));
     expect(html).toContain('role="tooltip"');
     expect(html).toContain('popover="manual"');
     expect(html).toContain("k2b-tooltip-wrapper");
     expect(html).toContain('class="k2b-tooltip"');
-    // Server output carries no describedby wiring — that is applied on mount.
+    // Server output carries no describedby wiring — the explicit target is wired on mount.
     expect(html).not.toContain("aria-describedby");
   });
 });

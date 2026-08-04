@@ -662,7 +662,9 @@ export function MarkdownEditorApp(props: Props) {
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Document</h2>
               <Show when={dirty()}>
-                <Tag color="#d97706" size="sm">unsaved</Tag>
+                <Tag color="#d97706" size="sm">
+                  unsaved
+                </Tag>
               </Show>
             </div>
             <Button
@@ -683,11 +685,15 @@ export function MarkdownEditorApp(props: Props) {
               </div>
               <div>
                 <dt class="text-zinc-500 dark:text-zinc-400">Size</dt>
-                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">{selectedFile() ? formatBytes(selectedFile()!.size) : "-"}</dd>
+                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+                  {selectedFile() ? formatBytes(selectedFile()!.size) : "-"}
+                </dd>
               </div>
               <div class="col-span-2">
                 <dt class="text-zinc-500 dark:text-zinc-400">Modified</dt>
-                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">{selectedFile() ? formatTime(selectedFile()!.updatedAt) : "-"}</dd>
+                <dd class="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+                  {selectedFile() ? formatTime(selectedFile()!.updatedAt) : "-"}
+                </dd>
               </div>
             </dl>
           </section>

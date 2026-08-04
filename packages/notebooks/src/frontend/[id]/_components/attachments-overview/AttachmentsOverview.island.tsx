@@ -90,9 +90,7 @@ const AttachmentsOverview = (props: Props) => {
       when={items().length > 0}
       fallback={
         props.searchQuery ? (
-          <Placeholder surface="paper" icon="ti ti-paperclip" description={<>
-            No attachments match "{props.searchQuery}".
-          </>} />
+          <Placeholder surface="paper" icon="ti ti-paperclip" description={<>No attachments match "{props.searchQuery}".</>} />
         ) : (
           <Placeholder
             surface="paper"
@@ -140,7 +138,7 @@ const AttachmentsOverview = (props: Props) => {
                 {/* Hover overlay: download / copy / delete. Sits on the
                       preview so meta row stays clean (filename + size). */}
                 <div class="absolute right-1 top-1 flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                  <Tooltip content="Download attachment">
+                  <Tooltip.Anchor content="Download attachment">
                     <IconButton
                       label={`Download ${att.filename}`}
                       size="xs"
@@ -149,8 +147,8 @@ const AttachmentsOverview = (props: Props) => {
                     >
                       <i class="ti ti-download text-xs" />
                     </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Copy attachment Markdown">
+                  </Tooltip.Anchor>
+                  <Tooltip.Anchor content="Copy attachment Markdown">
                     <IconButton
                       label={`Copy Markdown for ${att.filename}`}
                       size="xs"
@@ -159,8 +157,8 @@ const AttachmentsOverview = (props: Props) => {
                     >
                       <i class="ti ti-copy text-xs" />
                     </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Delete attachment">
+                  </Tooltip.Anchor>
+                  <Tooltip.Anchor content="Delete attachment">
                     <IconButton
                       label={`Delete ${att.filename}`}
                       size="xs"
@@ -170,7 +168,7 @@ const AttachmentsOverview = (props: Props) => {
                     >
                       <i class="ti ti-trash text-xs" />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </div>
               </div>
 

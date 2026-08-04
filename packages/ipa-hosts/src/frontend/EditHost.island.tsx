@@ -48,11 +48,11 @@ const MacAddressRow = (props: {
           error={props.error}
         />
       </div>
-      <Tooltip content={`Remove MAC address ${props.index + 1}`} class="shrink-0">
+      <Tooltip.Anchor content={`Remove MAC address ${props.index + 1}`} class="shrink-0">
         <IconButton size="md" variant="danger" label={`Remove MAC address ${props.index + 1}`} onClick={props.onRemove}>
           <i class="ti ti-trash" aria-hidden="true" />
         </IconButton>
-      </Tooltip>
+      </Tooltip.Anchor>
     </div>
   );
 };
@@ -174,17 +174,10 @@ const HostActions = (props: HostActionsProps) => {
     );
   };
   return (
-    <Dropdown
-      trigger={
-        <Tooltip content="Manage host">
-          <IconButton size="sm" label="Host actions">
-            <i class="ti ti-dots-vertical" aria-hidden="true" />
-          </IconButton>
-        </Tooltip>
-      }
+    <Dropdown.Root
       position="bottom-left"
       width="11rem"
-      elements={[
+      items={[
         {
           items: [
             { icon: "ti ti-pencil", label: "Edit", action: handleEdit },
@@ -203,7 +196,11 @@ const HostActions = (props: HostActionsProps) => {
           ],
         },
       ]}
-    />
+    >
+      <Dropdown.Trigger iconOnly size="sm" label="Host actions" tooltip="Manage host">
+        <i class="ti ti-dots-vertical" aria-hidden="true" />
+      </Dropdown.Trigger>
+    </Dropdown.Root>
   );
 };
 
@@ -282,9 +279,11 @@ const EditHostDialog = (props: {
           <Show
             when={macAddresses().length > 0}
             fallback={
-              <Placeholder align="left" class="rounded-xl border border-dashed border-subtle p-3" description={<>
-                No MAC addresses configured.
-              </>} />
+              <Placeholder
+                align="left"
+                class="rounded-xl border border-dashed border-subtle p-3"
+                description={<>No MAC addresses configured.</>}
+              />
             }
           >
             <Index each={macAddresses()}>
@@ -387,7 +386,7 @@ const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect:
                     <div class="font-medium text-sm truncate">{hg.cn}</div>
                     {hg.description && <div class="text-xs text-dimmed truncate">{hg.description}</div>}
                   </div>
-                  <Tooltip content={`Add host to ${hg.cn}`}>
+                  <Tooltip.Anchor content={`Add host to ${hg.cn}`}>
                     <IconButton
                       size="sm"
                       variant="success"
@@ -402,7 +401,7 @@ const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect:
                     >
                       <i class="ti ti-plus" aria-hidden="true" />
                     </IconButton>
-                  </Tooltip>
+                  </Tooltip.Anchor>
                 </div>
               )}
             </For>
