@@ -1,5 +1,6 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
+  CAPABILITY_MAX_RESULT_BYTES,
   type CapabilityExecutionContext,
   type CloudResourceRef,
   type CloudResourceView,
@@ -49,6 +50,9 @@ import type { DslQueryPreviewResponse } from "./contracts";
 import { isRecordWritableFieldType } from "./field-types";
 import { gridsService } from "./service";
 import type { Base, Field, GridRecord, Table } from "./service/types";
+
+const GQL_CAPABILITY_RESULT_BUDGET_BYTES = CAPABILITY_MAX_RESULT_BYTES - 32 * 1024;
+const REVIEW_CHANGED_FIELDS_MAX_CHARS = 1_000;
 
 const capabilityDateConfig = async () => ({
   timeZone: normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
@@ -373,7 +377,10 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
 };
 
 const gqlCapabilityResult = (response: DslQueryPreviewResponse) => {
-  if (!response.ok) return ok({ data: response });
+  if (!response.ok) {
+    const tooLarge = response.diagnostics.find((diagnostic) => diagnostic.message.startsWith("GQL result is too large."));
+    return tooLarge ? fail(err.badInput(tooLarge.message)) : ok({ data: response });
+  }
   const { page, ...data } = response;
   const refs: CloudResourceRef[] = [];
   const seen = new Set<string>();
@@ -391,7 +398,9 @@ const gqlCapabilityResult = (response: DslQueryPreviewResponse) => {
 };
 
 const gqlUnavailable = (error: unknown) =>
-  isQueryAdmissionError(error) ? fail(err.internal("Grids is busy. Retry shortly.")) : Promise.reject(error);
+  isQueryAdmissionError(error)
+    ? { ok: false as const, error: { code: "QUERY_BUSY", message: "Grids is busy. Retry shortly.", status: 503 as const } }
+    : Promise.reject(error);
 
 const runGqlPreview = async (input: z.infer<typeof GqlPreviewInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
@@ -408,7 +417,7 @@ const runGqlPreview = async (input: z.infer<typeof GqlPreviewInputSchema>, conte
         cursor: input.cursor,
         pageSize: input.pageSize,
       },
-      { maxRows: 25, operation: "preview" },
+      { maxRows: 25, maxResultBytes: GQL_CAPABILITY_RESULT_BUDGET_BYTES, operation: "preview" },
     );
     return gqlCapabilityResult(result.response);
   } catch (error) {
@@ -432,7 +441,7 @@ const runGqlExecute = async (input: z.infer<typeof GqlExecuteInputSchema>, conte
         pageSize: input.pageSize,
         limit: input.limit,
       },
-      { maxRows: 1_000, operation: "execute" },
+      { maxRows: 1_000, maxResultBytes: GQL_CAPABILITY_RESULT_BUDGET_BYTES, operation: "execute" },
     );
     return gqlCapabilityResult(result.response);
   } catch (error) {
@@ -444,6 +453,7 @@ const runGqlViewExecute = async (input: z.infer<typeof GqlViewExecuteInputSchema
   try {
     const response = await executeSavedViewSourceForContext(await gqlRuntimeContext(context), input.baseId, input.viewId, {
       maxRows: 1_000,
+      maxResultBytes: GQL_CAPABILITY_RESULT_BUDGET_BYTES,
       pageSize: input.pageSize,
       cursor: input.cursor,
       operation: "execute",
@@ -458,7 +468,6 @@ const runGqlViewExecute = async (input: z.infer<typeof GqlViewExecuteInputSchema
 const mapRecord = (record: GridRecord) => ({
   id: record.id,
   tableId: record.tableId,
-  data: record.data,
   version: record.version,
   deletedAt: record.deletedAt,
   createdBy: record.createdBy,
@@ -466,6 +475,19 @@ const mapRecord = (record: GridRecord) => ({
   createdAt: record.createdAt,
   updatedAt: record.updatedAt,
 });
+
+const changedFieldsReview = (fieldIds: string[], fieldNames: ReadonlyMap<string, string>): string => {
+  const names = fieldIds.map((id) => fieldNames.get(id) ?? id);
+  const visible: string[] = [];
+  for (const name of names) {
+    const remaining = names.length - visible.length - 1;
+    const suffix = remaining > 0 ? `, ... (+${remaining} more)` : "";
+    if (([...visible, name].join(", ") + suffix).length > REVIEW_CHANGED_FIELDS_MAX_CHARS) break;
+    visible.push(name);
+  }
+  const remaining = names.length - visible.length;
+  return (visible.join(", ") + (remaining > 0 ? `, ... (+${remaining} more)` : "")).slice(0, REVIEW_CHANGED_FIELDS_MAX_CHARS);
+};
 
 const recordResult = async (record: GridRecord, table: Table) => {
   const base = await gridsService.base.get(table.baseId);
@@ -571,7 +593,8 @@ export const gridsCapabilities = defineCapabilities({
     },
     "gql.execute": {
       title: "Execute Grids GQL",
-      description: "Execute permission-safe GQL after loading context; follow nextCursor for more rows, up to a 1,000-row logical ceiling.",
+      description:
+        "Run a permission-safe Grids data query after gql.context. Select only needed fields; follow nextCursor for byte-bounded pages up to a 1,000-row logical ceiling.",
       input: GqlExecuteInputSchema,
       data: GqlResultDataSchema,
       openWorld: false,
@@ -579,7 +602,8 @@ export const gridsCapabilities = defineCapabilities({
     },
     "gql.view.execute": {
       title: "Execute saved Grids View",
-      description: "Execute the exact stored GQL for a viewId returned by gql.context kind views; follow nextCursor for more rows.",
+      description:
+        "Run the exact saved Grids data query for a viewId from gql.context kind views; follow nextCursor for byte-bounded pages.",
       input: GqlViewExecuteInputSchema,
       data: GqlResultDataSchema,
       openWorld: false,
@@ -587,7 +611,8 @@ export const gridsCapabilities = defineCapabilities({
     },
     "record.get": {
       title: "Get Grids Record",
-      description: "Read one live record and obtain its current version for a conflict-safe record.update call.",
+      description:
+        "Read bounded record metadata and its current version for conflict-safe record.update. Use targeted gql.execute selects to read field values.",
       input: RecordGetInputSchema,
       data: RecordCapabilityDataSchema,
       openWorld: false,
@@ -598,7 +623,7 @@ export const gridsCapabilities = defineCapabilities({
     "record.create": {
       title: "Create Grids Record",
       description:
-        "Call gql.context kind fields first, then create once with values keyed by writable Field UUID. Select values use option IDs. This action is not idempotent.",
+        "Call gql.context kind fields first, then create once with values keyed by writable Field UUID. Select values use option IDs. Returns bounded metadata; read values with targeted GQL. This action is not idempotent.",
       input: RecordCreateInputSchema,
       data: RecordCapabilityDataSchema,
       destructive: false,
@@ -609,7 +634,7 @@ export const gridsCapabilities = defineCapabilities({
     "record.update": {
       title: "Update Grids Record",
       description:
-        "Load fields for value and audit requirements, then record.get for ifVersion. Only supplied Field UUIDs change; stale versions are rejected.",
+        "Load fields for value and audit requirements, then record.get for ifVersion. Only supplied Field UUIDs change; stale versions are rejected. Returns bounded metadata; read values with targeted GQL.",
       input: RecordUpdateInputSchema,
       data: RecordCapabilityDataSchema,
       destructive: true,
@@ -636,9 +661,7 @@ export const gridsCapabilities = defineCapabilities({
             { label: "Current version", value: String(record.version) },
             {
               label: "Changed fields",
-              value: Object.keys(input.values)
-                .map((id) => fieldNames.get(id) ?? id)
-                .join(", "),
+              value: changedFieldsReview(Object.keys(input.values), fieldNames),
             },
           ],
           ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data, input.recordId) }] } : {}),

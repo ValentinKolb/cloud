@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
+import { buildAccessPrincipalCondition, err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type {
   MetricType,
@@ -12,7 +12,7 @@ import type {
   PulseResourceSummary,
   PulseSignalField,
 } from "../contracts";
-import { listBaseIdsVisibleTo, requireBaseAccess, type AccessScope } from "./access-control";
+import { type AccessScope, readableScopeFilter, requireBaseAccess } from "./access-control";
 import {
   type CurrentStateRow,
   isoNullable,
@@ -244,8 +244,17 @@ export const searchResources = async (
   params: { query?: string | null; limit?: number } = {},
 ): Promise<Result<PulseResourceSearchResult[]>> => {
   const limit = Math.min(100, Math.max(1, params.limit ?? 25));
-  const visibleBaseIds = await listBaseIdsVisibleTo(user);
-  if (visibleBaseIds.length === 0) return ok([]);
+  const visibility = readableScopeFilter(user);
+  if (!visibility) return ok([]);
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: visibility.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
   const pattern = searchPattern(params.query);
   const rows = await sql<SearchResourceRow[]>`
     SELECT
@@ -260,7 +269,16 @@ export const searchResources = async (
       resource.last_seen_at
     FROM pulse.observed_resources resource
     JOIN pulse.bases base ON base.id = resource.base_id
-    WHERE resource.base_id = ANY(${sql.array(visibleBaseIds, "UUID")})
+    WHERE base.deletion_started_at IS NULL
+      AND (${visibility.boundBaseId}::text IS NULL OR resource.base_id::text = ${visibility.boundBaseId})
+      AND EXISTS (
+        SELECT 1
+        FROM pulse.base_access base_access
+        JOIN auth.access a ON a.id = base_access.access_id
+        WHERE base_access.base_id = resource.base_id
+          AND ${principalMatch}
+          AND a.permission <> 'none'
+      )
       AND (${pattern}::text IS NULL OR resource.search_text ILIKE ${pattern} ESCAPE '\\')
     ORDER BY resource.last_seen_at DESC NULLS LAST, resource.label ASC, resource.resource_key ASC
     LIMIT ${limit}

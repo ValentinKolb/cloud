@@ -242,6 +242,9 @@ const validateMetric = (metric: PulseMetric): Result<void> => {
 
 const validateEvent = (event: PulseEvent): Result<void> => {
   if (!event.kind.trim()) return fail(err.badInput("Event kind is required"));
+  if (event.value !== undefined && event.value !== null && !Number.isFinite(event.value)) {
+    return fail(err.badInput("Event value must be finite"));
+  }
   const ts = parseTime(event.ts);
   if (!ts.ok) return fail(ts.error);
   const dimensionsError = validateDimensions(event.dimensions);
@@ -257,6 +260,7 @@ const validateEvent = (event: PulseEvent): Result<void> => {
 
 const validateState = (state: PulseState): Result<void> => {
   if (!state.key.trim()) return fail(err.badInput("State key is required"));
+  if (typeof state.value === "number" && !Number.isFinite(state.value)) return fail(err.badInput("State value must be finite"));
   const changedAt = parseTime(state.ts);
   if (!changedAt.ok) return fail(changedAt.error);
   const dimensionsError = validateDimensions(state.dimensions);
@@ -332,6 +336,8 @@ const recordMetricInClient = async (params: {
 };
 
 export const recordMetric = async (params: { baseId: string; sourceId?: string | null; metric: PulseMetric }): Promise<Result<void>> => {
+  const valid = validateMetric(params.metric);
+  if (!valid.ok) return valid;
   try {
     return await sql.begin((tx) => recordMetricInClient({ ...params, db: tx }));
   } catch (error) {
@@ -457,8 +463,10 @@ const recordEventInClient = async (params: {
   return ok();
 };
 
-export const recordEvent = async (params: { baseId: string; sourceId?: string | null; event: PulseEvent }): Promise<Result<void>> =>
-  recordEventInClient(params);
+export const recordEvent = async (params: { baseId: string; sourceId?: string | null; event: PulseEvent }): Promise<Result<void>> => {
+  const valid = validateEvent(params.event);
+  return valid.ok ? recordEventInClient(params) : valid;
+};
 
 const setStateInClient = async (params: {
   baseId: string;
@@ -573,8 +581,10 @@ const setStateInClient = async (params: {
   return ok();
 };
 
-export const setState = async (params: { baseId: string; sourceId?: string | null; state: PulseState }): Promise<Result<void>> =>
-  sql.begin((tx) => setStateInClient({ ...params, db: tx }));
+export const setState = async (params: { baseId: string; sourceId?: string | null; state: PulseState }): Promise<Result<void>> => {
+  const valid = validateState(params.state);
+  return valid.ok ? sql.begin((tx) => setStateInClient({ ...params, db: tx })) : valid;
+};
 
 type IngestCounts = { metrics: number; events: number; states: number };
 

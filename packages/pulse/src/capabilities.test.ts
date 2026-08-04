@@ -1,11 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
+  CAPABILITY_MAX_RESULT_BYTES,
   type CapabilityExecutionContext,
   type CapabilityQueryDefinition,
   capabilityResultSchema,
-  type User,
   UniversalSearchDataSchema,
   UniversalSearchInputSchema,
+  type User,
 } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { pulseCapabilities } from "./capabilities";
@@ -62,7 +63,9 @@ const canUseDatabase = async (): Promise<boolean> => {
   }
 };
 
-const postgresTest = (await canUseDatabase()) ? test : test.skip;
+const databaseAvailable = await canUseDatabase();
+if (databaseAvailable) setDefaultTimeout(60_000);
+const postgresTest = databaseAvailable ? test : test.skip;
 
 describe("Pulse capabilities", () => {
   test("declares and compiles the curated read-only v1 surface", () => {
@@ -90,6 +93,9 @@ describe("Pulse capabilities", () => {
       pulseCapabilities.queries?.["query.execute"]?.input.safeParse({ baseId: crypto.randomUUID(), query: "states *", extra: true })
         .success,
     ).toBe(false);
+    expect(pulseCapabilities.queries?.["query.execute"]?.description.toLowerCase()).toContain("run");
+    expect(pulseCapabilities.queries?.["query.execute"]?.description.toLowerCase()).toContain("telemetry");
+    expect(pulseCapabilities.queries?.["saved_query.execute"]?.description.toLowerCase()).toContain("run");
   });
 
   postgresTest("discovers and executes only data visible to the current access subject", async () => {
@@ -155,6 +161,27 @@ describe("Pulse capabilities", () => {
           'agent-1', 'service', item::text, '{}'::jsonb, '{"internal":"hidden"}'::jsonb, '{"raw":"hidden"}'::jsonb
         FROM generate_series(1, 101) AS item
       `;
+      const largeDimensions = Object.fromEntries(
+        Array.from({ length: 32 }, (_, index) => [`dimension_${index}`.padEnd(80, "k"), "v".repeat(500)]),
+      );
+      await sql`
+        INSERT INTO pulse.events (
+          id, base_id, source_id, ts, kind, entity_id, entity_type, dimensions_hash, dimensions, attributes, payload
+        )
+        SELECT
+          gen_random_uuid(), ${baseId}::uuid, ${sourceId}::uuid, now() - make_interval(secs => item), 'agent.large',
+          'agent-1', 'service', ${suffix} || '-large-' || item::text,
+          (${JSON.stringify(largeDimensions)}::jsonb #>> '{}')::jsonb, '{}'::jsonb, '{}'::jsonb
+        FROM generate_series(1, 20) AS item
+      `;
+      await sql`
+        INSERT INTO pulse.events (
+          id, base_id, source_id, ts, kind, entity_id, dimensions_hash, dimensions, attributes, payload, value
+        ) VALUES (
+          gen_random_uuid(), ${baseId}::uuid, ${sourceId}::uuid, now(), 'agent.nonfinite', 'agent-1', ${suffix} || '-nonfinite',
+          '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '+Infinity'::double precision
+        )
+      `;
       await sql`
         INSERT INTO pulse.signal_fields (base_id, source_id, scope, signal_name, role, key, value_type, observed_count, first_seen_at, last_seen_at)
         VALUES (${baseId}::uuid, ${sourceId}::uuid, 'metric', 'agent.cpu', 'dimension', 'env', 'string', 1, now(), now())
@@ -203,6 +230,16 @@ describe("Pulse capabilities", () => {
         expect(events.data.data.events[0]).not.toHaveProperty("payload");
         expect(events.data.data.events[0]).not.toHaveProperty("attributes");
       }
+      const largeEvents = await invoke("query.execute", { baseId, query: "events agent.large since 1h limit 100" }, context);
+      expect(largeEvents.ok).toBe(true);
+      if (largeEvents.ok) {
+        expect(largeEvents.data.data.events.length).toBeGreaterThan(0);
+        expect(largeEvents.data.data.events.length).toBeLessThan(20);
+        expect(largeEvents.data.data.truncated).toBe(true);
+        expect(new TextEncoder().encode(JSON.stringify(largeEvents.data)).byteLength).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+      }
+      const nonfinite = await invoke("query.execute", { baseId, query: "events agent.nonfinite since 1h limit 10" }, context);
+      expect(nonfinite.ok && nonfinite.data.data.events[0]?.value).toBeNull();
       const saved = await invoke("saved_query.list", { baseId, limit: 25 }, context);
       expect(saved.ok && saved.data.data).toEqual([expect.objectContaining({ id: savedQueryId, query })]);
       const savedExecution = await invoke("saved_query.execute", { baseId, queryId: savedQueryId }, context);

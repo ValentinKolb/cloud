@@ -1,10 +1,10 @@
 import type { RequestActor, ServiceAccount } from "@valentinkolb/cloud/contracts";
 import {
+  type AccessSubject,
   buildAccessPrincipalCondition,
   err,
   fail,
   ok,
-  type AccessSubject,
   type PermissionLevel,
   type Result,
 } from "@valentinkolb/cloud/server";
@@ -39,8 +39,7 @@ export const accessScopeFor = (actor: RequestActor, subject: AccessSubject): Res
 const subjectForScope = (scope: AccessScope): AccessSubject =>
   isResourceScope(scope) ? scope.subject : { type: "user", userId: scope.id };
 
-export const userIdForScope = (scope: AccessScope): string | null =>
-  isResourceScope(scope) ? null : scope.id;
+export const userIdForScope = (scope: AccessScope): string | null => (isResourceScope(scope) ? null : scope.id);
 
 const scopedPermission = (scope: AccessScope): PermissionLevel => {
   if (!isResourceScope(scope)) return "admin";
@@ -66,11 +65,14 @@ const boundBaseIdForScope = (scope: AccessScope): string | null => {
 const canRequestPermission = (scope: AccessScope, required: PermissionLevel): boolean =>
   PERMISSION_RANK[scopedPermission(scope)] >= PERMISSION_RANK[required];
 
-export const requireBaseAccess = async (
-  baseId: string,
-  scope: AccessScope,
-  required: PermissionLevel,
-): Promise<Result<void>> => {
+export const readableScopeFilter = (scope: AccessScope): { subject: AccessSubject; boundBaseId: string | null } | null => {
+  if (!canRequestPermission(scope, "read")) return null;
+  const boundBaseId = boundBaseIdForScope(scope);
+  if (isResourceScope(scope) && !boundBaseId) return null;
+  return { subject: subjectForScope(scope), boundBaseId };
+};
+
+export const requireBaseAccess = async (baseId: string, scope: AccessScope, required: PermissionLevel): Promise<Result<void>> => {
   if (!isBoundToBase(baseId, scope) || !canRequestPermission(scope, required)) {
     return fail(err.forbidden("Access denied"));
   }
@@ -92,21 +94,18 @@ export const requireBaseAccess = async (
       AND ${principalMatch}
   `;
   const level = row?.permission ?? "none";
-  return PERMISSION_RANK[level] >= PERMISSION_RANK[required]
-    ? ok()
-    : fail(err.forbidden("Access denied"));
+  return PERMISSION_RANK[level] >= PERMISSION_RANK[required] ? ok() : fail(err.forbidden("Access denied"));
 };
 
 export const listBaseIdsVisibleTo = async (
   scope: AccessScope,
   params: { query?: string | null; limit?: number; offset?: number } = {},
 ): Promise<string[]> => {
-  if (!canRequestPermission(scope, "read")) return [];
-  const boundBaseId = boundBaseIdForScope(scope);
-  if (isResourceScope(scope) && !boundBaseId) return [];
+  const visibility = readableScopeFilter(scope);
+  if (!visibility) return [];
 
   const principalMatch = buildAccessPrincipalCondition({
-    subject: subjectForScope(scope),
+    subject: visibility.subject,
     columns: {
       userId: sql`a.user_id`,
       groupId: sql`a.group_id`,
@@ -127,7 +126,7 @@ export const listBaseIdsVisibleTo = async (
       JOIN pulse.bases b ON b.id = ba.base_id
       WHERE ${principalMatch}
         AND a.permission <> 'none'
-        AND (${boundBaseId}::text IS NULL OR ba.base_id::text = ${boundBaseId})
+        AND (${visibility.boundBaseId}::text IS NULL OR ba.base_id::text = ${visibility.boundBaseId})
         AND b.deletion_started_at IS NULL
         AND (${pattern}::text IS NULL OR b.name ILIKE ${pattern} ESCAPE '\\' OR b.description ILIKE ${pattern} ESCAPE '\\')
     ) visible
@@ -139,12 +138,14 @@ export const listBaseIdsVisibleTo = async (
 };
 
 export const requireBaseActive = async (baseId: string): Promise<Result<void>> => {
-  const [row] = await sql<{
-    deletion_started_at: Date | string | null;
-    data_clear_started_at: Date | string | null;
-    data_clear_completed_at: Date | string | null;
-    data_clear_failed_at: Date | string | null;
-  }[]>`
+  const [row] = await sql<
+    {
+      deletion_started_at: Date | string | null;
+      data_clear_started_at: Date | string | null;
+      data_clear_completed_at: Date | string | null;
+      data_clear_failed_at: Date | string | null;
+    }[]
+  >`
     SELECT deletion_started_at, data_clear_started_at, data_clear_completed_at, data_clear_failed_at
     FROM pulse.bases
     WHERE id = ${baseId}::uuid

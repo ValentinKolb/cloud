@@ -1,6 +1,8 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
+  CAPABILITY_MAX_RESULT_BYTES,
   type CapabilityActionDefinition,
+  CapabilityActionReviewSchema,
   type CapabilityExecutionContext,
   type CapabilityQueryDefinition,
   capabilityResultSchema,
@@ -11,6 +13,7 @@ import { gridsCapabilities } from "./capabilities";
 import { migrate } from "./migrate";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
+if (process.env.GRIDS_DB_TEST === "1") setDefaultTimeout(30_000);
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
@@ -58,6 +61,20 @@ const invoke = (kind: "query" | "action", localId: string, input: unknown, conte
   });
 };
 
+const review = (localId: string, input: unknown, context: CapabilityExecutionContext) => {
+  const operation = (gridsCapabilities.actions as unknown as Readonly<Record<string, CapabilityActionDefinition>>)[localId];
+  if (!operation?.review) throw new Error(`Missing Grids capability review ${localId}`);
+  const parsed = operation.input.safeParse(input);
+  if (!parsed.success) throw new Error(`Invalid test review input for ${localId}: ${parsed.error.message}`);
+  return Promise.resolve(operation.review(parsed.data, context)).then((result) => {
+    if (result.ok) {
+      const validated = CapabilityActionReviewSchema.safeParse(result.data);
+      if (!validated.success) throw new Error(`Invalid test review for ${localId}: ${validated.error.message}`);
+    }
+    return result;
+  });
+};
+
 const existingAuthUserId = async (): Promise<string> => {
   const [row] = await sql<{ id: string }[]>`SELECT id::text AS id FROM auth.users ORDER BY id LIMIT 1`;
   if (!row) throw new Error("Grids capability integration test needs one auth.users row for audit foreign keys");
@@ -88,6 +105,9 @@ describe("Grids capabilities", () => {
         .filter(([, action]) => "review" in action && action.review)
         .map(([id]) => id),
     ).toEqual(["record.update"]);
+    expect(gridsCapabilities.queries?.["gql.execute"]?.description.toLowerCase()).toContain("data query");
+    expect(gridsCapabilities.queries?.["gql.execute"]?.description.toLowerCase()).toContain("run");
+    expect(gridsCapabilities.queries?.["gql.view.execute"]?.description.toLowerCase()).toContain("saved");
   });
 
   postgresTest("discovers schema, executes GQL, and mutates records with conflict protection", async () => {
@@ -255,11 +275,13 @@ describe("Grids capabilities", () => {
       const created = await invoke("action", "record.create", { tableId, values: { [fieldId]: "First" } }, context);
       expect(created.ok).toBe(true);
       if (!created.ok) throw new Error(created.error.message);
-      const record = created.data.data as { id: string; version: number; data: Record<string, unknown> };
-      expect(record).toMatchObject({ version: 1, data: { [fieldId]: "First" } });
+      const record = created.data.data as { id: string; version: number };
+      expect(record).toMatchObject({ version: 1 });
+      expect(record).not.toHaveProperty("data");
 
       const loadedRecord = await invoke("query", "record.get", { tableId, recordId: record.id }, context);
       expect(loadedRecord.ok && loadedRecord.data.data).toMatchObject({ id: record.id, version: 1 });
+      if (loadedRecord.ok) expect(loadedRecord.data.data).not.toHaveProperty("data");
 
       const preview = await invoke(
         "query",
@@ -300,7 +322,8 @@ describe("Grids capabilities", () => {
         },
         context,
       );
-      expect(statusUpdated.ok && statusUpdated.data.data).toMatchObject({ version: 2, data: { [selectFieldId]: ["open"] } });
+      expect(statusUpdated.ok && statusUpdated.data.data).toMatchObject({ version: 2 });
+      if (statusUpdated.ok) expect(statusUpdated.data.data).not.toHaveProperty("data");
       if (!statusUpdated.ok) throw new Error(statusUpdated.error.message);
 
       const updated = await invoke(
@@ -309,7 +332,8 @@ describe("Grids capabilities", () => {
         { tableId, recordId: record.id, values: { [fieldId]: "Second" }, ifVersion: statusUpdated.data.data.version },
         context,
       );
-      expect(updated.ok && updated.data.data).toMatchObject({ version: 3, data: { [fieldId]: "Second" } });
+      expect(updated.ok && updated.data.data).toMatchObject({ version: 3 });
+      if (updated.ok) expect(updated.data.data).not.toHaveProperty("data");
 
       const stale = await invoke(
         "action",
@@ -318,6 +342,59 @@ describe("Grids capabilities", () => {
         context,
       );
       expect(stale).toMatchObject({ ok: false, error: { code: "CONFLICT", status: 409 } });
+
+      const largeCreated = await invoke("action", "record.create", { tableId, values: { [fieldId]: "x".repeat(261_800) } }, context);
+      expect(largeCreated.ok).toBe(true);
+      if (!largeCreated.ok) throw new Error(largeCreated.error.message);
+      expect(largeCreated.data.data).not.toHaveProperty("data");
+      expect(new TextEncoder().encode(JSON.stringify(largeCreated.data)).byteLength).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+
+      const oversizedRow = await invoke(
+        "query",
+        "gql.execute",
+        {
+          baseId,
+          query: `from table {${tableId}}\nselect {${fieldId}}\nwhere record.id = '${largeCreated.data.data.id}'`,
+          pageSize: 100,
+        },
+        context,
+      );
+      expect(oversizedRow).toMatchObject({
+        ok: false,
+        error: { code: "BAD_INPUT", message: expect.stringContaining("Select fewer fields") },
+      });
+
+      await sql`
+        INSERT INTO grids.records (id, table_id, data)
+        SELECT gen_random_uuid(), ${tableId}::uuid, jsonb_build_object(${fieldId}::text, 'page-' || item::text || repeat('x', 10000))
+        FROM generate_series(1, 30) AS item
+      `;
+      const pagedQuery = `from table {${tableId}}\nselect {${fieldId}}\nwhere contains({${fieldId}}, 'page-')`;
+      const firstPage = await invoke("query", "gql.execute", { baseId, query: pagedQuery, pageSize: 100 }, context);
+      expect(firstPage.ok).toBe(true);
+      if (!firstPage.ok || !firstPage.data.page?.hasMore) throw new Error("Expected a byte-bounded first GQL page");
+      expect(new TextEncoder().encode(JSON.stringify(firstPage.data)).byteLength).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
+      const firstIds = (firstPage.data.data.ok ? firstPage.data.data.rows : []).flatMap((row) => (row.recordId ? [row.recordId] : []));
+      const secondPage = await invoke(
+        "query",
+        "gql.execute",
+        { baseId, query: pagedQuery, pageSize: 100, cursor: firstPage.data.page.nextCursor },
+        context,
+      );
+      expect(secondPage.ok).toBe(true);
+      if (!secondPage.ok) throw new Error(secondPage.error.message);
+      const secondIds = (secondPage.data.data.ok ? secondPage.data.data.rows : []).flatMap((row) => (row.recordId ? [row.recordId] : []));
+      expect(new Set([...firstIds, ...secondIds]).size).toBe(30);
+      expect(secondIds.some((id) => firstIds.includes(id))).toBe(false);
+
+      const reviewInput = Object.fromEntries(Array.from({ length: 200 }, () => [uuid(), "changed"]));
+      const updateReview = await review("record.update", { tableId, recordId: record.id, values: reviewInput, ifVersion: 3 }, context);
+      expect(updateReview.ok).toBe(true);
+      if (updateReview.ok) {
+        const changedFields = updateReview.data.details?.find((detail) => detail.label === "Changed fields")?.value ?? "";
+        expect(changedFields.length).toBeLessThanOrEqual(1_000);
+        expect(changedFields).toContain("more");
+      }
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
       for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;

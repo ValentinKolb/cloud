@@ -113,24 +113,21 @@ const resolveMetricWindow = (query: MetricQuery): Result<MetricWindow> => {
   });
 };
 
-const filterMetricSeriesByDimensions = async (seriesIds: string[], dimensions: Record<string, string>): Promise<string[]> => {
-  let filtered = seriesIds;
-  for (const [key, value] of Object.entries(dimensions)) {
-    if (filtered.length === 0) break;
-    const rows = await sql<{ series_id: string }[]>`
-      SELECT series_id
-      FROM pulse.metric_series_dimensions
-      WHERE series_id = ANY(${toPgUuidArray(filtered)}::uuid[])
-        AND key = ${key}
-        AND value = ${value}
-    `;
-    const allowed = new Set(rows.map((row) => row.series_id));
-    filtered = filtered.filter((id) => allowed.has(id));
-  }
-  return filtered;
-};
-
 const resolveMetricSeries = async (query: MetricQuery): Promise<MetricSeriesMatch[]> => {
+  const dimensionConditions = Object.entries(normalizeDimensions(query.dimensions)).map(
+    ([key, value]) => sql`
+      EXISTS (
+        SELECT 1
+        FROM pulse.metric_series_dimensions dimension
+        WHERE dimension.series_id = ms.id
+          AND dimension.key = ${key}
+          AND dimension.value = ${value}
+      )
+    `,
+  );
+  const dimensionsMatch = dimensionConditions
+    .slice(1)
+    .reduce((condition, next) => sql`${condition} AND ${next}`, dimensionConditions[0] ?? sql`TRUE`);
   const rows = await sql<MetricSeriesMatch[]>`
     SELECT ms.id, ms.resource_key, ms.resource_id, ms.resource_type, ms.resource_label, ms.dimensions
     FROM pulse.metric_series ms
@@ -140,14 +137,10 @@ const resolveMetricSeries = async (query: MetricQuery): Promise<MetricSeriesMatc
       AND ms.source_id IS NOT DISTINCT FROM COALESCE(${query.sourceId ?? null}::uuid, ms.source_id)
       AND (${query.entityId ?? null}::text IS NULL OR ms.entity_id = ${query.entityId ?? null})
       AND (${query.entityType ?? null}::text IS NULL OR ms.entity_type = ${query.entityType ?? null})
+      AND ${dimensionsMatch}
+    LIMIT ${MAX_MATCHED_SERIES + 1}
   `;
-  const filtered = new Set(
-    await filterMetricSeriesByDimensions(
-      rows.map((row) => row.id),
-      normalizeDimensions(query.dimensions),
-    ),
-  );
-  return rows.filter((row) => filtered.has(row.id));
+  return rows;
 };
 
 const canUseHourlyRollup = (query: MetricQuery, window: MetricWindow): boolean =>

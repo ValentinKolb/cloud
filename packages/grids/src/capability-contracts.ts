@@ -257,7 +257,6 @@ export const RecordCapabilityDataSchema = z
   .object({
     id: z.uuid(),
     tableId: z.uuid(),
-    data: z.record(z.string(), z.unknown()),
     version: z.number().int().positive(),
     deletedAt: TimestampSchema.nullable(),
     createdBy: z.uuid().nullable(),

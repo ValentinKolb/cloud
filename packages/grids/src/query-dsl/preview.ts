@@ -37,6 +37,8 @@ type DslQueryPreviewOptions = {
   cursorFingerprint?: string;
   cursorSigningKey?: string;
   maxRows?: number;
+  /** Optional serialized response budget used by bounded public consumers. */
+  maxResultBytes?: number;
   /** Viewer for `search` over relation fields (target-table read scoping). */
   viewer?: ExpansionViewer;
   /** Records-table consumers need raw relation ids and build their existing
@@ -62,6 +64,7 @@ const MAX_PREVIEW_JOIN_FANOUT = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATEMENT_TIMEOUT_CODE = "57014";
 const FEDERATED_REVISION_ERROR_CODE = "P0001";
+export const GQL_RESULT_TOO_LARGE_MESSAGE = "GQL result is too large. Select fewer fields or use a smaller pageSize, then retry.";
 
 const revisionScopeKey = (scope: FederatedRevisionScope): string =>
   scope
@@ -218,9 +221,10 @@ const pageForRows = (
   bounds: ReturnType<typeof pageBoundsForPlan>,
   options: DslQueryPreviewOptions,
   cursorValuesFromRow?: (row: Record<string, unknown>) => unknown[],
+  visibleCount = bounds.visibleLimit,
 ): { visible: Record<string, unknown>[]; page: NonNullable<DslQueryPreviewSuccess["page"]>; truncated: boolean } => {
-  const visible = rows.slice(0, bounds.visibleLimit);
-  const hasNext = bounds.visibleLimit > 0 && rows.length > bounds.visibleLimit;
+  const visible = rows.slice(0, Math.min(bounds.visibleLimit, Math.max(0, visibleCount)));
+  const hasNext = visible.length > 0 && rows.length > visible.length;
   const fingerprint = options.cursorFingerprint;
   const boundary = visible.at(-1);
   const nextCursor =
@@ -245,6 +249,44 @@ const pageForRows = (
       nextCursor,
     },
   };
+};
+
+const jsonBytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+
+const fitPagedResponse = (
+  rows: Record<string, unknown>[],
+  previewRows: DslQueryPreviewRow[],
+  bounds: ReturnType<typeof pageBoundsForPlan>,
+  options: DslQueryPreviewOptions,
+  cursorValuesFromRow: ((row: Record<string, unknown>) => unknown[]) | undefined,
+  build: (rows: DslQueryPreviewRow[], page: NonNullable<DslQueryPreviewSuccess["page"]>, truncated: boolean) => DslQueryPreviewSuccess,
+): Result<DslQueryPreviewSuccess> => {
+  const responseFor = (count: number): DslQueryPreviewSuccess => {
+    const page = pageForRows(rows, bounds, options, cursorValuesFromRow, count);
+    return build(previewRows.slice(0, page.visible.length), page.page, page.truncated);
+  };
+  const budget = options.maxResultBytes;
+  if (budget === undefined) return ok(responseFor(previewRows.length));
+
+  const full = responseFor(previewRows.length);
+  if (jsonBytes(full) <= budget) return ok(full);
+  if (previewRows.length === 0 || jsonBytes(responseFor(1)) > budget) {
+    return fail(err.badInput(GQL_RESULT_TOO_LARGE_MESSAGE));
+  }
+
+  let low = 1;
+  let high = previewRows.length - 1;
+  let fitted = 1;
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2);
+    if (jsonBytes(responseFor(count)) <= budget) {
+      fitted = count;
+      low = count + 1;
+    } else {
+      high = count - 1;
+    }
+  }
+  return ok(responseFor(fitted));
 };
 
 const withPlanSpan = (message: string, span: { line: number; column: number; length: number } | undefined): DslQueryPreviewDiagnostic => ({
@@ -478,6 +520,9 @@ export const previewDslQuery = async (
     }
     options.onFederatedRevisionScope?.(revisionScope);
     const finish = async (response: DslQueryPreviewSuccess): Promise<Result<DslQueryPreviewSuccess>> => {
+      if (options.maxResultBytes !== undefined && jsonBytes(response) > options.maxResultBytes) {
+        return fail(err.badInput(GQL_RESULT_TOO_LARGE_MESSAGE));
+      }
       const current = await verifyRevisionScope(revisionScope);
       return current.ok ? ok(response) : fail(current.error);
     };
@@ -557,20 +602,30 @@ export const previewDslQuery = async (
         options.signal,
         queryExecutionKey("derived", options, revisionScope, bounds),
       );
-      const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
+      const { visible } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, plan.tableId);
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
       }));
-      return finish({
-        ok: true,
-        mode: "groups",
-        columns,
-        rows: options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options),
-        limit: bounds.pageSize,
-        truncated,
-        page,
-      });
+      const displayRows =
+        options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options);
+      const bounded = fitPagedResponse(
+        rows,
+        displayRows,
+        bounds,
+        options,
+        compiled.query.cursorValuesFromRow,
+        (pageRows, page, truncated) => ({
+          ok: true,
+          mode: "groups",
+          columns,
+          rows: pageRows,
+          limit: bounds.pageSize,
+          truncated,
+          page,
+        }),
+      );
+      return bounded.ok ? finish(bounded.data) : bounded;
     }
 
     if (isGroupedPlan(plan)) {
@@ -590,21 +645,31 @@ export const previewDslQuery = async (
         options.signal,
         queryExecutionKey("grouped", options, revisionScope, bounds),
       );
-      const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
+      const { visible } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, (plan.joins?.length ?? 0) === 0 ? plan.tableId : undefined);
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
       }));
-      return finish({
-        ok: true,
-        mode: "groups",
-        columns,
-        rows: options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options),
-        limit: bounds.pageSize,
-        truncated,
-        page,
-        ...(groupExplodes(plan, options.fieldsByTableId) ? { explode: true } : {}),
-      });
+      const displayRows =
+        options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options);
+      const bounded = fitPagedResponse(
+        rows,
+        displayRows,
+        bounds,
+        options,
+        compiled.query.cursorValuesFromRow,
+        (pageRows, page, truncated) => ({
+          ok: true,
+          mode: "groups",
+          columns,
+          rows: pageRows,
+          limit: bounds.pageSize,
+          truncated,
+          page,
+          ...(groupExplodes(plan, options.fieldsByTableId) ? { explode: true } : {}),
+        }),
+      );
+      return bounded.ok ? finish(bounded.data) : bounded;
     }
 
     if (isDslAggregateOnlyPlan(plan)) {
@@ -654,7 +719,7 @@ export const previewDslQuery = async (
       options.signal,
       queryExecutionKey("rows", options, revisionScope, bounds),
     );
-    const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
+    const { visible } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
     const columns = rowColumns(compiled.query.columns);
     const previewRows = visible.map((row) => ({
       ...(typeof row.__record_id === "string" && UUID_RE.test(row.__record_id) ? { recordId: row.__record_id } : {}),
@@ -675,15 +740,25 @@ export const previewDslQuery = async (
         : {}),
       values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
     }));
-    return finish({
-      ok: true,
-      mode: "rows",
-      columns,
-      rows: options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options),
-      limit: bounds.pageSize,
-      truncated,
-      page,
-    });
+    const displayRows =
+      options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options);
+    const bounded = fitPagedResponse(
+      rows,
+      displayRows,
+      bounds,
+      options,
+      compiled.query.cursorValuesFromRow,
+      (pageRows, page, truncated) => ({
+        ok: true,
+        mode: "rows",
+        columns,
+        rows: pageRows,
+        limit: bounds.pageSize,
+        truncated,
+        page,
+      }),
+    );
+    return bounded.ok ? finish(bounded.data) : bounded;
   } catch (error) {
     if (isTimeout(error)) return fail(err.badInput("This query took too long (over 5s). Add a filter or a smaller limit and try again."));
     const revisionMessage = federatedRevisionMessage(error);

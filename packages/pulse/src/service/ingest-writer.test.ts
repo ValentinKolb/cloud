@@ -26,7 +26,7 @@ mock.module("./access-control", () => ({
   },
 }));
 
-const { ingestBatch } = await import("./ingest-writer");
+const { ingestBatch, recordEvent, recordMetric, setState } = await import("./ingest-writer");
 
 describe("Pulse ingest writer", () => {
   test("rejects a mixed batch with an invalid later item before opening a transaction", async () => {
@@ -70,6 +70,29 @@ describe("Pulse ingest writer", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toBe("Dimensions cannot exceed 32 keys");
+    expect(activeChecks).toBe(0);
+    expect(beginCalls).toBe(0);
+  });
+
+  test("runs full validation for direct metric, event, and state writers before SQL", async () => {
+    beginCalls = 0;
+    activeChecks = 0;
+    const baseId = "103546c5-be8f-47e3-9239-a27c70b47abc";
+
+    const metric = await recordMetric({
+      baseId,
+      metric: {
+        name: "system.cpu",
+        value: 1,
+        dimensions: Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`key_${index}`, "value"])),
+      },
+    });
+    const event = await recordEvent({ baseId, event: { kind: "page.viewed", value: Number.POSITIVE_INFINITY } });
+    const state = await setState({ baseId, state: { key: "system.load", value: Number.NaN } });
+
+    expect(metric).toMatchObject({ ok: false, error: { code: "BAD_INPUT", message: "Dimensions cannot exceed 32 keys" } });
+    expect(event).toMatchObject({ ok: false, error: { code: "BAD_INPUT", message: "Event value must be finite" } });
+    expect(state).toMatchObject({ ok: false, error: { code: "BAD_INPUT", message: "State value must be finite" } });
     expect(activeChecks).toBe(0);
     expect(beginCalls).toBe(0);
   });

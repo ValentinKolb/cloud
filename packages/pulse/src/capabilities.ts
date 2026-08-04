@@ -1,8 +1,10 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
+  CAPABILITY_MAX_RESULT_BYTES,
   type CapabilityExecutionContext,
-  capabilityPage,
+  type CloudResourceRef,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   UniversalSearchDataSchema,
   type UniversalSearchInput,
@@ -26,11 +28,12 @@ import {
   SourceListInputSchema,
 } from "./capability-contracts";
 import type { PulseBase, PulseCurrentState, PulseRecordedEvent, PulseSavedQuery, PulseSource } from "./contracts";
-import { accessScopeFor } from "./service/access-control";
 import { pulseService } from "./service";
+import { accessScopeFor } from "./service/access-control";
 
 const QUERY_ROW_LIMIT = 100;
 const QUERY_POINT_LIMIT = 500;
+const QUERY_RESULT_BUDGET_BYTES = CAPABILITY_MAX_RESULT_BYTES - 16 * 1024;
 
 const encodeCursor = (offset: number): string => Buffer.from(JSON.stringify({ v: 1, offset }), "utf8").toString("base64url");
 
@@ -244,7 +247,7 @@ const compactEvent = (event: PulseRecordedEvent) => ({
   id: event.id,
   kind: event.kind.slice(0, 240),
   ts: event.ts,
-  value: event.value,
+  value: event.value === null || Number.isFinite(event.value) ? event.value : null,
   sourceId: event.sourceId,
   entityId: event.entityId?.slice(0, 500) ?? null,
   entityType: event.entityType?.slice(0, 120) ?? null,
@@ -261,7 +264,53 @@ const compactState = (state: PulseCurrentState) => ({
   updatedAt: state.updatedAt,
 });
 
-const executeQuery = async (input: z.infer<typeof QueryTextInputSchema>, context: CapabilityExecutionContext) => {
+type QueryExecutionData = z.infer<typeof QueryExecutionDataSchema>;
+
+const queryCapabilityResult = (data: QueryExecutionData, refs: CloudResourceRef[]) => ({
+  data,
+  refs,
+  links: [{ rel: "open" as const, href: explorerHref(refs[0]!.id) }],
+});
+
+const fitQueryResult = (data: QueryExecutionData, refs: CloudResourceRef[]) => {
+  const key = data.kind === "metric" ? "points" : data.kind === "events" ? "events" : "states";
+  const values = data[key];
+  const resultFor = (count: number) =>
+    queryCapabilityResult(
+      {
+        ...data,
+        [key]: values.slice(0, count),
+        truncated: data.truncated || count < values.length,
+      },
+      refs,
+    );
+  const jsonBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const full = resultFor(values.length);
+  if (jsonBytes(full) <= QUERY_RESULT_BUDGET_BYTES) return ok(full);
+  if (values.length === 0 || jsonBytes(resultFor(1)) > QUERY_RESULT_BUDGET_BYTES) {
+    return fail(err.badInput("Pulse query result is too large. Use a narrower filter, shorter range, or coarser grouping."));
+  }
+
+  let low = 1;
+  let high = values.length - 1;
+  let fitted = 1;
+  while (low <= high) {
+    const candidate = Math.floor((low + high) / 2);
+    if (jsonBytes(resultFor(candidate)) <= QUERY_RESULT_BUDGET_BYTES) {
+      fitted = candidate;
+      low = candidate + 1;
+    } else {
+      high = candidate - 1;
+    }
+  }
+  return ok(resultFor(fitted));
+};
+
+const executeQuery = async (
+  input: z.infer<typeof QueryTextInputSchema>,
+  context: CapabilityExecutionContext,
+  extraRefs: CloudResourceRef[] = [],
+) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
   const compiled = await pulseService.query.compileText({ ...input, user: scope.data });
@@ -282,8 +331,8 @@ const executeQuery = async (input: z.infer<typeof QueryTextInputSchema>, context
         ? compiled.data.compiled
         : null;
   const returnedRows = result.data.events.length + result.data.states.length;
-  return ok({
-    data: {
+  return fitQueryResult(
+    {
       kind: compiled.data.compiled.kind,
       query: input.query,
       points: result.data.points.map((point) => ({
@@ -295,9 +344,8 @@ const executeQuery = async (input: z.infer<typeof QueryTextInputSchema>, context
       limitApplied: rowQuery ? Math.min(rowQuery.limit, QUERY_ROW_LIMIT) : QUERY_POINT_LIMIT,
       truncated: Boolean(rowQuery && rowQuery.limit > QUERY_ROW_LIMIT && returnedRows > QUERY_ROW_LIMIT),
     },
-    refs: [{ type: "pulse.base", id: input.baseId }],
-    links: [{ rel: "open" as const, href: explorerHref(input.baseId) }],
-  });
+    [{ type: "pulse.base", id: input.baseId }, ...extraRefs],
+  );
 };
 
 const runSavedQueryList = async (input: z.infer<typeof SavedQueryListInputSchema>, context: CapabilityExecutionContext) => {
@@ -324,16 +372,7 @@ const runSavedQueryExecute = async (input: z.infer<typeof SavedQueryExecuteInput
   if (!scope.ok) return scope;
   const saved = await pulseService.savedQuery.get(input.baseId, input.queryId, scope.data);
   if (!saved.ok) return saved;
-  const result = await executeQuery({ baseId: input.baseId, query: saved.data.query }, context);
-  if (!result.ok) return result;
-  return ok({
-    ...result.data,
-    refs: [
-      { type: "pulse.base", id: input.baseId },
-      { type: "pulse.saved_query", id: saved.data.id },
-    ],
-    links: [{ rel: "open" as const, href: explorerHref(input.baseId) }],
-  });
+  return executeQuery({ baseId: input.baseId, query: saved.data.query }, context, [{ type: "pulse.saved_query", id: saved.data.id }]);
 };
 
 export const pulseCapabilities = defineCapabilities({
@@ -409,7 +448,8 @@ export const pulseCapabilities = defineCapabilities({
     },
     "query.execute": {
       title: "Execute Pulse Query",
-      description: "Execute validated Pulse query DSL with at most 500 points or 100 compact rows; raw event payloads are omitted.",
+      description:
+        "Run validated Pulse telemetry query DSL with byte-bounded prefixes of at most 500 points or 100 compact rows; raw event payloads are omitted and truncated indicates omitted results.",
       input: QueryTextInputSchema,
       data: QueryExecutionDataSchema,
       openWorld: false,
@@ -425,7 +465,8 @@ export const pulseCapabilities = defineCapabilities({
     },
     "saved_query.execute": {
       title: "Execute saved Pulse Query",
-      description: "Load and execute the exact stored query with the same compact limits as query.execute.",
+      description:
+        "Run the exact stored Pulse telemetry query with the same byte-bounded compact limits and truncated signal as query.execute.",
       input: SavedQueryExecuteInputSchema,
       data: QueryExecutionDataSchema,
       openWorld: false,

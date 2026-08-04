@@ -212,6 +212,7 @@ const previewResolvedGqlPlan = async (
     limit?: number;
     pageSize?: number;
     maxRows?: number;
+    maxResultBytes?: number;
     cursor?: DslResultCursor | null;
     cursorFingerprint?: string;
     cursorSigningKey?: string;
@@ -234,6 +235,7 @@ const previewResolvedGqlPlan = async (
     onFederatedRevisionScope: options.onFederatedRevisionScope,
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
+    ...(options.maxResultBytes !== undefined ? { maxResultBytes: options.maxResultBytes } : {}),
     viewer: actorViewerFor(runtime.access),
   });
   return result.ok ? result.data : { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(plan, result.error.message)] };
@@ -289,6 +291,7 @@ export const canonicalGqlSource = async (
 
 type ExecuteGqlSourceOptions = {
   maxRows?: number;
+  maxResultBytes?: number;
   operation?: GqlRuntimeOperation;
   tracer?: GqlRuntimeTracer;
   labelRelationValues?: boolean;
@@ -386,6 +389,7 @@ const executeGqlSourceUnadmitted = async (
       cursorFingerprint,
       cursorSigningKey,
       maxRows: options.maxRows,
+      maxResultBytes: options.maxResultBytes,
       labelRelationValues: options.labelRelationValues,
       expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
       signal: runtime.signal,
@@ -422,6 +426,7 @@ export const executeGqlSourceForContext = (
  * Callers cannot substitute arbitrary GQL on this trusted resolver path. */
 type ExecuteSavedViewSourceOptions = {
   maxRows?: number;
+  maxResultBytes?: number;
   pageSize?: number;
   cursor?: string;
   recordId?: string;
@@ -516,6 +521,7 @@ const executeSavedViewSourceUnadmitted = async (
     }
     const response = await previewResolvedGqlPlan(runtime, resolved.plan, context.fieldsByTableId, {
       maxRows: options.maxRows,
+      maxResultBytes: options.maxResultBytes,
       pageSize: options.pageSize,
       cursor: decodedCursor.cursor,
       cursorFingerprint,
