@@ -5,6 +5,7 @@ import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
   type CapabilityResult,
+  type CapabilitySemanticLink,
   type CloudResourceView,
   capabilityPage,
   defineCapabilities,
@@ -14,7 +15,7 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import type { z } from "zod";
 import * as c from "./capability-contracts";
-import type { Mailbox, MailDraft } from "./contracts";
+import type { Mailbox, MailDraft, MailSubscriptionSummary } from "./contracts";
 import {
   collaboration,
   commands,
@@ -40,8 +41,13 @@ const requestContext = (context: CapabilityExecutionContext): MailRequestContext
   accessSubject: context.accessSubject,
 });
 
-const mapResult = <Source, Data>(result: Result<Source>, map: (source: Source) => Data): CapabilityInvocationResult<Data> =>
-  result.ok ? ok({ data: map(result.data) }) : result;
+type ResultMetadata<Data> = Pick<CapabilityResult<Data>, "refs" | "links">;
+
+const mapResult = <Source, Data>(
+  result: Result<Source>,
+  map: (source: Source) => Data,
+  metadata?: (source: Source) => ResultMetadata<Data>,
+): CapabilityInvocationResult<Data> => (result.ok ? ok({ data: map(result.data), ...(metadata?.(result.data) ?? {}) }) : result);
 
 const mapPage = <Source, Data>(
   result: Result<{ items: Source[]; nextCursor: string | null }>,
@@ -115,6 +121,29 @@ const stableUuid = (value: string): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 };
 
+const mailboxHref = (mailboxId: string): string => `/app/mail/${encodeURIComponent(mailboxId)}`;
+const folderHref = (mailboxId: string, folderId: string): string => `${mailboxHref(mailboxId)}?folder=${encodeURIComponent(folderId)}`;
+const conversationHref = (mailboxId: string, conversationId: string): string =>
+  `${mailboxHref(mailboxId)}?conversation=${encodeURIComponent(conversationId)}`;
+const messageHref = (mailboxId: string, messageId: string): string => `${mailboxHref(mailboxId)}?message=${encodeURIComponent(messageId)}`;
+const draftHref = (mailboxId: string, draftId: string): string => `${mailboxHref(mailboxId)}/compose/${encodeURIComponent(draftId)}`;
+const scheduledHref = (mailboxId: string): string => `${mailboxHref(mailboxId)}?scheduled=1`;
+const subscriptionHref = (mailboxId: string, listKey: string): string | null => {
+  const href = `${mailboxHref(mailboxId)}/subscriptions?list=${encodeURIComponent(listKey)}`;
+  return href.length <= 2048 ? href : null;
+};
+const openLink = (href: string): CapabilitySemanticLink => ({ rel: "open", href });
+const editLink = (href: string): CapabilitySemanticLink => ({ rel: "edit", href });
+const statusLink = (href: string): CapabilitySemanticLink => ({ rel: "status", href });
+const draftMetadata = (mailboxId: string, draftId: string) => ({
+  refs: [{ type: "mail.draft" as const, id: draftId }],
+  links: [editLink(draftHref(mailboxId, draftId))],
+});
+const conversationMetadata = (mailboxId: string, conversationId: string) => ({
+  refs: [{ type: "mail.conversation" as const, id: conversationId }],
+  links: [openLink(conversationHref(mailboxId, conversationId))],
+});
+
 const requireIdempotencyKey = (context: CapabilityExecutionContext, actionId: string): Result<string> => {
   if (!context.idempotencyKey) return fail(err.badInput("An idempotency key is required"));
   const subject =
@@ -141,6 +170,11 @@ const mapMailbox = (mailbox: Mailbox & { permission: "read" | "write" | "admin" 
     updatedAt: mailbox.updatedAt,
   };
 };
+
+const mapMailboxListItem = (mailbox: Mailbox & { permission: "read" | "write" | "admin" }) => ({
+  ...mapMailbox(mailbox),
+  links: [openLink(mailboxHref(mailbox.id))],
+});
 
 const mapAddress = (address: { name?: string | null; address: string }) => ({
   name: address.name == null ? null : truncateText(address.name, 200).text,
@@ -202,6 +236,7 @@ const mapDraftSummary = (draft: MailDraft) => {
     state: draft.state,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
+    links: [editLink(draftHref(draft.mailboxId, draft.id))],
   };
 };
 
@@ -235,6 +270,7 @@ const mapConversation = (mailboxId: string, conversation: Omit<ConversationSumma
     messageCount: conversation.messageCount,
     preview: preview.text,
     previewTruncated: preview.truncated,
+    links: [openLink(conversationHref(mailboxId, conversation.id))],
   };
 };
 
@@ -260,6 +296,26 @@ const mapMessageSummary = (mailboxId: string, conversationId: string | null, mes
     remoteAvailable: message.remoteAvailable,
   };
 };
+
+const mapNavigableMessageSummary = (mailboxId: string, conversationId: string | null, message: MessageSummary) => ({
+  ...mapMessageSummary(mailboxId, conversationId, message),
+  links: [openLink(messageHref(mailboxId, message.id))],
+});
+
+const mapSubscription = (item: MailSubscriptionSummary) => ({
+  listKey: item.listKey,
+  name: item.name,
+  address: item.address,
+  status: item.status,
+  unsubscribe: item.unsubscribe,
+  messageCount: item.messageCount,
+  conversationCount: item.conversationCount,
+  lastMessageAt: item.lastMessageAt,
+  lastSubject: item.lastSubject,
+  lastSender: item.lastSender,
+  unsubscribeRequestedAt: item.unsubscribeRequestedAt,
+  unsubscribeErrorCode: item.unsubscribeErrorCode,
+});
 
 const runSearch = async (input: UniversalSearchInput, capabilityContext: CapabilityExecutionContext) => {
   if (!input.query.trim()) return ok({ data: [] });
@@ -333,7 +389,9 @@ const queryDefinitions = {
     openWorld: false,
     run: async (input: z.output<typeof c.MailboxListInputSchema>, context: CapabilityExecutionContext) => {
       const result = await mailboxes.listMailboxes(requestContext(context), input.limit, undefined, input.query, input.minimumPermission);
-      return mapResult(result, (items) => items.map((item) => mapMailbox(item as Mailbox & { permission: "read" | "write" | "admin" })));
+      return mapResult(result, (items) =>
+        items.map((item) => mapMailboxListItem(item as Mailbox & { permission: "read" | "write" | "admin" })),
+      );
     },
   },
   "mailbox.get": {
@@ -349,7 +407,11 @@ const queryDefinitions = {
       const permission = await mailboxAccess.getMailboxPermission(mailContext, input.mailboxId);
       return permission === "none"
         ? fail(err.forbidden("Mailbox access is required"))
-        : ok({ data: mapMailbox({ ...mailbox.data, permission }) });
+        : ok({
+            data: mapMailbox({ ...mailbox.data, permission }),
+            refs: [{ type: "mail.mailbox", id: mailbox.data.id }],
+            links: [openLink(mailboxHref(mailbox.data.id))],
+          });
     },
   },
   "mailbox.identity.list": {
@@ -428,6 +490,7 @@ const queryDefinitions = {
             showInSidebar,
             total,
             unread,
+            ...(selectable ? { links: [openLink(folderHref(input.mailboxId, id))] } : {}),
           };
         },
       }),
@@ -511,9 +574,10 @@ const queryDefinitions = {
             revision: state.data.revision,
           },
           tags: tags.data.tags.map(({ id, name, color, revision }) => ({ id, name, color, revision })),
-          messages: page.data.items.map((item) => mapMessageSummary(input.mailboxId, input.conversationId, item)),
+          messages: page.data.items.map((item) => mapNavigableMessageSummary(input.mailboxId, input.conversationId, item)),
           messagesTruncated: page.data.nextCursor !== null,
         },
+        ...conversationMetadata(input.mailboxId, input.conversationId),
       });
     },
   },
@@ -532,7 +596,7 @@ const queryDefinitions = {
           cursor: input.cursor,
           limit: input.limit,
         }),
-        (item) => mapMessageSummary(input.mailboxId, input.conversationId, item),
+        (item) => mapNavigableMessageSummary(input.mailboxId, input.conversationId, item),
       ),
   },
   "message.get": {
@@ -595,7 +659,7 @@ const queryDefinitions = {
           ...attachments.slice(0, 99).map((attachment) => ({ type: "mail.attachment", id: attachment.id })),
         ],
         links: [
-          { rel: "open" as const, href: `/app/mail/${input.mailboxId}?message=${item.id}` },
+          openLink(messageHref(input.mailboxId, item.id)),
           ...attachments.slice(0, 19).map((attachment) => ({
             rel: "download" as const,
             href: attachment.downloadHref,
@@ -621,7 +685,9 @@ const queryDefinitions = {
     data: c.DraftDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.DraftGetInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await drafts.getDraft(requestContext(context), input.mailboxId, input.draftId), mapDraft),
+      mapResult(await drafts.getDraft(requestContext(context), input.mailboxId, input.draftId), mapDraft, (draft) =>
+        draftMetadata(input.mailboxId, draft.id),
+      ),
   },
   "draft.send.review": {
     title: "Review draft before sending",
@@ -630,7 +696,11 @@ const queryDefinitions = {
     data: c.DraftSendReviewDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.DraftSendReviewInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await composeSafety.reviewDraftComposeSafety({ context: requestContext(context), ...input }), (item) => item),
+      mapResult(
+        await composeSafety.reviewDraftComposeSafety({ context: requestContext(context), ...input }),
+        (item) => item,
+        () => draftMetadata(input.mailboxId, input.draftId),
+      ),
   },
   "mailbox.tag.list": {
     title: "List mailbox tags",
@@ -654,11 +724,18 @@ const queryDefinitions = {
     input: c.CommentListInputSchema,
     data: c.CommentListDataSchema,
     openWorld: false,
-    run: async (input: z.output<typeof c.CommentListInputSchema>, context: CapabilityExecutionContext) =>
-      mapPage(await collaboration.listConversationComments({ context: requestContext(context), ...input }), (item) => {
+    run: async (input: z.output<typeof c.CommentListInputSchema>, context: CapabilityExecutionContext) => {
+      const result = await mapPage(await collaboration.listConversationComments({ context: requestContext(context), ...input }), (item) => {
         const body = boundedText(item.body, 1000);
         return { ...item, body: body.text, bodyTruncated: body.truncated };
-      }),
+      });
+      return result.ok
+        ? ok({
+            ...result.data,
+            ...conversationMetadata(input.mailboxId, input.conversationId),
+          })
+        : result;
+    },
   },
   "conversation.activity.list": {
     title: "List mail activity",
@@ -666,8 +743,15 @@ const queryDefinitions = {
     input: c.ActivityListInputSchema,
     data: c.ActivityListDataSchema,
     openWorld: false,
-    run: async (input: z.output<typeof c.ActivityListInputSchema>, context: CapabilityExecutionContext) =>
-      mapPage(await collaboration.listActivity({ context: requestContext(context), ...input }), (item) => item),
+    run: async (input: z.output<typeof c.ActivityListInputSchema>, context: CapabilityExecutionContext) => {
+      const result = await mapPage(await collaboration.listActivity({ context: requestContext(context), ...input }), (item) => item);
+      if (!result.ok) return result;
+      const refs = input.conversationId
+        ? [{ type: "mail.conversation" as const, id: input.conversationId }]
+        : [{ type: "mail.mailbox" as const, id: input.mailboxId }];
+      const href = input.conversationId ? conversationHref(input.mailboxId, input.conversationId) : mailboxHref(input.mailboxId);
+      return ok({ ...result.data, refs, links: [openLink(href)] });
+    },
   },
   "conversation.reminder.get": {
     title: "Get personal reminder",
@@ -676,7 +760,14 @@ const queryDefinitions = {
     data: c.ReminderGetDataSchema,
     openWorld: false,
     run: async (input: z.output<typeof c.ReminderGetInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await reminders.getConversationReminder({ context: requestContext(context), ...input }), (item) => item),
+      mapResult(
+        await reminders.getConversationReminder({ context: requestContext(context), ...input }),
+        (item) => item,
+        (item) => ({
+          refs: [{ type: "mail.conversation", id: input.conversationId }, ...(item ? [{ type: "mail.reminder", id: item.id }] : [])],
+          links: [openLink(conversationHref(input.mailboxId, input.conversationId))],
+        }),
+      ),
   },
   "delivery.list": {
     title: "List scheduled deliveries",
@@ -702,6 +793,7 @@ const queryDefinitions = {
           createdAt: item.createdAt,
         })),
         page: capabilityPage(result.data.nextCursor),
+        links: [statusLink(scheduledHref(input.mailboxId))],
       });
     },
   },
@@ -731,6 +823,7 @@ const queryDefinitions = {
           lastError: boundedText(item.lastError, 1000).text,
           createdAt: item.createdAt,
         }),
+        (item) => ({ refs: [{ type: "mail.delivery", id: item.id }], links: [statusLink(scheduledHref(input.mailboxId))] }),
       ),
   },
   "mailing-list.subscription.list": {
@@ -740,7 +833,10 @@ const queryDefinitions = {
     data: c.SubscriptionListDataSchema,
     openWorld: true,
     run: async (input: z.output<typeof c.SubscriptionListInputSchema>, context: CapabilityExecutionContext) =>
-      mapPage(await listSubscriptions.listSubscriptions({ context: requestContext(context), ...input }), (item) => item),
+      mapPage(await listSubscriptions.listSubscriptions({ context: requestContext(context), ...input }), (item) => {
+        const href = subscriptionHref(input.mailboxId, item.listKey);
+        return { ...mapSubscription(item), ...(href ? { links: [openLink(href)] } : {}) };
+      }),
   },
   "mailing-list.subscription.get": {
     title: "Get mailing-list subscription",
@@ -749,7 +845,14 @@ const queryDefinitions = {
     data: c.SubscriptionGetDataSchema,
     openWorld: true,
     run: async (input: z.output<typeof c.SubscriptionGetInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await listSubscriptions.getSubscription(requestContext(context), input.mailboxId, input.listKey), (item) => item),
+      mapResult(
+        await listSubscriptions.getSubscription(requestContext(context), input.mailboxId, input.listKey),
+        (item) => (item ? mapSubscription(item) : null),
+        (item) => {
+          const href = item ? subscriptionHref(input.mailboxId, item.listKey) : null;
+          return href ? { links: [openLink(href)] } : {};
+        },
+      ),
   },
 };
 
@@ -788,7 +891,7 @@ const requireConversationForReview = async (
   if (!message) return fail(err.notFound("Conversation"));
   return ok({
     subject: reviewSubject(message.subject),
-    href: `/app/mail/${mailboxId}?conversation=${conversationId}`,
+    href: conversationHref(mailboxId, conversationId),
   });
 };
 
@@ -854,8 +957,7 @@ const actionDefinitions = {
       }
       return ok({
         data: mapDraft(result.data),
-        refs: [{ type: "mail.draft", id: result.data.id }],
-        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${result.data.id}` }],
+        ...draftMetadata(input.mailboxId, result.data.id),
       });
     },
   },
@@ -878,7 +980,7 @@ const actionDefinitions = {
           { label: "New subject", value: input.draft.subject || "(no subject)" },
           { label: "Recipients", value: recipientSummary(input.draft) || "None" },
         ],
-        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+        links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });
     },
     run: async (input: z.output<typeof c.DraftUpdateInputSchema>, context: CapabilityExecutionContext) =>
@@ -891,6 +993,7 @@ const actionDefinitions = {
           input: input.draft,
         }),
         mapDraft,
+        (draft) => draftMetadata(input.mailboxId, draft.id),
       ),
   },
   "draft.discard": {
@@ -912,7 +1015,7 @@ const actionDefinitions = {
           { label: "Recipients", value: recipientSummary(draft.data) || "None" },
           { label: "Attachments", value: String(draft.data.attachments.length) },
         ],
-        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+        links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });
     },
     run: async (input: z.output<typeof c.DraftDiscardInputSchema>, context: CapabilityExecutionContext) =>
@@ -941,6 +1044,7 @@ const actionDefinitions = {
           stream: Readable.from(bytes),
         }),
         mapDraft,
+        (draft) => draftMetadata(input.mailboxId, draft.id),
       );
     },
   },
@@ -964,11 +1068,13 @@ const actionDefinitions = {
           { label: "Draft", value: reviewSubject(draft.data.subject) },
           { label: "Attachment", value: attachment.filename },
         ],
-        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+        links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });
     },
     run: async (input: z.output<typeof c.DraftAttachmentRemoveInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await drafts.removeDraftAttachment({ context: requestContext(context), ...input }), mapDraft),
+      mapResult(await drafts.removeDraftAttachment({ context: requestContext(context), ...input }), mapDraft, (draft) =>
+        draftMetadata(input.mailboxId, draft.id),
+      ),
   },
   "draft.send": {
     title: "Send draft email",
@@ -998,7 +1104,7 @@ const actionDefinitions = {
           { label: "Delivery", value: input.scheduledAt ?? `After a ${input.undoSeconds}-second undo window` },
           ...safety.data.warnings.map((warning) => ({ label: warning.title, value: warning.description })),
         ],
-        links: [{ rel: "edit" as const, href: `/app/mail/${input.mailboxId}/compose/${input.draftId}` }],
+        links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });
     },
     run: async (input: z.output<typeof c.DraftSendInputSchema>, context: CapabilityExecutionContext) => {
@@ -1020,14 +1126,19 @@ const actionDefinitions = {
       });
       if (!result.ok) return result;
       const draft = await drafts.getDraft(requestContext(context), input.mailboxId, input.draftId);
+      const conversationId = draft.ok ? draft.data.conversationId : null;
       return ok({
         data: {
           commandId: result.data.id,
           state: result.data.state,
           draftId: input.draftId,
-          conversationId: draft.ok ? draft.data.conversationId : null,
+          conversationId,
         },
-        refs: [{ type: "mail.draft", id: input.draftId }],
+        refs: [{ type: "mail.draft", id: input.draftId }, ...(conversationId ? [{ type: "mail.conversation", id: conversationId }] : [])],
+        links: [
+          statusLink(scheduledHref(input.mailboxId)),
+          ...(conversationId ? [openLink(conversationHref(input.mailboxId, conversationId))] : []),
+        ],
       });
     },
   },
@@ -1055,7 +1166,7 @@ const actionDefinitions = {
           { label: "Scheduled for", value: delivery.data.scheduledAt },
           { label: "Draft", value: input.disposition === "draft" ? "Restore as draft" : "Discard" },
         ],
-        links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}/compose/${delivery.data.draftId}` }],
+        links: [statusLink(scheduledHref(input.mailboxId))],
       });
     },
     run: async (input: z.output<typeof c.DeliveryCancelInputSchema>, context: CapabilityExecutionContext) =>
@@ -1067,6 +1178,10 @@ const actionDefinitions = {
           input: { disposition: input.disposition },
         }),
         (item) => item,
+        (item) =>
+          item.disposition === "draft"
+            ? { refs: [{ type: "mail.draft", id: item.draftId }], links: [editLink(draftHref(input.mailboxId, item.draftId))] }
+            : {},
       ),
   },
   "conversation.mark": {
@@ -1090,7 +1205,7 @@ const actionDefinitions = {
           { label: "Conversation", value: conversation.data.subject },
           { label: "Change", value: changes.join(", ") },
         ],
-        links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}` }],
+        links: [openLink(conversation.data.href)],
       });
     },
     run: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
@@ -1118,6 +1233,7 @@ const actionDefinitions = {
           correlationId: result.data.correlationId,
           commands: result.data.commands.map((command) => ({ id: command.id, state: command.state })),
         },
+        ...conversationMetadata(input.mailboxId, input.target.conversationId),
       });
     },
   },
@@ -1145,7 +1261,7 @@ const actionDefinitions = {
           { label: "Conversation", value: conversation.data.subject },
           { label: "Destination", value: destination },
         ],
-        links: [{ rel: "open" as const, href: `/app/mail/${input.mailboxId}` }],
+        links: [openLink(conversation.data.href)],
       });
     },
     run: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
@@ -1172,6 +1288,7 @@ const actionDefinitions = {
           correlationId: result.data.correlationId,
           commands: result.data.commands.map((command) => ({ id: command.id, state: command.state })),
         },
+        ...conversationMetadata(input.mailboxId, input.target.conversationId),
       });
     },
   },
@@ -1219,6 +1336,7 @@ const actionDefinitions = {
           input: { expectedRevision: input.expectedRevision, tagIds: [...next] },
         }),
         (item) => item,
+        () => conversationMetadata(input.mailboxId, input.conversationId),
       );
     },
   },
@@ -1257,6 +1375,7 @@ const actionDefinitions = {
           },
         }),
         (item) => item,
+        () => conversationMetadata(input.mailboxId, input.conversationId),
       ),
   },
   "conversation.reminder.set": {
@@ -1288,6 +1407,13 @@ const actionDefinitions = {
           input: { dueAt: input.dueAt, expectedRevision: input.expectedRevision },
         }),
         (item) => item,
+        (item) => ({
+          refs: [
+            { type: "mail.reminder", id: item.id },
+            { type: "mail.conversation", id: input.conversationId },
+          ],
+          links: [openLink(conversationHref(input.mailboxId, input.conversationId))],
+        }),
       ),
   },
   "conversation.reminder.cancel": {
@@ -1327,6 +1453,13 @@ const actionDefinitions = {
           input: { expectedRevision: input.expectedRevision },
         }),
         (item) => item,
+        (item) => ({
+          refs: [
+            { type: "mail.reminder", id: item.id },
+            { type: "mail.conversation", id: input.conversationId },
+          ],
+          links: [openLink(conversationHref(input.mailboxId, input.conversationId))],
+        }),
       ),
   },
   "conversation.comment.create": {
@@ -1346,6 +1479,13 @@ const actionDefinitions = {
           input: { body: input.body, parentCommentId: input.parentCommentId, referencedMessageId: input.referencedMessageId },
         }),
         (item) => item,
+        (item) => ({
+          refs: [
+            { type: "mail.comment", id: item.id },
+            { type: "mail.conversation", id: input.conversationId },
+          ],
+          links: [openLink(conversationHref(input.mailboxId, input.conversationId))],
+        }),
       ),
   },
   "conversation.comment.update": {
@@ -1378,6 +1518,13 @@ const actionDefinitions = {
           input: { expectedRevision: input.expectedRevision, body: input.body },
         }),
         (item) => item,
+        (item) => ({
+          refs: [
+            { type: "mail.comment", id: item.id },
+            { type: "mail.conversation", id: input.conversationId },
+          ],
+          links: [openLink(conversationHref(input.mailboxId, input.conversationId))],
+        }),
       ),
   },
   "conversation.comment.delete": {
@@ -1410,6 +1557,13 @@ const actionDefinitions = {
           input: { expectedRevision: input.expectedRevision },
         }),
         (item) => item,
+        (item) => ({
+          refs: [
+            { type: "mail.comment", id: item.id },
+            { type: "mail.conversation", id: input.conversationId },
+          ],
+          links: [openLink(conversationHref(input.mailboxId, input.conversationId))],
+        }),
       ),
   },
   "mailbox.tag.create": {
@@ -1511,6 +1665,7 @@ const actionDefinitions = {
       if (!subscription.ok) return subscription;
       if (!subscription.data) return fail(err.notFound("Mailing-list subscription"));
       if (subscription.data.unsubscribe?.href !== input.href) return fail(err.conflict("The advertised unsubscribe endpoint changed"));
+      const href = subscriptionHref(input.mailboxId, input.listKey);
       return ok({
         message: `Request external unsubscribe from ${subscription.data.name}.`,
         details: [
@@ -1518,6 +1673,7 @@ const actionDefinitions = {
           { label: "Address", value: subscription.data.address },
           { label: "Endpoint", value: input.href },
         ],
+        ...(href ? { links: [openLink(href)] } : {}),
       });
     },
     run: async (input: z.output<typeof c.SubscriptionUnsubscribeInputSchema>, context: CapabilityExecutionContext) =>
@@ -1528,6 +1684,10 @@ const actionDefinitions = {
           input: { listKey: input.listKey, href: input.href },
         }),
         (item) => item,
+        (item) => {
+          const href = subscriptionHref(input.mailboxId, item.listKey);
+          return href ? { links: [openLink(href)] } : {};
+        },
       ),
   },
 } as const;

@@ -476,11 +476,18 @@ absent. Treat cursors as opaque values.
 
 Keep result metadata non-overlapping. For one primary resource, return its
 identity in top-level `refs` and its navigation in top-level `links`. For
-several independently navigable results, use `CloudResourceView[]` as `data`
-so each title, ref, and link stays together. Do not make clients correlate
-parallel ref and link arrays by position, and do not add another result field
-that duplicates both. These are presentation best practices, not required
-metadata; domain-only operations may return `data` without links.
+several independently navigable presentation results, use `CloudResourceView[]`
+as `data` so each title, ref, and link stays together. A rich domain list that
+must retain app-specific fields may instead add optional semantic `links`
+directly to each item. This keeps navigation next to the item without replacing
+the domain result or making clients correlate parallel top-level arrays.
+
+All result links are optional hints. Omit `links` when there is no stable,
+useful Cloud destination, and omit the field instead of returning an empty
+array. Clients must not require links for an operation to succeed. Do not invent
+a generic app link for a resource that has no directly addressable UI, and do
+not add another result field that duplicates both identity and navigation.
+Domain-only operations may return `data` without links.
 
 Failures use the normal structured service-error shape:
 

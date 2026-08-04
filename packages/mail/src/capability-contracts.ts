@@ -1,3 +1,4 @@
+import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import {
   composeSafetyApprovalSchema,
@@ -32,6 +33,7 @@ const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maxim
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const VocabularyLimitSchema = z.number().int().min(1).max(50).default(25).describe("Maximum number of results to return.");
 const VocabularyPageInputShape = { cursor: CursorSchema, limit: VocabularyLimitSchema };
+const OptionalResourceLinksShape = { links: z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional() };
 const CapabilityMailSearchLeafSchema = z.discriminatedUnion("type", [
   mailSearchTermSchema,
   mailSearchDateSchema,
@@ -98,7 +100,7 @@ export const MailboxDataSchema = z
     updatedAt: TimestampSchema,
   })
   .strict();
-export const MailboxListDataSchema = z.array(MailboxDataSchema).max(100);
+export const MailboxListDataSchema = z.array(MailboxDataSchema.extend(OptionalResourceLinksShape).strict()).max(100);
 export const MailboxListInputSchema = z
   .object({
     query: z.string().trim().max(500).optional().describe("Optional mailbox name or description search."),
@@ -162,6 +164,7 @@ export const FolderDataSchema = z
     showInSidebar: z.boolean(),
     total: z.number().int().nonnegative(),
     unread: z.number().int().nonnegative(),
+    ...OptionalResourceLinksShape,
   })
   .strict();
 export const FolderListDataSchema = z.array(FolderDataSchema).max(100);
@@ -192,6 +195,7 @@ export const ConversationDataSchema = z
     messageCount: z.number().int().nonnegative(),
     preview: z.string().max(1000).nullable(),
     previewTruncated: z.boolean(),
+    ...OptionalResourceLinksShape,
   })
   .strict();
 export const ConversationListDataSchema = z.array(ConversationDataSchema).max(100);
@@ -260,7 +264,8 @@ export const MessageSummaryDataSchema = z
     remoteAvailable: z.boolean(),
   })
   .strict();
-export const MessageListDataSchema = z.array(MessageSummaryDataSchema).max(100);
+export const NavigableMessageSummaryDataSchema = MessageSummaryDataSchema.extend(OptionalResourceLinksShape).strict();
+export const MessageListDataSchema = z.array(NavigableMessageSummaryDataSchema).max(100);
 export const MessageListInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
@@ -318,7 +323,7 @@ export const ConversationGetDataSchema = z
     tags: z
       .array(z.object({ id: UuidSchema, name: z.string(), color: z.string(), revision: z.number().int().positive() }).strict())
       .max(100),
-    messages: z.array(MessageSummaryDataSchema).max(100),
+    messages: z.array(NavigableMessageSummaryDataSchema).max(100),
     messagesTruncated: z.boolean(),
   })
   .strict();
@@ -381,6 +386,7 @@ export const DraftSummaryDataSchema = z
     state: z.enum(["draft", "scheduled", "sending", "sent", "discarded"]),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
+    ...OptionalResourceLinksShape,
   })
   .strict();
 export const DraftListDataSchema = z.array(DraftSummaryDataSchema).max(100);
@@ -763,7 +769,7 @@ export const SubscriptionDataSchema = z
     unsubscribeErrorCode: NullableTextSchema,
   })
   .strict();
-export const SubscriptionListDataSchema = z.array(SubscriptionDataSchema).max(100);
+export const SubscriptionListDataSchema = z.array(SubscriptionDataSchema.extend(OptionalResourceLinksShape).strict()).max(100);
 export const SubscriptionListInputSchema = z.object({ mailboxId: MailboxIdInputSchema, ...PageInputShape }).strict();
 export const SubscriptionGetInputSchema = z
   .object({ mailboxId: MailboxIdInputSchema, listKey: z.string().trim().min(1).max(4096).describe("Stable detected mailing-list key.") })

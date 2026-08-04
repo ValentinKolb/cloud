@@ -4,15 +4,18 @@ import { CAPABILITY_MAX_RESULT_BYTES, CapabilityActionReviewSchema, type Capabil
 import { mailCapabilities } from "./capabilities";
 import {
   CommentListDataSchema,
+  ConversationListDataSchema,
   ConversationMarkInputSchema,
   ConversationMoveInputSchema,
   DraftCreateInputSchema,
   DraftListDataSchema,
   DraftSendInputSchema,
+  FolderListDataSchema,
   MessageDataSchema,
+  SubscriptionListDataSchema,
   SubscriptionUnsubscribeInputSchema,
 } from "./capability-contracts";
-import { mailboxAccess, mailboxes, messages } from "./service";
+import { listSubscriptions, mailboxAccess, mailboxes, messages, triage } from "./service";
 
 const mailboxId = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
 const conversationId = "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8";
@@ -190,18 +193,19 @@ describe("mail capabilities", () => {
   test("paginates capability-owned folder vocabulary in stable UUID order", async () => {
     const folder = (id: string, name: string) => ({
       id,
-      mailboxId,
       parentId: null,
-      remoteId: id,
       name,
       role: "custom",
+      providerRole: "custom",
+      configuredRole: null,
       selectable: true,
       showInSidebar: true,
+      namespaceKinds: ["personal" as const],
+      discoveryState: "active" as const,
+      missingSince: null,
+      syncStatus: "current",
       total: 0,
       unread: 0,
-      sortOrder: 0,
-      createdAt: "2026-08-02T10:00:00.000Z",
-      updatedAt: "2026-08-02T10:00:00.000Z",
     });
     spyOn(messages, "listFolders").mockResolvedValue({
       ok: true,
@@ -216,16 +220,142 @@ describe("mail capabilities", () => {
     expect(first).toMatchObject({
       ok: true,
       data: {
-        data: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }],
+        data: [
+          {
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?folder=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` }],
+          },
+          {
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?folder=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb` }],
+          },
+        ],
         page: { hasMore: true },
       },
     });
     if (!first.ok || !first.data.page?.hasMore) throw new Error("Expected another folder page");
+    expect(FolderListDataSchema.safeParse(first.data.data).success).toBeTrue();
     const second = await mailCapabilities.queries["folder.list"].run({ mailboxId, limit: 2, cursor: first.data.page.nextCursor }, context);
     expect(second).toMatchObject({
       ok: true,
       data: { data: [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }], page: { hasMore: false } },
     });
+  });
+
+  test("keeps navigable conversation links with each rich list item", async () => {
+    spyOn(messages, "listConversations").mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: conversationId,
+            primaryReference: null,
+            subject: "Release update",
+            participantSummary: "Ada",
+            participantLabels: ["Ada"],
+            latestMessageAt: "2026-08-04T10:00:00.000Z",
+            workStatus: "needs_action",
+            assigneeUserId: null,
+            snoozedUntil: null,
+            revision: 1,
+            updatedAt: "2026-08-04T10:00:00.000Z",
+            unread: true,
+            activeFolderIds: [mailboxId],
+            flagged: false,
+            hasAttachments: false,
+            messageCount: 1,
+            preview: "Ready to ship",
+          },
+        ],
+        nextCursor: null,
+      },
+    } as never);
+
+    const result = await mailCapabilities.queries["conversation.list"].run({ mailboxId, limit: 25 }, context);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        data: [
+          {
+            id: conversationId,
+            subject: "Release update",
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?conversation=${conversationId}` }],
+          },
+        ],
+      },
+    });
+    if (!result.ok) throw new Error("Expected conversation list success");
+    expect(ConversationListDataSchema.safeParse(result.data.data).success).toBeTrue();
+    expect(ConversationListDataSchema.safeParse(result.data.data.map(({ links: _, ...item }) => item)).success).toBeTrue();
+  });
+
+  test("returns exact conversation links from reviews and mutation results", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    spyOn(messages, "listConversationMessages").mockResolvedValue({
+      ok: true,
+      data: { items: [{ subject: "Release update" }], nextCursor: null },
+    } as never);
+    spyOn(triage, "createConversationTriageCommands").mockResolvedValue({
+      ok: true,
+      data: { correlationId: "correlation", commands: [{ id: mailboxId, state: "pending" }] },
+    } as never);
+    const input = { mailboxId, target: { conversationId, sourceFolderId: mailboxId }, read: true };
+
+    const review = await mailCapabilities.actions["conversation.mark"].review(input, context);
+    const result = await mailCapabilities.actions["conversation.mark"].run(input, { ...context, idempotencyKey: "mark-read" });
+
+    expect(review).toMatchObject({
+      ok: true,
+      data: { links: [{ rel: "open", href: `/app/mail/${mailboxId}?conversation=${conversationId}` }] },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        refs: [{ type: "mail.conversation", id: conversationId }],
+        links: [{ rel: "open", href: `/app/mail/${mailboxId}?conversation=${conversationId}` }],
+      },
+    });
+  });
+
+  test("encodes subscription links and omits links that exceed the platform bound", async () => {
+    const subscription = (listKey: string) => ({
+      listKey,
+      name: "Example list",
+      address: "list@example.test",
+      status: "active" as const,
+      unsubscribe: null,
+      postHref: null,
+      helpHref: null,
+      archiveHref: null,
+      messageCount: 2,
+      recentMessageCount: 1,
+      conversationCount: 1,
+      lastMessageAt: "2026-08-04T10:00:00.000Z",
+      lastSubject: "Update",
+      lastSender: "Example",
+      lastMessageId: conversationId,
+      lastConversationId: conversationId,
+      unsubscribeRequestedAt: null,
+      unsubscribeErrorCode: null,
+    });
+    spyOn(listSubscriptions, "listSubscriptions").mockResolvedValue({
+      ok: true,
+      data: { items: [subscription("list one&two"), subscription("x".repeat(4096))], nextCursor: null },
+    });
+
+    const result = await mailCapabilities.queries["mailing-list.subscription.list"].run({ mailboxId, limit: 25 }, context);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        data: [
+          { links: [{ rel: "open", href: `/app/mail/${mailboxId}/subscriptions?list=list%20one%26two` }] },
+          { listKey: "x".repeat(4096) },
+        ],
+      },
+    });
+    if (!result.ok) throw new Error("Expected subscription list success");
+    expect(SubscriptionListDataSchema.safeParse(result.data.data).success).toBeTrue();
+    expect("links" in result.data.data[1]!).toBeFalse();
   });
 
   test("propagates Mail search discovery failures instead of returning empty success", async () => {
