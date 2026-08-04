@@ -94,8 +94,10 @@ Use `toHistoricalResult` when a full tool result is useful now but too large to
 send to the model in later loops. Cloud still persists the full result for the
 user.
 
-`promptHint` adds a short usage hint to the system prompt. It does not replace
-the tool description.
+`promptHint` adds one short usage nudge to the system prompt. Use it when the
+model could finish with plain text but Cloud prefers the tool-backed experience,
+as with cards, surveys, or presented files. Keep operation details and arguments
+in the tool description and schema; the hint does not replace either.
 
 ## Search product Help
 

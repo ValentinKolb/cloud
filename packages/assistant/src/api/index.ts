@@ -4,8 +4,6 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 
 const ASSISTANT_APP_ID = "assistant";
-const ASSISTANT_SYSTEM_PROMPT =
-  "You are the general-purpose Assistant app. Help with writing, rewriting, summarizing, explaining, and planning.";
 
 const actorUser = (c: Context<AuthContext>) => {
   const actor = c.get("actor");
@@ -30,7 +28,6 @@ const chatRoutes = createAiChatRoutes({
       actor,
       ownerUserId: user.id,
       toolSource: { kind: "default", capabilities: true },
-      systemPrompt: ASSISTANT_SYSTEM_PROMPT,
       modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
       toolApprovalContext: { actorUserId: user.id, appId: ASSISTANT_APP_ID, resource: { kind: "direct" } },
     };

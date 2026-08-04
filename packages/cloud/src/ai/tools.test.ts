@@ -8,7 +8,7 @@ import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./
 import { createCloudAiBashTool } from "./bash-tool";
 import { CloudAiCardInputSchema, createConfiguredDefaultCloudAiTools, createDefaultCloudAiTools } from "./default-tools";
 import { AiTurnActionSchema } from "./runtime";
-import { defineAiTool, prepareAiTools } from "./tools";
+import { aiToolPromptHints, defineAiTool, prepareAiTools } from "./tools";
 
 const actor = {
   kind: "user",
@@ -196,6 +196,7 @@ describe("AI tools", () => {
 
     expect(withoutWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "bash", "present"]);
     expect(withWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "bash", "present", "web_search", "web_extract"]);
+    expect(aiToolPromptHints(withoutWeb).map((hint) => hint.name)).toEqual(["card", "survey", "bash", "present"]);
 
     const prepared = prepareAiTools({ tools: withWeb, actor });
     expect(prepared.tools.find((tool) => tool.def.name === "web_search")?.kind).toBe("server");

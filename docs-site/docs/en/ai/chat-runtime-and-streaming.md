@@ -83,6 +83,16 @@ chat and resource consumers keep their existing tool surface. Capability tools
 require a model profile with `tools` support and a current direct user actor;
 service-backed agent identities are not part of this contract.
 
+The shared platform prompt separates platform rules, a short execution loop,
+conditional tool guidance, and labeled application context. It tells agents to
+use required tools, inspect their results, and continue until the request is
+complete or genuinely blocked. Retrieved emails, webpages, user files, Help,
+capability results, ordinary tool output, and memories remain data rather than
+instructions; matching skills from the read-only skill mount are the explicit,
+subordinate guidance exception. The runtime still treats a provider `stop` as
+a completed turn; it does not infer unfinished work from model text or trigger
+language-dependent automatic retries.
+
 ## Chat route groups
 
 | Group | Purpose |

@@ -13,7 +13,7 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
   approval?: AiToolApprovalPolicy;
   /** Per-tool execution timeout. nessi aborts the call and reports a timeout issue. */
   timeoutMs?: number;
-  /** One-line "when to use" hint listed in the system prompt's Tools section. */
+  /** One-line "when to use" hint listed in the system prompt's Tool guidance section. */
   promptHint?: string;
   /** Optional compact representation sent to providers in later loops. */
   toHistoricalResult?: (context: { input: z.infer<TInput>; output: z.infer<TOutput>; callId: string }) => unknown | Promise<unknown>;
