@@ -554,6 +554,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
    */
   describe("layout geometry parity", () => {
     const css = readFileSync(resolve(import.meta.dir, "../../dist/styles.css"), "utf8");
+    const layoutSource = readFileSync(resolve(import.meta.dir, "../styles/layout-parity.css"), "utf8");
     /** Every declaration the cascade applies to `selector`, in source order. */
     const rule = (selector: string) => {
       const matches = [
@@ -586,6 +587,16 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__detail:not\(\[hidden\]\)/);
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__resize\[data-app-workspace-resize=detail\]/);
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__resize\[data-app-workspace-resize=drawer\]/);
+    });
+
+    test("limits mobile pane selection to the mobile breakpoint", () => {
+      const mobileBreakpoint = layoutSource.indexOf("@media (max-width: 63.999rem)");
+      const mobilePaneSelector =
+        '.k2b-app-workspace__main.has-panes > [data-workspace-main-region][data-workspace-mobile-active="true"]';
+
+      expect(mobileBreakpoint).toBeGreaterThan(-1);
+      expect(layoutSource.slice(0, mobileBreakpoint)).not.toContain(mobilePaneSelector);
+      expect(layoutSource.slice(mobileBreakpoint)).toContain(mobilePaneSelector);
     });
 
     test("keeps the workspace surface hierarchy aligned with Cloud", () => {

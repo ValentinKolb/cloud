@@ -601,17 +601,6 @@
   grid-area: mobile;
 }
 
-.k2b-ui .k2b-app-workspace__main.has-panes > [data-workspace-main-region] {
-  display: none;
-}
-
-.k2b-ui .k2b-app-workspace__main.has-panes > [data-workspace-main-region][data-workspace-mobile-active="true"] {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
-}
-
 /* A row with a trailing action renders as a wrapper element, so `:disabled`
    cannot reach it — Cloud disables the whole row, action included. */
 .k2b-ui .k2b-app-workspace__sidebar-item[data-disabled="true"] {
@@ -993,6 +982,17 @@
 }
 
 @media (max-width: 63.999rem) {
+  .k2b-ui .k2b-app-workspace__main.has-panes > [data-workspace-main-region] {
+    display: none;
+  }
+
+  .k2b-ui .k2b-app-workspace__main.has-panes > [data-workspace-main-region][data-workspace-mobile-active="true"] {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
   .k2b-ui
     .k2b-app-workspace__content:has(
       > .k2b-app-workspace__detail:not([hidden]),
