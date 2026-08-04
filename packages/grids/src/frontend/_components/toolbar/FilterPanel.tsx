@@ -212,7 +212,7 @@ function FilterValueInput(props: {
           const numAt = (i: 0 | 1) => {
             const v = range()[i];
             const n = typeof v === "number" ? v : Number(v);
-            return Number.isFinite(n) ? n : undefined;
+            return Number.isFinite(n) ? n : null;
           };
           const dateAt = (i: 0 | 1) => {
             const v = range()[i];
@@ -340,7 +340,7 @@ function FilterValueInput(props: {
             value={() => {
               const v = props.value;
               const n = typeof v === "number" ? v : Number(v);
-              return Number.isFinite(n) ? n : undefined;
+              return Number.isFinite(n) ? n : null;
             }}
             onValueChange={(v) => props.onChange(v)}
           />
@@ -375,7 +375,7 @@ function FilterValueInput(props: {
             value={() => {
               const v = props.value;
               const n = typeof v === "number" ? v : Number(v);
-              return Number.isFinite(n) ? n : undefined;
+              return Number.isFinite(n) ? n : null;
             }}
             onValueChange={(v) => props.onChange(v)}
             decimalPlaces={10}

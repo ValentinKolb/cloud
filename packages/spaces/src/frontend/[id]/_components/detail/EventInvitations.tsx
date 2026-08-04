@@ -151,7 +151,7 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
               </Show>
               <Select
                 label="Mailbox"
-                value={() => mailboxId() ?? undefined}
+                value={() => mailboxId() ?? null}
                 onValueChange={chooseMailbox}
                 options={value().mailboxes.map((mailbox) => ({
                   value: mailbox.id,
@@ -163,7 +163,7 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
               />
               <Select
                 label="From"
-                value={() => senderIdentityId() ?? undefined}
+                value={() => senderIdentityId() ?? null}
                 onValueChange={(value) => {
                   resetIdempotency();
                   setSenderIdentityId(value);

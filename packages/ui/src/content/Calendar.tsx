@@ -170,8 +170,11 @@ const ownerDateConfig = (owner: CalendarProps): DateContext => ({
   firstDayOfWeek: owner.firstDayOfWeek ?? owner.dateConfig?.firstDayOfWeek ?? owner.dateConfig?.weekStartsOn ?? 1,
 });
 
-const parseDate = (value: Date | string): Date => {
+const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const parseDate = (value: Date | string, context?: DateContext): Date => {
   if (value instanceof Date) return new Date(value);
+  if (dateOnlyPattern.test(value)) return calendar.parseCalendarDate(value, context);
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
   const parsed = new Date(normalized);
   if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -230,9 +233,9 @@ const zonedMinuteSlot = (day: Date, minuteOfDay: number, context?: DateContext):
 };
 const normalizeEvents = (events: CalendarEvent[], context?: DateContext): NormalizedEvent[] =>
   events.flatMap((event) => {
-    const startDate = parseDate(event.start);
+    const startDate = parseDate(event.start, context);
     if (!validDate(startDate)) return [];
-    const parsedEnd = event.end ? parseDate(event.end) : null;
+    const parsedEnd = event.end ? parseDate(event.end, context) : null;
     const endDate = parsedEnd && validDate(parsedEnd) ? parsedEnd : new Date(startDate.getTime() + 60 * 60 * 1000);
     const duration = Math.max(60 * 60 * 1000, endDate.getTime() - startDate.getTime());
     const rangeEnd = endDate > startDate ? endDate : new Date(startDate.getTime() + duration);
@@ -452,7 +455,7 @@ const EventChip = (props: {
       data-interactive={isInteractive() ? "true" : undefined}
       data-display={props.event.display}
       style={style()}
-      role="button"
+      role={isInteractive() ? "button" : undefined}
       tabIndex={isInteractive() ? 0 : undefined}
       onClick={onClick}
       onDblClick={onDoubleClick}
@@ -1519,7 +1522,7 @@ const Calendar = (props: CalendarProps): JSX.Element => {
   const view = () => props.view ?? "month";
   const dateConfig = createMemo(() => ownerDateConfig(props));
   const safeDate = (value: Date | string) => {
-    const parsed = parseDate(value);
+    const parsed = parseDate(value, dateConfig());
     return validDate(parsed) ? parsed : calendar.today(dateConfig());
   };
   const date = createMemo(() => safeDate(props.date));

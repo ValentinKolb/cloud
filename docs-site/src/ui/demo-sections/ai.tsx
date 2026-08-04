@@ -126,7 +126,14 @@ const ChatDemo = () => {
           selectedModelId={model()}
           onModelChange={setModel}
           fileSelection={{ onSelect: () => undefined }}
-          menuActions={[{ id: "new-chat", label: "New chat", icon: "ti ti-message-plus" }]}
+          menuActions={[
+            {
+              id: "new-chat",
+              label: "New chat",
+              icon: "ti ti-message-plus",
+              onSelect: () => undefined,
+            },
+          ]}
           commands={[
             {
               name: "summarize",

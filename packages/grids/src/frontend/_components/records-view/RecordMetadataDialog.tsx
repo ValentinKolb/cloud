@@ -52,7 +52,7 @@ const actorToOption = (actor: RecordActor): ComboboxOption => ({
   id: actor.id,
   label: actor.label,
   description: actor.subtitle ?? undefined,
-  icon: "ti-user",
+  icon: "ti ti-user",
 });
 
 const fetchActors = async (tableId: string, kind: RecordMetaUserKey | "any", query: string, ids: string[] = []): Promise<RecordActor[]> => {

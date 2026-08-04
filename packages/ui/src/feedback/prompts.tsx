@@ -1,5 +1,5 @@
 import { mutation, timed } from "@k2b/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, onCleanup, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Checkbox } from "../inputs/Checkbox";
 import { PinInput } from "../inputs/ChoiceInputs";
@@ -32,7 +32,6 @@ export type PromptSearchItem<T = unknown> = {
   icon?: string;
   previewUrl?: string;
   value?: T;
-  onClick?: (item: PromptSearchItem<T>) => void | Promise<void>;
 };
 
 export type PromptSearchInput = {
@@ -169,9 +168,19 @@ export const createFormState = <T extends Record<string, FieldSchema>>(schema: T
   const validateField = (key: string, value: PromptFormValue): string | null => {
     const field = schema[key];
     if (!field || field.type === "info") return null;
+    if (field.type === "boolean" && field.required && value !== true) return "required";
     if (field.required && isEmpty(value)) return "required";
     if ("validate" in field && field.validate) {
-      return (field.validate as (next: never) => string | null)(value as never);
+      const customError = (field.validate as (next: never) => string | null)(value as never);
+      if (customError) return customError;
+    }
+    if (field.type === "text" && typeof value === "string" && value.length > 0) {
+      if (field.minLength !== undefined && value.length < field.minLength) return `minimum ${field.minLength} characters`;
+      if (field.maxLength !== undefined && value.length > field.maxLength) return `maximum ${field.maxLength} characters`;
+    }
+    if (field.type === "tags" && Array.isArray(value) && value.length > 0) {
+      if (field.minTags !== undefined && value.length < field.minTags) return `minimum ${field.minTags} tags`;
+      if (field.maxTags !== undefined && value.length > field.maxTags) return `maximum ${field.maxTags} tags`;
     }
     return null;
   };
@@ -257,6 +266,8 @@ const PromptControl = (props: {
           activeIcon={props.field.activeIcon}
           password={props.field.password}
           markdown={props.field.markdown}
+          minLength={props.field.minLength}
+          maxLength={props.field.maxLength}
         />
       );
     case "number":
@@ -349,8 +360,8 @@ const PromptControl = (props: {
         description: props.field.description,
         required: props.field.required,
         placeholder: props.field.placeholder,
-        error: props.error(),
-        value: typeof props.value() === "string" ? (props.value() as string) : null,
+        error: props.error,
+        value: () => (typeof props.value() === "string" ? (props.value() as string) : null),
         onValueChange: (value: string | null) => props.update(value ?? ""),
         clearable: true,
       };
@@ -417,6 +428,9 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
       const [failedPreviews, setFailedPreviews] = createStore<Record<number, true>>({});
       const [activeSearchQuery, setActiveSearchQuery] = createSignal("");
       const rowRefs = new Map<number, HTMLButtonElement>();
+      const searchId = `k2b-prompt-search-${createUniqueId()}`;
+      const listboxId = `${searchId}-listbox`;
+      const optionId = (index: number) => `${searchId}-option-${index}`;
 
       const minQueryLength = options?.minQueryLength ?? 0;
       const debounceMs = options?.debounceMs ?? 180;
@@ -461,9 +475,8 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
         void searchMutation.mutate(nextQuery);
       }, debounceMs);
 
-      const execute = async (item?: PromptSearchItem<T>) => {
+      const execute = (item?: PromptSearchItem<T>) => {
         if (!item) return;
-        if (item.onClick) await item.onClick(item);
         close(item);
       };
       const moveSelection = (delta: -1 | 1) => {
@@ -508,7 +521,15 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
             <label class="k2b-prompt-search__input">
               <i class={options?.icon ?? "ti ti-search"} aria-hidden="true" />
               <input
+                id={searchId}
                 type="search"
+                role="combobox"
+                aria-label={options?.ariaLabel ?? options?.title ?? "Search"}
+                aria-autocomplete="list"
+                aria-controls={listboxId}
+                aria-expanded={shouldShowResults()}
+                aria-activedescendant={shouldShowResults() && items().length > 0 ? optionId(activeIndex()) : undefined}
+                aria-busy={searchMutation.loading()}
                 value={query()}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onKeyDown={(event) => {
@@ -520,7 +541,7 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
                     moveSelection(-1);
                   } else if (event.key === "Enter") {
                     event.preventDefault();
-                    void execute(items()[activeIndex()]);
+                    execute(items()[activeIndex()]);
                   }
                 }}
                 placeholder={options?.placeholder ?? "Search..."}
@@ -541,9 +562,22 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
               }}
             >
               <div class="k2b-prompt-search__results" onWheel={(event) => event.stopPropagation()}>
-                <Show when={searchError()}>{(message) => <div class="k2b-prompt-search__error">{message()}</div>}</Show>
-                <Show when={items().length > 0} fallback={<p>{emptyStateText()}</p>}>
-                  <div class="k2b-prompt-search__list">
+                <Show when={searchError()}>
+                  {(message) => (
+                    <div class="k2b-prompt-search__error" role="status" aria-live="polite">
+                      {message()}
+                    </div>
+                  )}
+                </Show>
+                <Show
+                  when={items().length > 0}
+                  fallback={
+                    <p role="status" aria-live="polite">
+                      {emptyStateText()}
+                    </p>
+                  }
+                >
+                  <div id={listboxId} class="k2b-prompt-search__list" role="listbox" aria-label="Search results">
                     <For each={items()}>
                       {(item, index) => (
                         <button
@@ -552,9 +586,12 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
                             else rowRefs.set(index(), element);
                           }}
                           type="button"
+                          id={optionId(index())}
+                          role="option"
+                          aria-selected={activeIndex() === index()}
                           data-active={activeIndex() === index() ? "true" : undefined}
                           onMouseEnter={() => setActiveIndex(index())}
-                          onClick={() => void execute(item)}
+                          onClick={() => execute(item)}
                         >
                           {/* Cloud keeps the preview box mounted once a row declares an image, so a
                               failed load swaps in the fallback glyph instead of collapsing the row. */}
@@ -564,7 +601,7 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
                                 when={item.previewUrl?.startsWith("/") && !failedPreviews[index()]}
                                 fallback={<i class={item.icon ?? "ti ti-file"} aria-hidden="true" />}
                               >
-                                <img src={item.previewUrl} alt={item.label} onError={() => setFailedPreviews(index(), true)} />
+                                <img src={item.previewUrl} alt="" onError={() => setFailedPreviews(index(), true)} />
                               </Show>
                             </span>
                           </Show>
@@ -688,13 +725,13 @@ export const prompts = {
   prompt: promptText,
   promptNumber,
 
-  form: <T extends Record<string, FieldSchema>>(config: PromptFormOptions<T>): Promise<InferFormValues<T> | null> =>
-    dialogCore.open<InferFormValues<T> | null>((close) => <PromptFormDialog config={config} close={(value) => close(value)} />, {
+  form: async <T extends Record<string, FieldSchema>>(config: PromptFormOptions<T>): Promise<InferFormValues<T> | null> =>
+    (await dialogCore.open<InferFormValues<T> | null>((close) => <PromptFormDialog config={config} close={(value) => close(value)} />, {
       panelClassName: panelClass(config),
       contentClassName: contentClass(),
       cancelBehavior: config.cancelBehavior,
       ariaLabel: config.ariaLabel ?? config.title ?? "Form",
-    }) as Promise<InferFormValues<T> | null>,
+    })) ?? null,
 
   dialog: <T = unknown>(component: (close: (result?: T) => void) => JSX.Element, options?: DialogOptions): Promise<T | undefined> =>
     dialogCore.open<T>(
@@ -740,6 +777,4 @@ export const prompts = {
         ariaLabel: options?.ariaLabel ?? options?.title ?? "Error",
       },
     ),
-
-  getDialogElement: () => (typeof document === "undefined" ? undefined : document.querySelector<HTMLDialogElement>("dialog")),
 };

@@ -65,7 +65,7 @@ export default ssr<AuthContext>(async (c) => {
             </div>
 
             {history.items.length === 0 ? (
-              <Placeholder>No notification deliveries found.</Placeholder>
+              <Placeholder description={<>No notification deliveries found.</>} />
             ) : (
               <DataTable
                 rows={history.items}

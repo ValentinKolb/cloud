@@ -27,6 +27,9 @@ export default function PdfPreview(props: PdfPreviewProps) {
   const [loading, setLoading] = createSignal(false);
   const [opening, setOpening] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  let disposed = false;
+  let loadGeneration = 0;
+  let openGeneration = 0;
 
   const revokeCurrent = () => {
     const current = url();
@@ -34,7 +37,12 @@ export default function PdfPreview(props: PdfPreviewProps) {
     setUrl(null);
   };
 
-  onCleanup(revokeCurrent);
+  onCleanup(() => {
+    disposed = true;
+    loadGeneration += 1;
+    openGeneration += 1;
+    revokeCurrent();
+  });
 
   const readPdfBlob = async () => {
     const response = await props.request();
@@ -46,21 +54,29 @@ export default function PdfPreview(props: PdfPreviewProps) {
 
   const load = async () => {
     if (loading() || opening() || props.disabled?.()) return;
+    const generation = ++loadGeneration;
     setLoading(true);
     setError(null);
-    revokeCurrent();
     try {
       const blob = await readPdfBlob();
-      setUrl(URL.createObjectURL(blob));
+      const nextUrl = URL.createObjectURL(blob);
+      if (disposed || generation !== loadGeneration) {
+        URL.revokeObjectURL(nextUrl);
+        return;
+      }
+      const previousUrl = url();
+      setUrl(nextUrl);
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "PDF preview failed");
+      if (!disposed && generation === loadGeneration) setError(e instanceof Error ? e.message : "PDF preview failed");
     } finally {
-      setLoading(false);
+      if (!disposed && generation === loadGeneration) setLoading(false);
     }
   };
 
   const openInNewTab = async () => {
     if (loading() || opening() || props.disabled?.()) return;
+    const generation = ++openGeneration;
     const tab = window.open("", "_blank");
     if (!tab) {
       setError("Browser blocked the preview tab");
@@ -73,14 +89,18 @@ export default function PdfPreview(props: PdfPreviewProps) {
     setError(null);
     try {
       const blob = await readPdfBlob();
+      if (disposed || generation !== openGeneration) {
+        tab.close();
+        return;
+      }
       const objectUrl = URL.createObjectURL(blob);
       tab.location.href = objectUrl;
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch (e) {
       tab.close();
-      setError(e instanceof Error ? e.message : "PDF preview failed");
+      if (!disposed && generation === openGeneration) setError(e instanceof Error ? e.message : "PDF preview failed");
     } finally {
-      setOpening(false);
+      if (!disposed && generation === openGeneration) setOpening(false);
     }
   };
 

@@ -658,8 +658,8 @@ export default function ImageProcessor() {
       (close) => {
         const [fmt, setFmt] = createSignal<ExportFormat>("webp");
         const [qual, setQual] = createSignal(0.8);
-        const [mw, setMw] = createSignal<number | undefined>(undefined);
-        const [mh, setMh] = createSignal<number | undefined>(undefined);
+        const [mw, setMw] = createSignal<number | null>(null);
+        const [mh, setMh] = createSignal<number | null>(null);
         const [progress, setProgress] = createSignal<number | null>(null);
         const [exporting, setExporting] = createSignal(false);
         const [exportError, setExportError] = createSignal("");
@@ -678,7 +678,9 @@ export default function ImageProcessor() {
             for (let i = 0; i < entries.length; i++) {
               setProgress((i + 0.5) / entries.length);
               const entry = entries[i]!;
-              const blob = await buildImagePipeline(entry, mw(), mh()).then(imageTools.toBlob(fmt(), qual()));
+              const blob = await buildImagePipeline(entry, mw() ?? undefined, mh() ?? undefined).then(
+                imageTools.toBlob(fmt(), qual()),
+              );
               const name = entry.name.replace(/\.[^.]+$/, "") + `.${fmt()}`;
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
@@ -731,7 +733,7 @@ export default function ImageProcessor() {
                 label="Max width"
                 placeholder="Auto"
                 value={mw}
-                onValueChange={(value) => setMw(value ?? undefined)}
+                onValueChange={setMw}
                 min={1}
                 allowNegative={false}
                 showSteppers={false}
@@ -741,7 +743,7 @@ export default function ImageProcessor() {
                 label="Max height"
                 placeholder="Auto"
                 value={mh}
-                onValueChange={(value) => setMh(value ?? undefined)}
+                onValueChange={setMh}
                 min={1}
                 allowNegative={false}
                 showSteppers={false}

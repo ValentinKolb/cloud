@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, Combobox, type ComboboxOption, Dropdown, IconButton, Placeholder, prompts, Tooltip } from "@k2b/ui";
+import { Button, Combobox, type ComboboxOption, IconButton, Placeholder, prompts, SelectChip, Tooltip } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { CloudAvatar } from "../account/Avatar";
 import type { AccessEntry, PermissionLevel, Principal } from "../contracts/shared";
@@ -273,7 +273,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
               id,
               label: item.user.displayName,
               description: item.user.mail ?? item.user.uid,
-              icon: "ti-user",
+              icon: "ti ti-user",
             });
           } else if (item.kind === "group") {
             const id = `g:${item.group.id}`;
@@ -282,7 +282,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
               id,
               label: item.group.name,
               description: item.group.description ?? undefined,
-              icon: "ti-users-group",
+              icon: "ti ti-users-group",
             });
           } else if (item.kind === "service_account") {
             const id = `sa:${item.serviceAccount.id}`;
@@ -296,7 +296,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
                   : [item.serviceAccount.appId, item.serviceAccount.resourceType, item.serviceAccount.resourceId]
                       .filter(Boolean)
                       .join(" · "),
-              icon: "ti-key",
+              icon: "ti ti-key",
             });
           }
         }
@@ -338,9 +338,9 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           )}
         </For>
         <Show when={entries().length === 0}>
-          <Placeholder align="left" class="px-1 py-2">
+          <Placeholder align="left" class="px-1 py-2" description={<>
             No direct grants yet.
-          </Placeholder>
+          </>} />
         </Show>
       </div>
 
@@ -383,7 +383,8 @@ function AccessEntryRow(props: {
   onRevoke: () => void;
 }) {
   const display = () => resolveEntryDisplay(props.entry.permission, props.allowed);
-  const isInteractive = () => props.canEdit && !props.disabled && !props.singlePicker;
+  const isInteractive = () =>
+    props.canEdit && !props.disabled && !props.singlePicker && props.allowed.some((option) => option.level === props.entry.permission);
 
   const badgeClass =
     "flex min-h-7 items-center gap-1 rounded-full border border-transparent bg-[var(--ui-surface-muted)] px-2.5 py-1 text-xs text-secondary";
@@ -425,44 +426,22 @@ function AccessEntryRow(props: {
         </Show>
       </div>
 
-      {/* Permission badge — interactive Dropdown when editable, plain
-          span otherwise. */}
+      {/* Permission badge — interactive single-value picker when editable,
+          plain span otherwise. */}
       <Show when={isInteractive()} fallback={<span class={`${badgeClass} cursor-default`}>{badgeContent}</span>}>
-        <Dropdown
-          trigger={
-            <Button type="button" variant="ghost" size="xs" class={badgeClass}>
-              {badgeContent}
-            </Button>
-          }
-          position="bottom-left"
-          width="10rem"
-          // Custom `element` items let us prefix icons correctly with
-          // the `ti ` base class and mark the current level without
-          // assigning decorative colors to permission semantics.
-          elements={props.allowed.map((option) => ({
-            element: (close) => {
-              const isCurrent = () => option.level === props.entry.permission;
-              return (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    if (!isCurrent()) props.onUpdatePermission(option.level);
-                    close();
-                  }}
-                  class="menu-item text-sm"
-                  classList={{ "bg-[var(--ui-selected)]": isCurrent() }}
-                >
-                  <i class={`ti ${option.icon} text-dimmed`} />
-                  <span class="flex-1 text-left">{option.label}</span>
-                  <Show when={isCurrent()}>
-                    <i class="ti ti-check text-primary" />
-                  </Show>
-                </Button>
-              );
-            },
+        <SelectChip
+          aria-label={`Permission for ${getEntryDisplayName(props.entry)}`}
+          value={() => props.entry.permission as GrantableLevel}
+          options={props.allowed.map((option) => ({
+            value: option.level,
+            label: option.label,
+            icon: `ti ${option.icon}`,
           }))}
+          icon={`ti ${display().icon}`}
+          position="bottom-left"
+          onValueChange={(permission) => {
+            if (permission !== props.entry.permission) props.onUpdatePermission(permission);
+          }}
         />
       </Show>
 

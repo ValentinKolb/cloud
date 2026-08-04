@@ -7,7 +7,13 @@ import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
 export type SelectOption = ChoiceOption<string>;
 export type SelectSourceOption =
   | string
-  | { id: string; label?: string; description?: string; icon?: string; color?: string }
+  | {
+      id: string;
+      label?: string;
+      description?: string;
+      icon?: string;
+      color?: string;
+    }
   | SelectOption;
 
 export type SelectProps = ValueFieldProps<string | null> & {
@@ -64,7 +70,10 @@ export function Select(props: SelectProps): JSX.Element {
     return (
       sourceOptions().find((option) => option.value === current) ??
       cache()[current] ??
-      props.selectedOption ?? { value: current, label: props.selectedLabel?.() ?? current }
+      (props.selectedOption?.value === current ? props.selectedOption : undefined) ?? {
+        value: current,
+        label: props.selectedLabel?.() ?? current,
+      }
     );
   });
   const accessibleLabel = () =>
@@ -86,16 +95,19 @@ export function Select(props: SelectProps): JSX.Element {
     if (isSearchable()) queueMicrotask(() => searchRef?.focus());
   };
   const close = (restoreFocus = false) => {
+    // Hide the top-layer surface before any reactive cleanup or consumer
+    // callback can rerender its contents. Selection must feel atomic: the old
+    // listbox must never remain visible with the next value.
+    popover.hide(restoreFocus);
     loader.cancel();
     setQuery("");
     setFocusedIndex(-1);
-    popover.hide(restoreFocus);
   };
   const select = (option: NormalizedOption) => {
     if (option.disabled) return;
+    close(true);
     setCache({ ...cache(), [option.value]: option });
     commitFieldValue(props, option.value);
-    close(true);
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -142,7 +154,11 @@ export function Select(props: SelectProps): JSX.Element {
           aria-expanded={popover.open()}
           aria-controls={listboxId}
           aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
-          {...fieldControlAria(meta, { ...props, "aria-label": accessibleLabel() })}
+          data-clearable={props.clearable && selected() && !props.disabled ? "true" : undefined}
+          {...fieldControlAria(meta, {
+            ...props,
+            "aria-label": accessibleLabel(),
+          })}
           disabled={props.disabled}
           onClick={() => (popover.open() ? close() : open())}
           onKeyDown={onKeyDown}
@@ -223,6 +239,7 @@ export function Select(props: SelectProps): JSX.Element {
                   id={`${listboxId}-${index()}`}
                   class="k2b-choice-option"
                   role="option"
+                  aria-label={option.label}
                   aria-selected={option.value === value()}
                   data-focused={index() === focusedIndex() ? "true" : undefined}
                   disabled={option.disabled}

@@ -1,4 +1,5 @@
-import { createContext, For, type JSX, Show, useContext } from "solid-js";
+import { createContext, type JSX, Show, useContext } from "solid-js";
+import { Tabs } from "../actions/Tabs";
 import type { OpenDialogOptions } from "../feedback/dialog-core";
 import { prompts } from "../feedback/prompts";
 
@@ -163,31 +164,14 @@ const PanelDialogSection = (props: PanelDialogSectionProps): JSX.Element => (
 );
 
 const PanelDialogTabs = <T extends string>(props: PanelDialogTabsProps<T>): JSX.Element => {
-  const value = () => (typeof props.value === "function" ? props.value() : props.value);
-  const change = (next: T) => props.onValueChange(next);
-
   return (
-    <div
+    <Tabs
       class="k2b-panel-dialog__tabs"
-      data-surface={usePanelDialogSurface()}
-      role="group"
-      aria-label={props.ariaLabel ?? props.label ?? "Dialog tabs"}
-    >
-      <For each={props.options}>
-        {(option) => (
-          <button
-            type="button"
-            aria-pressed={value() === option.value}
-            data-active={value() === option.value ? "true" : undefined}
-            disabled={option.disabled}
-            onClick={() => change(option.value)}
-          >
-            <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-            {option.label}
-          </button>
-        )}
-      </For>
-    </div>
+      value={props.value}
+      onValueChange={props.onValueChange}
+      ariaLabel={props.ariaLabel ?? props.label ?? "Dialog tabs"}
+      options={props.options}
+    />
   );
 };
 

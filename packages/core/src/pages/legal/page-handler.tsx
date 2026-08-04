@@ -49,13 +49,13 @@ export const makeLegalPage = (kind: LegalKind) =>
           {html ? (
             <MarkdownView html={html} />
           ) : (
-            <Placeholder surface="paper">
+            <Placeholder surface="paper" description={<>
               {title} not configured. An administrator can set this in{" "}
               <a href="/admin/settings?tab=legal" class="underline">
                 /admin/settings
               </a>
               .
-            </Placeholder>
+            </>} />
           )}
         </div>
       </Layout>

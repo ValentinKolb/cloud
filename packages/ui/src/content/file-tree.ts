@@ -59,6 +59,14 @@ export const buildTree = (entries: FileTreeEntry[], previous: TreeNode[] = []): 
   const byPath = new Map<string, FileTreeEntry>();
   const previousByPath = nodesByPath(previous);
   const folders = new Set<string>();
+  const files = new Set(entries.filter((entry) => entry.kind !== "folder").map((entry) => entry.path));
+  for (const entry of entries) {
+    for (let dir = parentOf(entry.path); dir !== "/"; dir = parentOf(dir)) {
+      if (files.has(dir)) {
+        throw new Error(`FileTree entry conflict: "${dir}" is a file and cannot contain "${entry.path}".`);
+      }
+    }
+  }
   for (const entry of entries) {
     byPath.set(entry.path, entry);
     if (entry.kind === "folder") folders.add(entry.path);

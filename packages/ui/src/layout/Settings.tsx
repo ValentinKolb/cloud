@@ -1,5 +1,5 @@
 import { createUniqueId, type JSX, Show } from "solid-js";
-import { Button, type ButtonVariant } from "../actions";
+import { Button, type ButtonVariant } from "../actions/Button";
 import type { MaybeAccessor } from "../inputs/field-contract";
 
 const read = <T,>(value: MaybeAccessor<T>): T => (typeof value === "function" ? (value as () => T)() : value);

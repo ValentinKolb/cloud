@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatCommand } from "./ChatComposer";
 import {
   filterChatCommands,
+  executeChatAction,
   isChatNearBottom,
   nextChatCommandIndex,
   reportChatFailure,
@@ -40,6 +41,20 @@ const submission = (draft: Draft, perform: () => boolean | void | Promise<boolea
 };
 
 describe("@k2b/ui chat behavior", () => {
+  test("executes the one behavior declared by a chat action", async () => {
+    const selected: string[] = [];
+
+    await executeChatAction({
+      id: "retry",
+      label: "Retry",
+      onSelect: () => {
+        selected.push("retry");
+      },
+    });
+
+    expect(selected).toEqual(["retry"]);
+  });
+
   test("matches only a single slash command token", () => {
     expect(filterChatCommands("/", commands)).toHaveLength(3);
     expect(filterChatCommands("/co", commands).map((command) => command.name)).toEqual(["compact"]);

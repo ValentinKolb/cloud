@@ -107,6 +107,50 @@ describe("completion editor runtime behavior", () => {
     const dom = createDomTestHarness();
     installEditorDomSupport(dom);
 
+    const { AutocompleteEditor } = await import("../src/inputs/AutocompleteEditor");
+    const [overlayValue, setOverlayValue] = createSignal("");
+    const [overlayEnabled, setOverlayEnabled] = createSignal(true);
+    const overlayChanges: string[] = [];
+    let highlights = 0;
+    const disposeOverlay = render(
+      () =>
+        createComponent(AutocompleteEditor, {
+          label: "Query",
+          value: overlayValue,
+          get highlight() {
+            return overlayEnabled()
+              ? (text: string) => {
+                  highlights += 1;
+                  return text;
+                }
+              : undefined;
+          },
+          onValueChange: (next) => {
+            overlayChanges.push(next);
+            setOverlayValue(next);
+          },
+        }),
+      dom.root,
+    );
+    await Promise.resolve();
+    highlights = 0;
+    const overlayTextarea = dom.root.querySelector<HTMLTextAreaElement>("textarea")!;
+    for (const next of ["a", "ab"]) {
+      overlayTextarea.value = next;
+      const input = new Event("input", { bubbles: true });
+      Object.defineProperty(input, "inputType", { value: "insertText" });
+      overlayTextarea.dispatchEvent(input);
+    }
+    expect(overlayChanges).toEqual(["a", "ab"]);
+    expect(highlights).toBe(0);
+    setOverlayEnabled(false);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(highlights).toBe(0);
+    setOverlayEnabled(true);
+    await Promise.resolve();
+    expect(highlights).toBe(1);
+    disposeOverlay();
+
     for (const kind of ["autocomplete", "markdown"] as const) {
       await activateCompletion(dom, kind, "assistive-click");
       await activateCompletion(dom, kind, "pointer-click");

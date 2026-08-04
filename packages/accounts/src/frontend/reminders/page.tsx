@@ -92,7 +92,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {remindersPage.items.length === 0 ? (
-            <Placeholder surface="paper">No reminder history entries found.</Placeholder>
+            <Placeholder surface="paper" description={<>No reminder history entries found.</>} />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-reminders-table">
               <DataTable

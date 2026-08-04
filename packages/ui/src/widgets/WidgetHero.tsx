@@ -1,6 +1,7 @@
 import { type JSX, Show } from "solid-js";
+import type { AccentColor } from "../semantics";
 
-export type WidgetTone = "emerald" | "amber" | "red" | "blue" | "zinc";
+export type WidgetTone = AccentColor;
 
 export type WidgetHeroProps = {
   title: string;

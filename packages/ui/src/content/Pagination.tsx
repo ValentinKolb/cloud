@@ -36,70 +36,76 @@ const PaginationLink = (props: PaginationLinkProps) =>
   );
 
 /** Link-based pagination with directional navigation and compact mobile disclosure. */
-export const Pagination = (props: PaginationProps): null | JSX.Element => {
-  if (props.totalPages <= 1) return null;
-
+export const Pagination = (props: PaginationProps): JSX.Element => {
+  const totalPages = createMemo(() =>
+    Math.max(1, Math.floor(Number.isFinite(props.totalPages) ? props.totalPages : 1)),
+  );
+  const currentPage = createMemo(() =>
+    Math.min(totalPages(), Math.max(1, Math.floor(Number.isFinite(props.currentPage) ? props.currentPage : 1))),
+  );
   const href = (page: number) => `${props.baseUrl}${page}`;
   const visiblePages = createMemo(() =>
-    [...new Set([1, props.currentPage - 1, props.currentPage, props.currentPage + 1, props.totalPages])]
-      .filter((page) => page >= 1 && page <= props.totalPages)
+    [...new Set([1, currentPage() - 1, currentPage(), currentPage() + 1, totalPages()])]
+      .filter((page) => page >= 1 && page <= totalPages())
       .sort((left, right) => left - right),
   );
 
   return (
-    <nav class="k2b-pagination" aria-label="Pagination">
-      <span class="k2b-sr-only">
-        Page {props.currentPage} of {props.totalPages}
-      </span>
-      <div class="k2b-pagination__pages">
-        <Show when={props.currentPage > 1}>
-          <PaginationLink href={href(props.currentPage - 1)} rel="prev" label="Previous page" onNavigate={props.onNavigate}>
-            <i class="ti ti-chevron-left" aria-hidden="true" />
-          </PaginationLink>
-        </Show>
+    <Show when={totalPages() > 1}>
+      <nav class="k2b-pagination" aria-label="Pagination">
+        <span class="k2b-sr-only">
+          Page {currentPage()} of {totalPages()}
+        </span>
+        <div class="k2b-pagination__pages">
+          <Show when={currentPage() > 1}>
+            <PaginationLink href={href(currentPage() - 1)} rel="prev" label="Previous page" onNavigate={props.onNavigate}>
+              <i class="ti ti-chevron-left" aria-hidden="true" />
+            </PaginationLink>
+          </Show>
 
-        <For each={visiblePages()}>
-          {(page, index) => {
-            const previousPage = () => visiblePages()[index() - 1];
-            const hasGap = () => previousPage() !== undefined && page - previousPage()! > 1;
-            const isCurrent = () => page === props.currentPage;
-            const mobileVisible = () => page === 1 || page === props.totalPages || isCurrent();
+          <For each={visiblePages()}>
+            {(page, index) => {
+              const previousPage = () => visiblePages()[index() - 1];
+              const hasGap = () => previousPage() !== undefined && page - previousPage()! > 1;
+              const isCurrent = () => page === currentPage();
+              const mobileVisible = () => page === 1 || page === totalPages() || isCurrent();
 
-            return (
-              <>
-                <Show when={hasGap()}>
-                  <span class="k2b-pagination__ellipsis" aria-hidden="true">
-                    …
-                  </span>
-                </Show>
-                <Show
-                  when={isCurrent()}
-                  fallback={
-                    <PaginationLink
-                      href={href(page)}
-                      label={`Page ${page}`}
-                      class={mobileVisible() ? "" : "k2b-pagination__page--wide-only"}
-                      onNavigate={props.onNavigate}
-                    >
+              return (
+                <>
+                  <Show when={hasGap()}>
+                    <span class="k2b-pagination__ellipsis" aria-hidden="true">
+                      …
+                    </span>
+                  </Show>
+                  <Show
+                    when={isCurrent()}
+                    fallback={
+                      <PaginationLink
+                        href={href(page)}
+                        label={`Page ${page}`}
+                        class={mobileVisible() ? "" : "k2b-pagination__page--wide-only"}
+                        onNavigate={props.onNavigate}
+                      >
+                        {page}
+                      </PaginationLink>
+                    }
+                  >
+                    <span class="k2b-pagination__page is-current" aria-current="page">
                       {page}
-                    </PaginationLink>
-                  }
-                >
-                  <span class="k2b-pagination__page is-current" aria-current="page">
-                    {page}
-                  </span>
-                </Show>
-              </>
-            );
-          }}
-        </For>
+                    </span>
+                  </Show>
+                </>
+              );
+            }}
+          </For>
 
-        <Show when={props.currentPage < props.totalPages}>
-          <PaginationLink href={href(props.currentPage + 1)} rel="next" label="Next page" onNavigate={props.onNavigate}>
-            <i class="ti ti-chevron-right" aria-hidden="true" />
-          </PaginationLink>
-        </Show>
-      </div>
-    </nav>
+          <Show when={currentPage() < totalPages()}>
+            <PaginationLink href={href(currentPage() + 1)} rel="next" label="Next page" onNavigate={props.onNavigate}>
+              <i class="ti ti-chevron-right" aria-hidden="true" />
+            </PaginationLink>
+          </Show>
+        </div>
+      </nav>
+    </Show>
   );
 };

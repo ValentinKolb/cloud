@@ -171,6 +171,14 @@ export function createChoicePopover(disabled: () => boolean): {
   };
 
   createEffect(() => {
+    const popoverElement = popover();
+    if (!popoverElement) return;
+    const syncOpenState = () => setOpen(popoverIsOpen(popoverElement));
+    popoverElement.addEventListener("toggle", syncOpenState);
+    onCleanup(() => popoverElement.removeEventListener("toggle", syncOpenState));
+  });
+
+  createEffect(() => {
     if (!open()) return;
 
     const dismiss = (event: PointerEvent) => {

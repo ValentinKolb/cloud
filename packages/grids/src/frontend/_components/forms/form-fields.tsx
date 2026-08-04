@@ -95,7 +95,7 @@ export function FieldInput(props: {
   // type. Each input is forgiving — a wrong-typed stored value falls
   // back to empty, never throws.
   const stringValue = () => (typeof props.value === "string" ? props.value : typeof props.value === "number" ? String(props.value) : "");
-  const numberValue = () => (typeof props.value === "number" ? props.value : undefined);
+  const numberValue = () => (typeof props.value === "number" ? props.value : null);
   const boolValue = () => props.value === true;
   const arrayValue = (): string[] => (Array.isArray(props.value) ? (props.value as string[]) : []);
 

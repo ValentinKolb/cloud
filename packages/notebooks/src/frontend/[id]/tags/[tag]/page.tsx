@@ -164,7 +164,7 @@ export default ssr<AuthContext>(async (c) => {
                   ))}
                 </ul>
               ) : (
-                <Placeholder surface="paper" icon="ti ti-search-off">
+                <Placeholder surface="paper" icon="ti ti-search-off" description={<>
                   {search ? (
                     <p>
                       No notes tagged #{tagParam} match "{search}".
@@ -177,7 +177,7 @@ export default ssr<AuthContext>(async (c) => {
                   ) : (
                     <p>No results.</p>
                   )}
-                </Placeholder>
+                </>} />
               )}
 
               <Pagination currentPage={page} totalPages={totalPages} baseUrl={paginationBaseUrl} />

@@ -22,6 +22,7 @@ export type { StatCellAccent, StatCellProps, StatCellTone } from "./StatCell";
 export { StatCell } from "./StatCell";
 export type {
   StatGridAction,
+  StatGridColumns,
   StatGridProps,
   StatGridSize,
   StatGridSurface,

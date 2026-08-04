@@ -354,7 +354,7 @@ function TableSettingsBody(props: {
           <TextInput label="Name" value={name} onValueChange={(v) => patch({ name: v })} icon="ti ti-typography" required />
           <IconInput
             label="Icon"
-            value={() => icon() ?? undefined}
+            value={() => icon() ?? null}
             onValueChange={(v) => patch({ icon: v ?? undefined })}
             placeholder="Search icons..."
           />

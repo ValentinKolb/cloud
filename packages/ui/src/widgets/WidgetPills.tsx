@@ -9,7 +9,7 @@ export type WidgetPill = {
 };
 
 export type WidgetPillsProps = {
-  pills: WidgetPill[];
+  pills: readonly WidgetPill[];
   grow?: boolean;
 };
 

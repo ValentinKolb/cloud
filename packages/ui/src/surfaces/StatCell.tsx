@@ -9,7 +9,6 @@ export type StatCellAccent = {
   tone: StatCellTone;
   icon: string;
   text?: string;
-  href?: string;
 };
 
 export type StatCellProps = {
@@ -20,11 +19,11 @@ export type StatCellProps = {
   accent?: StatCellAccent;
   href?: string;
   title?: string;
-  trend?: number[];
+  trend?: readonly number[];
   size?: StatGridSize;
 };
 
-function Body(props: StatCellProps & { cellIsLink: boolean }): JSX.Element {
+function Body(props: StatCellProps): JSX.Element {
   const gridSize = useStatGridSize();
   const size = () => props.size ?? gridSize;
   const accent = () => props.accent;
@@ -33,7 +32,7 @@ function Body(props: StatCellProps & { cellIsLink: boolean }): JSX.Element {
       <span class="k2b-stat-cell__label" data-size={size()}>{props.label}</span>
       <span class={`k2b-stat-cell__value ${props.valueClass ?? ""}`} data-size={size()} title={props.title}>{props.value}</span>
       <Show when={props.trend && props.trend.length > 1}>
-        <Chart kind="sparkline" class="k2b-stat-cell__trend" style={{ height: "32px" }} data={props.trend ?? []} showLast showMinMax />
+        <Chart kind="sparkline" class="k2b-stat-cell__trend" style={{ height: "32px" }} data={Array.from(props.trend ?? [])} showLast showMinMax />
       </Show>
       <Show when={props.sub || accent()}>
         <div class="k2b-stat-cell__support">
@@ -45,20 +44,9 @@ function Body(props: StatCellProps & { cellIsLink: boolean }): JSX.Element {
                 fallback={<i class={`${value().icon} k2b-stat-cell__accent-icon`} data-tone={value().tone} aria-hidden="true" />}
               >
                 {(text) => (
-                  <Show
-                    when={value().href && !props.cellIsLink ? value().href : undefined}
-                    fallback={
-                      <span class="k2b-stat-cell__accent" data-tone={value().tone}>
-                        <i class={value().icon} aria-hidden="true" />{text()}
-                      </span>
-                    }
-                  >
-                    {(href) => (
-                      <a href={href()} class="k2b-stat-cell__accent" data-tone={value().tone}>
-                        <i class={value().icon} aria-hidden="true" />{text()}
-                      </a>
-                    )}
-                  </Show>
+                  <span class="k2b-stat-cell__accent" data-tone={value().tone}>
+                    <i class={value().icon} aria-hidden="true" />{text()}
+                  </span>
                 )}
               </Show>
             )}
@@ -76,12 +64,12 @@ export function StatCell(props: StatCellProps): JSX.Element {
   return (
     <Show
       when={props.href}
-      fallback={<div class="k2b-stat-cell" data-size={size()} data-surface={surface}><Body {...props} cellIsLink={false} /></div>}
+      fallback={<div class="k2b-stat-cell" data-size={size()} data-surface={surface}><Body {...props} /></div>}
     >
       {(href) => (
         <a href={href()} class="k2b-stat-cell k2b-stat-cell--link" data-size={size()} data-surface={surface}>
           <i class="ti ti-external-link k2b-stat-cell__link-icon" aria-hidden="true" />
-          <Body {...props} cellIsLink />
+          <Body {...props} />
         </a>
       )}
     </Show>

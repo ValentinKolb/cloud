@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, onMount, Show } from "solid-js";
-import { Dropdown, DropdownItem, type DropdownItem as DropdownItemData } from "../actions/Dropdown";
+import { Dropdown, type DropdownItem as DropdownItemData } from "../actions/Dropdown";
+import { SelectChip } from "../inputs/SelectChip";
 import { ChatContextUsage as ContextUsage } from "./ChatPrimitives";
-import { filterChatCommands, nextChatCommandIndex, reportChatFailure, runChatSubmission } from "./chat-behavior";
+import { executeChatAction, filterChatCommands, nextChatCommandIndex, reportChatFailure, runChatSubmission } from "./chat-behavior";
 import type { ChatAction, ChatAttachment, ChatComposerState, ChatContextUsageData, ChatModelOption, ChatSubmitInput } from "./types";
 
 export type ChatCommandContext = {
@@ -85,7 +86,6 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const hasDraft = () => Boolean(props.value.trim() || (!running() && attachments().length > 0));
   const canSubmit = () => !blocked() && hasDraft();
   const canSelectFiles = () => Boolean(props.fileSelection && !props.fileSelection.disabled && !running() && !blocked());
-  const selectedModel = () => (props.models ?? []).find((model) => model.id === props.selectedModelId) ?? null;
   const hasAddMenu = () => Boolean(props.fileSelection || props.menuActions?.length);
 
   const menuItems = (): readonly DropdownItemData[] => {
@@ -104,7 +104,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         label: action.label,
         variant: action.variant,
         disabled: action.disabled,
-        action: () => reportChatFailure(() => action.onSelect?.(), props.onError),
+        action: () => reportChatFailure(() => executeChatAction(action), props.onError),
       });
     }
     return items;
@@ -397,44 +397,26 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
             />
           </Show>
           <Show when={(props.models?.length ?? 0) > 0}>
-            <Dropdown
+            <SelectChip
+              aria-label="Choose model"
               position="top-right"
               class="k2b-chat-composer__model"
-              width="15rem"
-              label="Choose model"
+              menuWidth="15rem"
+              placeholder="Model"
+              value={() => props.selectedModelId ?? ""}
+              options={(props.models ?? []).map((model) => ({
+                value: model.id,
+                label: model.label,
+                description: model.description,
+                icon: model.icon,
+                image: model.image,
+              }))}
               disabled={blocked() || running() || !props.onModelChange}
-              trigger={
-                <button type="button" class="k2b-chat-composer__model-trigger">
-                  <Show when={selectedModel()?.image} fallback={<i class={selectedModel()?.icon ?? "ti ti-sparkles"} aria-hidden="true" />}>
-                    {(image) => <img src={image()} alt="" />}
-                  </Show>
-                  <span>{selectedModel()?.label ?? "Model"}</span>
-                </button>
-              }
-            >
-              <For each={props.models}>
-                {(model) => (
-                  <DropdownItem
-                    class="k2b-chat-composer__model-item"
-                    onSelect={() => {
-                      props.onModelChange?.(model.id);
-                      queueMicrotask(focus);
-                    }}
-                  >
-                    <Show when={model.image} fallback={<i class={model.icon ?? "ti ti-sparkles"} aria-hidden="true" />}>
-                      {(image) => <img src={image()} alt="" />}
-                    </Show>
-                    <span>
-                      <strong>{model.label}</strong>
-                      <Show when={model.description}>{(description) => <small>{description()}</small>}</Show>
-                    </span>
-                    <Show when={model.id === props.selectedModelId}>
-                      <i class="ti ti-check" aria-hidden="true" />
-                    </Show>
-                  </DropdownItem>
-                )}
-              </For>
-            </Dropdown>
+              onValueChange={(modelId) => {
+                props.onModelChange?.(modelId);
+                queueMicrotask(focus);
+              }}
+            />
           </Show>
         </div>
 
@@ -448,7 +430,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 disabled={action.disabled}
                 aria-label={action.label}
                 title={action.label}
-                onClick={() => reportChatFailure(() => action.onSelect?.(), props.onError)}
+                onClick={() => reportChatFailure(() => executeChatAction(action), props.onError)}
               >
                 <i class={action.icon ?? "ti ti-dots"} aria-hidden="true" />
               </button>
@@ -478,7 +460,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               title={stopping() ? "Stopping" : "Stop response"}
               onClick={() => reportChatFailure(() => props.onStop?.(), props.onError)}
             >
-              <i class={stopping() ? "ti ti-loader-2 k2b-spin" : "ti ti-player-stop-filled"} aria-hidden="true" />
+              <i class={stopping() ? "ti ti-loader-2 k2b-spin" : "ti ti-player-stop"} aria-hidden="true" />
             </button>
           </Show>
         </div>

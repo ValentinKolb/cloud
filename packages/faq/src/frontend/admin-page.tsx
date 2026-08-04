@@ -63,7 +63,7 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           </section>
         ) : (
-          <Placeholder surface="paper">No FAQ entries yet. Use New Entry to create the first one.</Placeholder>
+          <Placeholder surface="paper" description={<>No FAQ entries yet. Use New Entry to create the first one.</>} />
         )}
       </div>
     </AdminLayout>

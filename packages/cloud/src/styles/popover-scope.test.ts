@@ -7,6 +7,11 @@ describe("Cloud popover reset", () => {
 
     expect(css).toContain(":where([popover]:not(.paper)");
     expect(css).not.toMatch(/^\[popover\]:not\(.paper\)/m);
+    const baseRule = css.match(/^\[popover\]\s*\{([^}]*)\}/m)?.[1] ?? "";
+    expect(baseRule).not.toContain("transition");
+    expect(css).not.toMatch(/^\[popover\]:popover-open\s*\{/m);
+    expect(css).toContain(".tooltip-surface[popover] {");
+    expect(css).toContain("display 0.12s allow-discrete");
   });
 
   test("places the portable UI scope on the shared HTML shell", async () => {

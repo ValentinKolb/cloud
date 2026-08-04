@@ -2,13 +2,14 @@ import { createContext, type JSX, Show, useContext } from "solid-js";
 
 export type StatGridSize = "md" | "sm";
 export type StatGridSurface = "white" | "muted";
+export type StatGridColumns = 1 | 2 | 3 | 4 | 5 | 6;
 export type StatGridAction = { label: string; href: string };
 
 export type StatGridProps = {
   children: JSX.Element;
   title?: string;
   action?: StatGridAction;
-  columns?: number;
+  columns?: StatGridColumns;
   size?: StatGridSize;
   surface?: StatGridSurface;
   class?: string;
@@ -20,7 +21,7 @@ const StatGridSurfaceContext = createContext<StatGridSurface>("white");
 export const useStatGridSize = (): StatGridSize => useContext(StatGridSizeContext);
 export const useStatGridSurface = (): StatGridSurface => useContext(StatGridSurfaceContext);
 
-const columnValue = (columns?: number): number => {
+const columnValue = (columns?: StatGridColumns): StatGridColumns => {
   if (columns && Number.isInteger(columns) && columns >= 1 && columns <= 6) return columns;
   return 6;
 };

@@ -244,9 +244,9 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
             </div>
           </Show>
           <Show when={!searchMutation.loading() && directories().length === 0}>
-            <Placeholder align="left" icon="ti ti-folder-off" class="px-4">
+            <Placeholder align="left" icon="ti ti-folder-off" class="px-4" description={<>
               No folders found
-            </Placeholder>
+            </>} />
           </Show>
           <Show when={!searchMutation.loading() && directories().length > 0}>
             <div class="flex flex-col gap-0.5 p-1">

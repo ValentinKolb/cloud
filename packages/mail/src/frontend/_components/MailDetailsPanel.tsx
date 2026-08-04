@@ -538,7 +538,7 @@ export default function MailDetailsPanel(props: {
           <div class="flex flex-col gap-2">
             <Select
               label="Assignee"
-              value={() => state().assignee?.id}
+              value={() => state().assignee?.id ?? null}
               selectedLabel={() => state().assignee?.displayName}
               onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
               options={props.assignableUsers.map((user) => ({

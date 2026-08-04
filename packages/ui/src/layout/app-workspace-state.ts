@@ -106,22 +106,21 @@ export const resolveAppWorkspaceSidebarWidth = (
 const finiteSize = (value: unknown, min: number, max: number) =>
   typeof value === "number" && Number.isFinite(value) ? Math.round(Math.min(max, Math.max(min, value))) : undefined;
 
-export const safeAppWorkspacePanelId = (panelId: string): string => panelId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+export const safeAppWorkspacePanelId = (panelId: string): string => (isStableUiId(panelId) ? panelId : "");
 
 const normalizeSizes = (value: unknown, min: number, max: number) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const entries = Object.entries(value)
     .slice(0, 16)
     .flatMap(([key, size]) => {
-      const safe = safeAppWorkspacePanelId(key);
       const normalized = finiteSize(size, min, max);
-      return safe && normalized !== undefined ? [[safe, normalized] as const] : [];
+      return isStableUiId(key) && normalized !== undefined ? [[key, normalized] as const] : [];
     });
   return entries.length ? Object.fromEntries(entries) : undefined;
 };
 
 export const appWorkspacePanelVariable = (kind: "pane" | "detail" | "drawer", panelId: string): string =>
-  `--k2b-workspace-${kind}-${safeAppWorkspacePanelId(panelId)}-${kind === "drawer" ? "height" : "width"}`;
+  `--k2b-workspace-${kind}-${assertStableUiId(panelId, "AppWorkspace panel id")}-${kind === "drawer" ? "height" : "width"}`;
 
 export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLayoutState | null => {
   if (!value || typeof value !== "object") return null;
@@ -171,3 +170,4 @@ export const appWorkspaceLayoutStyle = (state: AppWorkspaceLayoutState | null | 
   ].filter(Boolean);
   return declarations.length ? declarations.join(";") : undefined;
 };
+import { assertStableUiId, isStableUiId } from "./stable-id";

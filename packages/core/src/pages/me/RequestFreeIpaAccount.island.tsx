@@ -144,10 +144,6 @@ export default function RequestFreeIpaAccount(props: RequestFreeIpaAccountProps)
     });
 
     if (!result) return;
-    if (!result.acceptedAgb) {
-      prompts.error("You must accept the Terms of Service to continue.");
-      return;
-    }
 
     await mutation.mutate({
       firstName: result.firstName,

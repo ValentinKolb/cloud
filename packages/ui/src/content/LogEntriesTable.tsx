@@ -13,7 +13,7 @@ export type LogTableEntry = {
 };
 
 type Props = {
-  entries: LogTableEntry[];
+  entries: readonly LogTableEntry[];
   emptyMessage?: string;
 };
 
@@ -41,7 +41,7 @@ export default function LogEntriesTable(props: Props) {
   return (
     <Show
       when={props.entries.length > 0}
-      fallback={<Placeholder surface="paper">{props.emptyMessage ?? "No log entries found."}</Placeholder>}
+      fallback={<Placeholder surface="paper" description={<>{props.emptyMessage ?? "No log entries found."}</>} />}
     >
       <DataTable
         rows={props.entries}
@@ -51,10 +51,10 @@ export default function LogEntriesTable(props: Props) {
         class="k2b-log-table"
         renderCell={({ row, col }) => {
           if (col.id === "level") {
-            const level = levelIcon[row.level] ?? levelIcon.debug!;
+            const level = levelIcon[row.level] ?? { icon: "ti ti-circle", level: "neutral", label: row.level || "unknown" };
             return (
               <span class="k2b-log-level" data-level={level.level}>
-                <i class={`k2b-log-level__icon ${level.icon}`} />
+                <i class={`k2b-log-level__icon ${level.icon}`} aria-hidden="true" />
                 <span>{level.label}</span>
               </span>
             );

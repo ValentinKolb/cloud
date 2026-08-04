@@ -1,4 +1,5 @@
 import { insertLink, toggleBold, toggleBulletList, toggleCode, toggleHeading, toggleItalic, toggleNumberedList } from "./actions";
+import { replaceTextareaRange } from "../editor-dom";
 
 const isMac = (): boolean => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 
@@ -36,12 +37,6 @@ export const handleShortcut = (event: KeyboardEvent, textarea: HTMLTextAreaEleme
 
 const LIST_RE = /^(\s*)([-*+]|\d+\.)(\s+)(.*)$/;
 
-const insertViaExecCommand = (textarea: HTMLTextAreaElement, start: number, end: number, replacement: string): void => {
-  textarea.focus();
-  textarea.setSelectionRange(start, end);
-  document.execCommand("insertText", false, replacement);
-};
-
 export const handleListContinuation = (textarea: HTMLTextAreaElement): boolean => {
   const { value, selectionStart, selectionEnd } = textarea;
   if (selectionStart !== selectionEnd) return false;
@@ -55,14 +50,12 @@ export const handleListContinuation = (textarea: HTMLTextAreaElement): boolean =
   const markerEnd = lineStart + indent.length + marker.length + spaces.length;
   if (selectionStart < markerEnd) return false;
   if (content.trim() === "") {
-    insertViaExecCommand(textarea, lineStart, lineEnd, "");
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    replaceTextareaRange(textarea, lineStart, lineEnd, "");
     return true;
   }
   const numbered = /^(\d+)\.$/.exec(marker);
   const nextMarker = numbered ? `${Number.parseInt(numbered[1]!, 10) + 1}.` : marker;
-  insertViaExecCommand(textarea, selectionStart, selectionStart, `\n${indent}${nextMarker}${spaces}`);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  replaceTextareaRange(textarea, selectionStart, selectionStart, `\n${indent}${nextMarker}${spaces}`);
   return true;
 };
 

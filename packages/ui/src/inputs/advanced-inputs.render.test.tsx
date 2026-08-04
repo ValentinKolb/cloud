@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import { abbreviations, applySuggestion, collectKnownLabels, detectQuery, displayLabel, renderWithOverlay } from "./completion";
+import { abbreviations, collectKnownLabels, createCompletionBehaviorState, detectQuery, displayLabel, renderWithOverlay } from "./completion";
 import { clampImageCropRect, getInitialImageCropRect, imageCropRectToPixels, normalizeImageCropRotation } from "./image-crop";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-advanced-inputs-"));
@@ -26,9 +26,11 @@ const {
   TemplateSampleData,
   TextInput,
 } = await import("../index");
+const editorCss = await Bun.file(resolve(import.meta.dir, "../styles/editors-parity.css")).text();
 
 describe("@k2b/ui complete advanced input migrations", () => {
   test("detects, labels, renders and applies generic completions", () => {
+    const behavior = createCompletionBehaviorState();
     const completion = {
       trigger: "@",
       dropdown: true,
@@ -38,6 +40,7 @@ describe("@k2b/ui complete advanced input migrations", () => {
       value: "Hi @al",
       selectionStart: 6,
       selectionEnd: 6,
+      focus() {},
       setSelectionRange(start: number, end: number) {
         this.selectionStart = start;
         this.selectionEnd = end;
@@ -57,13 +60,29 @@ describe("@k2b/ui complete advanced input migrations", () => {
           return true;
         },
       } as Document;
-      expect(applySuggestion(textarea, context!, { text: "@alice" })).toBe(true);
+      expect(behavior.applySuggestion(textarea, context!, { text: "@alice" })).toBe(true);
       expect(textarea.value).toBe("Hi @alice ");
     } finally {
       globalThis.document = originalDocument;
     }
     expect(renderWithOverlay("hello", (value) => value, { ghost: { at: 5, text: " world" } })).toContain("data-completion-anchor");
     expect(collectKnownLabels([abbreviations({ brb: "be right back" })])).toEqual(new Set(["brb"]));
+  });
+
+  test("collects completion metadata without executing providers", () => {
+    let calls = 0;
+    const labels = collectKnownLabels([
+      {
+        knownLabels: ["alice", "bob"],
+        suggest: () => {
+          calls += 1;
+          return [];
+        },
+      },
+    ]);
+
+    expect(labels).toEqual(new Set(["alice", "bob"]));
+    expect(calls).toBe(0);
   });
 
   test("renders completion and markdown editor accessibility contracts", () => {
@@ -237,6 +256,8 @@ describe("@k2b/ui complete advanced input migrations", () => {
     expect(fillMarkdown).toContain('class="k2b-field " data-fill="true"');
     expect(fillMarkdown).toContain('class="k2b-markdown-editor"');
     expect(fillMarkdown).toContain('data-fill="true"');
+    const optionsRule = editorCss.match(/\.k2b-ui \.k2b-autocomplete__options \{([^}]*)\}/)?.[1] ?? "";
+    expect(optionsRule).toContain("transition: none");
   });
 
   test("normalizes crop geometry and rotations", () => {

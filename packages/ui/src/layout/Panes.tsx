@@ -26,6 +26,7 @@ import {
   type PanesValue,
   resizePanesSplit,
 } from "./panes-state";
+import { assertStableUiId, assertUniqueStableUiIds } from "./stable-id";
 
 export type {
   PanesLeafNode,
@@ -60,7 +61,7 @@ export type PanesRootProps = {
 
 export type PanesElementProps = {
   id: string;
-  title?: string;
+  title: string;
   icon?: string;
   closable?: MaybeAccessor<boolean>;
   onClose?: () => void;
@@ -96,7 +97,7 @@ const readMaybe = (value: MaybeAccessor<boolean> | undefined, fallback: boolean)
   typeof value === "function" ? value() : (value ?? fallback);
 
 const elementId = (element: PanesElementSlot): string => element.props.id;
-const elementTitle = (element: PanesElementSlot): string => element.props.title ?? element.props.id;
+const elementTitle = (element: PanesElementSlot): string => element.props.title;
 
 const iconClass = (icon: string | undefined): string => {
   const value = icon?.trim() || "ti-layout-sidebar-right";
@@ -110,7 +111,7 @@ const iconClass = (icon: string | undefined): string => {
  * duplicate DOM ids, `aria-controls` pointing at the wrong panel, and
  * `focusTab` focusing the wrong tab.
  */
-const safeDomId = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, PANES_MAX_ID_LENGTH) || "pane";
+const safeDomId = (value: string): string => assertStableUiId(value, "Panes id", PANES_MAX_ID_LENGTH);
 
 const elementClosable = (element: PanesElementSlot): boolean => !!element.props.onClose && readMaybe(element.props.closable, true);
 
@@ -205,7 +206,11 @@ function PanesElement(props: PanesElementProps): JSX.Element {
 const PanesRoot = (props: PanesRootProps) => {
   const instanceId = `k2b-panes-${createUniqueId()}`;
   const resolved = children(() => props.children);
-  const slots = createMemo(() => collectElementSlots(resolved.toArray()));
+  const slots = createMemo(() => {
+    const collected = collectElementSlots(resolved.toArray());
+    assertUniqueStableUiIds(collected.map(elementId), "Panes.Element id", PANES_MAX_ID_LENGTH);
+    return collected;
+  });
   const elementById = createMemo(() => new Map(slots().map((slot) => [elementId(slot), slot])));
   const elementIds = createMemo(() => slots().map(elementId));
   const presentation = () => props.leafPresentation ?? "tabs";
@@ -335,6 +340,7 @@ function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSpli
   const dndInstanceId = createUniqueId();
   let container: HTMLDivElement | undefined;
   let stopResize: (() => void) | undefined;
+  let finishResize: (() => void) | undefined;
   const direction = () => props.node().direction;
   const sizes = () => normalizePanesSizes(props.node().sizes, props.node().children.length);
   const insertIntent = (index: number) => {
@@ -345,6 +351,13 @@ function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSpli
   const stopActiveResize = () => {
     stopResize?.();
     stopResize = undefined;
+    finishResize = undefined;
+  };
+
+  const finishActiveResize = () => {
+    finishResize?.();
+    stopResize = undefined;
+    finishResize = undefined;
   };
 
   onCleanup(stopActiveResize);
@@ -354,24 +367,54 @@ function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSpli
     event.preventDefault();
     stopActiveResize();
     const split = props.node();
+    const pointerId = event.pointerId;
+    const captureTarget = event.currentTarget as HTMLElement;
+    captureTarget.setPointerCapture?.(pointerId);
     const baseSizes = normalizePanesSizes(split.sizes, split.children.length);
     const start = split.direction === "horizontal" ? event.clientX : event.clientY;
     const rect = container?.getBoundingClientRect();
-    const extent = split.direction === "horizontal" ? (rect?.width ?? 1) : (rect?.height ?? 1);
+    const extent = Math.max(1, split.direction === "horizontal" ? (rect?.width ?? 1) : (rect?.height ?? 1));
+    let resizeFrame: number | undefined;
+    let pendingDelta: number | undefined;
+    const flushResize = () => {
+      if (resizeFrame !== undefined) {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = undefined;
+      }
+      if (pendingDelta === undefined) return;
+      const delta = pendingDelta;
+      pendingDelta = undefined;
+      props.onResize(split.id, index, delta, baseSizes);
+    };
     const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) return;
       const current = split.direction === "horizontal" ? move.clientX : move.clientY;
-      props.onResize(split.id, index, ((current - start) / extent) * 100, baseSizes);
+      pendingDelta = ((current - start) / extent) * 100;
+      if (resizeFrame !== undefined) return;
+      resizeFrame = requestAnimationFrame(flushResize);
+    };
+    const onEnd = (end: PointerEvent) => {
+      if (end.pointerId !== pointerId) return;
+      finishActiveResize();
     };
     stopResize = () => {
+      if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
+      resizeFrame = undefined;
+      pendingDelta = undefined;
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", stopActiveResize);
-      window.removeEventListener("pointercancel", stopActiveResize);
-      window.removeEventListener("blur", stopActiveResize);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      window.removeEventListener("blur", finishActiveResize);
+      if (captureTarget.hasPointerCapture?.(pointerId)) captureTarget.releasePointerCapture(pointerId);
+    };
+    finishResize = () => {
+      flushResize();
+      stopResize?.();
     };
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", stopActiveResize);
-    window.addEventListener("pointercancel", stopActiveResize);
-    window.addEventListener("blur", stopActiveResize);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    window.addEventListener("blur", finishActiveResize);
   };
 
   const resizeDelta = (event: KeyboardEvent, index: number): number | null => {

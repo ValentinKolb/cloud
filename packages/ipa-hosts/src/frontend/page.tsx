@@ -129,9 +129,9 @@ export default ssr<AuthContext>(async (c) => {
             <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={buildBaseUrl("page")} />
           </>
         ) : (
-          <Placeholder surface="paper">
+          <Placeholder surface="paper" description={<>
             {search ? `No hostgroups matching "${search}".` : "No mirrored hostgroups yet. Run a sync to load data from FreeIPA."}
-          </Placeholder>
+          </>} />
         )}
       </div>
     </AdminLayout>

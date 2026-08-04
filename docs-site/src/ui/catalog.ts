@@ -256,31 +256,15 @@ export const uiCatalogSections: UiCatalogSection[] = [
  * stale names, blank reasons, and overlap with live or documented-only exports.
  */
 export const hiddenUiCatalogExports = {
-  GHOST_SENTINEL: "Internal completion-engine sentinel.",
-  TRIGGER_CHARS: "Internal completion-engine character set.",
-  WORD_CHAR: "Internal completion-engine character matcher.",
-  applySuggestion: "Internal completion-engine state transition.",
-  buildSuggestContext: "Internal completion-engine context builder.",
   clampImageCropRect: "Low-level ImageCropper geometry primitive.",
-  collectKnownLabels: "Internal completion-engine label collector.",
-  createDialogCore: "Low-level dialog manager factory without a standalone visual contract.",
   createFormState: "Low-level prompt form-state factory without a standalone visual contract.",
-  detectQuery: "Internal completion-engine query detector.",
-  displayLabel: "Internal completion-engine display helper.",
   dropdownPosition: "Low-level Dropdown geometry primitive.",
   formatChatTokens: "Low-level Chat.ContextUsage formatter.",
   getInitialImageCropRect: "Low-level ImageCropper geometry primitive.",
   imageCropRectToPixels: "Low-level ImageCropper geometry primitive.",
   normalizeImageCropRotation: "Low-level ImageCropper geometry primitive.",
-  pickGhost: "Internal completion-engine ghost-text selector.",
-  renderWithOverlay: "Internal completion-engine overlay renderer.",
-  resetCompletionState: "Internal completion-engine reset helper.",
   resizeImageCropAroundCenter: "Low-level ImageCropper geometry primitive.",
-  resolveSuggestions: "Internal completion-engine suggestion resolver.",
   rotateImageCropRight: "Low-level ImageCropper geometry primitive.",
-  suggestSync: "Internal completion-engine synchronous adapter.",
-  tryExpand: "Internal completion-engine expansion helper.",
-  tryRestore: "Internal completion-engine restoration helper.",
 } as const satisfies Record<string, string>;
 
 /**

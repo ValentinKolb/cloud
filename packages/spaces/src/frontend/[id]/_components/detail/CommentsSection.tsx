@@ -121,9 +121,9 @@ export default function CommentsSection(props: Props) {
       <Show
         when={sortedComments().length > 0}
         fallback={
-          <Placeholder align="left" class="px-0 py-2">
+          <Placeholder align="left" class="px-0 py-2" description={<>
             {props.recurrenceId ? "No comments for this occurrence yet." : "No comments yet."}
-          </Placeholder>
+          </>} />
         }
       >
         <>

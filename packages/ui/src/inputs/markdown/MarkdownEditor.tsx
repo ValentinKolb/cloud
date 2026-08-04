@@ -3,19 +3,16 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, 
 import { createFieldMeta, Field, fieldControlAria } from "../../internal/field";
 import {
   abbreviations as abbreviationsCompletion,
-  applySuggestion,
   buildSuggestContext,
   type Completion,
   collectKnownLabels,
+  createCompletionBehaviorState,
   detectQuery,
   displayLabel,
   type QueryContext,
   renderWithOverlay,
-  resetCompletionState,
   resolveSuggestions,
   type Suggestion,
-  tryExpand,
-  tryRestore,
 } from "../completion";
 import { computeActiveFormats } from "./active-formats";
 import { handleListContinuation, handleShortcut, handleSmartPaste } from "./behaviors";
@@ -57,6 +54,10 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
   let dropdown: HTMLDivElement | undefined;
   let completionAbort: AbortController | null = null;
   let completionTimer: ReturnType<typeof setTimeout> | null = null;
+  let overlayFrame: number | undefined;
+  let overlayInitialized = false;
+  let renderPendingOverlay: (() => void) | undefined;
+  const completionBehavior = createCompletionBehaviorState();
 
   const [textareaSignal, setTextareaSignal] = createSignal<HTMLTextAreaElement | null>(null);
   const [activeFormats, setActiveFormats] = createSignal<Set<string>>(new Set());
@@ -101,6 +102,8 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
 
   createEffect(() => {
     if (!preview) return;
+    const value = localValue();
+    const labels = knownLabels();
     const current = state();
     const active = activeSuggestion();
     const ghost =
@@ -110,14 +113,29 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
             text: active.text.slice(current.context.text.length),
           }
         : undefined;
-    preview.innerHTML = renderWithOverlay(localValue(), (text) => highlight.markdown(text, { knownLabels: knownLabels() }), {
-      ghost,
-      anchor: current && !ghost ? { at: current.context.end } : undefined,
-    });
-    if (textarea) {
-      preview.scrollTop = textarea.scrollTop;
-      preview.scrollLeft = textarea.scrollLeft;
+    const anchor = current && !ghost ? { at: current.context.end } : undefined;
+    renderPendingOverlay = () => {
+      if (!preview) return;
+      preview.innerHTML = renderWithOverlay(value, (text) => highlight.markdown(text, { knownLabels: labels }), { ghost, anchor });
+      if (textarea) {
+        preview.scrollTop = textarea.scrollTop;
+        preview.scrollLeft = textarea.scrollLeft;
+      }
+      if (dropdown?.matches(":popover-open")) positionDropdown();
+    };
+    if (!overlayInitialized) {
+      overlayInitialized = true;
+      renderPendingOverlay();
+      renderPendingOverlay = undefined;
+      return;
     }
+    if (overlayFrame !== undefined) return;
+    overlayFrame = requestAnimationFrame(() => {
+      overlayFrame = undefined;
+      const render = renderPendingOverlay;
+      renderPendingOverlay = undefined;
+      render?.();
+    });
   });
 
   const updateActiveFormats = (): void => {
@@ -305,7 +323,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
       setState(null);
       return false;
     }
-    const applied = applySuggestion(textarea, current.context, active);
+    const applied = completionBehavior.applySuggestion(textarea, current.context, active);
     closeDropdown();
     setState(null);
     return applied;
@@ -352,13 +370,16 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
       if (dropdown?.matches(":popover-open")) dropdown.hidePopover();
       completionAbort?.abort();
       if (completionTimer) clearTimeout(completionTimer);
-      resetCompletionState();
+      if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame);
+      overlayFrame = undefined;
+      renderPendingOverlay = undefined;
+      completionBehavior.reset();
     });
   });
 
   const onInput = (event: InputEvent & { currentTarget: HTMLTextAreaElement }): void => {
     if (
-      tryExpand(event.currentTarget, mergedCompletions(), {
+      completionBehavior.tryExpand(event.currentTarget, mergedCompletions(), {
         isExcluded: isInCodeZone,
       })
     ) {
@@ -372,7 +393,14 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!textarea || event.isComposing) return;
-    if (event.key === "Backspace" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && tryRestore(textarea)) {
+    if (
+      event.key === "Backspace" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      completionBehavior.tryRestore(textarea)
+    ) {
       event.preventDefault();
       return;
     }
@@ -516,7 +544,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
             onBlur={(event) => {
               const next = event.relatedTarget as HTMLElement | null;
               if (next && dropdown?.contains(next)) return;
-              resetCompletionState();
+              completionBehavior.reset();
               clearCompletion();
             }}
             disabled={props.disabled}

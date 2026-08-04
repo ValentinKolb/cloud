@@ -1,4 +1,4 @@
-import { Avatar, Dropdown, IconButton } from "@k2b/ui";
+import { Avatar, Dropdown, IconButton, type DropdownItem } from "@k2b/ui";
 import type { Role } from "../contracts/shared";
 
 /**
@@ -28,13 +28,13 @@ export default function NavMenu(props: NavMenuProps) {
       ? `/api/accounts/users/${encodeURIComponent(props.user.id)}/avatar?rev=${encodeURIComponent(props.user.avatarHash)}`
       : undefined;
 
-  const getElements = () => [
+  const getElements = (): DropdownItem[] => [
     // Top: Profile or Login
     ...(props.user
       ? [
           {
             element: (
-              <a href="/me" class="m-1 flex rounded-lg p-3 transition-colors hover:bg-white/30 dark:hover:bg-white/10">
+              <a href="/me" role="menuitem" tabIndex={-1} class="k2b-dropdown__item">
                 <div class="flex items-center gap-3">
                   <Avatar name={avatarName()} src={avatarSrc()} fallback={avatarName().slice(0, 2).toUpperCase()} size="sm" />
                   <div class="flex-1">

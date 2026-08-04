@@ -50,15 +50,19 @@ export function Combobox(props: ComboboxProps): JSX.Element {
     if (eager) loader.load(query(), true);
     focus(-1);
   };
-  const close = () => {
+  const reset = () => {
     loader.cancel();
     setQuery("");
     focus(-1);
+  };
+  const close = () => {
     popover.hide();
+    reset();
   };
   const select = (option: ChoiceOption<string>) => {
+    popover.hide();
     props.onSelect({ id: option.value, label: option.label, description: option.description, icon: option.icon });
-    close();
+    reset();
     inputRef?.focus();
   };
   const onKeyDown = (event: KeyboardEvent) => {
@@ -137,7 +141,7 @@ export function Combobox(props: ComboboxProps): JSX.Element {
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => select(option)}
             >
-              <Show when={option.icon}>{(icon) => <i class={`ti ${icon()}`} aria-hidden="true" />}</Show>
+              <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
               <span><strong>{option.label}</strong><Show when={option.description}>{(description) => <small>{description()}</small>}</Show></span>
             </button>
           )}

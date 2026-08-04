@@ -212,9 +212,9 @@ export default function ResourceApiKeys(props: ResourceApiKeysProps) {
       <Show
         when={keys().length > 0}
         fallback={
-          <Placeholder icon="ti ti-key" class="rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800">
+          <Placeholder icon="ti ti-key" class="rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800" description={<>
             No API keys yet.
-          </Placeholder>
+          </>} />
         }
       >
         <div class="flex flex-col gap-2">

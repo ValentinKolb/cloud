@@ -142,4 +142,23 @@ describe("@k2b/ui Panes", () => {
     expect(html).toContain("First");
     expect(html).toContain("Second");
   });
+
+  test("rejects invalid and duplicate element ids", () => {
+    const render = (ids: readonly string[]) =>
+      renderToString(() =>
+        createComponent(Panes.Root, {
+          value: {
+            version: PANES_VALUE_VERSION,
+            root: { type: "leaf", id: "root", elementIds: [...ids], activeElementId: ids[0] ?? "", presentation: "tabs" },
+          },
+          onValueChange: () => undefined,
+          get children() {
+            return ids.map((id, index) => createComponent(Panes.Element, { id, title: `Pane ${index}`, children: "Content" }));
+          },
+        }),
+      );
+
+    expect(() => render(["not safe"])).toThrow("Panes.Element id must start with a letter");
+    expect(() => render(["same", "same"])).toThrow('duplicate id "same"');
+  });
 });

@@ -69,7 +69,7 @@ Use `surface: "bare"` with `header: false` only when the custom content supplies
 - `datetime`, with optional date-only mode;
 - `info`, which displays content and is excluded from the result.
 
-Fields share `label`, `description`, `placeholder`, `required`, `default`, and a `validate` function where applicable. Form-state validation checks required values and the custom validator. Input-specific options such as number bounds configure the control but do not create additional form-state error messages.
+Fields share `label`, `description`, `placeholder`, `required`, `default`, and a `validate` function where applicable. Form-state validation checks required values, text-length and tag-count constraints, and the custom validator. A required boolean field must be checked. Number bounds and PIN length configure their controls but do not create additional form-state error messages.
 
 ```tsx
 const values = await prompts.form({
@@ -102,7 +102,7 @@ if (!values) return;
 
 ## Search
 
-The search resolver receives the current query and an `AbortSignal`. It returns items with a `label` and optional `desc`, `icon`, `previewUrl`, `value`, or `onClick`.
+The search resolver receives the current query and an `AbortSignal`. It returns items with a `label` and optional `desc`, `icon`, root-relative `previewUrl`, or `value`. Handle the selected value after the returned promise resolves; result items do not own application side effects.
 
 Search options include `placeholder`, `initialQuery`, `minQueryLength`, `debounceMs`, `emptyText`, and `noResultsText`.
 

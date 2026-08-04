@@ -514,7 +514,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
             }
           >
             <Show when={loaded()} fallback={<Placeholder state="loading" align="left" description="Loading run options..." />}>
-              <For each={launchers()} fallback={<Placeholder align="left">No run options configured.</Placeholder>}>
+              <For each={launchers()} fallback={<Placeholder align="left" description={<>No run options configured.</>} />}>
                 {(launcher) => {
                   const stale = () => launcher.validatedRevision !== props.workflow.revision;
                   const invalid = () => launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error");

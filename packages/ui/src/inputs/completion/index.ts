@@ -1,9 +1,6 @@
 export {
-  applySuggestion,
-  resetCompletionState,
+  createCompletionBehaviorState,
   type TryExpandOptions,
-  tryExpand,
-  tryRestore,
 } from "./behaviors";
 export {
   abbreviations,

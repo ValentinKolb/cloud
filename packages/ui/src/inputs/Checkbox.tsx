@@ -43,6 +43,7 @@ export function Checkbox(props: CheckboxProps): JSX.Element {
           name={props.name}
           checked={checked()}
           disabled={rest.disabled}
+          required={rest.required}
           aria-checked={local.indeterminate ? "mixed" : checked()}
           {...fieldControlAria(meta, props)}
           onChange={(event) => commitFieldValue(local, event.currentTarget.checked)}

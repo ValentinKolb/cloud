@@ -465,9 +465,9 @@ export default function NoteTree(props: Props) {
       </div>
 
       {props.tree.length === 0 && (
-        <Placeholder icon="ti ti-file-text" class="py-4">
+        <Placeholder icon="ti ti-file-text" class="py-4" description={<>
           No notes yet
-        </Placeholder>
+        </>} />
       )}
     </div>
   );

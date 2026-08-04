@@ -136,9 +136,9 @@ export default function PasskeysSettings(props: Props) {
       <Show
         when={passkeys().length > 0}
         fallback={
-          <Placeholder surface="paper" icon="ti ti-fingerprint">
+          <Placeholder surface="paper" icon="ti ti-fingerprint" description={<>
             No passkeys yet.
-          </Placeholder>
+          </>} />
         }
       >
         <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-2">

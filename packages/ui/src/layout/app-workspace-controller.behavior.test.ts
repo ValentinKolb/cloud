@@ -210,7 +210,7 @@ describe("AppWorkspace resize controller behaviour", () => {
     dispose();
   });
 
-  test("tracks a live sidebar pointer continuously before applying its snap", () => {
+  test("tracks the latest live sidebar pointer once per animation frame before applying its snap", () => {
     const { handle, root } = workspace({ collapsible: true });
     const dispose = installAppWorkspaceController({ root });
 
@@ -223,10 +223,28 @@ describe("AppWorkspace resize controller behaviour", () => {
       }) as unknown as Event,
     );
     window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 206, pointerId: 7 }));
+    window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 218, pointerId: 7 }));
+    expect(root.style.getPropertyValue("--k2b-workspace-sidebar-width")).toBe("");
+    flushFrames();
 
-    expect(root.style.getPropertyValue("--k2b-workspace-sidebar-width")).toBe("206px");
+    expect(root.style.getPropertyValue("--k2b-workspace-sidebar-width")).toBe("218px");
     expect(root.dataset.workspaceResizeActive).toBe("sidebar");
     dispose();
+  });
+
+  test("flushes the latest live resize before disposal", () => {
+    const { handle, root } = workspace();
+    const written: unknown[] = [];
+    const dispose = installAppWorkspaceController({ root, writeState: (state) => written.push(state) });
+
+    handle.dispatchEvent(
+      new window.PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 176, pointerId: 7 }) as unknown as Event,
+    );
+    window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 218, pointerId: 7 }));
+    dispose();
+
+    expect(root.style.getPropertyValue("--k2b-workspace-sidebar-width")).toBe("218px");
+    expect(written.at(-1)).toMatchObject({ sidebarWidth: 218 });
   });
 
   test("keeps a live pane preference through multi-pane reconciliation", async () => {
@@ -296,6 +314,7 @@ describe("AppWorkspace resize controller behaviour", () => {
       }) as unknown as Event,
     );
     window.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 480, pointerId: 7 }));
+    flushFrames();
     expect(root.style.getPropertyValue(paneVariable)).toBe("480px");
 
     mainWidth = 1000;

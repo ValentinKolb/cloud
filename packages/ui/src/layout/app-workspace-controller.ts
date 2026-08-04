@@ -157,8 +157,9 @@ const updateHandleValue = (
   handle: HTMLElement,
   kind: AppWorkspaceResizeKind,
   size: number,
+  limits = sizeLimits(root, handle, kind),
 ) => {
-  const { min, max } = sizeLimits(root, handle, kind);
+  const { min, max } = limits;
   handle.setAttribute("aria-valuemin", String(min));
   handle.setAttribute("aria-valuemax", String(max));
   handle.setAttribute("aria-valuenow", String(clamp(size, min, max)));
@@ -189,12 +190,12 @@ const applySize = (
     // presence selector (`[data-sidebar-collapsed]`) means "collapsed".
     if (sidebar.collapsed) root.dataset.sidebarCollapsed = "true";
     else delete root.dataset.sidebarCollapsed;
-    updateHandleValue(root, handle, kind, sidebar.width);
+    updateHandleValue(root, handle, kind, sidebar.width, { min, max });
     return sidebar.width;
   }
   const size = clamp(requestedSize, min, max);
   root.style.setProperty(appWorkspacePanelVariable(kind, panelId(handle)), `${size}px`);
-  updateHandleValue(root, handle, kind, size);
+  updateHandleValue(root, handle, kind, size, { min, max });
   return size;
 };
 
@@ -274,6 +275,8 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
   const eventRoot = options.root ?? document;
   let layoutState = normalizeAppWorkspaceLayoutState(options.readState?.()) ?? { version: 2 as const };
   let active: ActiveResize | null = null;
+  let resizeFrame: number | null = null;
+  let pendingClient: number | null = null;
 
   const persistSize = (handle: HTMLElement, kind: AppWorkspaceResizeKind, size: number) => {
     if (kind === "sidebar") {
@@ -290,9 +293,14 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     options.writeState?.(layoutState);
   };
 
-  const onPointerMove = (event: PointerEvent) => {
-    if (!active || event.pointerId !== active.pointerId) return;
-    const client = active.kind === "drawer" ? event.clientY : event.clientX;
+  const flushPointerMove = () => {
+    if (resizeFrame !== null) {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = null;
+    }
+    if (!active || pendingClient === null) return;
+    const client = pendingClient;
+    pendingClient = null;
     active.moved ||= client !== active.startClient;
     active.liveSize = applySize(
       active.root,
@@ -303,8 +311,15 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     );
     if (active.kind === "sidebar" || active.kind === "detail") reconcilePanes(active.root, layoutState, active);
   };
+  const onPointerMove = (event: PointerEvent) => {
+    if (!active || event.pointerId !== active.pointerId) return;
+    pendingClient = active.kind === "drawer" ? event.clientY : event.clientX;
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(flushPointerMove);
+  };
   const stopResize = (event?: Event) => {
     if (!active || (event instanceof PointerEvent && event.pointerId !== active.pointerId)) return;
+    flushPointerMove();
     const finished = active;
     active = null;
     delete finished.root.dataset.workspaceResizeActive;
@@ -337,6 +352,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       return;
     event.preventDefault();
     stopResize();
+    pendingClient = null;
     const startSize = currentSize(root, handle, kind);
     active = {
       handle,
@@ -539,11 +555,13 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
   });
   scheduleReconcile();
   return () => {
+    // Flush the latest coalesced pointer sample before listeners and frames are
+    // torn down, so unmounting during a drag cannot lose the final size.
+    stopResize();
     if (reconcileFrame !== null) cancelAnimationFrame(reconcileFrame);
     mutationObserver?.disconnect();
     resizeObserver?.disconnect();
     observedRoots.clear();
-    stopResize();
     eventRoot.removeEventListener("pointerdown", onPointerDown as EventListener);
     eventRoot.removeEventListener("keydown", onKeyDown as EventListener);
     eventRoot.removeEventListener("focusin", onFocusIn as EventListener);

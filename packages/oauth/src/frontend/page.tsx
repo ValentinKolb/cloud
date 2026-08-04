@@ -120,9 +120,9 @@ export default ssr<AuthContext>(async (c) => {
             />
           </section>
         ) : (
-          <Placeholder surface="paper">
+          <Placeholder surface="paper" description={<>
             No OAuth clients found. Create one to allow external applications to authenticate users.
-          </Placeholder>
+          </>} />
         )}
 
         <section class="info-block-info p-4" style="view-transition-name: admin-oauth-reference">

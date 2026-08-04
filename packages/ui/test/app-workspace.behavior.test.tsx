@@ -16,25 +16,13 @@ describe("@k2b/ui AppWorkspace behavior", () => {
     const dispose = render(
       () => (
         <div>
-          <AppWorkspace.SidebarItem
-            href="/items"
-            navigation="document"
-            active={active() === "items"}
-          >
+          <AppWorkspace.SidebarItem href="/items" navigation="document" active={active() === "items"}>
             Items
           </AppWorkspace.SidebarItem>
-          <AppWorkspace.SidebarItem
-            href="/recent"
-            navigation="document"
-            active={active() === "recent"}
-          >
+          <AppWorkspace.SidebarItem href="/recent" navigation="document" active={active() === "recent"}>
             Recent
           </AppWorkspace.SidebarItem>
-          <AppWorkspace.SidebarIconAction
-            icon="ti ti-history"
-            label="Recent rail"
-            active={active() === "recent"}
-          />
+          <AppWorkspace.SidebarIconAction icon="ti ti-history" label="Recent rail" active={active() === "recent"} />
         </div>
       ),
       dom.root,

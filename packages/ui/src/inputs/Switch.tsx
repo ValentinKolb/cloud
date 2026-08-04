@@ -32,13 +32,21 @@ export function Switch(props: SwitchProps): JSX.Element {
           role="switch"
           checked={checked()}
           disabled={rest.disabled}
+          required={rest.required}
           {...fieldControlAria(meta, props)}
           onChange={(event) => commitFieldValue(local, event.currentTarget.checked)}
         />
         <span class="k2b-switch__track" aria-hidden="true">
           <span class="k2b-switch__thumb" />
         </span>
-        {local.label && <span id={meta.labelId} class="k2b-switch__label">{local.label}</span>}
+        {local.label && (
+          <span id={meta.labelId} class="k2b-switch__label">
+            {local.label}
+            <Show when={rest.required}>
+              <span class="k2b-field__required" aria-hidden="true">*</span>
+            </Show>
+          </span>
+        )}
       </label>
       <Show when={props.description}>
         <span id={meta.descriptionId} class="k2b-field__description">{props.description}</span>

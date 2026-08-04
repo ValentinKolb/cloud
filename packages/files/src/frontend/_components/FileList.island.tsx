@@ -423,9 +423,9 @@ export default function FileList(props: FileListProps) {
                 </For>
 
                 <Show when={sortedItems().length === 0 && props.parentPath === null}>
-                  <Placeholder icon="ti ti-folder-off" class="col-span-full">
+                  <Placeholder icon="ti ti-folder-off" class="col-span-full" description={<>
                     {props.isFiltered ? "No files match the search" : "This folder is empty"}
-                  </Placeholder>
+                  </>} />
                 </Show>
               </div>
             </div>
@@ -493,9 +493,9 @@ export default function FileList(props: FileListProps) {
             </For>
 
             <Show when={sortedItems().length === 0 && props.parentPath === null}>
-              <Placeholder icon="ti ti-folder-off" class="col-span-full">
+              <Placeholder icon="ti ti-folder-off" class="col-span-full" description={<>
                 {props.isFiltered ? "No files match the search" : "This folder is empty"}
-              </Placeholder>
+              </>} />
             </Show>
           </div>
         </Show>

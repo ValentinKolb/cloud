@@ -165,7 +165,7 @@ export default function MetricsTokens(props: Props) {
           </table>
         </div>
       ) : (
-        <Placeholder icon="ti ti-key">No metrics bearer tokens yet.</Placeholder>
+        <Placeholder icon="ti ti-key" description={<>No metrics bearer tokens yet.</>} />
       )}
     </section>
   );

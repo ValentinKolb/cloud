@@ -1,7 +1,7 @@
-import { Button, Dropdown, IconButton, SegmentedControl, Switch, Tooltip } from "@k2b/ui";
+import { IconButton, MultiSelectInput, SegmentedControl, Switch, Tooltip } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { cookies } from "@k2b/stdlib/browser";
-import { createMemo, createSignal, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 /** Cookie name for file settings */
 const COOKIE_NAME = "settings-app-files";
@@ -73,14 +73,6 @@ const LIST_COLUMN_OPTIONS: { value: FileListColumn; label: string; icon: string 
  */
 export default function FileSettings({ initialSettings }: FileSettingsProps) {
   const [settings, setSettings] = createSignal<FileSettings>(initialSettings);
-  const selectedColumnsLabel = createMemo(() => {
-    const selected = settings().listColumns;
-    if (selected.length === LIST_COLUMN_OPTIONS.length) return "All columns";
-    if (selected.length === 0) return "No extras";
-    return LIST_COLUMN_OPTIONS.filter((option) => selected.includes(option.value))
-      .map((option) => option.label)
-      .join(", ");
-  });
 
   const updateSetting = <K extends keyof FileSettings>(key: K, value: FileSettings[K]) => {
     const newSettings = { ...settings(), [key]: value };
@@ -94,12 +86,6 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
 
   const toggleMinimize = () => {
     updateSetting("hideSettings", !settings().hideSettings);
-  };
-
-  const toggleListColumn = (column: FileListColumn) => {
-    const current = settings().listColumns;
-    const next = current.includes(column) ? current.filter((value) => value !== column) : [...current, column];
-    updateSetting("listColumns", next);
   };
 
   return (
@@ -162,37 +148,13 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
               </div>
 
               <div class="flex flex-col gap-1.5">
-                <div class="text-xs text-secondary">List columns</div>
-                <Dropdown
-                  trigger={
-                    <Button variant="secondary" size="sm" class="w-full justify-between text-left">
-                      <span class="inline-flex min-w-0 items-center gap-2 truncate">
-                        <i class="ti ti-columns-3 app-accent-text text-sm" />
-                        <span class="truncate text-xs">{selectedColumnsLabel()}</span>
-                      </span>
-                      <i class="ti ti-chevron-down text-[10px] text-dimmed" />
-                    </Button>
-                  }
-                  width="13rem"
-                  position="bottom-right"
-                  elements={LIST_COLUMN_OPTIONS.map((option) => ({
-                    element: (close) => (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        class="w-full justify-start"
-                        onClick={() => {
-                          toggleListColumn(option.value);
-                          close();
-                        }}
-                      >
-                        <i class={`ti ${settings().listColumns.includes(option.value) ? "ti-checkbox" : "ti-square"}`} />
-                        <i class={`${option.icon} text-dimmed`} />
-                        <span>{option.label}</span>
-                      </Button>
-                    ),
-                  }))}
+                <MultiSelectInput
+                  label="List columns"
+                  value={() => settings().listColumns}
+                  options={LIST_COLUMN_OPTIONS.map((option) => ({ id: option.value, label: option.label, icon: option.icon }))}
+                  searchable={false}
+                  placeholder="No extra columns"
+                  onValueChange={(columns) => updateSetting("listColumns", columns as FileListColumn[])}
                 />
               </div>
             </div>

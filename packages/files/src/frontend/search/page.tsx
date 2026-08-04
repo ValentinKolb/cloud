@@ -317,9 +317,9 @@ export default ssr<AuthContext>(async (c) => {
 
                     {/* No results state */}
                     {totalFiles === 0 && (
-                      <Placeholder align="left" icon="ti ti-file-search" class="py-4">
+                      <Placeholder align="left" icon="ti ti-file-search" class="py-4" description={<>
                         No files match your search
-                      </Placeholder>
+                      </>} />
                     )}
                   </>
                 )}

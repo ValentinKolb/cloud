@@ -4,15 +4,20 @@ export type ChatMessageStatus = "pending" | "streaming" | "complete" | "error";
 
 export type ChatActivityTone = "neutral" | "ai" | "success" | "danger";
 
-export type ChatAction = {
+type ChatActionBase = {
   id: string;
   label: string;
   icon?: string;
   variant?: "danger";
   disabled?: boolean;
-  onSelect?: () => void | Promise<void>;
-  copyText?: string;
 };
+
+/** Exactly one executable behavior for every chat action. */
+export type ChatAction = ChatActionBase &
+  (
+    | { onSelect: () => void | Promise<void>; copyText?: never }
+    | { copyText: string; onSelect?: never }
+  );
 
 export type ChatAttachment = {
   id: string;

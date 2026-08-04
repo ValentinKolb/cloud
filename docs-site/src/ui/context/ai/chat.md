@@ -20,6 +20,10 @@ import { Chat, type ChatTimelineItem } from "@k2b/ui";
 
 Use `state="running"` to show Stop when the draft is empty. Once the user types, Send replaces Stop and submits a steer. `menuActions` populate the Plus menu; `contextActions` sit beside context usage. Model options can provide an icon or provider image.
 
+Every structured chat action declares exactly one behavior: `onSelect` for an
+application callback or `copyText` for clipboard content. The same contract is
+used by message, menu, and context actions.
+
 `Chat.Timeline` follows new messages while the reader remains near the bottom. Set `hasMore` and `onLoadOlder` to load history while preserving the visible scroll position.
 
 ## Accessibility

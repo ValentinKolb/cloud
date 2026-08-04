@@ -43,7 +43,13 @@ describe("@k2b/ui portable chat family", () => {
         ],
         selectedModelId: "fast",
         onModelChange: () => undefined,
-        commands: [{ name: "clear", description: "Clear the conversation", action: () => undefined }],
+        commands: [
+          {
+            name: "clear",
+            description: "Clear the conversation",
+            action: () => undefined,
+          },
+        ],
         contextUsage: {
           usage: { input: 1_000, output: 200 },
           contextWindow: 8_000,
@@ -63,10 +69,18 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain('aria-label="Add to chat"');
     expect(html).toContain('aria-label="Remove brief.pdf"');
     expect(html).toContain('role="option"');
+    expect(html).toContain('role="menuitemradio"');
+    expect(html).toContain("k2b-select-chip__option-copy");
   });
 
   test("exposes the open command list as a combobox popup owned by the textarea", () => {
-    const commands = [{ name: "clear", description: "Clear the conversation", action: () => undefined }];
+    const commands = [
+      {
+        name: "clear",
+        description: "Clear the conversation",
+        action: () => undefined,
+      },
+    ];
     const withCommands = renderToString(() =>
       createComponent(Chat.Composer, {
         value: "/cl",
@@ -128,6 +142,7 @@ describe("@k2b/ui portable chat family", () => {
     );
 
     expect(html).toContain('aria-label="Stop response"');
+    expect(html).toContain('class="ti ti-player-stop"');
     expect(html).not.toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Steer response"');
   });
@@ -139,7 +154,7 @@ describe("@k2b/ui portable chat family", () => {
         status: "streaming",
         createdAt: "2026-07-28T12:00:00.000Z",
         children: "Working on it",
-        actions: [{ id: "retry", label: "Retry", icon: "ti ti-refresh" }],
+        actions: [{ id: "retry", label: "Retry", icon: "ti ti-refresh", onSelect: () => undefined }],
       }),
     );
     const activity = renderToString(() =>
@@ -186,7 +201,12 @@ describe("@k2b/ui portable chat family", () => {
             description: "Documentation",
             tone: "ai",
           },
-          { kind: "message", id: "three", role: "assistant", content: "How can I help?" },
+          {
+            kind: "message",
+            id: "three",
+            role: "assistant",
+            content: "How can I help?",
+          },
         ],
       }),
     );
@@ -243,8 +263,35 @@ describe("@k2b/ui portable chat family", () => {
     expect(withUsage).toContain("124,000 tokens used, 97% of the context window");
   });
 
+  test("normalizes explicit zero and invalid context usage without leaking non-finite values", () => {
+    const zero = renderToString(() =>
+      createComponent(Chat.ContextUsage, {
+        usage: { input: 0, output: 0, total: 0 },
+        contextWindow: 8_000,
+      }),
+    );
+    const invalid = renderToString(() =>
+      createComponent(Chat.ContextUsage, {
+        usage: { input: Number.NaN, output: Number.POSITIVE_INFINITY, total: -1 },
+        contextWindow: 8_000,
+      }),
+    );
+
+    expect(zero).toContain("0 tokens used, 0% of the context window");
+    expect(zero).toContain("8,000");
+    expect(invalid).toContain("Context usage unavailable, 8,000 token context window");
+    expect(invalid).not.toMatch(/NaN|Infinity|-1/);
+  });
+
   test("offers a keyboard reachable history control only while more history exists", () => {
-    const items = [{ kind: "message" as const, id: "one", role: "user" as const, content: "Hello" }];
+    const items = [
+      {
+        kind: "message" as const,
+        id: "one",
+        role: "user" as const,
+        content: "Hello",
+      },
+    ];
     const withHistory = renderToString(() =>
       createComponent(Chat.Timeline, {
         items,
@@ -260,7 +307,13 @@ describe("@k2b/ui portable chat family", () => {
         onLoadOlder: () => undefined,
       }),
     );
-    const exhausted = renderToString(() => createComponent(Chat.Timeline, { items, hasMore: false, onLoadOlder: () => undefined }));
+    const exhausted = renderToString(() =>
+      createComponent(Chat.Timeline, {
+        items,
+        hasMore: false,
+        onLoadOlder: () => undefined,
+      }),
+    );
     const uncontrolled = renderToString(() => createComponent(Chat.Timeline, { items }));
 
     expect(withHistory).toContain("Load older messages");
@@ -278,7 +331,14 @@ describe("@k2b/ui portable chat family", () => {
   test("keeps history controls out of the conversation live region announcements", () => {
     const html = renderToString(() =>
       createComponent(Chat.Timeline, {
-        items: [{ kind: "message" as const, id: "one", role: "user" as const, content: "Hi" }],
+        items: [
+          {
+            kind: "message" as const,
+            id: "one",
+            role: "user" as const,
+            content: "Hi",
+          },
+        ],
         hasMore: true,
         onLoadOlder: () => undefined,
       }),

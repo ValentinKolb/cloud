@@ -7,7 +7,7 @@
  */
 import { createZip, downloadFileFromContent } from "@k2b/stdlib/browser";
 import { mutation } from "@k2b/stdlib/solid";
-import { createEffect, createMemo, createResource, createSignal, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, Match, Show, Switch, untrack } from "solid-js";
 import { dialogCore } from "../feedback/dialog-core";
 import { prompts } from "../feedback/prompts";
 import Dropdown from "../actions/Dropdown";
@@ -86,8 +86,9 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
     onSuccess: () => void refetch(),
     onError: (error) => void prompts.error(error.message),
   });
-  const pathWritable = (path: string) =>
-    !fileMutation.loading() && !props.readOnly && Boolean(props.source.write) && !props.source.isReadOnly?.(path);
+  const pathMutable = (path: string) =>
+    !fileMutation.loading() && !props.readOnly && !props.source.isReadOnly?.(path);
+  const pathWritable = (path: string) => pathMutable(path) && Boolean(props.source.write);
   const run = (work: () => Promise<void>) => void fileMutation.mutate(work);
 
   const removeFile = (path: string) =>
@@ -202,15 +203,15 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
 
   const treeActions = () => ({
     ...(!props.readOnly && props.source.rename
-      ? { rename: (path: string, next: string) => (pathWritable(path) ? renameFile(path, next) : undefined) }
+      ? { rename: (path: string, next: string) => (pathMutable(path) ? renameFile(path, next) : undefined) }
       : {}),
-    ...(!props.readOnly && props.source.remove ? { remove: (path: string) => (pathWritable(path) ? removeFile(path) : undefined) } : {}),
+    ...(!props.readOnly && props.source.remove ? { remove: (path: string) => (pathMutable(path) ? removeFile(path) : undefined) } : {}),
     ...(!props.readOnly && props.source.write ? { createFile: (dir: string) => (pathWritable(dir) ? createFile(dir) : undefined) } : {}),
     ...(!props.readOnly && props.source.write
       ? { createFolder: (dir: string) => (pathWritable(dir) ? createFolder(dir) : undefined) }
       : {}),
     ...(!props.readOnly && props.source.rename
-      ? { move: (path: string, dir: string) => (pathWritable(path) && pathWritable(dir) ? moveEntry(path, dir) : undefined) }
+      ? { move: (path: string, dir: string) => (pathMutable(path) && pathMutable(dir) ? moveEntry(path, dir) : undefined) }
       : {}),
     download: (path: string, isFolder: boolean) => downloadEntry(path, isFolder),
   });
@@ -218,7 +219,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   const addMenuItems = () => [
     ...(pathWritable("/") ? [{ icon: "ti ti-file-plus", label: "New file", action: () => createFile("/") }] : []),
     ...(pathWritable("/") ? [{ icon: "ti ti-folder-plus", label: "New folder", action: () => createFolder("/") }] : []),
-    ...(!fileMutation.loading() && !props.readOnly && props.source.upload
+    ...(pathMutable("/") && props.source.upload
       ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }]
       : []),
   ];
@@ -241,18 +242,30 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
             />
           </Show>
         </div>
-        <Show
-          when={allEntries().length > 0}
-          fallback={<Placeholder icon="ti ti-folder-open" title="No files" description="This space is empty." />}
-        >
-          <FileTree
-            class="k2b-content-file-browser__tree"
-            entries={allEntries()}
-            selectedPath={selectedPath()}
-            onSelect={(entry) => setSelectedPath(entry.path)}
-            actions={treeActions()}
-          />
-        </Show>
+        <Switch>
+          <Match when={entries.loading}>
+            <Placeholder icon="ti ti-loader-2" title="Loading files…" />
+          </Match>
+          <Match when={entries.error}>
+            <Placeholder
+              icon="ti ti-alert-circle"
+              title="Failed to load files"
+              description={String(entries.error?.message ?? entries.error ?? "")}
+            />
+          </Match>
+          <Match when={allEntries().length > 0}>
+            <FileTree
+              class="k2b-content-file-browser__tree"
+              entries={allEntries()}
+              selectedPath={selectedPath()}
+              onSelect={(entry) => setSelectedPath(entry.path)}
+              actions={treeActions()}
+            />
+          </Match>
+          <Match when={true}>
+            <Placeholder icon="ti ti-folder-open" title="No files" description="This space is empty." />
+          </Match>
+        </Switch>
         <input
           ref={uploadInputRef}
           type="file"
@@ -262,26 +275,29 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
         />
       </div>
 
-      <Show
-        when={selectedEntry()}
-        fallback={<Placeholder icon="ti ti-file" title="Select a file" description="Pick a file from the tree to view it." />}
-      >
-        {(entry) => (
-          <FileView
-            file={{ path: entry().path, mediaType: entry().mediaType, size: entry().size }}
-            load={() => props.source.read(entry().path)}
-            save={
-              pathWritable(entry().path)
-                ? async (content) => {
-                    await props.source.write!(entry().path, content);
-                    await refetch();
-                  }
-                : undefined
-            }
-            downloadHref={props.source.downloadHref?.(entry().path) ?? null}
-          />
-        )}
-      </Show>
+      <Switch fallback={<Placeholder icon="ti ti-file" title="Select a file" description="Pick a file from the tree to view it." />}>
+        <Match when={selectedEntry()?.kind === "folder"}>
+          <Placeholder icon="ti ti-folder" title="Folder selected" description="Choose a file to preview it." />
+        </Match>
+        <Match when={selectedEntry()}>
+          {(entry) => (
+            <FileView
+              file={{ path: entry().path, mediaType: entry().mediaType, size: entry().size }}
+              load={() => props.source.read(entry().path)}
+              revision={props.refreshKey}
+              save={
+                pathWritable(entry().path)
+                  ? async (content) => {
+                      await props.source.write!(entry().path, content);
+                      await refetch();
+                    }
+                  : undefined
+              }
+              downloadHref={props.source.downloadHref?.(entry().path) ?? null}
+            />
+          )}
+        </Match>
+      </Switch>
     </div>
   );
 }

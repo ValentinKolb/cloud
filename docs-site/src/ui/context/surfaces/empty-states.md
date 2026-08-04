@@ -31,8 +31,7 @@ import {
 | Property | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `title` | `JSX.Element` | none | Names the state. |
-| `description` | `JSX.Element` | `children` | Explains the state or next step. |
-| `children` | `JSX.Element` | none | Supplies the description when `description` is absent. |
+| `description` | `JSX.Element` | none | Explains the state or next step. |
 | `icon` | `string` | `loading` and `error` only | Overrides the Tabler icon class. `state="empty"` renders no icon unless one is passed. |
 | `action` | `JSX.Element` | none | Adds a recovery or creation action. |
 | `state` | `"empty" \| "loading" \| "error"` | `"empty"` | Selects state semantics and default icon. |

@@ -10,6 +10,7 @@ import {
   displayDate,
   filterTimeInput,
   formatDateOnlyRangeDuration,
+  isCompleteTime,
   monthNames,
   normalizeTimeInput,
   orderedRange,
@@ -27,6 +28,7 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const ui = await import("../index");
 const { DatePicker, DateRangePicker, DateTimePicker } = ui;
 const { placeDatePopover } = await import("./DatePicker");
+const uiCss = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
 
 describe("@k2b/ui complete date picker migration", () => {
   test("normalizes time input without accepting impossible clock values", () => {
@@ -34,6 +36,12 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(filterTimeInput("09:3")).toBe("09:3");
     expect(normalizeTimeInput("25:90")).toBe("23:59");
     expect(normalizeTimeInput("7")).toBe("07:00");
+    expect(isCompleteTime("09:30")).toBe(true);
+    expect(isCompleteTime("24:00")).toBe(false);
+    expect(isCompleteTime("09:60")).toBe(false);
+    expect(isCompleteTime("9:30")).toBe(false);
+    expect(toDateTimeValue("2026-07-27", "24:00")).toBeNull();
+    expect(toDateTimeValue("2026-07-27", "09:60")).toBeNull();
   });
 
   test("round-trips wall-clock values through an explicit timezone", () => {
@@ -144,6 +152,8 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(html).toContain('role="row"');
     expect(html.match(/tabindex="0"/g)).toHaveLength(1);
     expect(html).toContain('data-date-day="2026-07-27"');
+    const popoverRule = uiCss.match(/\.k2b-ui \.k2b-date-popover \{([^}]*)\}/)?.[1] ?? "";
+    expect(popoverRule).toContain("transition: none");
   });
 
   test("keeps an empty range draft applicable so a clear preset can commit", () => {
@@ -236,9 +246,7 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(html).toContain('aria-label="Duration presets"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("1 hour");
-    expect(html).toMatch(
-      /class="k2b-date-actions"[^>]*>[\s\S]*class="k2b-date-durations"[\s\S]*>Apply<\/button>/,
-    );
+    expect(html).toMatch(/class="k2b-date-actions"[^>]*>[\s\S]*class="k2b-date-durations"[\s\S]*>Apply<\/button>/);
   });
 
   test("does not expose the deprecated native compatibility wrapper", () => {

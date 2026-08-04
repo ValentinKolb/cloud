@@ -79,7 +79,7 @@ function ProgressValue(props: { intent: Extract<FieldDisplayIntent, { kind: "pro
   const percent = () => Math.round(props.intent.ratio * 100);
   return (
     <span class="flex min-w-36 items-center gap-3">
-      <ProgressBar value={percent()} size="sm" class="w-32 shrink-0" />
+      <ProgressBar value={percent()} size="sm" class="w-32 shrink-0" label="Field progress" />
       <Show when={props.intent.label}>{(text) => <span class="whitespace-nowrap tabular-nums text-primary">{text()}</span>}</Show>
     </span>
   );

@@ -30,13 +30,15 @@ afterEach(() => {
 });
 
 describe("@k2b/ui Cloud feedback parity", () => {
-  test("keeps form defaults and validates only required and custom rules", () => {
+  test("keeps form defaults and validates declared form rules", () => {
     createRoot((dispose) => {
       const form = createFormState({
         name: { type: "text", required: true, default: "" },
         bounded: { type: "number", min: 10, max: 20, default: 5 },
         pin: { type: "pin", length: 4, default: "1" },
-        tags: { type: "tags", minTags: 2, maxTags: 3, default: [] },
+        constrainedName: { type: "text", minLength: 3, maxLength: 5, default: "ab" },
+        tags: { type: "tags", minTags: 2, maxTags: 3, default: ["one"] },
+        consent: { type: "boolean", required: true, default: false },
         custom: {
           type: "text",
           default: "draft",
@@ -51,11 +53,22 @@ describe("@k2b/ui Cloud feedback parity", () => {
       expect(form.errors.custom).toBe("not ready");
       expect(form.errors.bounded).toBeUndefined();
       expect(form.errors.pin).toBeUndefined();
-      expect(form.errors.tags).toBeUndefined();
+      expect(form.errors.constrainedName).toBe("minimum 3 characters");
+      expect(form.errors.tags).toBe("minimum 2 tags");
+      expect(form.errors.consent).toBe("required");
 
       form.updateField("name", "Ada");
+      form.updateField("constrainedName", "valid");
+      form.updateField("tags", ["one", "two"]);
+      form.updateField("consent", true);
       form.updateField("custom", "ready");
       expect(form.validateAll()).toBe(true);
+
+      form.updateField("constrainedName", "too long");
+      form.updateField("tags", ["one", "two", "three", "four"]);
+      expect(form.validateAll()).toBe(false);
+      expect(form.errors.constrainedName).toBe("maximum 5 characters");
+      expect(form.errors.tags).toBe("maximum 3 tags");
 
       form.updateField("name", "changed");
       form.reset();
@@ -192,8 +205,7 @@ describe("@k2b/ui Cloud feedback parity", () => {
   });
 
   test("scrolls panel dialog bodies instead of shrinking their content", () => {
-    const bodyChildrenRule =
-      indexCss.match(/\.k2b-ui \.k2b-panel-dialog__body > \* \{([^}]*)\}/)?.[1] ?? "";
+    const bodyChildrenRule = indexCss.match(/\.k2b-ui \.k2b-panel-dialog__body > \* \{([^}]*)\}/)?.[1] ?? "";
     expect(bodyChildrenRule).toContain("flex-shrink: 0");
   });
 

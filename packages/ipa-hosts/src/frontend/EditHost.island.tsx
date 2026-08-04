@@ -282,9 +282,9 @@ const EditHostDialog = (props: {
           <Show
             when={macAddresses().length > 0}
             fallback={
-              <Placeholder align="left" class="rounded-xl border border-dashed border-subtle p-3">
+              <Placeholder align="left" class="rounded-xl border border-dashed border-subtle p-3" description={<>
                 No MAC addresses configured.
-              </Placeholder>
+              </>} />
             }
           >
             <Index each={macAddresses()}>

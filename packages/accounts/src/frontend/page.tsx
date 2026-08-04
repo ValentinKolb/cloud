@@ -176,7 +176,13 @@ export default ssr<AuthContext>(async (c) => {
                       return (
                         <div class="flex items-center gap-3">
                           <span class="text-xs text-secondary w-28 shrink-0 truncate">{label}</span>
-                          <ProgressBar value={rate} size="xs" tone={hasFails ? "danger" : "info"} class="flex-1 min-w-0" />
+                          <ProgressBar
+                            value={rate}
+                            size="xs"
+                            tone={hasFails ? "danger" : "info"}
+                            class="flex-1 min-w-0"
+                            label={`${label} run health`}
+                          />
                           <span
                             class={`text-[11px] tabular-nums shrink-0 ${hasFails ? "text-red-600 dark:text-red-400 font-medium" : "text-dimmed"}`}
                           >
@@ -208,6 +214,7 @@ export default ssr<AuthContext>(async (c) => {
                     <StatCell
                       label="Requests"
                       value={summary.openRequests}
+                      href={summary.openRequests > 0 ? "/app/accounts/requests" : undefined}
                       valueClass={summary.openRequests > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
                       sub={summary.openRequests > 0 ? "pending review" : "none pending"}
                       accent={
@@ -216,7 +223,6 @@ export default ssr<AuthContext>(async (c) => {
                               tone: "amber",
                               icon: "ti ti-clock",
                               text: "open",
-                              href: "/app/accounts/requests",
                             }
                           : undefined
                       }

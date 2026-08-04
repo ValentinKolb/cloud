@@ -77,9 +77,17 @@ export const splitDateTime = (value: string | null | undefined, context?: DateCo
   return { date, time: time.slice(0, 5) };
 };
 
+export const isCompleteTime = (value: string): boolean => {
+  if (!/^\d{2}:\d{2}$/.test(value)) return false;
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours! >= 0 && hours! <= 23 && minutes! >= 0 && minutes! <= 59;
+};
+
 export const toDateTimeValue = (date: string, time: string, context?: DateContext): string | null => {
   if (!date) return null;
-  const local = `${date}T${time || "00:00"}`;
+  const resolvedTime = time || "00:00";
+  if (!isCompleteTime(resolvedTime)) return null;
+  const local = `${date}T${resolvedTime}`;
   if (context?.timeZone) {
     return dates.zonedDateTimeToInstant(local, context.timeZone, { disambiguation: "compatible" });
   }
@@ -100,8 +108,6 @@ export const filterTimeInput = (value: string): string => {
   const digits = value.replace(/\D/g, "").slice(0, 4);
   return digits.length <= 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}`;
 };
-
-export const isCompleteTime = (value: string): boolean => /^\d{2}:\d{2}$/.test(value);
 
 export const orderedRange = (start: string, end: string): DateRangeValue =>
   end.localeCompare(start) < 0 ? { start: end, end: start } : { start, end };

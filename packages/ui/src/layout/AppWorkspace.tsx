@@ -30,8 +30,8 @@ import {
   type AppWorkspaceLayoutState,
   appWorkspaceLayoutStyle,
   appWorkspacePanelVariable,
-  safeAppWorkspacePanelId,
 } from "./app-workspace-state";
+import { assertStableUiId, assertUniqueStableUiIds } from "./stable-id";
 
 const ResizeContext = createContext(true);
 const LayoutStateContext = createContext<AppWorkspaceLayoutState | null>(null);
@@ -186,10 +186,9 @@ export type AppWorkspaceDetailWidth = "sm" | "md" | "lg" | "xl";
 export type AppWorkspaceDetailProps = {
   children: JSX.Element;
   open: boolean;
-  id?: string;
+  id: string;
   class?: string;
   width?: AppWorkspaceDetailWidth;
-  widthClass?: string;
   viewTransitionName?: string;
   resizable?: boolean;
   minWidth?: number;
@@ -199,7 +198,7 @@ export type AppWorkspaceBottomDrawerHeight = "sm" | "md" | "lg";
 export type AppWorkspaceBottomDrawerProps = {
   children: JSX.Element;
   open: boolean;
-  id?: string;
+  id: string;
   class?: string;
   height?: AppWorkspaceBottomDrawerHeight;
   minHeight?: number;
@@ -358,6 +357,11 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
   const rootResizable = useContext(ResizeContext);
   const resolved = children(() => props.children);
   const values = createMemo(() => flatten(resolved()));
+  const paneIds = createMemo(() => {
+    const ids = values().filter(mainPaneSlot).map((slot) => slot.props.id);
+    assertUniqueStableUiIds(ids, "AppWorkspace.MainPane id");
+    return ids;
+  });
   const regions = createMemo(() => {
     const all = values();
     const primary = all.filter((value) => !mainPaneSlot(value));
@@ -378,7 +382,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
   // Presence of a MainPane slot — not of an *open* one — decides the split
   // layout. Deriving it from `regions()` made a workspace whose panes are all
   // closed fall back to `resolved()`, which renders the raw slot objects.
-  const hasPanes = createMemo(() => values().some(mainPaneSlot));
+  const hasPanes = createMemo(() => paneIds().length > 0);
 
   return (
     <div
@@ -402,7 +406,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
             );
           }
           const pane = region.slot;
-          const panelId = safeAppWorkspacePanelId(pane.props.id) || "primary";
+          const panelId = assertStableUiId(pane.props.id, "AppWorkspace.MainPane id");
           const variable = appWorkspacePanelVariable("pane", panelId);
           const isAnchor = region === anchor;
           const resizable = !isAnchor && (pane.props.resizable ?? rootResizable);
@@ -448,9 +452,8 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
 
 function AppWorkspaceDetail(props: AppWorkspaceDetailProps): JSX.Element {
   const rootResizable = useContext(ResizeContext);
-  const panelId = () => safeAppWorkspacePanelId(props.id ?? "primary") || "primary";
-  const generatedId = createUniqueId();
-  const domId = () => props.id ?? `k2b-workspace-detail-${generatedId}`;
+  const panelId = () => assertStableUiId(props.id, "AppWorkspace.Detail id");
+  const domId = () => `k2b-workspace-detail-${panelId()}`;
   const variable = () => appWorkspacePanelVariable("detail", panelId());
   // Cloud's `detailDefaultWidth`. These feed `aria-valuenow` and the
   // `var(…, Npx)` first-paint fallback, so they are behaviour, not taste.
@@ -458,7 +461,7 @@ function AppWorkspaceDetail(props: AppWorkspaceDetailProps): JSX.Element {
   const defaultWidth = () => widths[props.width ?? "md"] ?? APP_WORKSPACE_DETAIL_DEFAULT;
   const minWidth = () => props.minWidth ?? APP_WORKSPACE_DETAIL_MIN;
   const maxWidth = () => Math.max(minWidth(), props.maxWidth ?? APP_WORKSPACE_DETAIL_MAX);
-  const resizable = () => props.resizable ?? (props.widthClass ? false : rootResizable);
+  const resizable = () => props.resizable ?? rootResizable;
   return (
     <>
       <Show when={resizable()}>
@@ -476,7 +479,7 @@ function AppWorkspaceDetail(props: AppWorkspaceDetailProps): JSX.Element {
       </Show>
       <aside
         id={domId()}
-        class={`k2b-app-workspace__detail ${props.widthClass ?? ""} ${props.class ?? ""}`}
+        class={`k2b-app-workspace__detail ${props.class ?? ""}`}
         data-width={props.width ?? "md"}
         data-workspace-panel-id={panelId()}
         data-workspace-resizable={resizable() ? "true" : "false"}
@@ -494,9 +497,8 @@ function AppWorkspaceDetail(props: AppWorkspaceDetailProps): JSX.Element {
 
 function AppWorkspaceBottomDrawer(props: AppWorkspaceBottomDrawerProps): JSX.Element {
   const rootResizable = useContext(ResizeContext);
-  const panelId = () => safeAppWorkspacePanelId(props.id ?? "primary") || "primary";
-  const generatedId = createUniqueId();
-  const domId = () => props.id ?? `k2b-workspace-drawer-${generatedId}`;
+  const panelId = () => assertStableUiId(props.id, "AppWorkspace.BottomDrawer id");
+  const domId = () => `k2b-workspace-drawer-${panelId()}`;
   const variable = () => appWorkspacePanelVariable("drawer", panelId());
   // Cloud's `drawerDefaultHeight`.
   const heights = { sm: 192, md: 240, lg: 320 };

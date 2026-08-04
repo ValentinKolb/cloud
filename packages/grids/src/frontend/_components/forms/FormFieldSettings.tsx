@@ -74,7 +74,7 @@ function FormFieldSettings(props: {
             <Checkbox
               label="Required"
               description="Visitors must provide a value before submitting."
-              value={() => entry().required}
+              value={() => entry().required ?? false}
               onValueChange={(required) => props.updateEntry({ required })}
             />
             <div class="flex flex-col gap-3">

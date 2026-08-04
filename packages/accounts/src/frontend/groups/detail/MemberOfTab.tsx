@@ -46,9 +46,9 @@ export default function MemberOfTab(props: MemberOfTabProps) {
       />
 
       {!hasGroups ? (
-        <Placeholder surface="paper" icon="ti ti-users-group">
+        <Placeholder surface="paper" icon="ti ti-users-group" description={<>
           This group is not a member of any other group.
-        </Placeholder>
+        </>} />
       ) : (
         <div class="paper overflow-hidden">
           <DataTable

@@ -16,6 +16,8 @@ import { Button, IconButton, Toolbar } from "@k2b/ui";
 
 Enable `wrap` where actions may outgrow the available width. The toolbar does not impose button variants or a second focus model.
 
+Separators automatically follow the toolbar orientation: they are vertical in a horizontal toolbar and horizontal in a vertical toolbar.
+
 ## Accessibility
 
 Always provide `label`. Name groups when their purpose is not obvious. Buttons keep native keyboard behavior, labels, and disabled state.

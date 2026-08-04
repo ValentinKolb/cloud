@@ -78,7 +78,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {usersPage.items.length === 0 ? (
-            <Placeholder surface="paper">No users found.</Placeholder>
+            <Placeholder surface="paper" description={<>No users found.</>} />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-users-table">
               <DataTable

@@ -69,4 +69,10 @@ describe("FileTree path-first model", () => {
       badge: "ready",
     });
   });
+
+  test("rejects a file path that is also used as a parent directory", () => {
+    expect(() => buildTree([{ path: "/src" }, { path: "/src/app.ts" }])).toThrow(
+      'FileTree entry conflict: "/src" is a file and cannot contain "/src/app.ts".',
+    );
+  });
 });

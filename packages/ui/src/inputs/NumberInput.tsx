@@ -89,13 +89,14 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
     const clamped = Math.max(min(), Math.min(max(), value));
     const anchor = Number.isFinite(min()) ? min() : 0;
     const snapped = step() > 0 ? Math.round((clamped - anchor) / step()) * step() + anchor : clamped;
-    return places() === 0 ? Math.round(snapped) : Number(snapped.toFixed(places()));
+    const bounded = Math.max(min(), Math.min(max(), snapped));
+    return places() === 0 ? Math.round(bounded) : Number(bounded.toFixed(places()));
   };
   const emit = (value: number | null) => local.onValueChange?.(value);
-  const commit = (value: number | null) => {
+  const commit = (value: number | null, changeAlreadyEmitted = false) => {
     const next = normalize(value);
     setRaw(next === null ? "" : String(next));
-    emit(next);
+    if (!changeAlreadyEmitted || !Object.is(next, value)) emit(next);
     local.onValueCommit?.(next);
   };
   const stepBy = (direction: number) => {
@@ -155,7 +156,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
             {...fieldControlAria(meta, local)}
             aria-valuemin={Number.isFinite(min()) ? min() : undefined}
             aria-valuemax={Number.isFinite(max()) ? max() : undefined}
-            aria-valuenow={value() ?? undefined}
+            aria-valuenow={(focused() ? parse(raw()) : value()) ?? undefined}
             onFocus={() => setFocused(true)}
             onInput={(event) => {
               const next = filter(event.currentTarget.value);
@@ -166,7 +167,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
               emit(parse(next));
             }}
             onBlur={() => {
-              commit(parse(raw()));
+              commit(parse(raw()), true);
               setFocused(false);
             }}
           />

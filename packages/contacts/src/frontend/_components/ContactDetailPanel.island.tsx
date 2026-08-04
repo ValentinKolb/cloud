@@ -207,9 +207,9 @@ export default function ContactDetailPanel(props: Props) {
       when={contact()}
       fallback={
         props.showEmpty === false ? null : (
-          <Placeholder icon="ti ti-id" class="h-full min-h-0 justify-center">
+          <Placeholder icon="ti ti-id" class="h-full min-h-0 justify-center" description={<>
             Select a contact to see details
-          </Placeholder>
+          </>} />
         )
       }
     >

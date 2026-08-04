@@ -72,9 +72,9 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
         <Show
           when={filtered().length > 0}
           fallback={
-            <Placeholder align="left" icon="ti ti-tags" class="py-2">
+            <Placeholder align="left" icon="ti ti-tags" class="py-2" description={<>
               {(tags() ?? []).length === 0 ? "No tags yet." : `No tags match "${query()}".`}
-            </Placeholder>
+            </>} />
           }
         >
           {/* Compact floating grid — flex-wrap pills so many tags fit

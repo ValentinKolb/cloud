@@ -1,12 +1,4 @@
-const replaceRange = (textarea: HTMLTextAreaElement, start: number, end: number, replacement: string): void => {
-  textarea.focus();
-  textarea.setSelectionRange(start, end);
-  if (document.execCommand("insertText", false, replacement)) return;
-  textarea.value = textarea.value.slice(0, start) + replacement + textarea.value.slice(end);
-  const caret = start + replacement.length;
-  textarea.setSelectionRange(caret, caret);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
-};
+import { replaceTextareaRange as replaceRange } from "../editor-dom";
 
 const lineAt = (value: string, position: number): { lineStart: number; lineEnd: number; line: string } => {
   const lineStart = value.lastIndexOf("\n", position - 1) + 1;

@@ -29,13 +29,13 @@ import {
 | `children` | `JSX.Element` | required | Contains `StatCell` elements. |
 | `title` | `string` | none | Adds a compact heading above the cells. |
 | `action` | `{ label: string; href: string }` | none | Adds a header link when `title` is present. |
-| `columns` | `number` | responsive ladder | Selects one to six responsive columns. |
+| `columns` | `1 \| 2 \| 3 \| 4 \| 5 \| 6` | responsive ladder | Selects one to six responsive columns. |
 | `size` | `"md" \| "sm"` | `"md"` | Sets the density inherited by cells. |
 | `surface` | `"white" \| "muted"` | `"white"` | Matches the cell backgrounds to a page or muted parent surface. |
 | `class` | `string` | none | Adds sizing or layout classes to the outer surface. |
 
-Pass `columns` when the cell count is known. Omitting it, or passing a value
-outside one to six, uses the six-column ladder: two columns initially, three
+Pass `columns` when the cell count is known. Omitting it uses the six-column
+ladder: two columns initially, three
 from 40rem, and six from 48rem. Three cells move from one to three columns at
 40rem; four cells move from two to four at 48rem; five cells use two, then
 three, then five. One- and two-column grids remain fixed.
@@ -51,10 +51,10 @@ three, then five. One- and two-column grids remain fixed.
 | `accent` | `StatCellAccent` | Adds a semantic icon or short status pill. |
 | `valueClass` | `string` | Overrides the value color. |
 | `title` | `string` | Adds a native title to a truncated value. |
-| `trend` | `number[]` | Adds a compact sparkline from oldest to newest. |
+| `trend` | `readonly number[]` | Adds a compact sparkline from oldest to newest. |
 | `size` | `"md" \| "sm"` | Overrides the inherited size for one cell. |
 
-An accent has a `tone`, Tabler `icon`, optional `text`, and optional `href`. Text creates a pill. Without text, only the icon is shown. An accent link is ignored when the whole cell already has an `href`, which prevents nested links.
+An accent has a `tone`, Tabler `icon`, and optional `text`. Text creates a pill. Without text, only the icon is shown. Use the cell `href` when the measurement needs a link.
 
 ## Composition
 
@@ -67,10 +67,8 @@ An accent has a `tone`, Tabler `icon`, optional `text`, and optional `href`. Tex
 
 ## Accessibility
 
-Every value needs a visible label. A linked cell and linked accent pill are
-native, independently focusable links. A cell-level `href` suppresses an
-accent link to prevent invalid nested anchors. Keep their combined text useful
-at the destination.
+Every value needs a visible label. A linked cell is a native, independently
+focusable link. Keep its combined text useful at the destination.
 
 Accent icons and sparklines supplement the text; they do not replace a status
 label or numeric value. Truncated values can expose their complete wording
@@ -96,8 +94,8 @@ through `title`.
       tone: "red",
       icon: "ti ti-alert-circle",
       text: "Inspect",
-      href: "/admin/observability/telemetry?range=24h&errors=1",
     }}
+    href="/admin/observability/telemetry?range=24h&errors=1"
   />
   <StatCell
     label="Rate limited"

@@ -1,6 +1,6 @@
 import { dropzone } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { Button, IconButton } from "../actions";
+import { Button, IconButton } from "../actions/Button";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import type { FieldProps, ValueFieldProps } from "./field-contract";
 import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";

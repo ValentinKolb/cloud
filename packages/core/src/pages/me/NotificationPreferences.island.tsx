@@ -128,7 +128,7 @@ export default function NotificationPreferences(props: { initial: UserNotificati
     .sort((left, right) => left.app.name.localeCompare(right.app.name));
 
   return (
-    <Show when={groups.length > 0} fallback={<Placeholder surface="paper">No configurable notifications are registered.</Placeholder>}>
+    <Show when={groups.length > 0} fallback={<Placeholder surface="paper" description={<>No configurable notifications are registered.</>} />}>
       <div class="flex flex-col gap-2">
         <For each={groups}>
           {(group) => (

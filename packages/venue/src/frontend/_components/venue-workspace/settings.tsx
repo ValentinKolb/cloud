@@ -478,9 +478,9 @@ export function SettingsDialog(props: {
                 <For
                   each={openingRules()}
                   fallback={
-                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2">
+                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>
                       No regular hours.
-                    </Placeholder>
+                    </>} />
                   }
                 >
                   {(rule) => (
@@ -531,9 +531,9 @@ export function SettingsDialog(props: {
                 <For
                   each={overrides()}
                   fallback={
-                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2">
+                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>
                       No closed days.
-                    </Placeholder>
+                    </>} />
                   }
                 >
                   {(entry) => (
@@ -584,9 +584,9 @@ export function SettingsDialog(props: {
                 <For
                   each={shiftTemplates()}
                   fallback={
-                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2">
+                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>
                       No shifts configured.
-                    </Placeholder>
+                    </>} />
                   }
                 >
                   {(shift) => (

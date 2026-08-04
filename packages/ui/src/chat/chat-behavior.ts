@@ -1,3 +1,5 @@
+import type { ChatAction } from "./types";
+
 export const filterChatCommands = <T extends { name: string }>(
   value: string,
   commands: readonly T[],
@@ -70,4 +72,20 @@ export const reportChatFailure = (
   } catch (error) {
     onError?.(error);
   }
+};
+
+const writeChatClipboard = async (value: string): Promise<void> => {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+    throw new Error("Clipboard access is unavailable.");
+  }
+  await navigator.clipboard.writeText(value);
+};
+
+/** Executes the one behavior guaranteed by the ChatAction contract. */
+export const executeChatAction = async (action: ChatAction): Promise<void> => {
+  if (typeof action.copyText === "string") {
+    await writeChatClipboard(action.copyText);
+    return;
+  }
+  await action.onSelect();
 };

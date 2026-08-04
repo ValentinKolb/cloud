@@ -50,6 +50,7 @@ describe("@k2b/ui canonical field contract", () => {
         label: "Project",
         description: "Public name",
         error: () => "Required",
+        value: "",
         required: true,
         disabled: true,
       }),
@@ -66,8 +67,8 @@ describe("@k2b/ui canonical field contract", () => {
 
   test("uses the same native ARIA names across compound controls", () => {
     const controls = [
-      renderToString(() => createComponent(Select, { "aria-label": "Team", options: [] })),
-      renderToString(() => createComponent(MultiSelectInput, { "aria-label": "Teams", options: [] })),
+      renderToString(() => createComponent(Select, { "aria-label": "Team", value: null, options: [] })),
+      renderToString(() => createComponent(MultiSelectInput, { "aria-label": "Teams", value: [], options: [] })),
       renderToString(() =>
         createComponent(Combobox, {
           "aria-label": "Add team",
@@ -75,7 +76,7 @@ describe("@k2b/ui canonical field contract", () => {
           onSelect: () => {},
         }),
       ),
-      renderToString(() => createComponent(TagsInput, { "aria-label": "Tags" })),
+      renderToString(() => createComponent(TagsInput, { "aria-label": "Tags", value: [] })),
       renderToString(() => createComponent(DatePicker, { "aria-label": "Release date", value: null })),
     ];
 
@@ -95,17 +96,17 @@ describe("@k2b/ui canonical field contract", () => {
       disabled: true,
     };
     const controls = [
-      renderToString(() => createComponent(TextInput, field)),
-      renderToString(() => createComponent(NumberInput, field)),
-      renderToString(() => createComponent(Checkbox, field)),
-      renderToString(() => createComponent(CheckboxCard, field)),
-      renderToString(() => createComponent(Switch, field)),
-      renderToString(() => createComponent(Select, { ...field, options: [] })),
-      renderToString(() => createComponent(MultiSelectInput, { ...field, options: [] })),
-      renderToString(() => createComponent(TagsInput, field)),
-      renderToString(() => createComponent(PinInput, field)),
+      renderToString(() => createComponent(TextInput, { ...field, value: "" })),
+      renderToString(() => createComponent(NumberInput, { ...field, value: null })),
+      renderToString(() => createComponent(Checkbox, { ...field, value: false })),
+      renderToString(() => createComponent(CheckboxCard, { ...field, value: false })),
+      renderToString(() => createComponent(Switch, { ...field, value: false })),
+      renderToString(() => createComponent(Select, { ...field, value: null, options: [] })),
+      renderToString(() => createComponent(MultiSelectInput, { ...field, value: [], options: [] })),
+      renderToString(() => createComponent(TagsInput, { ...field, value: [] })),
+      renderToString(() => createComponent(PinInput, { ...field, value: "" })),
       renderToString(() => createComponent(Slider, { ...field, value: 50 })),
-      renderToString(() => createComponent(ColorInput, field)),
+      renderToString(() => createComponent(ColorInput, { ...field, value: "#000000" })),
       renderToString(() => createComponent(DatePicker, { ...field, value: null })),
       renderToString(() =>
         createComponent(Combobox, {
@@ -115,11 +116,11 @@ describe("@k2b/ui canonical field contract", () => {
         }),
       ),
       renderToString(() => createComponent(SelectChip, { ...field, value: "one", options: [] })),
-      renderToString(() => createComponent(AutocompleteEditor, field)),
-      renderToString(() => createComponent(MarkdownEditor, field)),
+      renderToString(() => createComponent(AutocompleteEditor, { ...field, value: "" })),
+      renderToString(() => createComponent(MarkdownEditor, { ...field, value: "" })),
       renderToString(() => createComponent(FileDropzone, { ...field, onDrop: () => {} })),
-      renderToString(() => createComponent(ImageInput, field)),
-      renderToString(() => createComponent(IconInput, field)),
+      renderToString(() => createComponent(ImageInput, { ...field, value: null })),
+      renderToString(() => createComponent(IconInput, { ...field, value: null })),
     ];
 
     for (const html of controls) {

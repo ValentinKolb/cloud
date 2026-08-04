@@ -10,25 +10,26 @@ export type TextInputProps = Omit<
   "onChange" | "onInput" | "prefix" | "suffix" | "type" | "value" | keyof ValueFieldProps<string>
 > &
   ValueFieldProps<string> & {
-  maxLength?: number;
-  type?: "text" | "search" | "email" | "url" | "tel";
-  variant?: "default" | "ai";
-  icon?: string;
-  activeIcon?: string;
-  prefix?: JSX.Element;
-  suffix?: JSX.Element;
-  clearable?: boolean;
-  onClear?: () => void;
-  clearLabel?: string;
-  multiline?: boolean;
-  monospace?: boolean;
-  password?: boolean;
-  markdown?: boolean;
-  onSubmit?: () => void;
-  lines?: number;
-  abbreviations?: Record<string, string>;
-  completions?: readonly Completion[];
-};
+    minLength?: number;
+    maxLength?: number;
+    type?: "text" | "search" | "email" | "url" | "tel";
+    variant?: "default" | "ai";
+    icon?: string;
+    activeIcon?: string;
+    prefix?: JSX.Element;
+    suffix?: JSX.Element;
+    clearable?: boolean;
+    onClear?: () => void;
+    clearLabel?: string;
+    multiline?: boolean;
+    monospace?: boolean;
+    password?: boolean;
+    markdown?: boolean;
+    onSubmit?: () => void;
+    lines?: number;
+    abbreviations?: Record<string, string>;
+    completions?: readonly Completion[];
+  };
 
 export function TextInput(props: TextInputProps): JSX.Element {
   const [local, rest] = splitProps(props, [
@@ -46,6 +47,7 @@ export function TextInput(props: TextInputProps): JSX.Element {
     "label",
     "lines",
     "markdown",
+    "minLength",
     "maxLength",
     "monospace",
     "multiline",
@@ -116,6 +118,7 @@ export function TextInput(props: TextInputProps): JSX.Element {
                   class="k2b-input"
                   type={local.password && !passwordVisible() ? "password" : (local.type ?? "text")}
                   value={value()}
+                  minlength={local.minLength}
                   maxlength={local.maxLength}
                   required={local.required}
                   {...fieldControlAria(meta, local)}
@@ -133,6 +136,7 @@ export function TextInput(props: TextInputProps): JSX.Element {
                 value={value()}
                 rows={local.lines ?? 3}
                 required={local.required}
+                minlength={local.minLength}
                 maxlength={local.maxLength}
                 {...fieldControlAria(meta, local)}
                 onInput={(event) => {

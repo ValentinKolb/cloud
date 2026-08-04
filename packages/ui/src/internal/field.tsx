@@ -25,6 +25,8 @@ type FieldLayoutProps = {
   children: JSX.Element;
   meta: FieldMeta;
   fill?: boolean;
+  /** Composite controls use aria-labelledby instead of an HTML label target. */
+  labelFor?: string | false;
 } & Pick<FieldProps, "class" | "description" | "error" | "label" | "required" | "disabled">;
 
 export function Field(props: FieldLayoutProps): JSX.Element {
@@ -38,14 +40,24 @@ export function Field(props: FieldLayoutProps): JSX.Element {
       data-invalid={error() ? "true" : undefined}
     >
       <Show when={props.label}>
-        <label id={props.meta.labelId} class="k2b-field__label" for={props.meta.controlId}>
-          {props.label}
-          <Show when={props.required}>
-            <span class="k2b-field__required" aria-hidden="true">
-              *
+        <Show
+          when={props.labelFor !== false}
+          fallback={
+            <span id={props.meta.labelId} class="k2b-field__label">
+              {props.label}
+              <Show when={props.required}>
+                <span class="k2b-field__required" aria-hidden="true">*</span>
+              </Show>
             </span>
-          </Show>
-        </label>
+          }
+        >
+          <label id={props.meta.labelId} class="k2b-field__label" for={props.labelFor || props.meta.controlId}>
+            {props.label}
+            <Show when={props.required}>
+              <span class="k2b-field__required" aria-hidden="true">*</span>
+            </Show>
+          </label>
+        </Show>
       </Show>
       <Show when={props.description}>
         <p class="k2b-field__description" id={props.meta.descriptionId}>

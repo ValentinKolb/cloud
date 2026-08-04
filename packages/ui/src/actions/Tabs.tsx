@@ -65,8 +65,20 @@ function TabsRoot<T extends string = string>(props: TabsProps<T>): JSX.Element {
   const buttons: HTMLButtonElement[] = [];
   const current = () => resolveMaybeAccessor(props.value);
   const active = createMemo(() => items().find((option) => option.value === current()));
-  const activeIndex = createMemo(() => Math.max(0, items().findIndex((option) => option.value === current())));
-  const enabled = () => items().map((option, index) => ({ option, index })).filter(({ option }) => !option.disabled);
+  const activeIndex = createMemo(() =>
+    Math.max(
+      0,
+      items().findIndex((option) => option.value === current()),
+    ),
+  );
+  const enabled = () =>
+    items()
+      .map((option, index) => ({ option, index }))
+      .filter(({ option }) => !option.disabled);
+  const tabStopIndex = createMemo(() => {
+    const selected = items().findIndex((option) => option.value === current() && !option.disabled);
+    return selected >= 0 ? selected : (enabled()[0]?.index ?? -1);
+  });
   const select = (index: number) => {
     const option = items()[index];
     if (!option || option.disabled) return;
@@ -90,13 +102,15 @@ function TabsRoot<T extends string = string>(props: TabsProps<T>): JSX.Element {
             const panelId = () => `${instanceId}-panel-${index()}`;
             return (
               <button
-                ref={(element) => { buttons[index()] = element; }}
+                ref={(element) => {
+                  buttons[index()] = element;
+                }}
                 id={id()}
                 type="button"
                 role="tab"
                 aria-selected={current() === option.value}
                 aria-controls={option.panel !== undefined ? panelId() : undefined}
-                tabIndex={current() === option.value ? 0 : -1}
+                tabIndex={tabStopIndex() === index() ? 0 : -1}
                 disabled={option.disabled}
                 onClick={() => props.onValueChange(option.value)}
                 onKeyDown={(event) => {

@@ -813,7 +813,10 @@
 /* `data-overflow` is written by `installAppWorkspaceController` once it has
    measured the label, so a label that fits never animates. */
 .k2b-ui .k2b-app-workspace__sidebar-item-label[data-overflow="true"][data-marquee="true"]:hover .k2b-app-workspace__sidebar-item-label-text,
-.k2b-ui .k2b-app-workspace__sidebar-item:focus-within .k2b-app-workspace__sidebar-item-label[data-overflow="true"][data-marquee="true"] .k2b-app-workspace__sidebar-item-label-text {
+.k2b-ui
+  .k2b-app-workspace__sidebar-item:focus-within
+  .k2b-app-workspace__sidebar-item-label[data-overflow="true"][data-marquee="true"]
+  .k2b-app-workspace__sidebar-item-label-text {
   animation: k2b-sidebar-label-marquee 4s ease-in-out 0.2s infinite alternate;
 }
 
@@ -1646,12 +1649,17 @@
 }
 
 .k2b-ui .k2b-panel-dialog__tabs {
+  display: block;
+}
+
+.k2b-ui .k2b-panel-dialog__tabs .k2b-tabs__list {
   @apply flex shrink-0 items-center overflow-x-auto;
   gap: 0.25rem;
   padding: 0.375rem 1rem 0.625rem;
+  border-bottom: 0;
 }
 
-.k2b-ui .k2b-panel-dialog__tabs button {
+.k2b-ui .k2b-panel-dialog__tabs .k2b-tabs__list button {
   @apply inline-flex shrink-0 cursor-pointer items-center border-0;
   gap: 0.375rem;
   min-height: 1.875rem;
@@ -1662,11 +1670,11 @@
   font-size: 0.75rem;
 }
 
-.k2b-ui .k2b-panel-dialog__tabs button:hover {
+.k2b-ui .k2b-panel-dialog__tabs .k2b-tabs__list button:hover {
   background: var(--k2b-hover);
 }
 
-.k2b-ui .k2b-panel-dialog__tabs button[data-active="true"] {
+.k2b-ui .k2b-panel-dialog__tabs .k2b-tabs__list button[aria-selected="true"] {
   color: var(--k2b-action);
   background: var(--k2b-selected);
   font-weight: 600;
@@ -2191,7 +2199,10 @@
   display: none;
 }
 
-.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] .k2b-app-workspace__sidebar-header {
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  .k2b-app-workspace__sidebar-header {
   justify-content: center;
   padding-inline: 0;
 }
@@ -2216,12 +2227,18 @@
   display: none !important;
 }
 
-.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] :is(.k2b-app-workspace__sidebar-item, .k2b-app-workspace__sidebar-item-main) {
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  :is(.k2b-app-workspace__sidebar-item, .k2b-app-workspace__sidebar-item-main) {
   justify-content: center;
   padding-inline: 0;
 }
 
-.k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] .k2b-app-workspace__sidebar[data-workspace-collapsible="true"] .k2b-app-workspace__sidebar-icon-grid {
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  .k2b-app-workspace__sidebar-icon-grid {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -2326,7 +2343,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .k2b-ui .k2b-app-workspace:not(:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar)) > .k2b-app-workspace__content {
+  .k2b-ui
+    .k2b-app-workspace:not(:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar))
+    > .k2b-app-workspace__content {
     grid-column: 1;
   }
 
@@ -2349,6 +2368,9 @@
   position: fixed;
   z-index: 1000;
   inset: unset;
+  display: none;
+  flex-direction: column;
+  gap: 0.125rem;
   /* `Dropdown`'s `width` prop sets `--k2b-dropdown-width` to a CSS length.
      No `min-width`: it would silently clamp a narrower requested width. */
   width: var(--k2b-dropdown-width, 12rem);
@@ -2362,12 +2384,13 @@
   color: var(--k2b-text);
   background: var(--k2b-surface-elevated);
   box-shadow: var(--k2b-shadow-float);
+  /* Selection and action menus close synchronously. Host-level popover
+     transitions must not retain a stale top-layer frame after hidePopover. */
+  transition: none;
 }
 
 .k2b-ui .k2b-dropdown__menu:popover-open {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
 }
 
 .k2b-ui .k2b-dropdown__item {
@@ -2605,12 +2628,16 @@
   min-width: 0;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4375rem 2rem 0.4375rem 0.625rem;
+  padding: 0.4375rem 0.625rem;
   color: var(--k2b-text-secondary);
   font: inherit;
   font-size: 0.8125rem;
   text-align: left;
   cursor: pointer;
+}
+
+.k2b-ui .k2b-choice-trigger[data-clearable="true"] {
+  padding-right: 2rem;
 }
 
 .k2b-ui .k2b-choice-trigger:disabled,
@@ -2709,6 +2736,7 @@
   color: var(--k2b-text);
   background: var(--k2b-surface-elevated);
   box-shadow: var(--k2b-shadow-float);
+  transition: none;
 }
 
 .k2b-ui .k2b-choice-popover:not(:popover-open) {
@@ -3270,6 +3298,7 @@
   color: var(--k2b-text);
   background: var(--k2b-surface-elevated);
   box-shadow: var(--k2b-shadow-float);
+  transition: none;
 }
 
 .k2b-ui .k2b-date-popover:not(:popover-open) {
@@ -4993,7 +5022,7 @@
   margin: 0;
 }
 
-.k2b-ui .k2b-chat-composer__model-trigger {
+.k2b-ui .k2b-chat-composer__model .k2b-select-chip {
   display: inline-flex;
   width: max-content;
   min-height: 1.875rem;
@@ -5010,13 +5039,13 @@
   cursor: pointer;
 }
 
-.k2b-ui .k2b-chat-composer__model-trigger:hover {
+.k2b-ui .k2b-chat-composer__model .k2b-select-chip:hover {
   color: var(--k2b-text);
   background: var(--k2b-hover);
 }
 
-.k2b-ui .k2b-chat-composer__model-trigger img,
-.k2b-ui .k2b-chat-composer__model-item img {
+.k2b-ui .k2b-chat-composer__model .k2b-select-chip img,
+.k2b-ui .k2b-chat-composer__model .k2b-select-chip__option img {
   width: 1.125rem;
   height: 1.125rem;
   flex: 0 0 auto;
@@ -5024,41 +5053,10 @@
   object-fit: cover;
 }
 
-.k2b-ui .k2b-chat-composer__model-trigger span {
+.k2b-ui .k2b-chat-composer__model .k2b-select-chip > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.k2b-ui .k2b-chat-composer__model-item > span {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: 0.625rem;
-}
-
-.k2b-ui .k2b-chat-composer__model-item > span > span {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 0.0625rem;
-}
-
-.k2b-ui .k2b-chat-composer__model-item > span > i:last-child {
-  margin-left: auto;
-}
-
-.k2b-ui .k2b-chat-composer__model-item strong,
-.k2b-ui .k2b-chat-composer__model-item small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.k2b-ui .k2b-chat-composer__model-item small {
-  color: var(--k2b-text-muted);
-  font-size: 0.625rem;
 }
 
 @media (max-width: 40rem) {
@@ -5224,13 +5222,34 @@
   cursor: not-allowed;
 }
 
-/* Cloud's chip menu row: truncating label, check marker pushed to the end. */
-.k2b-ui .k2b-select-chip__option > span {
+/* Compact selection row: truncating copy, optional supporting text, and a
+   check marker pushed to the end. */
+.k2b-ui .k2b-select-chip__option-copy {
+  display: grid;
   min-width: 0;
   flex: 1;
+  gap: 0.0625rem;
+}
+
+.k2b-ui .k2b-select-chip__option-copy > span,
+.k2b-ui .k2b-select-chip__option-copy > small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.k2b-ui .k2b-select-chip__option-copy > small {
+  color: var(--k2b-text-muted);
+  font-size: 0.625rem;
+}
+
+.k2b-ui .k2b-select-chip > img,
+.k2b-ui .k2b-select-chip__option > img {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  border-radius: 0.25rem;
+  object-fit: cover;
 }
 
 .k2b-ui .k2b-select-chip__check {
@@ -5465,6 +5484,11 @@
   flex: 0 0 auto;
   margin: 0 0.125rem;
   background: var(--k2b-border);
+}
+.k2b-ui .k2b-toolbar__separator[data-orientation="horizontal"] {
+  width: 1.25rem;
+  height: 1px;
+  margin: 0.125rem 0;
 }
 .k2b-ui .k2b-toolbar__spacer {
   min-width: 0.5rem;

@@ -26,6 +26,8 @@ export type FileViewContent = { encoding: "utf8" | "base64"; content: string; me
 export type FileViewProps = {
   file: FileViewFile;
   load: () => Promise<FileViewContent>;
+  /** Refetch the current path when this host-owned revision changes. */
+  revision?: unknown;
   /** Presence enables editing for text-based renderers. */
   save?: (content: string) => Promise<void>;
   /** Authenticated inline URL used by browser-native image, PDF, audio, and video previews. */
@@ -480,7 +482,7 @@ export default function FileView(props: FileViewProps) {
     return customRenderers.some((renderer) => renderer.match(props.file, candidate)) ? null : candidate;
   });
   const [content] = createResource(
-    () => (browserPreviewContent() ? null : props.file.path),
+    () => (browserPreviewContent() ? null : { path: props.file.path, revision: props.revision }),
     async () => {
       saveMutation.abort();
       // `load` is an imperative source adapter. Host signal reads inside it

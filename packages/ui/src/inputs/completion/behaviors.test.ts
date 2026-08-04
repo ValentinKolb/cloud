@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { applySuggestion, resetCompletionState, tryExpand, tryRestore } from "./behaviors";
+import { createCompletionBehaviorState } from "./behaviors";
 import type { Completion, QueryContext, Suggestion } from "./engine";
 
 type FakeTextarea = HTMLTextAreaElement & {
@@ -16,12 +16,18 @@ const textarea = (value: string): FakeTextarea =>
     value,
     selectionStart: 0,
     selectionEnd: 0,
-    setSelectionRange(start: number, end: number) {
+    focus(this: FakeTextarea) {
+      active = this;
+    },
+    setSelectionRange(this: FakeTextarea, start: number, end: number) {
       active = this;
       this.selectionStart = start;
       this.selectionEnd = end;
     },
-  }) as FakeTextarea;
+    dispatchEvent() {
+      return true;
+    },
+  }) as unknown as FakeTextarea;
 
 const context = (text: string): QueryContext => ({
   start: 0,
@@ -45,13 +51,13 @@ const installExecCommand = (): void => {
 };
 
 afterEach(() => {
-  resetCompletionState();
   active = null;
   globalThis.document = originalDocument;
 });
 
 describe("completion behaviors", () => {
   test("accepted expansion participates in immediate Backspace restore", () => {
+    const behavior = createCompletionBehaviorState();
     globalThis.document = {
       execCommand: (_command: string, _showUi: boolean, value: string) => {
         if (!active) return false;
@@ -69,28 +75,30 @@ describe("completion behaviors", () => {
       label: "Units",
     };
 
-    expect(applySuggestion(element, context("Units"), suggestion)).toBe(true);
+    expect(behavior.applySuggestion(element, context("Units"), suggestion)).toBe(true);
     expect(element.value).toBe("#Wf87H ");
-    expect(tryRestore(element)).toBe(true);
+    expect(behavior.tryRestore(element)).toBe(true);
     expect(element.value).toBe("Units ");
   });
 
   test("accepted expansion can opt out of Backspace restore tracking", () => {
+    const behavior = createCompletionBehaviorState();
     installExecCommand();
     const element = textarea("Units");
     const suggestion: Suggestion = { text: "Units", expansion: "#Wf87H", label: "Units" };
 
-    expect(applySuggestion(element, context("Units"), suggestion, { trackExpansion: false })).toBe(true);
+    expect(behavior.applySuggestion(element, context("Units"), suggestion, { trackExpansion: false })).toBe(true);
     expect(element.value).toBe("#Wf87H ");
-    expect(tryRestore(element)).toBe(false);
+    expect(behavior.tryRestore(element)).toBe(false);
     expect(element.value).toBe("#Wf87H ");
   });
 
   test("validates explicit text edit ranges", () => {
+    const behavior = createCompletionBehaviorState();
     globalThis.document = { execCommand: () => true } as unknown as Document;
     const element = textarea("abc");
     expect(
-      applySuggestion(element, context("abc"), {
+      behavior.applySuggestion(element, context("abc"), {
         text: "x",
         textEdit: { start: -1, end: 2, text: "x" },
       }),
@@ -98,11 +106,12 @@ describe("completion behaviors", () => {
   });
 
   test("applies explicit suggestion text edits over the requested range", () => {
+    const behavior = createCompletionBehaviorState();
     installExecCommand();
     const element = textarea("from table Ord\nselect Amount");
 
     expect(
-      applySuggestion(element, context("Ord"), {
+      behavior.applySuggestion(element, context("Ord"), {
         text: "Orders",
         textEdit: { start: "from table ".length, end: "from table Ord".length, text: "Orders" },
       }),
@@ -111,27 +120,60 @@ describe("completion behaviors", () => {
   });
 
   test("expands an abbreviation on a word boundary and suppresses the re-entrant input", () => {
+    const behavior = createCompletionBehaviorState();
     installExecCommand();
     const completions: Completion[] = [{ suggest: () => [{ text: "brb", expansion: "be right back" }] }];
     const element = textarea("brb ");
     element.selectionStart = 4;
     element.selectionEnd = 4;
 
-    expect(tryExpand(element, completions)).toBe(true);
+    expect(behavior.tryExpand(element, completions)).toBe(true);
     expect(element.value).toBe("be right back ");
     // The execCommand above dispatches a synchronous input event in a real
     // browser; the next call must not cascade into another expansion.
-    expect(tryExpand(element, completions)).toBe(false);
+    expect(behavior.tryExpand(element, completions)).toBe(false);
   });
 
   test("never expands where the host marks the position as excluded", () => {
+    const behavior = createCompletionBehaviorState();
     installExecCommand();
     const completions: Completion[] = [{ suggest: () => [{ text: "brb", expansion: "be right back" }] }];
     const element = textarea("`brb `");
     element.selectionStart = 5;
     element.selectionEnd = 5;
 
-    expect(tryExpand(element, completions, { isExcluded: () => true })).toBe(false);
+    expect(behavior.tryExpand(element, completions, { isExcluded: () => true })).toBe(false);
     expect(element.value).toBe("`brb `");
+  });
+
+  test("keeps restoration state isolated between editor instances", () => {
+    installExecCommand();
+    const first = createCompletionBehaviorState();
+    const second = createCompletionBehaviorState();
+    const firstElement = textarea("Units");
+    const secondElement = textarea("Orders");
+
+    expect(first.applySuggestion(firstElement, context("Units"), { text: "Units", expansion: "#Wf87H" })).toBe(true);
+    expect(second.applySuggestion(secondElement, context("Orders"), { text: "Orders", expansion: "#Ab12C" })).toBe(true);
+    second.reset();
+
+    expect(first.tryRestore(firstElement)).toBe(true);
+    expect(firstElement.value).toBe("Units ");
+    expect(second.tryRestore(secondElement)).toBe(false);
+  });
+
+  test("falls back to direct range replacement when insertText is unavailable", () => {
+    const behavior = createCompletionBehaviorState();
+    globalThis.document = { execCommand: () => false } as unknown as Document;
+    const element = textarea("Hi @al");
+
+    expect(behavior.applySuggestion(element, {
+      start: 3,
+      end: 6,
+      text: "@al",
+      query: "al",
+      completion: { suggest: () => [] },
+    }, { text: "@alice", appendSpace: false })).toBe(true);
+    expect(element.value).toBe("Hi @alice");
   });
 });

@@ -90,9 +90,9 @@ const AttachmentsOverview = (props: Props) => {
       when={items().length > 0}
       fallback={
         props.searchQuery ? (
-          <Placeholder surface="paper" icon="ti ti-paperclip">
+          <Placeholder surface="paper" icon="ti ti-paperclip" description={<>
             No attachments match "{props.searchQuery}".
-          </Placeholder>
+          </>} />
         ) : (
           <Placeholder
             surface="paper"

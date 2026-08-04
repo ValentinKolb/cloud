@@ -177,7 +177,10 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
     expect(html).toContain('data-surface="floating"');
     expect(html).toContain("k2b-panel-dialog__header");
     expect(html).toContain("k2b-panel-dialog__tabs");
-    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('role="tab"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).not.toContain("aria-pressed");
     expect(html).toContain('data-scroll-preserve="project-settings"');
     expect(html).toContain("k2b-panel-dialog__section");
     expect(html).toContain("k2b-panel-dialog__footer");

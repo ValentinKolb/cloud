@@ -394,7 +394,7 @@ export default function FileToolbar({
               </Button>
             </Show>
           </div>
-          <ProgressBar value={globalProgress()} size="sm" showValue />
+          <ProgressBar value={globalProgress()} size="sm" showValue label="Overall upload progress" />
           <div class="text-[11px] text-dimmed">
             {formatBytes(uploadedBytes())} / {formatBytes(totalBytes())}
           </div>
@@ -435,7 +435,7 @@ function UploadProgressItem(props: FileUploadState) {
             {props.relativePath ?? props.filename}
           </span>
           <Show when={props.status === "uploading"}>
-            <ProgressBar value={props.progress} size="xs" class="w-20" />
+            <ProgressBar value={props.progress} size="xs" class="w-20" label={`${props.filename} upload progress`} />
             <span class="w-8 text-right text-dimmed">{props.progress}%</span>
           </Show>
         </div>

@@ -2,6 +2,7 @@ import {
   type Accessor,
   createContext,
   createEffect,
+  createMemo,
   createSignal,
   createUniqueId,
   For,
@@ -168,6 +169,10 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
   let hasMore = false;
   let loadingMore = false;
   let onLoadMore: (() => void) | undefined;
+  let loadMoreRequested = false;
+  let previousRowsLength = props.rows.length;
+  let previousLoadingMore = !!props.loadingMore;
+  let previousHasMore = !!props.hasMore;
   const rowId = (row: T) => props.getRowId?.(row);
   const isInteractive = () => !!props.onRowClick || !!props.onRowDoubleClick;
   const shouldHoverRows = () => props.hoverRows ?? isInteractive();
@@ -187,9 +192,15 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
   };
 
   const maybeLoadMore = () => {
-    if (!hasMore || loadingMore || !onLoadMore) return;
+    if (!hasMore || loadingMore || loadMoreRequested || !onLoadMore) return;
     if (!isNearBottom()) return;
-    onLoadMore();
+    loadMoreRequested = true;
+    try {
+      onLoadMore();
+    } catch (error) {
+      loadMoreRequested = false;
+      throw error;
+    }
   };
 
   const valueOf = (row: T, col: DataTableColumn<T>) => {
@@ -198,19 +209,28 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
     return undefined;
   };
 
-  const columnAlign = (col: DataTableColumn<T>) => {
-    if (col.align) return col.align;
-    for (const row of props.rows) {
-      const value = valueOf(row, col);
-      if (value === null || value === undefined || value === "") continue;
-      return typeof value === "number" || typeof value === "bigint" ? "right" : "left";
+  const columnAlignments = createMemo(() => {
+    const alignments = new Map<string, NonNullable<DataTableColumn<T>["align"]>>();
+    for (const col of props.columns) {
+      if (col.align) {
+        alignments.set(col.id, col.align);
+        continue;
+      }
+      let align: NonNullable<DataTableColumn<T>["align"]> = "left";
+      for (const row of props.rows) {
+        const value = valueOf(row, col);
+        if (value === null || value === undefined || value === "") continue;
+        align = typeof value === "number" || typeof value === "bigint" ? "right" : "left";
+        break;
+      }
+      alignments.set(col.id, align);
     }
-    return "left";
-  };
+    return alignments;
+  });
 
   /** `data-align` mirrors Cloud's `text-left/center/right` on the same cell. */
   const alignAttr = (col: DataTableColumn<T>) => {
-    const align = columnAlign(col);
+    const align = columnAlignments().get(col.id) ?? "left";
     return align === "left" ? undefined : align;
   };
 
@@ -277,7 +297,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
     if (isNestedRowControl(event)) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    props.onRowClick?.(row);
+    (props.onRowClick ?? props.onRowDoubleClick)?.(row);
   };
 
   const onRowClick = (event: MouseEvent, row: T) => {
@@ -308,15 +328,27 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
   });
 
   createEffect(() => {
-    props.rows.length;
-    hasMore = !!props.hasMore;
-    loadingMore = !!props.loadingMore;
+    const rowsLength = props.rows.length;
+    const nextHasMore = !!props.hasMore;
+    const nextLoadingMore = !!props.loadingMore;
+    if (
+      rowsLength !== previousRowsLength ||
+      (previousLoadingMore && !nextLoadingMore) ||
+      (!previousHasMore && nextHasMore)
+    ) {
+      loadMoreRequested = false;
+    }
+    previousRowsLength = rowsLength;
+    previousLoadingMore = nextLoadingMore;
+    previousHasMore = nextHasMore;
+    hasMore = nextHasMore;
+    loadingMore = nextLoadingMore;
     onLoadMore = props.onLoadMore;
     maybeLoadMore();
   });
 
   return (
-    <Show when={props.columns.length > 0} fallback={<Placeholder surface="paper">No columns.</Placeholder>}>
+    <Show when={props.columns.length > 0} fallback={<Placeholder surface="paper" description={<>No columns.</>} />}>
       <div
         ref={scrollRef}
         role="region"
@@ -337,6 +369,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
               <For each={props.columns}>
                 {(col, index) => (
                   <th
+                    scope="col"
                     class={`${col.headerClass ?? ""} ${col.class ?? ""}`}
                     data-align={alignAttr(col)}
                     data-highlighted={columnHighlighted(index())}
@@ -349,38 +382,13 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
               </For>
             </tr>
           </thead>
-          <Show when={props.footer}>
-            {(footer) => (
-              <tfoot class="k2b-data-table__foot" data-sticky="true">
-                <tr class="k2b-data-table__foot-row">
-                  <For each={props.columns}>
-                    {(col, index) => {
-                      const value = () => footer().values?.[col.id];
-                      return (
-                        <td
-                          class="k2b-data-table__footer-cell"
-                          data-align={alignAttr(col)}
-                          data-highlighted={columnHighlighted(index())}
-                          onMouseEnter={() => setHoveredColumnIfEnabled(index())}
-                        >
-                          {footer().renderCell
-                            ? footer().renderCell!({ col, value: value(), render: defaultRender })
-                            : defaultRender(value())}
-                        </td>
-                      );
-                    }}
-                  </For>
-                </tr>
-              </tfoot>
-            )}
-          </Show>
           <tbody>
             <Show
               when={props.rows.length > 0}
               fallback={
                 <tr>
                   <td class="k2b-data-table__empty" colspan={props.columns.length}>
-                    <Placeholder>{props.empty ?? "No records"}</Placeholder>
+                    <Placeholder description={<>{props.empty ?? "No records"}</>} />
                   </td>
                 </tr>
               }
@@ -436,6 +444,31 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
               </Show>
             </Show>
           </tbody>
+          <Show when={props.footer}>
+            {(footer) => (
+              <tfoot class="k2b-data-table__foot" data-sticky="true">
+                <tr class="k2b-data-table__foot-row">
+                  <For each={props.columns}>
+                    {(col, index) => {
+                      const value = () => footer().values?.[col.id];
+                      return (
+                        <td
+                          class="k2b-data-table__footer-cell"
+                          data-align={alignAttr(col)}
+                          data-highlighted={columnHighlighted(index())}
+                          onMouseEnter={() => setHoveredColumnIfEnabled(index())}
+                        >
+                          {footer().renderCell
+                            ? footer().renderCell!({ col, value: value(), render: defaultRender })
+                            : defaultRender(value())}
+                        </td>
+                      );
+                    }}
+                  </For>
+                </tr>
+              </tfoot>
+            )}
+          </Show>
         </table>
         <Show when={shouldRenderLoadMoreSentinel()}>
           <div ref={loadMoreRef} class="k2b-data-table__sentinel" aria-hidden="true" />

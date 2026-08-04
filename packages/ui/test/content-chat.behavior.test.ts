@@ -85,6 +85,92 @@ describe("@k2b/ui content and chat behavior", () => {
     dom.cleanup();
   });
 
+  test("gives double-click-only DataTable rows a keyboard action", async () => {
+    const dom = createDomTestHarness();
+    const { default: DataTable } = await import("../src/content/DataTable");
+    const activated: string[] = [];
+    const dispose = render(
+      () =>
+        createComponent(DataTable<{ id: string }>, {
+          rows: [{ id: "one" }],
+          columns: [{ id: "id", header: "ID", value: "id" }],
+          onRowDoubleClick: (row) => activated.push(row.id),
+        }),
+      dom.root,
+    );
+
+    const row = dom.root.querySelector<HTMLTableRowElement>("tbody tr")!;
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    const handler = (row as HTMLTableRowElement & { $$keydown?: (event: KeyboardEvent) => void }).$$keydown;
+    Object.defineProperties(event, {
+      currentTarget: { configurable: true, value: row },
+      target: { configurable: true, value: row },
+    });
+    handler?.(event);
+    expect(activated).toEqual(["one"]);
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("keeps infinite DataTable loading single-flight until the result changes", async () => {
+    const dom = createDomTestHarness();
+    const { default: DataTable } = await import("../src/content/DataTable");
+    const [rows, setRows] = createSignal([{ id: "one" }]);
+    let calls = 0;
+    const dispose = render(
+      () =>
+        createComponent(DataTable<{ id: string }>, {
+          get rows() {
+            return rows();
+          },
+          columns: [{ id: "id", header: "ID", value: "id" }],
+          hasMore: true,
+          onLoadMore: () => {
+            calls += 1;
+          },
+        }),
+      dom.root,
+    );
+    const region = dom.root.querySelector<HTMLElement>(".k2b-table-wrap")!;
+
+    region.dispatchEvent(new Event("scroll"));
+    region.dispatchEvent(new Event("scroll"));
+    expect(calls).toBe(1);
+
+    setRows([{ id: "one" }, { id: "two" }]);
+    await Promise.resolve();
+    expect(calls).toBe(2);
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("reacts when pagination grows beyond one page", async () => {
+    const dom = createDomTestHarness();
+    const { Pagination } = await import("../src/content/Pagination");
+    const [totalPages, setTotalPages] = createSignal(1);
+    const dispose = render(
+      () =>
+        createComponent(Pagination, {
+          currentPage: 1,
+          get totalPages() {
+            return totalPages();
+          },
+          baseUrl: "/items?page=",
+        }),
+      dom.root,
+    );
+
+    expect(dom.root.querySelector("nav")).toBeNull();
+    setTotalPages(3);
+    await Promise.resolve();
+    expect(dom.root.querySelector("nav")?.textContent).toContain("2");
+
+    dispose();
+    dom.cleanup();
+  });
+
   test("names the focusable ChatTimeline viewport as a scroll region", async () => {
     const dom = createDomTestHarness();
     const { Chat } = await import("../src/chat");

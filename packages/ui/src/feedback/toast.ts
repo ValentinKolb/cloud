@@ -57,6 +57,25 @@ const VARIANT_STYLES: Record<ToastVariant, VariantStyle> = {
   },
 };
 
+const normalizedIconClass = (iconClass: string): string => {
+  const tokens = iconClass
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => token !== "ti");
+  return ["ti", ...tokens].join(" ");
+};
+
+const applyIconClass = (icon: HTMLElement, iconClass: string): void => {
+  icon.className = normalizedIconClass(iconClass);
+};
+
+const applyLiveRegion = (element: HTMLElement, variant: ToastVariant): void => {
+  const isError = variant === "error";
+  element.setAttribute("role", isError ? "alert" : "status");
+  element.setAttribute("aria-live", isError ? "assertive" : "polite");
+  element.setAttribute("aria-atomic", "true");
+};
+
 const liveToasts = new Set<ToastHandle>();
 
 const ensureContainer = (): HTMLElement | null => {
@@ -124,7 +143,7 @@ const renderLead = (lead: HTMLElement, variant: ToastVariant, iconClassOverride?
   lead.className = "k2b-toast__icon";
   lead.dataset.tone = style.tone;
   const icon = document.createElement("i");
-  icon.className = `ti ${iconClassOverride ?? style.iconClass}`;
+  applyIconClass(icon, iconClassOverride ?? style.iconClass);
   icon.setAttribute("aria-hidden", "true");
   lead.appendChild(icon);
   return icon;
@@ -156,9 +175,7 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
 
   const contentElement = document.createElement("div");
   contentElement.className = "k2b-toast__content";
-  contentElement.setAttribute("role", "status");
-  contentElement.setAttribute("aria-live", "polite");
-  contentElement.setAttribute("aria-atomic", "true");
+  applyLiveRegion(contentElement, currentVariant);
 
   const titleElement = document.createElement("div");
   titleElement.className = "k2b-toast__title";
@@ -243,11 +260,9 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
       currentVariant = nextOptions.variant!;
       toastElement.dataset.tone = VARIANT_STYLES[currentVariant].tone;
       leadIconElement = renderLead(leadElement, currentVariant, nextOptions.iconClass);
+      applyLiveRegion(contentElement, currentVariant);
     } else if (nextOptions?.iconClass !== undefined) {
-      for (const className of Array.from(leadIconElement.classList)) {
-        if (className.startsWith("ti-")) leadIconElement.classList.remove(className);
-      }
-      leadIconElement.classList.add(nextOptions.iconClass);
+      applyIconClass(leadIconElement, nextOptions.iconClass);
     }
 
     if (nextOptions && Object.prototype.hasOwnProperty.call(nextOptions, "title")) {

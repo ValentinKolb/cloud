@@ -68,6 +68,46 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(html).not.toContain("General content");
   });
 
+  test("resolves invalid requested tabs to the first tab", () => {
+    const html = renderToString(() =>
+      createComponent(SettingsModal, {
+        title: "Application settings",
+        activeTab: "missing",
+        children: [
+          createComponent(SettingsModal.Tab, { id: "general", title: "General", children: "General content" }),
+          createComponent(SettingsModal.Tab, { id: "security", title: "Security", children: "Security content" }),
+        ],
+      }),
+    );
+
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain("General content");
+    expect(html).not.toContain("Security content");
+  });
+
+  test("rejects invalid and duplicate tab ids", () => {
+    expect(() =>
+      renderToString(() =>
+        createComponent(SettingsModal, {
+          title: "Application settings",
+          children: createComponent(SettingsModal.Tab, { id: "not safe", title: "General", children: "General" }),
+        }),
+      ),
+    ).toThrow("SettingsModal.Tab id must start with a letter");
+
+    expect(() =>
+      renderToString(() =>
+        createComponent(SettingsModal, {
+          title: "Application settings",
+          children: [
+            createComponent(SettingsModal.Tab, { id: "general", title: "General", children: "General" }),
+            createComponent(SettingsModal.Tab, { id: "general", title: "Again", children: "Again" }),
+          ],
+        }),
+      ),
+    ).toThrow('duplicate id "general"');
+  });
+
   test("separates full-page settings sections from dialog sections", () => {
     const html = renderToString(() =>
       createComponent(SettingsSection, {

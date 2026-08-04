@@ -72,6 +72,7 @@ export function PinInput(props: PinInputProps): JSX.Element {
       description={props.description}
       error={error()}
       meta={meta}
+      labelFor={false}
       required={props.required}
       disabled={props.disabled}
     >

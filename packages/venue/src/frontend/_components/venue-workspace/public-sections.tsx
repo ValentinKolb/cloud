@@ -360,9 +360,9 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
           <For
             each={links()}
             fallback={
-              <Placeholder align="left" class="px-0 py-2">
+              <Placeholder align="left" class="px-0 py-2" description={<>
                 {sectionText(props.section, "text") || "No links yet."}
-              </Placeholder>
+              </>} />
             }
           >
             {(raw) => {
@@ -383,9 +383,9 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
           <For
             each={items()}
             fallback={
-              <Placeholder align="left" class="px-0 py-2">
+              <Placeholder align="left" class="px-0 py-2" description={<>
                 No menu items yet.
-              </Placeholder>
+              </>} />
             }
           >
             {(raw) => {

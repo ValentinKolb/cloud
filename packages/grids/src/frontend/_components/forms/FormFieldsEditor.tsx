@@ -97,9 +97,9 @@ export function FormFieldsEditor(props: {
         <Show
           when={props.entries().length > 0}
           fallback={
-            <Placeholder surface="paper" align="left" class="p-3">
+            <Placeholder surface="paper" align="left" class="p-3" description={<>
               No fields yet.
-            </Placeholder>
+            </>} />
           }
         >
           <ul class="flex min-h-0 flex-col gap-1 overflow-y-auto">

@@ -351,9 +351,9 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {rendered.length === 0 ? (
-            <Placeholder surface="paper" variant="panel">
+            <Placeholder surface="paper" variant="panel" description={<>
               No widgets to show. Use <em>Edit dashboard</em> to enable any you have access to.
-            </Placeholder>
+            </>} />
           ) : (
             <div class={`dashboard-briefing-grid ${contextWidgets.length > 0 ? "has-context" : ""}`}>
               <div class="dashboard-primary-column">

@@ -112,7 +112,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {deletedAccountsPage.items.length === 0 ? (
-            <Placeholder surface="paper">No deleted accounts found.</Placeholder>
+            <Placeholder surface="paper" description={<>No deleted accounts found.</>} />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-deleted-table">
               <DataTable

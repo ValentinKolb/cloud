@@ -233,9 +233,9 @@ export default function ContactNotesSection(props: Props) {
       <Show
         when={notes().length > 0}
         fallback={
-          <Placeholder align="left" class="px-0 py-2">
+          <Placeholder align="left" class="px-0 py-2" description={<>
             No notes yet.
-          </Placeholder>
+          </>} />
         }
       >
         <ol class="flex flex-col gap-3">

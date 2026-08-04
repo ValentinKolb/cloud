@@ -95,7 +95,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {requestsPage.items.length === 0 ? (
-            <Placeholder surface="paper">No requests found.</Placeholder>
+            <Placeholder surface="paper" description={<>No requests found.</>} />
           ) : (
             <>
               <div class="paper overflow-hidden" style="view-transition-name: accounts-requests-table">

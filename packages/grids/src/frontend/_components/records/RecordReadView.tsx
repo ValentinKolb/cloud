@@ -208,9 +208,9 @@ export default function RecordReadView(props: RecordReadViewProps) {
         <Show
           when={hasBodyFields()}
           fallback={
-            <Placeholder surface="paper" align="left">
+            <Placeholder surface="paper" align="left" description={<>
               No record values yet.
-            </Placeholder>
+            </>} />
           }
         >
           <For each={barcodeFields()}>{(field) => renderBarcodeSection(field)}</For>

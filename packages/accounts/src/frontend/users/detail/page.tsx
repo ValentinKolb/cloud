@@ -362,7 +362,7 @@ export default ssr<AuthContext>(async (c) => {
                 />
               </div>
             ) : (
-              <Placeholder surface="paper">No active API keys for this user.</Placeholder>
+              <Placeholder surface="paper" description={<>No active API keys for this user.</>} />
             )}
           </div>
 
@@ -439,7 +439,7 @@ export default ssr<AuthContext>(async (c) => {
                 />
               </div>
             ) : (
-              <Placeholder surface="paper">Not a member of any groups.</Placeholder>
+              <Placeholder surface="paper" description={<>Not a member of any groups.</>} />
             )}
           </div>
 

@@ -182,9 +182,9 @@ export default function BookTagsManager(props: Props) {
       <For
         each={tags()}
         fallback={
-          <Placeholder align="left" class="py-2 pl-3">
+          <Placeholder align="left" class="py-2 pl-3" description={<>
             No tags yet — add one below.
-          </Placeholder>
+          </>} />
         }
       >
         {(tag) => (

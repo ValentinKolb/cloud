@@ -2,6 +2,7 @@ import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { Dropdown, type DropdownItem } from "../actions/Dropdown";
 import { Tooltip } from "../feedback/Tooltip";
 import { ProgressBar } from "../surfaces/ProgressBar";
+import { executeChatAction } from "./chat-behavior";
 import type { ChatAction, ChatActivityTone, ChatAttachment, ChatContextUsageData, ChatMessageStatus, ChatRole } from "./types";
 
 export type ChatMessageProps = {
@@ -59,6 +60,19 @@ const attachmentIcon = (attachment: ChatAttachment): string =>
 const finiteNonNegative = (value: number | undefined): number =>
   typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
 
+const finiteUsageValue = (value: number | undefined): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+
+const normalizedUsage = (usage: ChatContextUsageData["usage"]) => {
+  const input = finiteUsageValue(usage?.input);
+  const output = finiteUsageValue(usage?.output);
+  const explicitTotal = finiteUsageValue(usage?.total);
+  const total = explicitTotal ?? (input !== null || output !== null ? (input ?? 0) + (output ?? 0) : null);
+  return { input, output, total, reported: total !== null };
+};
+
+const formattedUsageValue = (value: number | null): string => value?.toLocaleString() ?? "Unknown";
+
 export const formatChatTokens = (tokens: number): string => {
   const value = finiteNonNegative(tokens);
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -78,13 +92,6 @@ const visibleTime = (value: string | Date | undefined): string | null => {
   return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date) : null;
 };
 
-const writeClipboard = async (value: string): Promise<void> => {
-  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-    throw new Error("Clipboard access is unavailable.");
-  }
-  await navigator.clipboard.writeText(value);
-};
-
 export function ChatMessage(props: ChatMessageProps): JSX.Element {
   const [busyActionId, setBusyActionId] = createSignal<string | null>(null);
   const [completedActionId, setCompletedActionId] = createSignal<string | null>(null);
@@ -100,8 +107,7 @@ export function ChatMessage(props: ChatMessageProps): JSX.Element {
     if (action.disabled || busyActionId()) return;
     setBusyActionId(action.id);
     try {
-      if (action.copyText !== undefined) await writeClipboard(action.copyText);
-      else await action.onSelect?.();
+      await executeChatAction(action);
       setCompletedActionId(action.id);
       if (completedTimer) clearTimeout(completedTimer);
       completedTimer = setTimeout(() => setCompletedActionId(null), 1400);
@@ -262,10 +268,11 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
 }
 
 export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
-  const total = () =>
-    finiteNonNegative(props.usage?.total ?? finiteNonNegative(props.usage?.input) + finiteNonNegative(props.usage?.output));
+  const usage = () => normalizedUsage(props.usage);
+  const loopUsage = () => normalizedUsage(props.loopUsage);
+  const total = () => usage().total ?? 0;
   const windowSize = () => finiteNonNegative(props.contextWindow);
-  const reported = () => total() > 0;
+  const reported = () => usage().reported;
   const percent = () => (reported() && windowSize() > 0 ? Math.min(100, Math.round((total() / windowSize()) * 100)) : null);
   const remaining = () => (reported() && windowSize() > 0 ? Math.max(0, windowSize() - total()) : null);
   const accessibleLabel = () => {
@@ -299,16 +306,16 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
             </Show>
             <div>
               <dt>Input</dt>
-              <dd>{props.usage?.input?.toLocaleString() ?? "Unknown"}</dd>
+              <dd>{formattedUsageValue(usage().input)}</dd>
             </div>
             <div>
               <dt>Output</dt>
-              <dd>{props.usage?.output?.toLocaleString() ?? "Unknown"}</dd>
+              <dd>{formattedUsageValue(usage().output)}</dd>
             </div>
-            <Show when={finiteNonNegative(props.loopUsage?.total) > 0}>
+            <Show when={loopUsage().reported}>
               <div>
                 <dt>Loop total</dt>
-                <dd>{finiteNonNegative(props.loopUsage?.total).toLocaleString()}</dd>
+                <dd>{formattedUsageValue(loopUsage().total)}</dd>
               </div>
             </Show>
             <div>

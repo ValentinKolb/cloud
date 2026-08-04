@@ -213,7 +213,7 @@ export default ssr<AuthContext>(async (c) => {
           ) : null}
 
           {eventsPage.items.length === 0 ? (
-            <Placeholder surface="paper">No audit events found.</Placeholder>
+            <Placeholder surface="paper" description={<>No audit events found.</>} />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-audit-table">
               <DataTable

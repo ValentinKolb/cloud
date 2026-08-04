@@ -74,9 +74,9 @@ export function RecordCardsView(props: {
       <Show
         when={props.items.length > 0}
         fallback={
-          <Placeholder icon="ti ti-table" class="min-h-48 justify-center">
+          <Placeholder icon="ti ti-table" class="min-h-48 justify-center" description={<>
             No records
-          </Placeholder>
+          </>} />
         }
       >
         <div class="grids-record-card-grid grid p-0.5" data-card-size={size()}>

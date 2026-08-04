@@ -40,7 +40,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
       label: user.displayName,
       avatarHash: user.avatarHash,
       description: user.description,
-      icon: "ti-user",
+      icon: "ti ti-user",
     }));
   };
 

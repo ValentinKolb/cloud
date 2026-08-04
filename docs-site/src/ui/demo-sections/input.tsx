@@ -18,7 +18,6 @@ import {
   MultiSelectInput,
   NumberInput,
   PinInput,
-  plainTextHighlight,
   Select,
   SelectChip,
   Slider,
@@ -111,6 +110,7 @@ const cropDemoSource = `data:image/svg+xml,${encodeURIComponent(`
 const mentionCompletion: Completion = {
   trigger: "@",
   dropdown: true,
+  knownLabels: people.map((person) => `@${person.id}`),
   suggest: (query) =>
     people
       .filter((person) => person.id.startsWith(query.toLowerCase()))
@@ -123,6 +123,7 @@ const mentionCompletion: Completion = {
 
 const emojiCompletion: Completion = {
   trigger: ":",
+  knownLabels: [":sparkles", ":rocket"],
   suggest: (query) =>
     [
       { text: ":sparkles", label: "sparkles", hint: "✨" },
@@ -170,14 +171,13 @@ const AutocompleteDemo = () => {
         from: "@k2b/ui",
       }}
       description="A controlled textarea with width-neutral highlighting, ghost suggestions, accessible dropdown navigation, synchronous or abortable asynchronous completion, and native composition behavior."
-      code={`<AutocompleteEditor label="Message" value={value()} onValueChange={setValue} highlight={plainTextHighlight} completions={completions} />`}
+      code={`<AutocompleteEditor label="Message" value={value()} onValueChange={setValue} completions={completions} />`}
     >
       <AutocompleteEditor
         label="Message"
         description="Type @de for a dropdown or :sp for a ghost suggestion. Tab accepts the active completion."
         value={value()}
         onValueChange={setValue}
-        highlight={plainTextHighlight}
         completions={[mentionCompletion, emojiCompletion]}
         lines={5}
       />

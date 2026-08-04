@@ -15,31 +15,12 @@ export { Combobox } from "./Combobox";
 export type { ChoiceOption, ChoiceOptionsLoader } from "./choice";
 export type {
   Completion,
-  DetectOptions,
   QueryContext,
-  RenderOptions,
-  ResolveResult,
   SuggestContext,
   Suggestion,
 } from "./completion";
 export {
   abbreviations,
-  applySuggestion,
-  buildSuggestContext,
-  collectKnownLabels,
-  detectQuery,
-  displayLabel,
-  GHOST_SENTINEL,
-  pickGhost,
-  plainTextHighlight,
-  renderWithOverlay,
-  resetCompletionState,
-  resolveSuggestions,
-  suggestSync,
-  TRIGGER_CHARS,
-  tryExpand,
-  tryRestore,
-  WORD_CHAR,
 } from "./completion";
 export type {
   DatePickerBaseProps,

@@ -133,7 +133,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
       </div>
 
       <Show when={!templates.loading && (templates()?.length ?? 0) === 0}>
-        <Placeholder align="left">No document templates yet.</Placeholder>
+        <Placeholder align="left" description={<>No document templates yet.</>} />
       </Show>
 
       <For each={[...(templates() ?? [])].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))}>

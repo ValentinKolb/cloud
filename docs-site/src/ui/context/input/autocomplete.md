@@ -38,6 +38,10 @@ Set `dropdown: true` to show all matches. Without it, the active suggestion appe
 
 Use `debounceMs` for remote lookups. A new query aborts the previous request. `allowAfterWord` permits triggers such as `(` directly after a function name.
 
+Use `knownLabels` only for a fixed set of tokens that a Markdown overlay may
+highlight. It is metadata: the editor never calls `suggest` merely to discover
+labels, so asynchronous providers stay free of mount-time requests.
+
 `highlight` may return safe HTML for an overlay preview. Keep token styling width-neutral: color and background are safe; font weight, style, and letter spacing can desynchronize the overlay from the textarea.
 
 ## Accessibility
@@ -64,6 +68,7 @@ const [message, setMessage] = createSignal("");
 const mentions: Completion = {
   trigger: "@",
   dropdown: true,
+  knownLabels: users.map((user) => `@${user}`),
   suggest: (query) =>
     users
       .filter((user) => user.startsWith(query.toLowerCase()))

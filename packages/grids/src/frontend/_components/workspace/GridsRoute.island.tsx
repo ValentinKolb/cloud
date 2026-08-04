@@ -265,7 +265,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
             })()}
           </Match>
           <Match when={route.kind === "empty"}>
-            <Placeholder surface="paper">
+            <Placeholder surface="paper" description={<>
               <Show
                 when={state.catalog.sidebarForms.length > 0 || state.catalog.sidebarDocumentTemplates.length > 0}
                 fallback={
@@ -280,7 +280,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
                   ? limitedAccessEmptyText(state.catalog.sidebarForms.length, state.catalog.sidebarDocumentTemplates.length)
                   : formOnlyEmptyText(state.catalog.sidebarForms.length)}
               </Show>
-            </Placeholder>
+            </>} />
           </Match>
         </Switch>
       </AppWorkspace.Main>

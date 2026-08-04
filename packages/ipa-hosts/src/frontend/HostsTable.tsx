@@ -79,7 +79,7 @@ const HostsTable = (props: Props) => {
       }}
     />
   ) : (
-    <Placeholder>{props.emptyMessage ?? "No hosts found."}</Placeholder>
+    <Placeholder description={<>{props.emptyMessage ?? "No hosts found."}</>} />
   );
 };
 

@@ -169,6 +169,29 @@ describe("@k2b/ui content behaviour", () => {
     expect(html).toContain("Select a file");
   });
 
+  test("FileBrowserPanel does not read an initially selected folder as a file", async () => {
+    let reads = 0;
+    const html = await renderToStringAsync(() =>
+      createComponent(Suspense, {
+        get children() {
+          return createComponent(FileBrowserPanel, {
+            source: {
+              list: async () => [{ path: "/src", kind: "folder" as const }],
+              read: async () => {
+                reads += 1;
+                return content;
+              },
+            },
+            initialPath: "/src",
+          });
+        },
+      }),
+    );
+
+    expect(html).toContain("Folder selected");
+    expect(reads).toBe(0);
+  });
+
   test("FileTree keeps tree semantics, depth indentation and per-entry affordances", () => {
     const html = renderToString(() =>
       createComponent(FileTree, {

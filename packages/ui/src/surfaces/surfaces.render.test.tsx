@@ -134,7 +134,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     const loading = renderToString(() =>
       createComponent(Placeholder, { title: "Loading", state: "loading", surface: "paper", variant: "panel" }),
     );
-    const error = renderToString(() => createComponent(Placeholder, { children: "Try again.", state: "error", align: "left" }));
+    const error = renderToString(() => createComponent(Placeholder, { description: "Try again.", state: "error", align: "left" }));
 
     expect(loading).toContain('role="status"');
     expect(loading).toContain('aria-live="polite"');
@@ -159,14 +159,16 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     const progress = renderToString(() =>
       createComponent(ProgressBar, { value: 41.6, label: "Upload", size: "xs", tone: "success", showValue: true }),
     );
-    const clamped = renderToString(() => createComponent(ProgressBar, { value: 140 }));
+    const clamped = renderToString(() => createComponent(ProgressBar, { value: 140, label: "Upload" }));
+    const invalid = renderToString(() => createComponent(ProgressBar, { value: Number.NaN, label: "Upload" }));
 
     expect(progress).toContain('aria-valuenow="42"');
     expect(progress).toContain('data-size="xs"');
     expect(progress).toContain('data-tone="success"');
     expect(progress).toContain("42%");
-    expect(clamped).toContain('aria-label="Progress"');
+    expect(clamped).toContain('aria-label="Upload"');
     expect(clamped).toContain('aria-valuenow="100"');
+    expect(invalid).toContain('aria-valuenow="0"');
   });
 
   test("renders the semantic status vocabulary and truncatable labels", () => {
@@ -187,7 +189,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
   test("renders responsive stat grids and prevents nested accent links", () => {
     const html = renderToString(() =>
       createComponent(StatGrid, {
-        columns: 7,
+        columns: 7 as unknown as 6,
         title: "Service",
         action: { label: "Details", href: "/details" },
         surface: "muted",
@@ -198,7 +200,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
           sub: "p95",
           href: "/latency",
           trend: [10, 30, 20, 42],
-          accent: { tone: "amber", icon: "ti ti-alert-triangle", text: "high", href: "/warnings" },
+          accent: { tone: "amber", icon: "ti ti-alert-triangle", text: "high" },
         }),
       }),
     );
@@ -207,7 +209,6 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(html).toContain('data-surface="muted"');
     expect(html).toContain('href="/details"');
     expect(html).toContain('href="/latency"');
-    expect(html).not.toContain('href="/warnings"');
     expect(html).toContain("latency-warning");
     expect(html).toContain("k2b-stat-cell__trend");
   });
@@ -323,7 +324,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
       renderToString(() => createComponent(NotFoundState, { code: "404", title: "Gone", action: { label: "Home", href: "/" } })),
       renderToString(() => createComponent(NoticeCard, { title: "T", detail: "D", tone: "warning" })),
       renderToString(() => createComponent(Placeholder, { title: "T", description: "D", state: "loading", surface: "paper" })),
-      renderToString(() => createComponent(ProgressBar, { value: 50, showValue: true })),
+      renderToString(() => createComponent(ProgressBar, { value: 50, label: "Progress", showValue: true })),
       renderToString(() => createComponent(StatusBadge, { label: "L", tone: "ok" })),
       renderToString(() =>
         createComponent(StatGrid, { columns: 2, title: "T", children: createComponent(StatCell, { label: "L", value: 1, sub: "s" }) }),

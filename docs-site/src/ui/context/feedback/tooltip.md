@@ -26,7 +26,7 @@ import {
 | `children` | `JSX.Element` | none | Contains the control being described. Typed optional through `ParentProps`, but a tooltip without a trigger has nothing to describe. |
 | `placement` | `"top" \| "bottom"` | `"top"` | Requests the preferred vertical placement. |
 | `delay` | `number` | `250` | Sets the open delay in milliseconds. |
-| `disabled` | `boolean` | `false` | Prevents the tooltip from opening. |
+| `disabled` | `boolean` | `false` | Prevents the tooltip from opening and closes an open tooltip when changed to `true`. |
 | `class` | `string` | none | Adds classes to the inline wrapper. |
 
 The tooltip searches its children for the first button, link, input, select, textarea, role button, or focusable element. If none exists, the wrapper becomes the target. Both pointer hover and keyboard focus use the same open delay and surface.

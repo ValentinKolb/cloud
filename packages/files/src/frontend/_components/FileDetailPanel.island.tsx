@@ -150,9 +150,9 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       when={file()}
       fallback={
         props.showEmpty === false ? null : (
-          <Placeholder icon="ti ti-file-info" class="h-full min-h-0 justify-center">
+          <Placeholder icon="ti ti-file-info" class="h-full min-h-0 justify-center" description={<>
             Select a file to view details
-          </Placeholder>
+          </>} />
         )
       }
     >

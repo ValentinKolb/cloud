@@ -117,7 +117,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {credentialsPage.items.length === 0 ? (
-            <Placeholder surface="paper">No service account API keys found.</Placeholder>
+            <Placeholder surface="paper" description={<>No service account API keys found.</>} />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-service-accounts-table">
               <DataTable

@@ -397,7 +397,7 @@ export default function VersionHistory(props: Props) {
               <Placeholder icon="ti ti-alert-circle" title="Versions could not be loaded" description="Reload this page to try again." />
             }
           >
-            <Placeholder icon="ti ti-history">No versions yet</Placeholder>
+            <Placeholder icon="ti ti-history" description={<>No versions yet</>} />
           </Show>
         </div>
       </Show>

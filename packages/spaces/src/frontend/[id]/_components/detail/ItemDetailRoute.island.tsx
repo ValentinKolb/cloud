@@ -221,7 +221,7 @@ export default function ItemDetailRoute(props: Props) {
                 <i class="ti ti-loader-2 animate-spin text-sm" /> Loading item details
               </p>
             ) : (
-              <Placeholder icon="ti ti-click">Select an item to view details</Placeholder>
+              <Placeholder icon="ti ti-click" description={<>Select an item to view details</>} />
             )
           }
         >

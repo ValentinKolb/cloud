@@ -155,9 +155,9 @@ const SettingsBody = (props: { close: () => void }) => {
             <Show
               when={(entries() ?? []).length > 0}
               fallback={
-                <Placeholder align="left" class="px-0 py-2">
+                <Placeholder align="left" class="px-0 py-2" description={<>
                   No notebooks-app settings registered.
-                </Placeholder>
+                </>} />
               }
             >
               <div class="flex flex-col gap-3">

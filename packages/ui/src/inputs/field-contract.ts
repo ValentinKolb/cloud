@@ -17,7 +17,7 @@ export type FieldProps = {
 };
 
 export type ValueFieldProps<T> = FieldProps & {
-  value?: MaybeAccessor<T | undefined>;
+  value: MaybeAccessor<T>;
   onValueChange?: (value: T) => void;
   onValueCommit?: (value: T) => void;
 };

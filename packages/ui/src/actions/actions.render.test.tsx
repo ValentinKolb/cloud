@@ -43,27 +43,40 @@ const rule = (selector: string): string => {
 
 describe("@k2b/ui complete action migrations", () => {
   test("renders accessible tabs, disclosures, and toolbars", () => {
-    const tabs = renderToString(() => createComponent(Tabs, {
-      ariaLabel: "Project view",
-      value: "overview",
-      onValueChange: () => {},
-      options: [
-        { value: "overview", label: "Overview", icon: "ti ti-home", panel: "Overview panel" },
-        { value: "activity", label: "Activity", disabled: true, panel: "Activity panel" },
-      ],
-    }));
+    const tabs = renderToString(() =>
+      createComponent(Tabs, {
+        ariaLabel: "Project view",
+        value: "overview",
+        onValueChange: () => {},
+        options: [
+          { value: "overview", label: "Overview", icon: "ti ti-home", panel: "Overview panel" },
+          { value: "activity", label: "Activity", disabled: true, panel: "Activity panel" },
+        ],
+      }),
+    );
     const disclosure = renderToString(() => createComponent(Disclosure, { summary: "Advanced", defaultValue: true, children: "Details" }));
-    const toolbar = renderToString(() => createComponent(Toolbar, {
-      label: "Document actions",
-      wrap: true,
-      get children() {
-        return [
-          createComponent(Toolbar.Group, { label: "Edit", children: "Actions" }),
-          createComponent(Toolbar.Separator, {}),
-          createComponent(Toolbar.Spacer, {}),
-        ];
-      },
-    }));
+    const toolbar = renderToString(() =>
+      createComponent(Toolbar, {
+        label: "Document actions",
+        wrap: true,
+        get children() {
+          return [
+            createComponent(Toolbar.Group, { label: "Edit", children: "Actions" }),
+            createComponent(Toolbar.Separator, {}),
+            createComponent(Toolbar.Spacer, {}),
+          ];
+        },
+      }),
+    );
+    const verticalToolbar = renderToString(() =>
+      createComponent(Toolbar, {
+        label: "Block actions",
+        orientation: "vertical",
+        get children() {
+          return createComponent(Toolbar.Separator, {});
+        },
+      }),
+    );
 
     expect(tabs).toContain('role="tablist"');
     expect(tabs).toContain('aria-selected="true"');
@@ -73,11 +86,44 @@ describe("@k2b/ui complete action migrations", () => {
     expect(toolbar).toContain('role="toolbar"');
     expect(toolbar).toContain('aria-label="Document actions"');
     expect(toolbar).toContain('role="separator"');
+    expect(toolbar).toContain('role="separator" aria-orientation="vertical" data-orientation="vertical"');
+    expect(verticalToolbar).toContain('role="separator" aria-orientation="horizontal" data-orientation="horizontal"');
     expect(rule(".k2b-ui .k2b-disclosure")).toContain("width: 100%");
     expect(rule(".k2b-ui .k2b-disclosure")).toContain("align-self: stretch");
     expect(rule(".k2b-ui .k2b-disclosure > summary")).toContain("user-select: none");
     expect(actionsCss).not.toContain(".k2b-disclosure > summary:hover { background:");
     expect(actionsCss).toContain(".k2b-disclosure > summary:hover .k2b-disclosure__chevron");
+  });
+
+  test("keeps the first enabled tab in the tab order when the controlled value is unavailable", () => {
+    const unavailable = renderToString(() =>
+      createComponent(Tabs, {
+        ariaLabel: "Project view",
+        value: "missing",
+        onValueChange: () => {},
+        options: [
+          { value: "disabled", label: "Disabled", disabled: true },
+          { value: "overview", label: "Overview" },
+          { value: "activity", label: "Activity" },
+        ],
+      }),
+    );
+    const disabled = renderToString(() =>
+      createComponent(Tabs, {
+        ariaLabel: "Project view",
+        value: "disabled",
+        onValueChange: () => {},
+        options: [
+          { value: "disabled", label: "Disabled", disabled: true },
+          { value: "overview", label: "Overview" },
+        ],
+      }),
+    );
+
+    expect(unavailable.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(unavailable).toMatch(/tabindex="0"[^>]*><span>Overview<\/span>/);
+    expect(disabled.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(disabled).toMatch(/tabindex="0"[^>]*><span>Overview<\/span>/);
   });
 
   test("renders compositional tab items with their colocated panel", () => {
@@ -164,7 +210,7 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).not.toContain("<button");
   });
 
-  test("renders sections, links, actions, and free dropdown elements", () => {
+  test("renders sections, links, actions, and custom static dropdown content", () => {
     const elements: PublicDropdownItem[] = [
       { label: "Rename", icon: "ti ti-pencil", action: () => {} },
       {
@@ -263,7 +309,12 @@ describe("@k2b/ui complete action migrations", () => {
     expect(unsized).not.toContain("--k2b-dropdown-width");
     // The default stays in CSS, and nothing may clamp a narrower request.
     expect(actionsCss).toContain("width: var(--k2b-dropdown-width, 12rem)");
-    expect(rule(".k2b-ui .k2b-dropdown__menu")).not.toContain("min-width:");
+    const menu = rule(".k2b-ui .k2b-dropdown__menu");
+    expect(menu).not.toContain("min-width:");
+    expect(menu).toContain("display: none");
+    expect(menu).toContain("flex-direction: column");
+    expect(menu).toContain("transition: none");
+    expect(rule(".k2b-ui .k2b-dropdown__menu:popover-open")).toContain("display: flex");
   });
 
   test("keeps viewport listeners scoped to an open dropdown", () => {
@@ -459,12 +510,14 @@ describe("@k2b/ui complete action migrations", () => {
   });
 
   test("keeps icon-button loading labels accessible without overflowing the square control", () => {
-    const html = renderToString(() => createComponent(IconButton, {
-      label: "Save",
-      loading: true,
-      loadingLabel: "Saving",
-      children: "save icon",
-    }));
+    const html = renderToString(() =>
+      createComponent(IconButton, {
+        label: "Save",
+        loading: true,
+        loadingLabel: "Saving",
+        children: "save icon",
+      }),
+    );
 
     expect(html).toContain('aria-label="Saving"');
     expect(html).toContain("ti-loader-2");

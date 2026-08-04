@@ -178,6 +178,67 @@ describe("@k2b/ui files and media runtime behavior", () => {
     dom.cleanup();
   });
 
+  test("refetches FileView content when its host revision changes", async () => {
+    const dom = createDomTestHarness();
+    const { default: FileView } = await import("../src/content/FileView");
+    const [revision, setRevision] = createSignal(1);
+    let loads = 0;
+    const dispose = render(
+      () =>
+        createComponent(FileView, {
+          file: { path: "/README.txt", mediaType: "text/plain" },
+          get revision() {
+            return revision();
+          },
+          load: async () => ({ encoding: "utf8" as const, mediaType: "text/plain", content: `load ${++loads}` }),
+        }),
+      dom.root,
+    );
+
+    await flush();
+    expect(loads).toBe(1);
+    setRevision(2);
+    await flush();
+    expect(loads).toBe(2);
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("revokes a PDF object URL produced after the preview was disposed", async () => {
+    const dom = createDomTestHarness();
+    const { default: PdfPreview } = await import("../src/content/PdfPreview");
+    let resolveRequest!: (value: Blob) => void;
+    const request = new Promise<Blob>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const created: string[] = [];
+    const revoked: string[] = [];
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = () => {
+      const value = `blob:test-${created.length + 1}`;
+      created.push(value);
+      return value;
+    };
+    URL.revokeObjectURL = (value) => revoked.push(value);
+
+    try {
+      const dispose = render(() => createComponent(PdfPreview, { request: () => request }), dom.root);
+      dom.root.querySelector<HTMLButtonElement>(".k2b-content-pdf-preview__actions button:last-child")?.click();
+      dispose();
+      resolveRequest(new Blob([], { type: "application/pdf" }));
+      await flush();
+
+      expect(created).toEqual(["blob:test-1"]);
+      expect(revoked).toEqual(["blob:test-1"]);
+    } finally {
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+      dom.cleanup();
+    }
+  });
+
   test("uses simple Lightbox navigation buttons and resyncs a reactive image index", async () => {
     const dom = createDomTestHarness();
     const dialogPrototype = dom.window.HTMLDialogElement.prototype as typeof dom.window.HTMLDialogElement.prototype & {

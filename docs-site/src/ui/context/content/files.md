@@ -57,6 +57,8 @@ type FileSource = {
 Only supplied capabilities receive matching controls. `readOnly` on
 `FileBrowserPanel` hides every mutation even when the source implements it.
 `isReadOnly` can protect individual paths such as generated inputs.
+Capabilities are independent: for example, a source may offer `rename` or
+`remove` without offering `write`.
 
 The host authenticates every operation and checks authorization again inside
 the source. Hiding a control is not an authorization boundary.
@@ -81,6 +83,10 @@ built-in actions.
 optional preview and download URLs. Text, Markdown, JSON, delimited text,
 images, PDF, audio, and video use built-in renderers. Supplying `save` enables
 editing for compatible text renderers.
+
+Pass `revision` to refetch a `FileView` whose path did not change. A
+`FileBrowserPanel` forwards its `refreshKey` to both the file list and the
+selected preview.
 
 Markdown files edit through `MarkdownEditor`. Other UTF-8 source and text files
 use a plain monospace textarea inside the same editor chrome, so Markdown

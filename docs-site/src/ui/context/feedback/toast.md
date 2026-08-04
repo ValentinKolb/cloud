@@ -92,7 +92,7 @@ Do not place a destructive action in a toast. Ask for confirmation before the op
 
 ## Accessibility
 
-Toast content uses a polite, atomic status live region. A visible close button is always present. Auto-dismiss pauses while the toast is hovered or contains keyboard focus.
+Default and success toast content uses a polite, atomic status live region. Error toasts use an assertive alert. A visible close button is always present. Auto-dismiss pauses while the toast is hovered or contains keyboard focus.
 
 Messages must identify the affected operation. Avoid “Success” as the description because the title already states the variant.
 

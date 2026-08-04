@@ -391,7 +391,7 @@ export default function MailFolderSettings(props: {
                   label={role.label}
                   description={`Provider folder used for ${role.label.toLowerCase()} operations.`}
                   icon={role.icon}
-                  value={() => current()?.id}
+                  value={() => current()?.id ?? null}
                   selectedLabel={() => current()?.name}
                   fetchData={fetchRoleFolderOptions}
                   fetchDebounceMs={0}

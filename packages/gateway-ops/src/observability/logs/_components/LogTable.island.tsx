@@ -134,7 +134,7 @@ export default function LogTable(props: Props) {
         </div>
         <LogFilterBar filter={props.filter} sources={props.sources} retentionDays={props.retentionDays} />
       </div>
-      <Show when={props.entries.length > 0} fallback={<Placeholder>No log entries found.</Placeholder>}>
+      <Show when={props.entries.length > 0} fallback={<Placeholder description={<>No log entries found.</>} />}>
         <DataTable
           rows={props.entries}
           columns={columns}

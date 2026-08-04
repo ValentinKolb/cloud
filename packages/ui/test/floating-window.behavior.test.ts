@@ -196,4 +196,18 @@ describe("FloatingWindow browser behaviour", () => {
     resizing.dispose();
     expect(activePointerListeners()).toBe(0);
   });
+
+  test("ignores unrelated pointers while moving", async () => {
+    const mounted = await mountWindow(dom, "Pointer ownership");
+    const header = mounted.frame.querySelector("header")!;
+    const before = mounted.frame.style.left;
+    header.dispatchEvent(
+      new dom.window.PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100, pointerId: 7 }) as unknown as Event,
+    );
+    dom.window.dispatchEvent(new dom.window.PointerEvent("pointermove", { clientX: 500, clientY: 500, pointerId: 8 }));
+    expect(mounted.frame.style.left).toBe(before);
+    dom.window.dispatchEvent(new dom.window.PointerEvent("pointermove", { clientX: 140, clientY: 100, pointerId: 7 }));
+    expect(mounted.frame.style.left).not.toBe(before);
+    mounted.dispose();
+  });
 });

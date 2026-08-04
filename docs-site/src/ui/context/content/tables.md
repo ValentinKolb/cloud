@@ -98,7 +98,7 @@ table also has a custom `class`; this keeps geometry such as
 `overflow-x-auto` independent from the intended visual frame while legacy
 callers retain their existing appearance.
 
-`hasMore`, `loadingMore`, and `onLoadMore` add an infinite-load sentinel. The owning island still fetches the next server page and appends its rows.
+`hasMore`, `loadingMore`, and `onLoadMore` add an infinite-load sentinel. The owning island still fetches the next server page and appends its rows. The table keeps one request in flight until rows or loading state advance.
 
 ## Accessibility
 
@@ -117,7 +117,8 @@ Prefer normal links for navigation. Use callbacks only when the interaction cann
 `Pagination` is the matching URL-owned page control. `PaginationProps`
 contains `currentPage`, `totalPages`, `baseUrl`, and optional `onNavigate`.
 The component appends each page number to `baseUrl` and renders native previous,
-next, and bounded page links.
+next, and bounded page links. Invalid page values are clamped to the available
+range, and the control reacts when the total changes after hydration.
 
 ```tsx
 <Pagination

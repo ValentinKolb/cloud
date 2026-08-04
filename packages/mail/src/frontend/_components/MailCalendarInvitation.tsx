@@ -218,7 +218,7 @@ export default function MailCalendarInvitation(props: {
                   <div class="min-w-48 flex-1">
                     <Select
                       aria-label="Destination Space"
-                      value={() => selectedSpaceId() ?? undefined}
+                      value={() => selectedSpaceId() ?? null}
                       onValueChange={chooseSpace}
                       options={destinationOptions()}
                       placeholder="Choose a Space"

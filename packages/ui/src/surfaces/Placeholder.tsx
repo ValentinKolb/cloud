@@ -8,7 +8,6 @@ export type PlaceholderVariant = "compact" | "panel";
 export type PlaceholderProps = {
   title?: JSX.Element;
   description?: JSX.Element;
-  children?: JSX.Element;
   icon?: string;
   action?: JSX.Element;
   align?: PlaceholderAlign;
@@ -22,7 +21,6 @@ export default function Placeholder(props: PlaceholderProps): JSX.Element {
   const align = () => props.align ?? "center";
   const state = () => props.state ?? "empty";
   const variant = () => props.variant ?? "compact";
-  const description = () => props.description ?? props.children;
   const icon = () => props.icon ?? (state() === "loading" ? "ti ti-loader-2" : state() === "error" ? "ti ti-alert-circle" : undefined);
 
   return (
@@ -46,8 +44,8 @@ export default function Placeholder(props: PlaceholderProps): JSX.Element {
       <Show when={props.title}>
         <p class="k2b-placeholder__title">{props.title}</p>
       </Show>
-      <Show when={description()}>
-        <p class="k2b-placeholder__description">{description()}</p>
+      <Show when={props.description}>
+        <div class="k2b-placeholder__description">{props.description}</div>
       </Show>
       <Show when={props.action}>
         <div class="k2b-placeholder__action">{props.action}</div>

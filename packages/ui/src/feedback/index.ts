@@ -1,5 +1,5 @@
 export type { DialogClose, DialogCore, DialogRender, OpenDialogOptions } from "./dialog-core";
-export { createDialogCore, dialogCore } from "./dialog-core";
+export { dialogCore } from "./dialog-core";
 export type {
   DialogOptions,
   FieldSchema,

@@ -605,7 +605,7 @@ function DashboardGeneralBody(props: {
             <TextInput label="Description" value={description} onValueChange={(v) => patch({ description: v })} />
             <IconInput
               label="Icon"
-              value={() => icon() ?? undefined}
+              value={() => icon() ?? null}
               onValueChange={(v) => patch({ icon: v ?? undefined })}
               placeholder="Search icons..."
             />

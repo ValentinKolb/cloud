@@ -101,3 +101,24 @@ export function ProjectSections() {
 ## Package boundary
 
 Every component in the portable catalog comes from `@k2b/ui`. Product-specific integrations live in a separate section when they depend on authenticated APIs, permissions, sessions, or other host contracts.
+
+## Migrate by behavior
+
+Classify an existing control before replacing its markup:
+
+1. Use `Button`, `Dropdown`, or `ContextMenu` for actions and links.
+2. Use `Select` or `SelectChip` for one controlled value.
+3. Use `MultiSelectInput` for a controlled value list.
+4. Use `FilterChip` only for filters, not for persisted record fields.
+5. Use `Combobox` when choosing a result immediately performs an action and clears the query.
+
+Do not mechanically replace every native menu button with the general `Button`
+component. Declarative `Dropdown` items own menu alignment and keyboard
+semantics; selection components own field state and selected-option semantics.
+When a dropdown needs a fixed width, pass a CSS length such as `width="16rem"`,
+not a utility class such as `w-64`.
+
+Use `Dropdown.element` only for static or genuinely composite content. Any
+interactive descendant then owns its full role, focus, keyboard, and close
+contract. Prefer a standard component whenever the interaction already maps to
+the catalog.

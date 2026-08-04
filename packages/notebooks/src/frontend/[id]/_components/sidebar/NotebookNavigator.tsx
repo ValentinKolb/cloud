@@ -354,9 +354,9 @@ export default function NotebookNavigator(props: Props) {
         <Show
           when={visibleNotes().length > 0 || pinnedNote()}
           fallback={
-            <Placeholder surface="paper" align="left">
+            <Placeholder surface="paper" align="left" description={<>
               No notes here yet.
-            </Placeholder>
+            </>} />
           }
         >
           <div class="flex flex-col gap-2">

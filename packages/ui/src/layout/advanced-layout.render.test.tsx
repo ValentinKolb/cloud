@@ -170,7 +170,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       version: 2,
       sidebarWidth: 960,
       sidebarCollapsed: undefined,
-      paneWidths: { unsafe_id: 240 },
+      paneWidths: undefined,
       detailWidths: { primary: 420 },
       drawerHeights: undefined,
     });
@@ -260,7 +260,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     });
   });
 
-  test("clamps and sanitizes keyed panel sizes", () => {
+  test("clamps valid keyed panel sizes and drops invalid ids", () => {
     expect(
       normalizeAppWorkspaceLayoutState({
         version: 2,
@@ -272,8 +272,8 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       version: 2,
       sidebarWidth: undefined,
       sidebarCollapsed: undefined,
-      paneWidths: { conversations: 420, unsafe_pane: 640 },
-      detailWidths: { contact: 420, mail_thread: 640 },
+      paneWidths: { conversations: 420 },
+      detailWidths: { contact: 420 },
       drawerHeights: { activity: 160 },
     });
   });

@@ -5,6 +5,7 @@ import { createDomTestHarness, type DomTestHarness } from "./dom";
 
 type PopoverPatch = {
   restore: () => void;
+  setOpen: (element: HTMLElement, value: boolean) => void;
 };
 
 const installPopoverApi = (dom: DomTestHarness): PopoverPatch => {
@@ -14,7 +15,11 @@ const installPopoverApi = (dom: DomTestHarness): PopoverPatch => {
 
   const patch = (key: PropertyKey, value: unknown) => {
     descriptors.set(key, Object.getOwnPropertyDescriptor(prototype, key));
-    Object.defineProperty(prototype, key, { configurable: true, writable: true, value });
+    Object.defineProperty(prototype, key, {
+      configurable: true,
+      writable: true,
+      value,
+    });
   };
 
   const matches = prototype.matches;
@@ -30,6 +35,11 @@ const installPopoverApi = (dom: DomTestHarness): PopoverPatch => {
   patch("scrollIntoView", () => {});
 
   return {
+    setOpen: (element, value) => {
+      if (value) open.add(element);
+      else open.delete(element);
+      element.dispatchEvent(new dom.window.Event("toggle") as unknown as Event);
+    },
     restore: () => {
       for (const [key, descriptor] of descriptors) {
         if (descriptor) Object.defineProperty(prototype, key, descriptor);
@@ -37,6 +47,13 @@ const installPopoverApi = (dom: DomTestHarness): PopoverPatch => {
       }
     },
   };
+};
+
+const setSolidInputValue = (input: HTMLInputElement, value: string) => {
+  input.value = value;
+  const handler = (input as HTMLInputElement & { $$input?: (event: { currentTarget: HTMLInputElement }) => void }).$$input;
+  if (!handler) throw new Error("Solid input handler is not installed");
+  handler({ currentTarget: input });
 };
 
 describe("@k2b/ui choice and date browser behavior", () => {
@@ -154,6 +171,247 @@ describe("@k2b/ui choice and date browser behavior", () => {
     dom.cleanup();
   });
 
+  test("hides a Combobox listbox before publishing a selection", async () => {
+    const dom = createDomTestHarness();
+    const popover = installPopoverApi(dom);
+    const { Combobox } = await import("../src/inputs/Combobox");
+    let openDuringSelect: boolean | undefined;
+    const dispose = render(
+      () =>
+        createComponent(Combobox, {
+          label: "Add team",
+          debounceMs: 0,
+          fetchData: async () => [{ id: "platform", label: "Platform", icon: "ti ti-server" }],
+          onSelect: () => {
+            openDuringSelect = dom.root.querySelector<HTMLElement>(".k2b-choice-popover")?.matches(":popover-open");
+          },
+        }),
+      dom.root,
+    );
+
+    dom.root.querySelector<HTMLInputElement>('[role="combobox"]')?.focus();
+    await Bun.sleep(0);
+    expect(dom.root.querySelector('[role="option"] i')?.className).toBe("ti ti-server");
+    dom.root.querySelector<HTMLButtonElement>('[role="option"]')?.click();
+
+    expect(openDuringSelect).toBe(false);
+    expect(dom.root.querySelector('[role="combobox"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(dom.root.querySelector<HTMLInputElement>('[role="combobox"]')?.value).toBe("");
+
+    dispose();
+    popover.restore();
+    dom.cleanup();
+  });
+
+  test("hides a Select listbox before publishing the selected value", async () => {
+    const dom = createDomTestHarness();
+    const popover = installPopoverApi(dom);
+    const { Select } = await import("../src/inputs/Select");
+    let openDuringChange: boolean | undefined;
+
+    const dispose = render(
+      () =>
+        createComponent(Select, {
+          label: "Match",
+          value: "sender_address",
+          options: [
+            { id: "sender_address", label: "Sender address" },
+            { id: "sender_domain", label: "Sender domain" },
+          ],
+          onValueChange: () => {
+            openDuringChange = dom.root.querySelector<HTMLElement>(".k2b-choice-popover")?.matches(":popover-open");
+          },
+        }),
+      dom.root,
+    );
+
+    dom.root.querySelector<HTMLButtonElement>(".k2b-choice-trigger")?.click();
+    dom.root.querySelectorAll<HTMLButtonElement>("[role='option']")[1]?.click();
+
+    expect(openDuringChange).toBe(false);
+    expect(dom.root.querySelector(".k2b-choice-trigger")?.getAttribute("aria-expanded")).toBe("false");
+
+    dispose();
+    popover.restore();
+    dom.cleanup();
+  });
+
+  test("syncs a native popover close back to the choice trigger", async () => {
+    const dom = createDomTestHarness();
+    const popover = installPopoverApi(dom);
+    const { Select } = await import("../src/inputs/Select");
+    const dispose = render(
+      () =>
+        createComponent(Select, {
+          label: "Match",
+          value: "sender_address",
+          options: [{ id: "sender_address", label: "Sender address" }],
+        }),
+      dom.root,
+    );
+
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-choice-trigger")!;
+    const surface = dom.root.querySelector<HTMLElement>(".k2b-choice-popover")!;
+    trigger.click();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    popover.setOpen(surface, false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    dispose();
+    popover.restore();
+    dom.cleanup();
+  });
+
+  test("registers DatePicker viewport listeners only while open", async () => {
+    const dom = createDomTestHarness();
+    const popover = installPopoverApi(dom);
+    const { DatePicker } = await import("../src/inputs/DatePicker");
+    const activeListeners = { resize: 0, scroll: 0 };
+    const target = dom.window as unknown as {
+      addEventListener: (...args: unknown[]) => unknown;
+      removeEventListener: (...args: unknown[]) => unknown;
+    };
+    const add = target.addEventListener.bind(dom.window);
+    const remove = target.removeEventListener.bind(dom.window);
+    target.addEventListener = (...args) => {
+      if (args[0] === "resize" || args[0] === "scroll") activeListeners[args[0]] += 1;
+      return add(...args);
+    };
+    target.removeEventListener = (...args) => {
+      if (args[0] === "resize" || args[0] === "scroll") activeListeners[args[0]] -= 1;
+      return remove(...args);
+    };
+
+    const dispose = render(
+      () => createComponent(DatePicker, { label: "Release date", value: "2026-07-27" }),
+      dom.root,
+    );
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-date-trigger")!;
+    const surface = dom.root.querySelector<HTMLElement>(".k2b-date-popover")!;
+    expect(activeListeners).toEqual({ resize: 0, scroll: 0 });
+
+    trigger.click();
+    expect(activeListeners).toEqual({ resize: 1, scroll: 1 });
+    popover.setOpen(surface, false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(activeListeners).toEqual({ resize: 0, scroll: 0 });
+
+    dispose();
+    popover.restore();
+    dom.cleanup();
+  });
+
+  test("guards invalid date-time input and closes before committing", async () => {
+    const dom = createDomTestHarness();
+    const popover = installPopoverApi(dom);
+    const { DateTimePicker } = await import("../src/inputs/DatePicker");
+    const commits: Array<string | null> = [];
+    let openDuringCommit: boolean | undefined;
+    const dispose = render(
+      () =>
+        createComponent(DateTimePicker, {
+          label: "Starts at",
+          value: "2026-07-27T09:00",
+          onValueCommit: (value) => {
+            openDuringCommit = dom.root.querySelector<HTMLElement>(".k2b-date-popover")?.matches(":popover-open");
+            commits.push(value);
+          },
+        }),
+      dom.root,
+    );
+
+    dom.root.querySelector<HTMLButtonElement>(".k2b-date-trigger")?.click();
+    const time = dom.root.querySelector<HTMLInputElement>(".k2b-date-time input")!;
+    const apply = dom.root.querySelector<HTMLButtonElement>(".k2b-date-apply")!;
+    setSolidInputValue(time, "9999");
+    await Bun.sleep(0);
+    expect(time.value).toBe("99:99");
+    expect(apply.disabled).toBe(true);
+    apply.click();
+    expect(commits).toEqual([]);
+
+    setSolidInputValue(time, "0930");
+    await Bun.sleep(0);
+    expect(apply.disabled).toBe(false);
+    apply.click();
+    expect(commits).toEqual(["2026-07-27T09:30"]);
+    expect(openDuringCommit).toBe(false);
+
+    dispose();
+    popover.restore();
+    dom.cleanup();
+  });
+
+  test("keeps an invalid timed range from committing", async () => {
+    const dom = createDomTestHarness();
+    const popover = installPopoverApi(dom);
+    const { DateRangePicker } = await import("../src/inputs/DatePicker");
+    let commits = 0;
+    const dispose = render(
+      () =>
+        createComponent(DateRangePicker, {
+          label: "Window",
+          value: { start: "2026-07-27T09:00", end: "2026-07-27T10:00" },
+          withTime: true,
+          onValueCommit: () => {
+            commits += 1;
+          },
+        }),
+      dom.root,
+    );
+
+    dom.root.querySelector<HTMLButtonElement>(".k2b-date-trigger")?.click();
+    const start = dom.root.querySelector<HTMLInputElement>('.k2b-date-time input[aria-label="Start time"]')!;
+    const apply = dom.root.querySelector<HTMLButtonElement>(".k2b-date-apply")!;
+    setSolidInputValue(start, "2460");
+    await Bun.sleep(0);
+    expect(start.value).toBe("24:60");
+    expect(apply.disabled).toBe(true);
+    apply.click();
+    expect(commits).toBe(0);
+
+    dispose();
+    popover.restore();
+    dom.cleanup();
+  });
+
+  test("normalizes NumberInput once and keeps steppers inside bounds", async () => {
+    const dom = createDomTestHarness();
+    const { NumberInput } = await import("../src/inputs/NumberInput");
+    const changes: Array<number | null> = [];
+    const commits: Array<number | null> = [];
+    const dispose = render(
+      () =>
+        createComponent(NumberInput, {
+          label: "Capacity",
+          value: 6,
+          min: 0,
+          max: 10,
+          step: 6,
+          onValueChange: (value) => changes.push(value),
+          onValueCommit: (value) => commits.push(value),
+        }),
+      dom.root,
+    );
+
+    const input = dom.root.querySelector<HTMLInputElement>('[role="spinbutton"]')!;
+    input.focus();
+    input.value = "6";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(input.getAttribute("aria-valuenow")).toBe("6");
+    input.blur();
+    expect(changes).toEqual([6]);
+    expect(commits).toEqual([6]);
+
+    dom.root.querySelectorAll<HTMLButtonElement>(".k2b-number-input__step")[1]?.click();
+    expect(changes.at(-1)).toBe(10);
+    expect(commits.at(-1)).toBe(10);
+
+    dispose();
+    dom.cleanup();
+  });
+
   test("keeps focus on the next day across a month boundary", async () => {
     const dom = createDomTestHarness();
     const popover = installPopoverApi(dom);
@@ -190,7 +448,7 @@ describe("@k2b/ui choice and date browser behavior", () => {
   test("names the PIN group from its visible field label", async () => {
     const dom = createDomTestHarness();
     const { PinInput } = await import("../src/inputs/ChoiceInputs");
-    const dispose = render(() => createComponent(PinInput, { label: "Security code", length: 4 }), dom.root);
+    const dispose = render(() => createComponent(PinInput, { label: "Security code", value: "", length: 4 }), dom.root);
 
     const group = dom.root.querySelector<HTMLElement>('[role="group"]');
     const labelId = group?.getAttribute("aria-labelledby");

@@ -1,19 +1,16 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import {
-  applySuggestion,
   buildSuggestContext,
   type Completion,
+  createCompletionBehaviorState,
   detectQuery,
   displayLabel,
   plainTextHighlight,
   type QueryContext,
   renderWithOverlay,
-  resetCompletionState,
   resolveSuggestions,
   type Suggestion,
-  tryExpand,
-  tryRestore,
 } from "./completion";
 import type { ValueFieldProps } from "./field-contract";
 import { resolveMaybeAccessor } from "./field-contract";
@@ -47,6 +44,10 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
   let dropdown: HTMLDivElement | undefined;
   let currentAbort: AbortController | null = null;
   let currentTimer: ReturnType<typeof setTimeout> | null = null;
+  let overlayFrame: number | undefined;
+  let overlayInitialized = false;
+  let renderPendingOverlay: (() => void) | undefined;
+  const completionBehavior = createCompletionBehaviorState();
 
   const [composing, setComposing] = createSignal(false);
   const [localValue, setLocalValue] = createSignal(resolveMaybeAccessor(props.value) ?? "");
@@ -95,18 +96,41 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
   };
 
   createEffect(() => {
-    if (!useOverlay() || !preview) return;
+    if (!useOverlay() || !preview) {
+      if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame);
+      overlayFrame = undefined;
+      renderPendingOverlay = undefined;
+      overlayInitialized = false;
+      return;
+    }
+    const value = localValue();
+    const highlighter = props.highlight ?? plainTextHighlight;
     const current = state();
     const active = activeSuggestion();
     const ghost = current && active ? suggestionGhost(current, active) : undefined;
-    preview.innerHTML = renderWithOverlay(localValue(), props.highlight ?? plainTextHighlight, {
-      ghost,
-      anchor: current && !ghost ? { at: current.context.end } : undefined,
-    });
-    if (textarea) {
-      preview.scrollTop = textarea.scrollTop;
-      preview.scrollLeft = textarea.scrollLeft;
+    const anchor = current && !ghost ? { at: current.context.end } : undefined;
+    renderPendingOverlay = () => {
+      if (!preview) return;
+      preview.innerHTML = renderWithOverlay(value, highlighter, { ghost, anchor });
+      if (textarea) {
+        preview.scrollTop = textarea.scrollTop;
+        preview.scrollLeft = textarea.scrollLeft;
+      }
+      if (dropdown?.matches(":popover-open")) positionDropdown();
+    };
+    if (!overlayInitialized) {
+      overlayInitialized = true;
+      renderPendingOverlay();
+      renderPendingOverlay = undefined;
+      return;
     }
+    if (overlayFrame !== undefined) return;
+    overlayFrame = requestAnimationFrame(() => {
+      overlayFrame = undefined;
+      const render = renderPendingOverlay;
+      renderPendingOverlay = undefined;
+      render?.();
+    });
   });
 
   const closeDropdown = (): void => {
@@ -281,7 +305,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
       clearCompletion();
       return false;
     }
-    const applied = applySuggestion(textarea, current.context, active, {
+    const applied = completionBehavior.applySuggestion(textarea, current.context, active, {
       trackExpansion: props.restoreExpansionOnBackspace ?? true,
     });
     clearCompletion();
@@ -316,12 +340,15 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
       if (dropdown?.matches(":popover-open")) dropdown.hidePopover();
       currentAbort?.abort();
       if (currentTimer) clearTimeout(currentTimer);
-      resetCompletionState();
+      if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame);
+      overlayFrame = undefined;
+      renderPendingOverlay = undefined;
+      completionBehavior.reset();
     });
   });
 
   const onInput = (event: InputEvent & { currentTarget: HTMLTextAreaElement }): void => {
-    if (event.inputType.startsWith("insert") && tryExpand(event.currentTarget, props.completions)) {
+    if (event.inputType.startsWith("insert") && completionBehavior.tryExpand(event.currentTarget, props.completions)) {
       return;
     }
     setLocalValue(event.currentTarget.value);
@@ -338,7 +365,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
       !event.ctrlKey &&
       !event.altKey &&
       !event.shiftKey &&
-      tryRestore(textarea)
+      completionBehavior.tryRestore(textarea)
     ) {
       event.preventDefault();
       return;
@@ -439,7 +466,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
             onBlur={(event) => {
               const next = event.relatedTarget as HTMLElement | null;
               if (next && dropdown?.contains(next)) return;
-              resetCompletionState();
+              completionBehavior.reset();
               clearCompletion();
             }}
             disabled={props.disabled}

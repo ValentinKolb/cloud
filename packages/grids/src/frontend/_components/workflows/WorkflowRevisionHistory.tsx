@@ -129,7 +129,7 @@ export function WorkflowRevisionHistory(props: {
           <nav class="paper flex min-h-0 flex-col overflow-auto p-2" aria-label="Workflow revisions">
             <For
               each={items()}
-              fallback={<Placeholder state={loadMut.loading() ? "loading" : "empty"}>No workflow revisions.</Placeholder>}
+              fallback={<Placeholder state={loadMut.loading() ? "loading" : "empty"} description={<>No workflow revisions.</>} />}
             >
               {(revision) => (
                 <button

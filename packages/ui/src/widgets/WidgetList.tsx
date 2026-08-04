@@ -11,7 +11,7 @@ export type WidgetListItem = {
 };
 
 export type WidgetListProps = {
-  items: WidgetListItem[];
+  items: readonly WidgetListItem[];
   emptyMessage?: string;
   grow?: boolean;
 };

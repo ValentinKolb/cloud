@@ -83,7 +83,7 @@ const AdminBookActions = (props: AdminBookActionsProps) => {
         </Tooltip>
       }
       position="bottom-left"
-      width="w-52"
+      width="13rem"
       elements={[
         {
           items: [

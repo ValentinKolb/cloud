@@ -87,7 +87,7 @@ export const openRecordAuditDialog = (args: OpenRecordAuditDialogArgs): Promise<
                     <Select
                       label={question.label}
                       description={question.description}
-                      value={() => answers()[question.id]}
+                      value={() => answers()[question.id] ?? null}
                       onValueChange={(value) => setAnswer(question.id, value ?? "")}
                       error={() => errors()[question.id]}
                       options={question.type === "select" ? question.options.map((option) => ({ id: option.id, label: option.label })) : []}

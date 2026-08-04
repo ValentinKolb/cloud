@@ -35,7 +35,7 @@ export default ssr<AuthContext>(async (c) => {
             ))}
           </div>
         ) : (
-          <Placeholder surface="paper">No FAQ entries available.</Placeholder>
+          <Placeholder surface="paper" description={<>No FAQ entries available.</>} />
         )}
       </div>
     </Layout>

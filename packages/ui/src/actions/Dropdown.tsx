@@ -22,6 +22,12 @@ export type DropdownAction =
     });
 
 export type DropdownElement = {
+  /**
+   * Escape hatch for static or composite menu content. Action rows should use
+   * `DropdownAction`; selection belongs in Select, SelectChip, or
+   * MultiSelectInput. Interactive descendants own their complete role,
+   * keyboard, focus, and close behavior.
+   */
   element: JSX.Element | ((close: () => void) => JSX.Element);
 };
 
@@ -140,8 +146,8 @@ export function DropdownItem(props: DropdownItemProps): JSX.Element {
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            props.onSelect?.();
             menu?.close();
+            props.onSelect?.();
           }}
         >
           {content}
@@ -158,8 +164,8 @@ export function DropdownItem(props: DropdownItemProps): JSX.Element {
           class={`k2b-dropdown__item ${props.class ?? ""}`}
           data-danger={danger() ? "true" : undefined}
           onClick={() => {
-            props.onSelect?.();
             menu?.close(false);
+            props.onSelect?.();
           }}
         >
           {content}

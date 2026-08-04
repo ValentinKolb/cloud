@@ -1,4 +1,4 @@
-import { createUniqueId, type JSX, onCleanup, onMount, type ParentProps } from "solid-js";
+import { createEffect, createUniqueId, type JSX, onCleanup, onMount, type ParentProps } from "solid-js";
 import { positionTooltipSurface, type TooltipPlacement } from "./tooltip-position";
 
 export type TooltipProps = ParentProps<{
@@ -43,6 +43,10 @@ export function Tooltip(props: TooltipProps): JSX.Element {
     window.removeEventListener("scroll", close, true);
     window.removeEventListener("resize", close);
   }
+
+  createEffect(() => {
+    if (props.disabled) close();
+  });
 
   const open = () => {
     clearTimer();

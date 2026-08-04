@@ -989,9 +989,9 @@ function NumberField(props: {
 }) {
   const numericValue = () => {
     const raw = props.value();
-    if (raw === "" || raw === undefined) return undefined;
+    if (raw === "" || raw === undefined) return null;
     const n = Number(raw);
-    return Number.isFinite(n) ? n : undefined;
+    return Number.isFinite(n) ? n : null;
   };
   return (
     <NumberInput

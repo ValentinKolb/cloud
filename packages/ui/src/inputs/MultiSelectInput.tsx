@@ -59,7 +59,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
   const values = () => resolveMaybeAccessor(props.value) ?? [];
   const error = () => resolveMaybeAccessor(props.error);
   const asyncOptions = createChoiceLoader(
-    () => props.fetchData ? async (query, signal) => (await props.fetchData!(query, signal)).map(normalize) : props.loadOptions,
+    () => (props.fetchData ? async (query, signal) => (await props.fetchData!(query, signal)).map(normalize) : props.loadOptions),
     () => props.fetchDebounceMs ?? props.debounceMs ?? 200,
   );
   const isAsync = () => Boolean(props.fetchData || props.loadOptions);
@@ -77,9 +77,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
     for (const option of sourceOptions()) options.set(option.value, option);
     return options;
   });
-  const selected = createMemo(() =>
-    values().map((value) => optionByValue().get(value) ?? ({ value, label: value } as NormalizedOption)),
-  );
+  const selected = createMemo(() => values().map((value) => optionByValue().get(value) ?? ({ value, label: value } as NormalizedOption)));
   const selectedValues = createMemo(() => new Set(values()));
   const popover = createChoicePopover(() => Boolean(props.disabled));
   const focusedOption = () => visibleOptions()[focusedIndex()];
@@ -149,10 +147,12 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
 
   return (
     <Field
+      class={props.class}
       label={props.label}
       description={props.description}
       error={error()}
       meta={meta}
+      labelFor={false}
       required={props.required}
       disabled={props.disabled}
     >
@@ -282,7 +282,9 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
               each={asyncOptions.error() ? [] : visibleOptions()}
               fallback={
                 <Show when={!asyncOptions.loading() && !asyncOptions.error()}>
-                  <div class="k2b-choice-status">{isAsync() || query() ? (props.noResultsLabel ?? "No results") : (props.emptyLabel ?? "No options available")}</div>
+                  <div class="k2b-choice-status">
+                    {isAsync() || query() ? (props.noResultsLabel ?? "No results") : (props.emptyLabel ?? "No options available")}
+                  </div>
                 </Show>
               }
             >
@@ -292,6 +294,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
                   id={`${listboxId}-${index()}`}
                   class="k2b-choice-option"
                   role="option"
+                  aria-label={option.label}
                   aria-selected={isSelected(option.value)}
                   data-focused={index() === focusedIndex() ? "true" : undefined}
                   disabled={option.disabled}
@@ -329,9 +332,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
             </For>
           </div>
         </div>
-        <Show when={props.name}>
-          {(name) => <input type="hidden" name={name()} value={values().join(",")} />}
-        </Show>
+        <Show when={props.name}>{(name) => <input type="hidden" name={name()} value={values().join(",")} />}</Show>
       </div>
     </Field>
   );

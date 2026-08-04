@@ -122,9 +122,9 @@ export default function FormsManager(props: Props) {
       <Show
         when={forms().length > 0}
         fallback={
-          <Placeholder surface="paper" align="left">
+          <Placeholder surface="paper" align="left" description={<>
             No custom forms yet.
-          </Placeholder>
+          </>} />
         }
       >
         <ul class="flex flex-col gap-2">

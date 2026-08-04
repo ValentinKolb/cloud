@@ -59,6 +59,7 @@ describe("@k2b/ui action runtime behavior", () => {
     const addListener = spyOn(window, "addEventListener");
     const removeListener = spyOn(window, "removeEventListener");
     let setDisabled: (disabled: boolean) => void = () => {};
+    let openDuringAction: boolean | undefined;
 
     const dispose = render(() => {
       const [disabled, updateDisabled] = createSignal(false);
@@ -70,8 +71,15 @@ describe("@k2b/ui action runtime behavior", () => {
         label: "Project actions",
         trigger: buttonElement(dom.document, "Open"),
         elements: [
-          { element: buttonElement(dom.document, "Consumer action", "consumer-action", 5) },
-          { label: "Rename", action: () => {} },
+          {
+            element: buttonElement(dom.document, "Consumer action", "consumer-action", 5),
+          },
+          {
+            label: "Rename",
+            action: () => {
+              openDuringAction = dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu")?.matches(":popover-open");
+            },
+          },
         ],
       });
     }, dom.root);
@@ -90,8 +98,9 @@ describe("@k2b/ui action runtime behavior", () => {
     expect(custom?.getAttribute("role")).toBeNull();
     expect(custom?.tabIndex).toBe(5);
 
-    trigger?.click();
+    dom.root.querySelectorAll<HTMLButtonElement>("[role='menuitem']")[0]?.click();
     await flush();
+    expect(openDuringAction).toBe(false);
     expect(removeListener.mock.calls.filter(([type]) => type === "scroll")).toHaveLength(1);
     expect(removeListener.mock.calls.filter(([type]) => type === "resize")).toHaveLength(1);
 
@@ -176,7 +185,11 @@ describe("@k2b/ui action runtime behavior", () => {
 
     const menu = dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu");
     const menuKeyDown = (menu as unknown as { $$keydown?: (event: KeyboardEvent) => void })?.$$keydown;
-    const tab = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" });
+    const tab = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+    });
     Object.defineProperty(tab, "target", { value: input });
     menuKeyDown?.(tab);
 
@@ -197,31 +210,36 @@ describe("@k2b/ui action runtime behavior", () => {
     installPopoverStub();
     const { FilterChip } = await import("../src/actions/FilterChip");
     const changes: string[][] = [];
+    let acceptChanges = false;
 
-    const dispose = render(
-      () =>
-        createComponent(FilterChip, {
-          label: "State",
-          icon: "ti ti-filter",
-          value: [],
-          onValueChange: (value) => changes.push(value),
-          options: [
-            {
-              label: "State",
-              options: [
-                { value: "open", label: "Open" },
-                { value: "closed", label: "Closed" },
-              ],
-            },
-            {
-              label: "Flags",
-              multiple: true,
-              options: [{ value: "urgent", label: "Urgent" }],
-            },
-          ],
-        }),
-      dom.root,
-    );
+    const dispose = render(() => {
+      const [value, setValue] = createSignal<readonly string[]>([]);
+      return createComponent(FilterChip, {
+        label: "State",
+        icon: "ti ti-filter",
+        get value() {
+          return value();
+        },
+        onValueChange: (nextValue) => {
+          changes.push(nextValue);
+          if (acceptChanges) setValue(nextValue);
+        },
+        options: [
+          {
+            label: "State",
+            options: [
+              { value: "open", label: "Open" },
+              { value: "closed", label: "Closed" },
+            ],
+          },
+          {
+            label: "Flags",
+            multiple: true,
+            options: [{ value: "urgent", label: "Urgent" }],
+          },
+        ],
+      });
+    }, dom.root);
 
     dom.root.querySelector<HTMLElement>(".k2b-filter-chip")?.click();
     await flush();
@@ -238,6 +256,11 @@ describe("@k2b/ui action runtime behavior", () => {
     expect(changes).toEqual([["urgent"]]);
     expect(dom.document.activeElement).toBe(originalCheckbox);
     expect(dom.root.querySelector("[role='menuitemcheckbox']")).toBe(originalCheckbox);
+    expect(originalCheckbox?.getAttribute("aria-checked")).toBe("false");
+
+    acceptChanges = true;
+    originalCheckbox?.click();
+    expect(changes).toEqual([["urgent"], ["urgent"]]);
     expect(originalCheckbox?.getAttribute("aria-checked")).toBe("true");
 
     const menu = dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu");
@@ -248,7 +271,7 @@ describe("@k2b/ui action runtime behavior", () => {
 
     originalCheckbox?.focus();
     originalCheckbox?.click();
-    expect(changes).toEqual([["urgent"], []]);
+    expect(changes).toEqual([["urgent"], ["urgent"], []]);
     expect(dom.document.activeElement).toBe(originalCheckbox);
     expect(originalCheckbox?.getAttribute("aria-checked")).toBe("false");
 
@@ -261,6 +284,7 @@ describe("@k2b/ui action runtime behavior", () => {
     installPopoverStub();
     const { SelectChip } = await import("../src/inputs/SelectChip");
     let setValue: (value: string) => void = () => {};
+    let openDuringChange: boolean | undefined;
 
     const dispose = render(() => {
       const [value, updateValue] = createSignal("comfortable");
@@ -268,7 +292,10 @@ describe("@k2b/ui action runtime behavior", () => {
       return createComponent(SelectChip, {
         "aria-label": "Density",
         value,
-        onValueChange: updateValue,
+        onValueChange: (nextValue: string) => {
+          openDuringChange = dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu")?.matches(":popover-open");
+          updateValue(nextValue);
+        },
         options: [
           { value: "compact", label: "Compact" },
           { value: "comfortable", label: "Comfortable" },
@@ -289,6 +316,11 @@ describe("@k2b/ui action runtime behavior", () => {
     expect(dom.root.querySelectorAll("[role='menuitemradio']")[0]).toBe(compact);
     expect(compact?.getAttribute("aria-checked")).toBe("true");
 
+    options[1]?.click();
+
+    expect(openDuringChange).toBe(false);
+    expect(dom.root.querySelector(".k2b-select-chip")?.getAttribute("aria-expanded")).toBe("false");
+
     dispose();
     dom.cleanup();
   });
@@ -301,7 +333,11 @@ describe("@k2b/ui action runtime behavior", () => {
       ["HTMLHeadElement", dom.window.HTMLHeadElement],
     ] as const) {
       extraGlobals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
-      Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+      Object.defineProperty(globalThis, name, {
+        configurable: true,
+        writable: true,
+        value,
+      });
     }
     const { ContextMenu } = await import("../src/actions/ContextMenu");
     const windowAdd = spyOn(window, "addEventListener");
@@ -313,7 +349,12 @@ describe("@k2b/ui action runtime behavior", () => {
       () =>
         createComponent(ContextMenu, {
           label: "File actions",
-          elements: [{ element: buttonElement(dom.document, "Custom", "custom-context-action", 4) }, { label: "Rename", action: () => {} }],
+          elements: [
+            {
+              element: buttonElement(dom.document, "Custom", "custom-context-action", 4),
+            },
+            { label: "Rename", action: () => {} },
+          ],
           children: "README.md",
         }),
       dom.root,
@@ -326,7 +367,11 @@ describe("@k2b/ui action runtime behavior", () => {
     expect(windowAdd.mock.calls.some(([type]) => type === "scroll" || type === "resize")).toBe(false);
     expect(documentAdd.mock.calls.some(([type]) => type === "pointerdown")).toBe(false);
 
-    const contextMenuEvent = new MouseEvent("contextmenu", { bubbles: true, clientX: 24, clientY: 32 });
+    const contextMenuEvent = new MouseEvent("contextmenu", {
+      bubbles: true,
+      clientX: 24,
+      clientY: 32,
+    });
     const contextMenuHandler = (host as unknown as { $$contextmenu?: (event: MouseEvent) => void })?.$$contextmenu;
     expect(contextMenuHandler).toBeFunction();
     contextMenuHandler?.(contextMenuEvent);

@@ -81,7 +81,7 @@ export default function MailCalendarSettings(props: { mailboxId: string }) {
             label="Default Space"
             description="Writers can choose another writable Space for each invitation. Removing access hides an unavailable default safely."
             icon="ti ti-calendar-event"
-            value={() => spaceId() ?? undefined}
+            value={() => spaceId() ?? null}
             onValueChange={setSpaceId}
             clearable
             placeholder={items().length > 0 ? "No default Space" : "No writable Spaces"}

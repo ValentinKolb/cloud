@@ -449,9 +449,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
               <For
                 each={props.dashboard.sections}
                 fallback={
-                  <Placeholder align="left" class="px-2 py-2">
+                  <Placeholder align="left" class="px-2 py-2" description={<>
                     No sections yet.
-                  </Placeholder>
+                  </>} />
                 }
               >
                 {(section) => (
@@ -657,9 +657,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                     <Show
                       when={props.dashboard.myUpcomingShifts.length > 0}
                       fallback={
-                        <Placeholder align="left" class="px-2 py-6">
+                        <Placeholder align="left" class="px-2 py-6" description={<>
                           You have no upcoming shifts.
-                        </Placeholder>
+                        </>} />
                       }
                     >
                       <div class="grid gap-1">

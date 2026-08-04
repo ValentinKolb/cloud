@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createComponent, onCleanup } from "solid-js";
+import { createComponent, createSignal, onCleanup } from "solid-js";
 import { isServer, render } from "solid-js/web";
 import { createDomTestHarness } from "./dom";
 
@@ -55,9 +55,7 @@ describe("@k2b/ui feedback runtime", () => {
     const firstInput = dom.document.querySelector<HTMLInputElement>("#first-input");
     const nestedOpener = dom.document.querySelector<HTMLButtonElement>("#nested-opener");
     expect(dom.document.activeElement).toBe(firstInput);
-    expect(dialog?.getAttribute("aria-labelledby")).toBe(
-      dom.document.querySelector("h2")?.id,
-    );
+    expect(dialog?.getAttribute("aria-labelledby")).toBe(dom.document.querySelector("h2")?.id);
 
     nestedOpener?.focus();
     const secondResult = core.open<string>((close) => {
@@ -74,17 +72,13 @@ describe("@k2b/ui feedback runtime", () => {
 
     const secondInput = dom.document.querySelector<HTMLInputElement>("#second-input");
     expect(dom.document.activeElement).toBe(secondInput);
-    expect(dialog?.getAttribute("aria-labelledby")).toBe(
-      dom.document.querySelectorAll("h2")[1]?.id,
-    );
+    expect(dialog?.getAttribute("aria-labelledby")).toBe(dom.document.querySelectorAll("h2")[1]?.id);
 
     closeSecond("nested");
     expect(await secondResult).toBe("nested");
     await settle();
     expect(dom.document.activeElement).toBe(nestedOpener);
-    expect(dialog?.getAttribute("aria-labelledby")).toBe(
-      dom.document.querySelector("h2")?.id,
-    );
+    expect(dialog?.getAttribute("aria-labelledby")).toBe(dom.document.querySelector("h2")?.id);
 
     closeFirst("done");
     expect(await firstResult).toBe("done");
@@ -144,19 +138,24 @@ describe("@k2b/ui feedback runtime", () => {
       { name: "Confirmation", open: () => prompts.confirm("Continue?", { cancelBehavior: "ignore" }) },
       {
         name: "Form",
-        open: () => prompts.form({
-          cancelBehavior: "ignore",
-          fields: { name: { type: "text" } },
-        }),
+        open: () =>
+          prompts.form({
+            cancelBehavior: "ignore",
+            fields: { name: { type: "text" } },
+          }),
       },
       {
         name: "Dialog",
-        open: () => prompts.dialog(() => {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = "Custom";
-          return button;
-        }, { cancelBehavior: "ignore" }),
+        open: () =>
+          prompts.dialog(
+            () => {
+              const button = document.createElement("button");
+              button.type = "button";
+              button.textContent = "Custom";
+              return button;
+            },
+            { cancelBehavior: "ignore" },
+          ),
       },
       { name: "Error", open: () => prompts.error("Failed", { cancelBehavior: "ignore" }) },
       { name: "Search", open: () => prompts.search(async () => [], { cancelBehavior: "ignore" }) },
@@ -186,18 +185,23 @@ describe("@k2b/ui feedback runtime", () => {
     const dom = createDomTestHarness();
     dom.root.className = "k2b-ui";
     const { Tooltip } = await import("../src/feedback/Tooltip");
+    const [disabled, setDisabled] = createSignal(false);
 
     const dispose = render(
-      () => createComponent(Tooltip, {
-        content: "Helpful context",
-        delay: 0,
-        children: (() => {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = "Hover me";
-          return button;
-        })(),
-      }),
+      () =>
+        createComponent(Tooltip, {
+          content: "Helpful context",
+          delay: 0,
+          get disabled() {
+            return disabled();
+          },
+          children: (() => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Hover me";
+            return button;
+          })(),
+        }),
       dom.root,
     );
     const wrapper = dom.root.querySelector<HTMLElement>(".k2b-tooltip-wrapper");
@@ -214,6 +218,15 @@ describe("@k2b/ui feedback runtime", () => {
       };
     }
 
+    wrapper?.dispatchEvent(new Event("pointerenter", { bubbles: true }));
+    await settle();
+    expect(surface?.matches(":popover-open")).toBe(true);
+
+    setDisabled(true);
+    await Promise.resolve();
+    expect(surface?.matches(":popover-open")).toBe(false);
+
+    setDisabled(false);
     wrapper?.dispatchEvent(new Event("pointerenter", { bubbles: true }));
     await settle();
     expect(surface?.matches(":popover-open")).toBe(true);
@@ -236,14 +249,19 @@ describe("@k2b/ui feedback runtime", () => {
     expect(rail?.className).toBe("");
     expect(card?.dataset.tone).toBe("success");
     expect(card?.textContent).toContain("Saved");
+    expect(card?.querySelector(".k2b-toast__content")?.getAttribute("role")).toBe("status");
 
     handle.update("Publish failed", {
       variant: "error",
       title: "Could not publish",
       duration: 0,
+      iconClass: "ti ti-alert-triangle",
       action: { label: "Retry", href: "/retry" },
     });
     expect(card?.dataset.tone).toBe("danger");
+    expect(card?.querySelector(".k2b-toast__content")?.getAttribute("role")).toBe("alert");
+    expect(card?.querySelector(".k2b-toast__content")?.getAttribute("aria-live")).toBe("assertive");
+    expect(card?.querySelector(".k2b-toast__icon i")?.className).toBe("ti ti-alert-triangle");
     expect(card?.textContent).toContain("Could not publish");
     expect(card?.querySelector<HTMLAnchorElement>(".k2b-toast__action")?.href).toBe("http://localhost/retry");
 
@@ -255,6 +273,65 @@ describe("@k2b/ui feedback runtime", () => {
     await Bun.sleep(220);
     expect(rail?.childElementCount).toBe(0);
 
+    dom.cleanup();
+  });
+
+  test("exposes search as an active-descendant combobox and normalizes form cancellation", async () => {
+    const dom = createDomTestHarness();
+    dom.root.className = "k2b-ui";
+    const { dialogCore } = await import("../src/feedback/dialog-core");
+    const { prompts } = await import("../src/feedback/prompts");
+
+    const searchResult = prompts.search(async () => [{ label: "Ada", value: "ada" }], {
+      ariaLabel: "Find a person",
+      debounceMs: 0,
+    });
+    await settle();
+
+    const input = dom.document.querySelector<HTMLInputElement>("[role='combobox']");
+    const option = dom.document.querySelector<HTMLElement>("[role='option']");
+    expect(input?.getAttribute("aria-label")).toBe("Find a person");
+    expect(input?.getAttribute("aria-controls")).toBe(option?.parentElement?.id);
+    expect(input?.getAttribute("aria-activedescendant")).toBe(option?.id);
+    expect(option?.getAttribute("aria-selected")).toBe("true");
+
+    dialogCore.close();
+    expect(await searchResult).toBeUndefined();
+    await settle();
+
+    const formResult = prompts.form({ fields: { name: { type: "text" } } });
+    await settle();
+    dialogCore.close();
+    expect(await formResult).toBeNull();
+
+    dom.cleanup();
+  });
+
+  test("keeps a prompt date picker reactive after selecting a day", async () => {
+    const dom = createDomTestHarness();
+    dom.root.className = "k2b-ui";
+    const { dialogCore } = await import("../src/feedback/dialog-core");
+    const { prompts } = await import("../src/feedback/prompts");
+
+    const formResult = prompts.form({
+      fields: {
+        releaseDate: { type: "datetime", dateOnly: true, default: "2026-08-03" },
+      },
+    });
+    await settle();
+
+    dom.document.querySelector<HTMLButtonElement>(".k2b-date-trigger")?.click();
+    await settle();
+    const nextDay = Array.from(dom.document.querySelectorAll<HTMLButtonElement>("[data-date-day]"))
+      .find((day) => day.dataset.dateDay !== "2026-08-03" && day.dataset.outside !== "true");
+    expect(nextDay).toBeDefined();
+    nextDay?.click();
+    await settle();
+
+    expect(nextDay?.getAttribute("aria-selected")).toBe("true");
+
+    dialogCore.close();
+    expect(await formResult).toBeNull();
     dom.cleanup();
   });
 });

@@ -416,7 +416,7 @@ function DashboardValueFormatEditor(props: {
           description="Leave empty for an automatic compact value."
           min={0}
           max={20}
-          value={() => value().decimalPlaces}
+          value={() => value().decimalPlaces ?? null}
           onValueChange={(decimalPlaces) =>
             props.onChange({ ...value(), ...(decimalPlaces === null ? { decimalPlaces: undefined } : { decimalPlaces }) })
           }

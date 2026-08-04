@@ -62,6 +62,10 @@ Persistence remains outside the component. Debounce or queue writes in the ownin
 
 When both are present, abbreviations run first and the explicit completion definitions are appended.
 
+Static completion tokens can opt into Markdown highlighting through
+`knownLabels`. Keep remote results inside `suggest`; metadata collection never
+executes a completion provider.
+
 Tab accepts the active suggestion. Dropdown completions add arrow-key
 navigation, Enter acceptance, Escape dismissal, and retryable loading and error
 states. A new query aborts stale asynchronous work. Completions do not expand

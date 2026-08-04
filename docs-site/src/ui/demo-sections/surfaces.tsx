@@ -216,7 +216,7 @@ const StatsDemo = () => (
 <StatGrid title="Runtime" action={{ label: "Observability", href: "./observability" }}>
   <StatCell label="Requests" value="42k" sub="last hour" trend={[12, 18, 16, 24, 42]} />
   <StatCell label="Latency" value="83 ms" sub="p95" href="./observability" valueClass="app-latency-warning" />
-  <StatCell label="Errors" value={12} accent={{ tone: "red", icon: "ti ti-alert-circle", text: "inspect", href: "./observability" }} />
+  <StatCell label="Errors" value={12} accent={{ tone: "red", icon: "ti ti-alert-circle", text: "inspect" }} />
 </StatGrid>`}
   >
     <StatGrid columns={3} title="Runtime" action={{ label: "Observability", href: "./observability" }}>
@@ -226,7 +226,7 @@ const StatsDemo = () => (
         label="Errors"
         value={12}
         sub="last hour"
-        accent={{ tone: "red", icon: "ti ti-alert-circle", text: "inspect", href: "./observability" }}
+        accent={{ tone: "red", icon: "ti ti-alert-circle", text: "inspect" }}
       />
     </StatGrid>
   </DemoCard>

@@ -8,11 +8,11 @@ export type ProgressBarProps = {
   size?: "xs" | "sm" | "md";
   tone?: ProgressBarTone;
   showValue?: boolean;
-  label?: string;
+  label: string;
   class?: string;
 };
 
-const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+const clamp = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
 
 export function ProgressBar(props: ProgressBarProps): JSX.Element {
   const percent = () => clamp(props.value);
@@ -21,7 +21,7 @@ export function ProgressBar(props: ProgressBarProps): JSX.Element {
       <div
         class="k2b-progress__track"
         role="progressbar"
-        aria-label={props.label ?? "Progress"}
+        aria-label={props.label}
         aria-valuemin="0"
         aria-valuemax="100"
         aria-valuenow={percent()}

@@ -14,8 +14,6 @@ type GqlAutocompleteFetcher = (request: GqlAutocompleteRequest, signal: AbortSig
 
 const GQL_TRIGGER_CHARS = [" ", "\n", "\t", ";", "(", ",", ".", "+", "-", "*", "/", "%", "=", "<", ">"];
 
-const isKnownLabelScan = (ctx: SuggestContext) => ctx.fullText === "" && ctx.caret === 0 && ctx.tokenStart === 0;
-
 export const toSuggestion = (item: DslQueryCompletionItem): Suggestion => ({
   text: item.insertText,
   label: item.label,
@@ -29,7 +27,7 @@ export const buildBackendGqlCompletions = (config: {
   fetchAutocomplete: GqlAutocompleteFetcher;
 }): Completion[] => {
   const suggest = (_query: string, ctx: SuggestContext, signal: AbortSignal): Suggestion[] | Promise<Suggestion[]> => {
-    if (signal.aborted || isKnownLabelScan(ctx)) return [];
+    if (signal.aborted) return [];
     return config
       .fetchAutocomplete(
         {

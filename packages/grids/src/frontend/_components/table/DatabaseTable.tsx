@@ -289,7 +289,7 @@ export default function DatabaseTable(props: Props) {
   };
 
   return (
-    <Show when={visibleFields().length > 0} fallback={<Placeholder surface="paper">No visible fields.</Placeholder>}>
+    <Show when={visibleFields().length > 0} fallback={<Placeholder surface="paper" description={<>No visible fields.</>} />}>
       <DataTable
         ariaLabel="Records"
         rows={props.result.items}

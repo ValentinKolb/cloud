@@ -1,5 +1,5 @@
-import { createEffect, createMemo, createSignal, type JSX, Show } from "solid-js";
-import Dropdown, { DropdownItem, type DropdownElement, type DropdownItem as DropdownItemDefinition } from "./Dropdown";
+import { createMemo, type JSX, Show } from "solid-js";
+import Dropdown, { type DropdownElement, DropdownItem, type DropdownItem as DropdownItemDefinition } from "./Dropdown";
 
 export type FilterChipOption = {
   value: string;
@@ -94,11 +94,7 @@ function FilterOptionRow(props: FilterOptionRowProps): JSX.Element {
 
 /** Section-aware controlled filter with immediate single- and multi-select commits. */
 export function FilterChip(props: FilterChipProps): JSX.Element {
-  const [localValue, setLocalValue] = createSignal<string[]>([...props.value]);
-
-  createEffect(() => setLocalValue([...props.value]));
-
-  const selectedValues = createMemo(() => new Set(localValue()));
+  const selectedValues = createMemo(() => new Set(props.value));
   const defaultValues = createMemo(() => new Set(props.defaultValue ?? []));
   const sectionByValue = createMemo(() => {
     const sections = new Map<string, FilterChipSection>();
@@ -109,20 +105,17 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
   });
   const hasDefault = () => (props.defaultValue?.length ?? 0) > 0;
   const selected = (value: string) => selectedValues().has(value);
-  const active = () => props.isActive ?? localValue().length > 0;
+  const active = () => props.isActive ?? props.value.length > 0;
   const atDefault = () => {
     if (!props.defaultValue) return false;
-    const current = localValue();
+    const current = props.value;
     return current.length === props.defaultValue.length && current.every((value) => defaultValues().has(value));
   };
-  const emit = (value: string[]) => {
-    setLocalValue(value);
-    props.onValueChange(value);
-  };
+  const emit = (value: string[]) => props.onValueChange(value);
   const toggle = (value: string) => {
     const section = sectionByValue().get(value);
     if (!section) return;
-    const current = localValue();
+    const current = props.value;
     if (section.multiple) {
       emit(selected(value) ? current.filter((entry) => entry !== value) : [...current, value]);
       return;
@@ -132,7 +125,7 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
     emit(selected(value) ? otherValues : [...otherValues, value]);
   };
   const reset = () => emit(props.defaultValue ? [...props.defaultValue] : []);
-  const showReset = () => (hasDefault() && !atDefault()) || (!hasDefault() && localValue().length > 0);
+  const showReset = () => (hasDefault() && !atDefault()) || (!hasDefault() && props.value.length > 0);
   const resetItem: DropdownElement = {
     element: () => (
       <Show when={showReset()}>
@@ -181,7 +174,7 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
           <Show when={!props.iconOnly}>
             <span>
               {props.label}
-              <Show when={!hasDefault() && localValue().length > 0}>{` (${localValue().length})`}</Show>
+              <Show when={!hasDefault() && props.value.length > 0}>{` (${props.value.length})`}</Show>
             </span>
             <i class="ti ti-chevron-down k2b-filter-chip__chevron" aria-hidden="true" />
           </Show>

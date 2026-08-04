@@ -7,6 +7,7 @@ import { dates } from "@k2b/stdlib";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type { CalendarEvent } from "./Calendar";
+import type { DataTableProps } from "./DataTable";
 import { getFileViewPreviewKind } from "./file-view-preview";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-content-contract-"));
@@ -152,22 +153,22 @@ describe("@k2b/ui Cloud content contract", () => {
 
   test("composes a labelled professional DataTable panel without component-valued props", () => {
     type Row = { id: string; name: string };
-    const html = renderToString(() => (
-      <DataTable.Panel>
-        <DataTable.Header title="Orders" subtitle="1 of 1 rows">
-          <button type="button">Settings</button>
-        </DataTable.Header>
-        <DataTable.Controls>
-          <input aria-label="Search orders" />
-        </DataTable.Controls>
-        <DataTable<Row>
-          rows={[{ id: "one", name: "Ada" }]}
-          columns={[{ id: "name", header: "Name", value: "name" }]}
-          getRowId={(row) => row.id}
-        />
-        <DataTable.Footer>Page 1 of 1</DataTable.Footer>
-      </DataTable.Panel>
-    ));
+    const html = renderToString(() =>
+      createComponent(DataTable.Panel, {
+        get children() {
+          return [
+            createComponent(DataTable.Header, { title: "Orders", subtitle: "1 of 1 rows", children: "Settings" }),
+            createComponent(DataTable.Controls, { children: "Search orders" }),
+            DataTable<Row>({
+              rows: [{ id: "one", name: "Ada" }],
+              columns: [{ id: "name", header: "Name", value: "name" }],
+              getRowId: (row) => row.id,
+            }),
+            createComponent(DataTable.Footer, { children: "Page 1 of 1" }),
+          ];
+        },
+      }),
+    );
 
     const headingId = html.match(/id="(k2b-data-table-[^"]+-heading)"/)?.[1];
     expect(headingId).toBeTruthy();
@@ -247,6 +248,21 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(logs).toContain("worker");
   });
 
+  test("renders unknown log levels without mislabelling them as debug", () => {
+    const html = renderToString(() =>
+      createComponent(LogEntriesTable, {
+        entries: [
+          { id: 1, level: "notice", source: "worker", message: "Observed", metadata: null, createdAt: "2026-01-01T12:00:00Z" },
+        ],
+      }),
+    );
+
+    expect(html).toContain('data-level="neutral"');
+    expect(html).toContain("notice");
+    expect(html).not.toContain("ti-bug");
+    expect(html).toContain('aria-hidden="true"');
+  });
+
   test("keeps pagination work bounded for very large result sets", () => {
     const html = renderToString(() =>
       createComponent(Pagination, {
@@ -259,6 +275,34 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html.match(/<a /g)?.length).toBeLessThanOrEqual(6);
     expect(html).toContain("500000000");
     expect(html).toContain("1000000000");
+  });
+
+  test("normalizes invalid pagination bounds", () => {
+    const html = renderToString(() =>
+      createComponent(Pagination, { currentPage: -4, totalPages: 3, baseUrl: "/items?page=" }),
+    );
+
+    expect(html).toContain("Page 1 of 3");
+    expect(html).not.toContain("page=0");
+  });
+
+  test("keeps date-only calendar values in the configured local day and noninteractive events neutral", () => {
+    const html = renderToString(() =>
+      createComponent(Calendar, {
+        date: "2026-07-15",
+        selectedDate: "2026-07-15",
+        view: "day",
+        timeZone: "America/Los_Angeles",
+        events: [
+          { id: "planning", title: "All-day planning", start: "2026-07-15", end: "2026-07-16", allDay: true },
+        ],
+      }),
+    );
+
+    expect(html).toContain("All-day planning");
+    const event = html.match(/<div class="k2b-calendar-event"[^>]*>/)?.[0] ?? "";
+    expect(event).not.toContain('role="button"');
+    expect(event).not.toContain("tabindex");
   });
 
   test("keeps trusted Markdown, structured data and PDF interaction shells", () => {
@@ -312,6 +356,33 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain("k2b-data-table__fill");
     expect(html).toContain("k2b-data-table__sentinel");
     expect(html).toContain("k2b-data-table__cell-text");
+    expect(html).toContain('scope="col"');
+    expect(html.indexOf("<tbody")).toBeLessThan(html.indexOf("<tfoot"));
+  });
+
+  test("infers each DataTable column alignment once per row set", () => {
+    const rows = Array.from({ length: 100 }, (_, index) => ({ value: index + 1 }));
+    let reads = 0;
+    const tableProps: DataTableProps<(typeof rows)[number]> = {
+      rows,
+      get columns() {
+        return [
+          {
+            id: "value",
+            header: "Value",
+            value: (row: (typeof rows)[number]) => {
+              reads += 1;
+              return row.value;
+            },
+          },
+        ];
+      },
+    };
+    const html = renderToString(() => DataTable(tableProps));
+
+    // One read determines the alignment; one read per row renders the cells.
+    expect(reads).toBe(rows.length + 1);
+    expect(html).toContain('data-align="right"');
   });
 
   test("keeps the DataTable base geometry when callers add table classes", () => {

@@ -1,5 +1,5 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import {
   type DateRangeValue,
@@ -132,6 +132,13 @@ function PickerShell<T>(props: {
   const toggle = () => (open() ? close() : show());
 
   onMount(() => {
+    const syncOpenState = () => setOpen(popoverIsOpen(popover));
+    popover?.addEventListener("toggle", syncOpenState);
+    onCleanup(() => popover?.removeEventListener("toggle", syncOpenState));
+  });
+
+  createEffect(() => {
+    if (!open()) return;
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     onCleanup(() => {
@@ -188,6 +195,7 @@ function PickerShell<T>(props: {
             aria-label="Clear date"
             onClick={(event) => {
               event.stopPropagation();
+              close();
               commitFieldValue(props.owner, props.clearValue);
               trigger?.focus();
             }}
@@ -473,8 +481,8 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
           <PresetRail
             presets={props.presets}
             onSelect={(value) => {
-              commitFieldValue(props, value);
               close();
+              commitFieldValue(props, value);
             }}
           />
           <DatePickerPanel
@@ -483,8 +491,8 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
             selected={value}
             focusDate={value}
             onSelect={(value) => {
-              commitFieldValue(props, value);
               close();
+              commitFieldValue(props, value);
             }}
             dateConfig={props.dateConfig}
           />
@@ -525,8 +533,8 @@ export function DateTimePicker(props: DateTimePickerProps): JSX.Element {
             <PresetRail
               presets={props.presets}
               onSelect={(value) => {
-                commitFieldValue(props, value);
                 close();
+                commitFieldValue(props, value);
               }}
             />
             <DatePickerPanel
@@ -548,9 +556,10 @@ export function DateTimePicker(props: DateTimePickerProps): JSX.Element {
               class="k2b-date-apply"
               disabled={!draftDate() || !isCompleteTime(draftTime())}
               onClick={() => {
+                if (!draftDate() || !isCompleteTime(draftTime())) return;
                 const value = toDateTimeValue(draftDate(), draftTime(), props.dateConfig);
-                commitFieldValue(props, value);
                 close();
+                commitFieldValue(props, value);
               }}
             >
               Apply
@@ -650,16 +659,17 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
   const commit = (close: () => void) => {
     const current = draftRange();
     if (!withTime()) {
-      commitFieldValue(props, current);
       close();
+      commitFieldValue(props, current);
       return;
     }
+    if ((current.start || current.end) && (!isCompleteTime(startTime()) || !isCompleteTime(endTime()))) return;
     const value = {
       start: current.start ? toDateTimeValue(current.start, startTime(), props.dateConfig) : null,
       end: current.end ? toDateTimeValue(current.end, endTime(), props.dateConfig) : null,
     };
-    commitFieldValue(props, value);
     close();
+    commitFieldValue(props, value);
   };
 
   return (
@@ -690,8 +700,8 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
                 <PresetRail
                   presets={props.presets}
                   onSelect={(value) => {
-                    commitFieldValue(props, value);
                     close();
+                    commitFieldValue(props, value);
                   }}
                 />
               }
@@ -742,7 +752,15 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
             <button
               type="button"
               class="k2b-date-apply"
-              disabled={Boolean(draftRange().start) !== Boolean(draftRange().end)}
+              disabled={
+                Boolean(draftRange().start) !== Boolean(draftRange().end) ||
+                Boolean(
+                  withTime() &&
+                    draftRange().start &&
+                    draftRange().end &&
+                    (!isCompleteTime(startTime()) || !isCompleteTime(endTime())),
+                )
+              }
               onClick={() => commit(close)}
             >
               Apply

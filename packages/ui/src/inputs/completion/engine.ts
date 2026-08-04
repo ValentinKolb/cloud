@@ -20,6 +20,8 @@ export type SuggestContext = {
 export type Completion = {
   trigger?: string;
   suggest: (query: string, context: SuggestContext, signal: AbortSignal) => readonly Suggestion[] | Promise<readonly Suggestion[]>;
+  /** Static labels used by editor highlighting. Providers are never invoked to derive metadata. */
+  knownLabels?: readonly string[];
   debounceMs?: number;
   dropdown?: boolean;
   allowAfterWord?: boolean;
@@ -46,6 +48,7 @@ export const GHOST_SENTINEL = String.fromCharCode(0xe010);
 export const abbreviations = (dictionary: Record<string, string>): Completion => {
   const suggestions = Object.entries(dictionary).map(([text, expansion]) => ({ text, expansion }));
   return {
+    knownLabels: suggestions.map((suggestion) => suggestion.text),
     suggest: (query) => {
       if (query === "") return suggestions;
       const normalized = query.toLowerCase();
@@ -129,11 +132,8 @@ export const pickGhost = (suggestions: readonly Suggestion[], typed: string): Su
 
 export const collectKnownLabels = (completions: readonly Completion[] | undefined): Set<string> => {
   const labels = new Set<string>();
-  const context: SuggestContext = { fullText: "", caret: 0, tokenStart: 0 };
   for (const completion of completions ?? []) {
-    for (const suggestion of suggestSync(completion, "", context) ?? []) {
-      labels.add(suggestion.text);
-    }
+    for (const label of completion.knownLabels ?? []) labels.add(label);
   }
   return labels;
 };

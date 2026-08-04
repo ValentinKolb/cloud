@@ -1,4 +1,5 @@
 import { children, createMemo, createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
+import { assertUniqueStableUiIds } from "./stable-id";
 
 const SETTINGS_MODAL_TAB = Symbol("SettingsModal.Tab");
 
@@ -52,13 +53,19 @@ function SettingsModalTab(props: SettingsModalTabProps): JSX.Element {
 
 const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
   const resolved = children(() => props.children);
-  const tabs = createMemo(() => collectTabs(resolved()));
+  const tabs = createMemo(() => {
+    const collected = collectTabs(resolved());
+    assertUniqueStableUiIds(collected.map((tab) => tab.props.id), "SettingsModal.Tab id");
+    return collected;
+  });
   const instanceId = `k2b-settings-${createUniqueId()}`;
   const tabRefs = new Map<string, HTMLButtonElement>();
   const firstTabId = () => tabs()[0]?.props.id ?? "";
   const [localActiveTab, setLocalActiveTab] = createSignal(props.defaultTab ?? firstTabId());
-  const activeTabId = () => props.activeTab ?? (localActiveTab() || firstTabId());
-  const activeTab = () => tabs().find((tab) => tab.props.id === activeTabId()) ?? tabs()[0] ?? null;
+  const requestedActiveTabId = () => props.activeTab ?? (localActiveTab() || firstTabId());
+  const resolvedActiveTabId = () =>
+    tabs().some((tab) => tab.props.id === requestedActiveTabId()) ? requestedActiveTabId() : firstTabId();
+  const activeTab = () => tabs().find((tab) => tab.props.id === resolvedActiveTabId()) ?? null;
 
   const selectTab = (id: string) => {
     if (props.activeTab === undefined) setLocalActiveTab(id);
@@ -100,7 +107,7 @@ const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
         <nav class="k2b-settings__tabs" aria-label={`${props.title} sections`} role="tablist">
           <For each={tabs()}>
             {(tab) => {
-              const active = () => activeTabId() === tab.props.id;
+              const active = () => resolvedActiveTabId() === tab.props.id;
               return (
                 <button
                   ref={(element) => tabRefs.set(tab.props.id, element)}

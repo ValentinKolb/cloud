@@ -5,10 +5,21 @@ tasks. The parent owns every selected value.
 
 ## Use select inputs
 
-- Use `Select` for one value in a form.
-- Use `MultiSelectInput` for a controlled list of selected option IDs.
-- Use `SelectChip` for one compact value in a toolbar.
-- Use `Combobox` instead when selecting an item should immediately perform an action and clear the search field.
+Choose from the state transition, not from the desired visual shape:
+
+| Task                                        | Component          | Value contract                 |
+| ------------------------------------------- | ------------------ | ------------------------------ |
+| Choose one value in a form                  | `Select`           | one controlled value or `null` |
+| Choose several values                       | `MultiSelectInput` | one controlled ID array        |
+| Choose one compact toolbar value            | `SelectChip`       | one controlled value           |
+| Filter a result set                         | `FilterChip`       | controlled filter state        |
+| Find an item, perform an action, then clear | `Combobox`         | selected item callback         |
+| Run a secondary action or open a link       | `Dropdown`         | no field value                 |
+
+Do not rebuild select rows inside `Dropdown.element`. That loses the shared
+field, listbox or radio semantics and makes alignment and keyboard behavior the
+consumer's responsibility. See [Dropdown and ContextMenu](../actions/menus) for
+action menus and composite custom content.
 
 ## Import
 
@@ -57,11 +68,34 @@ list in the browser. Pass `searchable={false}` for a short fixed list.
 ## SelectChip
 
 `SelectChip` accepts its current `value` directly or through a Solid accessor.
-Each selection reports through both value callbacks. Its options use
-`{ value, label }`, and their values may be strings or numbers.
+Each selection closes the menu before reporting through both value callbacks,
+so a consumer update cannot leave stale option content visible. Its options use
+`{ value, label }`, and their values may be strings or numbers. Optional
+`icon`, `image`, and `description` metadata supports compact rich choices such
+as model or environment selectors; use `menuWidth` only when their copy needs
+more than the default `10rem`.
+
+Selection popovers dismiss synchronously. Do not add a generic host-level
+`[popover]` display or overlay transition around them; `@k2b/ui` explicitly
+keeps interactive choice surfaces immediate.
 
 Keep it for compact toolbars. It supports the same field label, description,
 reactive error, required, and disabled state, but has no clear state.
+
+```tsx
+const [permission, setPermission] = createSignal("read");
+
+<SelectChip
+  aria-label="Permission"
+  value={permission}
+  onValueChange={setPermission}
+  options={[
+    { value: "read", label: "View", icon: "ti ti-eye" },
+    { value: "write", label: "Edit", icon: "ti ti-pencil" },
+    { value: "admin", label: "Manage", icon: "ti ti-shield" },
+  ]}
+/>;
+```
 
 ## Accessibility
 

@@ -132,7 +132,7 @@ export default function GroupedTable(props: Props) {
   return (
     <Show
       when={props.buckets.length > 0}
-      fallback={<Placeholder surface="paper">No groups. Adjust the filter or grouping configuration.</Placeholder>}
+      fallback={<Placeholder surface="paper" description={<>No groups. Adjust the filter or grouping configuration.</>} />}
     >
       <Show when={props.explode}>
         <div class="text-[11px] text-dimmed flex items-center gap-1.5 px-1">

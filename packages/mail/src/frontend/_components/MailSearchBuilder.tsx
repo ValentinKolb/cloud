@@ -142,7 +142,7 @@ function MailSearchConditionEditor(props: {
               <div class="flex min-w-0 items-center gap-2">
                 <Select
                   label="Match"
-                  value={() => group()?.type}
+                  value={() => group()?.type ?? null}
                   onValueChange={(value) => {
                     const current = group();
                     if (!current) return;

@@ -183,6 +183,8 @@ const Chart = (props: ChartProps): JSX.Element => {
         viewport: StateTimelineDomain;
       }
     | undefined;
+  let pointerFrame: number | undefined;
+  let pendingPointer: { pointerId: number; clientX: number; clientY: number } | undefined;
 
   const interactiveMap = () => props.kind === "map" && props.interactive === true;
   const interactiveTimeline = () => props.kind === "stateTimeline" && props.interactive === true;
@@ -265,28 +267,43 @@ const Chart = (props: ChartProps): JSX.Element => {
     setDragging(true);
   };
 
-  const handlePointerMove: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+  const flushPointerMove = () => {
+    if (pointerFrame !== undefined) {
+      cancelAnimationFrame(pointerFrame);
+      pointerFrame = undefined;
+    }
+    const sample = pendingPointer;
+    pendingPointer = undefined;
+    if (!sample) return;
     if (interactiveLine()) {
-      showLineTooltip(event);
+      showLineTooltip(sample.clientX, sample.clientY);
       return;
     }
     const activeTimelineDrag = timelineDrag;
-    if (activeTimelineDrag?.pointerId === event.pointerId) {
+    if (activeTimelineDrag?.pointerId === sample.pointerId) {
       updateTimelineViewport(() =>
         panStateTimelineViewport(
           activeTimelineDrag.viewport,
           timelineFullDomain(),
-          event.clientX - activeTimelineDrag.x,
+          sample.clientX - activeTimelineDrag.x,
           activeTimelineDrag.width,
         ),
       );
       return;
     }
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    setMapViewport(panMapViewport(drag.viewport, event.clientX - drag.x, event.clientY - drag.y, drag.width, drag.height));
+    if (!drag || drag.pointerId !== sample.pointerId) return;
+    setMapViewport(panMapViewport(drag.viewport, sample.clientX - drag.x, sample.clientY - drag.y, drag.width, drag.height));
+  };
+
+  const handlePointerMove: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (!interactiveLine() && timelineDrag?.pointerId !== event.pointerId && drag?.pointerId !== event.pointerId) return;
+    pendingPointer = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
+    if (pointerFrame !== undefined) return;
+    pointerFrame = requestAnimationFrame(flushPointerMove);
   };
 
   const stopDragging: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (pendingPointer?.pointerId === event.pointerId) flushPointerMove();
     if (timelineDrag?.pointerId === event.pointerId) {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -389,6 +406,11 @@ const Chart = (props: ChartProps): JSX.Element => {
   };
 
   const closeChartTooltip = () => {
+    if (interactiveLine()) {
+      if (pointerFrame !== undefined) cancelAnimationFrame(pointerFrame);
+      pointerFrame = undefined;
+      pendingPointer = undefined;
+    }
     chartTooltipTriggerRef?.removeAttribute("aria-describedby");
     chartTooltipTriggerRef = undefined;
     setLineInspectionActive(false);
@@ -483,14 +505,13 @@ const Chart = (props: ChartProps): JSX.Element => {
     }
   };
 
-  const showLineTooltip = (event: PointerEvent) => {
+  const showLineTooltip = (clientX: number, clientY: number) => {
     const values = lineXValues();
     if (values.length === 0) return;
-    const rect =
-      event.currentTarget instanceof Element ? event.currentTarget.getBoundingClientRect() : containerRef?.getBoundingClientRect();
+    const rect = containerRef?.getBoundingClientRect();
     if (!rect) return;
     const bounds = linePlotBounds();
-    const localX = event.clientX - rect.left;
+    const localX = clientX - rect.left;
     const ratio = Math.min(1, Math.max(0, (localX - bounds.left) / Math.max(1, bounds.right - bounds.left)));
     const target = (values[0] ?? 0) + ratio * ((values.at(-1) ?? 0) - (values[0] ?? 0));
     let low = 0;
@@ -502,8 +523,14 @@ const Chart = (props: ChartProps): JSX.Element => {
     }
     const previous = Math.max(0, low - 1);
     const index = Math.abs(values[previous]! - target) <= Math.abs(values[low]! - target) ? previous : low;
-    showLinePoint(index, event.clientY - rect.top);
+    showLinePoint(index, clientY - rect.top);
   };
+
+  onCleanup(() => {
+    if (pointerFrame !== undefined) cancelAnimationFrame(pointerFrame);
+    pointerFrame = undefined;
+    pendingPointer = undefined;
+  });
 
   onMount(() => {
     if (!containerRef) return;

@@ -1,3 +1,5 @@
+import { isStableUiId } from "./stable-id";
+
 export const PANES_VALUE_VERSION = 1 as const;
 export const PANES_MIN_SIZE = 8;
 
@@ -49,8 +51,7 @@ const MAX_ID_LENGTH = PANES_MAX_ID_LENGTH;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 
-const validId = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
+const validId = (value: unknown): value is string => isStableUiId(value, MAX_ID_LENGTH);
 
 const uniqueStrings = (values: readonly string[]): string[] => {
   const seen = new Set<string>();

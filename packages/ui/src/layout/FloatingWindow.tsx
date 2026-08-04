@@ -77,18 +77,28 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
     stopActivePointerInteraction();
     props.onClose();
   };
-  const trackPointerInteraction = (move: (event: PointerEvent) => void) => {
+  const trackPointerInteraction = (start: PointerEvent, move: (event: PointerEvent) => void) => {
     stopActivePointerInteraction();
+    const pointerId = start.pointerId;
+    const captureTarget = start.currentTarget as HTMLElement;
+    captureTarget.setPointerCapture?.(pointerId);
     const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      if (captureTarget.hasPointerCapture?.(pointerId)) captureTarget.releasePointerCapture(pointerId);
       if (stopPointerInteraction === stop) stopPointerInteraction = undefined;
     };
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerId === pointerId) move(event);
+    };
+    const onEnd = (event: PointerEvent) => {
+      if (event.pointerId === pointerId) stop();
+    };
     stopPointerInteraction = stop;
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
-    window.addEventListener("pointercancel", stop, { once: true });
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
   };
 
   onMount(() => {
@@ -128,7 +138,7 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
     front();
     const move = (next: PointerEvent) =>
       setRect(fit({ ...origin, x: origin.x + next.clientX - start.x, y: origin.y + next.clientY - start.y }));
-    trackPointerInteraction(move);
+    trackPointerInteraction(event, move);
     event.preventDefault();
   };
   const resizeBy = (edge: ResizeEdge, deltaX: number, deltaY: number) => {
@@ -156,7 +166,7 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
       resizeBy(edge, next.clientX - previous.x, next.clientY - previous.y);
       previous = { x: next.clientX, y: next.clientY };
     };
-    trackPointerInteraction(move);
+    trackPointerInteraction(event, move);
     event.preventDefault();
   };
   const arrows = (event: KeyboardEvent, action: (x: number, y: number) => void) => {

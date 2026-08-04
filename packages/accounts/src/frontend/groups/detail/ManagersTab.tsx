@@ -77,9 +77,9 @@ export default function ManagersTab(props: ManagersTabProps) {
       />
 
       {isEmpty ? (
-        <Placeholder surface="paper" icon="ti ti-users-group">
+        <Placeholder surface="paper" icon="ti ti-users-group" description={<>
           This group has no managers.
-        </Placeholder>
+        </>} />
       ) : (
         <div class="paper overflow-hidden">
           <DataTable

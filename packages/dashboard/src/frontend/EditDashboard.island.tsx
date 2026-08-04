@@ -379,9 +379,9 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
         <Show
           when={shortcuts().length > 0}
           fallback={
-            <Placeholder align="left" class="px-0 py-2">
+            <Placeholder align="left" class="px-0 py-2" description={<>
               No custom shortcuts yet.
-            </Placeholder>
+            </>} />
           }
         >
           <ul class="flex flex-col gap-2">
