@@ -23,7 +23,7 @@ const SECURITY_NOTICES = [
   {
     title: "Organization rules are exact and shared",
     detail:
-      "Block rules contain known sender or link matches for everyone. Trust rules only remove this signal after a configured receiving server confirms authentication; trust never overrides a block.",
+      "Block rules contain known sender or link matches for everyone. Trust rules only remove this signal after a configured receiving server confirms the visible sender domain; trust never overrides a block.",
   },
   {
     title: "Protected identities detect impersonation",

@@ -130,6 +130,8 @@ describe("mailHelp", () => {
     expect(security).toContain("Mail keeps uncertain signals quiet");
     expect(security).toContain("does not upload or copy the subject or message body");
     expect(security).toContain("Trusted authentication sources");
+    expect(security).toContain("A pass for an unrelated domain is ignored");
+    expect(security).toContain("does not move messages at the provider or start, cancel, or duplicate automation runs");
   });
 
   test("documents guided mail rules and resumable existing-message backfills", () => {

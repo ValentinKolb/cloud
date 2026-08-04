@@ -30,7 +30,7 @@ function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }
               <NoticeCard
                 tone="info"
                 title="Rules affect every mailbox"
-                detail="Block only a known bad address or domain. Trust only a known sender that also passes authentication from a configured receiving server; trust never overrides a block."
+                detail="Block only a known bad address or domain. Trust only a known sender whose visible domain also passes authentication from a configured receiving server; trust never overrides a block."
               />
             ),
           },
@@ -135,7 +135,7 @@ function MailAdminSecurityToolbar(props: { trustedAuthservIds: string[] | null }
               <NoticeCard
                 tone="info"
                 title="These are receiving-server names, not sender domains"
-                detail="Add only the Authentication-Results server names confirmed by your mail administrator. An incorrect value could make legitimate verification evidence unavailable."
+                detail="Add only the Authentication-Results server names confirmed by your mail administrator. Mail uses only passed checks aligned with the visible sender domain."
               />
             ),
           },

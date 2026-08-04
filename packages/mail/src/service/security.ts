@@ -1,6 +1,5 @@
-import { domainToASCII } from "node:url";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
-import { audit, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { audit, isUniqueViolation, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type {
   CreateMailProtectedIdentityInput,
@@ -13,6 +12,7 @@ import type {
   UpdateMailSecurityPolicyInput,
 } from "../security-contracts";
 import { isCurrentPlatformAdmin, requireMailboxPermission } from "./access";
+import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext, userBackedActor } from "./auth";
 import { assessMailSecurityEvidence } from "./security-evidence";
 
@@ -54,33 +54,8 @@ type DbReport = {
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
 
-const normalizeDomain = (value: string): string | null => {
-  const ascii = domainToASCII(
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/^\.+|\.+$/gu, ""),
-  );
-  if (!ascii || ascii.length > 253 || !/^[a-z0-9.-]+$/u.test(ascii) || ascii.includes("..")) return null;
-  return ascii;
-};
-
-const normalizeAddress = (value: string): string | null => {
-  const address = value.trim().toLowerCase();
-  const separator = address.lastIndexOf("@");
-  if (
-    address.length > 320 ||
-    /[\s\u0000-\u001f\u007f]/u.test(address) ||
-    separator <= 0 ||
-    !normalizeDomain(address.slice(separator + 1))
-  ) {
-    return null;
-  }
-  return address;
-};
-
 const normalizePolicyValue = (target: MailSecurityPolicy["target"], value: string): string | null =>
-  target === "sender_address" ? normalizeAddress(value) : normalizeDomain(value);
+  target === "sender_address" ? normalizeEmailAddress(value) : normalizeEmailDomain(value);
 
 const normalizeIdentityName = (value: string): string =>
   value
@@ -267,8 +242,8 @@ export const reportMessage = async (params: {
   `;
   if (!message) return fail(err.notFound("Mail message"));
   if (message.outgoing) return fail(err.badInput("Outgoing messages cannot be reported as phishing"));
-  const senderAddress = message.sender_address ? normalizeAddress(message.sender_address) : null;
-  const senderDomain = senderAddress ? normalizeDomain(senderAddress.slice(senderAddress.lastIndexOf("@") + 1)) : null;
+  const senderAddress = message.sender_address ? normalizeEmailAddress(message.sender_address) : null;
+  const senderDomain = senderAddress ? normalizeEmailDomain(senderAddress.slice(senderAddress.lastIndexOf("@") + 1)) : null;
   const assessment = await assessMessage(params.mailboxId, params.messageId);
   if (!assessment.ok) return assessment;
   const result = await sql.begin(async (tx) => {
@@ -281,7 +256,10 @@ export const reportMessage = async (params: {
         sender_address = EXCLUDED.sender_address,
         sender_domain = EXCLUDED.sender_domain,
         assessment = EXCLUDED.assessment,
-        status = CASE WHEN mail.security_reports.status = 'dismissed' THEN 'new' ELSE mail.security_reports.status END
+        status = CASE WHEN mail.security_reports.status = 'dismissed' THEN 'new' ELSE mail.security_reports.status END,
+        resolution_note = CASE WHEN mail.security_reports.status = 'dismissed' THEN NULL ELSE mail.security_reports.resolution_note END,
+        reviewed_by_user_id = CASE WHEN mail.security_reports.status = 'dismissed' THEN NULL ELSE mail.security_reports.reviewed_by_user_id END,
+        updated_at = CASE WHEN mail.security_reports.status = 'dismissed' THEN now() ELSE mail.security_reports.updated_at END
       RETURNING id, mailbox_id, message_id, sender_address, sender_domain, status, report_count, assessment, resolution_note, created_at, updated_at
     `;
     if (!report) throw new Error("Mail security report insert returned no row");
@@ -344,21 +322,28 @@ export const resolveReport = async (params: {
   const allowed = await requirePlatformAdmin(params.context);
   if (!allowed.ok) return allowed;
   const reviewer = userBackedActor(params.context)?.id ?? null;
-  const [row] = await sql<DbReport[]>`
-    UPDATE mail.security_reports
-    SET status = ${params.status}, resolution_note = ${params.resolutionNote ?? null}, reviewed_by_user_id = ${reviewer}::uuid, updated_at = now()
-    WHERE id = ${params.reportId}::uuid
-    RETURNING id, mailbox_id, message_id, sender_address, sender_domain, status, report_count, assessment, resolution_note, created_at, updated_at
-  `;
-  if (!row) return fail(err.notFound("Mail security report"));
-  await audit.record({
-    action: "mail.security.report.resolve",
-    outcome: "allowed",
-    actor: auditActorFromRequest(params.context),
-    target: { type: "mail_security_report", id: row.id },
-    requestId: params.context.requestId,
-    metadata: { status: params.status },
+  const row = await sql.begin(async (tx) => {
+    const [updated] = await tx<DbReport[]>`
+      UPDATE mail.security_reports
+      SET status = ${params.status}, resolution_note = ${params.resolutionNote ?? null}, reviewed_by_user_id = ${reviewer}::uuid, updated_at = now()
+      WHERE id = ${params.reportId}::uuid
+      RETURNING id, mailbox_id, message_id, sender_address, sender_domain, status, report_count, assessment, resolution_note, created_at, updated_at
+    `;
+    if (!updated) return null;
+    await audit.record(
+      {
+        action: "mail.security.report.resolve",
+        outcome: "allowed",
+        actor: auditActorFromRequest(params.context),
+        target: { type: "mail_security_report", id: updated.id },
+        requestId: params.context.requestId,
+        metadata: { status: params.status },
+      },
+      tx,
+    );
+    return updated;
   });
+  if (!row) return fail(err.notFound("Mail security report"));
   return ok(mapReport(row));
 };
 
@@ -385,23 +370,29 @@ export const createPolicy = async (params: {
   if (!value) return fail(err.badInput("Enter a valid email address or domain"));
   const creator = userBackedActor(params.context)?.id ?? null;
   try {
-    const [row] = await sql<DbPolicy[]>`
-      INSERT INTO mail.security_policies (disposition, target, value, note, enabled, created_by_user_id)
-      VALUES (${params.input.disposition}, ${params.input.target}, ${value}, ${params.input.note ?? null}, ${params.input.enabled}, ${creator}::uuid)
-      ON CONFLICT (disposition, target, value) DO UPDATE SET
-        note = COALESCE(EXCLUDED.note, mail.security_policies.note),
-        enabled = true,
-        updated_at = now()
-      RETURNING id, disposition, target, value, note, enabled, created_at, updated_at
-    `;
-    if (!row) throw new Error("Mail security policy insert returned no row");
-    await audit.record({
-      action: "mail.security.policy.create",
-      outcome: "allowed",
-      actor: auditActorFromRequest(params.context),
-      target: { type: "mail_security_policy", id: row.id },
-      requestId: params.context.requestId,
-      metadata: { disposition: row.disposition, target: row.target, value: row.value },
+    const row = await sql.begin(async (tx) => {
+      const [created] = await tx<DbPolicy[]>`
+        INSERT INTO mail.security_policies (disposition, target, value, note, enabled, created_by_user_id)
+        VALUES (${params.input.disposition}, ${params.input.target}, ${value}, ${params.input.note ?? null}, ${params.input.enabled}, ${creator}::uuid)
+        ON CONFLICT (disposition, target, value) DO UPDATE SET
+          note = COALESCE(EXCLUDED.note, mail.security_policies.note),
+          enabled = EXCLUDED.enabled,
+          updated_at = now()
+        RETURNING id, disposition, target, value, note, enabled, created_at, updated_at
+      `;
+      if (!created) throw new Error("Mail security policy insert returned no row");
+      await audit.record(
+        {
+          action: "mail.security.policy.create",
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "mail_security_policy", id: created.id },
+          requestId: params.context.requestId,
+          metadata: { disposition: created.disposition, target: created.target, value: created.value },
+        },
+        tx,
+      );
+      return created;
     });
     return ok(mapPolicy(row));
   } catch {
@@ -416,22 +407,51 @@ export const updatePolicy = async (params: {
 }): Promise<Result<MailSecurityPolicy>> => {
   const allowed = await requirePlatformAdmin(params.context);
   if (!allowed.ok) return allowed;
-  const [row] = await sql<DbPolicy[]>`
-    UPDATE mail.security_policies
-    SET
-      note = CASE WHEN ${params.input.note === undefined} THEN note ELSE ${params.input.note ?? null} END,
-      enabled = COALESCE(${params.input.enabled ?? null}::boolean, enabled),
-      updated_at = now()
-    WHERE id = ${params.policyId}::uuid
-    RETURNING id, disposition, target, value, note, enabled, created_at, updated_at
-  `;
+  const row = await sql.begin(async (tx) => {
+    const [updated] = await tx<DbPolicy[]>`
+      UPDATE mail.security_policies
+      SET
+        note = CASE WHEN ${params.input.note === undefined} THEN note ELSE ${params.input.note ?? null} END,
+        enabled = COALESCE(${params.input.enabled ?? null}::boolean, enabled),
+        updated_at = now()
+      WHERE id = ${params.policyId}::uuid
+      RETURNING id, disposition, target, value, note, enabled, created_at, updated_at
+    `;
+    if (!updated) return null;
+    await audit.record(
+      {
+        action: "mail.security.policy.update",
+        outcome: "allowed",
+        actor: auditActorFromRequest(params.context),
+        target: { type: "mail_security_policy", id: updated.id },
+        requestId: params.context.requestId,
+        metadata: { enabled: updated.enabled },
+      },
+      tx,
+    );
+    return updated;
+  });
   return row ? ok(mapPolicy(row)) : fail(err.notFound("Mail security policy"));
 };
 
 export const deletePolicy = async (context: MailRequestContext, policyId: string): Promise<Result<{ deleted: true }>> => {
   const allowed = await requirePlatformAdmin(context);
   if (!allowed.ok) return allowed;
-  const [row] = await sql<{ id: string }[]>`DELETE FROM mail.security_policies WHERE id = ${policyId}::uuid RETURNING id`;
+  const row = await sql.begin(async (tx) => {
+    const [deleted] = await tx<{ id: string }[]>`DELETE FROM mail.security_policies WHERE id = ${policyId}::uuid RETURNING id`;
+    if (!deleted) return null;
+    await audit.record(
+      {
+        action: "mail.security.policy.delete",
+        outcome: "allowed",
+        actor: auditActorFromRequest(context),
+        target: { type: "mail_security_policy", id: deleted.id },
+        requestId: context.requestId,
+      },
+      tx,
+    );
+    return deleted;
+  });
   return row ? ok({ deleted: true }) : fail(err.notFound("Mail security policy"));
 };
 
@@ -451,22 +471,36 @@ export const createProtectedIdentity = async (params: {
 }): Promise<Result<MailProtectedIdentity>> => {
   const allowed = await requirePlatformAdmin(params.context);
   if (!allowed.ok) return allowed;
-  const domains = [...new Set(params.input.allowedDomains.map(normalizeDomain))];
+  const domains = [...new Set(params.input.allowedDomains.map(normalizeEmailDomain))];
   if (!domains.every((domain): domain is string => domain !== null)) return fail(err.badInput("Enter valid allowed domains"));
   const creator = userBackedActor(params.context)?.id ?? null;
   try {
-    const [row] = await sql<DbIdentity[]>`
-      INSERT INTO mail.protected_identities (name, normalized_name, allowed_domains, note, enabled, created_by_user_id)
-      VALUES (
-        ${params.input.name}, ${normalizeIdentityName(params.input.name)}, ${toPgTextArray(domains)}::text[],
-        ${params.input.note ?? null}, ${params.input.enabled}, ${creator}::uuid
-      )
-      RETURNING id, name, allowed_domains, note, enabled, created_at, updated_at
-    `;
-    if (!row) throw new Error("Protected identity insert returned no row");
+    const row = await sql.begin(async (tx) => {
+      const [created] = await tx<DbIdentity[]>`
+        INSERT INTO mail.protected_identities (name, normalized_name, allowed_domains, note, enabled, created_by_user_id)
+        VALUES (
+          ${params.input.name}, ${normalizeIdentityName(params.input.name)}, ${toPgTextArray(domains)}::text[],
+          ${params.input.note ?? null}, ${params.input.enabled}, ${creator}::uuid
+        )
+        RETURNING id, name, allowed_domains, note, enabled, created_at, updated_at
+      `;
+      if (!created) throw new Error("Protected identity insert returned no row");
+      await audit.record(
+        {
+          action: "mail.security.protected_identity.create",
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "mail_protected_identity", id: created.id, label: created.name },
+          requestId: params.context.requestId,
+          metadata: { allowedDomains: created.allowed_domains },
+        },
+        tx,
+      );
+      return created;
+    });
     return ok(mapIdentity(row));
   } catch (error) {
-    if ((error as { code?: string }).code === "23505") return fail(err.conflict("This protected identity already exists"));
+    if (isUniqueViolation(error)) return fail(err.conflict("This protected identity already exists"));
     return fail(err.internal("Failed to create protected identity"));
   }
 };
@@ -474,7 +508,23 @@ export const createProtectedIdentity = async (params: {
 export const deleteProtectedIdentity = async (context: MailRequestContext, identityId: string): Promise<Result<{ deleted: true }>> => {
   const allowed = await requirePlatformAdmin(context);
   if (!allowed.ok) return allowed;
-  const [row] = await sql<{ id: string }[]>`DELETE FROM mail.protected_identities WHERE id = ${identityId}::uuid RETURNING id`;
+  const row = await sql.begin(async (tx) => {
+    const [deleted] = await tx<{ id: string; name: string }[]>`
+      DELETE FROM mail.protected_identities WHERE id = ${identityId}::uuid RETURNING id, name
+    `;
+    if (!deleted) return null;
+    await audit.record(
+      {
+        action: "mail.security.protected_identity.delete",
+        outcome: "allowed",
+        actor: auditActorFromRequest(context),
+        target: { type: "mail_protected_identity", id: deleted.id, label: deleted.name },
+        requestId: context.requestId,
+      },
+      tx,
+    );
+    return deleted;
+  });
   return row ? ok({ deleted: true }) : fail(err.notFound("Protected identity"));
 };
 
@@ -495,15 +545,32 @@ export const updateSettings = async (params: {
 }): Promise<Result<MailSecuritySettings>> => {
   const allowed = await requirePlatformAdmin(params.context);
   if (!allowed.ok) return allowed;
-  const ids = [...new Set(params.trustedAuthservIds.map(normalizeDomain))];
-  if (ids.some((value) => !value)) return fail(err.badInput("Enter valid authentication server names"));
+  const ids = [...new Set(params.trustedAuthservIds.map(normalizeEmailDomain))];
+  if (!ids.every((value): value is string => value !== null)) {
+    return fail(err.badInput("Enter valid authentication server names"));
+  }
   const userId = userBackedActor(params.context)?.id ?? null;
-  const [row] = await sql<{ trusted_authserv_ids: string[]; updated_at: Date | string }[]>`
-    UPDATE mail.security_settings
-    SET trusted_authserv_ids = ${ids as string[]}::text[], updated_by_user_id = ${userId}::uuid, updated_at = now()
-    WHERE singleton = true
-    RETURNING trusted_authserv_ids, updated_at
-  `;
+  const row = await sql.begin(async (tx) => {
+    const [updated] = await tx<{ trusted_authserv_ids: string[]; updated_at: Date | string }[]>`
+      UPDATE mail.security_settings
+      SET trusted_authserv_ids = ${toPgTextArray(ids)}::text[], updated_by_user_id = ${userId}::uuid, updated_at = now()
+      WHERE singleton = true
+      RETURNING trusted_authserv_ids, updated_at
+    `;
+    if (!updated) return null;
+    await audit.record(
+      {
+        action: "mail.security.settings.update",
+        outcome: "allowed",
+        actor: auditActorFromRequest(params.context),
+        target: { type: "mail_security_settings", id: "singleton" },
+        requestId: params.context.requestId,
+        metadata: { trustedAuthservIds: updated.trusted_authserv_ids },
+      },
+      tx,
+    );
+    return updated;
+  });
   return row
     ? ok({ trustedAuthservIds: row.trusted_authserv_ids, updatedAt: toIso(row.updated_at) })
     : fail(err.internal("Mail security settings are unavailable"));

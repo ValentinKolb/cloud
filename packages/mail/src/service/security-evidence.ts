@@ -1,5 +1,5 @@
-import { domainToASCII } from "node:url";
 import type { MailProtectedIdentity, MailSecurityAssessment, MailSecurityPolicy } from "../security-contracts";
+import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";
 
 export type MailSecurityEvidenceInput = {
   from: Array<{ name: string | null; address: string }>;
@@ -12,28 +12,13 @@ export type MailSecurityEvidenceInput = {
   evaluatedAt?: string;
 };
 
-const normalizeDomain = (value: string): string | null => {
-  const normalized = domainToASCII(
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/^\.+|\.+$/gu, ""),
-  );
-  if (!normalized || normalized.length > 253 || !/^[a-z0-9.-]+$/u.test(normalized) || normalized.includes("..")) return null;
-  return normalized;
-};
-
 const addressDomain = (address: string): string | null => {
   const separator = address.lastIndexOf("@");
-  return separator > 0 ? normalizeDomain(address.slice(separator + 1)) : null;
-};
-
-const normalizeAddress = (value: string): string | null => {
-  const address = value.trim().toLowerCase();
-  return address.length <= 320 && !/[\s\u0000-\u001f\u007f]/u.test(address) && addressDomain(address) ? address : null;
+  return separator > 0 ? normalizeEmailDomain(address.slice(separator + 1)) : null;
 };
 
 const sameOrSubdomain = (value: string, expected: string): boolean => value === expected || value.endsWith(`.${expected}`);
+const domainsAligned = (first: string, second: string): boolean => sameOrSubdomain(first, second) || sameOrSubdomain(second, first);
 
 const linkEvidence = (html: string | null): { domains: Set<string>; misleading: boolean } => {
   const domains = new Set<string>();
@@ -44,12 +29,12 @@ const linkEvidence = (html: string | null): { domains: Set<string>; misleading: 
     try {
       const url = new URL(href);
       if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-      const domain = normalizeDomain(url.hostname);
+      const domain = normalizeEmailDomain(url.hostname);
       if (!domain) continue;
       domains.add(domain);
       const visible = (match[3] ?? "").replace(/<[^>]+>/gu, " ").trim();
       const visibleHost = visible.match(/(?:https?:\/\/)?([a-z0-9.-]+\.[a-z]{2,})/iu)?.[1];
-      const normalizedVisibleHost = visibleHost ? normalizeDomain(visibleHost) : null;
+      const normalizedVisibleHost = visibleHost ? normalizeEmailDomain(visibleHost) : null;
       if (normalizedVisibleHost && !sameOrSubdomain(domain, normalizedVisibleHost) && !sameOrSubdomain(normalizedVisibleHost, domain)) {
         misleading = true;
       }
@@ -60,16 +45,40 @@ const linkEvidence = (html: string | null): { domains: Set<string>; misleading: 
   return { domains, misleading };
 };
 
-const trustedAuthentication = (headers: Record<string, unknown>, trustedAuthservIds: string[]): { trusted: boolean; failed: boolean } => {
+const authenticationDomain = (clause: string, method: "dmarc" | "dkim" | "spf"): string | null => {
+  const property = method === "dmarc" ? "header.from" : method === "dkim" ? "header.d" : "smtp.mailfrom";
+  const escaped = property.replace(".", "\\.");
+  const raw = clause
+    .match(new RegExp(`\\b${escaped}\\s*=\\s*(?:\"([^\"]+)\"|([^;\\s]+))`, "iu"))
+    ?.slice(1)
+    .find(Boolean);
+  if (!raw) return null;
+  const value = raw.replace(/^<|>$/gu, "");
+  return addressDomain(value) ?? normalizeEmailDomain(value);
+};
+
+const trustedAuthentication = (
+  headers: Record<string, unknown>,
+  trustedAuthservIds: string[],
+  senderDomain: string | null,
+): { trusted: boolean; failed: boolean } => {
   const raw = typeof headers["authentication-results"] === "string" ? headers["authentication-results"] : "";
   const authservId = raw.split(";", 1)[0]?.trim().toLowerCase() ?? "";
   if (!authservId || !trustedAuthservIds.some((value) => value.trim().toLowerCase() === authservId)) {
     return { trusted: false, failed: false };
   }
-  return {
-    trusted: /\b(dmarc|dkim|spf)=pass\b/iu.test(raw),
-    failed: /\b(dmarc|dkim|spf)=(?:fail|softfail|permerror|temperror)\b/iu.test(raw),
-  };
+  let passed = false;
+  let failed = false;
+  for (const clause of raw.split(";").slice(1)) {
+    const result = clause.match(/^\s*(dmarc|dkim|spf)\s*=\s*([a-z]+)/iu);
+    if (!result || !senderDomain) continue;
+    const method = result[1]?.toLowerCase() as "dmarc" | "dkim" | "spf";
+    const domain = authenticationDomain(clause, method);
+    if (!domain || !domainsAligned(domain, senderDomain)) continue;
+    if (result[2]?.toLowerCase() === "pass") passed = true;
+    if (["fail", "softfail", "permerror", "temperror"].includes(result[2]?.toLowerCase() ?? "")) failed = true;
+  }
+  return { trusted: passed, failed: failed && !passed };
 };
 
 const normalizedIdentityName = (value: string): string =>
@@ -80,7 +89,7 @@ const normalizedIdentityName = (value: string): string =>
     .trim();
 
 export const assessMailSecurityEvidence = (input: MailSecurityEvidenceInput): MailSecurityAssessment => {
-  const senderAddress = normalizeAddress(input.from[0]?.address ?? "");
+  const senderAddress = normalizeEmailAddress(input.from[0]?.address ?? "");
   const senderDomain = senderAddress ? addressDomain(senderAddress) : null;
   const replyDomain = addressDomain(input.replyTo[0]?.address ?? "");
   const links = linkEvidence(input.sanitizedHtml);
@@ -91,7 +100,7 @@ export const assessMailSecurityEvidence = (input: MailSecurityEvidenceInput): Ma
     if (policy.target === "sender_domain") return Boolean(senderDomain && sameOrSubdomain(senderDomain, policy.value));
     return [...links.domains].some((domain) => sameOrSubdomain(domain, policy.value));
   });
-  const authentication = trustedAuthentication(input.selectedHeaders, input.trustedAuthservIds);
+  const authentication = trustedAuthentication(input.selectedHeaders, input.trustedAuthservIds, senderDomain);
   const trustedSender = activePolicies.some((policy) => {
     if (policy.disposition !== "trust") return false;
     if (policy.target === "sender_address") return senderAddress === policy.value;

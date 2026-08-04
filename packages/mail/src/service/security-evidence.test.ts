@@ -75,6 +75,42 @@ describe("Mail security evidence", () => {
     ).toBe("clear");
   });
 
+  test("does not trust authentication that passed for an unrelated domain", () => {
+    const assessment = assess({
+      replyTo: [{ name: null, address: "reply@elsewhere.example" }],
+      sanitizedHtml: '<a href="https://payments.example.net/pay">https://example.com/pay</a>',
+      policies: [policy("trust", "sender_domain", "example.com")],
+      trustedAuthservIds: ["mx.example.org"],
+      selectedHeaders: { "authentication-results": "mx.example.org; spf=pass smtp.mailfrom=attacker.example" },
+    });
+
+    expect(assessment.verdict).toBe("suspicious");
+  });
+
+  test("accepts aligned DKIM and SPF results but ignores unrelated failures", () => {
+    const evidence = {
+      replyTo: [{ name: null, address: "reply@elsewhere.example" }],
+      sanitizedHtml: '<a href="https://payments.example.net/pay">https://example.com/pay</a>',
+      policies: [policy("trust", "sender_domain", "example.com")],
+      trustedAuthservIds: ["mx.example.org"],
+    } satisfies Partial<MailSecurityEvidenceInput>;
+
+    expect(
+      assess({
+        ...evidence,
+        selectedHeaders: {
+          "authentication-results": "mx.example.org; spf=fail smtp.mailfrom=attacker.example; dkim=pass header.d=mail.example.com",
+        },
+      }).verdict,
+    ).toBe("clear");
+    expect(
+      assess({
+        ...evidence,
+        selectedHeaders: { "authentication-results": "mx.example.org; spf=pass smtp.mailfrom=sender@example.com" },
+      }).verdict,
+    ).toBe("clear");
+  });
+
   test("warns on trusted authentication failures without adding speculative signals", () => {
     const assessment = assess({
       trustedAuthservIds: ["mx.example.org"],

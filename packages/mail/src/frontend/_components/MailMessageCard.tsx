@@ -273,7 +273,7 @@ export default function MailMessageCard(props: {
               />
               <div class="min-w-0">
                 <p class="font-semibold">
-                  {security().verdict === "quarantined" ? "This message was blocked" : "Check this message carefully"}
+                  {security().verdict === "quarantined" ? "Blocked in the Mail reader" : "Check this message carefully"}
                 </p>
                 <ul class="mt-1 list-disc space-y-0.5 pl-4 text-current/80">
                   {security().findings.map((finding) => (
@@ -281,7 +281,7 @@ export default function MailMessageCard(props: {
                   ))}
                 </ul>
                 <Show when={security().linksDisabled}>
-                  <p class="mt-1 text-current/80">Links are disabled. An administrator can review the report.</p>
+                  <p class="mt-1 text-current/80">Links and attachments are disabled here. An administrator can review the rule.</p>
                 </Show>
                 <a class="mt-1 inline-block font-medium underline underline-offset-2" href="/app/mail/help/mail-security">
                   How Mail protects you

@@ -21,6 +21,8 @@ Mail always removes active scripts from HTML mail and blocks remote images until
 
 An organization administrator can block an exact sender, a sender domain and its subdomains, or a link domain and its subdomains. Mail then marks matching messages as blocked and disables their links and attachments in the reader. This is stronger than a warning and is used only for explicit organization rules.
 
+This protection is deliberately limited to the Mail reader. It does not move messages at the provider or start, cancel, or duplicate automation runs. Configure Mail rules separately when messages must also be moved, tagged, or excluded from an automatic reply.
+
 ## Report a suspicious message {icon="flag"}
 
 Open the message menu and choose **Report phishing**. Mail sends administrators the sender address, message ID, and the warning evidence it calculated. The report does not upload or copy the subject or message body into the administration page.
@@ -34,7 +36,7 @@ If you are unsure, do not follow links or open attachments. Contact the supposed
 Open **Administration > Mail > Security** to review reports and manage organization-wide rules.
 
 - **Block** rules may target one exact sender address, or a sender or link destination domain including its subdomains.
-- **Trust** rules accept one sender address or sender domain only when trusted mail-server authentication also passes. Trust never overrides an explicit block.
+- **Trust** rules accept one sender address or sender domain only when a configured receiving server reports a passed authentication check aligned with the visible sender domain. A pass for an unrelated domain is ignored, and trust never overrides an explicit block.
 - **Protected identities** connect an exact visible sender name, such as a company or service, to its allowed domains. A mismatch creates a warning; it does not delete or move the message.
 - **Trusted authentication sources** lists the receiving mail servers whose sender-verification results Mail may trust. These are server names from `Authentication-Results`, not sender domains. Leave this empty until your mail administrator supplies the correct value.
 
