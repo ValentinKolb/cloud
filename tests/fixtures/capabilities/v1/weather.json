@@ -1,0 +1,1181 @@
+{
+  "protocolVersion": 1,
+  "appId": "weather",
+  "manifestHash": "ed96b3e5c2dc8ec6ba97f2516e305b655dfa03f0657e2f3c25177dcbfb7d9b62",
+  "types": [
+    {
+      "localId": "location",
+      "title": "Saved location",
+      "description": "A saved weather location owned by the current user.",
+      "icon": "ti ti-map-pin"
+    }
+  ],
+  "queries": [
+    {
+      "localId": "city.search",
+      "title": "Search German cities",
+      "description": "Find bounded German city candidates and coordinates for forecasts or saved locations.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "German city name to search for."
+          },
+          "limit": {
+            "default": 10,
+            "description": "Maximum number of city candidates to return.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "maxItems": 25,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "lat": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "lon": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "country": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          },
+          "required": [
+            "name",
+            "lat",
+            "lon"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "schemaHash": "c75107e5ea456618e73914a1c67a845b8b7d91941be02e1e43f0bb2c32982314",
+      "openWorld": true
+    },
+    {
+      "localId": "forecast.current",
+      "title": "Get current weather",
+      "description": "Get current weather for one owned saved location or explicit coordinates. Temperatures use degrees Celsius, wind uses km/h, precipitation uses mm, pressure uses hPa, and visibility uses metres.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "saved",
+                    "description": "Use a saved location owned by the current user."
+                  },
+                  "locationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "description": "Stable UUID of the saved weather location."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "locationId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "coordinates",
+                    "description": "Use explicit latitude and longitude."
+                  },
+                  "lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90,
+                    "description": "Latitude in decimal degrees from -90 to 90."
+                  },
+                  "lon": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180,
+                    "description": "Longitude in decimal degrees from -180 to 180."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lat",
+                  "lon"
+                ],
+                "additionalProperties": false
+              }
+            ],
+            "description": "Saved location or explicit coordinates used for the forecast."
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "temperature": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 70,
+            "description": "Air temperature in degrees Celsius."
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "clear-day",
+              "clear-night",
+              "partly-cloudy-day",
+              "partly-cloudy-night",
+              "cloudy",
+              "fog",
+              "wind",
+              "rain",
+              "sleet",
+              "snow",
+              "hail",
+              "thunderstorm"
+            ]
+          },
+          "cloudCover": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Cloud cover percentage from 0 to 100."
+          },
+          "windSpeed": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 500,
+            "description": "Wind speed in kilometres per hour."
+          },
+          "windGust": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wind gust speed in kilometres per hour."
+          },
+          "windDirection": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 360
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wind direction in degrees."
+          },
+          "humidity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Relative humidity percentage from 0 to 100."
+          },
+          "precipitation": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "Precipitation in millimetres during the last hour."
+          },
+          "pressure": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean sea-level pressure in hectopascals."
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Visibility in metres."
+          },
+          "dewPoint": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 70
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dew point in degrees Celsius."
+          },
+          "sunshine": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 60
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sunshine duration in minutes during the last hour."
+          },
+          "stationName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "temperature",
+          "icon",
+          "cloudCover",
+          "windSpeed",
+          "windGust",
+          "windDirection",
+          "humidity",
+          "precipitation",
+          "pressure",
+          "visibility",
+          "dewPoint",
+          "sunshine",
+          "stationName",
+          "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "schemaHash": "98869b6101be7ca4c470cf8cffaf609af6a7eaceee134e407782ca642cebfb83",
+      "openWorld": true
+    },
+    {
+      "localId": "forecast.get",
+      "title": "Get weather forecast",
+      "description": "Get current conditions plus up to 12 hourly and 7 daily forecasts for one owned saved location or explicit coordinates. Temperatures use degrees Celsius, wind uses km/h, precipitation uses mm, and sunshine uses minutes.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "saved",
+                    "description": "Use a saved location owned by the current user."
+                  },
+                  "locationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "description": "Stable UUID of the saved weather location."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "locationId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "coordinates",
+                    "description": "Use explicit latitude and longitude."
+                  },
+                  "lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90,
+                    "description": "Latitude in decimal degrees from -90 to 90."
+                  },
+                  "lon": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180,
+                    "description": "Longitude in decimal degrees from -180 to 180."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "lat",
+                  "lon"
+                ],
+                "additionalProperties": false
+              }
+            ],
+            "description": "Saved location or explicit coordinates used for the forecast."
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "object",
+            "properties": {
+              "temperature": {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 70,
+                "description": "Air temperature in degrees Celsius."
+              },
+              "icon": {
+                "type": "string",
+                "enum": [
+                  "clear-day",
+                  "clear-night",
+                  "partly-cloudy-day",
+                  "partly-cloudy-night",
+                  "cloudy",
+                  "fog",
+                  "wind",
+                  "rain",
+                  "sleet",
+                  "snow",
+                  "hail",
+                  "thunderstorm"
+                ]
+              },
+              "cloudCover": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Cloud cover percentage from 0 to 100."
+              },
+              "windSpeed": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 500,
+                "description": "Wind speed in kilometres per hour."
+              },
+              "windGust": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Wind gust speed in kilometres per hour."
+              },
+              "windDirection": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 360
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Wind direction in degrees."
+              },
+              "humidity": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Relative humidity percentage from 0 to 100."
+              },
+              "precipitation": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000,
+                "description": "Precipitation in millimetres during the last hour."
+              },
+              "pressure": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Mean sea-level pressure in hectopascals."
+              },
+              "visibility": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 10000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Visibility in metres."
+              },
+              "dewPoint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -100,
+                    "maximum": 70
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Dew point in degrees Celsius."
+              },
+              "sunshine": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 60
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Sunshine duration in minutes during the last hour."
+              },
+              "stationName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": [
+              "temperature",
+              "icon",
+              "cloudCover",
+              "windSpeed",
+              "windGust",
+              "windDirection",
+              "humidity",
+              "precipitation",
+              "pressure",
+              "visibility",
+              "dewPoint",
+              "sunshine",
+              "stationName",
+              "timestamp"
+            ],
+            "additionalProperties": false
+          },
+          "hourly": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "temperature": {
+                  "type": "number",
+                  "minimum": -100,
+                  "maximum": 70
+                },
+                "icon": {
+                  "type": "string",
+                  "enum": [
+                    "clear-day",
+                    "clear-night",
+                    "partly-cloudy-day",
+                    "partly-cloudy-night",
+                    "cloudy",
+                    "fog",
+                    "wind",
+                    "rain",
+                    "sleet",
+                    "snow",
+                    "hail",
+                    "thunderstorm"
+                  ]
+                },
+                "precipitation": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "precipitationProbability": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "windSpeed": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 500
+                },
+                "cloudCover": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "required": [
+                "timestamp",
+                "temperature",
+                "icon",
+                "precipitation",
+                "precipitationProbability",
+                "windSpeed",
+                "cloudCover"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "daily": {
+            "maxItems": 7,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                "icon": {
+                  "type": "string",
+                  "enum": [
+                    "clear-day",
+                    "clear-night",
+                    "partly-cloudy-day",
+                    "partly-cloudy-night",
+                    "cloudy",
+                    "fog",
+                    "wind",
+                    "rain",
+                    "sleet",
+                    "snow",
+                    "hail",
+                    "thunderstorm"
+                  ]
+                },
+                "tempMin": {
+                  "type": "number",
+                  "minimum": -100,
+                  "maximum": 70
+                },
+                "tempMax": {
+                  "type": "number",
+                  "minimum": -100,
+                  "maximum": 70
+                },
+                "precipitation": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "precipitationProbability": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sunshine": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1440
+                }
+              },
+              "required": [
+                "date",
+                "icon",
+                "tempMin",
+                "tempMax",
+                "precipitation",
+                "precipitationProbability",
+                "sunshine"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "current",
+          "hourly",
+          "daily"
+        ],
+        "additionalProperties": false
+      },
+      "schemaHash": "a010b24cfe88f0f2f61c0358304adb0885c6e68886446fd82ca58f0c56ee6897",
+      "openWorld": true
+    },
+    {
+      "localId": "location.get",
+      "title": "Get saved weather location",
+      "description": "Read one saved weather location owned by the current user by stable UUID.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "locationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "description": "Stable UUID of the saved weather location."
+          }
+        },
+        "required": [
+          "locationId"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "lat",
+          "lon"
+        ],
+        "additionalProperties": false
+      },
+      "schemaHash": "bc7808c48c393b63c0152aacd9fb13a60ce6003904524cc21668a3f7656b4f36",
+      "openWorld": false
+    },
+    {
+      "localId": "location.list",
+      "title": "List my saved weather locations",
+      "description": "List the current user's saved weather locations with bounded pagination.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 20,
+            "description": "Maximum number of saved locations to return.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "description": "Opaque cursor returned by a previous location.list call.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
+        },
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "maxItems": 100,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "lat": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "lon": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "state",
+            "lat",
+            "lon"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "schemaHash": "a02ba41df40a0ad95162a719a0e62400bcb0fb462908a870024afc204729fc89",
+      "openWorld": false
+    },
+    {
+      "localId": "location.search",
+      "title": "Search saved weather locations",
+      "description": "Find saved weather locations owned by the current user by name or state.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "User-entered search text. Empty text is allowed when a facet narrows the query."
+          },
+          "tags": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Canonical search facets supported by this query."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of results to return."
+          }
+        },
+        "required": [
+          "query",
+          "tags",
+          "limit"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "maxItems": 100,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 180,
+                  "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
+                  "description": "Namespaced resource type declared by the owning app."
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "description": "Stable app-owned resource identifier."
+                }
+              },
+              "required": [
+                "type",
+                "id"
+              ],
+              "additionalProperties": false,
+              "description": "Stable identity of the result."
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Primary result label."
+            },
+            "preview": {
+              "description": "Short plain-text result preview.",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "icon": {
+              "description": "Optional presentation icon.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "priority": {
+              "description": "App-local relevance hint from zero to nine.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9
+            },
+            "metadata": {
+              "description": "Small structured metadata shown with the result.",
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "links": {
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rel": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "edit",
+                      "status",
+                      "preview",
+                      "download"
+                    ],
+                    "description": "Semantic relationship; clients decide how to present it."
+                  },
+                  "href": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "^\\/(?![\\\\/])[^\\\\\\u0000-\\u001f\\u007f]*$",
+                    "description": "Root-relative Cloud URL."
+                  },
+                  "title": {
+                    "description": "Optional human-readable link label.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  }
+                },
+                "required": [
+                  "rel",
+                  "href"
+                ],
+                "additionalProperties": false
+              },
+              "description": "Semantic links for the resource."
+            }
+          },
+          "required": [
+            "ref",
+            "title",
+            "links"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "schemaHash": "20c45cac7f9ead6abd77794026e5191fa675eec39bcf2ced9ca950d513a4a326",
+      "openWorld": false,
+      "universalSearch": {
+        "tags": [
+          {
+            "tag": "weather",
+            "title": "Weather",
+            "description": "Show saved weather locations.",
+            "aliases": [
+              "forecast",
+              "location",
+              "temperature"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "actions": [
+    {
+      "localId": "location.create",
+      "title": "Save weather location",
+      "description": "Save one weather location for the current user.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "Display name for the saved location."
+          },
+          "state": {
+            "description": "Optional state or region used to distinguish the location.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Latitude in decimal degrees from -90 to 90."
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Longitude in decimal degrees from -180 to 180."
+          }
+        },
+        "required": [
+          "name",
+          "lat",
+          "lon"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "lat",
+          "lon"
+        ],
+        "additionalProperties": false
+      },
+      "schemaHash": "e71dceb9f1ccc15089f1c6fad11ed9edcb8dbc297ea4a4ba156f7b04bef07349",
+      "destructive": false,
+      "openWorld": false,
+      "idempotency": "none"
+    },
+    {
+      "localId": "location.delete",
+      "title": "Delete saved weather location",
+      "description": "Permanently delete one saved weather location owned by the current user.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "locationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "description": "Stable UUID of the saved weather location."
+          }
+        },
+        "required": [
+          "locationId"
+        ],
+        "additionalProperties": false
+      },
+      "dataSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "locationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "deleted": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "locationId",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
+      "schemaHash": "a5864b48a225c03529e56ae6f2dfe7d038052dd790ab2af33db9ad619dabdf47",
+      "destructive": true,
+      "openWorld": false,
+      "idempotency": "none",
+      "review": true
+    }
+  ]
+}

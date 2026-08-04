@@ -447,7 +447,7 @@ export const pulseCapabilities = defineCapabilities({
       run: runQueryCompile,
     },
     "query.execute": {
-      title: "Execute Pulse Query",
+      title: "Execute telemetry query",
       description:
         "Run validated Pulse telemetry query DSL with byte-bounded prefixes of at most 500 points or 100 compact rows; raw event payloads are omitted and truncated indicates omitted results.",
       input: QueryTextInputSchema,
@@ -464,7 +464,7 @@ export const pulseCapabilities = defineCapabilities({
       run: runSavedQueryList,
     },
     "saved_query.execute": {
-      title: "Execute saved Pulse Query",
+      title: "Execute saved telemetry query",
       description:
         "Run the exact stored Pulse telemetry query with the same byte-bounded compact limits and truncated signal as query.execute.",
       input: SavedQueryExecuteInputSchema,

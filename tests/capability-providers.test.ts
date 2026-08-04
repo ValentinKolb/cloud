@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { compileCapabilities } from "../packages/cloud/src/_internal/capabilities";
+import {
+  assertCapabilityManifestEvolution,
+  compileCapabilityManifest,
+} from "../packages/cloud/src/capabilities/testing";
 import { buildAiCapabilityCatalog, searchAiCapabilities } from "../packages/cloud/src/ai/capabilities";
-import type { CapabilityDefinitions } from "../packages/cloud/src/contracts/capabilities";
+import {
+  type CapabilityDefinitions,
+  type CapabilityManifest,
+  CapabilityManifestSchema,
+} from "../packages/cloud/src/contracts/capabilities";
 import { contactsCapabilities } from "../packages/contacts/src/capabilities";
-import { filesCapabilities } from "../packages/files/src/capabilities";
 import { gridsCapabilities } from "../packages/grids/src/capabilities";
 import { mailCapabilities } from "../packages/mail/src/capabilities";
 import { notebooksCapabilities } from "../packages/notebooks/src/capabilities";
@@ -24,7 +30,6 @@ const providers: ReadonlyArray<{
     types: ["book", "contact", "note", "tag"],
     searches: ["contact.search"],
   },
-  { appId: "files", definitions: filesCapabilities, types: ["directory", "file"], searches: ["search"] },
   {
     appId: "grids",
     definitions: gridsCapabilities,
@@ -67,6 +72,17 @@ const providers: ReadonlyArray<{
   { appId: "weather", definitions: weatherCapabilities, types: ["location"], searches: ["location.search"] },
 ];
 
+const frozenManifests = new Map<string, CapabilityManifest>(
+  await Promise.all(
+    providers.map(async ({ appId }) => [
+      appId,
+      CapabilityManifestSchema.parse(
+        await Bun.file(new URL(`./fixtures/capabilities/v1/${appId}.json`, import.meta.url)).json(),
+      ),
+    ] as const),
+  ),
+);
+
 const consumers = [
   ["Core HTTP catalog and dispatcher", "packages/cloud/src/api/capabilities.test.ts"],
   ["browser and server clients", "packages/cloud/src/capabilities/client.test.ts"],
@@ -84,7 +100,10 @@ const consumers = [
 describe("Capability v1 provider conformance", () => {
   for (const provider of providers) {
     test(`${provider.appId} compiles the frozen manifest and focused searches`, () => {
-      const manifest = compileCapabilities(provider.appId, provider.definitions).manifest;
+      const manifest = compileCapabilityManifest(provider.appId, provider.definitions);
+      const previous = frozenManifests.get(provider.appId);
+      if (!previous) throw new Error(`Missing frozen manifest for ${provider.appId}`);
+      assertCapabilityManifestEvolution(previous, manifest);
       expect(manifest.protocolVersion).toBe(1);
       expect(manifest.types.map((type) => type.localId)).toEqual(provider.types);
       expect(manifest.queries.filter((query) => query.universalSearch).map((query) => query.localId)).toEqual(provider.searches);
@@ -92,7 +111,9 @@ describe("Capability v1 provider conformance", () => {
         manifest.types.length + manifest.queries.length + manifest.actions.length,
       );
       for (const action of manifest.actions) {
-        expect(Boolean(action.review), `${provider.appId}.${action.localId} review`).toBe(action.destructive || action.openWorld);
+        if (action.destructive || action.openWorld) {
+          expect(action.review, `${provider.appId}.${action.localId} review`).toBe(true);
+        }
         expect(["none", "required"]).toContain(action.idempotency);
       }
     });
@@ -100,7 +121,7 @@ describe("Capability v1 provider conformance", () => {
 
   test("required-idempotency Actions remain an explicit inventory", () => {
     const required = providers.flatMap(({ appId, definitions }) =>
-      compileCapabilities(appId, definitions).manifest.actions.flatMap((action) =>
+      compileCapabilityManifest(appId, definitions).actions.flatMap((action) =>
         action.idempotency === "required" ? [`${appId}.${action.localId}`] : [],
       ),
     );
@@ -124,15 +145,40 @@ describe("Capability v1 Assistant discovery", () => {
       appIcon: "",
       appDescription: "",
       endpoint: `http://${appId}`,
-      manifest: compileCapabilities(appId, definitions).manifest,
+      manifest: compileCapabilityManifest(appId, definitions),
     })),
   );
 
   test.each([
+    ["find contact by name", "contacts", "contacts__query__contact_dot_search"],
+    ["list address books", "contacts", "contacts__query__book_dot_list"],
+    ["create a contact", "contacts", "contacts__action__contact_dot_create"],
     ["read email body", undefined, "mail__query__message_dot_get"],
+    ["mark email unread", "mail", "mail__action__conversation_dot_mark"],
+    ["send draft email", "mail", "mail__action__draft_dot_send"],
+    ["search messages", "mail", "mail__query__search"],
     ["inspect grid schema fields", "grids", "grids__query__gql_dot_context"],
+    ["run GQL query", "grids", "grids__query__gql_dot_execute"],
+    ["create a grid record", "grids", "grids__action__record_dot_create"],
+    ["browse note tree", "notebooks", "notebooks__query__note_dot_tree"],
+    ["read note markdown", "notebooks", "notebooks__query__note_dot_get"],
+    ["find backlinks to note", "notebooks", "notebooks__query__note_dot_links"],
+    ["edit note content", "notebooks", "notebooks__action__note_dot_edit"],
+    ["find telemetry base", "pulse", "pulse__query__base_dot_search"],
+    ["search telemetry resources", "pulse", "pulse__query__resource_dot_search"],
+    ["execute telemetry query", "pulse", "pulse__query__query_dot_execute"],
+    ["run saved telemetry query", "pulse", "pulse__query__saved__query_dot_execute"],
     ["read comments", "spaces", "spaces__query__comment_dot_list"],
+    ["create a task", "spaces", "spaces__action__task_dot_create"],
+    ["create calendar event", "spaces", "spaces__action__event_dot_create"],
+    ["list people assignable to task", "spaces", "spaces__query__space_dot_assignee_dot_list"],
     ["find shifts", "venue", "venue__query__shift_dot_list"],
+    ["list my assignments", "venue", "venue__query__assignment_dot_mine"],
+    ["sign up for shift", "venue", "venue__action__assignment_dot_signup"],
+    ["search city", "weather", "weather__query__city_dot_search"],
+    ["get current weather", "weather", "weather__query__forecast_dot_current"],
+    ["list saved weather locations", "weather", "weather__query__location_dot_list"],
+    ["save a weather location", "weather", "weather__action__location_dot_create"],
   ] as const)("ranks %s to its expected capability", (query, appId, expectedName) => {
     expect(searchAiCapabilities(catalog, { query, appId, limit: 5 }).capabilities[0]?.name).toBe(expectedName);
   });

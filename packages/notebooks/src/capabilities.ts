@@ -580,8 +580,8 @@ export const notebooksCapabilities = defineCapabilities({
       run: runNoteGet,
     },
     "note.links": {
-      title: "List note links",
-      description: "List bounded incoming and outgoing note links without revealing inaccessible targets.",
+      title: "List note links and backlinks",
+      description: "List bounded incoming links, outgoing links, and backlinks without revealing inaccessible targets.",
       input: NoteLinksInputSchema,
       data: NoteLinksDataSchema,
       openWorld: false,
