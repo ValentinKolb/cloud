@@ -1,7 +1,7 @@
 import { documentNavigate, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
-import { AppWorkspace, Dropdown, prompts, toast, ButtonLink, IconButton, IconButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { AppWorkspace, ButtonLink, Dropdown, IconButtonLink, prompts, toast } from "@k2b/ui";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationView } from "../../contracts";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
@@ -43,6 +43,9 @@ const SECONDARY_VIEW_ITEMS: MailViewItem[] = [
 const PRIMARY_FOLDER_ROLES = new Set(["inbox", "drafts", "sent"]);
 const SECONDARY_FOLDER_ROLES = new Set(["archive", "trash", "junk"]);
 const SYSTEM_FOLDER_ROLES = new Set([...PRIMARY_FOLDER_ROLES, ...SECONDARY_FOLDER_ROLES]);
+
+const folderBranchIds = (nodes: readonly MailFolderTreeNode[]): string[] =>
+  nodes.flatMap((node) => [...(node.children.length > 0 ? [node.folder.id] : []), ...folderBranchIds(node.children)]);
 
 const folderIcon = (role: string): string =>
   role === "inbox"
@@ -90,6 +93,7 @@ export default function MailSidebar(props: {
   const primaryFolders = createMemo(() => flatFolders().filter((folder) => PRIMARY_FOLDER_ROLES.has(folder.role)));
   const secondaryFolders = createMemo(() => flatFolders().filter((folder) => SECONDARY_FOLDER_ROLES.has(folder.role)));
   const customFolderTree = createMemo(() => excludeMailFolderTreeRoles(folderTree(), SYSTEM_FOLDER_ROLES));
+  const customFolderBranchIds = createMemo(() => folderBranchIds(customFolderTree()));
   const moreOpen = () =>
     moreExpanded() ||
     SECONDARY_VIEW_ITEMS.some((view) => props.activeView === view.id) ||
@@ -248,86 +252,81 @@ export default function MailSidebar(props: {
     </Dropdown.Root>
   );
 
-  const toggleFolder = (folderId: string) =>
-    setCollapsedFolders((current) => {
-      const next = new Set(current);
-      if (next.has(folderId)) next.delete(folderId);
-      else next.add(folderId);
-      return next;
-    });
+  const expandedFolderIds = () => customFolderBranchIds().filter((id) => !collapsedFolders().has(id));
+  const setExpandedFolderIds = (expandedIds: readonly string[]) => {
+    const expanded = new Set(expandedIds);
+    setCollapsedFolders(new Set(customFolderBranchIds().filter((id) => !expanded.has(id))));
+  };
 
-  const folderNode = (node: MailFolderTreeNode, suffix: string, depth: number): JSX.Element => {
+  const folderNode = (node: MailFolderTreeNode, suffix: string) => {
     const folder = node.folder;
     const hasChildren = node.children.length > 0;
-    const collapsed = () => collapsedFolders().has(folder.id);
     return (
-      <>
-        <div
-          class="flex items-center rounded-md"
-          role="group"
-          aria-label={`Folder ${folder.name}; drop a conversation here to move it`}
-          style={{ "padding-left": `${depth * 12}px` }}
-          classList={{ "bg-[var(--ui-selected)]": dropFolderId() === folder.id }}
-          onDragEnter={(event) => {
-            if (!props.canWrite || !folder.selectable) return;
-            event.preventDefault();
-            setDropFolderId(folder.id);
-          }}
-          onDragOver={(event) => {
-            if (!props.canWrite || !folder.selectable) return;
-            event.preventDefault();
-            if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropFolderId(null);
-          }}
-          onDrop={(event) => props.canWrite && folder.selectable && dropConversation(event, folder.id)}
-        >
-          <Show
-            when={hasChildren}
-            fallback={
-              <Show when={depth > 0}>
-                <span class="h-7 w-5 shrink-0" aria-hidden="true" />
-              </Show>
-            }
-          >
-            <IconButton
-              type="button"
-              class="h-7 w-5 shrink-0"
-              label={`${collapsed() ? "Expand" : "Collapse"} ${folder.name}`}
-              aria-expanded={!collapsed()}
-              onClick={() => toggleFolder(folder.id)}
-            >
-              <i class={`ti ${collapsed() ? "ti-chevron-right" : "ti-chevron-down"} text-xs`} aria-hidden="true" />
-            </IconButton>
-          </Show>
-          <div class="min-w-0 flex-1">
-            <AppWorkspace.SidebarItem
-              href={folder.selectable ? `/app/mail/${props.mailboxId}?folder=${folder.id}` : undefined}
-              icon={folderIcon(folder.role)}
-              active={props.activeFolderId === folder.id}
-              meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
-              title={folder.name}
-              viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
-              onNavigate={folder.selectable ? props.onNavigate : undefined}
-              scroll="preserve"
-            >
-              {folder.name}
-            </AppWorkspace.SidebarItem>
-          </div>
-        </div>
-        <Show when={!collapsed()}>
-          <For each={node.children}>{(child) => folderNode(child, suffix, depth + 1)}</For>
-        </Show>
-      </>
+      <AppWorkspace.NavTree.Item
+        id={folder.id}
+        label={folder.name}
+        href={folder.selectable ? `/app/mail/${props.mailboxId}?folder=${folder.id}` : undefined}
+        icon={folderIcon(folder.role)}
+        expandedIcon={hasChildren ? "ti ti-folder-open" : undefined}
+        meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
+        title={folder.name}
+        viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
+        onNavigate={folder.selectable ? props.onNavigate : undefined}
+        scroll="preserve"
+        class={dropFolderId() === folder.id ? "bg-[var(--ui-selected)]" : undefined}
+        onDragEnter={(event) => {
+          event.stopPropagation();
+          if (!props.canWrite || !folder.selectable) return;
+          event.preventDefault();
+          setDropFolderId(folder.id);
+        }}
+        onDragOver={(event) => {
+          event.stopPropagation();
+          if (!props.canWrite || !folder.selectable) return;
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        }}
+        onDragLeave={(event) => {
+          event.stopPropagation();
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropFolderId(null);
+        }}
+        onDrop={(event) => {
+          event.stopPropagation();
+          if (props.canWrite && folder.selectable) dropConversation(event, folder.id);
+        }}
+      >
+        <For each={node.children}>{(child) => folderNode(child, suffix)}</For>
+      </AppWorkspace.NavTree.Item>
     );
   };
 
-  const customFolderItems = (suffix: string) => <For each={customFolderTree()}>{(node) => folderNode(node, suffix, 0)}</For>;
+  const folderTreeItems = (nodes: readonly MailFolderTreeNode[], suffix: string) => (
+    <For each={nodes}>{(node) => folderNode(node, suffix)}</For>
+  );
+  const folderNavigation = (nodes: readonly MailFolderTreeNode[], suffix: string, ariaLabel: string) => (
+    <AppWorkspace.NavTree
+      ariaLabel={ariaLabel}
+      selectedId={props.activeFolderId}
+      expandedIds={expandedFolderIds()}
+      onExpandedIdsChange={setExpandedFolderIds}
+    >
+      {folderTreeItems(nodes, suffix)}
+    </AppWorkspace.NavTree>
+  );
+
+  const customFolderItems = (suffix: string) => folderNavigation(customFolderTree(), suffix, "Mailbox folders");
   const primaryFolderItems = (role: "inbox" | "drafts" | "sent", suffix: string) => (
-    <For each={primaryFolders().filter((folder) => folder.role === role)}>
-      {(folder) => folderNode({ folder, children: [] }, suffix, 0)}
-    </For>
+    <AppWorkspace.NavTree
+      ariaLabel={`${role === "inbox" ? "Inbox" : role === "drafts" ? "Draft" : "Sent"} folders`}
+      selectedId={props.activeFolderId}
+    >
+      {folderTreeItems(
+        primaryFolders()
+          .filter((folder) => folder.role === role)
+          .map((folder) => ({ folder, children: [] })),
+        suffix,
+      )}
+    </AppWorkspace.NavTree>
   );
 
   const allMail = () => (
@@ -363,7 +362,9 @@ export default function MailSidebar(props: {
       </AppWorkspace.SidebarItem>
       <Show when={moreOpen()}>
         {viewItems(SECONDARY_VIEW_ITEMS, `${suffix}-more`)}
-        <For each={secondaryFolders()}>{(folder) => folderNode({ folder, children: [] }, suffix, 0)}</For>
+        <AppWorkspace.NavTree ariaLabel="Additional mailbox folders" selectedId={props.activeFolderId}>
+          <For each={secondaryFolders()}>{(folder) => folderNode({ folder, children: [] }, suffix)}</For>
+        </AppWorkspace.NavTree>
       </Show>
     </AppWorkspace.SidebarSection>
   );

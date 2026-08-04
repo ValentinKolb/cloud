@@ -60,7 +60,7 @@ const WorkspaceDemo = () => {
               onSelectedIdChange={setActiveView}
               onExpandedIdsChange={setExpandedNavigation}
             >
-              <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-box" meta={12}>
+              <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-folder" expandedIcon="ti ti-folder-open" meta={12}>
                 <AppWorkspace.NavTree.Item
                   id="available"
                   label="Available"
@@ -155,7 +155,7 @@ const [drawerOpen, setDrawerOpen] = createSignal(true);
       onSelectedIdChange={setActive}
       onExpandedIdsChange={setExpanded}
     >
-      <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-box">
+      <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-folder" expandedIcon="ti ti-folder-open">
         <AppWorkspace.NavTree.Item id="available" label="Available" meta={8} />
         <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" meta={4} />
       </AppWorkspace.NavTree.Item>

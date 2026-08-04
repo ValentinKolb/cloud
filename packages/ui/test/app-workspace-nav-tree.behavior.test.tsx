@@ -15,6 +15,7 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
     const [selectedId, setSelectedId] = createSignal("notes");
     const [expandedIds, setExpandedIds] = createSignal<readonly string[]>(["notes", "tags"]);
     let actionCount = 0;
+    let dragOverCount = 0;
     const recipeAction = dom.document.createElement("button");
     recipeAction.type = "button";
     recipeAction.setAttribute("aria-label", "Recipe actions");
@@ -30,7 +31,13 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
             onSelectedIdChange={setSelectedId}
             onExpandedIdsChange={setExpandedIds}
           >
-            <AppWorkspace.NavTree.Item id="notes" label="All notes" icon="ti ti-folder">
+            <AppWorkspace.NavTree.Item
+              id="notes"
+              label="All notes"
+              icon="ti ti-folder"
+              expandedIcon="ti ti-folder-open"
+              onDragOver={() => dragOverCount++}
+            >
               <AppWorkspace.NavTree.Item
                 id="recipes"
                 label="Recipes"
@@ -64,6 +71,10 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
     const tags = () => dom.root.querySelector<HTMLElement>('[data-k2b-nav-tree-id="tags"]');
     expect(dom.root.querySelector('[role="tree"]')?.getAttribute("aria-label")).toBe("Notebook navigation");
     expect(notes()?.getAttribute("aria-expanded")).toBe("true");
+    expect(notes()?.querySelector(".ti-folder-open")).not.toBeNull();
+    expect(notes()?.querySelector(".k2b-app-workspace__nav-tree-toggle")).toBeNull();
+    notes()?.dispatchEvent(new dom.window.Event("dragover", { bubbles: true }) as unknown as Event);
+    expect(dragOverCount).toBe(1);
     expect(recipes()?.getAttribute("aria-level")).toBe("2");
     expect(
       recipes()?.querySelector<HTMLElement>(".k2b-app-workspace__nav-tree-row")?.style.getPropertyValue("--k2b-sidebar-item-depth"),
@@ -74,6 +85,8 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }) as unknown as Event);
     expect(expandedIds()).toEqual(["tags"]);
     expect(notes()?.getAttribute("aria-expanded")).toBe("false");
+    expect(notes()?.querySelector(".ti-folder")).not.toBeNull();
+    expect(notes()?.querySelector(".ti-folder-open")).toBeNull();
     expect(recipes()).toBeNull();
 
     notes()?.focus();
@@ -106,6 +119,7 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
 
     const group = dom.root.querySelector<HTMLElement>('[data-k2b-nav-tree-id="group"]');
     expect(group?.getAttribute("aria-expanded")).toBe("true");
+    expect(group?.querySelector(".k2b-app-workspace__nav-tree-toggle")).not.toBeNull();
     (group?.firstElementChild as HTMLElement | null)?.click();
     expect(group?.getAttribute("aria-expanded")).toBe("false");
     expect(dom.root.querySelector('[data-k2b-nav-tree-id="group-child"]')).toBeNull();

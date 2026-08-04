@@ -118,6 +118,16 @@ Expansion can be uncontrolled with `defaultExpandedIds`, or controlled with
 if an application stores expansion in a cookie or another store, pass the same
 initial ids during SSR to avoid a hydration layout shift.
 
+Branches normally keep their leading icon and receive a trailing disclosure
+chevron. For folder navigation, set both `icon` and `expandedIcon`; the leading
+icon then reflects the branch state and acts as the disclosure target, so no
+second chevron is rendered. The row label keeps its normal select or navigation
+behavior, and the keyboard contract is unchanged.
+
+Optional drag event handlers on `NavTree.Item` are forwarded to the tree item
+container. Applications still own drag payloads, permission checks, drop
+effects, and mutations.
+
 ```tsx
 const [selected, setSelected] = createSignal("inbox");
 const [expanded, setExpanded] = createSignal<readonly string[]>(["mail"]);
@@ -129,7 +139,7 @@ const [expanded, setExpanded] = createSignal<readonly string[]>(["mail"]);
   onSelectedIdChange={setSelected}
   onExpandedIdsChange={setExpanded}
 >
-  <AppWorkspace.NavTree.Item id="mail" label="Mail" icon="ti ti-mail">
+  <AppWorkspace.NavTree.Item id="mail" label="Mail" icon="ti ti-folder" expandedIcon="ti ti-folder-open">
     <AppWorkspace.NavTree.Item id="inbox" label="Inbox" meta={4} />
     <AppWorkspace.NavTree.Item id="archive" label="Archive" />
   </AppWorkspace.NavTree.Item>

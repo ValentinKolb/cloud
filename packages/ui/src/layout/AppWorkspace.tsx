@@ -327,6 +327,8 @@ export type AppWorkspaceNavTreeItemProps = {
   onSelect?: (event: MouseEvent) => void;
   disabled?: boolean;
   icon?: string;
+  /** Replaces `icon` while this branch is expanded and makes the icon the disclosure target. */
+  expandedIcon?: string;
   meta?: JSX.Element;
   metaVisibility?: AppWorkspaceSidebarAccessoryVisibility;
   actions?: JSX.Element;
@@ -334,6 +336,10 @@ export type AppWorkspaceNavTreeItemProps = {
   title?: string;
   viewTransitionName?: string;
   class?: string;
+  onDragEnter?: JSX.EventHandlerUnion<HTMLDivElement, DragEvent>;
+  onDragOver?: JSX.EventHandlerUnion<HTMLDivElement, DragEvent>;
+  onDragLeave?: JSX.EventHandlerUnion<HTMLDivElement, DragEvent>;
+  onDrop?: JSX.EventHandlerUnion<HTMLDivElement, DragEvent>;
 };
 type AppWorkspaceNavTreeComponent = ((props: AppWorkspaceNavTreeProps) => JSX.Element) & {
   Item: (props: AppWorkspaceNavTreeItemProps) => JSX.Element;
@@ -358,7 +364,9 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
   const resolved = children(() => props.children);
   const values = createMemo(() => flatten(resolved()));
   const paneIds = createMemo(() => {
-    const ids = values().filter(mainPaneSlot).map((slot) => slot.props.id);
+    const ids = values()
+      .filter(mainPaneSlot)
+      .map((slot) => slot.props.id);
     assertUniqueStableUiIds(ids, "AppWorkspace.MainPane id");
     return ids;
   });
@@ -1000,11 +1008,17 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
             rowControl()?.click();
           }
         };
+        const usesIconDisclosure = () => hasChildren() && Boolean(item.icon && item.expandedIcon);
+        const rowIcon = () => (usesIconDisclosure() && isExpanded(item.id) ? item.expandedIcon : item.icon);
         const rowContent = (
           <>
-            <Show when={item.icon}>
-              <span class="k2b-app-workspace__sidebar-item-icon" aria-hidden="true">
-                <i class={iconClass(item.icon)} />
+            <Show when={rowIcon()}>
+              <span
+                class="k2b-app-workspace__sidebar-item-icon"
+                data-k2b-nav-tree-toggle={usesIconDisclosure() ? "" : undefined}
+                aria-hidden="true"
+              >
+                <i class={iconClass(rowIcon())} />
               </span>
             </Show>
             <span class="k2b-app-workspace__sidebar-item-label">
@@ -1018,7 +1032,7 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
                 {item.meta}
               </span>
             </Show>
-            <Show when={hasChildren()}>
+            <Show when={hasChildren() && !usesIconDisclosure()}>
               <span class="k2b-app-workspace__nav-tree-toggle" data-k2b-nav-tree-toggle aria-hidden="true">
                 <i class={`ti ${isExpanded(item.id) ? "ti-chevron-down" : "ti-chevron-right"}`} />
               </span>
@@ -1097,6 +1111,10 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
             data-k2b-nav-tree-parent-id={parentId}
             onFocus={() => setFocusedId(item.id)}
             onKeyDown={onKeyDown}
+            onDragEnter={item.onDragEnter}
+            onDragOver={item.onDragOver}
+            onDragLeave={item.onDragLeave}
+            onDrop={item.onDrop}
           >
             <Show when={item.actions} fallback={row()}>
               {(actions) => (
