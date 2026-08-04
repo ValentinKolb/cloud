@@ -1268,7 +1268,9 @@ const errorPayload = (error: unknown, exitCode: number) => {
 
 if (import.meta.main) {
   main().then(
-    (code) => process.exit(code),
+    (code) => {
+      process.exitCode = code;
+    },
     (error) => {
       const exitCode = error instanceof CliError ? error.exitCode : 1;
       if (wantsJsonError(Bun.argv.slice(2))) {
@@ -1276,7 +1278,7 @@ if (import.meta.main) {
         console.error(Bun.argv.includes("--jsonl") ? JSON.stringify(payload) : JSON.stringify(payload, null, 2));
       }
       else console.error(error instanceof Error ? error.message : String(error));
-      process.exit(exitCode);
+      process.exitCode = exitCode;
     },
   );
 }

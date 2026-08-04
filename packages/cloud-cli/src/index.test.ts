@@ -11,6 +11,7 @@ type MockServerState = {
   failFirstMe?: boolean;
   appsCalls?: number;
   appsSearch?: string | null;
+  capabilityCatalog?: unknown;
 };
 
 const tempDirs: string[] = [];
@@ -96,6 +97,10 @@ const startMockServer = (state: MockServerState) =>
             },
           ],
         });
+      }
+
+      if (url.pathname === "/api/capabilities/v1/catalog" && state.capabilityCatalog) {
+        return Response.json(state.capabilityCatalog);
       }
 
       return Response.json({ message: "not found" }, { status: 404 });
@@ -257,7 +262,7 @@ describe("cloud CLI OAuth session handling", () => {
           authorization: request.headers.get("authorization"),
           idempotencyKey: request.headers.get("idempotency-key"),
         });
-        return Response.json({ ok: true });
+        return Response.json({ data: { ok: true } });
       },
     });
     const dir = await createTempDir();
@@ -284,6 +289,64 @@ describe("cloud CLI OAuth session handling", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
       expect(receivedHeaders).toEqual([{ authorization: "Bearer cld_test", idempotencyKey: "contact-ada" }]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("flushes a capability catalog larger than the stdout pipe buffer", async () => {
+    const description = "Capability description ".repeat(35);
+    const queries = Array.from({ length: 100 }, (_, index) => ({
+      localId: `query${index}`,
+      title: `Query ${index}`,
+      description,
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      dataSchema: { type: "array", items: { type: "string" } },
+      schemaHash: "0".repeat(64),
+      openWorld: false,
+    }));
+    const catalog = {
+      protocolVersion: 1,
+      apps: [
+        {
+          appId: "large",
+          appName: "Large",
+          appIcon: "ti ti-box",
+          appDescription: "Large capability catalog fixture.",
+          manifest: {
+            protocolVersion: 1,
+            appId: "large",
+            manifestHash: "1".repeat(64),
+            types: [],
+            queries,
+            actions: [],
+          },
+        },
+      ],
+      page: { hasMore: false },
+    };
+    const state: MockServerState = {
+      refreshCalls: 0,
+      revokeCalls: 0,
+      meCalls: 0,
+      capabilityCatalog: catalog,
+    };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: { default: { server: `http://127.0.0.1:${server.port}`, token: "cld_test" } },
+      });
+
+      const result = await runCli(configPath, ["capabilities", "catalog", "--limit", "1", "--json"]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(new TextEncoder().encode(result.stdout).byteLength).toBeGreaterThan(64 * 1024);
+      expect(JSON.parse(result.stdout)).toEqual(catalog);
     } finally {
       server.stop(true);
     }
