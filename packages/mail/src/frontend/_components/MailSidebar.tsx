@@ -266,7 +266,7 @@ export default function MailSidebar(props: {
         id={folder.id}
         label={folder.name}
         href={folder.selectable ? `/app/mail/${props.mailboxId}?folder=${folder.id}` : undefined}
-        icon={folderIcon(folder.role)}
+        icon={hasChildren ? "ti ti-folder-plus" : folderIcon(folder.role)}
         expandedIcon={hasChildren ? "ti ti-folder-open" : undefined}
         meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
         title={folder.name}
