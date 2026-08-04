@@ -5,7 +5,7 @@ section: AI
 order: 1030
 description: Run bounded chat sessions and stream model output to an application.
 tags: [ai, chat, streaming]
-updated: 2026-08-02
+updated: 2026-08-04
 ---
 
 # Chat runtime and streaming
@@ -148,7 +148,12 @@ await app.start({
 releases one caller. The last release stops the workers.
 
 The runtime leases queued turns, recovers interrupted work, and sweeps stale
-turns. Set concurrency for the deployment, not per request.
+turns. User approvals and frontend-tool responses are durable continuation
+points, not failed execution attempts. If their queue message is lost, the
+sweep re-enqueues the exact action still waiting in the persisted turn
+snapshot. Actual repeated worker failures remain bounded and finish the turn
+as failed instead of leaving it active forever. Set concurrency for the
+deployment, not per request.
 
 ## Stream state
 
@@ -162,6 +167,12 @@ Use `parseAiSse()` for a low-level client. Solid applications should use
 The controller reconnects the stream and folds events into one projection. It
 also exposes conversation history, send, steer, abort, retry, fork, compaction,
 approval, file, and frontend-tool actions.
+
+Action responses are idempotent. Retrying the same response is safe and
+re-enqueues its continuation; a conflicting response for an already resolved
+call is rejected. On reconnect, the state snapshot reconciles durable action
+responses before rendering, so resolved approval controls do not reappear and
+plain browser tools are not executed again merely because the page reloaded.
 
 Do not maintain a second client-side chat state machine.
 

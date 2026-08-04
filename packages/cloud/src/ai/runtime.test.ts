@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { StoreEntry } from "@k2b/nessi";
 import { __compactionTest } from "./compaction";
+import { __aiRuntimeTest } from "./runtime";
 
 describe("AI compaction split", () => {
   const messageEntry = (seq: number, role: "user" | "assistant"): StoreEntry => ({
@@ -48,5 +49,38 @@ describe("AI compaction split", () => {
     // keepLoops = 1: everything before the last user message goes into the summary.
     expect(__compactionTest.findLoopSplitIndex(entries, 1)).toBe(4);
     expect(entries.slice(0, 4).map((entry) => entry.seq)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe("AI action response idempotency", () => {
+  test("accepts only an identical replay", () => {
+    expect(
+      __aiRuntimeTest.actionMatchesResolvedEvent(
+        { type: "approval_response", approved: true },
+        { type: "approval_response", callId: "call-1", approved: true },
+        "call-1",
+      ),
+    ).toBe(true);
+    expect(
+      __aiRuntimeTest.actionMatchesResolvedEvent(
+        { type: "approval_response", approved: false },
+        { type: "approval_response", callId: "call-1", approved: true },
+        "call-1",
+      ),
+    ).toBe(false);
+    expect(
+      __aiRuntimeTest.actionMatchesResolvedEvent(
+        { type: "tool_result", result: { nested: { ok: true }, values: [1, 2] } },
+        { type: "tool_result", callId: "call-2", result: { nested: { ok: true }, values: [1, 2] } },
+        "call-2",
+      ),
+    ).toBe(true);
+    expect(
+      __aiRuntimeTest.actionMatchesResolvedEvent(
+        { type: "tool_result", result: { ok: false } },
+        { type: "tool_result", callId: "call-2", result: { ok: true } },
+        "call-2",
+      ),
+    ).toBe(false);
   });
 });

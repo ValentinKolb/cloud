@@ -5,6 +5,7 @@ import {
   type AiTurnSnapshot,
   type AiWireEvent,
   isNewerWireEvent,
+  reconcileResolvedTurnActions,
   steerAppliedBlockId,
   steerMessageBlockId,
 } from "./protocol";
@@ -70,7 +71,7 @@ const turnSnapshotFromActive = (active: NonNullable<Awaited<ReturnType<typeof ai
   attempt: active.turn.attempt,
   status: active.turn.status,
   seq: active.liveSeq,
-  blocks: active.liveBlocks,
+  blocks: [...active.liveBlocks],
   modelProfileId: active.turn.modelProfileId,
   createdAt: active.turn.createdAt,
 });
@@ -85,7 +86,11 @@ export const loadAiStreamState = async (conversation: AiConversation): Promise<E
   ]);
   const snapshot = active ? turnSnapshotFromActive(active) : null;
   if (snapshot) {
-    const steers = await aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: snapshot.turnId });
+    const [steers, resolvedActions] = await Promise.all([
+      aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: snapshot.turnId }),
+      aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: snapshot.turnId }),
+    ]);
+    snapshot.blocks = reconcileResolvedTurnActions(snapshot.blocks, resolvedActions);
     const known = new Set(snapshot.blocks.map((block) => block.id));
     for (const steer of steers) {
       if (steer.status === "discarded" || known.has(steerMessageBlockId(steer.id))) continue;
@@ -171,7 +176,8 @@ export const createAiConversationStreamResponse = (input: {
           if (!enqueue(encodeSseHeartbeat())) return;
           if (!input.revalidate) return;
           // Fail closed: a revalidation that throws is not a pass.
-          void input.revalidate()
+          void input
+            .revalidate()
             .catch((error) => {
               log.warn("AI conversation stream revalidation failed", {
                 conversationId: input.conversation.id,

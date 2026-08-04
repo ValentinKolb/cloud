@@ -197,6 +197,11 @@ export const migrateCloudAi = async (): Promise<void> => {
     SET run_config = (run_config #>> '{}')::jsonb
     WHERE jsonb_typeof(run_config) = 'string'
   `.simple();
+  await sql`
+    UPDATE ai.turns
+    SET live_blocks = (live_blocks #>> '{}')::jsonb
+    WHERE jsonb_typeof(live_blocks) = 'string'
+  `.simple();
 
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_turns_one_active_per_conversation

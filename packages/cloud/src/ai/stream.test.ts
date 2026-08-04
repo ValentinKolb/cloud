@@ -6,6 +6,7 @@ import {
   compactionBlockId,
   isNewerWireEvent,
   messageBlockId,
+  reconcileResolvedTurnActions,
   streamBlockId,
   toolBlockId,
 } from "./protocol";
@@ -82,5 +83,77 @@ describe("block id helpers", () => {
     expect(compactionBlockId).toBe("compaction");
     expect(streamBlockId(2, 3, "block-0")).toBe("a2-t3-block-0");
     expect(messageBlockId(4, 1)).toBe("m4-1");
+  });
+});
+
+describe("resolved action snapshot reconciliation", () => {
+  test("removes stale approval and frontend controls without rewriting completed history", () => {
+    const blocks: AiTurnBlock[] = [
+      {
+        id: "approval",
+        kind: "tool",
+        callId: "approval-call",
+        name: "send",
+        status: "awaiting_approval",
+        approval: { allowAlways: false },
+      },
+      {
+        id: "client",
+        kind: "tool",
+        callId: "client-call",
+        name: "read_browser_state",
+        status: "awaiting_client",
+        frontendMode: "client",
+      },
+      { id: "done", kind: "tool", callId: "done-call", name: "done", status: "completed", result: "original" },
+    ];
+
+    expect(
+      reconcileResolvedTurnActions(blocks, [
+        {
+          callId: "approval-call",
+          resolvedEvent: { type: "approval_response", callId: "approval-call", approved: true },
+        },
+        {
+          callId: "client-call",
+          resolvedEvent: { type: "tool_result", callId: "client-call", result: { value: 42 } },
+        },
+        { callId: "done-call", resolvedEvent: { type: "tool_result", callId: "done-call", result: "replacement" } },
+      ]),
+    ).toEqual([
+      { id: "approval", kind: "tool", callId: "approval-call", name: "send", status: "running", approval: undefined },
+      {
+        id: "client",
+        kind: "tool",
+        callId: "client-call",
+        name: "read_browser_state",
+        status: "completed",
+        frontendMode: "client",
+        result: { value: 42 },
+        isError: false,
+      },
+      { id: "done", kind: "tool", callId: "done-call", name: "done", status: "completed", result: "original" },
+    ]);
+  });
+
+  test("keeps a rejected approval visibly resolved", () => {
+    const blocks: AiTurnBlock[] = [
+      {
+        id: "approval",
+        kind: "tool",
+        callId: "approval-call",
+        name: "send",
+        status: "awaiting_approval",
+        approval: { allowAlways: false },
+      },
+    ];
+    expect(
+      reconcileResolvedTurnActions(blocks, [
+        {
+          callId: "approval-call",
+          resolvedEvent: { type: "approval_response", callId: "approval-call", approved: false },
+        },
+      ])[0],
+    ).toMatchObject({ status: "rejected", approval: undefined });
   });
 });

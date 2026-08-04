@@ -383,7 +383,7 @@ suite("AI conversation store integration", () => {
         leaseOwner: "worker-a",
         leaseMs: 30_000,
         from: "queue",
-        maxAttempts: 50,
+        maxAttempts: 1,
         runBudgetMs: 60_000,
       });
 
@@ -434,7 +434,7 @@ suite("AI conversation store integration", () => {
         leaseOwner: "worker-b",
         leaseMs: 30_000,
         from: "waiting",
-        maxAttempts: 50,
+        maxAttempts: 1,
         runBudgetMs: 60_000,
       });
       expect(early).toBeNull();
@@ -453,7 +453,7 @@ suite("AI conversation store integration", () => {
         leaseOwner: "worker-b",
         leaseMs: 30_000,
         from: "waiting",
-        maxAttempts: 50,
+        maxAttempts: 1,
         runBudgetMs: 60_000,
       });
       expect(continuation?.turn.attempt).toBe(2);
@@ -469,6 +469,75 @@ suite("AI conversation store integration", () => {
       const seeds = await aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: turn.id });
       expect(seeds).toHaveLength(1);
       expect(seeds[0]?.resolvedEvent).toMatchObject({ type: "approval_response", approved: true });
+
+      await aiConversationStore.savePendingTurnAction({
+        turnId: turn.id,
+        conversationId: conversation.id,
+        callId: "call-2",
+        kind: "client_tool",
+        status: "pending",
+        name: "browser-state",
+        args: {},
+        approvalScope: "browser-state",
+        allowAlways: false,
+        frontendMode: "client",
+        resolvedEvent: null,
+      });
+      expect(
+        await aiConversationStore.suspendTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-b",
+          blocks: [{ id: "tool-call-2", kind: "tool", callId: "call-2", name: "browser-state", status: "awaiting_client" }],
+          seq: 8,
+          waitingBudgetMs: 60 * 60_000,
+        }),
+      ).toBe(true);
+
+      // The historical first response must not unlock the newly waiting call.
+      expect(
+        await aiConversationStore.claimTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-c",
+          leaseMs: 30_000,
+          from: "waiting",
+          maxAttempts: 1,
+          runBudgetMs: 60_000,
+        }),
+      ).toBeNull();
+
+      await aiConversationStore.resolvePendingTurnAction({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        callId: "call-2",
+        event: { type: "tool_result", callId: "call-2", result: { value: 42 } },
+      });
+      const secondContinuation = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-c",
+        leaseMs: 30_000,
+        from: "waiting",
+        maxAttempts: 1,
+        runBudgetMs: 60_000,
+      });
+      expect(secondContinuation?.turn.attempt).toBe(3);
+
+      // Normal action continuations were free; after a real crash the one
+      // allowed execution attempt is exhausted and cannot be claimed again.
+      await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${turn.id}`;
+      expect(
+        await aiConversationStore.claimTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-d",
+          leaseMs: 30_000,
+          from: "queue",
+          maxAttempts: 1,
+          runBudgetMs: 60_000,
+        }),
+      ).toBeNull();
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }
@@ -700,10 +769,68 @@ suite("AI conversation store integration", () => {
       });
       await sql`UPDATE ai.turns SET deadline = now() - interval '1 second' WHERE id = ${waitTurn.id}`;
 
+      // Resolved wait whose continuation queue message was lost -> requeued.
+      const resumeConv = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(resumeConv.id);
+      const { turn: resumeTurn } = await aiConversationStore.submitChatTurn({
+        conversationId: resumeConv.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("resume"),
+      });
+      await aiConversationStore.claimTurn({
+        conversationId: resumeConv.id,
+        turnId: resumeTurn.id,
+        leaseOwner: "worker-d",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 600_000,
+      });
+      await aiConversationStore.savePendingTurnAction({
+        turnId: resumeTurn.id,
+        conversationId: resumeConv.id,
+        callId: "resume-call",
+        kind: "approval",
+        status: "pending",
+        name: "resume-action",
+        args: {},
+        approvalScope: "resume-action",
+        allowAlways: false,
+        resolvedEvent: null,
+      });
+      await aiConversationStore.suspendTurn({
+        conversationId: resumeConv.id,
+        turnId: resumeTurn.id,
+        leaseOwner: "worker-d",
+        blocks: [{ id: "resume", kind: "tool", callId: "resume-call", name: "resume-action", status: "awaiting_approval" }],
+        seq: 2,
+        waitingBudgetMs: 60_000,
+      });
+      await aiConversationStore.resolvePendingTurnAction({
+        conversationId: resumeConv.id,
+        turnId: resumeTurn.id,
+        callId: "resume-call",
+        event: { type: "approval_response", callId: "resume-call", approved: true },
+      });
+
+      // Actual recovery exhaustion is terminal instead of hanging forever.
+      const cappedConv = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(cappedConv.id);
+      const { turn: cappedTurn } = await aiConversationStore.submitChatTurn({
+        conversationId: cappedConv.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("exhausted"),
+      });
+      await sql`UPDATE ai.turns SET attempt = 5 WHERE id = ${cappedTurn.id}`;
+
       const sweep = await aiConversationStore.sweepTurns();
 
       expect(sweep.requeued.some((entry) => entry.turnId === crashTurn.id)).toBe(true);
+      expect(sweep.requeued.some((entry) => entry.turnId === resumeTurn.id)).toBe(true);
       expect(sweep.failed.some((entry) => entry.turnId === budgetTurn.id)).toBe(true);
+      expect(sweep.failed.some((entry) => entry.turnId === cappedTurn.id)).toBe(true);
       expect(sweep.aborted.some((entry) => entry.turnId === waitTurn.id)).toBe(true);
 
       const requeued = await aiConversationStore.getTurn({ conversationId: crashConv.id, turnId: crashTurn.id });
@@ -712,6 +839,8 @@ suite("AI conversation store integration", () => {
       expect(failed?.status).toBe("failed");
       const aborted = await aiConversationStore.getTurn({ conversationId: waitConv.id, turnId: waitTurn.id });
       expect(aborted?.status).toBe("aborted");
+      const capped = await aiConversationStore.getTurn({ conversationId: cappedConv.id, turnId: cappedTurn.id });
+      expect(capped?.status).toBe("failed");
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }

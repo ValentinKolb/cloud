@@ -1402,7 +1402,13 @@ export const aiConversationStore: AiConversationStore = {
       WHERE id = ${input.turnId}
         AND conversation_id = ${input.conversationId}
         AND cancel_requested_at IS NULL
-        AND attempt < ${maxAttempts}
+        AND attempt - (
+          SELECT COUNT(*)::int
+          FROM ai.pending_actions
+          WHERE turn_id = ${input.turnId}
+            AND conversation_id = ${input.conversationId}
+            AND status = 'resolved'
+        ) < ${maxAttempts}
         AND (
           (
             ${input.from} = 'queue'
@@ -1416,10 +1422,19 @@ export const aiConversationStore: AiConversationStore = {
             AND status = 'waiting_for_action'
             AND EXISTS (
               SELECT 1
-              FROM ai.pending_actions
-              WHERE turn_id = ${input.turnId}
-                AND conversation_id = ${input.conversationId}
-                AND status = 'resolved'
+              FROM ai.pending_actions action
+              WHERE action.turn_id = ${input.turnId}
+                AND action.conversation_id = ${input.conversationId}
+                AND action.status = 'resolved'
+                AND EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements(
+                    CASE WHEN jsonb_typeof(live_blocks) = 'array' THEN live_blocks ELSE '[]'::jsonb END
+                  ) block
+                  WHERE block->>'kind' = 'tool'
+                    AND block->>'callId' = action.call_id
+                    AND block->>'status' IN ('awaiting_approval', 'awaiting_client')
+                )
             )
           )
         )
@@ -1459,7 +1474,7 @@ export const aiConversationStore: AiConversationStore = {
           lease_owner = NULL,
           lease_expires_at = NULL,
           heartbeat_at = now(),
-          live_blocks = ${JSON.stringify(input.blocks)}::jsonb,
+          live_blocks = (${JSON.stringify(input.blocks)}::text)::jsonb,
           live_seq = ${input.seq},
           deadline = now() + (${waitingBudgetMs} * interval '1 millisecond')
       WHERE id = ${input.turnId}
@@ -1474,7 +1489,7 @@ export const aiConversationStore: AiConversationStore = {
   saveTurnLiveState: async (input) => {
     const rows = await sql<{ id: string }[]>`
       UPDATE ai.turns
-      SET live_blocks = ${JSON.stringify(input.blocks)}::jsonb,
+      SET live_blocks = (${JSON.stringify(input.blocks)}::text)::jsonb,
           live_seq = ${input.seq}
       WHERE id = ${input.turnId}
         AND conversation_id = ${input.conversationId}
@@ -1563,10 +1578,65 @@ export const aiConversationStore: AiConversationStore = {
 
   sweepTurns: async (input) => {
     const limit = Math.min(Math.max(Math.floor(input?.limit ?? 200), 1), 1_000);
+    const maxAttempts = Math.max(1, Math.floor(input?.maxAttempts ?? 5));
     const result: AiTurnSweepResult = { requeued: [], failed: [], aborted: [] };
 
-    // 1) Finalize over-budget turns without a live lease.
-    const failedRows = await sql<{ id: string; conversation_id: string; error: string; attempt: number; live_seq: number | string }[]>`
+    // 1) Finalize turns that exhausted actual recovery attempts. Resuming a
+    // resolved user/frontend action is normal progress and does not consume
+    // this budget.
+    const exhaustedRows = await sql<{ id: string; conversation_id: string; error: string; attempt: number; live_seq: number | string }[]>`
+      UPDATE ai.turns
+      SET status = 'failed',
+          completed_at = now(),
+          error = 'AI turn exhausted its recovery attempts.',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          live_blocks = NULL
+      WHERE id IN (
+        SELECT turn_row.id
+        FROM ai.turns turn_row
+        WHERE turn_row.cancel_requested_at IS NULL
+          AND (turn_row.lease_owner IS NULL OR turn_row.lease_expires_at IS NULL OR turn_row.lease_expires_at < now())
+          AND turn_row.attempt - (
+            SELECT COUNT(*)::int
+            FROM ai.pending_actions action
+            WHERE action.turn_id = turn_row.id
+              AND action.conversation_id = turn_row.conversation_id
+              AND action.status = 'resolved'
+          ) >= ${maxAttempts}
+          AND (
+            turn_row.status = 'queued'
+            OR (turn_row.status = 'running' AND (turn_row.lease_expires_at IS NULL OR turn_row.lease_expires_at < now()))
+            OR (
+              turn_row.status = 'waiting_for_action'
+              AND EXISTS (
+                SELECT 1
+                FROM ai.pending_actions action
+                WHERE action.turn_id = turn_row.id
+                  AND action.conversation_id = turn_row.conversation_id
+                  AND action.status = 'resolved'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(
+                      CASE
+                        WHEN jsonb_typeof(turn_row.live_blocks) = 'array' THEN turn_row.live_blocks
+                        ELSE '[]'::jsonb
+                      END
+                    ) block
+                    WHERE block->>'kind' = 'tool'
+                      AND block->>'callId' = action.call_id
+                      AND block->>'status' IN ('awaiting_approval', 'awaiting_client')
+                  )
+              )
+            )
+          )
+        LIMIT ${limit}
+      )
+      RETURNING id, conversation_id, error, attempt, live_seq
+    `;
+
+    // 2) Finalize over-budget turns without a live lease.
+    const budgetRows = await sql<{ id: string; conversation_id: string; error: string; attempt: number; live_seq: number | string }[]>`
       UPDATE ai.turns
       SET status = 'failed',
           completed_at = now(),
@@ -1586,7 +1656,7 @@ export const aiConversationStore: AiConversationStore = {
       )
       RETURNING id, conversation_id, error, attempt, live_seq
     `;
-    result.failed = failedRows.map((row) => ({
+    result.failed = [...exhaustedRows, ...budgetRows].map((row) => ({
       conversationId: row.conversation_id,
       turnId: row.id,
       error: row.error,
@@ -1594,7 +1664,7 @@ export const aiConversationStore: AiConversationStore = {
       seq: Number(row.live_seq) + 1,
     }));
 
-    // 2) Finalize aborts: cancel-requested turns without a live lease, and expired waits.
+    // 3) Finalize aborts: cancel-requested turns without a live lease, and expired waits.
     const abortedRows = await sql<{ id: string; conversation_id: string; attempt: number; live_seq: number | string }[]>`
       UPDATE ai.turns
       SET status = 'aborted',
@@ -1636,7 +1706,7 @@ export const aiConversationStore: AiConversationStore = {
       `;
     }
 
-    // 3) Requeue crashed running turns (lease expired, still within budget).
+    // 4) Requeue crashed running turns (lease expired, still within budget).
     const requeuedRows = await sql<{ id: string; conversation_id: string }[]>`
       UPDATE ai.turns
       SET status = 'queued',
@@ -1654,7 +1724,7 @@ export const aiConversationStore: AiConversationStore = {
       RETURNING id, conversation_id
     `;
 
-    // 4) Stale queued turns whose queue message may be lost — re-enqueue them too.
+    // 5) Stale queued turns whose queue message may be lost — re-enqueue them too.
     const staleQueuedRows = await sql<{ id: string; conversation_id: string }[]>`
       SELECT id, conversation_id
       FROM ai.turns
@@ -1665,8 +1735,46 @@ export const aiConversationStore: AiConversationStore = {
       LIMIT ${limit}
     `;
 
+    // 6) A durable action response can outlive the queue message that was meant
+    // to resume it. Re-enqueue exactly the action still shown as awaiting in the
+    // turn snapshot; historical responses must not unlock a later action.
+    const resumableWaitingRows = await sql<{ id: string; conversation_id: string }[]>`
+      SELECT turn_row.id, turn_row.conversation_id
+      FROM ai.turns turn_row
+      WHERE turn_row.status = 'waiting_for_action'
+        AND turn_row.cancel_requested_at IS NULL
+        AND (turn_row.deadline IS NULL OR turn_row.deadline > now())
+        AND turn_row.attempt - (
+          SELECT COUNT(*)::int
+          FROM ai.pending_actions action
+          WHERE action.turn_id = turn_row.id
+            AND action.conversation_id = turn_row.conversation_id
+            AND action.status = 'resolved'
+        ) < ${maxAttempts}
+        AND EXISTS (
+          SELECT 1
+          FROM ai.pending_actions action
+          WHERE action.turn_id = turn_row.id
+            AND action.conversation_id = turn_row.conversation_id
+            AND action.status = 'resolved'
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(
+                CASE
+                  WHEN jsonb_typeof(turn_row.live_blocks) = 'array' THEN turn_row.live_blocks
+                  ELSE '[]'::jsonb
+                END
+              ) block
+              WHERE block->>'kind' = 'tool'
+                AND block->>'callId' = action.call_id
+                AND block->>'status' IN ('awaiting_approval', 'awaiting_client')
+            )
+        )
+      LIMIT ${limit}
+    `;
+
     const requeueIds = new Set<string>();
-    for (const row of [...requeuedRows, ...staleQueuedRows]) {
+    for (const row of [...requeuedRows, ...staleQueuedRows, ...resumableWaitingRows]) {
       if (requeueIds.has(row.id)) continue;
       requeueIds.add(row.id);
       result.requeued.push({ conversationId: row.conversation_id, turnId: row.id });

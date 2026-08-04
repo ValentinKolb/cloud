@@ -1,4 +1,4 @@
-import type { CompactResult, Message } from "@k2b/nessi";
+import type { CompactResult, InboundEvent, Message } from "@k2b/nessi";
 import type { AiConversation, AiFrontendToolMode, AiStoredMessage, AiToolPresentation, AiTurnStatus } from "./types";
 
 /**
@@ -116,6 +116,33 @@ export const applyWireEventToBlocks = (blocks: AiTurnBlock[], event: AiWireEvent
   }
 
   return blocks;
+};
+
+/**
+ * Reconcile a durable action response with a possibly stale live snapshot.
+ *
+ * Action responses and live block snapshots are persisted separately. A
+ * reconnect can therefore observe the response before the resumed worker has
+ * replaced the awaiting block. Only awaiting blocks are changed so historical
+ * completed calls remain authoritative.
+ */
+export const reconcileResolvedTurnActions = (
+  blocks: AiTurnBlock[],
+  actions: readonly { callId: string; resolvedEvent: InboundEvent | null }[],
+): AiTurnBlock[] => {
+  const resolvedByCallId = new Map(actions.map((action) => [action.callId, action.resolvedEvent]));
+  return blocks.map((block) => {
+    if (block.kind !== "tool" || (block.status !== "awaiting_approval" && block.status !== "awaiting_client")) return block;
+    const event = resolvedByCallId.get(block.callId);
+    if (!event || event.callId !== block.callId) return block;
+    if (block.status === "awaiting_approval" && event.type === "approval_response") {
+      return { ...block, status: event.approved ? "running" : "rejected", approval: undefined };
+    }
+    if (block.status === "awaiting_client" && event.type === "tool_result") {
+      return { ...block, status: "completed", result: event.result, isError: false };
+    }
+    return block;
+  });
 };
 
 /**

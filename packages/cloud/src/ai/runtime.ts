@@ -1,4 +1,5 @@
-import type { Input, Message } from "@k2b/nessi";
+import { isDeepStrictEqual } from "node:util";
+import type { InboundEvent, Input, Message } from "@k2b/nessi";
 import { type QueueReceived, queue } from "@k2b/sync";
 import { z } from "zod";
 import type { RequestActor } from "../server";
@@ -168,6 +169,12 @@ export const AiTurnActionSchema = z.discriminatedUnion("type", [
 ]);
 export type AiTurnActionInput = z.infer<typeof AiTurnActionSchema>;
 
+const actionMatchesResolvedEvent = (action: AiTurnActionInput, event: InboundEvent | null, callId: string): boolean => {
+  if (!event || event.callId !== callId) return false;
+  if (action.type === "approval_response") return event.type === "approval_response" && event.approved === action.approved;
+  return event.type === "tool_result" && isDeepStrictEqual(event.result, action.result);
+};
+
 export const listPendingAiTurnActions = (input: { conversationId: string; turnId: string }): Promise<AiPendingTurnAction[]> =>
   aiConversationStore.listPendingTurnActions(input);
 
@@ -181,7 +188,10 @@ export const submitAiTurnAction = async (input: {
   const pending = await aiConversationStore.getPendingTurnAction(input);
   if (!pending) return { ok: false, status: 404, message: "This request has expired — the assistant already moved on." };
   if (pending.status === "resolved") {
-    // Idempotent: ensure a continuation is queued and return success.
+    if (!actionMatchesResolvedEvent(input.action, pending.resolvedEvent, input.callId)) {
+      return { ok: false, status: 409, message: "AI action was already resolved with a different response." };
+    }
+    // Idempotent retry: ensure a continuation is queued and return success.
     await enqueueAiTurn({ conversationId: input.conversationId, turnId: input.turnId }).catch(() => undefined);
     return { ok: true };
   }
@@ -209,14 +219,24 @@ export const submitAiTurnAction = async (input: {
       ...input,
       event: { type: "approval_response", callId: input.callId, approved: input.action.approved },
     });
-    if (!resolved) return { ok: false, status: 409, message: "AI action was already resolved." };
+    if (!resolved) {
+      const raced = await aiConversationStore.getPendingTurnAction(input);
+      if (!raced || !actionMatchesResolvedEvent(input.action, raced.resolvedEvent, input.callId)) {
+        return { ok: false, status: 409, message: "AI action was already resolved with a different response." };
+      }
+    }
   } else {
     if (pending.kind !== "client_tool") return { ok: false, status: 400, message: "Approval requests require an approval response." };
     const resolved = await aiConversationStore.resolvePendingTurnAction({
       ...input,
       event: { type: "tool_result", callId: input.callId, result: input.action.result },
     });
-    if (!resolved) return { ok: false, status: 409, message: "AI action was already resolved." };
+    if (!resolved) {
+      const raced = await aiConversationStore.getPendingTurnAction(input);
+      if (!raced || !actionMatchesResolvedEvent(input.action, raced.resolvedEvent, input.callId)) {
+        return { ok: false, status: 409, message: "AI action was already resolved with a different response." };
+      }
+    }
     await aiToolAudit
       .noteToolCompleted({ turnId: input.turnId, callId: input.callId, result: input.action.result, isError: false })
       .catch(() => undefined);
@@ -301,7 +321,7 @@ const publishSweepFinished = async (turn: AiTurnFinalizedAction & { error?: stri
 };
 
 export const sweepAiRuntime = async (): Promise<void> => {
-  const sweep = await aiConversationStore.sweepTurns();
+  const sweep = await aiConversationStore.sweepTurns({ maxAttempts: AI_TURN_MAX_ATTEMPTS });
   await Promise.all([
     ...sweep.requeued.map((job) => enqueueAiTurn(job).catch(() => undefined)),
     ...sweep.failed.map((turn) => publishSweepFinished(turn, "failed")),
@@ -402,6 +422,8 @@ const releaseAiRuntime = (listener: ((event: AiTurnFinalizedEvent) => Promise<vo
     if (refCount === 0) state.stop();
   };
 };
+
+export const __aiRuntimeTest = { actionMatchesResolvedEvent };
 
 /** @deprecated Compatibility shim for the previous recovery API; use startAiRuntime. */
 export const startAiRuntimeRecovery = startAiRuntime;

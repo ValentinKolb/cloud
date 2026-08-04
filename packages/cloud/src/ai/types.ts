@@ -544,7 +544,8 @@ export type AiConversationStore = {
   /**
    * Claim a turn attempt. Increments attempt and takes the lease atomically.
    * `from: "queue"` claims queued or lease-expired running turns; `from: "waiting"`
-   * claims suspended turns that have at least one resolved pending action.
+   * claims a suspended turn only when its currently awaiting action was resolved.
+   * Normal action continuations do not consume the recovery-attempt budget.
    */
   claimTurn(input: {
     conversationId: string;
@@ -582,8 +583,8 @@ export type AiConversationStore = {
     /** When set, only the lease owner may finalize; otherwise only ownerless turns are finalized. */
     leaseOwner?: string;
   }): Promise<AiTurnCompletionResult>;
-  /** Periodic maintenance: requeue lost turns, fail over-budget turns, abort stale waits. */
-  sweepTurns(input?: { limit?: number }): Promise<AiTurnSweepResult>;
+  /** Periodic maintenance: requeue lost turns, fail exhausted/over-budget turns, abort stale waits. */
+  sweepTurns(input?: { limit?: number; maxAttempts?: number }): Promise<AiTurnSweepResult>;
   savePendingTurnAction(input: AiPendingTurnActionRecord): Promise<void>;
   listPendingTurnActions(input: { conversationId: string; turnId: string }): Promise<AiPendingTurnAction[]>;
   getPendingTurnAction(input: { conversationId: string; turnId: string; callId: string }): Promise<AiPendingTurnActionRecord | null>;
