@@ -2405,6 +2405,7 @@
   color: var(--k2b-text-secondary);
   background: transparent;
   font-size: 0.8125rem;
+  line-height: 1rem;
   text-align: left;
   text-decoration: none;
   cursor: pointer;
@@ -2563,6 +2564,7 @@
   color: var(--k2b-text-secondary);
   background: transparent;
   font-size: 0.8125rem;
+  line-height: 1rem;
   text-align: left;
   cursor: pointer;
   transition:
@@ -2686,6 +2688,7 @@
   color: var(--k2b-text-secondary);
   font: inherit;
   font-size: 0.8125rem;
+  line-height: 1rem;
   text-align: left;
   cursor: pointer;
 }
@@ -2844,6 +2847,7 @@
   color: var(--k2b-text-secondary);
   background: transparent;
   font: inherit;
+  line-height: 1rem;
   text-align: left;
   cursor: pointer;
 }
@@ -2975,6 +2979,7 @@
   color: color-mix(in srgb, var(--k2b-choice-color, var(--k2b-info-text)) 65%, var(--k2b-text));
   background: var(--k2b-choice-background, var(--k2b-info-surface));
   font-size: 0.6875rem;
+  line-height: 1rem;
 }
 
 .k2b-ui .k2b-choice-pill > span {
@@ -4859,6 +4864,7 @@
   color: var(--k2b-text-secondary);
   background: transparent;
   font: inherit;
+  line-height: 1rem;
   text-align: left;
   cursor: pointer;
 }
@@ -5263,6 +5269,7 @@
   color: var(--k2b-text-secondary);
   background: var(--k2b-surface);
   font-size: 0.75rem;
+  line-height: 1rem;
   cursor: pointer;
 }
 

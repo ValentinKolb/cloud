@@ -28,6 +28,14 @@ const {
 } = await import("../index");
 const editorCss = await Bun.file(resolve(import.meta.dir, "../styles/editors-parity.css")).text();
 
+test("autocomplete options keep descenders inside clipped labels", () => {
+  const option = editorCss.match(/\.k2b-ui \.k2b-autocomplete__option \{([^}]*)\}/)?.[1] ?? "";
+  const hint = editorCss.match(/\.k2b-ui \.k2b-autocomplete__option small \{([^}]*)\}/)?.[1] ?? "";
+
+  expect(option).toContain("line-height: 1.25rem");
+  expect(hint).toContain("line-height: 1rem");
+});
+
 describe("@k2b/ui complete advanced input migrations", () => {
   test("detects, labels, renders and applies generic completions", () => {
     const behavior = createCompletionBehaviorState();

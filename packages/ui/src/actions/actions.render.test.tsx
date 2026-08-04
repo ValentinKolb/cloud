@@ -568,11 +568,14 @@ describe("@k2b/ui action geometry parity", () => {
 
   test("menu items and section spacing follow Cloud's menu-item and menu-section metrics", () => {
     const item = rule(".k2b-ui .k2b-dropdown__item");
+    const filterOption = rule(".k2b-ui .k2b-filter-chip__option");
     const section = rule('.k2b-ui .k2b-dropdown__section[data-divided="true"]');
 
     expect(item).toContain("gap: 0.625rem");
     expect(item).toContain("padding: 0.4375rem 0.75rem");
     expect(item).toContain("font-size: 0.8125rem");
+    expect(item).toContain("line-height: 1rem");
+    expect(filterOption).toContain("line-height: 1rem");
     // Cloud separates sections with spacing, never a rule line.
     expect(section).not.toContain("border-top");
     expect(section).toContain("margin-top: 0.25rem");

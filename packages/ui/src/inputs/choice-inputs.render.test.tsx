@@ -35,6 +35,14 @@ const cssRule = (selector: string): string => {
   return indexCss.slice(open + 1, close);
 };
 
+test("choice controls keep descenders inside clipped single-line labels", () => {
+  expect(cssRule(".k2b-ui .k2b-choice-trigger,\n.k2b-ui .k2b-multi-select-trigger,\n.k2b-ui .k2b-combobox__input")).toContain(
+    "line-height: 1rem",
+  );
+  expect(cssRule(".k2b-ui .k2b-choice-option")).toContain("line-height: 1rem");
+  expect(cssRule(".k2b-ui .k2b-choice-pill")).toContain("line-height: 1rem");
+});
+
 const options = [
   {
     value: "platform",

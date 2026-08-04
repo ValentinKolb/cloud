@@ -255,6 +255,7 @@
   border-radius: var(--k2b-radius-control);
   color: var(--k2b-text-secondary);
   font-size: 0.875rem;
+  line-height: 1.25rem;
   cursor: pointer;
   user-select: none;
 }
@@ -282,6 +283,7 @@
   overflow: hidden;
   color: var(--k2b-text-muted);
   font-size: 0.75rem;
+  line-height: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
