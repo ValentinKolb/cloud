@@ -30,16 +30,16 @@ export default ssr<AuthContext>(async (c) => {
           <section class="paper p-5 sm:p-6">
             <div class="mb-4">
               <h3 class="flex items-center gap-2 text-sm font-semibold text-primary">
-                <i class="ti ti-plug-connected" />
+                <i class="ti ti-plug-connected" aria-hidden="true" />
                 Cloud MCP
               </h3>
               <p class="mt-1 text-xs text-dimmed">Connect agents to the live Capabilities and registered Help of this Cloud instance.</p>
             </div>
-            <McpSetup endpoint={mcpResource} resource={mcpResource} />
+            <McpSetup endpoint={mcpResource} />
             <div class="mt-4 flex flex-col gap-2 text-xs text-dimmed">
               <p>
-                OAuth is preferred for compatible preregistered clients. This release intentionally does not register MCP clients
-                dynamically; an administrator must add the exact endpoint as an allowed OAuth audience first.
+                OAuth is available when an administrator has preregistered your client ID, exact callback URI, and the MCP endpoint as an
+                allowed audience. This release intentionally does not register MCP clients dynamically.
               </p>
               <p>
                 For immediate personal use, create an API key below and set it as{" "}
@@ -50,7 +50,7 @@ export default ssr<AuthContext>(async (c) => {
                 class="w-fit text-link hover:underline"
                 href="https://github.com/ValentinKolb/cloud/blob/main/docs-site/docs/en/platform/mcp.md"
               >
-                Read the Cloud MCP guide
+                View the Cloud MCP source guide on GitHub
               </a>
             </div>
           </section>

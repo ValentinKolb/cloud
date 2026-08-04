@@ -42,7 +42,13 @@ export type ResolvedAppHelp =
   | { status: "missing" }
   | { status: "stale" };
 
-const normalizeSearchText = (value: string): string => value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+const normalizeSearchText = (value: string): string =>
+  value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 
 const searchTerms = (value: string): string[] =>
   Array.from(

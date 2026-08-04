@@ -25,6 +25,7 @@ import { startNotificationDefinitionRegistration } from "../services/notificatio
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, toLegacySettingDefs } from "../services/settings/defaults";
+import { cloudMcpResourceUri } from "../shared/app-url";
 import { themeBootstrapScript } from "../shared/theme";
 import { readBoundedJson } from "./bounded-json";
 import { appRuntimeMetadata } from "./build-metadata";
@@ -528,11 +529,12 @@ export const defineApp = <
           headers: { "content-type": "application/json" },
         });
       };
-      server.post("/api/_internal/capabilities/v1/queries/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "query"));
-      server.post("/api/_internal/capabilities/v1/actions/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "action"));
-      server.post("/api/_internal/capabilities/v1/actions/:capabilityId/review", auth.requireRole("authenticated"), (c) =>
-        invoke(c, "review"),
-      );
+      const capabilityAuth = auth.requireRole("authenticated", {
+        oauthAudience: async () => ["cloud", cloudMcpResourceUri(await get<string>("app.url"))],
+      });
+      server.post("/api/_internal/capabilities/v1/queries/:capabilityId", capabilityAuth, (c) => invoke(c, "query"));
+      server.post("/api/_internal/capabilities/v1/actions/:capabilityId", capabilityAuth, (c) => invoke(c, "action"));
+      server.post("/api/_internal/capabilities/v1/actions/:capabilityId/review", capabilityAuth, (c) => invoke(c, "review"));
     }
 
     // OpenAPI spec mount. Registered on the framework server (before the

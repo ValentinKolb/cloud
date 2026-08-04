@@ -75,6 +75,10 @@ const example = () =>
   });
 
 describe("capability v1 compilation", () => {
+  test("rejects app ids that cannot be projected to stable qualified and MCP ids", () => {
+    expect(() => compileCapabilities("example_app", example())).toThrow();
+  });
+
   test("builds deterministic namespaced manifests and schemas", () => {
     const first = compileCapabilities("example", example());
     const second = compileCapabilities("example", example());

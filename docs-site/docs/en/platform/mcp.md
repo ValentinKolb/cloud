@@ -50,6 +50,9 @@ Capability tool names are deterministic:
 <appId>__action__<localId>
 ```
 
+Names up to 128 characters keep that literal form. Longer valid names keep the
+same app and kind prefix and end in a deterministic hash suffix.
+
 Help resources use stable URIs:
 
 ```text
@@ -69,7 +72,7 @@ Assistant, and MCP. See [In-product Help](/en/docs/platform/help).
 
 ## Authenticate
 
-OAuth is the preferred authentication method. The MCP endpoint returns an RFC
+OAuth is available for preregistered clients. The MCP endpoint returns an RFC
 9728 `WWW-Authenticate` challenge and publishes protected-resource metadata at:
 
 ```text
@@ -78,10 +81,15 @@ OAuth is the preferred authentication method. The MCP endpoint returns an RFC
 
 Cloud v1 supports preregistered OAuth clients; it intentionally does not offer
 Dynamic Client Registration. Register the MCP client's exact callback URI and
-add the exact MCP endpoint URI to the client's allowed audiences. The client
-must send that URI as the RFC 8707 `resource` parameter in both authorization
-and token requests. Cloud binds authorization codes and refresh-token families
-to that audience and rejects access tokens without it.
+add the exact MCP endpoint URI to the client's allowed audiences. An
+administrator must give the user the resulting client ID. The client must send
+the absolute, fragment-free endpoint URI as the RFC 8707 `resource` parameter
+in both authorization and token requests. Cloud binds authorization codes and
+refresh-token families to that audience and rejects access tokens without it.
+
+OAuth `read` permits Help and Capability Queries. OAuth `write` permits
+Capability Actions. `admin` permits both. Sessions and personal API keys keep
+their existing application authorization behavior.
 
 Personal Cloud API keys remain an explicit compatibility path for clients that
 cannot use a preregistered OAuth client. Send the key only in the bearer header:
@@ -97,24 +105,30 @@ authorization.
 
 ## Configure Codex
 
-Put the key in a local environment variable and add the server to Codex's
-`config.toml`:
+Put the key in a local environment variable and add the server:
 
 ```bash
 export CLOUD_API_KEY="cld_..."
 ```
 
-```toml
-[mcp_servers.cloud]
-url = "https://cloud.example/api/mcp/v1"
-bearer_token_env_var = "CLOUD_API_KEY"
-oauth_resource = "https://cloud.example/api/mcp/v1"
-scopes = ["read", "write"]
+```bash
+codex mcp add cloud \
+  --url https://cloud.example/api/mcp/v1 \
+  --bearer-token-env-var CLOUD_API_KEY
 ```
 
-Run `codex mcp list` to inspect the configuration. For a compatible
-preregistered OAuth client, omit `bearer_token_env_var` and run
-`codex mcp login cloud`.
+For a preregistered OAuth client, use the client ID supplied by an
+administrator:
+
+```bash
+codex mcp add cloud \
+  --url https://cloud.example/api/mcp/v1 \
+  --oauth-client-id <client-id> \
+  --oauth-resource https://cloud.example/api/mcp/v1
+codex mcp login cloud --scopes read,write
+```
+
+Run `codex mcp list` to inspect either configuration.
 
 ## Configure Claude Code
 
@@ -123,20 +137,32 @@ Add the remote HTTP server:
 ```bash
 claude mcp add --transport http --scope user cloud \
   https://cloud.example/api/mcp/v1 \
-  --header "Authorization: Bearer <personal-api-key>"
+  --header "Authorization: Bearer $CLOUD_API_KEY"
 ```
 
 Then run `claude mcp get cloud`. The header is stored in the local Claude Code
 configuration, so use a dedicated expiring key. A compatible preregistered
-OAuth setup can omit the header and authenticate from Claude Code's `/mcp`
-menu.
+OAuth setup must use the supplied client ID and a callback port whose exact
+loopback callback URI is registered by the administrator:
+
+```bash
+claude mcp add --transport http --scope user \
+  --client-id <client-id> \
+  --callback-port <registered-port> \
+  cloud https://cloud.example/api/mcp/v1
+```
+
+Authenticate from Claude Code's `/mcp` menu.
 
 ## Understand failure behavior
 
 - a missing or stale registry entry is excluded from discovery;
 - an app authorization failure remains a structured MCP tool error;
 - an unknown tool or Help URI fails instead of falling back to stale content;
-- requests and Capability results keep the platform's 256 KiB bounds;
+- requests and the complete serialized Capability tool result keep the
+  platform's 256 KiB bounds;
+- the stateless transport accepts `POST`; unsupported methods return `405`;
+- authenticated requests pass through Cloud's shared rate limiter;
 - cross-origin browser requests are rejected when an `Origin` header is
   present;
 - non-idempotent Actions must not be retried after an ambiguous transport

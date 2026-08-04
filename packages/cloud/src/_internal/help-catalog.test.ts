@@ -57,6 +57,13 @@ describe("live Help catalog", () => {
     expect(document).toMatchObject({ truncated: true, markdown: expect.stringContaining("Editors can update inventory") });
   });
 
+  test("normalizes punctuation in agent search terms", () => {
+    const catalog = createHelpCatalog([help]);
+    expect(searchHelpCatalog(catalog, { query: "inventory-permissions?" })).toMatchObject([
+      { appId: "inventory", documentId: "permissions" },
+    ]);
+  });
+
   test("round-trips stable Help resource URIs", () => {
     const uri = helpResourceUri("inventory", "getting started");
     expect(uri).toBe("cloud://help/inventory/getting%20started");

@@ -312,10 +312,16 @@ export const CapabilityActionManifestSchema = CapabilityOperationManifestBaseSch
   review: z.literal(true).optional(),
 }).strict();
 
+export const CapabilityAppIdSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[a-z][a-z0-9-]*$/);
+
 export const CapabilityManifestSchema = z
   .object({
     protocolVersion: z.literal(CAPABILITY_PROTOCOL_VERSION),
-    appId: z.string().min(1).max(80),
+    appId: CapabilityAppIdSchema,
     manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
     types: z.array(CapabilityResourceTypeManifestSchema).max(200),
     queries: z.array(CapabilityQueryManifestSchema).max(200),
@@ -331,7 +337,7 @@ export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
 
 export const CapabilityCatalogAppSchema = z
   .object({
-    appId: z.string().min(1).max(80),
+    appId: CapabilityAppIdSchema,
     appName: z.string().min(1).max(200),
     appIcon: z.string().min(1).max(120),
     appDescription: z.string().max(1000),

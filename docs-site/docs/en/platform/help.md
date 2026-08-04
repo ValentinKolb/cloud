@@ -5,7 +5,7 @@ section: Platform services
 order: 580
 description: Declare app-owned Markdown once for the shared Help UI, full-page Help, Assistant, and MCP.
 tags: [help, markdown, product, agents]
-updated: 2026-08-02
+updated: 2026-08-04
 ---
 
 # In-product Help

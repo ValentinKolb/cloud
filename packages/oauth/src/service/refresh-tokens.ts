@@ -39,7 +39,7 @@ export type RefreshTokenRotationResult =
     }
   | {
       ok: false;
-      error: "invalid_grant" | "reuse_detected";
+      error: "invalid_grant" | "invalid_scope" | "reuse_detected";
     };
 
 const TOKEN_PREFIX = "cld_rt";
@@ -170,6 +170,8 @@ export const rotate = async (
   refreshToken: string,
   expectedClientId?: string,
   expectedAudience?: string,
+  requestedScopes?: OAuthScope[],
+  beforeRotation?: (grant: { userId: string; scopes: OAuthScope[]; audiences: string[] }) => Promise<void>,
 ): Promise<RefreshTokenRotationResult> => {
   const parsed = parseRefreshToken(refreshToken);
   if (!parsed) return { ok: false, error: "invalid_grant" };
@@ -200,7 +202,6 @@ export const rotate = async (
     if (!valid) return { ok: false as const, error: "invalid_grant" as const };
     if (expectedClientId && row.client_id !== expectedClientId) return { ok: false as const, error: "invalid_grant" as const };
     if (expectedAudience && !row.audiences.includes(expectedAudience)) return { ok: false as const, error: "invalid_grant" as const };
-
     if (row.status !== "active") {
       if (row.status === "rotated") {
         await tx`
@@ -231,6 +232,11 @@ export const rotate = async (
     if (row.family_status !== "active" || row.expires_at <= new Date() || row.family_expires_at <= new Date()) {
       return { ok: false as const, error: "invalid_grant" as const };
     }
+    if (requestedScopes?.some((scope) => !row.scopes.includes(scope))) {
+      return { ok: false as const, error: "invalid_scope" as const };
+    }
+    const scopes = requestedScopes ?? (row.scopes as OAuthScope[]);
+    await beforeRotation?.({ userId: row.user_id, scopes, audiences: row.audiences });
 
     const next = await insertRefreshToken({
       db: tx,
@@ -257,7 +263,7 @@ export const rotate = async (
       ok: true as const,
       userId: row.user_id,
       clientId: row.client_id,
-      scopes: row.scopes as OAuthScope[],
+      scopes,
       audiences: row.audiences,
       refreshToken: next.token,
       refreshTokenExpiresAt: row.family_expires_at.toISOString(),

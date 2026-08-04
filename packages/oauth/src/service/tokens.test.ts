@@ -4,6 +4,7 @@ import { oauthTokens, serviceAccounts } from "@valentinkolb/cloud/services";
 import { redis, sql } from "bun";
 import { Hono } from "hono";
 import * as jose from "jose";
+import { createMcpRoutes } from "../../../cloud/src/api/mcp";
 import { migrate } from "../migrate";
 import oauthRoutes from "../oauth";
 import { oauth } from "./oauth";
@@ -117,7 +118,7 @@ suite("OAuth resource access tokens", () => {
       const tokens = await oauth.tokens.createTokens({
         userId,
         client: created.data,
-        issuer: "https://localhost:3000",
+        issuer: "http://localhost:3000",
       });
 
       const verified = await oauthTokens.verifyAccessToken(tokens.accessToken);
@@ -287,9 +288,17 @@ suite("OAuth resource access tokens", () => {
         body: codeBody,
       });
       expect(codeResponse.status).toBe(200);
+      expect(codeResponse.headers.get("cache-control")).toBe("no-store");
+      expect(codeResponse.headers.get("pragma")).toBe("no-cache");
       const codeToken = (await codeResponse.json()) as { refresh_token: string; scope: string };
       expect(codeToken.scope.split(" ")).toContain("offline_access");
       expect(codeToken.refresh_token.startsWith("cld_rt_")).toBe(true);
+
+      await expect(
+        oauth.refreshTokens.rotate(codeToken.refresh_token, created.data.clientId, undefined, undefined, async () => {
+          throw new Error("simulated signing failure");
+        }),
+      ).rejects.toThrow("simulated signing failure");
 
       const refreshBody = new URLSearchParams({
         grant_type: "refresh_token",
@@ -313,6 +322,8 @@ suite("OAuth resource access tokens", () => {
         body: refreshBody,
       });
       expect(reuseResponse.status).toBe(400);
+      expect(reuseResponse.headers.get("cache-control")).toBe("no-store");
+      expect(await reuseResponse.json()).toMatchObject({ error: "invalid_grant" });
 
       const revokedFamilyResponse = await oauthRoutes.request("/oauth/token", {
         method: "POST",
@@ -372,7 +383,19 @@ suite("OAuth resource access tokens", () => {
     expect(configuration.resource_parameter_supported).toBe(true);
     const response = await oauthRoutes.request("/.well-known/oauth-authorization-server");
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ resource_parameter_supported: true });
+    expect(await response.json()).toMatchObject({ issuer: "http://localhost:3000", resource_parameter_supported: true });
+  });
+
+  test("token endpoint failures are non-cacheable and machine-readable", async () => {
+    const response = await oauthRoutes.request("/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "unsupported" }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+    expect(await response.json()).toEqual({ error: "invalid_request", error_description: "Token request validation failed" });
   });
 
   test("public clients must use PKCE S256", async () => {
@@ -497,6 +520,7 @@ suite("OAuth resource access tokens", () => {
 
   test("authorization codes and refresh families stay bound to one MCP resource", async () => {
     const userId = await insertUser();
+    const sessionToken = await createSessionToken(userId);
     const resource = "https://cloud.example/api/mcp/v1";
     let clientId: string | null = null;
 
@@ -512,27 +536,40 @@ suite("OAuth resource access tokens", () => {
           accessMode: "profiles",
           allowedUserIds: [],
           allowedGroupIds: [],
-          isPublic: false,
+          isPublic: true,
         },
       });
       expect(created.ok).toBe(true);
       if (!created.ok) return;
       clientId = created.data.id;
 
-      const code = await oauth.codes.create({
-        clientId: created.data.clientId,
-        userId,
-        redirectUri: "https://client.example.test/callback",
-        scopes: created.data.scopes,
-        resource,
+      const verifier = "mcp-public-client-verifier-0123456789-abcdef";
+      const challenge = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).toBase64({
+        alphabet: "base64url",
+        omitPadding: true,
       });
+      const authorize = await oauthRoutes.request(
+        `/oauth/authorize?${new URLSearchParams({
+          client_id: created.data.clientId,
+          redirect_uri: "https://client.example.test/callback",
+          response_type: "code",
+          scope: "openid offline_access read write",
+          resource,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        })}`,
+        { headers: { cookie: `session_token=${sessionToken}` }, redirect: "manual" },
+      );
+      expect(authorize.status).toBe(302);
+      const code = new URL(authorize.headers.get("location")!).searchParams.get("code");
+      expect(code).toBeTruthy();
       const exchange = (requestedResource?: string) => {
         const body = new URLSearchParams({
           grant_type: "authorization_code",
           client_id: created.data.clientId,
-          client_secret: created.data.clientSecret,
-          code,
+          code: code!,
           redirect_uri: "https://client.example.test/callback",
+          code_verifier: verifier,
         });
         if (requestedResource) body.set("resource", requestedResource);
         return oauthRoutes.request("/oauth/token", {
@@ -547,19 +584,35 @@ suite("OAuth resource access tokens", () => {
       expect(codeResponse.status).toBe(200);
       const codeToken = (await codeResponse.json()) as { access_token: string; refresh_token: string };
       expect(await oauthTokens.verifyAccessToken(codeToken.access_token, resource)).not.toBeNull();
+      expect(await oauthTokens.verifyAccessToken(codeToken.access_token)).toBeNull();
       expect(await oauthTokens.verifyAccessToken(codeToken.access_token, "https://other.example/api/mcp/v1")).toBeNull();
       const resourceProbe = new Hono<AuthContext>()
-        .use(auth.requireRole("authenticated", { oauthAudience: resource }))
-        .get("/probe", (c) => c.json({ actor: c.get("actor").kind }));
-      expect(
-        (
-          await resourceProbe.request("/probe", {
-            headers: { Authorization: `Bearer ${codeToken.access_token}` },
-          })
-        ).status,
-      ).toBe(200);
+        .use(auth.requireRole("authenticated", { oauthAudience: ["cloud", resource] }))
+        .get("/probe", (c) => c.json({ actor: c.get("actor").kind, scopes: c.get("oauthScopes") }));
+      const probe = await resourceProbe.request("/probe", {
+        headers: { Authorization: `Bearer ${codeToken.access_token}` },
+      });
+      expect(probe.status).toBe(200);
+      expect(await probe.json()).toEqual({ actor: "user", scopes: ["openid", "offline_access", "read", "write"] });
 
-      const refresh = (requestedResource: string) =>
+      const mcp = createMcpRoutes({
+        getAppUrl: async () => "cloud.example",
+        listApps: async () => [],
+        limit: async (_c, next) => next(),
+      });
+      const mcpResponse = await mcp.request("/mcp/v1", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${codeToken.access_token}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      });
+      expect(mcpResponse.status).toBe(200);
+      expect(await mcpResponse.json()).toMatchObject({ result: { tools: expect.any(Array) } });
+
+      const refresh = (requestedResource: string, scope?: string) =>
         oauthRoutes.request("/oauth/token", {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -569,14 +622,20 @@ suite("OAuth resource access tokens", () => {
             client_secret: created.data.clientSecret,
             refresh_token: codeToken.refresh_token,
             resource: requestedResource,
+            ...(scope ? { scope } : {}),
           }),
         });
       expect((await refresh("https://other.example/api/mcp/v1")).status).toBe(400);
+      const invalidScope = await refresh(resource, "admin");
+      expect(invalidScope.status).toBe(400);
+      expect(await invalidScope.json()).toMatchObject({ error: "invalid_scope" });
       const refreshResponse = await refresh(resource);
       expect(refreshResponse.status).toBe(200);
       const refreshed = (await refreshResponse.json()) as { access_token: string };
       expect(await oauthTokens.verifyAccessToken(refreshed.access_token, resource)).not.toBeNull();
+      expect(await oauthTokens.verifyAccessToken(refreshed.access_token)).toBeNull();
     } finally {
+      await redis.del(`session:${sessionToken}`);
       if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
@@ -737,7 +796,7 @@ suite("OAuth resource access tokens", () => {
           name: `Service token client ${crypto.randomUUID()}`,
           redirectUris: [],
           scopes: ["read", "write"],
-          audiences: ["cloud", "oauth-test-api"],
+          audiences: ["cloud", "https://oauth-test.example/api"],
           serviceAccountId: serviceAccount.data.id,
           allowedProfiles: ["user"],
           accessMode: "profiles",
@@ -750,6 +809,17 @@ suite("OAuth resource access tokens", () => {
       if (!created.ok) return;
       clientId = created.data.id;
 
+      for (const resource of ["oauth-test-api", "https://oauth-test.example/api#fragment"]) {
+        const response = await requestClientCredentialsToken({
+          clientId: created.data.clientId,
+          clientSecret: created.data.clientSecret,
+          scope: "read",
+          resource,
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({ error: "invalid_target" });
+      }
+
       const invalidScope = await requestClientCredentialsToken({
         clientId: created.data.clientId,
         clientSecret: created.data.clientSecret,
@@ -761,7 +831,7 @@ suite("OAuth resource access tokens", () => {
         clientId: created.data.clientId,
         clientSecret: created.data.clientSecret,
         scope: "read",
-        resource: "other-api",
+        resource: "https://other.example/api",
       });
       expect(invalidResource.status).toBe(400);
 
@@ -769,7 +839,7 @@ suite("OAuth resource access tokens", () => {
         clientId: created.data.clientId,
         clientSecret: created.data.clientSecret,
         scope: "read",
-        resource: "oauth-test-api",
+        resource: "https://oauth-test.example/api",
       });
       expect(tokenResponse.status).toBe(200);
       const tokenBody = (await tokenResponse.json()) as {
@@ -782,11 +852,23 @@ suite("OAuth resource access tokens", () => {
       expect(tokenBody.id_token).toBeNull();
       expect(tokenBody.scope).toBe("read");
 
-      const verified = await oauthTokens.verifyAccessToken(tokenBody.access_token);
+      const verified = await oauthTokens.verifyAccessToken(tokenBody.access_token, "https://oauth-test.example/api");
       expect(verified?.kind).toBe("service_account");
       expect(verified?.kind === "service_account" ? verified.serviceAccount.id : null).toBe(serviceAccount.data.id);
+      expect(await oauthTokens.verifyAccessToken(tokenBody.access_token)).toBeNull();
 
-      const response = await actorProbe().request("/probe", {
+      const resourceProbe = new Hono<AuthContext>()
+        .use(auth.requireRole("authenticated", { oauthAudience: "https://oauth-test.example/api" }))
+        .get("/probe", (c) => {
+          const actor = c.get("actor");
+          return c.json({
+            actorKind: actor.kind,
+            userId: c.get("user")?.id ?? null,
+            serviceAccountId: actor.kind === "service_account" ? actor.serviceAccount.id : null,
+            accessSubject: c.get("accessSubject"),
+          });
+        });
+      const response = await resourceProbe.request("/probe", {
         headers: { Authorization: `Bearer ${tokenBody.access_token}` },
       });
       expect(response.status).toBe(200);

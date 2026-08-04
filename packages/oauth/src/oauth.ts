@@ -1,8 +1,8 @@
 import { type AuthContext, auth, jsonResponse, v } from "@valentinkolb/cloud/server";
 import { accounts, get, logger } from "@valentinkolb/cloud/services";
-import { createLoginRedirectUrl } from "@valentinkolb/cloud/shared";
-import { Hono } from "hono";
-import { describeRoute } from "hono-openapi";
+import { createLoginRedirectUrl, publicCloudOrigin } from "@valentinkolb/cloud/shared";
+import { type Context, Hono } from "hono";
+import { describeRoute, validator as openApiValidator } from "hono-openapi";
 import { z } from "zod";
 import { ErrorResponseSchema, type OAuthScope } from "@/contracts";
 import { oauth } from "./service/oauth";
@@ -11,7 +11,7 @@ const log = logger("oauth");
 
 const getIssuer = async (): Promise<string> => {
   const appUrl = await get<string>("app.url");
-  return appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
+  return publicCloudOrigin(appUrl);
 };
 
 const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"];
@@ -36,18 +36,21 @@ const resolveRequestedScopes = (clientScopes: OAuthScope[], requestedScope: stri
   return Array.from(new Set(requested)) as OAuthScope[];
 };
 
-const resolveRefreshScopes = (grantedScopes: OAuthScope[], requestedScope: string | undefined): OAuthScope[] | null => {
-  const requested = parseScopes(requestedScope);
-  if (requested.length === 0) return grantedScopes;
-  const granted = new Set(grantedScopes);
-  if (requested.some((scope) => !isOAuthScope(scope) || !granted.has(scope as OAuthScope))) return null;
-  return Array.from(new Set(requested)) as OAuthScope[];
-};
-
 const isPkceValue = (value: string | undefined): value is string => Boolean(value && PKCE_VALUE_PATTERN.test(value));
 
 const isAllowedResource = (client: { audiences: string[] }, resource: string | undefined): boolean =>
   !resource || client.audiences.includes(resource);
+
+const ResourceIndicatorSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      return new URL(value).hash === "";
+    } catch {
+      return false;
+    }
+  }, "Resource indicator must not contain a fragment");
 
 /**
  * Decode `Authorization: Basic base64(client_id:client_secret)` into its parts.
@@ -76,7 +79,7 @@ const AuthorizeQuerySchema = z.object({
   redirect_uri: z.url(),
   response_type: z.literal("code"),
   scope: z.string().optional(),
-  resource: z.url().optional(),
+  resource: ResourceIndicatorSchema.optional(),
   state: z.string().optional(),
   nonce: z.string().optional(),
   code_challenge: z.string().optional(),
@@ -94,7 +97,7 @@ const TokenBodySchema = z.discriminatedUnion("grant_type", [
     client_id: z.string().min(1).optional(),
     client_secret: z.string().optional(),
     code_verifier: z.string().optional(),
-    resource: z.url().optional(),
+    resource: z.string().optional(),
   }),
   z.object({
     grant_type: z.literal("client_credentials"),
@@ -109,7 +112,7 @@ const TokenBodySchema = z.discriminatedUnion("grant_type", [
     client_id: z.string().min(1).optional(),
     client_secret: z.string().optional(),
     scope: z.string().optional(),
-    resource: z.url().optional(),
+    resource: z.string().optional(),
   }),
 ]);
 
@@ -120,6 +123,18 @@ const TokenResponseSchema = z.object({
   id_token: z.string().nullable(),
   scope: z.string(),
   refresh_token: z.string().optional(),
+});
+
+const TokenErrorResponseSchema = z.object({
+  error: z.string(),
+  error_description: z.string().optional(),
+});
+
+const tokenError = (c: Context<AuthContext>, error: string, description: string, status: 400 | 401 | 403 | 500 = 400) =>
+  c.json({ error, error_description: description }, status);
+
+const validateTokenBody = openApiValidator("form", TokenBodySchema, (result, c: Context<AuthContext>) => {
+  if (!result.success) return tokenError(c, "invalid_request", "Token request validation failed");
 });
 
 const RevokeTokenBodySchema = z.object({
@@ -254,18 +269,26 @@ const app = new Hono<AuthContext>()
       description: "Exchange authorization code for access token and optionally id_token.",
       responses: {
         200: jsonResponse(TokenResponseSchema, "Token response"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
-        401: jsonResponse(ErrorResponseSchema, "Invalid credentials"),
+        400: jsonResponse(TokenErrorResponseSchema, "Invalid request"),
+        401: jsonResponse(TokenErrorResponseSchema, "Invalid credentials"),
       },
     }),
-    v("form", TokenBodySchema),
+    async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      c.header("Pragma", "no-cache");
+      await next();
+    },
+    validateTokenBody,
     async (c) => {
       const body = c.req.valid("form");
+      if (body.resource && !ResourceIndicatorSchema.safeParse(body.resource).success) {
+        return tokenError(c, "invalid_target", "Resource must be an absolute URI without a fragment");
+      }
       const basic = parseBasicAuth(c.req.header("Authorization"));
       const client_id = body.client_id ?? basic?.clientId;
       const client_secret = body.client_secret ?? basic?.clientSecret;
       if (!client_id) {
-        return c.json({ message: "Missing client_id" }, 400);
+        return tokenError(c, "invalid_request", "Missing client_id");
       }
       const client = await oauth.clients.validateCredentials({
         clientId: client_id,
@@ -273,12 +296,12 @@ const app = new Hono<AuthContext>()
       });
 
       if (!client) {
-        return c.json({ message: "Invalid client credentials" }, 401);
+        return tokenError(c, "invalid_client", "Invalid client credentials", 401);
       }
 
       if (body.grant_type === "client_credentials") {
         if (client.isPublic) {
-          return c.json({ message: "Client credentials require a confidential client" }, 401);
+          return tokenError(c, "unauthorized_client", "Client credentials require a confidential client", 401);
         }
 
         const issuer = await getIssuer();
@@ -299,47 +322,55 @@ const app = new Hono<AuthContext>()
           });
         } catch (err) {
           if (err instanceof oauth.tokens.InvalidOAuthScopeError) {
-            return c.json({ message: err.message }, 400);
+            return tokenError(c, "invalid_scope", err.message);
           }
           if (err instanceof oauth.tokens.InvalidOAuthServiceAccountError) {
-            return c.json({ message: err.message }, 400);
+            return tokenError(c, "invalid_client", err.message);
           }
           if (err instanceof oauth.tokens.InvalidOAuthResourceError) {
-            return c.json({ message: err.message }, 400);
+            return tokenError(c, "invalid_target", err.message);
           }
 
           log.error("Failed to generate client credentials token", {
             error: err instanceof Error ? err.message : String(err),
             clientId: client_id,
           });
-          return c.json(
-            {
-              message: "Token generation failed. Please try again or contact an administrator.",
-            },
-            500,
-          );
+          return tokenError(c, "server_error", "Token generation failed. Please try again or contact an administrator.", 500);
         }
       }
 
       if (body.grant_type === "refresh_token") {
-        const rotated = await oauth.refreshTokens.rotate(body.refresh_token, client_id, body.resource);
+        const parsedScopes = body.scope ? parseScopes(body.scope) : undefined;
+        if (parsedScopes?.some((scope) => !isOAuthScope(scope))) {
+          return tokenError(c, "invalid_scope", "Requested scope is not allowed for this refresh token");
+        }
+        const requestedScopes = parsedScopes ? (Array.from(new Set(parsedScopes)) as OAuthScope[]) : undefined;
+        const issued: { value: Awaited<ReturnType<typeof oauth.tokens.createTokens>> | null } = { value: null };
+        let rotated: Awaited<ReturnType<typeof oauth.refreshTokens.rotate>>;
+        try {
+          rotated = await oauth.refreshTokens.rotate(body.refresh_token, client_id, body.resource, requestedScopes, async (grant) => {
+              issued.value = await oauth.tokens.createTokens({
+              userId: grant.userId,
+              client,
+              issuer: await getIssuer(),
+              scopes: grant.scopes,
+              audiences: grant.audiences,
+            });
+          });
+        } catch (err) {
+          log.error("Failed to generate refreshed access token", {
+            error: err instanceof Error ? err.message : String(err),
+            clientId: client_id,
+          });
+          return tokenError(c, "server_error", "Token generation failed. Please try again or contact an administrator.", 500);
+        }
         if (!rotated.ok) {
-          return c.json({ message: "invalid_grant" }, 400);
+          return rotated.error === "invalid_scope"
+            ? tokenError(c, "invalid_scope", "Requested scope is not allowed for this refresh token")
+            : tokenError(c, "invalid_grant", "Refresh token is invalid, expired, or already used");
         }
-
-        const scopes = resolveRefreshScopes(rotated.scopes, body.scope);
-        if (!scopes) {
-          return c.json({ message: "Requested scope is not allowed for this refresh token" }, 400);
-        }
-
-        const issuer = await getIssuer();
-        const tokens = await oauth.tokens.createTokens({
-          userId: rotated.userId,
-          client: rotated.client,
-          issuer,
-          scopes,
-          audiences: rotated.audiences,
-        });
+        const tokens = issued.value;
+        if (!tokens) return tokenError(c, "server_error", "Token generation failed. Please try again or contact an administrator.", 500);
 
         return c.json({
           access_token: tokens.accessToken,
@@ -362,14 +393,14 @@ const app = new Hono<AuthContext>()
       });
 
       if (!result) {
-        return c.json({ message: "Invalid or expired authorization code" }, 400);
+        return tokenError(c, "invalid_grant", "Invalid or expired authorization code");
       }
 
       const issuer = await getIssuer();
       try {
         const user = await accounts.users.get({ id: result.userId });
         if (!user || !(await oauth.clients.canAuthorizeUser({ client: result.client, userId: user.id, profile: user.profile }))) {
-          return c.json({ message: "User is not allowed to access this client" }, 403);
+          return tokenError(c, "access_denied", "User is not allowed to access this client", 403);
         }
 
         const tokens = await oauth.tokens.createTokens({
@@ -396,12 +427,7 @@ const app = new Hono<AuthContext>()
           clientId: client_id,
           userId: result.userId,
         });
-        return c.json(
-          {
-            message: "Token generation failed. Please try again or contact an administrator.",
-          },
-          500,
-        );
+        return tokenError(c, "server_error", "Token generation failed. Please try again or contact an administrator.", 500);
       }
     },
   )

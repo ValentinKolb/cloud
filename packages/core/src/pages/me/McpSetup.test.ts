@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
-
-const source = await Bun.file(new URL("./McpSetup.island.tsx", import.meta.url)).text();
+import { createMcpSetupSnippets } from "./mcp-setup";
 
 describe("Developer MCP setup", () => {
-  test("documents both supported client setup paths without embedding a credential", () => {
-    expect(source).toContain("CLOUD_API_KEY");
-    expect(source).toContain("oauth_resource");
-    expect(source).toContain("claude mcp add --transport http");
-    expect(source).toContain("<personal-api-key>");
-    expect(source).not.toContain("cld_");
+  test("builds exact API-key and preregistered OAuth setup commands", () => {
+    expect(createMcpSetupSnippets("https://cloud.example/api/mcp/v1")).toEqual({
+      endpoint: "https://cloud.example/api/mcp/v1",
+      codexApiKey: "codex mcp add cloud --url https://cloud.example/api/mcp/v1 --bearer-token-env-var CLOUD_API_KEY",
+      codexOAuth:
+        "codex mcp add cloud --url https://cloud.example/api/mcp/v1 --oauth-client-id <client-id> --oauth-resource https://cloud.example/api/mcp/v1\ncodex mcp login cloud --scopes read,write",
+      claudeApiKey:
+        'claude mcp add --transport http --scope user cloud https://cloud.example/api/mcp/v1 --header "Authorization: Bearer $CLOUD_API_KEY"',
+      claudeOAuth:
+        "claude mcp add --transport http --scope user --client-id <client-id> --callback-port <registered-port> cloud https://cloud.example/api/mcp/v1",
+    });
   });
 });

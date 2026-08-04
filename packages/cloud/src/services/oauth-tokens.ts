@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import * as jose from "jose";
 import type { User } from "../contracts/shared";
+import { publicCloudOrigin } from "../shared/app-url";
 import { accounts } from "./accounts";
 import { type ServiceAccount, serviceAccounts } from "./service-accounts";
 import * as settings from "./settings";
@@ -24,6 +25,7 @@ export type AuthenticatedOAuthToken =
       kind: "user";
       payload: jose.JWTPayload;
       user: User;
+      scopes: string[];
     }
   | {
       kind: "service_account";
@@ -35,7 +37,7 @@ export type AuthenticatedOAuthToken =
 
 const getIssuer = async (): Promise<string> => {
   const appUrl = await settings.get<string>("app.url");
-  return appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
+  return publicCloudOrigin(appUrl);
 };
 
 const getCurrentPublicKey = async (): Promise<CryptoKey | null> => {
@@ -53,7 +55,10 @@ const getStringClaim = (payload: jose.JWTPayload, key: string): string | null =>
   return typeof value === "string" && value.length > 0 ? value : null;
 };
 
-export const verifyAccessToken = async (token: string, expectedAudience = "cloud"): Promise<AuthenticatedOAuthToken | null> => {
+export const verifyAccessToken = async (
+  token: string,
+  expectedAudience: string | string[] = "cloud",
+): Promise<AuthenticatedOAuthToken | null> => {
   const publicKey = await getCurrentPublicKey();
   if (!publicKey) return null;
 
@@ -96,6 +101,7 @@ export const verifyAccessToken = async (token: string, expectedAudience = "cloud
     kind: "user",
     payload,
     user,
+    scopes: parseScopeClaim(payload),
   };
 };
 

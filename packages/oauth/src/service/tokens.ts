@@ -106,14 +106,21 @@ export const getOrCreateKeyPair = async (): Promise<KeyPair> => {
   await sql`
     INSERT INTO oauth.keys (id, private_key, public_key, kid)
     VALUES ('current', ${privateKeyPem}, ${publicKeyPem}, ${kid})
-    ON CONFLICT (id) DO UPDATE SET
-      private_key = ${privateKeyPem},
-      public_key = ${publicKeyPem},
-      kid = ${kid},
-      created_at = now()
+    ON CONFLICT (id) DO NOTHING
   `;
 
-  cachedKeyPair = { privateKey, publicKey, kid };
+  const [persisted] = await sql<DbKey[]>`
+    SELECT id, private_key, public_key, kid, created_at
+    FROM oauth.keys
+    WHERE id = 'current'
+  `;
+  if (!persisted) throw new Error("Failed to persist OAuth signing key");
+
+  cachedKeyPair = {
+    privateKey: await jose.importPKCS8(persisted.private_key, "RS256"),
+    publicKey: await jose.importSPKI(persisted.public_key, "RS256"),
+    kid: persisted.kid,
+  };
   return cachedKeyPair;
 };
 
@@ -199,6 +206,7 @@ export const createTokens = async (params: {
   const { userId, client, issuer, nonce } = params;
   const scopes = params.scopes ?? client.scopes;
   const audiences = params.audiences ?? client.audiences;
+  const accessTokenAudiences = params.audiences ? dedupe(params.audiences) : dedupe(["cloud", client.clientId, ...audiences]);
   const { privateKey, kid } = await getOrCreateKeyPair();
 
   // Load user to get uid for sub claim
@@ -227,7 +235,7 @@ export const createTokens = async (params: {
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(issuer)
     .setSubject(subject)
-    .setAudience(dedupe(["cloud", client.clientId, ...audiences]))
+    .setAudience(accessTokenAudiences)
     .setIssuedAt(now)
     .setExpirationTime(now + expiresIn)
     .setJti(crypto.randomUUID())
@@ -317,6 +325,7 @@ export const createClientCredentialsToken = async (params: {
   const expiresIn = 3600;
   const scopeValue = requestedScopes.join(" ");
   const resourceAudiences = validateRequestedResource(client, resource);
+  const accessTokenAudiences = resource ? resourceAudiences : getAccessTokenAudience(client);
 
   const accessToken = await new jose.SignJWT({
     token_use: "access",
@@ -333,7 +342,7 @@ export const createClientCredentialsToken = async (params: {
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(issuer)
     .setSubject(serviceAccount.id)
-    .setAudience(getAccessTokenAudience(client, resourceAudiences))
+    .setAudience(accessTokenAudiences)
     .setIssuedAt(now)
     .setExpirationTime(now + expiresIn)
     .setJti(crypto.randomUUID())

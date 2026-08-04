@@ -5,6 +5,7 @@
 export { dates, dates as calendar, encoding, fileIcons, gradients } from "@k2b/stdlib";
 export * from "./account-display";
 export * from "./account-session";
+export * from "./app-url";
 export type { AiPromptContextInput, AiToolPromptHint } from "./ai-platform-prompt";
 export { AI_PLATFORM_PROMPT_TEMPLATE, aiPromptContext, renderAiPlatformPrompt } from "./ai-platform-prompt";
 export * from "./branding";

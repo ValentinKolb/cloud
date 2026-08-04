@@ -5,7 +5,7 @@ section: Platform services
 order: 555
 description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
 tags: [capabilities, rpc, agents, mcp]
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 # App capabilities
@@ -236,6 +236,10 @@ item        -> inventory.item
 item.get    -> inventory.item.get
 item.rename -> inventory.item.rename
 ```
+
+An application that publishes Capabilities uses a lowercase kebab-case ID
+matching `[a-z][a-z0-9-]*` (maximum 80 characters). This keeps qualified IDs,
+CLI commands, and MCP tool names aligned.
 
 Types connect operation targets, result references, Universal Search results,
 and client presentation. Declaring a Type does not create CRUD operations.

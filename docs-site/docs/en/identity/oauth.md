@@ -5,7 +5,7 @@ section: Identity and access
 order: 355
 description: Configure OAuth clients and choose authorization code or client credentials.
 tags: [identity, oauth, oidc]
-updated: 2026-07-27
+updated: 2026-08-04
 ---
 
 # OAuth clients and flows
@@ -82,8 +82,11 @@ Content-Type: application/x-www-form-urlencoded
 
 grant_type=client_credentials&
 scope=read&
-resource=inventory-api
+resource=https%3A%2F%2Fcloud.example%2Fapi%2Finventory
 ```
+
+Every `resource` value is an absolute URI without a fragment. When supplied,
+the resulting access token is valid only for that exact audience.
 
 The token resolves to a resource-bound service-account actor.
 

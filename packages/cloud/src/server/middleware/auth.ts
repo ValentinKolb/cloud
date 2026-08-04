@@ -46,6 +46,8 @@ export type AuthContext = {
     accessSubject: AccessSubject;
     user: User;
     sessionToken?: string;
+    /** OAuth scopes for bearer-token requests. Absent for sessions and API credentials. */
+    oauthScopes?: string[];
   };
 };
 
@@ -57,8 +59,8 @@ type RejectResult = string | Response | { message: string; status: number };
 
 type RoleOptions = {
   onReject?: (c: Context, reason: "unauthenticated" | "forbidden") => RejectResult;
-  /** Require this exact audience for OAuth bearer tokens. Sessions and API keys are unaffected. */
-  oauthAudience?: string;
+  /** Require any of these audiences for OAuth bearer tokens. Sessions and API keys are unaffected. */
+  oauthAudience?: string | string[] | (() => string | string[] | Promise<string | string[]>);
 };
 
 type AccountOptions = RoleOptions & {
@@ -132,7 +134,8 @@ const loadAuthenticatedActor = async (
   }
 
   if (bearer) {
-    const authResult = await oauthTokens.verifyAccessToken(bearer, options.oauthAudience);
+    const expectedAudience = typeof options.oauthAudience === "function" ? await options.oauthAudience() : options.oauthAudience;
+    const authResult = await oauthTokens.verifyAccessToken(bearer, expectedAudience);
     if (!authResult) return { token: null, user: null, actor: null };
 
     if (authResult.kind === "user") {
@@ -141,6 +144,7 @@ const loadAuthenticatedActor = async (
       c.set("actor", actor);
       c.set("accessSubject", { type: "user", userId: authResult.user.id });
       c.set("user", authResult.user);
+      c.set("oauthScopes", authResult.scopes);
       return { token: null, user: authResult.user, actor };
     }
 
@@ -156,6 +160,7 @@ const loadAuthenticatedActor = async (
       credentialExpiresAt: typeof authResult.payload.exp === "number" ? new Date(authResult.payload.exp * 1_000).toISOString() : null,
     };
     c.set("actor", actor);
+    c.set("oauthScopes", authResult.scopes);
     if (authResult.delegatedUser) {
       c.set("accessSubject", { type: "user", userId: authResult.delegatedUser.id });
       c.set("user", authResult.delegatedUser);
