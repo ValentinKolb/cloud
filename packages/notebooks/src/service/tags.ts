@@ -119,7 +119,7 @@ export const listNotesForTag = async (params: {
   const limit = params.pagination?.limit ?? 50;
   const offset = params.pagination?.offset ?? 0;
 
-  const rows = await sql<{ id: string; short_id: string; title: string; content_md: string | null; updated_at: string }[]>`
+  const rows = await sql<{ id: string; short_id: string; title: string; content_md: string | null; updated_at: Date | string }[]>`
     SELECT n.id, n.short_id, n.title, n.content_md, n.updated_at
     FROM notebooks.note_tags t
     JOIN notebooks.notes n ON n.id = t.note_id
@@ -154,7 +154,7 @@ export const listNotesForTag = async (params: {
       shortId: r.short_id,
       title: r.title,
       preview: buildPreview(r.content_md),
-      updatedAt: r.updated_at,
+      updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : r.updated_at,
     })),
     total: countRow?.count ?? 0,
   };

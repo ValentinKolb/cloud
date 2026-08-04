@@ -5,6 +5,8 @@ const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 const ReadableContactBookIdSchema = z.union([z.uuid(), z.literal("system")]);
+export const CONTACT_COLLECTION_LIMIT = 20;
+export const CONTACT_TAG_LIMIT = 100;
 
 const CapabilityPageInputShape = {
   cursor: CursorSchema,
@@ -60,7 +62,7 @@ const ContactSummaryDataSchema = z
     jobTitle: NullableTextSchema,
     primaryEmail: z.email().nullable(),
     primaryPhone: NullableTextSchema,
-    tags: z.array(ContactTagDataSchema).max(100),
+    tags: z.array(ContactTagDataSchema).max(CONTACT_TAG_LIMIT),
     updatedAt: TimestampSchema,
   })
   .strict();
@@ -146,11 +148,12 @@ export const ContactDetailDataSchema = ContactSummaryDataSchema.extend({
   pronouns: NullableTextSchema,
   preferredLanguage: NullableTextSchema,
   parentContactId: z.uuid().nullable(),
-  emails: z.array(ContactEmailDataSchema).max(100),
-  phones: z.array(ContactPhoneDataSchema).max(100),
-  addresses: z.array(ContactAddressDataSchema).max(100),
-  websites: z.array(ContactWebsiteDataSchema).max(100),
-  bankAccounts: z.array(ContactBankAccountDataSchema).max(100),
+  emails: z.array(ContactEmailDataSchema).max(CONTACT_COLLECTION_LIMIT),
+  phones: z.array(ContactPhoneDataSchema).max(CONTACT_COLLECTION_LIMIT),
+  addresses: z.array(ContactAddressDataSchema).max(CONTACT_COLLECTION_LIMIT),
+  websites: z.array(ContactWebsiteDataSchema).max(CONTACT_COLLECTION_LIMIT),
+  bankAccounts: z.array(ContactBankAccountDataSchema).max(CONTACT_COLLECTION_LIMIT),
+  truncatedFields: z.array(z.enum(["tags", "emails", "phones", "addresses", "websites", "bankAccounts"])).max(6),
   createdAt: TimestampSchema,
 }).strict();
 
@@ -267,12 +270,16 @@ const ContactFieldsShape = {
   pronouns: z.string().trim().max(100).nullable().optional().describe("Preferred pronouns."),
   preferredLanguage: z.string().trim().max(40).nullable().optional().describe("Preferred language code."),
   parentContactId: z.uuid().nullable().optional().describe("Optional parent contact in the same book."),
-  tagIds: z.array(z.uuid()).max(100).optional().describe("Complete replacement set of book-scoped tag UUIDs."),
-  emails: z.array(EmailInputSchema).max(100).optional().describe("Complete replacement set of email addresses."),
-  phones: z.array(PhoneInputSchema).max(100).optional().describe("Complete replacement set of phone numbers."),
-  addresses: z.array(AddressInputSchema).max(100).optional().describe("Complete replacement set of postal addresses."),
-  websites: z.array(WebsiteInputSchema).max(100).optional().describe("Complete replacement set of websites."),
-  bankAccounts: z.array(BankAccountInputSchema).max(100).optional().describe("Complete replacement set of bank accounts."),
+  tagIds: z.array(z.uuid()).max(CONTACT_TAG_LIMIT).optional().describe("Complete replacement set of book-scoped tag UUIDs."),
+  emails: z.array(EmailInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of email addresses."),
+  phones: z.array(PhoneInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of phone numbers."),
+  addresses: z.array(AddressInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of postal addresses."),
+  websites: z.array(WebsiteInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of websites."),
+  bankAccounts: z
+    .array(BankAccountInputSchema)
+    .max(CONTACT_COLLECTION_LIMIT)
+    .optional()
+    .describe("Complete replacement set of bank accounts."),
 };
 
 export const ContactCreateInputSchema = z
@@ -339,5 +346,7 @@ export const ContactNoteCreateInputSchema = z
 export const ContactMutationDataSchema = z.object({ contact: ContactDetailDataSchema }).strict();
 export const ContactDeleteDataSchema = z.object({ contactId: z.uuid(), deleted: z.literal(true) }).strict();
 export const FavoriteSetDataSchema = z.object({ contactId: z.uuid(), favorite: z.boolean() }).strict();
-export const ContactTagChangeDataSchema = z.object({ contactId: z.uuid(), tags: z.array(ContactTagDataSchema).max(100) }).strict();
+export const ContactTagChangeDataSchema = z
+  .object({ contactId: z.uuid(), tags: z.array(ContactTagDataSchema).max(CONTACT_TAG_LIMIT), tagsTruncated: z.boolean() })
+  .strict();
 export const ContactNoteCreateDataSchema = z.object({ note: ContactNoteDataSchema }).strict();

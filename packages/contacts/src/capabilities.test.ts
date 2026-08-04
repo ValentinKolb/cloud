@@ -2,7 +2,10 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { contactsCapabilities, decodeContactCapabilityCursor } from "./capabilities";
 import {
+  CONTACT_COLLECTION_LIMIT,
+  CONTACT_TAG_LIMIT,
   ContactCreateInputSchema,
+  ContactDetailDataSchema,
   ContactListInputSchema,
   ContactResolveDataSchema,
   ContactSuggestDataSchema,
@@ -131,6 +134,8 @@ describe("contacts capabilities", () => {
     expect(contactsCapabilities.queries["contact.suggest"].description).toContain("composing mail");
     expect(contactsCapabilities.queries["contact.resolve"].description).toContain("known exact email addresses");
     expect(contactsCapabilities.queries["contact.list"].description).toContain("navigable contact cards");
+    expect(contactsCapabilities.queries["contact.list"].description).toContain("opaque pagination");
+    expect(contactsCapabilities.queries["book.list"].title).toBe("List manual address books");
   });
 
   test("reviews a destructive contact action without mutating it", async () => {
@@ -192,6 +197,7 @@ describe("contacts capabilities", () => {
     if (!result.ok) return;
     expect(definition.data.safeParse(result.data.data).success).toBeTrue();
     expect(result.data.data.websites).toEqual([]);
+    expect(result.data.data.truncatedFields).toEqual([]);
     expect(result.data.links).toEqual([{ rel: "open", href: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}` }]);
   });
 
@@ -203,6 +209,120 @@ describe("contacts capabilities", () => {
         expectedUpdatedAt: "2026-08-01T10:00:00.000Z",
       }).success,
     ).toBeFalse();
+  });
+
+  test("keeps advertised contact writes below the capability transport envelope", () => {
+    const text = (length: number) => "x".repeat(length);
+    const input = {
+      bookId,
+      label: "A",
+      emails: Array.from({ length: CONTACT_COLLECTION_LIMIT }, () => ({ label: text(100), email: `${text(50)}@example.com` })),
+      phones: Array.from({ length: CONTACT_COLLECTION_LIMIT }, () => ({ label: text(100), phone: text(100) })),
+      addresses: Array.from({ length: CONTACT_COLLECTION_LIMIT }, () => ({
+        label: text(100),
+        recipientName: text(200),
+        companyName: text(200),
+        line1: text(300),
+        line2: text(300),
+        postalCode: text(50),
+        city: text(200),
+        stateRegion: text(200),
+        countryCode: "DE",
+      })),
+      websites: Array.from({ length: CONTACT_COLLECTION_LIMIT }, (_, index) => ({
+        label: text(100),
+        url: `https://example.com/${text(1900)}${index}`,
+      })),
+      bankAccounts: Array.from({ length: CONTACT_COLLECTION_LIMIT }, () => ({
+        label: text(100),
+        accountHolderName: text(200),
+        iban: text(80),
+        bic: text(40),
+        bankName: text(200),
+        note: text(1000),
+      })),
+    };
+    expect(ContactCreateInputSchema.safeParse(input).success).toBeTrue();
+    expect(Buffer.byteLength(JSON.stringify({ input }))).toBeLessThan(200_000);
+    expect(
+      ContactCreateInputSchema.safeParse({
+        bookId,
+        firstName: "Ada",
+        emails: Array(CONTACT_COLLECTION_LIMIT + 1).fill({ email: "a@b.co" }),
+      }).success,
+    ).toBeFalse();
+  });
+
+  test("bounds legacy contact collections and reports every truncated field", async () => {
+    const tag = {
+      id: "66666666-6666-4666-8666-666666666666",
+      bookId,
+      name: "Test",
+      color: "#112233",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const oversized = {
+      ...contact,
+      tags: Array(CONTACT_TAG_LIMIT + 1).fill(tag),
+      emails: Array(CONTACT_COLLECTION_LIMIT + 1).fill(contact.emails[0]!),
+      phones: Array(CONTACT_COLLECTION_LIMIT + 1).fill({
+        id: "77777777-7777-4777-8777-777777777777",
+        contactId,
+        label: "work",
+        phone: "+49 123",
+        position: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+      addresses: [],
+      websites: [],
+      bankAccounts: [],
+    } satisfies Contact;
+    spyOn(contactsService.contact, "findBookId").mockResolvedValue(bookId);
+    spyOn(contactsService.book, "get").mockResolvedValue(book);
+    spyOn(contactsService.contact, "get").mockResolvedValue(oversized);
+
+    const result = await contactsCapabilities.queries["contact.get"].run({ contactId }, context);
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(ContactDetailDataSchema.safeParse(result.data.data).success).toBeTrue();
+    expect(result.data.data.tags).toHaveLength(CONTACT_TAG_LIMIT);
+    expect(result.data.data.emails).toHaveLength(CONTACT_COLLECTION_LIMIT);
+    expect(result.data.data.phones).toHaveLength(CONTACT_COLLECTION_LIMIT);
+    expect(result.data.data.truncatedFields).toEqual(["tags", "emails", "phones"]);
+  });
+
+  test("shows bounded before and after values when reviewing contact updates", async () => {
+    spyOn(contactsService.contact, "findBookId").mockResolvedValue(bookId);
+    spyOn(contactsService.book, "get").mockResolvedValue(book);
+    spyOn(contactsService.contact, "get").mockResolvedValue(contact);
+    const review = contactsCapabilities.actions["contact.update"].review;
+    if (!review) throw new Error("Contact update review missing");
+
+    const result = await review(
+      { contactId, expectedUpdatedAt: timestamp, firstName: "Grace", emails: [{ label: "work", email: "grace@example.test" }] },
+      context,
+    );
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.data.details).toContainEqual({ label: "First name", value: "Ada → Grace" });
+    expect(result.data.details).toContainEqual({
+      label: "Email addresses",
+      value: "1 item: ada@example.test → 1 item: grace@example.test",
+    });
+  });
+
+  test("rejects system-contact writes before an admin review resolves the contact", async () => {
+    spyOn(contactsService.contact, "findBookId").mockResolvedValue(null);
+    spyOn(contactsService.book, "get").mockResolvedValue({ ...book, id: "system", isSystem: true });
+    const get = spyOn(contactsService.contact, "get");
+    const review = contactsCapabilities.actions["contact.delete"].review;
+    if (!review) throw new Error("Contact delete review missing");
+
+    const result = await review({ contactId, expectedUpdatedAt: timestamp }, context);
+    expect(result).toMatchObject({ ok: false, error: { message: "System contacts are read-only" } });
+    expect(get).not.toHaveBeenCalled();
   });
 
   test("keeps tag changes explicit and closed", () => {
@@ -225,6 +345,8 @@ describe("contacts capabilities", () => {
     const cursor = Buffer.from(JSON.stringify({ v: 1, page: 4 }), "utf8").toString("base64url");
     expect(decodeContactCapabilityCursor(cursor)).toEqual({ ok: true, data: 4 });
     expect(decodeContactCapabilityCursor("not-a-cursor").ok).toBeFalse();
+    const unsafe = Buffer.from(JSON.stringify({ v: 1, page: 1e308 }), "utf8").toString("base64url");
+    expect(decodeContactCapabilityCursor(unsafe).ok).toBeFalse();
   });
 
   test("can list the readable virtual system address book without allowing writes to it", () => {

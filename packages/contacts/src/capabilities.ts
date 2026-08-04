@@ -4,9 +4,9 @@ import {
   type CapabilityActionReview,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
-  capabilityPage,
   type CapabilityResult,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   hasRole,
   UniversalSearchDataSchema,
@@ -17,6 +17,8 @@ import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server"
 import { type AuditActor, audit } from "@valentinkolb/cloud/services";
 import type { z } from "zod";
 import {
+  CONTACT_COLLECTION_LIMIT,
+  CONTACT_TAG_LIMIT,
   ContactBookListDataSchema,
   ContactBookListInputSchema,
   ContactCreateInputSchema,
@@ -71,7 +73,7 @@ const mapContactSummary = (contact: Contact) => ({
   jobTitle: contact.jobTitle,
   primaryEmail: contact.emails[0]?.email ?? null,
   primaryPhone: contact.phones[0]?.phone ?? null,
-  tags: contact.tags.map(mapTag),
+  tags: contact.tags.slice(0, CONTACT_TAG_LIMIT).map(mapTag),
   updatedAt: contact.updatedAt,
 });
 
@@ -91,45 +93,57 @@ const mapContactResourceView = (contact: Contact): CloudResourceView => {
   };
 };
 
-const mapContactDetail = (contact: Contact) => ({
-  ...mapContactSummary(contact),
-  label: contact.label,
-  firstName: contact.firstName,
-  lastName: contact.lastName,
-  department: contact.department,
-  vatId: contact.vatId,
-  birthday: contact.birthday,
-  salutation: contact.salutation,
-  pronouns: contact.pronouns,
-  preferredLanguage: contact.preferredLanguage,
-  parentContactId: contact.parentContactId,
-  emails: contact.emails.map((item) => ({ label: item.label, email: item.email })),
-  phones: contact.phones.map((item) => ({ label: item.label, phone: item.phone })),
-  addresses: contact.addresses.map((item) => ({
-    label: item.label,
-    recipientName: item.recipientName,
-    companyName: item.companyName,
-    line1: item.line1,
-    line2: item.line2,
-    postalCode: item.postalCode,
-    city: item.city,
-    stateRegion: item.stateRegion,
-    countryCode: item.countryCode,
-  })),
-  websites: contact.websites.flatMap((item) => {
+const mapContactDetail = (contact: Contact) => {
+  const websites = contact.websites.flatMap((item) => {
     const url = safeWebsiteHref(item.url);
     return url ? [{ label: item.label, url }] : [];
-  }),
-  bankAccounts: contact.bankAccounts.map((item) => ({
-    label: item.label,
-    accountHolderName: item.accountHolderName,
-    iban: item.iban,
-    bic: item.bic,
-    bankName: item.bankName,
-    note: item.note,
-  })),
-  createdAt: contact.createdAt,
-});
+  });
+  const truncatedFields: Array<"tags" | "emails" | "phones" | "addresses" | "websites" | "bankAccounts"> = [];
+  if (contact.tags.length > CONTACT_TAG_LIMIT) truncatedFields.push("tags");
+  if (contact.emails.length > CONTACT_COLLECTION_LIMIT) truncatedFields.push("emails");
+  if (contact.phones.length > CONTACT_COLLECTION_LIMIT) truncatedFields.push("phones");
+  if (contact.addresses.length > CONTACT_COLLECTION_LIMIT) truncatedFields.push("addresses");
+  if (websites.length > CONTACT_COLLECTION_LIMIT) truncatedFields.push("websites");
+  if (contact.bankAccounts.length > CONTACT_COLLECTION_LIMIT) truncatedFields.push("bankAccounts");
+
+  return {
+    ...mapContactSummary(contact),
+    label: contact.label,
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    department: contact.department,
+    vatId: contact.vatId,
+    birthday: contact.birthday,
+    salutation: contact.salutation,
+    pronouns: contact.pronouns,
+    preferredLanguage: contact.preferredLanguage,
+    parentContactId: contact.parentContactId,
+    emails: contact.emails.slice(0, CONTACT_COLLECTION_LIMIT).map((item) => ({ label: item.label, email: item.email })),
+    phones: contact.phones.slice(0, CONTACT_COLLECTION_LIMIT).map((item) => ({ label: item.label, phone: item.phone })),
+    addresses: contact.addresses.slice(0, CONTACT_COLLECTION_LIMIT).map((item) => ({
+      label: item.label,
+      recipientName: item.recipientName,
+      companyName: item.companyName,
+      line1: item.line1,
+      line2: item.line2,
+      postalCode: item.postalCode,
+      city: item.city,
+      stateRegion: item.stateRegion,
+      countryCode: item.countryCode,
+    })),
+    websites: websites.slice(0, CONTACT_COLLECTION_LIMIT),
+    bankAccounts: contact.bankAccounts.slice(0, CONTACT_COLLECTION_LIMIT).map((item) => ({
+      label: item.label,
+      accountHolderName: item.accountHolderName,
+      iban: item.iban,
+      bic: item.bic,
+      bankName: item.bankName,
+      note: item.note,
+    })),
+    truncatedFields,
+    createdAt: contact.createdAt,
+  };
+};
 
 const mapContactSuggestion = (contact: Contact) => ({
   contactId: contact.id,
@@ -154,13 +168,74 @@ const mapNote = (note: ContactNote) => ({
   updatedAt: note.updatedAt,
 });
 
+type ContactUpdateInput = z.infer<typeof ContactUpdateInputSchema>;
+type ContactReviewField = Exclude<keyof ContactUpdateInput, "contactId" | "expectedUpdatedAt">;
+
+const CONTACT_REVIEW_LABELS: Record<ContactReviewField, string> = {
+  label: "Display label",
+  firstName: "First name",
+  lastName: "Last name",
+  companyName: "Organization",
+  department: "Department",
+  jobTitle: "Job title",
+  vatId: "VAT ID",
+  birthday: "Birthday",
+  salutation: "Salutation",
+  pronouns: "Pronouns",
+  preferredLanguage: "Language",
+  parentContactId: "Parent contact",
+  tagIds: "Tags",
+  emails: "Email addresses",
+  phones: "Phone numbers",
+  addresses: "Postal addresses",
+  websites: "Websites",
+  bankAccounts: "Bank accounts",
+};
+
+const boundedReviewText = (value: unknown, limit = 240): string => {
+  const text = String(value).replace(/\s+/g, " ").trim();
+  if (!text) return "None";
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+};
+
+const contactReviewItem = (field: ContactReviewField, value: unknown, tagNames: ReadonlyMap<string, string>): string => {
+  if (field === "tagIds") return tagNames.get(String(value)) ?? boundedReviewText(value);
+  if (typeof value !== "object" || value === null) return boundedReviewText(value);
+  const item = value as Record<string, unknown>;
+  if (field === "emails") return boundedReviewText(item.email);
+  if (field === "phones") return boundedReviewText(item.phone);
+  if (field === "addresses") return boundedReviewText([item.line1, item.city, item.countryCode].filter(Boolean).join(", "));
+  if (field === "websites") return boundedReviewText(item.url);
+  if (field === "bankAccounts") return boundedReviewText([item.accountHolderName, item.iban].filter(Boolean).join(" — "));
+  return boundedReviewText(value);
+};
+
+const contactReviewValue = (field: ContactReviewField, value: unknown, tagNames: ReadonlyMap<string, string>): string => {
+  if (!Array.isArray(value)) return value === null || value === undefined ? "None" : boundedReviewText(value);
+  const preview = value
+    .slice(0, 3)
+    .map((item) => contactReviewItem(field, item, tagNames))
+    .join(", ");
+  return `${value.length} item${value.length === 1 ? "" : "s"}${preview ? `: ${preview}${value.length > 3 ? ", …" : ""}` : ""}`;
+};
+
+const currentContactReviewValue = (contact: Contact, field: ContactReviewField): unknown => {
+  if (field === "tagIds") return contact.tags.map((tag) => tag.id);
+  if (field === "emails") return contact.emails;
+  if (field === "phones") return contact.phones;
+  if (field === "addresses") return contact.addresses;
+  if (field === "websites") return contact.websites;
+  if (field === "bankAccounts") return contact.bankAccounts;
+  return contact[field];
+};
+
 const encodeCursor = (page: number): string => Buffer.from(JSON.stringify({ v: 1, page }), "utf8").toString("base64url");
 
 export const decodeContactCapabilityCursor = (cursor: string | undefined): Result<number> => {
   if (!cursor) return ok(1);
   try {
     const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { v?: unknown; page?: unknown };
-    return value.v === 1 && Number.isInteger(value.page) && Number(value.page) >= 1
+    return value.v === 1 && Number.isSafeInteger(value.page) && Number(value.page) >= 1
       ? ok(Number(value.page))
       : fail(err.badInput("Invalid cursor"));
   } catch {
@@ -209,6 +284,7 @@ const requireBookPermission = async (
   if (!book) return fail(err.notFound("Book"));
 
   const user = userBacked(context);
+  if (book.isSystem && required !== "read") return fail(err.forbidden("System contacts are read-only"));
   if (user && hasRole(user, "admin")) return ok({ book, permission: "admin" });
   if (book.isSystem) {
     return user && required === "read" ? ok({ book, permission: "read" }) : fail(err.forbidden("System contacts are read-only"));
@@ -464,11 +540,11 @@ const reviewContactAction = async (
   contactId: string,
   context: CapabilityExecutionContext,
   required: PermissionLevel,
-  describe: (contact: Contact) => Omit<CapabilityActionReview, "links">,
+  describe: (contact: Contact) => Omit<CapabilityActionReview, "links"> | Promise<Omit<CapabilityActionReview, "links">>,
 ) => {
   const resolved = await resolveContact(contactId, context, required);
   if (!resolved.ok) return resolved;
-  return ok({ ...describe(resolved.data.contact), links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }] });
+  return ok({ ...(await describe(resolved.data.contact)), links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }] });
 };
 
 const runContactCreate = async (input: z.infer<typeof ContactCreateInputSchema>, context: CapabilityExecutionContext) => {
@@ -596,7 +672,11 @@ const runTagChange = async (input: z.infer<typeof ContactTagChangeInputSchema>, 
     });
     return result.ok
       ? ok({
-          data: { contactId: input.contactId, tags: result.data.map(mapTag) },
+          data: {
+            contactId: input.contactId,
+            tags: result.data.slice(0, CONTACT_TAG_LIMIT).map(mapTag),
+            tagsTruncated: result.data.length > CONTACT_TAG_LIMIT,
+          },
           refs: [{ type: "contacts.contact", id: input.contactId }],
         })
       : result;
@@ -685,7 +765,7 @@ export const contactsCapabilities = defineCapabilities({
     "contact.list": {
       title: "List contacts",
       description:
-        "List contacts in one already selected readable address book with bounded filters, stable pagination, and navigable contact cards.",
+        "List contacts in one already selected readable address book with bounded filters, opaque pagination, and navigable contact cards.",
       input: ContactListInputSchema,
       data: UniversalSearchDataSchema,
       openWorld: false,
@@ -700,8 +780,8 @@ export const contactsCapabilities = defineCapabilities({
       run: runContactGet,
     },
     "book.list": {
-      title: "List address books",
-      description: "List address books the current actor may read, including effective permissions for choosing action targets.",
+      title: "List manual address books",
+      description: "List manual address books the current actor may read, including effective permissions for choosing action targets.",
       input: ContactBookListInputSchema,
       data: ContactBookListDataSchema,
       openWorld: false,
@@ -744,18 +824,29 @@ export const contactsCapabilities = defineCapabilities({
       openWorld: false,
       idempotency: "none",
       review: (input, context) =>
-        reviewContactAction(input.contactId, context, "write", (contact) => ({
-          message: `Update ${resolveContactName(contact)}.`,
-          details: [
-            { label: "Contact", value: resolveContactName(contact) },
-            {
-              label: "Changed fields",
-              value: Object.keys(input)
-                .filter((field) => field !== "contactId" && field !== "expectedUpdatedAt")
-                .join(", "),
-            },
-          ],
-        })),
+        reviewContactAction(input.contactId, context, "write", async (contact) => {
+          const changedFields = Object.keys(input).filter(
+            (field): field is ContactReviewField => field !== "contactId" && field !== "expectedUpdatedAt",
+          );
+          const tagNames = new Map<string, string>();
+          if (changedFields.includes("tagIds")) {
+            for (const tag of await contactsService.tag.list({ bookId: contact.bookId })) tagNames.set(tag.id, tag.name);
+          }
+          return {
+            message: `Update ${resolveContactName(contact)}.`,
+            details: [
+              { label: "Contact", value: resolveContactName(contact) },
+              ...changedFields.map((field) => ({
+                label: CONTACT_REVIEW_LABELS[field],
+                value: `${contactReviewValue(field, currentContactReviewValue(contact, field), tagNames)} → ${contactReviewValue(
+                  field,
+                  input[field],
+                  tagNames,
+                )}`,
+              })),
+            ],
+          };
+        }),
       run: runContactUpdate,
     },
     "contact.move": {

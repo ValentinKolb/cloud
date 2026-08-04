@@ -2,8 +2,8 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
-  capabilityPage,
   type CloudResourceView,
+  capabilityPage,
   defineCapabilities,
   type MutationResult,
   UniversalSearchDataSchema,
@@ -51,7 +51,7 @@ export const decodeNotebookCapabilityCursor = (cursor: string | undefined): Resu
   if (!cursor) return ok(1);
   try {
     const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { v?: unknown; page?: unknown };
-    return value.v === 1 && Number.isInteger(value.page) && Number(value.page) >= 1
+    return value.v === 1 && Number.isSafeInteger(value.page) && Number(value.page) >= 1
       ? ok(Number(value.page))
       : fail(err.badInput("Invalid cursor"));
   } catch {
@@ -163,6 +163,66 @@ const cleanSearchSnippet = (value: string | null): string | undefined =>
 const compactSnippet = (content: string | null): string | undefined => {
   const value = content?.replace(/\s+/g, " ").trim();
   return value ? value.slice(0, 240) : undefined;
+};
+
+type NoteEditOperation = z.infer<typeof NoteEditInputSchema>["operations"][number];
+
+const noteEditReviewText = (value: string, limit = 400): string => {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return "empty content";
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+};
+
+const noteEditOperationReview = (operation: NoteEditOperation): string => {
+  let target = "";
+  if ("name" in operation) {
+    target = ` block @${operation.name}${operation.type ? ` (${operation.type})` : ""}${
+      operation.index === undefined ? "" : ` at index ${operation.index}`
+    }`;
+  } else if ("line" in operation) {
+    target = ` line ${operation.line}`;
+  } else if ("startLine" in operation) {
+    target = ` lines ${operation.startLine}–${operation.endLine}`;
+  }
+
+  let effect: string;
+  switch (operation.kind) {
+    case "set-content":
+      effect = "Replace the complete note";
+      break;
+    case "append":
+      effect = "Append to the note";
+      break;
+    case "prepend":
+      effect = "Prepend to the note";
+      break;
+    case "insert-before-line":
+      effect = `Insert before${target}`;
+      break;
+    case "insert-after-line":
+      effect = `Insert after${target}`;
+      break;
+    case "replace-lines":
+      effect = `Replace${target}`;
+      break;
+    case "delete-lines":
+      effect = `Delete${target}`;
+      break;
+    case "replace-block":
+      effect = `Replace${target}${operation.includeHandle ? " including its handle" : ""}`;
+      break;
+    case "append-block":
+      effect = `Append to${target}`;
+      break;
+    case "prepend-block":
+      effect = `Prepend to${target}`;
+      break;
+  }
+  return "content" in operation
+    ? `${effect} with ${operation.content.length} character${operation.content.length === 1 ? "" : "s"}: ${noteEditReviewText(
+        operation.content,
+      )}`
+    : effect;
 };
 
 const runNotebookSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -346,10 +406,14 @@ const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: 
     pagination: { limit: input.limit, offset: (cursor.data - 1) * input.limit },
   });
   const hasMore = cursor.data * input.limit < result.total;
+  const data = result.items.map((item) => {
+    const updatedAt = item.updatedAt as string | Date;
+    return { ...item, updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt };
+  });
   return ok({
-    data: result.items,
+    data,
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: result.items.map((note) => ({ type: "notebooks.note", id: note.id })),
+    refs: data.map((note) => ({ type: "notebooks.note", id: note.id })),
   });
 };
 
@@ -562,17 +626,12 @@ export const notebooksCapabilities = defineCapabilities({
       review: async (input, context) => {
         const resolved = await requireNote(input.noteId, context, "write");
         if (!resolved.ok) return resolved;
-        const operations = new Map<string, number>();
-        for (const operation of input.operations) operations.set(operation.kind, (operations.get(operation.kind) ?? 0) + 1);
         return ok({
           message: `Edit ${resolved.data.note.title}.`,
-          details: [
-            { label: "Note", value: resolved.data.note.title },
-            {
-              label: "Operations",
-              value: [...operations].map(([kind, count]) => `${count} ${kind}`).join(", "),
-            },
-          ],
+          details: input.operations.map((operation: NoteEditOperation, index: number) => ({
+            label: `Operation ${index + 1}`,
+            value: noteEditOperationReview(operation),
+          })),
           links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, resolved.data.note) }],
         });
       },

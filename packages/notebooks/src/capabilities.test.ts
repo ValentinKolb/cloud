@@ -2,10 +2,17 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
 import { decodeNotebookCapabilityCursor, decodeNotebookTreeCursor, notebooksCapabilities } from "./capabilities";
-import { NoteCreateInputSchema, NoteDetailDataSchema, NoteEditInputSchema, NoteTreeDataSchema } from "./capability-contracts";
+import {
+  NoteCreateInputSchema,
+  NoteDetailDataSchema,
+  NoteEditInputSchema,
+  NoteTreeDataSchema,
+  TagNotesDataSchema,
+} from "./capability-contracts";
 import { noteContentHash } from "./lib/note-edit";
 import * as notebookStore from "./service/notebooks";
 import * as noteStore from "./service/notes";
+import * as noteTags from "./service/tags";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const serviceAccountId = "22222222-2222-4222-8222-222222222222";
@@ -150,6 +157,29 @@ describe("notebooks capabilities", () => {
         ifContentHash: "not-a-hash",
       }).success,
     ).toBeFalse();
+    const fragment = "x".repeat(10_000);
+    const structuralEdit = {
+      noteId,
+      operations: Array.from({ length: 20 }, () => ({ kind: "append" as const, content: fragment })),
+    };
+    expect(NoteEditInputSchema.safeParse(structuralEdit).success).toBeTrue();
+    expect(Buffer.byteLength(JSON.stringify({ input: structuralEdit }))).toBeLessThan(220_000);
+    const fullReplacement = {
+      noteId,
+      operations: [{ kind: "set-content" as const, content: "x".repeat(200_000) }],
+    };
+    expect(NoteEditInputSchema.safeParse(fullReplacement).success).toBeTrue();
+    expect(Buffer.byteLength(JSON.stringify({ input: fullReplacement }))).toBeLessThan(220_000);
+    expect(NoteEditInputSchema.safeParse({ noteId, operations: [{ kind: "append", content: `${fragment}x` }] }).success).toBeFalse();
+    expect(
+      NoteEditInputSchema.safeParse({
+        noteId,
+        operations: [
+          { kind: "set-content", content: "First" },
+          { kind: "set-content", content: "Second" },
+        ],
+      }).success,
+    ).toBeFalse();
     expect(
       NoteTreeDataSchema.safeParse([
         { id: noteId, shortId: "def456", parentId: null, title: "Note", position: 0, hasChildren: false, content: "hidden" },
@@ -164,6 +194,8 @@ describe("notebooks capabilities", () => {
     expect(decodeNotebookTreeCursor(treeCursor)).toEqual({ ok: true, data: noteId });
     expect(decodeNotebookCapabilityCursor("broken").ok).toBeFalse();
     expect(decodeNotebookTreeCursor(pageCursor).ok).toBeFalse();
+    const unsafe = Buffer.from(JSON.stringify({ v: 1, page: 1e308 }), "utf8").toString("base64url");
+    expect(decodeNotebookCapabilityCursor(unsafe).ok).toBeFalse();
   });
 
   test("reads bounded Markdown without exposing Yjs state", async () => {
@@ -236,5 +268,52 @@ describe("notebooks capabilities", () => {
       createdBy: userId,
     });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: "notebooks.capability.note.edit" }));
+  });
+
+  test("normalizes tagged-note timestamps before validating the capability result", async () => {
+    trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
+    trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("read");
+    trackedSpy(spyOn(noteTags, "listNotesForTag")).mockResolvedValue({
+      items: [
+        {
+          id: noteId,
+          shortId: note.shortId,
+          title: note.title,
+          preview: "Knowledge",
+          updatedAt: new Date(createdAt) as unknown as string,
+        },
+      ],
+      total: 1,
+    });
+
+    const result = await notebooksCapabilities.queries["tag.notes"].run({ notebookId, tag: "docs", limit: 25 }, userContext);
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.data.data[0]?.updatedAt).toBe(createdAt);
+    expect(TagNotesDataSchema.safeParse(result.data.data).success).toBeTrue();
+  });
+
+  test("reviews note edits with bounded targets and content previews", async () => {
+    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
+    trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("write");
+    const review = notebooksCapabilities.actions["note.edit"].review;
+    if (!review) throw new Error("Note edit review missing");
+
+    const result = await review(
+      {
+        noteId,
+        operations: [{ kind: "replace-block", name: "facts", type: "data", content: '{"ready":false}' }],
+      },
+      userContext,
+    );
+    expect(result.ok).toBeTrue();
+    if (!result.ok) return;
+    expect(result.data.details).toEqual([
+      {
+        label: "Operation 1",
+        value: 'Replace block @facts (data) with 15 characters: {"ready":false}',
+      },
+    ]);
   });
 });

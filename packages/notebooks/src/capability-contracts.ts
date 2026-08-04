@@ -171,22 +171,24 @@ const EditBlockSelectorShape = {
   type: NamedBlockTypeSchema.optional().describe("Optional block type disambiguation."),
   index: z.number().int().nonnegative().optional().describe("Zero-based match index when names repeat."),
 };
-const EditContentSchema = z.string().max(200_000).describe("Markdown content used by this edit.");
+const FullEditContentSchema = z.string().max(200_000).describe("Complete Markdown replacement, limited to 200,000 characters.");
+const FragmentEditContentSchema = z.string().max(10_000).describe("Markdown fragment used by this structural edit.");
 const EditKindSchema = <T extends string>(kind: T) => z.literal(kind).describe("Structural edit operation kind.");
 const EditLineSchema = z.number().int().positive().describe("One-based Markdown line number.");
 
-export const NoteEditOperationSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: EditKindSchema("set-content"), content: EditContentSchema }).strict(),
-  z.object({ kind: EditKindSchema("append"), content: EditContentSchema }).strict(),
-  z.object({ kind: EditKindSchema("prepend"), content: EditContentSchema }).strict(),
-  z.object({ kind: EditKindSchema("insert-before-line"), line: EditLineSchema, content: EditContentSchema }).strict(),
-  z.object({ kind: EditKindSchema("insert-after-line"), line: EditLineSchema, content: EditContentSchema }).strict(),
+const SetContentEditOperationSchema = z.object({ kind: EditKindSchema("set-content"), content: FullEditContentSchema }).strict();
+
+const StructuralNoteEditOperationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: EditKindSchema("append"), content: FragmentEditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("prepend"), content: FragmentEditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("insert-before-line"), line: EditLineSchema, content: FragmentEditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("insert-after-line"), line: EditLineSchema, content: FragmentEditContentSchema }).strict(),
   z
     .object({
       kind: EditKindSchema("replace-lines"),
       startLine: EditLineSchema.describe("First one-based line to replace."),
       endLine: EditLineSchema.describe("Last one-based line to replace."),
-      content: EditContentSchema,
+      content: FragmentEditContentSchema,
     })
     .strict(),
   z
@@ -201,12 +203,14 @@ export const NoteEditOperationSchema = z.discriminatedUnion("kind", [
       kind: EditKindSchema("replace-block"),
       ...EditBlockSelectorShape,
       includeHandle: z.boolean().optional().describe("Whether replacement includes the block handle line."),
-      content: EditContentSchema,
+      content: FragmentEditContentSchema,
     })
     .strict(),
-  z.object({ kind: EditKindSchema("append-block"), ...EditBlockSelectorShape, content: EditContentSchema }).strict(),
-  z.object({ kind: EditKindSchema("prepend-block"), ...EditBlockSelectorShape, content: EditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("append-block"), ...EditBlockSelectorShape, content: FragmentEditContentSchema }).strict(),
+  z.object({ kind: EditKindSchema("prepend-block"), ...EditBlockSelectorShape, content: FragmentEditContentSchema }).strict(),
 ]);
+
+export const NoteEditOperationSchema = z.union([SetContentEditOperationSchema, StructuralNoteEditOperationSchema]);
 
 export const NoteCreateInputSchema = z
   .object({
@@ -220,7 +224,9 @@ export const NoteCreateInputSchema = z
 export const NoteEditInputSchema = z
   .object({
     noteId: z.uuid().describe("Stable writable note UUID."),
-    operations: z.array(NoteEditOperationSchema).min(1).max(20).describe("Ordered structural Markdown edits."),
+    operations: z
+      .union([z.tuple([SetContentEditOperationSchema]), z.array(StructuralNoteEditOperationSchema).min(1).max(20)])
+      .describe("Either one complete set-content replacement or up to 20 ordered structural Markdown edits."),
     ifUpdatedAt: TimestampSchema.optional().describe("Reject when the note timestamp changed."),
     ifContentHash: ContentHashSchema.optional().describe("Reject when the complete Markdown hash changed."),
     ifBlockHash: ContentHashSchema.optional().describe("Reject when the selected named block changed."),
