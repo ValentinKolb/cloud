@@ -1,4 +1,3 @@
-import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView, ProgressBar } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createMemo, For, type JSX, Show } from "solid-js";
@@ -110,7 +109,7 @@ export function FieldValue(props: FieldValueProps) {
     if (intent.kind === "select") return <SelectValueBadges items={intent.items} empty={emptyValue()} />;
     if (intent.kind === "markdown") {
       return intent.text.trim() ? (
-        <MarkdownView html={markdown.render(intent.text)} smallHeadings class={props.markdownClass ?? "text-sm"} />
+        <MarkdownView markdown={intent.text} smallHeadings class={props.markdownClass ?? "text-sm"} />
       ) : (
         emptyValue()
       );

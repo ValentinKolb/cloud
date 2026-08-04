@@ -17,7 +17,7 @@ describe("active turn message segmentation", () => {
     const blocks: AiTurnBlock[] = [
       { id: "text-1", kind: "text", text: "Working" },
       { id: "steer-message-1", kind: "steer_message", steerId: "1", text: "Change course", status: "pending" },
-      { id: "tool-1", kind: "tool", callId: "call-1", name: "bash", status: "completed", result: "ok" },
+      { id: "tool-1", kind: "tool", callId: "call-1", name: "read_file", status: "completed", result: "ok" },
       { id: "steer-applied-1", kind: "steer_applied", steerId: "1" },
       { id: "text-2", kind: "text", text: "Revised" },
     ];

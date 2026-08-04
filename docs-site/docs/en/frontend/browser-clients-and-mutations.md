@@ -89,5 +89,5 @@ interactive fetch inside an island.
 Do not turn the mutation result into a client-side cache of the application's
 domain model.
 
-See [Forms, prompts, and feedback](/docs/en/frontend/forms-prompts-and-feedback)
+See [Forms, prompts, and feedback](/en/docs/frontend/forms-prompts-and-feedback)
 for presenting the operation.

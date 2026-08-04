@@ -1,7 +1,6 @@
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Avatar, Button, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
-import { markdown } from "@valentinkolb/cloud/shared";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";
@@ -287,7 +286,7 @@ export default function ContactNotesSection(props: Props) {
                     </Show>
                   </div>
 
-                  <Show when={isEditing()} fallback={<MarkdownView html={markdown.render(note.content)} smallHeadings class="text-sm" />}>
+                  <Show when={isEditing()} fallback={<MarkdownView markdown={note.content} smallHeadings class="text-sm" />}>
                     <div class="flex flex-col gap-1.5">
                       <TextInput
                         aria-label="Edit note"

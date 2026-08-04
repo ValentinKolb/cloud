@@ -28,12 +28,12 @@ replace a resource permission check.
 
 | Task | Page |
 | --- | --- |
-| Understand the actor and access subject | [Request identity](/docs/en/identity/authentication) |
-| Decide who may enter a route | [Route policies](/docs/en/identity/route-policies) |
-| Check access to one domain resource | [Resource authorization](/docs/en/identity/authorization) |
-| Create a credential for one resource | [Resource API keys](/docs/en/identity/resource-api-keys) |
-| Integrate an OAuth client | [OAuth](/docs/en/identity/oauth) |
-| Allow a route without a session | [Public access](/docs/en/identity/public-and-anonymous-access) |
+| Understand the actor and access subject | [Request identity](/en/docs/identity/authentication) |
+| Decide who may enter a route | [Route policies](/en/docs/identity/route-policies) |
+| Check access to one domain resource | [Resource authorization](/en/docs/identity/authorization) |
+| Create a credential for one resource | [Resource API keys](/en/docs/identity/resource-api-keys) |
+| Integrate an OAuth client | [OAuth](/en/docs/identity/oauth) |
+| Allow a route without a session | [Public access](/en/docs/identity/public-and-anonymous-access) |
 
 Cloud owns identity and credentials. The application owns its domain resources
 and decides which permission each operation requires.

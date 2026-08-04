@@ -63,6 +63,6 @@ removed.
 A step that reads mutable state is not pure. A replay can observe a different
 value.
 
-Start with [Author and publish workflows](/docs/en/automation/author-and-publish-workflows).
-Read [Effects, retry, and reconciliation](/docs/en/automation/effects-retry-and-reconciliation)
+Start with [Author and publish workflows](/en/docs/automation/author-and-publish-workflows).
+Read [Effects, retry, and reconciliation](/en/docs/automation/effects-retry-and-reconciliation)
 before implementing external side effects.

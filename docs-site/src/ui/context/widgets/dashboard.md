@@ -13,16 +13,15 @@ Use `Widget` as the standard frame and add only the blocks the summary needs:
 - `WidgetPills` for compact labeled values;
 - `WidgetHero` for one centered all-clear or spotlight message.
 
-Use `WidgetCard` when portable content needs the older fixed card frame without
-a linked widget header. The host owns data loading, permissions, refresh
-behavior, navigation, and placement.
+The host owns data loading, permissions, refresh behavior, navigation, and
+placement. `Widget` is the only frame; use `size="content"` when the host owns
+the height and omit `href` when the header is not a destination.
 
 ## Import
 
 ```tsx
 import {
   Widget,
-  WidgetCard,
   WidgetHero,
   WidgetList,
   WidgetPills,
@@ -40,10 +39,6 @@ build its compact header. `size` is `"content"`, `"compact"`, or `"standard"`;
 the default standard frame is 25rem high, compact is 12rem, and content has no
 fixed height. When `href` is set, only the header becomes a link, so links
 inside the body remain valid.
-
-`WidgetCard` requires `title`, a bare Tabler icon name such as
-`"layout-dashboard"`, and `children`. It adds the `ti ti-` prefix and uses the
-fixed portable card height.
 
 ### Content blocks
 
@@ -71,8 +66,8 @@ Pass presentation values instead of an application response object. `grow`
 lets a stat, list, status, or pills block fill the remaining widget height.
 
 Use `href` only for meaningful destinations. Widget headers, list rows, and
-pills are native links and remain independently focusable. `WidgetCard` is a
-frame, not a link; place navigation in its content when needed.
+pills are native links and remain independently focusable. Without `href`, the
+widget header stays plain text and navigation belongs in its content.
 
 ## Accessibility
 
@@ -136,15 +131,6 @@ responsibility.
     tone="emerald"
   />
 </Widget>
-
-<WidgetCard title="Portable card" icon="layout-dashboard">
-  <WidgetHero
-    title="Bring any content"
-    subtitle="WidgetCard supplies only the frame."
-    icon="ti ti-components"
-    tone="blue"
-  />
-</WidgetCard>
 
 <WidgetStatus tone="warning" title="Delayed" />
 <WidgetStatus tone="danger" title="Unavailable" />

@@ -63,6 +63,7 @@ export type SubmitAiChatTurnInput = {
   requestedModelId?: string;
   systemPrompt?: string;
   resourceContext?: string;
+  skill?: AiChatTurnRunConfig["skill"];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: AiToolApprovalContext;
   /** Retry-in-place: drop active messages with seq >= this before creating the turn. */
@@ -83,6 +84,7 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
     requestedModelId: input.requestedModelId,
     systemPrompt: input.systemPrompt,
     resourceContext: input.resourceContext,
+    skill: input.skill,
     toolSource: input.toolSource ?? { kind: "none" },
     toolApprovalContext: input.toolApprovalContext,
   };

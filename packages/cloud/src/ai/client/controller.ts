@@ -56,10 +56,7 @@ const DEFAULT_RUN_ERROR = "Assistant response failed.";
 const conversationRunError = (conversation: AiConversation | null | undefined): string | null =>
   conversation?.runStatus === "failed" ? conversation.runError?.trim() || DEFAULT_RUN_ERROR : null;
 
-const runErrorFromEvent = (
-  event: AiStreamSseEvent,
-  activeTurnId: string | null | undefined,
-): string | null | undefined => {
+const runErrorFromEvent = (event: AiStreamSseEvent, activeTurnId: string | null | undefined): string | null | undefined => {
   if (event.type === "state") return conversationRunError(event.conversation);
   if (event.type !== "turn_finished" || event.turnId !== activeTurnId) return undefined;
   return event.status === "failed" ? event.error?.trim() || DEFAULT_RUN_ERROR : null;
@@ -243,7 +240,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       setRunStatusRaw(null);
       void markConversationViewed(conversationId).then(() => refreshConversations());
       void refreshTimeline(conversationId);
-      // The turn may have created or deleted VFS files (bash, present).
+      // The turn may have created or presented conversation files.
       void refreshFiles();
     } else if (event.type === "turn_started" || previousTurnStatus !== nextTurnStatus) {
       void refreshConversations();
@@ -570,7 +567,13 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     return { path: body.file.path, mediaType: body.file.mediaType, size: body.file.size };
   };
 
-  const send = async (input: { message?: string; content?: AiUserContentPart[]; files?: File[]; modelProfileId?: string }) => {
+  const send = async (input: {
+    message?: string;
+    content?: AiUserContentPart[];
+    files?: File[];
+    modelProfileId?: string;
+    skillId?: string;
+  }) => {
     const text = input.message?.trim() ?? "";
     if (!text && !input.content?.length && !input.files?.length) return false;
     const conversationId = await ensureConversation();
@@ -635,6 +638,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
             message: text || undefined,
             content: wireContent,
             modelProfileId: input.modelProfileId,
+            skillId: input.skillId,
           }),
         },
         "AI request failed",
@@ -837,7 +841,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
   const retryUserMessage = async (
     messageId: string,
-    input: { content?: AiUserContentPart[]; mode?: "retry" | "details" | "concise"; modelProfileId?: string } = {},
+    input: {
+      content?: AiUserContentPart[];
+      mode?: "retry" | "details" | "concise";
+      modelProfileId?: string;
+      skillId?: string;
+    } = {},
   ) => {
     const conversationId = activeConversationId();
     if (!conversationId || running()) return false;
@@ -848,7 +857,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         `/conversations/${conversationId}/messages/${messageId}/retry`,
         {
           method: "POST",
-          body: JSON.stringify({ mode: input.mode ?? "retry", content: input.content, modelProfileId: input.modelProfileId }),
+          body: JSON.stringify({
+            mode: input.mode ?? "retry",
+            content: input.content,
+            modelProfileId: input.modelProfileId,
+            skillId: input.skillId,
+          }),
         },
         "AI retry failed",
       );

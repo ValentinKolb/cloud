@@ -75,7 +75,7 @@ export function RecordCalendarView(props: {
           dateConfig={props.dateConfig}
           onViewChange={(view) => commit({ view })}
           onDateChange={(date, view) => commit({ date, view })}
-          onEventClick={(event) => {
+          onEventActivate={(event) => {
             const record = props.items.find((item) => item.id === event.id);
             if (record) props.onRecordClick(record);
           }}

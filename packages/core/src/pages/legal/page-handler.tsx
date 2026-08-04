@@ -47,7 +47,7 @@ export const makeLegalPage = (kind: LegalKind) =>
         <div class="container max-w-3xl p-4 sm:p-8">
           <h1 class="text-xl font-bold mb-4">{title}</h1>
           {html ? (
-            <MarkdownView html={html} />
+            <MarkdownView trustedHtml={html} />
           ) : (
             <Placeholder surface="paper" description={<>
               {title} not configured. An administrator can set this in{" "}

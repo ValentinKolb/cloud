@@ -28,6 +28,8 @@ export type SelectProps = ValueFieldProps<string | null> & {
   fetchDebounceMs?: number;
   debounceMs?: number;
   searchable?: boolean;
+  /** Optional synchronous filter for static options. */
+  filterOptions?: (options: readonly SelectOption[], query: string) => readonly SelectOption[];
   searchPlaceholder?: string;
   clearable?: boolean;
   name?: string;
@@ -61,7 +63,13 @@ export function Select(props: SelectProps): JSX.Element {
   const sourceOptions = createMemo(() => (isAsync() ? loader.options() : (props.options ?? []).map(normalize)));
   // Remote loaders filter server-side; a static list has to be filtered here or
   // the search field would render but do nothing.
-  const options = createMemo(() => (isAsync() || !props.searchable ? sourceOptions() : filterChoiceOptions(sourceOptions(), query())));
+  const options = createMemo(() =>
+    isAsync() || !props.searchable
+      ? sourceOptions()
+      : props.filterOptions
+        ? [...props.filterOptions(sourceOptions(), query())]
+        : filterChoiceOptions(sourceOptions(), query()),
+  );
   const selected = createMemo(() => {
     const current = value();
     if (current === null) return undefined;

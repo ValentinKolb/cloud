@@ -76,7 +76,7 @@ Use a cursor to replay retained events after reconnect. `live()` does not
 report that an older cursor was trimmed. Load a fresh authorized snapshot on
 reconnect when a complete view matters.
 
-Use [Realtime UI](/docs/en/frontend/realtime-ui) for the browser integration.
+Use [Realtime UI](/en/docs/frontend/realtime-ui) for the browser integration.
 Use a queue or consumer group when processing cannot be lost.
 
 The generic supplies TypeScript types but no runtime payload validation.

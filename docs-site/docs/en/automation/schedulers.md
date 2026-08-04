@@ -79,7 +79,7 @@ cron occurrence.
 Call `ctx.reschedule()` from `after` to retry. Without it, the run is terminal.
 
 When each item needs independent retry, let the schedule submit one
-[job](/docs/en/automation/jobs-and-queues#run-a-job) per item. Do not retry an
+[job](/en/docs/automation/jobs-and-queues#run-a-job) per item. Do not retry an
 entire large batch because one item failed.
 
 ## Register workflow schedule triggers
@@ -146,7 +146,7 @@ await emitWorkflowEvent({
 ```
 
 The slot key prevents a leader handover from starting the same workflow twice.
-See [Start workflow runs](/docs/en/automation/emit-events-and-start-runs) for
+See [Start workflow runs](/en/docs/automation/emit-events-and-start-runs) for
 event fields and dispatch behavior.
 
 ## Trigger a run
@@ -157,7 +157,7 @@ An external admin process can use `schedulerControl().runNow()`. It returns
 when a live scheduler accepts the request, not when the work finishes.
 
 Use tracing or application audit data for completion status. See
-[Tracing](/docs/en/platform/tracing).
+[Tracing](/en/docs/platform/tracing).
 
 Multiple instances coordinate dispatch, but a brief leader handover can still
 deliver a slot more than once. Keep schedule work idempotent.

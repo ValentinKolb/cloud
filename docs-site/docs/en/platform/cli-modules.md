@@ -290,6 +290,6 @@ the same authorization result as the browser or another integration.
 Keep domain writes and permission checks on the server. The command should only
 parse input, call the API, and render the result.
 
-See [Typed HTTP APIs](/docs/en/server/http),
-[Resource authorization](/docs/en/identity/authorization), and
-[Resource API keys](/docs/en/identity/resource-api-keys).
+See [Typed HTTP APIs](/en/docs/server/http),
+[Resource authorization](/en/docs/identity/authorization), and
+[Resource API keys](/en/docs/identity/resource-api-keys).

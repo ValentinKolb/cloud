@@ -5,7 +5,6 @@ import { listCapabilities } from "../_internal/registry";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
-import { listActiveAiSkillHints } from "./bash-tool";
 import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
 import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
@@ -409,13 +408,9 @@ export class AiTurnExecutor {
     }
     const memoryActive = Boolean(prefs?.memoryEnabled);
     const runtimeTools = memoryActive ? [...material.tools, createCloudAiMemoryTool()] : material.tools;
-    const activeTools = resolved.profile.capabilities.includes("tools") ? runtimeTools : [];
-
-    // Skill index for the system prompt — only active (enabled + consented) skills of the user.
-    let skillHints: { slug: string; description: string }[] = [];
-    if (user && config.toolSource?.kind === "default") {
-      skillHints = await listActiveAiSkillHints({ userId: user.id }).catch(() => []);
-    }
+    const toolsSupported = resolved.profile.capabilities.includes("tools");
+    const activeTools = toolsSupported ? runtimeTools : [];
+    const memoryToolEnabled = activeTools.some((tool) => tool.def.name === "memory");
 
     const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
     pipeline.setFrontendModes(prepared.frontendModes);
@@ -510,13 +505,14 @@ export class AiTurnExecutor {
         globalInstructions: settings.globalInstructions,
         appPrompt: material.systemPrompt,
         resourceContext: material.resourceContext,
+        skill: config.skill,
         user,
         appId: material.toolApprovalContext?.appId,
         memoryEnabled: memoryActive,
+        memoryToolEnabled,
         helpEnabled,
         capabilitiesEnabled,
         toolHints: aiToolPromptHints(activeTools),
-        skillHints,
         userInstructions: prefs?.instructions,
         memory: prefs?.memory,
       }),

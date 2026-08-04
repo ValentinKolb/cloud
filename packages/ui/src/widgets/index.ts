@@ -1,5 +1,4 @@
 export * from "./Widget";
-export * from "./WidgetCard";
 export * from "./WidgetHero";
 export * from "./WidgetList";
 export * from "./WidgetPills";

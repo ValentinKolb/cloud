@@ -131,10 +131,10 @@
   font-family: var(--c-sans);
 }
 
-/* Header, footer and page content share one container, so the wordmark stays
-   on the shell edge instead of drifting to the viewport edge on wide screens. */
+/* Header, site footer and page content share one container, so the wordmark
+   stays on the shell edge instead of drifting on wide screens. */
 .cloud-site .fibel-topbar > div,
-.cloud-site footer > div {
+.cloud-site [data-fibel-footer] > div {
   width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
   max-width: none;
   margin-inline: auto;
@@ -151,7 +151,7 @@
   }
 }
 
-:where(.cloud-site, .fibel-app) footer {
+:where(.cloud-site, .fibel-app) [data-fibel-footer] {
   border-color: var(--c-line);
   background: var(--c-canvas);
   color: var(--c-muted);
@@ -983,9 +983,16 @@
 
 .cloud-hero-code {
   width: 100%;
-  max-width: 36rem;
-  justify-self: end;
+  max-width: none;
+  justify-self: stretch;
   font-size: clamp(0.7rem, 1vw, 0.79rem);
+}
+
+@media (min-width: 62rem) {
+  .cloud-hero-code {
+    max-width: 36rem;
+    justify-self: end;
+  }
 }
 
 .cloud-hero-code pre {

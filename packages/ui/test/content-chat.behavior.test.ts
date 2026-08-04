@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createComponent, createSignal } from "solid-js";
 import { isServer, render } from "solid-js/web";
+import type { ChatTimelineItem } from "../src/chat/ChatTimeline";
 import { createDomTestHarness } from "./dom";
 
 describe("@k2b/ui content and chat behavior", () => {
@@ -188,6 +189,94 @@ describe("@k2b/ui content and chat behavior", () => {
     expect(viewport?.getAttribute("role")).toBe("region");
     expect(viewport?.getAttribute("aria-label")).toBe("Support conversation messages");
     expect(viewport?.getAttribute("tabindex")).toBe("0");
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("follows new messages only while the reader remains pinned", async () => {
+    const dom = createDomTestHarness();
+    const { Chat } = await import("../src/chat");
+    const [items, setItems] = createSignal<ChatTimelineItem[]>([
+      { kind: "message", id: "one", role: "user", content: "One" },
+    ]);
+    let scrollHeight = 500;
+    let viewport: HTMLDivElement | undefined;
+    const dispose = render(
+      () =>
+        createComponent(Chat.Timeline, {
+          get items() {
+            return items();
+          },
+          viewportRef: (element) => {
+            viewport = element;
+            Object.defineProperty(element, "scrollHeight", { configurable: true, get: () => scrollHeight });
+            Object.defineProperty(element, "clientHeight", { configurable: true, value: 100 });
+          },
+        }),
+      dom.root,
+    );
+    await new Promise<void>((done) => requestAnimationFrame(() => done()));
+
+    viewport!.scrollTop = 100;
+    viewport!.dispatchEvent(new Event("scroll"));
+    scrollHeight = 600;
+    setItems((current) => [...current, { kind: "message", id: "two", role: "assistant", content: "Two" }]);
+    await new Promise<void>((done) => requestAnimationFrame(() => done()));
+    expect(viewport!.scrollTop).toBe(100);
+
+    viewport!.scrollTop = 500;
+    viewport!.dispatchEvent(new Event("scroll"));
+    scrollHeight = 700;
+    setItems((current) => [...current, { kind: "message", id: "three", role: "assistant", content: "Three" }]);
+    await new Promise<void>((done) => requestAnimationFrame(() => done()));
+    expect(viewport!.scrollTop).toBe(700);
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("preserves the visible scroll position when older messages are prepended", async () => {
+    const dom = createDomTestHarness();
+    const { Chat } = await import("../src/chat");
+    const [items, setItems] = createSignal<ChatTimelineItem[]>([
+      { kind: "message", id: "new", role: "assistant", content: "New" },
+    ]);
+    let scrollHeight = 500;
+    let viewport: HTMLDivElement | undefined;
+    const dispose = render(
+      () =>
+        createComponent(Chat.Timeline, {
+          get items() {
+            return items();
+          },
+          hasMore: true,
+          followThreshold: 0,
+          onLoadOlder: () => {
+            setItems((current) => [{ kind: "message", id: "old", role: "user", content: "Old" }, ...current]);
+            scrollHeight = 700;
+          },
+          viewportRef: (element) => {
+            viewport = element;
+            Object.defineProperty(element, "scrollHeight", { configurable: true, get: () => scrollHeight });
+            Object.defineProperty(element, "clientHeight", { configurable: true, value: 100 });
+          },
+        }),
+      dom.root,
+    );
+    await new Promise<void>((done) => requestAnimationFrame(() => done()));
+    viewport!.scrollTop = 50;
+    viewport!.dispatchEvent(new Event("scroll"));
+
+    const historyButton = dom.root.querySelector<HTMLButtonElement>(".k2b-chat-timeline__older")!;
+    const clickEvent = new MouseEvent("click", { bubbles: true });
+    Object.defineProperty(clickEvent, "currentTarget", { configurable: true, value: historyButton });
+    (historyButton as HTMLButtonElement & { $$click?: (event: MouseEvent) => void }).$$click?.(clickEvent);
+    await Promise.resolve();
+    await new Promise<void>((done) => setTimeout(done, 0));
+    await new Promise<void>((done) => requestAnimationFrame(() => done()));
+    await new Promise<void>((done) => requestAnimationFrame(() => done()));
+    expect(viewport!.scrollTop).toBe(250);
 
     dispose();
     dom.cleanup();

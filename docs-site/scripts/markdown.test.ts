@@ -4,22 +4,22 @@ import { mapMarkdownProse, mapOutsideFences, withoutFencedCode } from "./markdow
 describe("Markdown boundaries", () => {
   test("keeps fenced and inline code unchanged", () => {
     const source = [
-      "[prose](/docs/en/build)",
-      "`[inline](/docs/en/build)`",
+      "[prose](/en/docs/build)",
+      "`[inline](/en/docs/build)`",
       "````ts",
-      "[code](/docs/en/build)",
+      "[code](/en/docs/build)",
       "```",
-      "[still code](/docs/en/build)",
+      "[still code](/en/docs/build)",
       "````",
-      "[after](/docs/en/build)",
+      "[after](/en/docs/build)",
     ].join("\n");
 
-    const result = mapMarkdownProse(source, (text) => text.replaceAll("/docs/en/build", "./architecture.md"));
+    const result = mapMarkdownProse(source, (text) => text.replaceAll("/en/docs/build", "./architecture.md"));
 
     expect(result).toContain("[prose](./architecture.md)");
-    expect(result).toContain("`[inline](/docs/en/build)`");
-    expect(result).toContain("[code](/docs/en/build)");
-    expect(result).toContain("[still code](/docs/en/build)");
+    expect(result).toContain("`[inline](/en/docs/build)`");
+    expect(result).toContain("[code](/en/docs/build)");
+    expect(result).toContain("[still code](/en/docs/build)");
     expect(result).toContain("[after](./architecture.md)");
   });
 

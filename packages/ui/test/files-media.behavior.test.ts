@@ -205,6 +205,45 @@ describe("@k2b/ui files and media runtime behavior", () => {
     dom.cleanup();
   });
 
+  test("reports FileView edits as dirty until the current draft is saved", async () => {
+    const dom = createDomTestHarness();
+    const { default: FileView } = await import("../src/content/FileView");
+    const dirtyStates: boolean[] = [];
+    const saved: string[] = [];
+    const dispose = render(
+      () =>
+        createComponent(FileView, {
+          file: { path: "/notes.txt", mediaType: "text/plain" },
+          load: async () => ({ encoding: "utf8" as const, mediaType: "text/plain", content: "Original" }),
+          save: async (content) => {
+            saved.push(content);
+          },
+          onDirtyChange: (dirty) => dirtyStates.push(dirty),
+        }),
+      dom.root,
+    );
+
+    await flush();
+    const input = dom.root.querySelector<HTMLTextAreaElement>(".k2b-content-file-view__code-input")!;
+    input.value = "Changed";
+    const inputEvent = new Event("input", { bubbles: true });
+    Object.defineProperty(inputEvent, "currentTarget", { configurable: true, value: input });
+    (input as HTMLTextAreaElement & { $$input?: (event: Event) => void }).$$input?.(inputEvent);
+    await flush();
+    expect(dirtyStates.at(-1)).toBe(true);
+
+    const saveButton = dom.root.querySelector<HTMLButtonElement>('[aria-label^="Save"]')!;
+    const clickEvent = new MouseEvent("click", { bubbles: true });
+    Object.defineProperty(clickEvent, "currentTarget", { configurable: true, value: saveButton });
+    (saveButton as HTMLButtonElement & { $$click?: (event: MouseEvent) => void }).$$click?.(clickEvent);
+    await flush();
+    expect(saved).toEqual(["Changed"]);
+    expect(dirtyStates.at(-1)).toBe(false);
+
+    dispose();
+    dom.cleanup();
+  });
+
   test("revokes a PDF object URL produced after the preview was disposed", async () => {
     const dom = createDomTestHarness();
     const { default: PdfPreview } = await import("../src/content/PdfPreview");
@@ -294,6 +333,43 @@ describe("@k2b/ui files and media runtime behavior", () => {
     expect(image()?.src).toEndWith("/c.png");
     setInitialIndex(-5);
     expect(image()?.src).toEndWith("/a.png");
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("publishes an image transform atomically after it completes", async () => {
+    const dom = createDomTestHarness();
+    const { ImageInput } = await import("../src/inputs/FileInputs");
+    const changes: Array<string | null> = [];
+    const commits: Array<string | null> = [];
+    let resolveTransform!: (value: string) => void;
+    const transformed = new Promise<string>((resolve) => {
+      resolveTransform = resolve;
+    });
+    const dispose = render(
+      () =>
+        createComponent(ImageInput, {
+          label: "Avatar",
+          value: null,
+          transform: () => transformed,
+          onValueChange: (value) => changes.push(value),
+          onValueCommit: (value) => commits.push(value),
+        }),
+      dom.root,
+    );
+
+    const input = dom.root.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new dom.window.File(["image"], "avatar.svg", { type: "image/svg+xml" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(changes).toEqual([]);
+    expect(commits).toEqual([]);
+
+    resolveTransform("data:image/webp;base64,done");
+    await flush();
+    expect(changes).toEqual(["data:image/webp;base64,done"]);
+    expect(commits).toEqual(["data:image/webp;base64,done"]);
 
     dispose();
     dom.cleanup();

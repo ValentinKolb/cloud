@@ -2,6 +2,7 @@ import { aiMaintenanceJobs, migrateCloudAi, startAiRuntime } from "@valentinkolb
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
+import { assistantCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
 import { assistantHelp } from "./help";
@@ -18,6 +19,7 @@ const assistantNotifications = createAssistantNotificationService(app.notificati
 
 export default await app.start({
   fetch: router.fetch,
+  capabilities: assistantCapabilities,
   help: assistantHelp,
   openapi: apiRoutes,
   lifecycle: {

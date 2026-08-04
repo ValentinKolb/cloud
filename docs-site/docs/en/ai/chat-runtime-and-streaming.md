@@ -13,7 +13,7 @@ updated: 2026-08-02
 `createAiChatRoutes()` provides the shared conversation and turn API.
 
 Use it for a standalone chat. Use
-[`defineAiResource()`](/docs/en/ai/resources-and-access) when the chat belongs
+[`defineAiResource()`](/en/docs/ai/resources-and-access) when the chat belongs
 to a domain resource.
 
 ## Create chat routes
@@ -71,11 +71,13 @@ not call `resolveContext()`.
 This minimal chat has no tools. Use a resource tool source for tools declared
 by `defineAiResource()`.
 
-The default tool source adds card and survey interactions, sandboxed Bash over
-the conversation workspace, presentation, and web search or extraction when
-Firecrawl is configured. These built-in tools use `approval: "never"`. Enable
-the default set only when the chat needs those capabilities. See
-[Tools and approvals](/docs/en/ai/tools-and-approvals).
+The default tool source adds card and survey interactions, bounded
+conversation-file tools, arithmetic and deterministic date calculation, and web search or
+extraction when Firecrawl is configured. These built-in tools use
+`approval: "never"`. They provide no arbitrary code execution, host access, or
+network access beyond the explicit web tools. Enable the default set only when
+the chat needs those capabilities. See
+[Tools and approvals](/en/docs/ai/tools-and-approvals).
 
 `toolSource: { kind: "default", capabilities: true }` additionally enables the
 compact Cloud app capability discovery tools. It is an explicit opt-in: other
@@ -88,8 +90,9 @@ conditional tool guidance, and labeled application context. It tells agents to
 use required tools, inspect their results, and continue until the request is
 complete or genuinely blocked. Retrieved emails, webpages, user files, Help,
 capability results, ordinary tool output, and memories remain data rather than
-instructions; matching skills from the read-only skill mount are the explicit,
-subordinate guidance exception. The runtime still treats a provider `stop` as
+instructions. A skill explicitly selected by the user is copied into the
+durable turn configuration and added as labeled, subordinate instructions for
+that turn only. The runtime still treats a provider `stop` as
 a completed turn; it does not infer unfinished work from model text or trigger
 language-dependent automatic retries.
 
@@ -107,6 +110,13 @@ language-dependent automatic retries.
 
 The router also supports message retry, forks, compaction, pending tool
 actions, conversation enrichment, and paged history.
+
+The Assistant app publishes closed-world `chat.search` and `chat.read`
+capabilities so an agent can find and read the current user's previous
+Assistant chats. Both queries recheck the current user at execution time,
+return only visible user and assistant text, omit tool results and model
+thinking, and include a same-origin link back to the chat. They do not expose
+another user's chats or introduce a service-agent identity.
 
 `allowConversationManagement` enables metadata editing, pinning, archiving,
 and restore for direct chats.
@@ -163,4 +173,4 @@ then the stream reports progress.
 Use the final turn status for completion. Handle `failed` and `aborted`
 explicitly.
 
-For the UI layer, see [Chat interface](/docs/en/ai/chat-interface).
+For the UI layer, see [Chat interface](/en/docs/ai/chat-interface).

@@ -5,6 +5,7 @@ import {
   CodeDisplay,
   Disclosure,
   IconButtonLink,
+  isStructuredDataValue,
   NumberInput,
   Placeholder,
   prompts,
@@ -236,7 +237,17 @@ function OutcomeContent(props: { outcome: CapabilityInvocationOutcome; selection
     return (
       <div class="flex flex-col gap-4">
         <Placeholder state="error" align="left" title={props.outcome.error.code} description={props.outcome.error.message} />
-        <Show when={props.outcome.error.details}>{(details) => <StructuredDataPreview title="Details" data={details()} />}</Show>
+        <Show when={props.outcome.error.details}>
+          {(details) => {
+            const data = details();
+            return (
+              <StructuredDataPreview
+                title="Details"
+                data={isStructuredDataValue(data) ? data : { error: "Capability error details are not valid JSON." }}
+              />
+            );
+          }}
+        </Show>
       </div>
     );
   }
@@ -450,8 +461,24 @@ function CapabilityRunner(props: Props) {
             </Disclosure>
             <Disclosure summary="Schemas" icon="ti ti-braces">
               <div class="grid gap-3">
-                <StructuredDataPreview title="Input schema" data={props.selection.operation.inputSchema} maxRows={10} />
-                <StructuredDataPreview title="Data schema" data={props.selection.operation.dataSchema} maxRows={10} />
+                <StructuredDataPreview
+                  title="Input schema"
+                  data={
+                    isStructuredDataValue(props.selection.operation.inputSchema)
+                      ? props.selection.operation.inputSchema
+                      : { error: "Input schema is not valid JSON." }
+                  }
+                  maxRows={10}
+                />
+                <StructuredDataPreview
+                  title="Data schema"
+                  data={
+                    isStructuredDataValue(props.selection.operation.dataSchema)
+                      ? props.selection.operation.dataSchema
+                      : { error: "Data schema is not valid JSON." }
+                  }
+                  maxRows={10}
+                />
               </div>
             </Disclosure>
           </div>

@@ -1,4 +1,3 @@
-import { markdown } from "@valentinkolb/cloud/shared";
 import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { For, type JSX, Show } from "solid-js";
@@ -207,7 +206,7 @@ export function PublicDashboardSections(props: Props) {
   const renderMarkdownWidget = (widget: PulsePublicDashboardMarkdownWidget) =>
     renderWidgetFrame(
       widget,
-      <MarkdownView html={markdown.render(sanitizePublicDashboardMarkdown(widget.markdown))} smallHeadings class="text-sm" />,
+      <MarkdownView markdown={sanitizePublicDashboardMarkdown(widget.markdown)} smallHeadings class="text-sm" />,
     );
 
   const renderEventsWidget = (widget: PulsePublicDashboardEventsWidget) =>

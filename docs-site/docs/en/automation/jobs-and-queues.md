@@ -165,5 +165,5 @@ The generic supplies TypeScript types. Sync does not validate payloads at
 runtime. Validate data before sending or at the worker boundary when a producer
 is not trusted.
 
-Use [workflow effects](/docs/en/automation/effects-retry-and-reconciliation)
+Use [workflow effects](/en/docs/automation/effects-retry-and-reconciliation)
 when a user-authored, multi-step process needs a durable effect journal.

@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { AppWorkspace, Chat, type ChatCommand, prompts } from "@k2b/ui";
+import { AppWorkspace, Chat, type ChatCommand, prompts, SelectChip } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationTimelineEntry,
@@ -20,10 +20,11 @@ import {
   aiComposerFileAccept,
   aiComposerSendInput,
   aiLatestUsageSnapshot,
+  aiSkillsApi,
   createAiChatTimeline,
   readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
@@ -107,6 +108,8 @@ export default function AssistantWorkspace(props: Props) {
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
+  const [selectedSkillId, setSelectedSkillId] = createSignal("");
+  const [availableSkills] = createResource(async () => (await aiSkillsApi.list()).skills);
   const [timelineViewport, setTimelineViewport] = createSignal<HTMLDivElement>();
   const [timelineContent, setTimelineContent] = createSignal<HTMLDivElement>();
 
@@ -226,7 +229,13 @@ export default function AssistantWorkspace(props: Props) {
       const conversation = await createConversation(false);
       if (!conversation || chat.activeConversationId() !== conversation.id) return false;
     }
-    return chat.send({ ...input, modelProfileId: selectedModelId() || undefined });
+    const sent = await chat.send({
+      ...input,
+      modelProfileId: selectedModelId() || undefined,
+      skillId: selectedSkillId() || undefined,
+    });
+    if (sent) setSelectedSkillId("");
+    return sent;
   };
   const steer = async (message: string) => {
     if (!canUseComposer() || !chat.activeTurn()) return false;
@@ -314,7 +323,14 @@ export default function AssistantWorkspace(props: Props) {
           chat.setError("No user message to retry.");
           return;
         }
-        void chat.retryUserMessage(target.id, { modelProfileId: selectedModelId() || undefined });
+        void chat
+          .retryUserMessage(target.id, {
+            modelProfileId: selectedModelId() || undefined,
+            skillId: selectedSkillId() || undefined,
+          })
+          .then((retried) => {
+            if (retried) setSelectedSkillId("");
+          });
       },
     },
     {
@@ -452,8 +468,10 @@ export default function AssistantWorkspace(props: Props) {
                     const retried = await chat.retryUserMessage(entry.id, {
                       ...input,
                       modelProfileId: selectedModelId() || undefined,
+                      skillId: selectedSkillId() || undefined,
                     });
                     if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
+                    setSelectedSkillId("");
                   },
                   onRetrySteer: async (block) => {
                     if (!(await chat.retrySteer(block))) throw new Error(chat.error() ?? "Could not retry steer message.");
@@ -496,6 +514,28 @@ export default function AssistantWorkspace(props: Props) {
                   models={aiChatModelOptions(props.models)}
                   selectedModelId={selectedModelId()}
                   onModelChange={setSelectedModelId}
+                  footerTools={
+                    <Show when={(availableSkills()?.length ?? 0) > 0}>
+                      <SelectChip
+                        aria-label="Choose a skill for this message"
+                        position="top-right"
+                        menuWidth="18rem"
+                        placeholder="Skill"
+                        value={selectedSkillId}
+                        options={[
+                          { value: "", label: "No skill", icon: "ti ti-wand-off" },
+                          ...(availableSkills() ?? []).map((skill) => ({
+                            value: skill.id,
+                            label: skill.name,
+                            description: skill.description,
+                            icon: skill.scope === "workspace" ? "ti ti-building" : "ti ti-wand",
+                          })),
+                        ]}
+                        disabled={chat.running()}
+                        onValueChange={setSelectedSkillId}
+                      />
+                    </Show>
+                  }
                   commands={slashCommands()}
                   disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
                   state={chat.runStatus() === "stopping" ? "stopping" : chat.running() ? "running" : "idle"}

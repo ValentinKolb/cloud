@@ -243,7 +243,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
   test("keeps the Cloud chrome that earlier ports dropped", () => {
     // `paper` resolves to `--ui-shadow-surface: none` in both Cloud themes, and
     // `.stat-grid` / `.widget-surface` force it again. No outer drop shadow.
-    for (const selector of [".k2b-stat-grid", ".k2b-widget", ".k2b-widget-card"]) {
+    for (const selector of [".k2b-stat-grid", ".k2b-widget"]) {
       const rule = parityCss.match(new RegExp(`\\.k2b-ui \\${selector} \\{[^}]*\\}`))?.[0] ?? "";
       expect(rule).toContain("box-shadow: none");
     }

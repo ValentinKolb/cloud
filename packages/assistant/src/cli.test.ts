@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import assistantCli from "./cli";
 
@@ -112,31 +109,138 @@ describe("assistant CLI", () => {
     ]);
   });
 
-  test("skill push dry-run plans creation without mutating the server", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "cloud-assistant-skill-"));
-    try {
-      await writeFile(join(directory, "SKILL.md"), "---\nname: release-notes\ndescription: Summarize releases\n---\n");
-      await writeFile(join(directory, "reference.txt"), "Reference\n");
-      const requests: string[] = [];
-      const { ctx, stdout } = createContext(["skills", "push", directory], async (path, init) => {
-        requests.push(`${init?.method ?? "GET"} ${String(path)}`);
-        if (path === "/api/ai/skills/managed") return json({ skills: [] });
-        return json({ message: "Unexpected request" }, 500);
+  test("creates a text-only personal skill", async () => {
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const { ctx, stdout } = createContext(["skills", "create", "Release notes"], async (path, init) => {
+      requests.push({ path: String(path), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+      return json({
+        skill: {
+          id: "11111111-1111-4111-8111-111111111111",
+          name: "Release notes",
+          description: "Summarize releases",
+          instructions: "List user-visible changes.",
+          scope: "personal",
+          ownerUserId: "22222222-2222-4222-8222-222222222222",
+          enabled: true,
+          revision: 1,
+          createdAt: "2026-08-04T00:00:00.000Z",
+          updatedAt: "2026-08-04T00:00:00.000Z",
+        },
       });
-      ctx.flags["dry-run"] = true;
+    });
+    ctx.flags.description = "Summarize releases";
+    ctx.flags.instructions = "List user-visible changes.";
 
-      expect(await assistantCli.run(ctx)).toBeUndefined();
-      expect(requests).toEqual(["GET /api/ai/skills/managed"]);
-      expect(stdout.join("")).toContain('"action": "create"');
-      expect(stdout.join("")).toContain('"slug": "release-notes"');
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    expect(await assistantCli.run(ctx)).toBeUndefined();
+    expect(requests).toEqual([
+      {
+        path: "/api/ai/skills/",
+        method: "POST",
+        body: {
+          name: "Release notes",
+          description: "Summarize releases",
+          instructions: "List user-visible changes.",
+        },
+      },
+    ]);
+    expect(stdout.join("")).toContain("Release notes");
   });
 
-  test("skill pruning requires explicit confirmation", async () => {
-    const { ctx } = createContext(["skills", "push", "/unused"], async () => json({ message: "Unexpected request" }, 500));
-    ctx.flags.prune = true;
-    await expect(assistantCli.run(ctx)).rejects.toThrow("requires --yes");
+  test("resolves a selected skill for a detached chat turn", async () => {
+    const skillId = "11111111-1111-4111-8111-111111111111";
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const { ctx } = createContext(["ask", "Summarize this"], async (path, init) => {
+      requests.push({ path: String(path), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (path === "/api/assistant/conversations/chat-1") {
+        return json({ conversation: { id: "chat-1", title: "Existing chat" } });
+      }
+      if (path === "/api/ai/skills/") {
+        return json({
+          skills: [
+            {
+              id: skillId,
+              name: "Release notes",
+              description: "Summarize releases",
+              scope: "personal",
+              enabled: true,
+              revision: 1,
+              updatedAt: "2026-08-04T00:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (path === "/api/assistant/conversations/chat-1/turns") {
+        return json({ turn: { id: "turn-1", status: "queued" } }, 201);
+      }
+      return json({ message: "Not found" }, 404);
+    });
+    ctx.flags.chat = "chat-1";
+    ctx.flags.skill = "Release notes";
+    ctx.flags.detach = true;
+
+    expect(await assistantCli.run(ctx)).toBe(0);
+    expect(requests.at(-1)).toEqual({
+      path: "/api/assistant/conversations/chat-1/turns",
+      method: "POST",
+      body: { message: "Summarize this", skillId },
+    });
+  });
+
+  test("disables workspace skills through the admin catalog", async () => {
+    const skillId = "11111111-1111-4111-8111-111111111111";
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const { ctx } = createContext(["skills", "disable", "Release notes"], async (path, init) => {
+      requests.push({ path: String(path), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (path === "/api/ai/skills/admin") {
+        return json({
+          skills: [
+            {
+              id: skillId,
+              name: "Release notes",
+              description: "Summarize releases",
+              scope: "workspace",
+              enabled: true,
+              revision: 1,
+              updatedAt: "2026-08-04T00:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (path === `/api/ai/skills/admin/${skillId}`) {
+        return json({ skill: { id: skillId, name: "Release notes", enabled: false } });
+      }
+      return json({ message: "Not found" }, 404);
+    });
+
+    expect(await assistantCli.run(ctx)).toBeUndefined();
+    expect(requests.at(-1)).toEqual({
+      path: `/api/ai/skills/admin/${skillId}`,
+      method: "PATCH",
+      body: { enabled: false },
+    });
+  });
+
+  test("applies a selected skill when retrying a message", async () => {
+    const skillId = "11111111-1111-4111-8111-111111111111";
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const { ctx } = createContext(["messages", "retry", "chat-1", "message-1"], async (path, init) => {
+      requests.push({ path: String(path), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (path === `/api/ai/skills/${skillId}`) {
+        return json({ skill: { id: skillId, name: "Release notes", scope: "personal", enabled: true } });
+      }
+      if (path === "/api/assistant/conversations/chat-1/messages/message-1/retry") {
+        return json({ turn: { id: "turn-2", status: "queued" } }, 201);
+      }
+      return json({ message: "Not found" }, 404);
+    });
+    ctx.flags.skill = skillId;
+    ctx.flags.detach = true;
+
+    expect(await assistantCli.run(ctx)).toBe(0);
+    expect(requests.at(-1)).toEqual({
+      path: "/api/assistant/conversations/chat-1/messages/message-1/retry",
+      method: "POST",
+      body: { mode: "retry", skillId },
+    });
   });
 });

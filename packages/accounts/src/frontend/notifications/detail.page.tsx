@@ -319,7 +319,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="paper p-4">
             <h2 class="text-sm font-semibold text-primary">Message preview</h2>
             <div class="mt-2 rounded-lg bg-muted/30 p-4">
-              <MarkdownView html={batch.bodyHtml} smallHeadings />
+              <MarkdownView trustedHtml={batch.bodyHtml} smallHeadings />
             </div>
           </div>
 

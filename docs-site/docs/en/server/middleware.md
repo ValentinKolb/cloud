@@ -69,7 +69,7 @@ Authentication is separate:
 import { auth } from "@valentinkolb/cloud/server";
 ```
 
-See [Route policies](/docs/en/identity/route-policies).
+See [Route policies](/en/docs/identity/route-policies).
 
 ## Load the application registry
 
@@ -123,7 +123,7 @@ middleware.settings({
 });
 ```
 
-See [Settings](/docs/en/platform/settings) for declarations and asynchronous
+See [Settings](/en/docs/platform/settings) for declarations and asynchronous
 access outside a request.
 
 ## Log policy and server responses
@@ -141,7 +141,7 @@ It includes method, path, status, duration, and the user ID when available.
 
 Static assets, SSR chunks, favicons, and branding paths are skipped.
 
-Domain events need their own logger. See [Logging](/docs/en/platform/logging).
+Domain events need their own logger. See [Logging](/en/docs/platform/logging).
 
 Register the logger before rate limiting and route policies. Otherwise their
 early responses do not reach it.
@@ -241,7 +241,7 @@ The body is:
 )
 ```
 
-See [Typed HTTP APIs](/docs/en/server/http) for validation and OpenAPI.
+See [Typed HTTP APIs](/en/docs/server/http) for validation and OpenAPI.
 
 ## Scope policies narrowly
 

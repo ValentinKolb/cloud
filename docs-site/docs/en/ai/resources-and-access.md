@@ -132,5 +132,5 @@ The access result is application data. Return only what later hooks need.
 > Do not put secrets or inaccessible fields in `context`. Prompt text is sent
 > to the selected model.
 
-For the underlying actor model, see [Resource authorization](/docs/en/identity/authorization).
-For tool approval, see [Tools and approvals](/docs/en/ai/tools-and-approvals).
+For the underlying actor model, see [Resource authorization](/en/docs/identity/authorization).
+For tool approval, see [Tools and approvals](/en/docs/ai/tools-and-approvals).

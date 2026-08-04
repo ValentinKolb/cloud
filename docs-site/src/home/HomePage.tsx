@@ -85,7 +85,7 @@ export default function HomePage(props: HomePageProps) {
                 you need and keep each service independent.
               </p>
               <div class="cloud-actions">
-                <a class="cloud-btn cloud-btn-primary" href="/docs/en/overview">
+                <a class="cloud-btn cloud-btn-primary" href="/en/docs/overview">
                   Read the developer overview
                 </a>
                 <a class="cloud-btn" href="https://github.com/ValentinKolb/cloud">
@@ -222,10 +222,10 @@ export default function HomePage(props: HomePageProps) {
             <h2>Build on the platform.</h2>
             <p>Read the application model or inspect the real components applications share.</p>
             <div class="cloud-actions">
-              <a class="cloud-btn cloud-btn-primary" href="/docs/en/overview">
+              <a class="cloud-btn cloud-btn-primary" href="/en/docs/overview">
                 Open the docs
               </a>
-              <a class="cloud-btn" href="/ui">
+              <a class="cloud-btn" href="/en/ui">
                 Explore the UI
               </a>
             </div>

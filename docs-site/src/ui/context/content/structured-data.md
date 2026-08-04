@@ -12,6 +12,7 @@ Use `DataTable` for a record set. Use `CodeDisplay` when raw JSON is the primary
 
 ```tsx
 import {
+  isStructuredDataValue,
   StructuredDataPreview,
   type StructuredDataPreviewMode,
   type StructuredDataPreviewProps,
@@ -20,9 +21,19 @@ import {
 
 ## Data and modes
 
-`data` accepts any JSON-like value. Objects become key-value rows, arrays use their indexes as keys, and primitive values appear under `value`.
+`data` accepts JSON-like values: `null`, booleans, numbers, strings, arrays, and
+objects composed from the same values. Functions, class instances, DOM nodes,
+and other runtime objects are rejected by the TypeScript contract. Objects
+become key-value rows, arrays use their indexes as keys, and primitive values
+appear under `value`.
 
-The initial mode is `formatted`. Set `defaultMode="raw"` when JSON structure matters more than scanning individual fields. Readers can switch between both modes.
+Use `isStructuredDataValue(value)` at an API or storage boundary when the
+incoming type is `unknown`. The guard rejects non-finite numbers, class
+instances, and cyclic objects instead of relying on a cast.
+
+The initial mode is `formatted`. Set `defaultMode="raw"` for uncontrolled
+state, or pair `mode` with `onModeChange` when the host owns it. Readers can
+switch between both modes.
 
 `maxRows` limits the formatted view and reports how many rows are hidden. It is a presentation limit, not pagination or data minimization. Remove secrets and restricted fields before passing the value.
 
@@ -38,7 +49,9 @@ Give the preview a nearby heading, or use `title`, so the value has context. A h
 
 The selected initial mode and its content render on the server. Switching modes and copying raw JSON require hydration.
 
-The component does not fetch, redact, validate, or persist data.
+The component does not fetch, redact, or persist data. Its `data` prop stays
+strict; runtime validation is available separately through
+`isStructuredDataValue`.
 
 ## Example
 

@@ -31,9 +31,9 @@ may read that item.
 
 | Task | Page |
 | --- | --- |
-| Mount middleware and choose the request context | [Request middleware](/docs/en/server/middleware) |
-| Validate input and expose a typed endpoint | [Typed HTTP APIs](/docs/en/server/http) |
-| Keep transport code separate from domain rules | [Services and Result](/docs/en/server/services-and-results) |
-| Build stable list endpoints | [Pagination and filtering](/docs/en/server/pagination-and-filtering) |
-| Declare the paths the gateway may forward | [Routes and discovery](/docs/en/build/routing) |
-| Identify callers and enforce access | [Identity and access](/docs/en/identity) |
+| Mount middleware and choose the request context | [Request middleware](/en/docs/server/middleware) |
+| Validate input and expose a typed endpoint | [Typed HTTP APIs](/en/docs/server/http) |
+| Keep transport code separate from domain rules | [Services and Result](/en/docs/server/services-and-results) |
+| Build stable list endpoints | [Pagination and filtering](/en/docs/server/pagination-and-filtering) |
+| Declare the paths the gateway may forward | [Routes and discovery](/en/docs/build/routing) |
+| Identify callers and enforce access | [Identity and access](/en/docs/identity) |

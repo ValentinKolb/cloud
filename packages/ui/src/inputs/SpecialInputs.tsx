@@ -16,7 +16,7 @@ export type IconInputProps = ValueFieldProps<string | null> & {
 
 export function IconInput(props: IconInputProps): JSX.Element {
   const options = () => props.options ?? DEFAULT_ICON_OPTIONS;
-  const loadOptions = async (query: string): Promise<readonly IconOption[]> => {
+  const filterOptions = (_source: readonly SelectOption[], query: string): readonly IconOption[] => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
       return [...options()].sort((left, right) =>
@@ -55,8 +55,9 @@ export function IconInput(props: IconInputProps): JSX.Element {
       selectedOption={selectedOption()}
       onValueChange={props.onValueChange}
       onValueCommit={props.onValueCommit}
-      loadOptions={loadOptions}
-      debounceMs={0}
+      options={[...options()]}
+      searchable
+      filterOptions={filterOptions}
       searchPlaceholder="Search icons…"
       icon={selectedOption()?.icon ?? "ti ti-icons"}
     />

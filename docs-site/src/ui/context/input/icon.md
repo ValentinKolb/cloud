@@ -25,7 +25,10 @@ The controlled `value` is the complete Tabler class string, for example `"ti ti-
 allowed by default through `clearable`. Omit `options` for the shared default
 catalogue, or pass an explicit catalogue to limit the available icons.
 
-Search is local and matches labels and synonyms with fuzzy filtering. `searchLimit` defaults to `50` for non-empty searches. Opening the picker with an empty query shows the full catalogue alphabetically.
+Search is local, synchronous, and matches labels and synonyms with fuzzy
+filtering. `searchLimit` defaults to `50` for non-empty searches. Opening the
+picker with an empty query shows the full catalogue alphabetically. No timer,
+request, or asynchronous option transition is involved.
 
 Relevant properties are `label`, `description`, `placeholder`, `value`,
 `onValueChange`, `error`, `required`, `clearable`, `disabled`, `options`, and

@@ -68,5 +68,5 @@ Build the same package version used in production. Test registration, login,
 one authenticated route, one mutation, and graceful shutdown against the target
 Cloud deployment.
 
-See [Build and deploy](/docs/en/operations/build-and-deploy) for the production
+See [Build and deploy](/en/docs/operations/build-and-deploy) for the production
 bundle.

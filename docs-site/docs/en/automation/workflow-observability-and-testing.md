@@ -132,7 +132,7 @@ run and transition. Read current store state when a consumer needs detail.
 
 Trace delivery is best effort. A trace failure never changes a run outcome.
 
-Map workflow transitions to [Cloud tracing](/docs/en/platform/tracing) when the
+Map workflow transitions to [Cloud tracing](/en/docs/platform/tracing) when the
 deployment needs one operations timeline.
 
 ## Test action declarations

@@ -27,7 +27,7 @@ const routes = new Hono<AuthContext>()
   });
 ```
 
-See [Request middleware](/docs/en/server/middleware) for the complete router
+See [Request middleware](/en/docs/server/middleware) for the complete router
 order.
 
 ## Accepted credentials
@@ -116,11 +116,11 @@ const user = expectUserBackedActor(c);
 ```
 
 Use `expectUserBackedActor()` only after a user-backed
-[route policy](/docs/en/identity/route-policies).
+[route policy](/en/docs/identity/route-policies).
 
 For an API route, apply `auth.requireRole("authenticated")` before
 `auth.requireUser()`. See
-[Route policies](/docs/en/identity/route-policies#require-a-user-backed-actor)
+[Route policies](/en/docs/identity/route-policies#require-a-user-backed-actor)
 for the response behavior.
 
 > **Authorize with the access subject.**
@@ -172,7 +172,7 @@ Credential scopes can reduce a resource permission. They cannot create one.
 
 Route middleware decides whether the caller may enter. The domain service must
 still enforce the resource grant, machine binding, and credential scope.
-[Resource authorization](/docs/en/identity/authorization) defines that check.
+[Resource authorization](/en/docs/identity/authorization) defines that check.
 
 ## Authentication failures
 
@@ -189,4 +189,4 @@ user-backed actor. It returns `403` with
 Use it after an authentication policy, not instead of one.
 
 SSR routes can redirect instead. See
-[Route policies](/docs/en/identity/route-policies).
+[Route policies](/en/docs/identity/route-policies).

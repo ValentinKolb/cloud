@@ -36,8 +36,20 @@ export const recipeFixtures: RecipeFixture[] = [
     fixtures: ["platform-services.ts", "platform-notifications.ts"],
   },
   {
+    page: "platform/capabilities.md",
+    fixtures: ["platform-capabilities.ts", "platform-capabilities-app.ts"],
+  },
+  {
+    page: "platform/search.md",
+    fixtures: ["platform-capabilities.ts", "platform-capabilities-app.ts"],
+  },
+  {
     page: "automation/author-and-publish-workflows.md",
     fixtures: ["automation.ts"],
+  },
+  {
+    page: "ai/chat-interface.md",
+    fixtures: ["ai-ui.tsx"],
   },
   {
     page: "frontend/ssr-pages-and-routing.md",

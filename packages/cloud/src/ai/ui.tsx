@@ -1,6 +1,6 @@
 import { latestLoopUsage, latestUsage, latestUsageSnapshot, textFromMessage } from "./chat/message-utils";
 
-export { AiSkillsManagerBody, type AiSkillsManagerBodyProps, openAiSkillsManager } from "./AiSkillsManager";
+export { AiSkillsManagerBody, type AiSkillsManagerBodyProps, aiSkillsApi, openAiSkillsManager } from "./AiSkillsManager";
 
 export {
   type AiComposerAttachment,
@@ -23,11 +23,11 @@ export type {
 } from "./chat/message-utils";
 export {
   AiChatActionsProvider,
-  createAiChatTimeline,
-  type AiChatTimelineSource,
   type AiChatTimelineSession,
+  type AiChatTimelineSource,
   AiChatTurnNavigator,
   type AiChatTurnNavigatorProps,
+  createAiChatTimeline,
 } from "./chat/presentation";
 
 export const aiLatestUsage = latestUsage;

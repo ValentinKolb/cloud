@@ -102,7 +102,7 @@ export const createInventoryService = (repository: InventoryRepository) => ({
 Pass the access subject into operations that read or change protected
 resources.
 
-See [Services and Result](/docs/en/server/services-and-results).
+See [Services and Result](/en/docs/server/services-and-results).
 
 ## Add the route
 
@@ -157,7 +157,7 @@ The route:
 4. converts the service result to JSON.
 
 Authorization for a particular item belongs in the service. See
-[Resource authorization](/docs/en/identity/authorization).
+[Resource authorization](/en/docs/identity/authorization).
 
 ## Export the final router type
 
@@ -229,7 +229,7 @@ Cloud serves the document before application middleware. Keep secrets,
 internal hostnames, and private examples out of route metadata.
 
 OpenAPI security metadata describes accepted credentials. It does not enforce
-access. Add the matching [route policy](/docs/en/identity/route-policies).
+access. Add the matching [route policy](/en/docs/identity/route-policies).
 
 Document every response the route and its middleware can return. An
 authenticated route normally includes `401`. Add `403` when a role policy or
@@ -272,7 +272,7 @@ const item = await response.json();
 If the result becomes `any`, `unknown`, or needs `response.json() as Type`, fix
 the server route type.
 
-See [Browser clients and mutations](/docs/en/frontend/browser-clients-and-mutations)
+See [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations)
 before wiring the call to UI.
 
 ## Use raw responses for non-JSON data
@@ -290,5 +290,5 @@ generated Hono client type.
 
 ## Add list and reference behavior
 
-- [Paginate and filter lists](/docs/en/server/pagination-and-filtering).
-- [Return stable domain errors](/docs/en/server/services-and-results).
+- [Paginate and filter lists](/en/docs/server/pagination-and-filtering).
+- [Return stable domain errors](/en/docs/server/services-and-results).

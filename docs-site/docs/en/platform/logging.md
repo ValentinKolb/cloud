@@ -96,8 +96,8 @@ and operations surfaces. Application code should normally depend only on
 `logger()`.
 
 To log failed HTTP requests, add `middleware.logger()`. See
-[Request middleware](/docs/en/server/middleware#log-policy-and-server-responses).
+[Request middleware](/en/docs/server/middleware#log-policy-and-server-responses).
 
-Use [Tracing](/docs/en/platform/tracing) when several events belong to one
-operation. Use [Audit events](/docs/en/platform/audit-events) when a record must
+Use [Tracing](/en/docs/platform/tracing) when several events belong to one
+operation. Use [Audit events](/en/docs/platform/audit-events) when a record must
 show who performed a security-relevant action.

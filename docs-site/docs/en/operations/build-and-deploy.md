@@ -123,5 +123,5 @@ After deployment:
 7. run `bun run prod:preflight` again;
 8. stop one instance and confirm registry cleanup.
 
-See [Runtime configuration](/docs/en/operations/runtime-configuration) before
+See [Runtime configuration](/en/docs/operations/runtime-configuration) before
 setting container values.

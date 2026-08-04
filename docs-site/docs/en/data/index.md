@@ -35,8 +35,8 @@ Valkey coordinates work. Durable domain records stay in Postgres.
 
 | Task | Page |
 | --- | --- |
-| Query an application-owned schema | [Postgres queries](/docs/en/data/postgres-queries) |
-| Change the schema or write atomically | [Migrations and transactions](/docs/en/data/migrations-and-transactions) |
-| Place secrets, cache entries, files, and other state | [Secrets and persistent state](/docs/en/data/secrets-and-persistent-state) |
-| Link domain resources to platform access | [Resource authorization](/docs/en/identity/authorization) |
-| Wrap persistence in domain behavior | [Services and Result](/docs/en/server/services-and-results) |
+| Query an application-owned schema | [Postgres queries](/en/docs/data/postgres-queries) |
+| Change the schema or write atomically | [Migrations and transactions](/en/docs/data/migrations-and-transactions) |
+| Place secrets, cache entries, files, and other state | [Secrets and persistent state](/en/docs/data/secrets-and-persistent-state) |
+| Link domain resources to platform access | [Resource authorization](/en/docs/identity/authorization) |
+| Wrap persistence in domain behavior | [Services and Result](/en/docs/server/services-and-results) |

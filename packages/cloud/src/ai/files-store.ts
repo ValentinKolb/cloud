@@ -79,7 +79,7 @@ export const guessAiMediaType = (path: string): string => {
 };
 
 /**
- * Conversation-scoped file storage backing the bash tool's VFS. Every
+ * Conversation-scoped file storage backing Assistant file tools. Every
  * operation goes straight to Postgres — no rehydration, horizontal-safe,
  * crash-safe. Reads support byte slices (bytea STORAGE EXTERNAL) so big
  * files never load fully.
@@ -147,42 +147,63 @@ export const aiFileStore = {
       throw new Error(`File exceeds the per-file limit of ${Math.floor(maxFile / (1024 * 1024))} MB.`);
     }
 
-    const totals = await sql<{ total: number | string }[]>`
-      SELECT COALESCE(SUM(size), 0) AS total
-      FROM ai.files
-      WHERE conversation_id = ${input.conversationId} AND path <> ${input.path}
-    `;
-    const otherBytes = Number(totals[0]?.total ?? 0);
-    if (otherBytes + input.bytes.byteLength > maxConversation) {
-      throw new Error(`Conversation storage limit of ${Math.floor(maxConversation / (1024 * 1024))} MB exceeded.`);
-    }
-
-    await sql`
-      INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, updated_at)
-      VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, now())
-      ON CONFLICT (conversation_id, path) DO UPDATE SET
-        bytes = EXCLUDED.bytes,
-        media_type = EXCLUDED.media_type,
-        size = EXCLUDED.size,
-        updated_at = now()
-    `;
+    await sql.begin(async (tx) => {
+      await tx`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      const totals = await tx<{ total: number | string }[]>`
+        SELECT COALESCE(SUM(size), 0) AS total
+        FROM ai.files
+        WHERE conversation_id = ${input.conversationId} AND path <> ${input.path}
+      `;
+      const otherBytes = Number(totals[0]?.total ?? 0);
+      if (otherBytes + input.bytes.byteLength > maxConversation) {
+        throw new Error(`Conversation storage limit of ${Math.floor(maxConversation / (1024 * 1024))} MB exceeded.`);
+      }
+      await tx`
+        INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, updated_at)
+        VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, now())
+        ON CONFLICT (conversation_id, path) DO UPDATE SET
+          bytes = EXCLUDED.bytes,
+          media_type = EXCLUDED.media_type,
+          size = EXCLUDED.size,
+          updated_at = now()
+      `;
+    });
   },
 
   async append(input: {
     conversationId: string;
     path: string;
     bytes: Uint8Array;
+    mediaType?: string;
     maxFileBytes?: number;
     maxConversationBytes?: number;
   }): Promise<void> {
-    const existing = await this.readAll({ conversationId: input.conversationId, path: input.path });
-    const merged = existing ? new Uint8Array([...existing, ...input.bytes]) : input.bytes;
-    await this.write({
-      conversationId: input.conversationId,
-      path: input.path,
-      bytes: merged,
-      maxFileBytes: input.maxFileBytes,
-      maxConversationBytes: input.maxConversationBytes,
+    const maxFile = input.maxFileBytes ?? AI_FILES_MAX_FILE_BYTES_DEFAULT;
+    const maxConversation = input.maxConversationBytes ?? AI_FILES_MAX_CONVERSATION_BYTES_DEFAULT;
+    await sql.begin(async (tx) => {
+      await tx`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      const current = await tx<{ size: number }[]>`
+        SELECT size FROM ai.files
+        WHERE conversation_id = ${input.conversationId} AND path = ${input.path}
+      `;
+      const nextSize = Number(current[0]?.size ?? 0) + input.bytes.byteLength;
+      if (nextSize > maxFile) {
+        throw new Error(`File exceeds the per-file limit of ${Math.floor(maxFile / (1024 * 1024))} MB.`);
+      }
+      const totals = await tx<{ total: number | string }[]>`
+        SELECT COALESCE(SUM(size), 0) AS total FROM ai.files WHERE conversation_id = ${input.conversationId}
+      `;
+      if (Number(totals[0]?.total ?? 0) + input.bytes.byteLength > maxConversation) {
+        throw new Error(`Conversation storage limit of ${Math.floor(maxConversation / (1024 * 1024))} MB exceeded.`);
+      }
+      await tx`
+        INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, updated_at)
+        VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, now())
+        ON CONFLICT (conversation_id, path) DO UPDATE SET
+          bytes = ai.files.bytes || EXCLUDED.bytes,
+          size = ai.files.size + EXCLUDED.size,
+          updated_at = now()
+      `;
     });
   },
 

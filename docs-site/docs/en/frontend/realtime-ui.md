@@ -77,4 +77,4 @@ server for a fresh authorized result.
 Do not keep the only copy of edits or selected resources in the socket client.
 
 For server event semantics, see
-[Topics and live events](/docs/en/automation/topics-and-live-events).
+[Topics and live events](/en/docs/automation/topics-and-live-events).

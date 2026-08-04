@@ -48,7 +48,7 @@ const TABS = [
   {
     id: "ai-skills",
     title: "AI Skills",
-    description: "Workspace skill catalog, code review queue, and audit log.",
+    description: "Create and maintain reusable workspace instructions for Assistant.",
     icon: "ti ti-wand",
     group: null,
   },

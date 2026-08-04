@@ -61,7 +61,7 @@ Confirm that:
 - the typed client uses the same API base URL;
 - the gateway rebuilt its route table after registration.
 
-See [Routing](/docs/en/build/routing).
+See [Routing](/en/docs/build/routing).
 
 ## Application cannot read settings
 
@@ -71,7 +71,7 @@ Then check the setting definition, stored value, environment fallback, and
 validation error. A changed secret can make existing encrypted values
 unreadable.
 
-See [Runtime configuration](/docs/en/operations/runtime-configuration).
+See [Runtime configuration](/en/docs/operations/runtime-configuration).
 
 ## Postgres or Valkey is unavailable
 
@@ -90,7 +90,7 @@ and requested permission.
 
 Do not debug authorization from display-only user group fields.
 
-See [Authorization](/docs/en/identity/authorization).
+See [Authorization](/en/docs/identity/authorization).
 
 ## Background work does not progress
 
@@ -99,7 +99,7 @@ active, and whether the latest trace is failed or stuck.
 
 Confirm that the process calls the matching lifecycle start method.
 
-See [Lifecycle background work](/docs/en/automation/lifecycle-background-work).
+See [Lifecycle background work](/en/docs/automation/lifecycle-background-work).
 
 ## Shutdown hangs
 
@@ -108,7 +108,7 @@ Find the stop hook that still accepts work or waits on an unbounded task.
 Close intake first. Stop readers and schedulers. Drain tracked work. Apply
 timeouts to external calls.
 
-See [Scaling and shutdown](/docs/en/operations/scaling-and-shutdown).
+See [Scaling and shutdown](/en/docs/operations/scaling-and-shutdown).
 
 ## Record the result
 

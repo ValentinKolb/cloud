@@ -581,10 +581,10 @@ export default function Calendar(props: CalendarProps) {
         onNavigateHref={props.onNavigateHref}
         onPrefetch={props.onPrefetch}
         navigationPending={props.navigationPending}
-        onEventClick={selectEvent}
+        onEventActivate={selectEvent}
         onEventDrop={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "move") : undefined}
         onEventResize={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "resize") : undefined}
-        onSlotClick={props.canWrite && !createEvent.loading() ? (slot) => createEvent.mutate(slot) : undefined}
+        onSlotActivate={props.canWrite && !createEvent.loading() ? (slot) => createEvent.mutate(slot) : undefined}
       />
     </div>
   );

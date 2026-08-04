@@ -268,5 +268,5 @@ Set `activate: false` for a stored draft that must not become live.
 The application owns workflow names and app-specific profile data. Store that
 data in the same transaction as kernel publication.
 
-Use [Start workflow runs](/docs/en/automation/emit-events-and-start-runs) after
+Use [Start workflow runs](/en/docs/automation/emit-events-and-start-runs) after
 publication.

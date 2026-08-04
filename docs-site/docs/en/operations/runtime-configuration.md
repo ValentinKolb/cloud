@@ -50,7 +50,7 @@ value on their next read.
 Use environment fallbacks only for first deployment or infrastructure-managed
 values. The setting remains the canonical product configuration.
 
-See [Settings](/docs/en/platform/settings) for declaration and request access.
+See [Settings](/en/docs/platform/settings) for declaration and request access.
 
 ## Set the public URL
 

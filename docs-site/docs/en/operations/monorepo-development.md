@@ -92,8 +92,13 @@ register application routes.
 
 ```bash
 bun run typecheck
-bun test
+bun run test
 ```
+
+The root test command runs every workspace in a separate process. It uses each
+package's `test` script when one exists, preserving package-specific builds,
+environment variables, browser conditions, and preloads. Workspaces without a
+test script and root-owned tests still run in isolated Bun test processes.
 
 For a focused package:
 
@@ -105,4 +110,4 @@ bun test packages/grids
 The root typecheck also verifies import boundaries, package cycles, service API
 contracts, shared UI coverage, CSS architecture, and formatting.
 
-See [Frontend testing](/docs/en/frontend/testing) for browser-facing checks.
+See [Frontend testing](/en/docs/frontend/testing) for browser-facing checks.

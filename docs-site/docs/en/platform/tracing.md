@@ -15,7 +15,7 @@ Use a trace when several steps belong to one operation.
 A trace groups spans and events under one trace ID. It records timing, status,
 and safe attributes. Cloud stores the result for the operations interface.
 
-Use [structured logging](/docs/en/platform/logging) for an independent event.
+Use [structured logging](/en/docs/platform/logging) for an independent event.
 Use a trace for a request, job, schedule, notification, or other operation with
 a start and an end.
 
@@ -78,7 +78,7 @@ Severities are `debug`, `info`, `warn`, and `error`. Recording an event does not
 finish the span.
 
 Calling `record()` without a context or `spanKey` creates and immediately ends
-a standalone span. Prefer [logging](/docs/en/platform/logging) when the event
+a standalone span. Prefer [logging](/en/docs/platform/logging) when the event
 does not need trace semantics.
 
 ## Control the lifecycle
@@ -117,5 +117,5 @@ Trace writes are operational telemetry. Write failures are reported to the
 process console and do not replace application error handling.
 
 Do not use traces as business records. Store domain facts in the application
-database. Use [audit events](/docs/en/platform/audit-events) for durable
+database. Use [audit events](/en/docs/platform/audit-events) for durable
 security evidence.

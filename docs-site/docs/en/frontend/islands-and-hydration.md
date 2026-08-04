@@ -70,5 +70,5 @@ increase bundle size and make server and browser ownership unclear.
 
 Do not nest an island import inside another island or client component.
 
-See [Browser clients and mutations](/docs/en/frontend/browser-clients-and-mutations)
+See [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations)
 for server calls from an island.

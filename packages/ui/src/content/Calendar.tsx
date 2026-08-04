@@ -102,12 +102,15 @@ export type CalendarProps = {
   navigationPending?: boolean;
   onViewChange?: (view: CalendarView) => void;
   onDateChange?: (date: Date, view: CalendarView) => void;
-  onEventClick?: (event: CalendarEvent) => void;
+  /** One activation contract for pointer and keyboard input. */
+  onEventActivate?: (event: CalendarEvent) => void;
+  /** Pointer gesture used for activation. Keyboard activation is always immediate. */
+  eventActivation?: "single" | "double";
   onEventDrop?: (event: CalendarEvent, next: CalendarEventTimeChange) => void;
   onEventResize?: (event: CalendarEvent, next: CalendarEventTimeChange) => void;
-  onEventDoubleClick?: (event: CalendarEvent) => void;
-  onSlotClick?: (slot: CalendarEventTimeChange) => void;
-  onSlotDoubleClick?: (slot: CalendarEventTimeChange) => void;
+  onSlotActivate?: (slot: CalendarEventTimeChange) => void;
+  /** Pointer gesture used for empty slots. Keyboard activation is always immediate. */
+  slotActivation?: "single" | "double";
   toolbarActions?: JSX.Element;
   toolbarContent?: JSX.Element;
   class?: string;
@@ -347,7 +350,7 @@ const EventChip = (props: {
           ...(selected() ? { "box-shadow": `0 0 0 2px color-mix(in srgb, ${props.event.colorHex} 78%, transparent)` } : {}),
         }
       : undefined;
-  const isInteractive = () => Boolean(props.owner.onEventClick || props.owner.onEventDoubleClick);
+  const isInteractive = () => Boolean(props.owner.onEventActivate);
   const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
@@ -374,43 +377,28 @@ const EventChip = (props: {
     </>
   );
   const content = () => renderedEvent() ?? defaultContent;
-  let clickTimer: ReturnType<typeof setTimeout> | undefined;
   let suppressClickUntil = 0;
-  onCleanup(() => {
-    if (clickTimer) clearTimeout(clickTimer);
-  });
   const onClick = (event: MouseEvent) => {
     if (performance.now() < suppressClickUntil) {
       event.preventDefault();
       event.stopPropagation();
       return;
     }
-    if (!props.owner.onEventClick) return;
+    if (!props.owner.onEventActivate || props.owner.eventActivation === "double") return;
     event.preventDefault();
     event.stopPropagation();
-    if (clickTimer) clearTimeout(clickTimer);
-    clickTimer = setTimeout(
-      () => {
-        clickTimer = undefined;
-        props.owner.onEventClick?.(props.event);
-      },
-      props.owner.onEventDoubleClick ? 220 : 0,
-    );
+    props.owner.onEventActivate(props.event);
   };
   const onDoubleClick = (event: MouseEvent) => {
-    if (!props.owner.onEventDoubleClick) return;
+    if (!props.owner.onEventActivate || props.owner.eventActivation !== "double") return;
     event.preventDefault();
     event.stopPropagation();
-    if (clickTimer) {
-      clearTimeout(clickTimer);
-      clickTimer = undefined;
-    }
-    props.owner.onEventDoubleClick(props.event);
+    props.owner.onEventActivate(props.event);
   };
   const onButtonKeyDown = (event: KeyboardEvent) => {
     if (!isInteractive() || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault();
-    (props.owner.onEventClick ?? props.owner.onEventDoubleClick)?.(props.event);
+    props.owner.onEventActivate?.(props.event);
   };
   const onPointerDown = (event: PointerEvent) => {
     if (event.pointerType === "touch") return;
@@ -469,16 +457,27 @@ const EventChip = (props: {
 };
 
 const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTimeChange, suppressed?: () => boolean) => {
-  const isSlotChild = (event: MouseEvent) =>
+  const isSlotChild = (event: Event) =>
     event.target instanceof Element && Boolean(event.target.closest("a,button,[data-calendar-event]"));
+  const interactive = Boolean(owner.onSlotActivate);
+  const activate = (event: Event) => {
+    if (!owner.onSlotActivate || isSlotChild(event) || suppressed?.()) return;
+    event.preventDefault();
+    owner.onSlotActivate(slot());
+  };
   return {
+    role: interactive ? ("button" as const) : undefined,
+    tabIndex: interactive ? 0 : undefined,
     onClick: (event: MouseEvent) => {
-      if (!owner.onSlotClick || isSlotChild(event) || suppressed?.()) return;
-      owner.onSlotClick(slot());
+      if (owner.slotActivation === "double") return;
+      activate(event);
     },
     onDblClick: (event: MouseEvent) => {
-      if (!owner.onSlotDoubleClick || isSlotChild(event) || suppressed?.()) return;
-      owner.onSlotDoubleClick(slot());
+      if (owner.slotActivation !== "double") return;
+      activate(event);
+    },
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") activate(event);
     },
   };
 };
@@ -818,7 +817,7 @@ const MonthView = (props: {
                     data-drop-preview={
                       movePreview()?.start && calendar.formatDateKey(movePreview()!.start, dateConfig()) === dayKey ? "true" : undefined
                     }
-                    data-interactive={props.owner.onSlotClick || props.owner.onSlotDoubleClick ? "true" : undefined}
+                    data-interactive={props.owner.onSlotActivate ? "true" : undefined}
                     {...slotInteractionProps(
                       props.owner,
                       () => {
@@ -1011,7 +1010,7 @@ const TimeGridView = (props: {
     });
   };
   const startRange = (pointerEvent: PointerEvent) => {
-    if (!props.owner.onSlotClick || pointerEvent.pointerType === "touch") return;
+    if (!props.owner.onSlotActivate || pointerEvent.pointerType === "touch") return;
     const anchor = timeAtPoint(pointerEvent.clientX, pointerEvent.clientY);
     if (!anchor) return;
     beginInteraction({
@@ -1030,7 +1029,7 @@ const TimeGridView = (props: {
       onPreview: setTimePreview,
       onCommit: (next) => {
         clearInteraction();
-        props.owner.onSlotClick?.(next);
+        props.owner.onSlotActivate?.(next);
       },
       onCancel: clearInteraction,
     });
@@ -1157,7 +1156,7 @@ const TimeGridView = (props: {
                   data-drop-preview={
                     timePreview()?.allDay && calendar.formatDateKey(timePreview()!.start, dateConfig()) === dayKey ? "true" : undefined
                   }
-                  data-interactive={props.owner.onSlotClick || props.owner.onSlotDoubleClick ? "true" : undefined}
+                  data-interactive={props.owner.onSlotActivate ? "true" : undefined}
                   {...slotInteractionProps(
                     props.owner,
                     () => {
@@ -1246,7 +1245,7 @@ const TimeGridView = (props: {
                       <div
                         class="k2b-calendar-time-grid__slot"
                         data-outside-business={hour < businessStartHour() || hour > businessEndHour() ? "true" : undefined}
-                        data-interactive={props.owner.onSlotClick || props.owner.onSlotDoubleClick ? "true" : undefined}
+                        data-interactive={props.owner.onSlotActivate ? "true" : undefined}
                         {...slotInteractionProps(
                           props.owner,
                           () => {

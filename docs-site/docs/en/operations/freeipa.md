@@ -178,5 +178,5 @@ Before enabling user traffic:
 7. inspect audit events;
 8. test behavior while FreeIPA is unavailable.
 
-See [Authentication](/docs/en/identity/authentication) and
-[Identity and access](/docs/en/identity) for the resulting request identity.
+See [Authentication](/en/docs/identity/authentication) and
+[Identity and access](/en/docs/identity) for the resulting request identity.

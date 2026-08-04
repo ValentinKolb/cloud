@@ -28,7 +28,7 @@ Personal API keys use a user-delegated service account. Resource API keys use
 a resource-bound service account.
 
 Do not combine the delegated user's grants with the service account's grants.
-See [Resource authorization](/docs/en/identity/authorization#limit-resource-bound-credentials)
+See [Resource authorization](/en/docs/identity/authorization#limit-resource-bound-credentials)
 for the complete binding, grant, and scope check.
 
 ## Create a resource API key
@@ -170,7 +170,7 @@ and `resourceId`. Resolve the service-account grant and cap it with the
 credential scope. Scopes never create access.
 
 Use the canonical
-[resource-credential authorization recipe](/docs/en/identity/authorization#limit-resource-bound-credentials)
+[resource-credential authorization recipe](/en/docs/identity/authorization#limit-resource-bound-credentials)
 inside the permission-aware application service.
 
 ## Add the API-key UI

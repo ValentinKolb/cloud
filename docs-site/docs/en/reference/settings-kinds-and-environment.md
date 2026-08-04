@@ -99,5 +99,5 @@ Writes validate, encrypt, store, and invalidate the shared Valkey cache.
 Infrastructure variables such as `DATABASE_URL`, `REDIS_URL`, `APP_SECRET`,
 `APP_ID`, and `PORT` are not settings.
 
-See [Runtime configuration](/docs/en/operations/runtime-configuration) for
-their deployment contract and [Settings](/docs/en/platform/settings) for usage.
+See [Runtime configuration](/en/docs/operations/runtime-configuration) for
+their deployment contract and [Settings](/en/docs/platform/settings) for usage.

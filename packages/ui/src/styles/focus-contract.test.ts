@@ -135,7 +135,7 @@ describe("@k2b/ui focus and color contract", () => {
       ".k2b-ui .k2b-autocomplete__input",
       ".k2b-ui .k2b-markdown-editor__input",
       ".k2b-ui .k2b-combobox__input > input",
-      ".k2b-ui .k2b-tags-input > [contenteditable]",
+      ".k2b-ui .k2b-tags-input > input",
       ".k2b-ui .k2b-chat-composer__input textarea",
     ];
 
@@ -150,7 +150,7 @@ describe("@k2b/ui focus and color contract", () => {
   });
 
   test("keeps the tags editor geometry stable while its markup changes on focus", () => {
-    const selector = ".k2b-ui .k2b-tags-input > [contenteditable]";
+    const selector = ".k2b-ui .k2b-tags-input > input";
     const editableCss = rules
       .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
       .map((rule) => rule.body)

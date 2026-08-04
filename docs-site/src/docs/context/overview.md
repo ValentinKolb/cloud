@@ -6,11 +6,11 @@ operations contracts. Your application keeps its domain logic and release cycle.
 
 ## Start with a task
 
-1. [Build your first application](/docs/en/build/getting-started) to run a small
+1. [Build your first application](/en/docs/build/getting-started) to run a small
    service, register it, and handle one request.
-2. [Understand the platform model](/docs/en/overview) to see what Cloud owns and
+2. [Understand the platform model](/en/docs/overview) to see what Cloud owns and
    what remains inside an application.
-3. [Find a platform API](/docs/en/building-blocks) by matching an application
+3. [Find a platform API](/en/docs/building-blocks) by matching an application
    task to its public import and reference page.
 
 ## Browse the documentation
@@ -27,5 +27,5 @@ operations contracts. Your application keeps its domain logic and release cycle.
 ## Source formats
 
 Append `.md` to a documentation URL to read its Markdown source.
-[llms.txt](/docs/llms.txt) lists every visible page and
-[llms-full.txt](/docs/llms-full.txt) contains their Markdown.
+[llms.txt](/en/docs/llms.txt) lists every visible page and
+[llms-full.txt](/en/docs/llms-full.txt) contains their Markdown.

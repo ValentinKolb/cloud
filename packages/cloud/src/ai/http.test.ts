@@ -37,6 +37,13 @@ describe("AI HTTP input helpers", () => {
     ).toThrow();
   });
 
+  test("accepts one explicit skill id and rejects malformed ids", () => {
+    expect(
+      AiTurnInputSchema.parse({ message: "Use it", skillId: "11111111-1111-4111-8111-111111111111" }).skillId,
+    ).toBe("11111111-1111-4111-8111-111111111111");
+    expect(() => AiTurnInputSchema.parse({ message: "Use it", skillId: "meeting-summary" })).toThrow();
+  });
+
   test("steering is text-only and requires an idempotency key", () => {
     expect(AiSteerInputSchema.parse({ message: "  Change course  ", clientRequestId: "request-1" })).toEqual({
       message: "Change course",

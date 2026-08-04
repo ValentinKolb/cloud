@@ -20,7 +20,7 @@ Cloud stores the event and handles delivery, fallback, retries, and history.
 The application still decides when the domain event has happened.
 
 > A notification does not grant permission. Authorize the domain change before
-> sending it. See [Resource authorization](/docs/en/identity/authorization).
+> sending it. See [Resource authorization](/en/docs/identity/authorization).
 
 ## Notification model
 

@@ -30,6 +30,8 @@ COPY packages/tools/package.json packages/tools/
 COPY packages/ui/package.json packages/ui/
 COPY packages/venue/package.json packages/venue/
 COPY packages/weather/package.json packages/weather/
+COPY fixtures/ui-ssr/package.json fixtures/ui-ssr/
+COPY docs-site/package.json docs-site/
 
 # --ignore-scripts: skip postinstall hooks. The base image (oven/bun:1) already
 # ships bun, but `bun-plugin-tailwind` declares `bun >=1.0.0` as a peer dep, so

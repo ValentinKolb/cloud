@@ -31,7 +31,7 @@ export const app = defineApp({
 An API-only application needs only its API prefix. Applications with special
 public paths declare those exact paths.
 
-See [Route conventions](/docs/en/reference/route-conventions) for the standard
+See [Route conventions](/en/docs/reference/route-conventions) for the standard
 prefixes, reserved paths, and matching rules.
 
 > **Do not serve HTML below `/public`.** Cloud handles `/public/*` before the
@@ -97,7 +97,7 @@ bun run dev:status
 bun run dev:logs inventory
 ```
 
-See [Operations troubleshooting](/docs/en/operations/troubleshooting) for
+See [Operations troubleshooting](/en/docs/operations/troubleshooting) for
 registry and container failures.
 
 ## Protect the destination
@@ -107,7 +107,7 @@ request.
 
 Use:
 
-- [Route policies](/docs/en/identity/route-policies) for caller classes;
-- [Resource authorization](/docs/en/identity/authorization) for domain access;
-- [Public access](/docs/en/identity/public-and-anonymous-access) for anonymous
+- [Route policies](/en/docs/identity/route-policies) for caller classes;
+- [Resource authorization](/en/docs/identity/authorization) for domain access;
+- [Public access](/en/docs/identity/public-and-anonymous-access) for anonymous
   routes.

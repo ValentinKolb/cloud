@@ -1,7 +1,10 @@
-import { Button, IconButton, StructuredDataPreview, Tooltip } from "@k2b/ui";
+import { Button, IconButton, isStructuredDataValue, StructuredDataPreview, Tooltip, type StructuredDataValue } from "@k2b/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
 import DetailHero from "./DetailHero";
 import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
+
+const structuredData = (value: unknown, label: string): StructuredDataValue =>
+  isStructuredDataValue(value) ? value : { error: `${label} is not valid JSON.` };
 
 type SourceProps = {
   sourceId: string | null | undefined;
@@ -204,7 +207,7 @@ export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEv
         <StructuredDataPreview title="Dimensions" data={props.event.dimensions} empty="No dimensions." />
       </section>
       <section class="detail-section">
-        <StructuredDataPreview title="Payload" data={props.event.payload} empty="No payload." />
+        <StructuredDataPreview title="Payload" data={structuredData(props.event.payload, "Event payload")} empty="No payload." />
       </section>
     </div>
   </div>

@@ -28,7 +28,7 @@ Do not create an application synonym for an existing platform concept.
 
 An actor and access subject can differ.
 
-See [Identity and access](/docs/en/identity).
+See [Identity and access](/en/docs/identity).
 
 ## Application and runtime
 
@@ -70,7 +70,7 @@ Application services return `Result<T>`:
 Common error codes map to bad input, unauthenticated, forbidden, not found,
 conflict, dependency failure, and internal failure.
 
-See [Services and results](/docs/en/server/services-and-results).
+See [Services and results](/en/docs/server/services-and-results).
 
 ## Notification delivery
 
@@ -83,7 +83,7 @@ See [Services and results](/docs/en/server/services-and-results).
 | `suppressed` | Delivery was intentionally skipped |
 | `failed` | Delivery ended with an error |
 
-See [Notifications](/docs/en/platform/notifications).
+See [Notifications](/en/docs/platform/notifications).
 
 ## Workflow runs
 
@@ -99,7 +99,7 @@ See [Notifications](/docs/en/platform/notifications).
 
 Step planning can also report `planned`, `unsupported`, or `indeterminate`.
 
-See [Workflow overview](/docs/en/automation/workflow-overview).
+See [Workflow overview](/en/docs/automation/workflow-overview).
 
 ## AI turns
 
@@ -115,7 +115,7 @@ See [Workflow overview](/docs/en/automation/workflow-overview).
 The browser controller uses presentation states such as `streaming`,
 `stopping`, and `reconnecting`. These are UI states, not persisted turn states.
 
-See [Chat runtime](/docs/en/ai/chat-runtime-and-streaming).
+See [Chat runtime](/en/docs/ai/chat-runtime-and-streaming).
 
 ## Trace status
 
@@ -124,4 +124,4 @@ A trace span is `unset`, `ok`, or `error`.
 An open span past the abandonment threshold is reported as stuck. It is not
 still running merely because it has no end timestamp.
 
-See [Tracing](/docs/en/platform/tracing).
+See [Tracing](/en/docs/platform/tracing).

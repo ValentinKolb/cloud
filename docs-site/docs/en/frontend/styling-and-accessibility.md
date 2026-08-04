@@ -11,7 +11,7 @@ updated: 2026-07-27
 # Styling and accessibility
 
 Use shared components and semantic tokens before adding application CSS. Read
-the [shared component guidance](/docs/en/frontend#choose-shared-components)
+the [shared component guidance](/en/docs/frontend#choose-shared-components)
 before creating a local control.
 
 Cloud owns the visual language for surfaces, controls, status, spacing,
@@ -69,5 +69,5 @@ Review every changed surface in light and dark mode. Check focus, disabled,
 selected, hover, error, and empty states.
 
 Use automated accessibility checks as a baseline, then complete the keyboard
-flow manually. The [Frontend testing](/docs/en/frontend/testing) guide lists
+flow manually. The [Frontend testing](/en/docs/frontend/testing) guide lists
 the full verification pass.

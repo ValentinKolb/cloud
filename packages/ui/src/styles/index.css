@@ -3155,7 +3155,7 @@
   color: var(--k2b-focus-ring);
 }
 
-.k2b-ui .k2b-tags-input > [contenteditable] {
+.k2b-ui .k2b-tags-input > input {
   box-sizing: border-box;
   height: 2rem;
   /* Fills the row; a floor here would overflow the field in narrow columns. */
@@ -3178,7 +3178,7 @@
   scrollbar-width: none;
 }
 
-.k2b-ui .k2b-tags-input > [contenteditable]::-webkit-scrollbar {
+.k2b-ui .k2b-tags-input > input::-webkit-scrollbar {
   display: none;
 }
 
@@ -3192,14 +3192,22 @@
   align-items: center;
   gap: 0.25rem;
   /* Clicking a tag must land on the editable host so the caret is placed. */
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
   pointer-events: none;
+}
+
+.k2b-ui .k2b-tags-input:focus-within .k2b-tags-input__values,
+.k2b-ui .k2b-tags-input:not(:focus-within) > input {
+  display: none;
 }
 
 .k2b-ui .k2b-tags-input[data-disabled="true"] {
   opacity: 0.55;
 }
 
-.k2b-ui .k2b-tags-input[data-disabled="true"] > [contenteditable] {
+.k2b-ui .k2b-tags-input[data-disabled="true"] > input {
   cursor: not-allowed;
 }
 
@@ -5276,44 +5284,12 @@
   cursor: not-allowed;
 }
 
-/* Compact selection row: truncating copy, optional supporting text, and a
-   check marker pushed to the end. */
-.k2b-ui .k2b-select-chip__option-copy {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 0.0625rem;
-}
-
-.k2b-ui .k2b-select-chip__option .k2b-dropdown__copy {
-  display: grid;
-}
-
-.k2b-ui .k2b-select-chip__option-copy > span,
-.k2b-ui .k2b-select-chip__option-copy > small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.k2b-ui .k2b-select-chip__option-copy > small {
-  color: var(--k2b-text-muted);
-  font-size: 0.625rem;
-}
-
-.k2b-ui .k2b-select-chip > img,
-.k2b-ui .k2b-select-chip__option > img {
+.k2b-ui .k2b-select-chip > img {
   width: 1.125rem;
   height: 1.125rem;
   flex: 0 0 auto;
   border-radius: 0.25rem;
   object-fit: cover;
-}
-
-.k2b-ui .k2b-select-chip__check {
-  flex: 0 0 auto;
-  color: var(--k2b-action);
-  font-size: 0.75rem;
 }
 
 .k2b-ui .k2b-spotlight-button kbd {

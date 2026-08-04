@@ -629,22 +629,6 @@
 .k2b-ui .k2b-widget__chevron { flex: 0 0 auto; color: var(--k2b-text-muted); font-size: 0.75rem; transition: color 120ms ease; }
 .k2b-ui .k2b-widget__body { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 0; }
 
-/* ------------------------------------------------------------ WidgetCard -- */
-.k2b-ui .k2b-widget-card {
-  display: flex;
-  height: 18rem;
-  min-width: 0;
-  flex-direction: column;
-  padding: 1rem;
-  border: 1px solid var(--k2b-border);
-  border-radius: var(--k2b-radius-surface);
-  background: var(--k2b-surface);
-  box-shadow: none;
-}
-@media (min-width: 40rem) { .k2b-ui .k2b-widget-card { height: 20rem; } }
-.k2b-ui .k2b-widget-card__header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0; color: var(--k2b-text); font-size: 0.875rem; font-weight: 500; }
-.k2b-ui .k2b-widget-card__header i { color: var(--k2b-text-muted); }
-
 /* ------------------------------------------------------------ WidgetHero -- */
 .k2b-ui .k2b-widget-hero {
   display: flex;

@@ -1,42 +1,53 @@
-import { cp, mkdir, rm } from "fs/promises";
+import { cp, mkdir, mkdtemp, rename, rm, stat } from "fs/promises";
 import { join, resolve } from "path";
-import type { BunPlugin } from "bun";
+import { buildFibelStyles } from "@k2b/fibel/build";
 import { buildAssets } from "./build-assets";
+import { carryForwardSsrAssets } from "./build-output";
 import { plugin } from "./ssr";
 
 const root = resolve(import.meta.dir, "..");
 const dist = join(root, "dist");
-const workspaceRoot = resolve(root, "..");
-const solidServerRuntime: BunPlugin = {
-  name: "solid-server-runtime",
-  setup(build) {
-    build.onResolve({ filter: /^solid-js(?:\/.*)?$/ }, (args) => ({
-      path: Bun.resolveSync(args.path, workspaceRoot),
-    }));
-  },
-};
+const staging = await mkdtemp(join(root, ".dist-build-"));
+const previous = `${dist}.previous-${process.pid}`;
 
-await rm(dist, { recursive: true, force: true });
-await buildAssets();
+try {
+  await buildAssets();
 
-const fibelBuild = Bun.spawn(["bun", "x", "fibel", "build", "--config", "fibel.config.ts"], {
-  cwd: root,
-  stdout: "inherit",
-  stderr: "inherit",
-});
-if ((await fibelBuild.exited) !== 0) throw new Error("Fibel build failed.");
+  await buildFibelStyles(root, true);
 
-const result = await Bun.build({
-  entrypoints: [join(root, "src", "server.tsx")],
-  outdir: dist,
-  target: "bun",
-  naming: "server.js",
-  minify: true,
-  sourcemap: "linked",
-  plugins: [solidServerRuntime, plugin()],
-});
-if (!result.success) throw new AggregateError(result.logs, "Website server build failed.");
+  const result = await Bun.build({
+    entrypoints: [join(root, "src", "server.tsx")],
+    outdir: staging,
+    target: "bun",
+    naming: "server.js",
+    minify: true,
+    sourcemap: "linked",
+    plugins: [plugin()],
+  });
+  if (!result.success) throw new AggregateError(result.logs, "Website server build failed.");
 
-await mkdir(join(dist, "assets"), { recursive: true });
-await cp(join(root, "assets"), join(dist, "assets"), { recursive: true, force: true });
-console.log("Built Cloud website into docs-site/dist.");
+  await mkdir(join(staging, "assets"), { recursive: true });
+  await cp(join(root, "agent-skills"), join(staging, "agent-skills"), { recursive: true, force: true });
+  await cp(join(root, ".fibel"), join(staging, ".fibel"), { recursive: true, force: true });
+  await cp(join(root, "assets"), join(staging, "assets"), { recursive: true, force: true });
+  await carryForwardSsrAssets(dist, staging);
+
+  const hadPreviousBuild = await stat(dist).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    },
+  );
+  if (hadPreviousBuild) await rename(dist, previous);
+  try {
+    await rename(staging, dist);
+  } catch (error) {
+    if (hadPreviousBuild) await rename(previous, dist);
+    throw error;
+  }
+  await rm(previous, { recursive: true, force: true });
+  console.log("Built Cloud website into docs-site/dist.");
+} finally {
+  await rm(staging, { recursive: true, force: true });
+}

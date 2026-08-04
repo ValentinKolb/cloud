@@ -145,4 +145,4 @@ Avoid revealing private resource existence through different error detail.
 For a share link, use a single unavailable state when the resource is missing,
 the token is invalid, the token expired, or access was revoked.
 
-Continue with [Resource authorization](/docs/en/identity/authorization).
+Continue with [Resource authorization](/en/docs/identity/authorization).

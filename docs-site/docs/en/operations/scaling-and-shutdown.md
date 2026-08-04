@@ -28,8 +28,8 @@ Do not use process memory for:
 - application records;
 - authoritative presence.
 
-Use [Data](/docs/en/data) and
-[Automation](/docs/en/automation) for shared state.
+Use [Data](/en/docs/data) and
+[Automation](/en/docs/automation) for shared state.
 
 ## Application registration
 
@@ -91,7 +91,7 @@ workers and drains tracked tasks. `stopRuntimeResources()` attempts every
 cleanup function and combines failures.
 
 Background frameworks may also provide leases and retry. Follow their shutdown
-contract. See [Lifecycle background work](/docs/en/automation/lifecycle-background-work).
+contract. See [Lifecycle background work](/en/docs/automation/lifecycle-background-work).
 
 ## Set the termination window
 

@@ -163,7 +163,7 @@ export default function StandaloneUi() {
 
           <StructuredDataPreview title="Request" data={{ method: "GET", path: "/health", ok: true }} />
 
-          <MarkdownView html="<h2>Release notes</h2><p>Standalone rendering with no Cloud CSS.</p>" />
+          <MarkdownView trustedHtml="<h2>Release notes</h2><p>Standalone rendering with no Cloud CSS.</p>" />
 
           <DocNote title="Scoped styles" variant="tip">
             Everything on this page is styled by <code>@k2b/ui/styles.css</code> alone.

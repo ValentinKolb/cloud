@@ -71,4 +71,4 @@ For an API, these values must describe the same public path:
 
 For a page, align the declared route, Hono page mount, and navigation `href`.
 
-See [Routing](/docs/en/build/routing) for an application example.
+See [Routing](/en/docs/build/routing) for an application example.

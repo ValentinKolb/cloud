@@ -83,6 +83,6 @@ a model outside the application policy.
 Provider credentials are server-side settings. Never pass them to an island or
 store them in application data.
 
-See [Settings](/docs/en/platform/settings) for runtime configuration and
-[Runtime configuration](/docs/en/operations/runtime-configuration) for
+See [Settings](/en/docs/platform/settings) for runtime configuration and
+[Runtime configuration](/en/docs/operations/runtime-configuration) for
 deployment responsibilities.

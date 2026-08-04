@@ -8,6 +8,7 @@
     "packages/accounts",
     "packages/api-docs",
     "packages/assistant",
+    "packages/capabilities",
     "packages/cloud",
     "packages/contacts",
     "packages/core",
@@ -63,7 +64,8 @@
     "check:cycles": "CHECK_APPS_CYCLES=1 bun run scripts/check-cycles.ts",
     "check:cycles:core": "bun run scripts/check-cycles.ts",
     "check:service-api-contracts": "bun run scripts/check-service-api-contracts.ts",
-    "check:css": "bun run scripts/check-css-architecture.ts"
+    "check:css": "bun run scripts/check-css-architecture.ts",
+    "test": "bun run scripts/run-tests.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",

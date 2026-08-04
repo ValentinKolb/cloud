@@ -594,7 +594,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                     visibleEndHour={20}
                     getViewHref={(nextView) => calendarHref(nextView, calendarDate())}
                     getDateHref={(nextDate, nextView) => calendarHref(nextView, nextDate)}
-                    onEventDoubleClick={(event) => {
+                    eventActivation="double"
+                    onEventActivate={(event) => {
                       const slot = slotByKey().get(event.id);
                       if (slot) void signupFromCalendar(slot);
                     }}

@@ -4,20 +4,19 @@
  * without it every renderer is read-only. IDE-style chrome: editors reuse
  * the markdown editor's surface (toolbar with an in-toolbar save, Ctrl/Cmd+S),
  * previews are quiet paper panels with icon-only actions overlaid top-right.
- * Custom renderers (e.g. office previews in a future Files app) register via
- * registerFileViewRenderer.
+ * Custom renderers are passed per instance, which keeps SSR requests and
+ * independently mounted applications isolated.
  */
 
 import { mutation } from "@k2b/stdlib/solid";
-import { type Component, createMemo, createResource, createSignal, For, type JSX, Match, Show, Switch, untrack } from "solid-js";
-import { marked } from "marked";
+import { type Component, createEffect, createMemo, createResource, createSignal, For, type JSX, Match, Show, Switch, untrack } from "solid-js";
 import { MarkdownEditor } from "../inputs/markdown/MarkdownEditor";
 import { toast } from "../feedback/toast";
 import CodeDisplay, { type CodeDisplayLanguage } from "./CodeDisplay";
 import { type FileViewFile, fileViewExtension, getFileViewPreviewKind, parseDelimitedText } from "./file-view-preview";
 import MarkdownView from "./MarkdownView";
 import Placeholder from "../surfaces/Placeholder";
-import StructuredDataPreview from "./StructuredDataPreview";
+import StructuredDataPreview, { type StructuredDataValue } from "./StructuredDataPreview";
 
 export type { FileViewFile, FileViewPreviewKind } from "./file-view-preview";
 export { canPreviewFile, getFileViewPreviewKind } from "./file-view-preview";
@@ -33,6 +32,10 @@ export type FileViewProps = {
   /** Authenticated inline URL used by browser-native image, PDF, audio, and video previews. */
   previewHref?: string | null;
   downloadHref?: string | null;
+  /** App-specific renderers matched before the built-ins for this instance. */
+  renderers?: readonly FileViewRenderer[];
+  /** Reports local edit state so a parent browser can guard navigation. */
+  onDirtyChange?: (dirty: boolean) => void;
   class?: string;
 };
 
@@ -71,8 +74,6 @@ const codeLanguage = (path: string): CodeDisplayLanguage => {
 
 const isMarkdown = (file: FileViewFile, content: FileViewContent) =>
   content.encoding === "utf8" && getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "markdown";
-
-const renderMarkdown = (value: string): string => marked.parse(value, { async: false }) as string;
 
 /** Rendered previews hide a leading YAML frontmatter block — it's metadata, not content. */
 const stripFrontmatter = (text: string): string => {
@@ -164,7 +165,7 @@ function MarkdownRenderer(props: FileViewRendererProps) {
           }
         >
           <div class="k2b-content-file-view__document">
-            <MarkdownView html={renderMarkdown(stripFrontmatter(props.editor?.draft() ?? props.content.content))} smallHeadings />
+            <MarkdownView markdown={stripFrontmatter(props.editor?.draft() ?? props.content.content)} smallHeadings />
           </div>
         </OverlayPanel>
       }
@@ -261,17 +262,21 @@ function TextRenderer(props: FileViewRendererProps) {
 function JsonRenderer(props: FileViewRendererProps) {
   const parsed = createMemo(() => {
     try {
-      return { ok: true as const, value: JSON.parse(props.content.content) as unknown };
+      return { ok: true as const, value: JSON.parse(props.content.content) as StructuredDataValue };
     } catch {
       return { ok: false as const };
     }
   });
+  const parsedValue = (): StructuredDataValue => {
+    const result = parsed();
+    return result.ok ? result.value : null;
+  };
 
   return (
     <OverlayPanel actions={downloadAction(props)}>
       <div class="k2b-content-file-view__document">
         <Show when={parsed().ok} fallback={<CodeDisplay code={props.content.content} language="text" />}>
-          <StructuredDataPreview data={parsed().ok ? parsed().value : null} maxRows={200} />
+          <StructuredDataPreview data={parsedValue()} maxRows={200} />
         </Show>
       </div>
     </OverlayPanel>
@@ -439,13 +444,6 @@ const BUILTIN_RENDERERS: FileViewRenderer[] = [
   { id: "binary", match: () => true, component: BinaryRenderer },
 ];
 
-const customRenderers: FileViewRenderer[] = [];
-
-/** Register an app-specific renderer — matched before the built-ins. */
-export const registerFileViewRenderer = (renderer: FileViewRenderer): void => {
-  customRenderers.push(renderer);
-};
-
 // ── Component ───────────────────────────────────────────────────────────────
 
 export const formatFileViewSize = (bytes: number): string => {
@@ -456,14 +454,16 @@ export const formatFileViewSize = (bytes: number): string => {
 
 export default function FileView(props: FileViewProps) {
   const [draft, setDraft] = createSignal("");
-  const [dirty, setDirty] = createSignal(false);
+  const [savedDraft, setSavedDraft] = createSignal("");
+  const dirty = createMemo(() => draft() !== savedDraft());
+  const instanceRenderers = () => props.renderers ?? [];
   const saveMutation = mutation.create<{ path: string; content: string }, { path: string; content: string }>({
     mutation: async (input) => {
       await props.save!(input.content);
       return input;
     },
     onSuccess: (saved) => {
-      if (props.file.path === saved.path && draft() === saved.content) setDirty(false);
+      if (props.file.path === saved.path) setSavedDraft(saved.content);
       toast.success("File saved");
     },
     onError: (error) => toast.error(error.message),
@@ -479,7 +479,7 @@ export default function FileView(props: FileViewProps) {
       content: "",
       mediaType: props.file.mediaType ?? "application/octet-stream",
     };
-    return customRenderers.some((renderer) => renderer.match(props.file, candidate)) ? null : candidate;
+    return instanceRenderers().some((renderer) => renderer.match(props.file, candidate)) ? null : candidate;
   });
   const [content] = createResource(
     () => (browserPreviewContent() ? null : { path: props.file.path, revision: props.revision }),
@@ -488,8 +488,9 @@ export default function FileView(props: FileViewProps) {
       // `load` is an imperative source adapter. Host signal reads inside it
       // must not turn this resource into a hidden reactive feedback loop.
       const loaded = await untrack(() => props.load());
-      setDraft(loaded.encoding === "utf8" ? loaded.content : "");
-      setDirty(false);
+      const loadedDraft = loaded.encoding === "utf8" ? loaded.content : "";
+      setDraft(loadedDraft);
+      setSavedDraft(loadedDraft);
       return loaded;
     },
   );
@@ -498,7 +499,11 @@ export default function FileView(props: FileViewProps) {
   const renderer = createMemo(() => {
     const loaded = resolvedContent();
     if (!loaded) return null;
-    return [...customRenderers, ...BUILTIN_RENDERERS].find((candidate) => candidate.match(props.file, loaded)) ?? null;
+    return [...instanceRenderers(), ...BUILTIN_RENDERERS].find((candidate) => candidate.match(props.file, loaded)) ?? null;
+  });
+
+  createEffect(() => {
+    props.onDirtyChange?.(dirty());
   });
 
   const save = async () => {
@@ -510,10 +515,7 @@ export default function FileView(props: FileViewProps) {
     props.save && renderer()?.editable && resolvedContent()?.encoding === "utf8"
       ? {
           draft,
-          setDraft: (value: string) => {
-            setDraft(value);
-            setDirty(true);
-          },
+          setDraft,
           dirty,
           saving: saveMutation.loading,
           save,

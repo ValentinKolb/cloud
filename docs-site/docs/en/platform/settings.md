@@ -53,7 +53,7 @@ export const app = defineApp({
 Choose the kind that matches the runtime value. Every definition requires
 `kind` and `default`.
 
-[Settings kinds and environment](/docs/en/reference/settings-kinds-and-environment)
+[Settings kinds and environment](/en/docs/reference/settings-kinds-and-environment)
 lists every kind, field, validation rule, and environment option.
 
 ## Access settings
@@ -80,7 +80,7 @@ const api = new Hono<AppContext<typeof app>>()
 The object is read-only. Its values do not change during the request.
 
 Cloud does not add this middleware automatically. See
-[Request middleware](/docs/en/server/middleware) for the full middleware list
+[Request middleware](/en/docs/server/middleware) for the full middleware list
 and the recommended order.
 
 ## Access settings outside a request
@@ -106,8 +106,8 @@ keys and values of the wrong type.
 Declare each key once in the application that owns its behavior. Settings are
 runtime configuration, not domain records or per-user preferences.
 
-[Settings kinds and environment](/docs/en/reference/settings-kinds-and-environment)
+[Settings kinds and environment](/en/docs/reference/settings-kinds-and-environment)
 defines value resolution, environment bootstrap, validation, encryption, and
 every supported field. Use
-[Runtime configuration](/docs/en/operations/runtime-configuration) for
+[Runtime configuration](/en/docs/operations/runtime-configuration) for
 deployment-wide process variables such as `APP_SECRET`.

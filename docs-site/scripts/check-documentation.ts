@@ -29,6 +29,7 @@ const allowedSections = new Set([
   "AI",
   "Operations",
   "Reference",
+  "Contributing",
 ]);
 
 const errors: string[] = [];
@@ -83,11 +84,11 @@ const slugify = (heading: string): string =>
 
 const routeFor = (absolutePath: string): string => {
   const relative = path.relative(docsRoot, absolutePath).replaceAll(path.sep, "/").replace(/\.md$/, "");
-  if (relative === "index") return "/docs/en";
+  if (relative === "index") return "/en/docs";
   if (relative.endsWith("/index")) {
-    return `/docs/en/${relative.slice(0, -"/index".length)}`;
+    return `/en/docs/${relative.slice(0, -"/index".length)}`;
   }
-  return `/docs/en/${relative}`;
+  return `/en/docs/${relative}`;
 };
 
 const allFiles = await collectMarkdown(docsRoot);
@@ -182,10 +183,10 @@ for (const page of selectedPages) {
       errors.push(`${page.relativePath}: link text '${link[1]}' is not meaningful`);
     }
 
-    if (!href.startsWith("/docs/en")) continue;
+    if (!href.startsWith("/en/docs")) continue;
 
     const [rawTarget, rawFragment] = href.split("#", 2);
-    let targetRoute = rawTarget.replace(/\/+$/, "") || "/docs/en";
+    let targetRoute = rawTarget.replace(/\/+$/, "") || "/en/docs";
     if (targetRoute.endsWith(".markdown")) {
       targetRoute = targetRoute.slice(0, -".markdown".length);
     } else if (targetRoute.endsWith(".md")) {

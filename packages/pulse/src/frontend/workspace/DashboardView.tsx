@@ -1,4 +1,3 @@
-import { markdown } from "@valentinkolb/cloud/shared";
 import { Button, Chart, DataTable, MarkdownView, Select, TextInput } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { type Accessor, createMemo, For, Show } from "solid-js";
@@ -226,7 +225,7 @@ const MarkdownWidget = (props: { widget: PulseDashboardMarkdownWidget }) => (
         </Show>
       </div>
     </Show>
-    <MarkdownView html={markdown.render(props.widget.markdown)} smallHeadings class="text-sm" />
+    <MarkdownView markdown={props.widget.markdown} smallHeadings class="text-sm" />
   </article>
 );
 

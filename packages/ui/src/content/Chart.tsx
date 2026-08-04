@@ -73,6 +73,18 @@ import { positionTooltipSurface } from "../feedback/tooltip-position";
 /** All chart kinds shipped by `stdlib.charts`. */
 export type ChartKind = keyof typeof charts;
 
+export type ChartLabels = Partial<{
+  empty: string;
+  series: string;
+  interactiveMap: string;
+  interactiveTimeline: string;
+  interactiveLine: string;
+  zoomIn: string;
+  zoomOut: string;
+  resetMap: string;
+  resetTimeline: string;
+}>;
+
 /**
  * Per-kind props: `kind` discriminator + the exact options that
  * `charts.<kind>` accepts, **minus** `width` / `height` (the wrapper
@@ -85,6 +97,7 @@ export type ChartProps = {
     kind: K;
     class?: string;
     style?: JSX.CSSProperties | string;
+    labels?: ChartLabels;
   } & (K extends "stateTimeline"
     ? StateTimelineChartOptions
     : Omit<Parameters<(typeof charts)[K]>[0], "width" | "height"> & (K extends "map" | "line" ? { interactive?: boolean } : {}));
@@ -104,7 +117,7 @@ const renderSvg = (
   mapViewport?: MapViewport,
   timelineViewport?: StateTimelineDomain,
 ): string => {
-  const { kind, class: _class, style: _style, interactive: _interactive, ...opts } = props as ChartProps & { interactive?: boolean };
+  const { kind, class: _class, style: _style, labels: _labels, interactive: _interactive, ...opts } = props as ChartProps & { interactive?: boolean };
   if (kind === "stateTimeline") {
     return renderStateTimelineSvg({
       ...(opts as StateTimelineChartOptions),
@@ -191,6 +204,7 @@ const Chart = (props: ChartProps): JSX.Element => {
   const interactiveLine = () => props.kind === "line" && props.interactive === true;
   const interactive = () => interactiveMap() || interactiveTimeline() || interactiveLine();
   const draggable = () => interactiveMap() || interactiveTimeline();
+  const labels = () => props.labels ?? {};
   const timelineFullDomain = (): StateTimelineDomain =>
     props.kind === "stateTimeline" ? stateTimelineDomain(props.rows, props.domain) : [0, 1];
 
@@ -454,7 +468,7 @@ const Chart = (props: ChartProps): JSX.Element => {
         values.add(point.x);
         if (Number.isFinite(point.y) && !points.has(point.x)) points.set(point.x, point);
       }
-      return { label: entry.label ?? "Series", points };
+      return { label: entry.label ?? labels().series ?? "Series", points };
     });
     return { values: [...values].sort((left, right) => left - right), series };
   });
@@ -578,7 +592,7 @@ const Chart = (props: ChartProps): JSX.Element => {
       when={!isEmpty(props)}
       fallback={
         <div ref={containerRef} class={`k2b-chart k2b-chart__empty ${props.class ?? ""}`} style={chartStyle()}>
-          No data
+          {labels().empty ?? "No data"}
         </div>
       }
     >
@@ -600,11 +614,11 @@ const Chart = (props: ChartProps): JSX.Element => {
         aria-describedby={interactiveLine() && lineInspectionActive() ? chartTooltipId : undefined}
         aria-label={
           interactiveMap()
-            ? "Interactive map"
+            ? (labels().interactiveMap ?? "Interactive map")
             : interactiveTimeline()
-              ? "Interactive timeline"
+              ? (labels().interactiveTimeline ?? "Interactive timeline")
               : interactiveLine()
-                ? "Interactive line chart"
+                ? (labels().interactiveLine ?? "Interactive line chart")
                 : undefined
         }
         tabIndex={interactive() ? 0 : undefined}
@@ -646,8 +660,8 @@ const Chart = (props: ChartProps): JSX.Element => {
               type="button"
               class="k2b-button k2b-icon-button"
               data-variant="secondary"
-              aria-label="Zoom in"
-              title="Zoom in (+)"
+              aria-label={labels().zoomIn ?? "Zoom in"}
+              title={`${labels().zoomIn ?? "Zoom in"} (+)`}
               onClick={() => zoom(1)}
             >
               <i class="ti ti-plus" aria-hidden="true" />
@@ -656,8 +670,8 @@ const Chart = (props: ChartProps): JSX.Element => {
               type="button"
               class="k2b-button k2b-icon-button"
               data-variant="secondary"
-              aria-label="Zoom out"
-              title="Zoom out (-)"
+              aria-label={labels().zoomOut ?? "Zoom out"}
+              title={`${labels().zoomOut ?? "Zoom out"} (-)`}
               onClick={() => zoom(-1)}
             >
               <i class="ti ti-minus" aria-hidden="true" />
@@ -666,8 +680,8 @@ const Chart = (props: ChartProps): JSX.Element => {
               type="button"
               class="k2b-button k2b-icon-button"
               data-variant="secondary"
-              aria-label={interactiveMap() ? "Reset map view" : "Reset timeline view"}
-              title={interactiveMap() ? "Reset map view (0)" : "Reset timeline view (0)"}
+              aria-label={interactiveMap() ? (labels().resetMap ?? "Reset map view") : (labels().resetTimeline ?? "Reset timeline view")}
+              title={`${interactiveMap() ? (labels().resetMap ?? "Reset map view") : (labels().resetTimeline ?? "Reset timeline view")} (0)`}
               onClick={reset}
             >
               <i class="ti ti-focus-centered" aria-hidden="true" />

@@ -22,7 +22,8 @@ adds its domain-specific definition. Cloud runs the shared infrastructure.
 | One operation across boundaries | Span names, events, and safe attributes | Trace storage, timing, status, and operations views |
 | Security evidence | An action, outcome, actor, and target | Durable, sanitized audit storage |
 | User communication | Typed payloads and channel-neutral presentation | Preferences, channel routing, durable delivery, retries, and deduplication |
-| Global discovery | A permission-aware search provider | Query fan-out and shared search UI |
+| Cross-app and agent operations | Curated Types, Queries, and Actions | Live schemas, generic dispatch, CLI, and MCP tools |
+| Global discovery | One permission-aware Query projected into Universal Search | Provider discovery, query fan-out, and shared search UI |
 | Dashboard summaries | Authenticated JSON endpoints | Widget discovery, layout, and rendering |
 | Product guidance | Markdown help documents | Search, rendering, and the shared Help surface |
 | Documents | HTML or Liquid templates and data | Shared Gotenberg configuration and PDF limits |
@@ -32,9 +33,9 @@ These are runtime services, not code generators. They do not copy files into an
 application or take ownership of its domain model.
 
 Open the page for the service you need from the navigation. Use
-[Building blocks](/docs/en/building-blocks) when you know the task but not the
-service, or [API surface](/docs/en/reference/api-surface) to look up an import.
+[Building blocks](/en/docs/building-blocks) when you know the task but not the
+service, or [API surface](/en/docs/reference/api-surface) to look up an import.
 
 Request middleware and identity are separate application boundaries:
-[Request middleware](/docs/en/server/middleware) loads request context, while
-[Identity and access](/docs/en/identity) explains caller and resource checks.
+[Request middleware](/en/docs/server/middleware) loads request context, while
+[Identity and access](/en/docs/identity) explains caller and resource checks.

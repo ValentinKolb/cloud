@@ -1,6 +1,5 @@
 import {
   Widget,
-  WidgetCard,
   WidgetHero,
   WidgetList,
   WidgetPills,
@@ -15,7 +14,6 @@ const WidgetCompositionDemo = () => (
     id="widget-composition"
     chip={[
       { kind: "component", name: "Widget", from: "@k2b/ui" },
-      { kind: "component", name: "WidgetCard", from: "@k2b/ui" },
       { kind: "component", name: "WidgetHero", from: "@k2b/ui" },
       { kind: "component", name: "WidgetList", from: "@k2b/ui" },
       { kind: "component", name: "WidgetPills", from: "@k2b/ui" },
@@ -24,7 +22,7 @@ const WidgetCompositionDemo = () => (
     ]}
     description="Widgets compose server-rendered presentation blocks. Header, row, and pill links remain native and independently focusable."
     code={`import {
-  Widget, WidgetCard, WidgetHero, WidgetList,
+  Widget, WidgetHero, WidgetList,
   WidgetPills, WidgetStat, WidgetStatus,
 } from "@k2b/ui";
 
@@ -33,11 +31,7 @@ const WidgetCompositionDemo = () => (
   <WidgetList items={[{ label: "Review release notes", sub: "Platform", href: "/tasks/12" }]} />
   <WidgetStatus tone="success" title="All services operational" />
   <WidgetPills pills={[{ label: "Teams", value: 4, href: "/teams" }]} />
-</Widget>
-
-<WidgetCard title="Release" icon="rocket">
-  <WidgetHero title="Ready to ship" icon="ti ti-circle-check" tone="emerald" />
-</WidgetCard>`}
+</Widget>`}
   >
     <div class="ui-widget-demo">
       <Widget title="Workspace" meta="last 24h" icon="ti ti-layout-dashboard" href="#widget-composition">
@@ -67,9 +61,9 @@ const WidgetCompositionDemo = () => (
       <Widget title="Release" size="compact" icon="ti ti-rocket">
         <WidgetHero title="Ready to ship" subtitle="All required checks passed" icon="ti ti-circle-check" tone="emerald" />
       </Widget>
-      <WidgetCard title="Portable card" icon="layout-dashboard">
-        <WidgetHero title="Bring any content" subtitle="WidgetCard supplies only the frame." icon="ti ti-components" tone="blue" />
-      </WidgetCard>
+      <Widget title="Portable content" size="compact" icon="ti ti-components">
+        <WidgetHero title="Bring any content" subtitle="Widget supplies the shared frame." icon="ti ti-components" tone="blue" />
+      </Widget>
       <Widget title="Status vocabulary" size="content" icon="ti ti-heart-rate-monitor">
         <WidgetStatus tone="success" title="Operational" />
         <WidgetStatus tone="warning" title="Delayed" message="Samples are eight minutes old." />

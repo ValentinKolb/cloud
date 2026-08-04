@@ -4,7 +4,7 @@ import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
 import { isRenderableTurnBlock } from "../protocol";
-import { BashToolBlock, PresentToolBlock } from "./bash-tools";
+import { PresentToolBlock } from "./file-tools";
 import { useAiChatActions } from "./message-actions";
 import {
   displayToolName,
@@ -311,9 +311,6 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
       </Match>
       <Match when={props.block.presentation?.kind === "capability"}>
         <CapabilityToolView block={props.block} />
-      </Match>
-      <Match when={props.block.name === "bash"}>
-        <BashToolBlock block={props.block} />
       </Match>
       <Match when={props.block.name === "present"}>
         <PresentToolBlock block={props.block} />

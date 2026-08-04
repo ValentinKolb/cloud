@@ -1,6 +1,6 @@
 # Markdown content
 
-`MarkdownView` renders trusted, pre-rendered HTML with shared prose styles. `MarkdownEditor` owns interactive Markdown editing. The caller owns the Markdown source, HTML rendering, sanitization policy, and persistence.
+`MarkdownView` renders Markdown safely by default with shared prose styles. `MarkdownEditor` owns interactive Markdown editing. The caller owns the Markdown source and persistence.
 
 ## Use Markdown content
 
@@ -14,22 +14,24 @@ Use `MarkdownEditor` when the same surface also edits Markdown. Use the editor's
 import {
   MarkdownEditor,
   MarkdownView,
+  renderSafeMarkdown,
 } from "@k2b/ui";
 ```
 
 ## Render Markdown
 
-`MarkdownView` expects HTML, not Markdown:
+Pass untrusted Markdown directly:
 
 ```tsx
-const html = renderTrustedMarkdown(markdownSource);
-
-<MarkdownView html={html} />;
+<MarkdownView markdown={markdownSource} />;
 ```
 
-It writes `html` into the document and does not parse or sanitize it itself.
-Use an application-owned renderer and sanitize untrusted input before passing
-the result.
+Raw HTML and unsafe URL protocols are escaped. If an application already has
+sanitized, trusted HTML, cross the boundary explicitly with
+`trustedHtml={html}`. Never pass user-controlled HTML through that property.
+
+Use `renderSafeMarkdown(markdownSource)` only when a non-component boundary
+needs the same escaped HTML output. `MarkdownView` remains the normal UI API.
 
 The component does not impose a reading width. The parent owns width, scrolling, and surrounding layout.
 
@@ -37,11 +39,8 @@ Set `smallHeadings` for compact embedded content such as comments or table detai
 
 ## Editing and preview
 
-Keep the Markdown string as the source of truth. Derive preview HTML from that string instead of trying to reconstruct Markdown from rendered HTML.
-
-For a live client preview, call a browser-safe application renderer in a memo
-and pass the result to `MarkdownView`. Saving still belongs to the parent
-mutation or form.
+Keep the Markdown string as the source of truth and pass the same value to the
+editor and preview. Saving still belongs to the parent mutation or form.
 
 ## Accessibility
 
@@ -52,7 +51,7 @@ Preview and edit modes need visible names when both are present.
 
 ## Runtime
 
-`MarkdownView` is server-renderable and needs no hydration for ordinary HTML.
+`MarkdownView` is server-renderable and needs no hydration for ordinary Markdown.
 Optional client enhancements belong to the hydrated host.
 
 `MarkdownEditor` and a reactive live preview require hydration. The initial preview can still be rendered on the server from the initial Markdown value.
@@ -61,7 +60,6 @@ Optional client enhancements belong to the hydrated host.
 
 ```tsx
 const [source, setSource] = createSignal("# Release notes");
-const html = createMemo(() => renderTrustedMarkdown(source()));
 
 <div class="app-markdown-split">
   <MarkdownEditor
@@ -72,7 +70,7 @@ const html = createMemo(() => renderTrustedMarkdown(source()));
   />
 
   <section aria-label="Release notes preview">
-    <MarkdownView html={html()} />
+    <MarkdownView markdown={source()} />
   </section>
 </div>
 ```

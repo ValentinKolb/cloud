@@ -52,10 +52,10 @@ export default await app.start({
 | `skipSetup` | No | `false` | Skip the `setup` hook |
 
 Search is the supported start-time capability. See
-[Universal search](/docs/en/platform/search).
+[Universal search](/en/docs/platform/search).
 
 OpenAPI also needs the document path declared in `defineApp()`. See
-[Typed HTTP APIs](/docs/en/server/http#publish-openapi).
+[Typed HTTP APIs](/en/docs/server/http#publish-openapi).
 
 ## Lifecycle hooks
 
@@ -95,7 +95,7 @@ setup: async () => {
 ```
 
 Make setup work safe to run more than once. See
-[Migrations and transactions](/docs/en/data/migrations-and-transactions).
+[Migrations and transactions](/en/docs/data/migrations-and-transactions).
 
 `skipSetup: true` prevents the hook from running. Use it only when another
 controlled process already prepared the required state. It must not hide a
@@ -119,7 +119,7 @@ start: async () => {
 },
 ```
 
-See [Lifecycle background work](/docs/en/automation/lifecycle-background-work).
+See [Lifecycle background work](/en/docs/automation/lifecycle-background-work).
 
 ## Stop in reverse order
 
@@ -137,7 +137,7 @@ stop: async () => {
 After the hook, Cloud removes notification registration. It then stops the
 runtime watcher and removes the application registry entry.
 
-See [Scaling and shutdown](/docs/en/operations/scaling-and-shutdown) for
+See [Scaling and shutdown](/en/docs/operations/scaling-and-shutdown) for
 deployment behavior and shutdown deadlines.
 
 ## Lifecycle context
@@ -161,8 +161,8 @@ The context contains:
 - a snapshot of registered applications.
 
 Request handlers should use request middleware instead. See
-[Settings](/docs/en/platform/settings) and
-[Request middleware](/docs/en/server/middleware).
+[Settings](/en/docs/platform/settings) and
+[Request middleware](/en/docs/server/middleware).
 
 ## Startup order
 

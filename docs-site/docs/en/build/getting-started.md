@@ -20,7 +20,7 @@ GET /api/inventory/health
 
 Use this path for a built-in application. A standalone project uses the same
 application code but different deployment wiring. See
-[Choose the project shape](/docs/en/build#choose-the-project-shape).
+[Choose the project shape](/en/docs/build#choose-the-project-shape).
 
 ## Prepare the checkout
 
@@ -92,7 +92,7 @@ serve pages or assets yet.
 The application ID is stable. `baseUrl` must resolve from the gateway
 container. The `routes` array controls which public paths reach the service.
 
-See [Define an application](/docs/en/build/define-app) for the complete
+See [Define an application](/en/docs/build/define-app) for the complete
 definition.
 
 ## Serve the route
@@ -118,7 +118,7 @@ export default await app.start({
 `app.start()` does not create Hono routes or add middleware. This endpoint does
 not need request context, so the router stays empty apart from the route.
 
-Add [request middleware](/docs/en/server/middleware) when the application needs
+Add [request middleware](/en/docs/server/middleware) when the application needs
 identity, settings, logging, or rate limits.
 
 ## Add the development service
@@ -178,7 +178,7 @@ The response is:
 
 If the gateway returns `502` because no application is registered for the
 path, follow
-[Diagnose an unreachable route](/docs/en/build/routing#diagnose-an-unreachable-route).
+[Diagnose an unreachable route](/en/docs/build/routing#diagnose-an-unreachable-route).
 
 A `404` means the gateway reached the application, but its Hono router did not
 match the requested path.
@@ -223,9 +223,9 @@ inputs into domain services instead of passing a Hono context.
 
 ## Next capabilities
 
-- [Protect routes and resources](/docs/en/identity).
-- [Define typed HTTP APIs](/docs/en/server/http).
-- [Store domain data](/docs/en/data/postgres-queries).
-- [Add SSR pages](/docs/en/frontend/ssr-pages-and-routing).
-- [Declare settings](/docs/en/platform/settings).
-- [Run setup and background work](/docs/en/build/lifecycle).
+- [Protect routes and resources](/en/docs/identity).
+- [Define typed HTTP APIs](/en/docs/server/http).
+- [Store domain data](/en/docs/data/postgres-queries).
+- [Add SSR pages](/en/docs/frontend/ssr-pages-and-routing).
+- [Declare settings](/en/docs/platform/settings).
+- [Run setup and background work](/en/docs/build/lifecycle).

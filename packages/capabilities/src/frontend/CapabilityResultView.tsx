@@ -1,4 +1,4 @@
-import { CopyButton, Disclosure, IconButtonLink, Placeholder, StructuredDataPreview } from "@k2b/ui";
+import { CopyButton, Disclosure, IconButtonLink, isStructuredDataValue, Placeholder, StructuredDataPreview } from "@k2b/ui";
 import type {
   CapabilityPage,
   CapabilitySemanticLink,
@@ -208,7 +208,13 @@ export default function CapabilityResultView(props: {
     <div class="flex flex-col gap-4">
       <Show
         when={searchItems()}
-        fallback={<StructuredDataPreview title="Data" data={props.data} empty="The capability returned no data." />}
+        fallback={
+          <StructuredDataPreview
+            title="Data"
+            data={isStructuredDataValue(props.data) ? props.data : { error: "Capability data is not valid JSON." }}
+            empty="The capability returned no data."
+          />
+        }
       >
         {(items) => <UniversalSearchResults items={items()} />}
       </Show>

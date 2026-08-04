@@ -12,7 +12,6 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { Widget } = await import("./Widget");
-const { WidgetCard } = await import("./WidgetCard");
 const { WidgetHero } = await import("./WidgetHero");
 const { WidgetList } = await import("./WidgetList");
 const { WidgetPills } = await import("./WidgetPills");
@@ -40,26 +39,6 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
     expect(html).toContain('href="/operations" class="k2b-widget__header"');
     expect(html).toContain('href="/jobs?state=failed"');
     expect(html.indexOf('</a><div class="k2b-widget__body">')).toBeGreaterThan(-1);
-  });
-
-  test("renders the prefixed WidgetCard icon and tone-based hero", () => {
-    const card = renderToString(() =>
-      createComponent(WidgetCard, {
-        title: "Custom",
-        icon: "layout",
-        children: createComponent(WidgetHero, {
-          title: "All clear",
-          subtitle: "No pending work",
-          icon: "ti ti-circle-check",
-          tone: "emerald",
-        }),
-      }),
-    );
-
-    expect(card).toContain("k2b-widget-card");
-    expect(card).toContain('class="ti ti-layout"');
-    expect(card).toContain("k2b-widget-hero");
-    expect(card).toContain('data-tone="emerald"');
   });
 
   test("renders list subtext, empty state, tone, links, and grow behavior", () => {
@@ -123,7 +102,6 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
   test("keeps the widget chrome Cloud actually paints", () => {
     expect(parityCss).toMatch(/\.k2b-widget__icon \{[^}]*background: transparent/);
     expect(parityCss).toContain(".k2b-ui a.k2b-widget__header:hover { background: transparent; }");
-    expect(parityCss).toMatch(/\.k2b-widget-card \{[^}]*border-radius: var\(--k2b-radius-surface\)/);
     // WidgetStatus is a full-bleed banner; `error` is the one untinted tone.
     expect(parityCss).toContain('.k2b-widget-status[data-tone="danger"] { color: #991b1b; background: transparent; }');
     expect(parityCss).toMatch(/\.k2b-widget-status \{[^}]*border-radius: 0/);
@@ -147,7 +125,6 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
           },
         }),
       ),
-      renderToString(() => createComponent(WidgetCard, { title: "C", icon: "layout", children: null })),
       renderToString(() => createComponent(WidgetList, { items: [{ label: "L", sub: "s", meta: "m", icon: "ti ti-x", href: "/x" }] })),
       renderToString(() => createComponent(WidgetList, { items: [] })),
       renderToString(() => createComponent(WidgetPills, { pills: [{ label: "P", value: 1, tone: "red", href: "/p" }] })),

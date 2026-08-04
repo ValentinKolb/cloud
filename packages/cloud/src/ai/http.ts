@@ -38,6 +38,7 @@ export const AiTurnInputSchema = z
     message: z.string().trim().max(20000).optional(),
     content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
     modelProfileId: z.string().trim().min(1).optional(),
+    skillId: z.uuid().optional(),
   })
   .refine((input) => Boolean(input.message?.trim() || input.content?.length), {
     message: "Message or content is required.",
@@ -64,6 +65,7 @@ export const AiMessageRetryInputSchema = z.object({
   mode: AiMessageRetryModeSchema.default("retry"),
   content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
   modelProfileId: z.string().trim().min(1).optional(),
+  skillId: z.uuid().optional(),
 });
 
 export type AiMessageRetryInput = z.infer<typeof AiMessageRetryInputSchema>;

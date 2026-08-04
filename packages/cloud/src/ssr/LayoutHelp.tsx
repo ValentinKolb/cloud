@@ -784,7 +784,7 @@ const HelpShell = (props: {
                       </Show>
                       <div class="help-article-copy">
                         <div ref={articleContent}>
-                          <MarkdownView html={document().html} class="help-document" />
+                          <MarkdownView trustedHtml={document().html} class="help-document" />
                         </div>
                         <TopicNavigation />
                       </div>

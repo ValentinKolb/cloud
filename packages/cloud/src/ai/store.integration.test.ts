@@ -148,14 +148,14 @@ suite("AI conversation store integration", () => {
 
       await store.append({
         role: "assistant",
-        content: [{ type: "tool_call", id: "bash-1", name: "bash", args: { command: "build-report" } }],
+        content: [{ type: "tool_call", id: "read-file-1", name: "read_file", args: { path: "/input/report.txt" } }],
         usage: { input: 8_598, output: 118, total: 8_716 },
         stopReason: "tool_use",
       });
       await store.append({
         role: "tool_result",
-        callId: "bash-1",
-        name: "bash",
+        callId: "read-file-1",
+        name: "read_file",
         result: { stdout: "full output", stderr: "", exitCode: 0 },
         historicalResult: {
           originLoopId: "loop-1",

@@ -3,8 +3,8 @@
 One Bun service exposes the complete public website:
 
 - `/en` — marketing homepage
-- `/docs/en` — Fibel developer documentation
-- `/ui` — live examples imported from the Cloud UI source
+- `/en/docs` — Fibel developer documentation
+- `/en/ui` — live examples imported from the Cloud UI source
 - `/health` — container health endpoint
 
 ```bash

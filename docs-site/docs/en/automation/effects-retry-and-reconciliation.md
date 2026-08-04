@@ -34,7 +34,7 @@ Idempotent external work must pass `ctx.effectKey` to the provider or its own
 deduplication store.
 
 Run `authorize` immediately before an effect when access may have changed. See
-[Resource authorization](/docs/en/identity/authorization).
+[Resource authorization](/en/docs/identity/authorization).
 
 ## Return an action result
 
@@ -63,7 +63,7 @@ On replay, the kernel calls the action's `reconcile` hook. It returns
 An unknown effect moves the run to `needs_attention`. An operator must resolve
 it. The kernel never repeats an effect that may already have happened.
 
-See [Workflow observability and testing](/docs/en/automation/workflow-observability-and-testing#resolve-a-run-that-needs-attention)
+See [Workflow observability and testing](/en/docs/automation/workflow-observability-and-testing#resolve-a-run-that-needs-attention)
 for the resolution API.
 
 ## Understand recovery

@@ -47,7 +47,7 @@ const normalizeDataBoundary = (boundary: (typeof DATA_BOUNDARY_INPUTS)[number] |
 const isModelCapability = (value: string): value is AiModelCapability => AI_MODEL_CAPABILITIES.some((capability) => capability === value);
 
 // Keep in sync with the ai.max_tool_result_chars default in settings/defaults.ts.
-// Long chats live or die on tool results (web extracts, bash output) surviving
+// Long chats live or die on tool results (web extracts, file reads) surviving
 // into context — 2k proved too aggressive a cut.
 const DEFAULT_MAX_TOOL_RESULT_CHARS = 8_000;
 

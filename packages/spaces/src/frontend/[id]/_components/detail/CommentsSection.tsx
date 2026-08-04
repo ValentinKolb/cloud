@@ -1,7 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Avatar, Button, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
-import { markdown } from "@valentinkolb/cloud/shared";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
@@ -169,7 +168,7 @@ export default function CommentsSection(props: Props) {
                       </Show>
                     </div>
                     <div class="mt-1">
-                      <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
+                      <MarkdownView markdown={comment.content} smallHeadings class="text-sm" />
                     </div>
                   </div>
                 </li>

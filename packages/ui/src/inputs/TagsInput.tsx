@@ -1,7 +1,7 @@
-import { createUniqueId, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, createUniqueId, type JSX, Show } from "solid-js";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import type { ValueFieldProps } from "./field-contract";
-import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
+import { resolveMaybeAccessor } from "./field-contract";
 
 export type TagsInputProps = ValueFieldProps<string[]> & {
   placeholder?: string;
@@ -14,9 +14,10 @@ export type TagsInputProps = ValueFieldProps<string[]> & {
 export function TagsInput(props: TagsInputProps): JSX.Element {
   const meta = createFieldMeta(props.id);
   const announcementId = `k2b-tags-${createUniqueId()}`;
-  const value = () => resolveMaybeAccessor(props.value) ?? [];
   const error = () => resolveMaybeAccessor(props.error);
   const placeholder = () => props.placeholder ?? "Tags (e.g. Tag 1, Tag 2,...)";
+  const [focused, setFocused] = createSignal(false);
+  let focusStartValue: readonly string[] = [];
   const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
   const parseTags = (text: string): string[] => {
     const tags: string[] = [];
@@ -31,12 +32,22 @@ export function TagsInput(props: TagsInputProps): JSX.Element {
     }
     return tags;
   };
-  const escapeHtml = (text: string) =>
-    text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-  const renderTags = (tags: readonly string[]) =>
-    tags.length === 0
-      ? `<span class="k2b-tags-input__placeholder">${escapeHtml(placeholder())}</span>`
-      : `<span class="k2b-tags-input__values" contenteditable="false">${tags.map((tag) => `<span class="k2b-tag">${escapeHtml(tag.trim())}</span>`).join("")}</span>`;
+  const value = () => parseTags((resolveMaybeAccessor(props.value) ?? []).join(","));
+  const [draft, setDraft] = createSignal(value().join(", "));
+  createEffect(() => {
+    if (!focused()) setDraft(value().join(", "));
+  });
+
+  const announce = (previous: readonly string[], next: readonly string[]) => {
+    const previousTags = new Set(previous);
+    const nextTags = new Set(next);
+    const added = next.filter((tag) => !previousTags.has(tag));
+    const removed = previous.filter((tag) => !nextTags.has(tag));
+    const announcement = document.getElementById(announcementId);
+    if (announcement) {
+      announcement.textContent = `${added.length ? `Tags added: ${added.join(", ")}. ` : ""}${removed.length ? `Tags removed: ${removed.join(", ")}.` : ""}`;
+    }
+  };
 
   return (
     <Field
@@ -54,36 +65,40 @@ export function TagsInput(props: TagsInputProps): JSX.Element {
           <i class={`${props.icon ?? "ti ti-tag"} k2b-tags-input__icon-idle`} />
           <i class={`${props.activeIcon ?? "ti ti-pencil"} k2b-tags-input__icon-active`} />
         </span>
-        <div
-          contentEditable={!props.disabled}
+        <Show when={!focused()}>
+          <span class="k2b-tags-input__values" aria-hidden="true">
+            <Show when={value().length > 0} fallback={<span class="k2b-tags-input__placeholder">{placeholder()}</span>}>
+              {value().map((tag) => <span class="k2b-tag">{tag}</span>)}
+            </Show>
+          </span>
+        </Show>
+        <input
           id={meta.controlId}
-          role="textbox"
-          aria-multiline="false"
+          type="text"
           {...fieldControlAria(meta, props)}
-          aria-disabled={props.disabled}
-          aria-placeholder={placeholder()}
-          onFocus={(event) => {
+          disabled={props.disabled}
+          placeholder={focused() || value().length === 0 ? placeholder() : undefined}
+          value={draft()}
+          onFocus={() => {
             if (props.disabled) return;
-            event.currentTarget.textContent = value().join(", ");
-            const selection = getSelection();
-            selection?.selectAllChildren(event.currentTarget);
-            selection?.collapseToEnd();
+            focusStartValue = value();
+            setDraft(focusStartValue.join(", "));
+            setFocused(true);
           }}
-          onBlur={(event) => {
+          onInput={(event) => {
             if (props.disabled) return;
-            const previous = value();
-            const next = parseTags(event.currentTarget.textContent ?? "");
-            const previousTags = new Set(previous);
-            const nextTags = new Set(next);
-            const added = next.filter((tag) => !previousTags.has(tag));
-            const removed = previous.filter((tag) => !nextTags.has(tag));
-            const announcement = document.getElementById(announcementId);
-            if (announcement) announcement.textContent = `${added.length ? `Tags added: ${added.join(", ")}. ` : ""}${removed.length ? `Tags removed: ${removed.join(", ")}.` : ""}`;
-            commitFieldValue(props, next);
-            event.currentTarget.innerHTML = renderTags(next);
+            const nextDraft = event.currentTarget.value;
+            setDraft(nextDraft);
+            props.onValueChange?.(parseTags(nextDraft));
+          }}
+          onBlur={() => {
+            if (props.disabled) return;
+            const next = parseTags(draft());
+            announce(focusStartValue, next);
+            props.onValueCommit?.(next);
+            setFocused(false);
           }}
           onKeyDown={(event) => event.key === "Enter" && (event.preventDefault(), event.currentTarget.blur())}
-          innerHTML={renderTags(value())}
         />
       </div>
       <Show when={props.name}>{(name) => <input type="hidden" name={name()} value={value().join(",")} />}</Show>

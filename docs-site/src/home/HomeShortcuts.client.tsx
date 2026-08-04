@@ -26,8 +26,8 @@ export default function HomeShortcuts() {
       }
       if (pending !== "g") return;
       pending = "";
-      if (event.key === "d") window.location.assign("/docs/en");
-      if (event.key === "u") window.location.assign("/ui");
+      if (event.key === "d") window.location.assign("/en/docs");
+      if (event.key === "u") window.location.assign("/en/ui");
     };
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));

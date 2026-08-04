@@ -559,7 +559,7 @@ const SmallChoicesDemo = (props: { kind: "color" | "tags" | "pin" | "icon" | "sl
   };
   const descriptions = {
     color: "A native color well plus an optional transparent toggle the parent owns as a separate boolean.",
-    tags: "One contenteditable field holding a comma-separated list. Committing trims each entry, drops duplicates, applies maxTags, and announces the diff to assistive technology. There is no per-tag remove control — tags are removed by editing the text.",
+    tags: "One native text field holding a comma-separated list. Typing reports live values; blur or Enter commits once, trims entries, drops duplicates, applies maxTags, and announces the diff to assistive technology.",
     pin: "Grouped one-time-code entry with per-cell arrow-key navigation, backspace stepping, and paste distribution across the cells.",
     icon: "Searchable icon selection over the package's DEFAULT_ICON_OPTIONS, controlled through a nullable value.",
     slider: "A native range input with a filled track, a formatted value output, and a double-click reset to defaultValue.",

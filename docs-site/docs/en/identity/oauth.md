@@ -99,7 +99,7 @@ The application must still verify:
 - the credential scope cap.
 
 OAuth scopes do not grant domain access. See
-[Resource authorization](/docs/en/identity/authorization#limit-resource-bound-credentials).
+[Resource authorization](/en/docs/identity/authorization#limit-resource-bound-credentials).
 
 ## Configure an OAuth client
 
@@ -148,5 +148,5 @@ Applications do not import `oauthTokens` or verify JWTs. Apply
 `auth.requireRole("authenticated")`, then read `actor` and `accessSubject` from
 the request context.
 
-Continue with [Request identity](/docs/en/identity/authentication) and
-[Resource authorization](/docs/en/identity/authorization).
+Continue with [Request identity](/en/docs/identity/authentication) and
+[Resource authorization](/en/docs/identity/authorization).

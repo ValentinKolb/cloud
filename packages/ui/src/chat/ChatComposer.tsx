@@ -44,6 +44,8 @@ export type ChatComposerProps = {
   commands?: readonly ChatCommand[];
   contextUsage?: ChatContextUsageData;
   contextActions?: readonly ChatAction[];
+  /** Additional compact controls rendered with the add/model controls. */
+  footerTools?: JSX.Element;
   placeholder?: string;
   label?: string;
   inputLabel?: string;
@@ -368,6 +370,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
       <footer class="k2b-chat-composer__footer">
         <div class="k2b-chat-composer__tools">
+          {props.footerTools}
           <Show when={hasAddMenu()}>
             <Dropdown.Root position="top-right" width="12rem" label="Add to chat" items={menuItems()} disabled={blocked()}>
               <Dropdown.Trigger appearance="plain" class="k2b-chat-composer__icon-action" label="Add to chat" title="Add to chat">

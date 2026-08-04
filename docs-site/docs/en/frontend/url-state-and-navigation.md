@@ -43,7 +43,7 @@ the current state so one control does not erase unrelated filters.
 
 Query state still needs service validation before it reaches SQL.
 
-See [Pagination and filtering](/docs/en/server/pagination-and-filtering) for
+See [Pagination and filtering](/en/docs/server/pagination-and-filtering) for
 the server-side query.
 
 ## Use links first

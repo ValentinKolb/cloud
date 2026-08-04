@@ -126,5 +126,5 @@ Keep widget queries bounded. A dashboard may load widgets from many
 applications at once. Link to the application for detailed work instead of
 turning the widget into a full page.
 
-See [Request identity](/docs/en/identity/authentication) and
-[Resource authorization](/docs/en/identity/authorization).
+See [Request identity](/en/docs/identity/authentication) and
+[Resource authorization](/en/docs/identity/authorization).

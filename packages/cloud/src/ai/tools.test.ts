@@ -5,7 +5,6 @@ import type { Provider } from "@k2b/nessi/ai";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";
-import { createCloudAiBashTool } from "./bash-tool";
 import { CloudAiCardInputSchema, createConfiguredDefaultCloudAiTools, createDefaultCloudAiTools } from "./default-tools";
 import { AiTurnActionSchema } from "./runtime";
 import { aiToolPromptHints, defineAiTool, prepareAiTools } from "./tools";
@@ -55,30 +54,6 @@ describe("AI tools", () => {
     });
 
     expect(historical).toEqual({ reportId: "r1", rowCount: 2 });
-  });
-
-  test("keeps useful bash context while bounding historical output", async () => {
-    const tool = createCloudAiBashTool();
-    const lines = Array.from({ length: 80 }, (_, index) => `line-${index + 1}`).join("\n");
-    const historical = await tool.def.toHistoricalResult?.({
-      input: { command: "build-report" },
-      output: {
-        stdout: lines,
-        stderr: "warning",
-        exitCode: 0,
-        files: { created: ["/files/report.csv"], updated: [], deleted: [] },
-      },
-      callId: "bash-1",
-    });
-
-    expect(historical).toMatchObject({
-      exitCode: 0,
-      files: { created: ["/files/report.csv"] },
-      stderr: "warning",
-    });
-    expect(JSON.stringify(historical)).toContain("line-1");
-    expect(JSON.stringify(historical)).toContain("line-80");
-    expect(JSON.stringify(historical)).toContain("lines omitted");
   });
 
   test("persists full results for the origin loop and projects them in a later Cloud loop", async () => {
@@ -194,9 +169,35 @@ describe("AI tools", () => {
     const withoutWeb = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "" });
     const withWeb = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "fc-secret" });
 
-    expect(withoutWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "bash", "present"]);
-    expect(withWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "bash", "present", "web_search", "web_extract"]);
-    expect(aiToolPromptHints(withoutWeb).map((hint) => hint.name)).toEqual(["card", "survey", "bash", "present"]);
+    expect(withoutWeb.map((tool) => tool.def.name)).toEqual([
+      "card",
+      "survey",
+      "list_files",
+      "read_file",
+      "write_file",
+      "present",
+      "calculate",
+    ]);
+    expect(withWeb.map((tool) => tool.def.name)).toEqual([
+      "card",
+      "survey",
+      "list_files",
+      "read_file",
+      "write_file",
+      "present",
+      "calculate",
+      "web_search",
+      "web_extract",
+    ]);
+    expect(aiToolPromptHints(withoutWeb).map((hint) => hint.name)).toEqual([
+      "card",
+      "survey",
+      "list_files",
+      "read_file",
+      "write_file",
+      "present",
+      "calculate",
+    ]);
 
     const prepared = prepareAiTools({ tools: withWeb, actor });
     expect(prepared.tools.find((tool) => tool.def.name === "web_search")?.kind).toBe("server");

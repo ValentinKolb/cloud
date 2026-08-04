@@ -95,7 +95,7 @@ return audit.deny({
 ```
 
 Authorization still belongs in the domain service. The audit call records its
-decision. See [Resource authorization](/docs/en/identity/authorization).
+decision. See [Resource authorization](/en/docs/identity/authorization).
 
 ## Protect audit records
 
@@ -114,5 +114,5 @@ Audit storage is durable evidence. A write failure rejects `record()`,
 `recordResult()`, and `deny()`. Handle that failure like any other failed
 security operation.
 
-Use [logging](/docs/en/platform/logging) for diagnosis and
-[tracing](/docs/en/platform/tracing) for timing and execution flow.
+Use [logging](/en/docs/platform/logging) for diagnosis and
+[tracing](/en/docs/platform/tracing) for timing and execution flow.

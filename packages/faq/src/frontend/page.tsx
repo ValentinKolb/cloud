@@ -1,7 +1,6 @@
 import { MarkdownView, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { getUserBackedActor } from "@valentinkolb/cloud/server";
-import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import { faqService } from "../service";
@@ -29,7 +28,7 @@ export default ssr<AuthContext>(async (c) => {
                   <span class="text-sm font-medium">{entry.question}</span>
                 </summary>
                 <div class="text-sm text-dimmed px-4 pb-4 pl-10">
-                  <MarkdownView html={markdown.render(entry.answer)} class="markdown-content-sm" />
+                  <MarkdownView markdown={entry.answer} class="markdown-content-sm" />
                 </div>
               </details>
             ))}

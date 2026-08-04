@@ -1,5 +1,5 @@
 import { defineApp, notification } from "@valentinkolb/cloud";
-import type { AppSearchInput, AppSearchResult, WidgetResponse } from "@valentinkolb/cloud/contracts";
+import type { WidgetResponse } from "@valentinkolb/cloud/contracts";
 import type { AppContext } from "@valentinkolb/cloud/server";
 import { audit, logger, notifications, renderHtmlToPdf, trace } from "@valentinkolb/cloud/services";
 import { z } from "zod";
@@ -100,33 +100,6 @@ export const recordPermissionChange = async (actorId: string, itemId: string): P
     target: { type: "inventory_item", id: itemId },
   });
 };
-
-type SearchableInventoryItem = {
-  id: string;
-  name: string;
-  quantity: number;
-};
-
-type InventorySearchRepository = {
-  search(input: { query: string; limit: number; accessSubject: AppSearchInput["accessSubject"] }): Promise<SearchableInventoryItem[]>;
-};
-
-export const createInventorySearch =
-  (repository: InventorySearchRepository) =>
-  async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-    const items = await repository.search({
-      query: input.query,
-      limit: input.limit,
-      accessSubject: input.accessSubject,
-    });
-
-    return items.map((item) => ({
-      id: item.id,
-      title: item.name,
-      href: `/app/inventory/items/${item.id}`,
-      preview: `${item.quantity} in stock`,
-    }));
-  };
 
 export const inventoryWidget = (count: number): WidgetResponse => ({
   title: "Inventory",

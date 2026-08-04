@@ -17,14 +17,14 @@ setting kinds, and migration paths.
 
 | Question | Page |
 | --- | --- |
-| Which package path should I import? | [API surface](/docs/en/reference/api-surface) |
-| Is this entry point an application API? | [API surface](/docs/en/reference/api-surface#platform-owned-and-limited-surfaces) |
-| Which URL prefix owns this request? | [Route conventions](/docs/en/reference/route-conventions) |
-| Which setting kind should I declare? | [Settings reference](/docs/en/reference/settings-kinds-and-environment) |
-| What does this status mean? | [Vocabulary and statuses](/docs/en/reference/vocabulary-and-statuses) |
-| What replaced an old API? | [Deprecations](/docs/en/reference/deprecations-and-migrations) |
+| Which package path should I import? | [API surface](/en/docs/reference/api-surface) |
+| Is this entry point an application API? | [API surface](/en/docs/reference/api-surface#platform-owned-and-limited-surfaces) |
+| Which URL prefix owns this request? | [Route conventions](/en/docs/reference/route-conventions) |
+| Which setting kind should I declare? | [Settings reference](/en/docs/reference/settings-kinds-and-environment) |
+| What does this status mean? | [Vocabulary and statuses](/en/docs/reference/vocabulary-and-statuses) |
+| What replaced an old API? | [Deprecations](/en/docs/reference/deprecations-and-migrations) |
 
 Feature pages remain canonical for behavior. Reference pages contain lookup
 tables, not complete tutorials.
 
-For a new application, start with [Build an application](/docs/en/build).
+For a new application, start with [Build an application](/en/docs/build).

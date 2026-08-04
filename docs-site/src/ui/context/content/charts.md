@@ -13,6 +13,7 @@ Use `StatCell` for one value. Use `DataTable` when readers need exact records ra
 ```tsx
 import {
   Chart,
+  type ChartLabels,
   type ChartKind,
   type ChartProps,
   RangePicker,
@@ -44,6 +45,11 @@ TypeScript narrows the remaining properties from `kind`. `width` and `height` ar
 The wrapper is a plain block with no intrinsic height, so the caller sets it — `style={{ height: "14rem" }}` or an application class. The exception is `stateTimeline`, which derives its height from the row count. Axes inherit `currentColor`; series use the shared chart color variables.
 
 Empty series render a visible **No data** state. Keep loading and query errors outside the component so they are not confused with an empty result.
+
+`labels` localizes package-owned text such as the empty state, series fallback,
+interactive region names, zoom controls, and reset controls. Pass labels from
+the host when the application is localized; the component never reads the
+browser locale during SSR.
 
 `interactive` is available for maps, line charts, and state timelines. Use it
 only when inspection, pan, or zoom improves the task.

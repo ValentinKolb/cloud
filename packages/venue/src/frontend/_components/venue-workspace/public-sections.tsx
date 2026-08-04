@@ -1,5 +1,4 @@
 import { Button, DateRangePicker, ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@k2b/ui";
-import { markdown } from "@valentinkolb/cloud/shared";
 import { createSignal, For, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { PublicSection, PublicSectionInput } from "../../../contracts";
@@ -348,7 +347,7 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
   return (
     <div class="grid gap-3">
       <Show when={props.section.kind === "markdown"}>
-        <MarkdownView html={markdown.renderSync(sectionText(props.section, "markdown"))} class="text-sm" smallHeadings />
+        <MarkdownView markdown={sectionText(props.section, "markdown")} class="text-sm" smallHeadings />
       </Show>
       <Show when={props.section.kind === "notice"}>
         <div class="info-block-warning">

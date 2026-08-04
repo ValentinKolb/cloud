@@ -37,7 +37,12 @@ export function FileDropzone(props: FileDropzoneProps): JSX.Element {
     if (disabled() || files.length === 0) return;
     void props.onDrop(props.multiple === false ? files.slice(0, 1) : files);
   };
-  const zone = dropzone.create({ accept: props.accept, onDrop: emit });
+  const zone = dropzone.create({
+    get accept() {
+      return props.accept;
+    },
+    onDrop: emit,
+  });
   const title = () =>
     props.busy
       ? "Uploading…"
@@ -458,6 +463,22 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
     setRotation((current) => rotateImageCropRight(current));
   };
 
+  const nudgeCrop = (handle: DragHandle, event: KeyboardEvent) => {
+    if (disabled() || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    const current = crop();
+    const currentSize = previewSize();
+    if (!current || !currentSize) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 0.05 : 0.01;
+    const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    setCrop(
+      handle === "move"
+        ? clampImageCropRect({ ...current, x: current.x + dx, y: current.y + dy }, currentSize, aspect())
+        : resizeImageCropFromCorner(current, currentSize, aspect(), handle, dx, dy),
+    );
+  };
+
   const previewFrameStyle = (): JSX.CSSProperties => {
     const currentSize = previewSize();
     if (!currentSize) return {};
@@ -509,7 +530,11 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
                   class="k2b-image-cropper__selection"
                   data-shape={previewShape()}
                   style={cropStyle()}
+                  role="group"
+                  tabIndex={disabled() ? undefined : 0}
+                  aria-label="Crop area. Use arrow keys to move; hold Shift for larger steps."
                   onPointerDown={(event) => startDrag("move", event)}
+                  onKeyDown={(event) => nudgeCrop("move", event)}
                 >
                   <Show when={showResizeHandles()}>
                     <For each={["nw", "ne", "sw", "se"] as const}>
@@ -521,6 +546,7 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
                           aria-label={`Resize crop ${handle}`}
                           disabled={disabled()}
                           onPointerDown={(event) => startDrag(handle, event)}
+                          onKeyDown={(event) => nudgeCrop(handle, event)}
                         />
                       )}
                     </For>

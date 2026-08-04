@@ -60,7 +60,7 @@ Cloud encrypts persisted settings with `APP_SECRET`.
 The admin API redacts `secret` values. Runtime code still receives the
 decrypted value, so do not send it to the browser or write it to logs.
 
-Use [Settings](/docs/en/platform/settings) for declarations, request snapshots,
+Use [Settings](/en/docs/platform/settings) for declarations, request snapshots,
 and precedence.
 
 ## Keep secrets out of other setting kinds
@@ -118,7 +118,7 @@ both.
 
 Cloud refuses to start without `APP_SECRET`.
 
-See [Runtime configuration](/docs/en/operations/runtime-configuration) for
+See [Runtime configuration](/en/docs/operations/runtime-configuration) for
 container configuration.
 
 ## Use Valkey for coordination
@@ -139,7 +139,7 @@ A missed or evicted cache entry must be recoverable from Postgres or the
 external system.
 
 Continue with
-[Coordination primitives](/docs/en/automation/coordination-primitives).
+[Coordination primitives](/en/docs/automation/coordination-primitives).
 
 ## Store large files outside the application container
 

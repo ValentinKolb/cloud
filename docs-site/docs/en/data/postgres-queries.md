@@ -178,7 +178,7 @@ const rows = await sql<DbInventoryItem[]>`
 ```
 
 Validate `sort` and `direction` before the service receives them. See
-[Typed HTTP APIs](/docs/en/server/http#validate-every-request-value).
+[Typed HTTP APIs](/en/docs/server/http#validate-every-request-value).
 
 ## Load relations in batches
 
@@ -211,9 +211,9 @@ pagination.
 Use `buildAccessPrincipalCondition()` instead of loading every row and checking
 it in JavaScript. Reject a resource-bound credential or restrict the query to
 its exact resource. See
-[Resource authorization](/docs/en/identity/authorization#filter-lists-in-sql).
+[Resource authorization](/en/docs/identity/authorization#filter-lists-in-sql).
 
-Use [Pagination and filtering](/docs/en/server/pagination-and-filtering) for
+Use [Pagination and filtering](/en/docs/server/pagination-and-filtering) for
 the HTTP pagination contract.
 
 The complete

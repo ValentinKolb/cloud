@@ -459,4 +459,34 @@ describe("@k2b/ui choice and date browser behavior", () => {
     dispose();
     dom.cleanup();
   });
+
+  test("reports live tag edits and commits the normalized value once", async () => {
+    const dom = createDomTestHarness();
+    const { TagsInput } = await import("../src/inputs/TagsInput");
+    const changes: string[][] = [];
+    const commits: string[][] = [];
+    const dispose = render(
+      () =>
+        createComponent(TagsInput, {
+          label: "Tags",
+          value: ["solid"],
+          onValueChange: (value) => changes.push(value),
+          onValueCommit: (value) => commits.push(value),
+        }),
+      dom.root,
+    );
+
+    const input = dom.root.querySelector<HTMLInputElement>('.k2b-tags-input input[type="text"]')!;
+    input.focus();
+    setSolidInputValue(input, "solid, ssr, ssr");
+    expect(changes).toEqual([["solid", "ssr"]]);
+    expect(commits).toEqual([]);
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(commits).toEqual([["solid", "ssr"]]);
+    expect(dom.root.querySelector('[role="status"]')?.textContent).toContain("Tags added: ssr");
+
+    dispose();
+    dom.cleanup();
+  });
 });

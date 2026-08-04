@@ -43,7 +43,7 @@ Use an address that resolves from the gateway container for `baseUrl`. Do not
 use the public browser URL.
 
 Declare only prefixes the application serves. See
-[Routes and discovery](/docs/en/build/routing).
+[Routes and discovery](/en/docs/build/routing).
 
 ## Set the SSR asset prefix
 
@@ -57,7 +57,7 @@ Cloud then mounts generated SSR assets below
 `/app/inventory/_ssr`. The Core application omits `basePath` because it owns the
 global SSR asset path.
 
-See [SSR pages and routing](/docs/en/frontend/ssr-pages-and-routing).
+See [SSR pages and routing](/en/docs/frontend/ssr-pages-and-routing).
 
 ## Add global navigation
 
@@ -82,7 +82,7 @@ nav: {
 | `requiresRoles` | No | — | Show the link only for matching platform roles |
 
 Navigation visibility is not authorization. Protect the destination with
-[route policies](/docs/en/identity/route-policies).
+[route policies](/en/docs/identity/route-policies).
 
 ## Add administration pages
 
@@ -145,11 +145,11 @@ The remaining options declare application-owned contributions:
 
 | Option | Contribution | Reference |
 | --- | --- | --- |
-| `settings` | Typed runtime configuration | [Settings](/docs/en/platform/settings) |
-| `notifications` | Notification definitions the application may send | [Notifications](/docs/en/platform/notifications) |
-| `widgets` | Dashboard widget endpoints | [Dashboard widgets](/docs/en/platform/dashboard-widgets) |
+| `settings` | Typed runtime configuration | [Settings](/en/docs/platform/settings) |
+| `notifications` | Notification definitions the application may send | [Notifications](/en/docs/platform/notifications) |
+| `widgets` | Dashboard widget endpoints | [Dashboard widgets](/en/docs/platform/dashboard-widgets) |
 | `legalLinks` | Application-owned legal and information links | — |
-| `openapi` | Public OpenAPI document path | [Typed HTTP APIs](/docs/en/server/http#publish-openapi) |
+| `openapi` | Public OpenAPI document path | [Typed HTTP APIs](/en/docs/server/http#publish-openapi) |
 
 Definitions establish ownership and types. They do not run an operation.
 
@@ -191,7 +191,7 @@ application middleware, and advertises it through the registry.
 
 Universal search is different because it needs executable code. Pass its
 provider to `app.start({ capabilities })`. See
-[Universal search](/docs/en/platform/search).
+[Universal search](/en/docs/platform/search).
 
 ## Override the project root only when required
 
@@ -235,4 +235,4 @@ type InventoryContext = AppContext<typeof app>;
 `AppContext` only describes the request context type. Register
 `middleware.settings()` before every route that reads `c.get("settings")`.
 
-See [Request middleware](/docs/en/server/middleware).
+See [Request middleware](/en/docs/server/middleware).

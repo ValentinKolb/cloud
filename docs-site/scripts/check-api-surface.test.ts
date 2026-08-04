@@ -20,7 +20,7 @@ test("requires a guide for app-facing specialized entry points", () => {
 
 | Entry point | Status | Use | Guide |
 | --- | --- | --- | --- |
-| \`@scope/pkg/browser\` | Supported, browser | Browser client | [Browser guide](/docs/en/browser) |
+| \`@scope/pkg/browser\` | Supported, browser | Browser client | [Browser guide](/en/docs/browser) |
 | \`@scope/pkg/server\` | Supported, server-only | Server client | — |
 | \`@scope/pkg/internal\` | Platform-owned | Internal client | — |
 

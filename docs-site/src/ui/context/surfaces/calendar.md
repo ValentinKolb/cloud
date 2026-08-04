@@ -58,7 +58,7 @@ Limit the switcher with `views`. `getDateHref`, `getViewHref`, and
 `getEventHref` keep navigation functional in the server response.
 `onNavigate` progressively enhances those links after hydration.
 
-Use `onDateChange`, `onViewChange`, and `onEventClick` only when client state
+Use `onDateChange`, `onViewChange`, and `onEventActivate` only when client state
 is appropriate. `navigationPending` exposes loading state without replacing
 the canonical links.
 
@@ -79,8 +79,13 @@ The following callbacks enable matching hydrated interactions:
 
 - `onEventDrop` moves an event;
 - `onEventResize` changes a timed event duration;
-- `onEventDoubleClick` opens an event-specific action;
-- `onSlotClick` and `onSlotDoubleClick` select empty time.
+- `onEventActivate` activates an event;
+- `onSlotActivate` activates an empty time range.
+
+Set `eventActivation` or `slotActivation` to `"double"` only for dense editing
+surfaces that deliberately reserve single click for selection. Both default to
+`"single"`. The component does not delay single-click callbacks to guess
+whether a second click will follow.
 
 The callbacks receive `CalendarEventTimeChange` values. The host validates
 permissions and persists changes; the component never writes schedule data.
@@ -131,5 +136,7 @@ const events: CalendarEvent[] = [
     `?view=${view}&date=${date.toISOString()}`
   }
   getViewHref={(view) => `?view=${view}`}
+  onEventActivate={(event) => openEvent(event.id)}
+  onSlotActivate={(slot) => createEvent(slot)}
 />;
 ```

@@ -61,7 +61,7 @@ export const migrate = async (): Promise<void> => {
 Use `.simple()` for DDL.
 
 The application may reference `auth.users` and `auth.access`. It must not
-migrate platform-owned tables. See [Data ownership](/docs/en/data).
+migrate platform-owned tables. See [Data ownership](/en/docs/data).
 
 ## Add a column
 
@@ -220,5 +220,5 @@ commits.
 If the side effect must be recovered after a crash, store an outbox or durable
 job request in the same transaction. A worker can deliver it later.
 
-Continue with [Jobs and queues](/docs/en/automation/jobs-and-queues) and
-[Notifications](/docs/en/platform/notifications).
+Continue with [Jobs and queues](/en/docs/automation/jobs-and-queues) and
+[Notifications](/en/docs/platform/notifications).

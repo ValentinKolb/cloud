@@ -66,7 +66,7 @@ return ok();
 `okMany()` creates the stdlib in-memory pagination shape. SQL-backed HTTP lists
 usually use the contracts pagination instead.
 
-See [Pagination and filtering](/docs/en/server/pagination-and-filtering).
+See [Pagination and filtering](/en/docs/server/pagination-and-filtering).
 
 ## Return expected failures
 
@@ -179,7 +179,7 @@ Log the private diagnostic separately. Return a safe public message.
 Do not return SQL statements, constraint names, file paths, tokens, cookies,
 upstream response bodies, or stack traces.
 
-See [Logging](/docs/en/platform/logging).
+See [Logging](/en/docs/platform/logging).
 
 ## Keep authorization in the operation
 
@@ -190,5 +190,5 @@ The domain service answers “may this subject act on this resource?”
 Pass `accessSubject` into the service from the beginning. Do not design a
 service around a bare user ID.
 
-See [Resource authorization](/docs/en/identity/authorization) for the access
+See [Resource authorization](/en/docs/identity/authorization) for the access
 helpers and required checks.

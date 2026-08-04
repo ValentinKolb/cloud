@@ -105,5 +105,5 @@ runs. It renews run leases while actions execute.
 Create a separate port with `createWorkflowDryRunPort()` and drain it with
 `dryRunOneWorkflow()`. A dry run must never enter the execution worker.
 
-See [Workflow observability and testing](/docs/en/automation/workflow-observability-and-testing)
+See [Workflow observability and testing](/en/docs/automation/workflow-observability-and-testing)
 for run inspection and dry-run verification.

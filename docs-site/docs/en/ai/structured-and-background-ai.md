@@ -100,10 +100,10 @@ the caller should retry, skip the optional enrichment, or surface the error.
 An HTTP request may end before a slow model call does.
 
 For important background work, call `runAiStructured()` from a
-[job or queue worker](/docs/en/automation/jobs-and-queues). Pass the job abort
+[job or queue worker](/en/docs/automation/jobs-and-queues). Pass the job abort
 signal and a parent trace.
 
 Keep retries around the whole task. Do not retry a schema failure forever.
 
-Use [Chat runtime and streaming](/docs/en/ai/chat-runtime-and-streaming) when
+Use [Chat runtime and streaming](/en/docs/ai/chat-runtime-and-streaming) when
 the user needs an interactive, stored conversation.

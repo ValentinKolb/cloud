@@ -307,7 +307,7 @@ describe("@k2b/ui Cloud content contract", () => {
 
   test("keeps trusted Markdown, structured data and PDF interaction shells", () => {
     const markdown = renderToString(() =>
-      createComponent(MarkdownView, { html: "<h2>Result</h2>", smallHeadings: true }),
+      createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", smallHeadings: true }),
     );
     const data = renderToString(() =>
       createComponent(StructuredDataPreview, { data: { ok: true }, defaultMode: "raw", copy: true }),

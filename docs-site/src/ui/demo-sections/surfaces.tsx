@@ -359,7 +359,7 @@ export const CalendarDemo = () => {
         selectedEventId={selectedEventId()}
         onDateChange={setDate}
         onViewChange={setView}
-        onEventClick={(event) => setSelectedEventId(event.id)}
+        onEventActivate={(event) => setSelectedEventId(event.id)}
         onEventDrop={(event, next) =>
           setEvents((current) => current.map((item) => item.id === event.id ? {
             ...item,

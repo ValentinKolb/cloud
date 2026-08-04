@@ -26,6 +26,10 @@ used by message, menu, and context actions.
 
 `Chat.Timeline` follows new messages while the reader remains near the bottom. Set `hasMore` and `onLoadOlder` to load history while preserving the visible scroll position.
 
+Pass `timeLabel` for visible localized timestamps and `createdAt` for the
+machine-readable `dateTime` value. `createdAt` alone intentionally renders no
+runtime-locale text, which keeps SSR and hydration stable.
+
 ## Accessibility
 
 Pass a useful conversation `label` when more than one chat is visible. Visual role labels are intentionally omitted, while screen readers still receive the message role. Time, status, menus, attachments, model selection, context usage, and history loading remain keyboard reachable and named.

@@ -8,17 +8,8 @@ export {
   rememberAiToolApproval,
 } from "./approvals";
 export { type AiAttachmentRef, aiAttachmentMarker, formatAiFileSize, parseAiAttachmentMarkers } from "./attachments";
-export {
-  buildAiBashFs,
-  buildAiSkillsMount,
-  buildAiSkillsMountFromSkills,
-  createCloudAiBashTool,
-  createCloudAiPresentTool,
-  listActiveAiSkillHints,
-} from "./bash-tool";
-export { BUILTIN_AI_SKILLS, type BuiltinAiSkill, builtinAiSkillCommands, seedBuiltinAiSkills } from "./builtin-skills";
-export { listAiCredentialProfileIds } from "./credentials";
 export { parseAiSse } from "./client/transport";
+export { listAiCredentialProfileIds } from "./credentials";
 export {
   type CloudAiCardInput,
   CloudAiCardInputSchema,
@@ -42,6 +33,25 @@ export {
   shouldApplyEnrichedDescription,
   shouldApplyEnrichedTitle,
 } from "./enrich";
+export {
+  CloudAiCalculateInputSchema,
+  CloudAiCalculateOutputSchema,
+  CloudAiListFilesInputSchema,
+  CloudAiListFilesOutputSchema,
+  CloudAiPresentInputSchema,
+  CloudAiPresentOutputSchema,
+  CloudAiReadFileInputSchema,
+  CloudAiReadFileOutputSchema,
+  CloudAiWriteFileInputSchema,
+  CloudAiWriteFileOutputSchema,
+  createCloudAiCalculateTool,
+  createCloudAiListFilesTool,
+  createCloudAiPresentTool,
+  createCloudAiReadFileTool,
+  createCloudAiWriteFileTool,
+  evaluateAiDate,
+  evaluateAiMath,
+} from "./file-tools";
 export {
   AI_FILES_MAX_CONVERSATION_BYTES_DEFAULT,
   AI_FILES_MAX_FILE_BYTES_DEFAULT,
@@ -145,20 +155,13 @@ export {
 } from "./settings";
 export { type AiSkillsRoutes, createAiSkillsRoutes } from "./skills-routes";
 export {
-  AI_SKILL_FILE_MAX_BYTES,
-  AI_SKILL_SLUG_RE,
-  AI_SKILL_TOTAL_MAX_BYTES,
+  AI_SKILL_DESCRIPTION_MAX_CHARS,
+  AI_SKILL_INSTRUCTIONS_MAX_CHARS,
+  AI_SKILL_NAME_MAX_CHARS,
   type AiSkill,
-  type AiSkillEvent,
-  type AiSkillEventKind,
-  type AiSkillFileStat,
-  type AiSkillOrigin,
-  type AiSkillTreeFile,
-  type AiSkillTreeReplaceResult,
-  type AiSkillTreeSnapshot,
-  type AiSkillUserView,
+  type AiSkillScope,
+  type AiSkillSummary,
   aiSkillStore,
-  computeAiSkillContentHash,
 } from "./skills-store";
 export { aiConversationStore } from "./store";
 export {
@@ -213,6 +216,7 @@ export type {
   AiSettingsError,
   AiSettingsErrorCode,
   AiSettingsState,
+  AiSkillSnapshot,
   AiStoredMessage,
   AiToolApprovalPolicy,
   AiToolDefinition,

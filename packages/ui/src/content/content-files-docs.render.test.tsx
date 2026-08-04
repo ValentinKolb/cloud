@@ -32,7 +32,7 @@ const { default: FileView } = await import("./FileView");
 const { default: Lightbox } = await import("./Lightbox");
 const { default: MarkdownView } = await import("./MarkdownView");
 const { default: PdfPreview } = await import("./PdfPreview");
-const { default: StructuredDataPreview } = await import("./StructuredDataPreview");
+const { default: StructuredDataPreview, isStructuredDataValue } = await import("./StructuredDataPreview");
 
 /** Icon glyph classes live in the optional Tabler preset, not in styles.css. */
 const isIconClass = (token: string) => token === "ti" || token.startsWith("ti-");
@@ -82,7 +82,7 @@ describe("@k2b/ui content style coverage", () => {
           createComponent(DocNote, { title: "Note", variant: "warning", children: "Careful" }),
         ],
       }),
-      createComponent(MarkdownView, { html: "<p>Body</p>", smallHeadings: true }),
+      createComponent(MarkdownView, { trustedHtml: "<p>Body</p>", smallHeadings: true }),
     ]);
 
     expect(unstyled(html)).toEqual([]);
@@ -149,6 +149,25 @@ describe("@k2b/ui content style coverage", () => {
     for (const token of ["cd-c", "cd-s", "cd-n", "cd-k", "cd-p", "cd-a", "cd-f", "cd-md-syntax", "cd-md-tag", "cd-md-formula"]) {
       expect(hasRule(token)).toBe(true);
     }
+  });
+
+  test("code and Markdown never turn untrusted source into executable markup", () => {
+    const code = renderToString(() =>
+      createComponent(CodeDisplay, { code: '<img src=x onerror="alert(1)">', language: "text" }),
+    );
+    const markdown = renderToString(() =>
+      createComponent(MarkdownView, {
+        markdown: '<img src=x onerror="alert(1)">\n\n[unsafe](javascript:alert(1))',
+      }),
+    );
+    const trusted = renderToString(() => createComponent(MarkdownView, { trustedHtml: "<strong>Trusted</strong>" }));
+
+    expect(code).not.toContain('<img src="x"');
+    expect(code).toContain("&lt;img");
+    expect(markdown).not.toContain('<img src="x"');
+    expect(markdown).not.toContain('href="javascript:');
+    expect(markdown).toContain("unsafe");
+    expect(trusted).toContain("<strong>Trusted</strong>");
   });
 });
 
@@ -238,6 +257,29 @@ describe("@k2b/ui content behaviour", () => {
     expect(editable).toContain("Save (Ctrl/Cmd+S)");
   });
 
+  test("FileView renderer extensions are isolated per instance", async () => {
+    const renderer = (id: string) => ({
+      id,
+      match: () => true,
+      component: () => <div data-renderer={id}>{id}</div>,
+    });
+    const first = await renderFileView({
+      file: { path: "/asset.custom", mediaType: "application/x-custom" },
+      load: async () => content,
+      renderers: [renderer("first")],
+    });
+    const second = await renderFileView({
+      file: { path: "/asset.custom", mediaType: "application/x-custom" },
+      load: async () => content,
+      renderers: [renderer("second")],
+    });
+
+    expect(first).toContain('data-renderer="first"');
+    expect(first).not.toContain('data-renderer="second"');
+    expect(second).toContain('data-renderer="second"');
+    expect(second).not.toContain('data-renderer="first"');
+  });
+
   test("FileView renders markdown previews without frontmatter and offers the download action", async () => {
     const html = await renderFileView({
       file: { path: "/notes.md", mediaType: "text/markdown" },
@@ -259,6 +301,16 @@ describe("@k2b/ui content behaviour", () => {
 
     expect(html).toContain("2 more rows hidden.");
     expect(html).toContain("View raw");
+  });
+
+  test("StructuredDataPreview accepts only finite, acyclic JSON values", () => {
+    expect(isStructuredDataValue({ ok: true, values: [1, null, "ready"] })).toBe(true);
+    expect(isStructuredDataValue({ invalid: Number.NaN })).toBe(false);
+    expect(isStructuredDataValue(new Date())).toBe(false);
+
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    expect(isStructuredDataValue(cyclic)).toBe(false);
   });
 
   test("DocNote exposes its variant as data instead of palette classes", () => {

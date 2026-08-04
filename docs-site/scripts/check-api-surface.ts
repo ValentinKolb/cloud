@@ -21,7 +21,7 @@ export const unguidedSpecializedEntryPoints = (reference: string): string[] => {
   const section = reference.match(/## Specialized entry points\s+([\s\S]*?)(?=\n## |\s*$)/)?.[1] ?? "";
   return [...section.matchAll(/^\|\s*`([^`]+)`\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|$/gm)]
     .filter(([, , status]) => /^(Supported|Specialized)\b/.test(status.trim()))
-    .filter(([, , , , guide]) => !/\]\(\/docs\/en(?:\/[^)\s]*)?\)/.test(guide))
+    .filter(([, , , , guide]) => !/\]\(\/en\/docs(?:\/[^)\s]*)?\)/.test(guide))
     .map(([, specifier]) => specifier);
 };
 

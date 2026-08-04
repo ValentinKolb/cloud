@@ -1,4 +1,15 @@
-import { Button, DataTable, IconButton, Panes, StructuredDataPreview, Tooltip, type DataTableColumn, type PanesValue } from "@k2b/ui";
+import {
+  Button,
+  DataTable,
+  IconButton,
+  isStructuredDataValue,
+  Panes,
+  StructuredDataPreview,
+  Tooltip,
+  type DataTableColumn,
+  type PanesValue,
+  type StructuredDataValue,
+} from "@k2b/ui";
 import { createEffect, createMemo, createSignal, Show, type Accessor, type JSX, type Setter } from "solid-js";
 import type { PulseCurrentState, PulseRecordedEvent, PulseResourceMetric, PulseResourceSummary } from "../../contracts";
 import {
@@ -11,6 +22,9 @@ import {
   type PulseDateContext,
 } from "./helpers";
 import DetailHero from "./DetailHero";
+
+const structuredData = (value: unknown, label: string): StructuredDataValue =>
+  isStructuredDataValue(value) ? value : { error: `${label} is not valid JSON.` };
 
 export type ResourceDetailProps = {
   resource: PulseResourceSummary;
@@ -454,7 +468,7 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
               <StructuredDataPreview title="Event dimensions" data={event().dimensions} empty="No dimensions." />
             </section>
             <section class="detail-section">
-              <StructuredDataPreview title="Event payload" data={event().payload} empty="No payload." />
+              <StructuredDataPreview title="Event payload" data={structuredData(event().payload, "Event payload")} empty="No payload." />
             </section>
           </div>
         </div>

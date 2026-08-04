@@ -16,7 +16,11 @@ import { Chat } from "@k2b/ui";
 
 ## Values
 
-Pass the latest request through `usage`, an optional multi-step total through `loopUsage`, and the configured limit through `contextWindow`. The compact trigger shows only the percentage; the tooltip exposes model, input, output, loop total, window, and remaining tokens.
+Pass the latest request through `usage`, an optional multi-step total through
+`loopUsage`, and the configured limit through `contextWindow`. The compact
+trigger shows only the percentage; the tooltip exposes model, input, output,
+loop total, window, and remaining tokens. Number output is SSR-stable by
+default. Localized hosts can pass `formatNumber` explicitly.
 
 ## Accessibility
 

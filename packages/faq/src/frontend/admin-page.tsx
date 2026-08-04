@@ -1,6 +1,5 @@
 import { MarkdownView, Placeholder, StatusBadge, type StatusTone } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { markdown } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import { faqService } from "../service";
@@ -56,7 +55,7 @@ export default ssr<AuthContext>(async (c) => {
                     </div>
                   </div>
                   <div class="text-sm text-dimmed pl-0">
-                    <MarkdownView html={markdown.render(entry.answer)} class="markdown-content-sm" />
+                    <MarkdownView markdown={entry.answer} class="markdown-content-sm" />
                   </div>
                 </div>
               ))}

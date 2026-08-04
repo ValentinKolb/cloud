@@ -536,7 +536,7 @@ export default function VersionHistory(props: Props) {
                     }
                   >
                     <div class="mx-auto w-full max-w-4xl p-4">
-                      <MarkdownView html={selectedContentHtml()} />
+                      <MarkdownView trustedHtml={selectedContentHtml()} />
                     </div>
                   </Show>
                 </Show>

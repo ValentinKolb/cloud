@@ -16,14 +16,14 @@ Choose the smallest runtime that preserves the work you cannot lose.
 
 | Need | Use |
 | --- | --- |
-| Start and stop a process-local loop | [Lifecycle work](/docs/en/automation/lifecycle-background-work) |
-| Retry one process-local operation | [Retry](/docs/en/automation/jobs-and-queues#retry-an-operation) |
-| Run one durable task with retries | [Jobs](/docs/en/automation/jobs-and-queues#run-a-job) |
-| Distribute messages across workers | [Queues](/docs/en/automation/jobs-and-queues#use-a-queue) |
-| Run recurring work | [Schedulers](/docs/en/automation/schedulers) |
-| Replay events or stream live updates | [Topics and live events](/docs/en/automation/topics-and-live-events) |
-| Coordinate app instances | [Coordination primitives](/docs/en/automation/coordination-primitives) |
-| Let users define multi-step durable automation | [Workflow overview](/docs/en/automation/workflow-overview) |
+| Start and stop a process-local loop | [Lifecycle work](/en/docs/automation/lifecycle-background-work) |
+| Retry one process-local operation | [Retry](/en/docs/automation/jobs-and-queues#retry-an-operation) |
+| Run one durable task with retries | [Jobs](/en/docs/automation/jobs-and-queues#run-a-job) |
+| Distribute messages across workers | [Queues](/en/docs/automation/jobs-and-queues#use-a-queue) |
+| Run recurring work | [Schedulers](/en/docs/automation/schedulers) |
+| Replay events or stream live updates | [Topics and live events](/en/docs/automation/topics-and-live-events) |
+| Coordinate app instances | [Coordination primitives](/en/docs/automation/coordination-primitives) |
+| Let users define multi-step durable automation | [Workflow overview](/en/docs/automation/workflow-overview) |
 
 Lifecycle callbacks belong to the Cloud application contract.
 
@@ -35,6 +35,6 @@ The workflow kernel comes from `@valentinkolb/cloud/workflows`. It owns
 versioned plans, runs, leases, outcomes, effects, and operator visibility.
 
 The task page owns the reliability rules for its runtime. Use
-[Workflow observability and testing](/docs/en/automation/workflow-observability-and-testing)
-for workflow diagnostics, or the shared [Observability](/docs/en/operations/observability)
+[Workflow observability and testing](/en/docs/automation/workflow-observability-and-testing)
+for workflow diagnostics, or the shared [Observability](/en/docs/operations/observability)
 guide for application processes.

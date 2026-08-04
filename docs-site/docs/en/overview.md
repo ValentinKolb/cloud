@@ -65,5 +65,5 @@ or container files.
 Built-in and standalone applications use the same contract. Their repository
 and release ownership differ; their runtime model does not.
 
-Continue with [Build an application](/docs/en/build). Use
-[Building blocks](/docs/en/building-blocks) to find a platform API.
+Continue with [Build an application](/en/docs/build). Use
+[Building blocks](/en/docs/building-blocks) to find a platform API.

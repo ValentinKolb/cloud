@@ -87,7 +87,7 @@ export default function GlobalAnnouncements(props: Props) {
                         v{entry.version}
                       </span>
                     </div>
-                    <MarkdownView html={entry.bodyHtml} />
+                    <MarkdownView trustedHtml={entry.bodyHtml} />
                   </article>
                 )}
               </For>
@@ -117,7 +117,7 @@ export default function GlobalAnnouncements(props: Props) {
               <div class="min-h-0 min-w-0 flex-1">
                 <p class="font-semibold">{banner.title}</p>
                 <MarkdownView
-                  html={banner.bodyHtml}
+                  trustedHtml={banner.bodyHtml}
                   smallHeadings
                   class="mt-1 max-h-36 overflow-y-auto overscroll-contain pr-1 [&_p]:my-0"
                 />

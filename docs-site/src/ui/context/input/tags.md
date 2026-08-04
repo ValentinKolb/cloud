@@ -17,8 +17,8 @@ import { TagsInput } from "@k2b/ui";
 ## State and input
 
 Pass the current `string[]` directly or through a Solid accessor. Adding or
-removing tags reports the complete next array through both `onValueChange` and
-`onValueCommit`.
+removing tags reports the complete next array live through `onValueChange`.
+Blur or Enter reports the normalized final array once through `onValueCommit`.
 
 The editor accepts comma-separated text. It commits on blur or Enter, trims and collapses whitespace, removes empty entries, and removes exact duplicates.
 
@@ -34,7 +34,8 @@ Descriptions and reactive errors are connected to the editable field. Added and 
 
 ## Runtime
 
-`TagsInput` uses a content-editable field and must run in hydrated Solid client code.
+`TagsInput` uses a native text field. Its complete initial value renders on the
+server; live editing and commit callbacks require hydrated Solid client code.
 
 ## Example
 

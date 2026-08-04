@@ -1,11 +1,33 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import CopyButton from "../actions/CopyButton";
+import { resolveMaybeAccessor, type MaybeAccessor } from "../inputs/field-contract";
 
 export type StructuredDataPreviewMode = "formatted" | "raw";
+export type StructuredDataValue = null | boolean | number | string | readonly StructuredDataValue[] | { readonly [key: string]: StructuredDataValue };
+
+export const isStructuredDataValue = (value: unknown, seen = new WeakSet<object>()): value is StructuredDataValue => {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object" || seen.has(value)) return false;
+
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false;
+
+  seen.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((item) => isStructuredDataValue(item, seen))
+    : Object.values(value).every((item) => isStructuredDataValue(item, seen));
+  seen.delete(value);
+  return valid;
+};
 
 export type StructuredDataPreviewProps = {
   title?: string;
-  data: unknown;
+  data: StructuredDataValue;
+  /** Controlled display mode. */
+  mode?: MaybeAccessor<StructuredDataPreviewMode>;
+  onModeChange?: (mode: StructuredDataPreviewMode) => void;
+  /** Initial mode for an uncontrolled preview. */
   defaultMode?: StructuredDataPreviewMode;
   copy?: boolean;
   empty?: string;
@@ -15,27 +37,32 @@ export type StructuredDataPreviewProps = {
 
 type Row = {
   key: string;
-  value: unknown;
+  value: StructuredDataValue;
 };
 
-const toRows = (data: unknown): Row[] => {
+const toRows = (data: StructuredDataValue): Row[] => {
   if (Array.isArray(data)) return data.map((value, index) => ({ key: String(index), value }));
-  if (data && typeof data === "object") return Object.entries(data as Record<string, unknown>).map(([key, value]) => ({ key, value }));
-  if (data === null || data === undefined) return [];
+  if (data && typeof data === "object") return Object.entries(data).map(([key, value]) => ({ key, value }));
+  if (data === null) return [];
   return [{ key: "value", value: data }];
 };
 
-const formatInlineValue = (value: unknown): string => {
-  if (value === null || value === undefined) return "null";
+const formatInlineValue = (value: StructuredDataValue): string => {
+  if (value === null) return "null";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
 };
 
-const formatJson = (data: unknown): string => JSON.stringify(data ?? null, null, 2);
+const formatJson = (data: StructuredDataValue): string => JSON.stringify(data, null, 2);
 
 export default function StructuredDataPreview(props: StructuredDataPreviewProps) {
-  const [mode, setMode] = createSignal<StructuredDataPreviewMode>(props.defaultMode ?? "formatted");
+  const [internalMode, setInternalMode] = createSignal<StructuredDataPreviewMode>(props.defaultMode ?? "formatted");
+  const mode = () => (props.mode === undefined ? internalMode() : resolveMaybeAccessor(props.mode));
+  const setMode = (next: StructuredDataPreviewMode) => {
+    if (props.mode === undefined) setInternalMode(next);
+    props.onModeChange?.(next);
+  };
   const rows = createMemo(() => toRows(props.data));
   const visibleRows = createMemo(() => rows().slice(0, props.maxRows ?? rows().length));
   const hiddenCount = createMemo(() => Math.max(0, rows().length - visibleRows().length));

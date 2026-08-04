@@ -78,4 +78,4 @@ Navigation controls start as anchors with an `href`. A link must work before
 hydration and support open-in-new-tab.
 
 Use enhanced navigation only inside an island that also updates its own state.
-See [URL state and navigation](/docs/en/frontend/url-state-and-navigation).
+See [URL state and navigation](/en/docs/frontend/url-state-and-navigation).

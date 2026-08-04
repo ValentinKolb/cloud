@@ -19,21 +19,21 @@ supporting services share a private network.
 
 | Shape | Use it when |
 | --- | --- |
-| [Monorepo development](/docs/en/operations/monorepo-development) | You change Cloud itself or a built-in application |
-| [Standalone development](/docs/en/operations/standalone-development) | Your application consumes the published package |
+| [Monorepo development](/en/docs/operations/monorepo-development) | You change Cloud itself or a built-in application |
+| [Standalone development](/en/docs/operations/standalone-development) | Your application consumes the published package |
 
 Both shapes use the same application contract. They differ in dependency and
 container ownership.
 
 ## Deployment workflow
 
-1. [Build the application](/docs/en/operations/build-and-deploy).
-2. [Set infrastructure configuration](/docs/en/operations/runtime-configuration).
-3. Configure application values through [Settings](/docs/en/platform/settings).
-4. [Scale and stop services safely](/docs/en/operations/scaling-and-shutdown).
-5. Use [Observability](/docs/en/operations/observability) for health and failure.
-6. Use [Troubleshooting](/docs/en/operations/troubleshooting) when the registry,
+1. [Build the application](/en/docs/operations/build-and-deploy).
+2. [Set infrastructure configuration](/en/docs/operations/runtime-configuration).
+3. Configure application values through [Settings](/en/docs/platform/settings).
+4. [Scale and stop services safely](/en/docs/operations/scaling-and-shutdown).
+5. Use [Observability](/en/docs/operations/observability) for health and failure.
+6. Use [Troubleshooting](/en/docs/operations/troubleshooting) when the registry,
    gateway, or dependencies disagree.
 
-FreeIPA is optional. See [FreeIPA](/docs/en/operations/freeipa) only when
+FreeIPA is optional. See [FreeIPA](/en/docs/operations/freeipa) only when
 the deployment uses it.

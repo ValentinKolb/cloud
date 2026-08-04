@@ -613,12 +613,13 @@ const MarkdownDemo = (props: { html: string }) => {
         { kind: "component", name: "MarkdownView", from: "@k2b/ui" },
         { kind: "component", name: "MarkdownEditor", from: "@k2b/ui" },
       ]}
-      description="Trusted pre-rendered HTML beside a controlled Markdown editor. Rendering and sanitization stay with the host."
-      code={`<MarkdownView html={trustedHtml} />
+      description="Untrusted Markdown is safe by default. Already-rendered HTML crosses an explicit caller-owned trust boundary."
+      code={`<MarkdownView markdown={source} />
+<MarkdownView trustedHtml={sanitizedHtml} />
 <MarkdownEditor value={source()} onValueChange={setSource} />`}
     >
       <section aria-label="Rendered Markdown">
-        <MarkdownView html={props.html} />
+        <MarkdownView trustedHtml={props.html} />
       </section>
       <MarkdownEditor value={value()} onValueChange={setValue} aria-label="Markdown source" />
     </DemoCard>

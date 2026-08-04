@@ -66,13 +66,14 @@ const documentationGroups = [
       { label: "Operations", path: "/operations" },
       { label: "API reference", path: "/reference" },
       { label: "Public API surface", path: "/reference/api-surface" },
+      { label: "Document core changes", path: "/contributing/document-cloud-core-changes" },
       { label: "UI catalog", href: "/ui" },
     ],
   },
 ];
 
 export function DocsOverviewPage(props: DocsOverviewPageProps) {
-  const docsBase = `/docs/${props.locale}`;
+  const docsBase = `/${props.locale}/docs`;
   const docsHref = (path: string) => `${docsBase}${path}`;
 
   return (
@@ -135,7 +136,7 @@ export function DocsOverviewPage(props: DocsOverviewPageProps) {
                         <a
                           href={
                             "href" in link
-                              ? `${link.href}/${props.locale}`
+                              ? `/${props.locale}${link.href}`
                               : docsHref(link.path)
                           }
                         >
@@ -156,8 +157,8 @@ export function DocsOverviewPage(props: DocsOverviewPageProps) {
           Prefer source text? Append <code>.md</code> to any documentation URL.
         </p>
         <nav aria-label="Documentation source formats">
-          <a href="/docs/llms.txt">llms.txt</a>
-          <a href="/docs/llms-full.txt">llms-full.txt</a>
+          <a href={`/${props.locale}/docs/llms.txt`}>llms.txt</a>
+          <a href={`/${props.locale}/docs/llms-full.txt`}>llms-full.txt</a>
         </nav>
       </footer>
     </article>

@@ -694,42 +694,59 @@ export type MailSearchField = z.infer<typeof mailSearchFieldSchema>;
 
 export const mailSearchTermSchema = z
   .object({
-    type: z.literal("text"),
-    field: mailSearchFieldSchema,
-    query: z.string().trim().min(1).max(500),
-    match: z.enum(["words", "phrase", "contains", "exact"]).default("words"),
+    type: z.literal("text").describe("Text search expression."),
+    field: mailSearchFieldSchema.describe("Mail field to search."),
+    query: z.string().trim().min(1).max(500).describe("Text to match."),
+    match: z.enum(["words", "phrase", "contains", "exact"]).default("words").describe("Text matching mode."),
   })
   .strict();
 
 export const mailSearchDateSchema = z
   .object({
-    type: z.literal("date"),
-    field: z.enum(["internal_date", "sent_at"]),
-    operator: z.enum(["before", "on_or_before", "after", "on_or_after"]),
-    value: z.string().datetime(),
+    type: z.literal("date").describe("Date search expression."),
+    field: z.enum(["internal_date", "sent_at"]).describe("Message date field to compare."),
+    operator: z.enum(["before", "on_or_before", "after", "on_or_after"]).describe("Date comparison operator."),
+    value: z.string().datetime().describe("Timestamp to compare with."),
   })
   .strict();
 
 export const mailSearchSizeSchema = z
   .object({
-    type: z.literal("size"),
-    field: z.enum(["message", "attachment"]),
-    operator: z.enum(["less_than", "at_most", "equal", "at_least", "greater_than"]),
-    bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    type: z.literal("size").describe("Size search expression."),
+    field: z.enum(["message", "attachment"]).describe("Message or attachment size."),
+    operator: z.enum(["less_than", "at_most", "equal", "at_least", "greater_than"]).describe("Size comparison operator."),
+    bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).describe("Byte count to compare with."),
   })
   .strict();
 
 export const mailSearchWorkStatusSchema = z
   .object({
-    type: z.literal("work_status"),
-    value: z.enum(["needs_action", "waiting", "done"]),
+    type: z.literal("work_status").describe("Work-status search expression."),
+    value: z.enum(["needs_action", "waiting", "done"]).describe("Conversation work status."),
   })
   .strict();
-export const mailSearchAssigneeSchema = z.object({ type: z.literal("assignee"), userId: z.string().uuid().nullable() }).strict();
-export const mailSearchSnoozedSchema = z.object({ type: z.literal("snoozed"), value: z.boolean() }).strict();
-export const mailSearchAllSchema = z.object({ type: z.literal("all") }).strict();
-export const mailSearchFolderIdSchema = z.object({ type: z.literal("folder_id"), folderId: z.string().uuid() }).strict();
-export const mailSearchAssignedToMeSchema = z.object({ type: z.literal("assigned_to_me") }).strict();
+export const mailSearchAssigneeSchema = z
+  .object({
+    type: z.literal("assignee").describe("Assignee search expression."),
+    userId: z.string().uuid().nullable().describe("Assigned user UUID, or null for unassigned conversations."),
+  })
+  .strict();
+export const mailSearchSnoozedSchema = z
+  .object({
+    type: z.literal("snoozed").describe("Snoozed-state search expression."),
+    value: z.boolean().describe("Required snoozed state."),
+  })
+  .strict();
+export const mailSearchAllSchema = z.object({ type: z.literal("all").describe("Match-all search expression.") }).strict();
+export const mailSearchFolderIdSchema = z
+  .object({
+    type: z.literal("folder_id").describe("Folder search expression."),
+    folderId: z.string().uuid().describe("Provider folder UUID."),
+  })
+  .strict();
+export const mailSearchAssignedToMeSchema = z
+  .object({ type: z.literal("assigned_to_me").describe("Match conversations assigned to the current user.") })
+  .strict();
 
 const MAX_BOOLEAN_TREE_DEPTH = 8;
 const MAX_BOOLEAN_TREE_NODES = 100;
@@ -1045,9 +1062,9 @@ export type ComposeSafetyWarningId = z.infer<typeof composeSafetyWarningIdSchema
 
 export const composeSafetyApprovalSchema = z
   .object({
-    revision: z.number().int().positive(),
-    fingerprint: z.string().length(64),
-    warningIds: z.array(composeSafetyWarningIdSchema).max(5),
+    revision: z.number().int().positive().describe("Exact reviewed draft revision."),
+    fingerprint: z.string().length(64).describe("Exact review fingerprint."),
+    warningIds: z.array(composeSafetyWarningIdSchema).max(5).describe("Warning identifiers accepted by the caller."),
   })
   .strict();
 export type ComposeSafetyApproval = z.infer<typeof composeSafetyApprovalSchema>;
@@ -2320,8 +2337,8 @@ export const senderAuthenticationPolicySchema = z.object({
 export type SenderAuthenticationPolicy = z.infer<typeof senderAuthenticationPolicySchema>;
 
 export const mailAddressSchema = z.object({
-  name: z.string().trim().max(200).nullable().optional(),
-  address: z.string().email().max(320),
+  name: z.string().trim().max(200).nullable().optional().describe("Optional recipient display name."),
+  address: z.string().email().max(320).describe("Recipient email address."),
 });
 export type MailAddress = z.infer<typeof mailAddressSchema>;
 
@@ -2563,19 +2580,20 @@ export type CancelScheduledSendResult = z.infer<typeof cancelScheduledSendResult
 
 export const draftEditableContentInputSchema = z
   .object({
-    senderIdentityId: z.string().uuid(),
-    to: z.array(mailAddressSchema).max(200).default([]),
-    cc: z.array(mailAddressSchema).max(200).default([]),
-    bcc: z.array(mailAddressSchema).max(200).default([]),
-    subject: z.string().max(998).default(""),
+    senderIdentityId: z.string().uuid().describe("Verified sender-identity UUID."),
+    to: z.array(mailAddressSchema).max(200).default([]).describe("Primary recipients."),
+    cc: z.array(mailAddressSchema).max(200).default([]).describe("Carbon-copy recipients."),
+    bcc: z.array(mailAddressSchema).max(200).default([]).describe("Blind-carbon-copy recipients."),
+    subject: z.string().max(998).default("").describe("Message subject."),
     body: z
       .string()
       .max(2 * 1024 * 1024)
-      .default(""),
-    format: mailComposeFormatSchema.default("markdown"),
-    priority: mailPrioritySchema.default("normal"),
-    requestDeliveryReceipt: z.boolean().default(false),
-    requestReadReceipt: z.boolean().default(false),
+      .default("")
+      .describe("Editable message body."),
+    format: mailComposeFormatSchema.default("markdown").describe("Editable message body format."),
+    priority: mailPrioritySchema.default("normal").describe("Message priority hint."),
+    requestDeliveryReceipt: z.boolean().default(false).describe("Whether to request a delivery receipt."),
+    requestReadReceipt: z.boolean().default(false).describe("Whether to request a read receipt."),
   })
   .strict();
 export type DraftEditableContentInput = z.input<typeof draftEditableContentInputSchema>;

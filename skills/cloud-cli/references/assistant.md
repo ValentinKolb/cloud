@@ -1,6 +1,6 @@
 # Assistant CLI
 
-Use `cld assistant` for non-interactive Assistant workflows. It can start or continue chats, stream responses, manage chat state and files, resolve pending actions, edit preferences, and synchronize Cloud skills. An interactive terminal chat is not part of this interface yet.
+Use `cld assistant` for non-interactive Assistant workflows. It can start or continue chats, stream responses, manage chat state and files, resolve pending actions, edit preferences, and manage reusable skills. An interactive terminal chat is not part of this interface yet.
 
 ## One-shot chat
 
@@ -15,12 +15,14 @@ Continue an existing chat by stable ID:
 
 ```bash
 cld assistant ask --chat <chat-id> "What changed since then?"
+cld assistant ask --skill "Release notes" "Summarize the latest changes"
 ```
 
 Useful options:
 
 - `--title <title>` names a newly created chat.
 - `--model <profile-id>` selects a model from `cld assistant models`.
+- `--skill <skill-id-or-name>` applies one visible skill to this request only.
 - Repeat `--attach <local-file>` for images or documents.
 - `--detach` submits the turn and returns its ID without waiting.
 - Repeat `--approve <exact-tool-name>` to approve only those tools for that turn. There is deliberately no approve-all flag.
@@ -78,30 +80,29 @@ cld assistant prefs system-prompt
 
 `prefs system-prompt` previews the same composed prompt path used for a fresh Assistant chat. Treat memory and instructions as user data; read before replacing them.
 
-## Cloud skills
+## Skills
 
-Discover and manage skills:
+Skills are text-only reusable instructions. Personal skills belong to the current user; workspace skills are managed by administrators and are read-only in Assistant.
 
 ```bash
 cld assistant skills list
-cld assistant skills list --managed
-cld assistant skills get <skill-id-or-slug>
-cld assistant skills create release-notes --description "Summarize release changes"
-cld assistant skills enable <skill-id-or-slug>
-cld assistant skills disable <skill-id-or-slug>
+cld assistant skills get "Release notes"
+cld assistant skills create "Release notes" \
+  --description "Summarize release changes" \
+  --instructions-file ./release-notes.md
+cld assistant skills update "Release notes" --instructions-file ./release-notes.md
+cld assistant skills delete "Release notes" --yes
 ```
 
-Use `skills files`, `skills events`, and `skills access` for individual files, audit history, and sharing. Workspace-skill code review is available through `skills code-review`, `code-approve`, and `code-revoke` to users with the corresponding rights.
-
-Synchronize an entire local skill directory explicitly:
+Administrators use `--workspace` when listing, reading, creating, updating, or deleting workspace skills. Enable and disable commands always target the workspace catalog:
 
 ```bash
-cld assistant skills push ./release-notes --dry-run
-cld assistant skills push ./release-notes
-cld assistant skills pull release-notes ./release-notes --dry-run
-cld assistant skills pull release-notes ./release-notes
+cld assistant skills list --workspace
+cld assistant skills create "Release notes" --workspace --instructions-file ./release-notes.md
+cld assistant skills disable "Release notes"
+cld assistant skills enable "Release notes"
 ```
 
-The local directory must contain a root `SKILL.md` and cannot contain symlinks. Push is additive by default: remote-only files remain. Deleting those files requires both `--prune` and `--yes`. Pull leaves unrelated local files alone and refuses to replace differing files unless `--force` is passed. A concurrent remote change causes push to fail instead of partially updating the skill.
+Names and stable IDs are both accepted. Names must match exactly. A selected skill applies only to the submitted turn; it does not stay active for later messages. `messages retry` also accepts `--skill`.
 
 Run `cld assistant <group> help` or `cld assistant <group> <command> --help` for the complete accepted flags.

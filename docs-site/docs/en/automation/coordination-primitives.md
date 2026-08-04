@@ -64,7 +64,7 @@ if (result.limited) {
 `check()` counts the current request. The result includes remaining capacity
 and milliseconds until reset.
 
-Use [request middleware](/docs/en/server/middleware) for HTTP route limits.
+Use [request middleware](/en/docs/server/middleware) for HTTP route limits.
 Use the primitive when the limit belongs to domain work outside one router.
 
 ## Store ephemeral state

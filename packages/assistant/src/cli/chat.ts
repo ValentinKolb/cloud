@@ -1,13 +1,5 @@
 import { basename } from "node:path";
 import {
-  arg,
-  command,
-  confirmFlag,
-  flag,
-  readCliInput,
-  type CloudCliContext,
-} from "@valentinkolb/cloud/cli";
-import {
   type AiConversation,
   type AiConversationTimelineEntry,
   type AiFileStat,
@@ -18,18 +10,10 @@ import {
   type AiUserPrefs,
   guessAiMediaType,
 } from "@valentinkolb/cloud/ai";
+import { arg, type CloudCliContext, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
+import { ASSISTANT_API, jsonRequest, parseJson, printRows, printValue, queryString, readApi, requireConfirmation, shortId } from "./shared";
+import { resolveAssistantSkill } from "./skills";
 import { streamAssistantTurn } from "./stream";
-import {
-  ASSISTANT_API,
-  jsonRequest,
-  parseJson,
-  printRows,
-  printValue,
-  queryString,
-  readApi,
-  requireConfirmation,
-  shortId,
-} from "./shared";
 
 type ConversationDetail = {
   conversation: AiConversation;
@@ -42,8 +26,7 @@ type ConversationDetail = {
 type TurnSubmission = { turn: { id: string; status: string; modelProfileId: string | null }; message?: AiStoredMessage };
 type FileList = { files: AiFileStat[]; totalBytes: number };
 
-const conversationPath = (conversationId: string, suffix = ""): string =>
-  `/conversations/${encodeURIComponent(conversationId)}${suffix}`;
+const conversationPath = (conversationId: string, suffix = ""): string => `/conversations/${encodeURIComponent(conversationId)}${suffix}`;
 
 const isSupportedImageType = (mediaType: string): mediaType is "image/gif" | "image/jpeg" | "image/png" | "image/webp" | "image/jpg" =>
   ["image/gif", "image/jpeg", "image/png", "image/webp", "image/jpg"].includes(mediaType);
@@ -51,7 +34,8 @@ const isSupportedImageType = (mediaType: string): mediaType is "image/gif" | "im
 const readPrompt = async (args: string[], input: Parameters<typeof readCliInput>[0]): Promise<string> => {
   const positional = args.join(" ").trim();
   const supplied = await readCliInput(input, { label: "message", trimFinalNewline: true });
-  if (positional && supplied !== undefined) throw new Error("Pass the message either as arguments or with --message/--message-file/--stdin.");
+  if (positional && supplied !== undefined)
+    throw new Error("Pass the message either as arguments or with --message/--message-file/--stdin.");
   const message = (supplied ?? positional).trim();
   if (!message) throw new Error("Missing message.");
   return message;
@@ -109,7 +93,9 @@ const submitAndMaybeWatch = async (input: {
   if (result.status === "failed") throw new Error(result.error || "Assistant turn failed.");
   if (result.status === "needs_attention") {
     if (input.ctx.options.output === "text") {
-      input.ctx.error(`Turn ${result.turnId} needs attention. Run \`cld assistant actions list ${input.conversationId} ${result.turnId}\`.`);
+      input.ctx.error(
+        `Turn ${result.turnId} needs attention. Run \`cld assistant actions list ${input.conversationId} ${result.turnId}\`.`,
+      );
     }
     return 2;
   }
@@ -143,6 +129,7 @@ export const assistantChatCommands = [
       chat: flag.string({ description: "Continue an existing chat ID" }),
       title: flag.string({ description: "Title for a new chat" }),
       model: flag.string({ description: "Model profile ID" }),
+      skill: flag.string({ description: "Apply one visible skill by exact name or ID" }),
       attach: flag.stringList({ description: "Attach a local file; repeat for multiple files" }),
       approve: flag.stringList({ description: "Approve this exact tool name for this turn; repeat as needed" }),
       detach: flag.boolean({ description: "Submit without waiting for the response" }),
@@ -150,20 +137,23 @@ export const assistantChatCommands = [
     examples: [
       'cld assistant ask "Summarize my open work"',
       'cld assistant ask --chat <id> --attach report.pdf "What matters here?"',
+      'cld assistant ask --skill "Release notes" "Summarize the latest changes"',
       'cld assistant ask --approve web_search "Check today\'s release notes"',
     ],
     async run({ ctx, args, flags }) {
       const message = await readPrompt(args.prompt, flags.message);
+      if (flags.attach.length > 11) throw new Error("At most 11 attachments can be sent with one message.");
+      const skill = flags.skill ? await resolveAssistantSkill(ctx, flags.skill) : undefined;
       const conversation = flags.chat
         ? await readApi<ConversationDetail>(ctx, conversationPath(flags.chat)).then((detail) => detail.conversation)
         : await readApi<AiConversation>(ctx, "/conversations", jsonRequest("POST", flags.title ? { title: flags.title } : {}));
-      if (flags.attach.length > 11) throw new Error("At most 11 attachments can be sent with one message.");
       const content: AiTurnContentPart[] = [];
       for (const path of flags.attach) content.push(await uploadAttachment(ctx, conversation.id, path));
       const body = {
         message,
         ...(content.length > 0 ? { content } : {}),
         ...(flags.model ? { modelProfileId: flags.model } : {}),
+        ...(skill ? { skillId: skill.id } : {}),
       };
       return submitAndMaybeWatch({
         ctx,
@@ -372,6 +362,7 @@ export const assistantManagementCommands = [
     flags: {
       mode: flag.enum(["retry", "details", "concise"] as const, { default: "retry" }),
       model: flag.string(),
+      skill: flag.string({ description: "Apply one visible skill by exact name or ID" }),
       replacement: flag.input({
         name: "message",
         fileName: "message-file",
@@ -384,6 +375,7 @@ export const assistantManagementCommands = [
       const body = {
         mode: flags.mode,
         ...(flags.model ? { modelProfileId: flags.model } : {}),
+        ...(flags.skill ? { skillId: (await resolveAssistantSkill(ctx, flags.skill)).id } : {}),
         ...(replacement?.trim() ? { content: [{ type: "text", text: replacement.trim() }] } : {}),
       };
       return submitAndMaybeWatch({
@@ -611,11 +603,9 @@ export const assistantManagementCommands = [
     flags: { yes: confirmFlag("Confirm deleting the file") },
     async run({ ctx, args, flags }) {
       requireConfirmation(flags.yes, "Deleting a file");
-      const result = await readApi<unknown>(
-        ctx,
-        `${conversationPath(args.chat, "/files")}${queryString({ path: args.path })}`,
-        { method: "DELETE" },
-      );
+      const result = await readApi<unknown>(ctx, `${conversationPath(args.chat, "/files")}${queryString({ path: args.path })}`, {
+        method: "DELETE",
+      });
       printValue(ctx, result, `Deleted ${args.path}.`);
     },
   }),
@@ -634,7 +624,8 @@ export const assistantManagementCommands = [
     async run({ ctx, flags }) {
       const instructions = await readCliInput(flags.instructions, { label: "instructions" });
       const memory = await readCliInput(flags.memory, { label: "memory" });
-      if (instructions === undefined && memory === undefined) throw new Error("Pass --instructions/--instructions-file or --memory/--memory-file.");
+      if (instructions === undefined && memory === undefined)
+        throw new Error("Pass --instructions/--instructions-file or --memory/--memory-file.");
       const prefs = await readApi<AiUserPrefs>(ctx, "/prefs", jsonRequest("PUT", { instructions, memory }));
       printValue(ctx, prefs);
     },

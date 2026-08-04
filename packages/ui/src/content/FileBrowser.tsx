@@ -12,7 +12,7 @@ import { dialogCore } from "../feedback/dialog-core";
 import { prompts } from "../feedback/prompts";
 import Dropdown from "../actions/Dropdown";
 import FileTree, { type FileTreeEntry } from "./FileTree";
-import FileView, { type FileViewContent } from "./FileView";
+import FileView, { type FileViewContent, type FileViewRenderer } from "./FileView";
 import PanelDialog, { panelDialogOptions } from "../layout/PanelDialog";
 import Placeholder from "../surfaces/Placeholder";
 
@@ -38,6 +38,10 @@ export type FileBrowserPanelProps = {
   initialPath?: string;
   /** Mirrors file selection into route state when the host needs durable navigation. */
   onSelectedPathChange?: (path: string | null) => void;
+  /** Per-instance preview extensions forwarded to FileView. */
+  renderers?: readonly FileViewRenderer[];
+  /** Optional host copy/policy for leaving an unsaved file. */
+  confirmDiscard?: (path: string, nextPath: string | null) => boolean | Promise<boolean>;
   /** Fixed shell height — the panes scroll inside it. */
   class?: string;
 };
@@ -54,6 +58,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   // into its own list request indefinitely.
   const [entries, { refetch }] = createResource(async () => untrack(() => props.source.list()));
   const [selectedPath, setSelectedPath] = createSignal<string | null>(props.initialPath ?? null);
+  const [selectedDirty, setSelectedDirty] = createSignal(false);
   // Folders exist implicitly through file paths — freshly created (still empty)
   // ones live here until their first file makes them real.
   const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
@@ -61,7 +66,10 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   let uploadDir = "/";
   let previousRefreshKey = props.refreshKey;
 
-  createEffect(() => setSelectedPath(props.initialPath ?? null));
+  createEffect(() => {
+    const next = props.initialPath ?? null;
+    if (!selectedDirty() && next !== selectedPath()) setSelectedPath(next);
+  });
   createEffect(() => props.onSelectedPathChange?.(selectedPath()));
   createEffect(() => {
     const refreshKey = props.refreshKey;
@@ -89,6 +97,25 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   const pathMutable = (path: string) => !fileMutation.loading() && !props.readOnly && !props.source.isReadOnly?.(path);
   const pathWritable = (path: string) => pathMutable(path) && Boolean(props.source.write);
   const run = (work: () => Promise<void>) => void fileMutation.mutate(work);
+  const canLeaveCurrent = async (nextPath: string | null): Promise<boolean> => {
+    const current = selectedPath();
+    if (nextPath === current || !selectedDirty() || !current) return true;
+    if (selectedDirty() && current) {
+      const confirmed = props.confirmDiscard
+        ? await props.confirmDiscard(current, nextPath)
+        : await prompts.confirm("Discard the unsaved changes in this file?", {
+            title: "Discard changes",
+            variant: "danger",
+          });
+      if (!confirmed) return false;
+    }
+    return true;
+  };
+  const selectPath = async (nextPath: string | null) => {
+    if (!(await canLeaveCurrent(nextPath))) return;
+    setSelectedDirty(false);
+    setSelectedPath(nextPath);
+  };
 
   const removeFile = (path: string) =>
     run(async () => {
@@ -112,7 +139,9 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
       const name = await prompts.prompt("Name of the new file:", "", { title: "New file" });
       if (!name || typeof name !== "string" || !name.trim() || name.includes("/")) return;
       const path = `${dirPath === "/" ? "" : dirPath}/${name.trim()}`;
+      if (!(await canLeaveCurrent(path))) return;
       await props.source.write!(path, "");
+      setSelectedDirty(false);
       setSelectedPath(path);
     });
 
@@ -249,7 +278,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
               class="k2b-content-file-browser__tree"
               entries={allEntries()}
               selectedPath={selectedPath()}
-              onSelect={(entry) => setSelectedPath(entry.path)}
+              onSelect={(entry) => void selectPath(entry.path)}
               actions={treeActions()}
             />
           </Match>
@@ -276,6 +305,8 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
               file={{ path: entry().path, mediaType: entry().mediaType, size: entry().size }}
               load={() => props.source.read(entry().path)}
               revision={props.refreshKey}
+              renderers={props.renderers}
+              onDirtyChange={setSelectedDirty}
               save={
                 pathWritable(entry().path)
                   ? async (content) => {

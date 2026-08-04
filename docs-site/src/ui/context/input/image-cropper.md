@@ -26,11 +26,16 @@ import {
 
 Rectangular crops can be moved and resized from their corners. A fixed `aspect` stays locked and keeps the opposite corner anchored during resize. A circular preview can be moved but has no corner handles. Rotation advances in 90-degree steps.
 
+When the crop surface is focused, arrow keys move it and Shift+arrow resizes
+it. The same clamping and fixed-aspect rules apply to pointer and keyboard
+editing.
+
 Use `createCroppedImageDataUrl` or `createCroppedImageCanvas` to apply the emitted state. Output options support exact dimensions, maximum dimensions, format, and quality.
 
 ## Accessibility
 
-Rotation is keyboard operable. Moving and resizing the crop area is pointer-driven, so do not make precise cropping the only way to complete a keyboard-only flow.
+Rotation, moving, and resizing are keyboard operable. Keep a reset path and do
+not require pixel-perfect placement to complete the task.
 
 Give the generated preview a useful `alt` value in the owning UI.
 

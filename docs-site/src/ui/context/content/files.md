@@ -21,7 +21,6 @@ import {
   formatFileViewSize,
   getFileViewPreviewKind,
   openFileBrowser,
-  registerFileViewRenderer,
   type FileBrowserPanelProps,
   type FileSource,
   type FileTreeActions,
@@ -106,9 +105,15 @@ type FileViewContent = {
 `canPreviewFile` also checks the built-in size limits.
 `formatFileViewSize` produces the compact size label used by the preview.
 
-`registerFileViewRenderer` adds an application-specific renderer before the
-built-ins. Register stable renderers during application startup, not while a
-component renders.
+Pass `renderers` to `FileView` or `FileBrowserPanel` to add
+application-specific renderers before the built-ins. Extensions are scoped to
+that component instance, so concurrent SSR requests and independently mounted
+applications cannot mutate each other's renderer set.
+
+`FileView` reports local edits through `onDirtyChange`. `FileBrowserPanel`
+uses that signal to guard selection changes; pass `confirmDiscard` to own the
+confirmation copy and policy. Without it, the shared confirmation prompt is
+used.
 
 ## Dialog helper
 
@@ -157,7 +162,12 @@ const source: FileSource = {
   },
 };
 
-<FileBrowserPanel source={source} initialPath="/README.md" />;
+<FileBrowserPanel
+  source={source}
+  initialPath="/README.md"
+  renderers={applicationRenderers}
+  confirmDiscard={(path) => confirm(`Discard changes to ${path}?`)}
+/>;
 ```
 
 ## Direct composition
@@ -173,5 +183,6 @@ const source: FileSource = {
   file={{ path: selectedPath(), mediaType: "text/plain" }}
   load={() => source.read(selectedPath())}
   save={(content) => source.write!(selectedPath(), content)}
+  renderers={applicationRenderers}
 />
 ```

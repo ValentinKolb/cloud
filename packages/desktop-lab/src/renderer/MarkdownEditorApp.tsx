@@ -645,7 +645,7 @@ export function MarkdownEditorApp(props: Props) {
             <section class="min-h-0 flex-1 overflow-hidden">
               <Show
                 when={mode() === "edit"}
-                fallback={<MarkdownView html={previewHtml()} class="markdown-preview-pane h-full overflow-auto" />}
+                fallback={<MarkdownView trustedHtml={previewHtml()} class="markdown-preview-pane h-full overflow-auto" />}
               >
                 <div class="markdown-editor-pane h-full min-h-0">
                   <MarkdownEditor value={draft} onValueChange={setDraft} lines={26} placeholder="Write markdown..." variant="paper" />

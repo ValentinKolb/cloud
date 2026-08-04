@@ -237,7 +237,7 @@ function DropdownChoiceItem(props: DropdownChoice): JSX.Element {
       aria-checked={checked()}
       aria-disabled={props.disabled ? "true" : undefined}
       tabIndex={-1}
-      class={`k2b-dropdown__item k2b-dropdown__choice ${props.class ?? ""}`}
+      class={`k2b-dropdown__item ${props.class ?? ""}`}
       data-selected={checked() ? "true" : undefined}
       disabled={props.disabled}
       onClick={(event) => {

@@ -154,7 +154,7 @@ const actor = c.get("actor");
 const accessSubject = actor ? c.get("accessSubject") : null;
 ```
 
-See [Public and anonymous access](/docs/en/identity/public-and-anonymous-access)
+See [Public and anonymous access](/en/docs/identity/public-and-anonymous-access)
 before exposing a route.
 
 ## Repeat resource checks
@@ -170,4 +170,4 @@ They must therefore call the same permission-aware service themselves.
 requirements. They do not run middleware.
 
 Pair the metadata with the real route policy. See
-[Typed HTTP APIs](/docs/en/server/http#publish-openapi).
+[Typed HTTP APIs](/en/docs/server/http#publish-openapi).

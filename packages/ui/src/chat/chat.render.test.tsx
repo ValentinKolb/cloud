@@ -70,7 +70,7 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain('aria-label="Remove brief.pdf"');
     expect(html).toContain('role="option"');
     expect(html).toContain('role="menuitemradio"');
-    expect(html).toContain("k2b-select-chip__option-copy");
+    expect(html).toContain("k2b-dropdown__copy");
   });
 
   test("exposes the open command list as a combobox popup owned by the textarea", () => {
@@ -173,6 +173,27 @@ describe("@k2b/ui portable chat family", () => {
     expect(activity).toContain("<details");
     expect(activity).toContain("open");
     expect(activity).toContain("Source details");
+  });
+
+  test("keeps visible timestamps explicit and SSR-stable", () => {
+    const machineOnly = renderToString(() =>
+      createComponent(Chat.Message, {
+        role: "assistant",
+        createdAt: "2026-07-28T12:00:00.000Z",
+        children: "Machine timestamp only",
+      }),
+    );
+    const visible = renderToString(() =>
+      createComponent(Chat.Message, {
+        role: "assistant",
+        createdAt: "2026-07-28T12:00:00.000Z",
+        timeLabel: "14:00",
+        children: "Visible timestamp",
+      }),
+    );
+
+    expect(machineOnly).not.toContain("<time");
+    expect(visible).toContain('<time datetime="2026-07-28T12:00:00.000Z">14:00</time>');
   });
 
   test("does not render an empty bubble for attachment-only messages", () => {
@@ -281,6 +302,20 @@ describe("@k2b/ui portable chat family", () => {
     expect(zero).toContain("8,000");
     expect(invalid).toContain("Context usage unavailable, 8,000 token context window");
     expect(invalid).not.toMatch(/NaN|Infinity|-1/);
+  });
+
+  test("lets the host localize usage without making the default locale-dependent", () => {
+    const localized = renderToString(() =>
+      createComponent(Chat.ContextUsage, {
+        usage: { total: 1_250 },
+        contextWindow: 8_000,
+        formatNumber: (value: number) => `n:${value}`,
+      }),
+    );
+
+    expect(formatChatTokens(999)).toBe("999");
+    expect(localized).toContain("n:1250 tokens used");
+    expect(localized).toContain("n:8000");
   });
 
   test("offers a keyboard reachable history control only while more history exists", () => {

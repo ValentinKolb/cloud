@@ -67,7 +67,7 @@ every application capability.
 
 Selection belongs in the URL. The server must be able to render the same
 detail after reload. See
-[URL state and navigation](/docs/en/frontend/url-state-and-navigation).
+[URL state and navigation](/en/docs/frontend/url-state-and-navigation).
 
 `AppWorkspace.Content` is the required flex row for `Main` and `Detail`.
 Keep geometry IDs stable. Do not add another grid or resize handle.
@@ -81,7 +81,7 @@ Keep geometry IDs stable. Do not add another grid or resize handle.
 
 The shared dialog core owns focus trapping, Escape, backdrop, and layering.
 
-See [Forms, prompts, and feedback](/docs/en/frontend/forms-prompts-and-feedback)
+See [Forms, prompts, and feedback](/en/docs/frontend/forms-prompts-and-feedback)
 for input and mutation behavior.
 
 Do not restyle a shared shell locally. Improve the primitive when the design

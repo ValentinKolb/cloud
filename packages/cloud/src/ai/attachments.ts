@@ -2,7 +2,7 @@
  * Non-image attachments live in the conversation VFS (/input), not in the
  * model context: the composer uploads the file, then sends an attachment
  * input part which becomes a marker text part in the user message. The model
- * reads the path and inspects the file with the bash tool; the chat UI parses
+ * reads the path with the conversation file tools; the chat UI parses
  * the same marker back into a chip. Browser-safe module.
  */
 

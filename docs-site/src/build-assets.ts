@@ -1,10 +1,10 @@
 import tailwind from "bun-plugin-tailwind";
 import { cp, mkdir, rm } from "fs/promises";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 
 const siteRoot = resolve(import.meta.dir, "..");
 const generated = join(siteRoot, "assets", "generated");
-const solidRoot = resolve(siteRoot, "node_modules", "solid-js");
+const solidRoot = dirname(Bun.resolveSync("solid-js/package.json", siteRoot));
 
 export async function buildAssets() {
   await rm(generated, { recursive: true, force: true });

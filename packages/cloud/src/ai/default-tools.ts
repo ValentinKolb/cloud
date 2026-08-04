@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { createCloudAiBashTool, createCloudAiPresentTool } from "./bash-tool";
+import {
+  createCloudAiCalculateTool,
+  createCloudAiListFilesTool,
+  createCloudAiPresentTool,
+  createCloudAiReadFileTool,
+  createCloudAiWriteFileTool,
+} from "./file-tools";
 import { createCloudAiWebExtractTool, createCloudAiWebSearchTool, isCloudAiFirecrawlConfigured } from "./firecrawl-tools";
 import { defineAiTool } from "./tools";
 import type { AiRuntimeTool } from "./types";
@@ -92,7 +98,14 @@ export const createCloudAiSurveyTool = () =>
 export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool()];
 
 export const createConfiguredDefaultCloudAiTools = async (config?: { firecrawlApiKey?: string | null; fetch?: typeof fetch }) => {
-  const tools: AiRuntimeTool[] = [...createDefaultCloudAiTools(), createCloudAiBashTool(), createCloudAiPresentTool()];
+  const tools: AiRuntimeTool[] = [
+    ...createDefaultCloudAiTools(),
+    createCloudAiListFilesTool(),
+    createCloudAiReadFileTool(),
+    createCloudAiWriteFileTool(),
+    createCloudAiPresentTool(),
+    createCloudAiCalculateTool(),
+  ];
   const firecrawlConfigured =
     config && "firecrawlApiKey" in config ? Boolean(config.firecrawlApiKey?.trim()) : await isCloudAiFirecrawlConfigured();
   if (firecrawlConfigured) {

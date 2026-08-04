@@ -260,7 +260,7 @@ grants and do not enter the resource-credential branch.
 Collection and search endpoints must restrict the query to the bound resource
 or reject the credential. Authentication alone must not expose every item.
 
-See [Resource API keys](/docs/en/identity/resource-api-keys) for service-account
+See [Resource API keys](/en/docs/identity/resource-api-keys) for service-account
 and credential creation.
 
 ## Repeat the check for SSR
@@ -269,7 +269,7 @@ An SSR page often calls the service directly. Its JSON route did not run.
 
 The page must therefore:
 
-1. use a [route policy](/docs/en/identity/route-policies);
+1. use a [route policy](/en/docs/identity/route-policies);
 2. call the same permission-aware service;
 3. render only the data returned by that service.
 

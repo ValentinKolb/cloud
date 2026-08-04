@@ -71,7 +71,7 @@ The offset is `(page - 1) * perPage`.
 Pass `perPage` as the SQL limit and `offset` as the SQL offset. Count the same
 filtered result separately.
 
-See [Postgres queries](/docs/en/data/postgres-queries) for safe SQL composition.
+See [Postgres queries](/en/docs/data/postgres-queries) for safe SQL composition.
 
 ## Return the HTTP envelope
 
@@ -135,7 +135,7 @@ const SORT_COLUMNS = {
 Never interpolate an unvalidated column name or direction.
 
 Apply resource access before counting and selecting rows. See
-[Resource authorization](/docs/en/identity/authorization).
+[Resource authorization](/en/docs/identity/authorization).
 
 ## Use stable ordering
 
@@ -197,4 +197,4 @@ server reads that URL on every request.
 
 This keeps reload, sharing, and back/forward navigation correct.
 
-See [URL state and navigation](/docs/en/frontend/url-state-and-navigation).
+See [URL state and navigation](/en/docs/frontend/url-state-and-navigation).

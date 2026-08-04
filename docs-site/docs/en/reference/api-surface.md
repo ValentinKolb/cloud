@@ -49,7 +49,7 @@ The root also exports the types bound to an application declaration. This
 includes typed settings and notification definitions. Registry, heartbeat, and
 runtime-composition exports from the same barrel are platform-owned.
 
-See [Define an application](/docs/en/build/define-app).
+See [Define an application](/en/docs/build/define-app).
 
 ## Handle server requests
 
@@ -68,7 +68,7 @@ import {
 This entry point contains Hono context types, middleware, actor helpers,
 validation, resource access, and response helpers.
 
-See [Server APIs](/docs/en/server) for the request path.
+See [Server APIs](/en/docs/server) for the request path.
 
 ## Use platform services
 
@@ -83,10 +83,11 @@ log.info("Import completed", { itemCount: 42 });
 
 Use the capability guide to choose the narrow API:
 
-- [Settings](/docs/en/platform/settings)
-- [Notifications](/docs/en/platform/notifications)
-- [Logging](/docs/en/platform/logging)
-- [Search](/docs/en/platform/search)
+- [Settings](/en/docs/platform/settings)
+- [Notifications](/en/docs/platform/notifications)
+- [Logging](/en/docs/platform/logging)
+- [App capabilities](/en/docs/platform/capabilities)
+- [Universal search](/en/docs/platform/search)
 
 Raw stores, runtime starters, gateway telemetry, migrations, and platform
 composition helpers from the same barrel are maintainer APIs unless a guide
@@ -105,7 +106,7 @@ export const inventoryApi = api.create<InventoryApi>({
 });
 ```
 
-See [Browser clients and mutations](/docs/en/frontend/browser-clients-and-mutations).
+See [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations).
 
 The `clipboard`, `copyToClipboard`, `url`, and `isImageUrl` exports are utility
 helpers outside the documented typed-client contract. Do not choose them as
@@ -127,36 +128,37 @@ inferring support from autocomplete.
 
 `@valentinkolb/cloud/config` exports `env.APP_SECRET`, `env.PORT`,
 `env.IS_DEVELOPMENT`, and `env.ADMIN_LOGIN_TOKEN`. The
-[runtime configuration guide](/docs/en/operations/runtime-configuration)
+[runtime configuration guide](/en/docs/operations/runtime-configuration)
 documents all process variables; that larger list is not the shape of `env`.
 
 ## Specialized entry points
 
 | Entry point | Status | Use | Guide |
 | --- | --- | --- | --- |
-| `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](/docs/en/ai/chat-interface) |
-| `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](/docs/en/ai/chat-interface) |
-| `@valentinkolb/cloud/account/ui` | Supported, SolidJS | Cloud account selectors and avatars | [Building blocks](/docs/en/building-blocks) |
-| `@valentinkolb/cloud/access/ui` | Supported, SolidJS | Cloud permission and resource-key controls | [Resource API keys](/docs/en/identity/resource-api-keys) |
-| `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport | [Realtime UI](/docs/en/frontend/realtime-ui) |
-| `@valentinkolb/cloud/browser/notifications` | Supported, browser | Browser notification state | [Notifications](/docs/en/platform/notifications) |
+| `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](/en/docs/ai/chat-interface) |
+| `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](/en/docs/ai/chat-interface) |
+| `@valentinkolb/cloud/account/ui` | Supported, SolidJS | Cloud account selectors and avatars | [Building blocks](/en/docs/building-blocks) |
+| `@valentinkolb/cloud/access/ui` | Supported, SolidJS | Cloud permission and resource-key controls | [Resource API keys](/en/docs/identity/resource-api-keys) |
+| `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport | [Realtime UI](/en/docs/frontend/realtime-ui) |
+| `@valentinkolb/cloud/browser/notifications` | Supported, browser | Browser notification state | [Notifications](/en/docs/platform/notifications) |
 | `@valentinkolb/cloud/clients/core` | Platform-owned, browser | Typed client for the Core platform API | — |
-| `@valentinkolb/cloud/workflows/language` | Supported | Workflow compiler, parser, and authoring | [Author workflows](/docs/en/automation/author-and-publish-workflows) |
-| `@valentinkolb/cloud/workflows/runtime` | Supported, server-only | Workflow execution runtime | [Workflow effects](/docs/en/automation/effects-retry-and-reconciliation) |
-| `@valentinkolb/cloud/workflows/store` | Supported, server-only | Durable workflow store and workers | [Start runs](/docs/en/automation/emit-events-and-start-runs) |
-| `@valentinkolb/cloud/workflows/testing` | Supported, tests | Workflow process fixtures | [Test workflows](/docs/en/automation/workflow-observability-and-testing) |
-| `@valentinkolb/cloud/ssr/islands` | Supported, server-only | Shared SSR island helpers | [In-product help](/docs/en/platform/help) |
+| `@valentinkolb/cloud/workflows/language` | Supported | Workflow compiler, parser, and authoring | [Author workflows](/en/docs/automation/author-and-publish-workflows) |
+| `@valentinkolb/cloud/workflows/runtime` | Supported, server-only | Workflow execution runtime | [Workflow effects](/en/docs/automation/effects-retry-and-reconciliation) |
+| `@valentinkolb/cloud/workflows/store` | Supported, server-only | Durable workflow store and workers | [Start runs](/en/docs/automation/emit-events-and-start-runs) |
+| `@valentinkolb/cloud/workflows/testing` | Supported, tests | Workflow process fixtures | [Test workflows](/en/docs/automation/workflow-observability-and-testing) |
+| `@valentinkolb/cloud/ssr/islands` | Supported, server-only | Shared SSR island helpers | [In-product help](/en/docs/platform/help) |
 | `@valentinkolb/cloud/ssr/*` | Advanced | Named SSR modules; prefer the barrel | — |
-| `@valentinkolb/cloud/workflows/editor` | Supported, SolidJS | Workflow authoring controls | [Shared components](/docs/en/frontend#choose-shared-components) |
-| `@valentinkolb/cloud/styles/global.css` | Supported asset | Alias for the global stylesheet | [Styling](/docs/en/frontend/styling-and-accessibility) |
-| `@valentinkolb/cloud/cli/access` | Supported | Resource access commands | [CLI modules](/docs/en/platform/cli-modules) |
+| `@valentinkolb/cloud/workflows/editor` | Supported, SolidJS | Workflow authoring controls | [Shared components](/en/docs/frontend#choose-shared-components) |
+| `@valentinkolb/cloud/styles/global.css` | Supported asset | Alias for the global stylesheet | [Styling](/en/docs/frontend/styling-and-accessibility) |
+| `@valentinkolb/cloud/cli/access` | Supported | Resource access commands | [CLI modules](/en/docs/platform/cli-modules) |
+| `@valentinkolb/cloud/cli/capabilities` | Platform-owned | Built-in generic capability client | [App capabilities](/en/docs/platform/capabilities) |
 | `@valentinkolb/cloud/capabilities` | Supported, browser | Runtime-validated capability catalog, invocation, and Action review client | [App capabilities](/en/docs/platform/capabilities) |
 | `@valentinkolb/cloud/capabilities/server` | Supported, server-only | Registry-backed capability catalog, invocation, and Action review client | [App capabilities](/en/docs/platform/capabilities) |
 | `@valentinkolb/cloud/capabilities/testing` | Supported, tests | Provider manifest compilation and additive-evolution assertions | [App capabilities](/en/docs/platform/capabilities) |
 | `@valentinkolb/cloud/cli/account` | Platform-owned | Built-in account commands | — |
 | `@valentinkolb/cloud/cli/apps` | Platform-owned | Built-in application commands | — |
 | `@valentinkolb/cloud/cli/admin` | Platform-owned | Built-in administration commands | — |
-| `@valentinkolb/cloud/contracts/notifications` | Supported | Browser-safe notification contracts | [Notifications](/docs/en/platform/notifications) |
+| `@valentinkolb/cloud/contracts/notifications` | Supported | Browser-safe notification contracts | [Notifications](/en/docs/platform/notifications) |
 | `@valentinkolb/cloud/contracts/*` | Advanced | Named contract modules; prefer the barrel | — |
 | `@valentinkolb/cloud/config/*` | Advanced | Named configuration modules; prefer the barrel | — |
 
@@ -189,7 +191,7 @@ application contract. It is not a promise of instability.
 | Legacy notification send overloads | Typed notification definitions |
 | Legacy access inputs | `AccessSubject` |
 
-See [Deprecations](/docs/en/reference/deprecations-and-migrations) for migration
+See [Deprecations](/en/docs/reference/deprecations-and-migrations) for migration
 steps.
 
 ## Avoid internal imports

@@ -88,8 +88,8 @@ An empty file list fails with `bad_input`.
 | `timeout` | The request exceeded its timeout |
 
 Treat configuration and availability failures as operational errors. See
-[Runtime configuration](/docs/en/operations/runtime-configuration) and
-[Troubleshooting](/docs/en/operations/troubleshooting).
+[Runtime configuration](/en/docs/operations/runtime-configuration) and
+[Troubleshooting](/en/docs/operations/troubleshooting).
 
 Authorize access to the document data before rendering. Avoid remote assets
 whose availability or credentials are outside the document request.

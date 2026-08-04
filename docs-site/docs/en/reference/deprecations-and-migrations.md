@@ -27,7 +27,7 @@ covered by tests.
 The old `apiClient` is untyped. Export the final Hono router type, then create a
 typed browser client with the real base URL.
 
-See [Browser clients](/docs/en/frontend/browser-clients-and-mutations).
+See [Browser clients](/en/docs/frontend/browser-clients-and-mutations).
 
 ## Access inputs
 
@@ -46,7 +46,7 @@ await getEffectivePermission({
 `userGroups` is ignored. Cloud resolves direct and nested membership from the
 authoritative platform tables.
 
-See [Authorization](/docs/en/identity/authorization).
+See [Authorization](/en/docs/identity/authorization).
 
 ## Notifications
 
@@ -67,7 +67,7 @@ await notifications.send(app.notifications.stockLow, {
 This adds runtime validation, recipient policy, channel selection, and delivery
 history.
 
-See [Notifications](/docs/en/platform/notifications).
+See [Notifications](/en/docs/platform/notifications).
 
 ## UI
 

@@ -21,7 +21,10 @@ import {
 
 `onDrop` receives a `File[]` from either interaction. `multiple` defaults to `true`; when it is `false`, only the first file is emitted.
 
-`accept` is passed to both the hidden file input and the drop handler. Validate size, content, and permissions again before upload.
+`accept` is a reactive string prop and is read when a picker or drop happens,
+so changing a file policy does not require remounting the field. It is passed to
+both the hidden file input and the drop handler. Validate size, content, and
+permissions again before upload.
 
 The parent reports progress through `busy`. While busy, the dropzone is
 disabled and shows its loading state. `error` accepts visible JSX. `title`,

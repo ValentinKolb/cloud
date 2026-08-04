@@ -54,8 +54,8 @@ check needed for the rendered data.
 Use `expectUserBackedActor(c)` only when the page truly requires a user. A
 resource-bound service account has no user.
 
-See [Request identity](/docs/en/identity/authentication) and
-[Resource authorization](/docs/en/identity/authorization).
+See [Request identity](/en/docs/identity/authentication) and
+[Resource authorization](/en/docs/identity/authorization).
 
 ## Map routes explicitly
 

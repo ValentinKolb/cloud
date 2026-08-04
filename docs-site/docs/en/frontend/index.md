@@ -21,29 +21,29 @@ intent.
 
 Start with:
 
-- [SSR pages and routing](/docs/en/frontend/ssr-pages-and-routing) to render a
+- [SSR pages and routing](/en/docs/frontend/ssr-pages-and-routing) to render a
   route;
-- [Layout and navigation](/docs/en/frontend/layout-and-navigation) to place it
+- [Layout and navigation](/en/docs/frontend/layout-and-navigation) to place it
   in Cloud;
-- [Application shells](/docs/en/frontend/application-shells) to choose the
+- [Application shells](/en/docs/frontend/application-shells) to choose the
   shared content structure;
-- [Islands and hydration](/docs/en/frontend/islands-and-hydration) when part of
+- [Islands and hydration](/en/docs/frontend/islands-and-hydration) when part of
   the page needs browser state.
 
 Use the URL for filters, sorting, pagination, selection, and the active view.
-See [URL state and navigation](/docs/en/frontend/url-state-and-navigation).
+See [URL state and navigation](/en/docs/frontend/url-state-and-navigation).
 
 ## Add browser behavior
 
-- [Browser clients and mutations](/docs/en/frontend/browser-clients-and-mutations)
+- [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations)
   covers typed API calls and writes.
-- [Realtime UI](/docs/en/frontend/realtime-ui) adds live updates to an
+- [Realtime UI](/en/docs/frontend/realtime-ui) adds live updates to an
   SSR-owned result set.
-- [Forms, prompts, and feedback](/docs/en/frontend/forms-prompts-and-feedback)
+- [Forms, prompts, and feedback](/en/docs/frontend/forms-prompts-and-feedback)
   covers user input and mutation states.
 
-Finish with [Styling and accessibility](/docs/en/frontend/styling-and-accessibility)
-and [Frontend testing](/docs/en/frontend/testing).
+Finish with [Styling and accessibility](/en/docs/frontend/styling-and-accessibility)
+and [Frontend testing](/en/docs/frontend/testing).
 
 ## Choose shared components
 

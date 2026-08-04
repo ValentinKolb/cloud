@@ -16,7 +16,7 @@ application process.
 Examples include a local polling loop, a topic reader, or a scheduler instance.
 Use a durable job or queue when the work itself must survive a process restart.
 
-Read [Application lifecycle](/docs/en/build/lifecycle) for hook order, setup,
+Read [Application lifecycle](/en/docs/build/lifecycle) for hook order, setup,
 failed-start cleanup, lifecycle context, and shutdown order. This page only
 covers the background-work pattern.
 
@@ -57,8 +57,8 @@ An interval can fire before its previous callback finishes. Keep an in-process
 guard when overlap would be wrong.
 
 This guard protects only one process. Use a
-[mutex](/docs/en/automation/coordination-primitives#use-a-distributed-mutex) or
-[scheduler](/docs/en/automation/schedulers) when several app instances must
+[mutex](/en/docs/automation/coordination-primitives#use-a-distributed-mutex) or
+[scheduler](/en/docs/automation/schedulers) when several app instances must
 coordinate.
 
 ## Handle shutdown
@@ -69,6 +69,6 @@ them in `stop`.
 The platform waits for the stop callback, but deployment shutdown still has a
 deadline. Bound external requests and do not start unbounded cleanup.
 
-See [Application lifecycle](/docs/en/build/lifecycle#stop-in-reverse-order) for
-hook cleanup and [Scaling and shutdown](/docs/en/operations/scaling-and-shutdown)
+See [Application lifecycle](/en/docs/build/lifecycle#stop-in-reverse-order) for
+hook cleanup and [Scaling and shutdown](/en/docs/operations/scaling-and-shutdown)
 for the container deadline.

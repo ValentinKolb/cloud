@@ -27,7 +27,8 @@ import {
   submitAiCompaction,
   submitAiTurnAction,
 } from "./runtime";
-import { listAiModels, readAiSettingsState, toPublicAiSettingsState } from "./settings";
+import { listAiModels, readAiSettingsState, selectAiModelProfile, toPublicAiSettingsState } from "./settings";
+import { aiSkillStore } from "./skills-store";
 import { aiConversationStore } from "./store";
 import { createAiConversationStreamResponse, loadAiStreamState } from "./stream";
 import { composeAiSystemPrompt } from "./system-prompt";
@@ -182,19 +183,31 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const isDefaultToolSource = ctx.toolSource.kind === "default";
         const prefs = isDefaultToolSource ? await aiUserPrefs.get(user.id) : null;
         const memoryEnabled = Boolean(prefs?.memoryEnabled);
-        const tools = isDefaultToolSource
-          ? [...(await createConfiguredDefaultCloudAiTools()), ...(memoryEnabled ? [createCloudAiMemoryTool()] : [])]
-          : [];
         const state = await readAiSettingsState();
-
+        let previewProfile: ReturnType<typeof selectAiModelProfile> | null = null;
+        if (state.ok && state.enabled) {
+          try {
+            previewProfile = selectAiModelProfile(state, ctx.modelPolicy, prefs?.lastModelId || undefined);
+          } catch (error) {
+            if (!prefs?.lastModelId) return toAiErrorResponse(c, error);
+            previewProfile = selectAiModelProfile(state, ctx.modelPolicy);
+          }
+        }
+        const toolsSupported = Boolean(previewProfile?.capabilities.includes("tools"));
+        const tools =
+          isDefaultToolSource && toolsSupported
+            ? [...(await createConfiguredDefaultCloudAiTools()), ...(memoryEnabled ? [createCloudAiMemoryTool()] : [])]
+            : [];
+        const memoryToolEnabled = tools.some((tool) => tool.def.name === "memory");
         const prompt = composeAiSystemPrompt({
           globalInstructions: state.globalInstructions,
           appPrompt: ctx.systemPrompt,
           user,
           appId: config.appId,
           memoryEnabled,
-          helpEnabled: isDefaultToolSource,
-          capabilitiesEnabled: ctx.toolSource.kind === "default" && ctx.toolSource.capabilities === true,
+          memoryToolEnabled,
+          helpEnabled: isDefaultToolSource && toolsSupported,
+          capabilitiesEnabled: ctx.toolSource.kind === "default" && toolsSupported && ctx.toolSource.capabilities === true,
           toolHints: aiToolPromptHints(tools),
           userInstructions: prefs?.instructions,
           memory: prefs?.memory,
@@ -377,17 +390,29 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
-        const { input, message } = aiInputToUserMessage(aiTurnInputToContent(c.req.valid("json")));
-        const modelProfileId = c.req.valid("json").modelProfileId;
+        const body = c.req.valid("json");
+        const { input, message } = aiInputToUserMessage(aiTurnInputToContent(body));
+        const actorUser = aiActorUser(ctx.actor);
+        const selectedSkill =
+          body.skillId && actorUser ? await aiSkillStore.getVisible({ skillId: body.skillId, userId: actorUser.id }) : null;
+        if (body.skillId && !selectedSkill) return respond(c, fail(err.notFound("Skill")));
         try {
           const result = await submitAiChatTurn({
             conversationId: conversation.id,
             input,
             userMessage: message,
             actor: ctx.actor,
-            requestedModelId: modelProfileId,
+            requestedModelId: body.modelProfileId,
             modelPolicy: ctx.modelPolicy,
             systemPrompt: ctx.systemPrompt,
+            skill: selectedSkill
+              ? {
+                  id: selectedSkill.id,
+                  name: selectedSkill.name,
+                  instructions: selectedSkill.instructions,
+                  revision: selectedSkill.revision,
+                }
+              : undefined,
             toolSource: ctx.toolSource,
             toolApprovalContext: ctx.toolApprovalContext,
           });
@@ -439,6 +464,10 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const { input, message } = aiInputToUserMessage(content as never);
         const instruction = config.retryInstruction?.(body.mode) ?? null;
         const systemPrompt = [ctx.systemPrompt, instruction].filter(Boolean).join("\n\n") || undefined;
+        const actorUser = aiActorUser(ctx.actor);
+        const selectedSkill =
+          body.skillId && actorUser ? await aiSkillStore.getVisible({ skillId: body.skillId, userId: actorUser.id }) : null;
+        if (body.skillId && !selectedSkill) return respond(c, fail(err.notFound("Skill")));
 
         try {
           const result = await submitAiChatTurn({
@@ -449,6 +478,14 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             requestedModelId: body.modelProfileId,
             modelPolicy: ctx.modelPolicy,
             systemPrompt,
+            skill: selectedSkill
+              ? {
+                  id: selectedSkill.id,
+                  name: selectedSkill.name,
+                  instructions: selectedSkill.instructions,
+                  revision: selectedSkill.revision,
+                }
+              : undefined,
             toolSource: ctx.toolSource,
             toolApprovalContext: ctx.toolApprovalContext,
             truncateFromSeq: target.seq,
@@ -587,7 +624,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         });
       })
 
-      // ── Conversation files (bash VFS: /input uploads, /files workspace) ────
+      // ── Conversation files (/input uploads, /files workspace) ──────────
       .get("/conversations/:conversationId/files", v("query", FilesListQuerySchema), async (c) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;

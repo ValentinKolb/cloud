@@ -89,11 +89,11 @@ standalone SSR, behavior, styling, and migration checks:
   calendars, file trees/browsers/previews, lightboxes, PDF previews,
   documentation primitives, pagination, range navigation, code and Markdown
   views, and structured-data previews
-- Widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
+- Widgets: `Widget`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, and `WidgetStatus`
 
-`MarkdownView` renders trusted, pre-rendered HTML. Consumers must sanitize
-untrusted Markdown before passing it to this presentation component.
+`MarkdownView` renders escaped Markdown by default. Pre-rendered HTML requires
+the explicit `trustedHtml` prop and stays an application-owned trust boundary.
 
 ## Field contract
 

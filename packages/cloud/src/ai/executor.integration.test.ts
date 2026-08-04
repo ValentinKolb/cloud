@@ -301,6 +301,118 @@ suite("AI executor integration", () => {
     }
   });
 
+  test("does not advertise tool-only Help, memory mutations, or a skill catalog to a model without tools", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+
+    try {
+      completionRequestCount = 0;
+      nextCompletion = textCompletion("No tools needed");
+      const requests: unknown[] = [];
+      onCompletionRequest = (body) => {
+        requests.push(body);
+      };
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: "Remember that I prefer short answers.",
+          actor: { kind: "user", user: actorUser(userId) },
+          toolSource: { kind: "default", capabilities: true },
+        },
+        userMessage: userMessage("Remember that I prefer short answers."),
+      });
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "no-tools-exec",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+
+      await createExecutor("no-tools-exec").run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      expect(requests).toHaveLength(1);
+      const request = JSON.stringify(requests[0]);
+      expect(request).toContain("# Memory");
+      expect(request).not.toContain("memory add");
+      expect(request).not.toContain("# Skills");
+      expect(request).not.toContain("# Cloud Help");
+      expect(request).not.toContain("# Cloud capabilities");
+      expect(request).not.toContain('"name":"memory"');
+      expect(request).not.toContain('"name":"search_help"');
+    } finally {
+      onCompletionRequest = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("uses the selected skill snapshot from the durable turn config", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+
+    try {
+      completionRequestCount = 0;
+      nextCompletion = textCompletion("Skill applied");
+      const requests: unknown[] = [];
+      onCompletionRequest = (body) => {
+        requests.push(body);
+      };
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: "Summarize this meeting.",
+          actor: { kind: "user", user: actorUser(userId) },
+          skill: {
+            id: "11111111-1111-4111-8111-111111111111",
+            name: "Meeting summary",
+            instructions: "List decisions before action items.",
+            revision: 4,
+          },
+          toolSource: { kind: "none" },
+        },
+        userMessage: userMessage("Summarize this meeting."),
+      });
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "skill-exec",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+
+      await createExecutor("skill-exec").run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      const request = JSON.stringify(requests[0]);
+      expect(request).toContain("# Selected skill: Meeting summary");
+      expect(request).toContain("List decisions before action items.");
+      expect(request).toContain("all higher-priority rules");
+      expect(request).not.toContain("# Skills");
+    } finally {
+      onCompletionRequest = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("a fresh claim after a crash re-runs without duplicating the user message", async () => {
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });

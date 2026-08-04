@@ -233,7 +233,7 @@ const cloudEntries = cloudPages.map((page, pageIndex) =>
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 97;
+export const portableUiComponentCount = 96;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({
@@ -313,6 +313,7 @@ export const documentedOnlyUiCatalogExports = {
   fitFloatingWindowRect: "Documented FloatingWindow geometry helper.",
   formatFileViewSize: "Documented FileView metadata formatter.",
   getFileViewPreviewKind: "Documented FileView preview classifier.",
+  isStructuredDataValue: "Documented StructuredDataPreview boundary validator.",
   installAppWorkspaceController: "Documented AppWorkspace resize-controller installer.",
   isPointInsideToast: "Documented toast interaction helper.",
   isSpotlightShortcut: "Documented Spotlight keyboard helper.",
@@ -330,7 +331,7 @@ export const documentedOnlyUiCatalogExports = {
   panelDialogWorkspacePanelClass: "Documented PanelDialog workspace-mode class helper.",
   parseAppWorkspaceLayoutState: "Documented AppWorkspace persisted-state parser.",
   readSettingsError: "Documented Settings error-normalization helper.",
-  registerFileViewRenderer: "Documented FileView renderer extension hook.",
+  renderSafeMarkdown: "Documented MarkdownView safe renderer.",
   resolveAppWorkspaceSidebarWidth: "Documented AppWorkspace sidebar-state helper.",
   safeAppWorkspacePanelId: "Documented AppWorkspace panel-id helper.",
   sameSettingValue: "Documented Settings dirty-state helper.",

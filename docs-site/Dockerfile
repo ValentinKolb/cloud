@@ -6,14 +6,44 @@ RUN test -n "$CLOUD_DOCS_SITE_URL" \
   || (echo "CLOUD_DOCS_SITE_URL build argument is required" >&2; exit 1)
 ENV CLOUD_DOCS_SITE_URL=$CLOUD_DOCS_SITE_URL
 
-COPY packages/cloud/package.json packages/cloud/package.json
-COPY packages/cloud/src packages/cloud/src
-COPY docs-site/package.json docs-site/bun.lock docs-site/
-RUN cd docs-site && bun install --frozen-lockfile \
-  && ln -s /workspace/docs-site/node_modules /workspace/node_modules
+COPY package.json bun.lock ./
+COPY docs-site/package.json docs-site/
+COPY packages/accounts/package.json packages/accounts/
+COPY packages/api-docs/package.json packages/api-docs/
+COPY packages/assistant/package.json packages/assistant/
+COPY packages/cloud/package.json packages/cloud/
+COPY packages/cloud-cli/package.json packages/cloud-cli/
+COPY packages/contacts/package.json packages/contacts/
+COPY packages/core/package.json packages/core/
+COPY packages/dashboard/package.json packages/dashboard/
+COPY packages/faq/package.json packages/faq/
+COPY packages/files/package.json packages/files/
+COPY packages/gateway/package.json packages/gateway/
+COPY packages/gateway-ops/package.json packages/gateway-ops/
+COPY packages/grids/package.json packages/grids/
+COPY packages/ipa-hosts/package.json packages/ipa-hosts/
+COPY packages/mail/package.json packages/mail/
+COPY packages/notebooks/package.json packages/notebooks/
+COPY packages/oauth/package.json packages/oauth/
+COPY packages/proxy-auth/package.json packages/proxy-auth/
+COPY packages/pulse/package.json packages/pulse/
+COPY packages/quotes/package.json packages/quotes/
+COPY packages/spaces/package.json packages/spaces/
+COPY packages/tools/package.json packages/tools/
+COPY packages/ui/package.json packages/ui/
+COPY packages/ui/tsconfig.json packages/ui/tsconfig.build.json packages/ui/
+COPY packages/venue/package.json packages/venue/
+COPY packages/weather/package.json packages/weather/
+COPY fixtures/ui-ssr/package.json fixtures/ui-ssr/
+RUN bun install --frozen-lockfile --ignore-scripts --filter @valentinkolb/cloud-docs
 
+COPY packages/cloud/src packages/cloud/src
+COPY packages/ui/src packages/ui/src
+COPY packages/ui/scripts packages/ui/scripts
 COPY docs-site docs-site
-RUN cd docs-site && bun run typecheck && bun run build
+RUN bun packages/ui/scripts/build.ts \
+  && bun run --cwd docs-site typecheck \
+  && NODE_ENV=production bun docs-site/src/build.ts
 
 FROM oven/bun:1.3.14-slim
 
@@ -27,6 +57,7 @@ COPY --from=build /workspace/docs-site/dist/server.js ./server.js
 COPY --from=build /workspace/docs-site/dist/server.js.map ./server.js.map
 COPY --from=build /workspace/docs-site/dist/_ssr ./_ssr
 COPY --from=build /workspace/docs-site/dist/.fibel ./.fibel
+COPY --from=build /workspace/docs-site/dist/agent-skills ./agent-skills
 COPY --from=build /workspace/docs-site/dist/assets ./assets
 COPY --from=build /workspace/docs-site/docs ./docs
 

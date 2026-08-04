@@ -236,8 +236,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     );
 
     expect(html).toContain("solid");
-    expect(html).toContain('contentEditable="true"');
-    expect(html).toContain('role="textbox"');
+    expect(html).toContain('type="text"');
     expect(html).toContain('role="status"');
     expect(html).toContain("k2b-tags-input__icon-idle");
     expect(html).toContain("ti ti-pencil k2b-tags-input__icon-active");
@@ -268,7 +267,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("--k2b-dropdown-width:10rem");
     expect(html).toContain("k2b-select-chip__option");
     expect(html).toContain(
-      '<span class="k2b-select-chip__option-copy"><span>Comfortable</span></span><i class="ti ti-check k2b-select-chip__check"',
+      '<span class="k2b-dropdown__copy"><span>Comfortable</span></span><i class="ti ti-check k2b-dropdown__check"',
     );
     expect(html).not.toContain('<i class="ti ti-check" aria-hidden="true"></i><span>Comfortable');
   });
@@ -294,7 +293,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("--k2b-dropdown-width:15rem");
     expect(html).toContain('src="https://example.test/provider.svg"');
     expect(html).toContain("Low latency");
-    expect(html).toContain("k2b-select-chip__option-copy");
+    expect(html).toContain("k2b-dropdown__copy");
   });
 
   test("renders navigable PIN digits instead of one opaque text field", () => {
@@ -696,7 +695,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
     const sharedStart = css.indexOf(".k2b-ui .k2b-input-shell,");
     const rule = css.slice(sharedStart, css.indexOf("}", sharedStart));
-    const editable = css.match(/\.k2b-ui \.k2b-tags-input > \[contenteditable\] \{([^}]*)\}/)?.[1] ?? "";
+    const editable = css.match(/\.k2b-ui \.k2b-tags-input > input \{([^}]*)\}/)?.[1] ?? "";
 
     expect(rule).toMatch(/min-height:\s*2\.25rem/);
     expect(rule).not.toMatch(/flex-wrap/);

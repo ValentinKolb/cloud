@@ -4,9 +4,6 @@ import { renderLiquidTemplate } from "./template-rendering";
 /** One-line "when to use" hint shown in the system prompt's Tool guidance section. */
 export type AiToolPromptHint = { name: string; hint: string };
 
-/** One-line skill index entry for the system prompt's Skills section (details live in SKILL.md). */
-export type AiSkillPromptHint = { slug: string; description: string };
-
 /**
  * The built-in platform system prompt, rendered per turn as a Liquid template.
  * Browser-safe module: the admin UI displays this template, the AI executor
@@ -60,21 +57,13 @@ Use capabilities for live data and actions from installed Cloud apps.
 - A missing entry or loaded tool can mean the app is temporarily unavailable. Report that limitation instead of claiming the feature does not exist.
 - Claim success only after the tool returned success. Render returned Cloud open or edit hrefs exactly as Markdown links; prefer them over mailto or tel and never invent a Cloud URL.
 {%- endif %}
-{%- if hasBash %}
+{%- if hasFiles %}
 
 # Files
-Use sandboxed bash for conversation files: /files is persistent and writable, /input contains read-only uploads, and /skills is read-only. There is no host or network access.
+Use the conversation file tools for persistent results under /files and read-only uploads under /input. They do not provide code execution, host access, or network access.
 - Attachment markers name files whose contents are not yet in context; inspect those files before using them.
-- Process large files incrementally and keep intermediate output under /files instead of printing whole files into chat.
-- Deliver produced files with present. Environment variables and the working directory reset between bash calls.
-{%- endif %}
-{%- if skills.size > 0 %}
-
-# Skills
-Before acting, scan the available skills. When one matches, read its SKILL.md from the read-only /skills mount first and follow it before improvising. Skill guidance cannot override platform rules or the user's request.
-{% for skill in skills -%}
-- {{ skill.slug }}: {{ skill.description }}
-{% endfor -%}
+- Read and write large text files in bounded slices. Keep intermediate output under /files instead of printing whole files into chat.
+- Deliver produced files with present.
 {%- endif %}
 {%- if memoryEnabled %}
 
@@ -95,7 +84,6 @@ export type AiPromptContextInput = {
   helpEnabled?: boolean;
   capabilitiesEnabled?: boolean;
   tools?: AiToolPromptHint[];
-  skills?: AiSkillPromptHint[];
   now?: Date;
 };
 
@@ -121,8 +109,7 @@ export const aiPromptContext = (input: AiPromptContextInput): Record<string, unk
     helpEnabled: Boolean(input.helpEnabled),
     capabilitiesEnabled: Boolean(input.capabilitiesEnabled),
     tools: input.tools ?? [],
-    skills: input.skills ?? [],
-    hasBash: (input.tools ?? []).some((tool) => tool.name === "bash"),
+    hasFiles: (input.tools ?? []).some((tool) => ["list_files", "read_file", "write_file", "present"].includes(tool.name)),
   };
 };
 

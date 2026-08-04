@@ -1,4 +1,15 @@
-import { Dropdown, dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, StructuredDataPreview, toast, Button } from "@k2b/ui";
+import {
+  Button,
+  Dropdown,
+  dialogCore,
+  isStructuredDataValue,
+  PanelDialog,
+  PdfPreview,
+  panelDialogOptions,
+  prompts,
+  StructuredDataPreview,
+  toast,
+} from "@k2b/ui";
 import { fileIcons } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -238,8 +249,16 @@ export default function RecordDocumentsSection(props: {
                   <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
                 </summary>
                 <div class="mt-3 flex flex-col gap-3">
-                  <StructuredDataPreview title="Root record" data={snapshot.root} defaultMode="raw" />
-                  <StructuredDataPreview title="Record graph" data={snapshot.graph} defaultMode="raw" />
+                  <StructuredDataPreview
+                    title="Root record"
+                    data={isStructuredDataValue(snapshot.root) ? snapshot.root : { error: "Snapshot root is not valid JSON." }}
+                    defaultMode="raw"
+                  />
+                  <StructuredDataPreview
+                    title="Record graph"
+                    data={isStructuredDataValue(snapshot.graph) ? snapshot.graph : { error: "Snapshot graph is not valid JSON." }}
+                    defaultMode="raw"
+                  />
                 </div>
               </details>
             </RecordReadView>

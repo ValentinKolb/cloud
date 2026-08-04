@@ -92,4 +92,4 @@ domain validation.
 Map server field errors back to their inputs when the response provides them.
 Keep the original error available for logs and operations.
 
-See [Browser clients and mutations](/docs/en/frontend/browser-clients-and-mutations).
+See [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations).

@@ -32,7 +32,11 @@ export type ChatActivityProps = {
   class?: string;
 };
 
-export type ChatContextUsageProps = ChatContextUsageData & { class?: string };
+export type ChatContextUsageProps = ChatContextUsageData & {
+  /** Host-owned number formatting. The default is locale-independent and SSR-stable. */
+  formatNumber?: (value: number) => string;
+  class?: string;
+};
 
 const roleLabel = (role: ChatRole): string => {
   if (role === "assistant") return "Assistant";
@@ -71,13 +75,16 @@ const normalizedUsage = (usage: ChatContextUsageData["usage"]) => {
   return { input, output, total, reported: total !== null };
 };
 
-const formattedUsageValue = (value: number | null): string => value?.toLocaleString() ?? "Unknown";
+const formatStableInteger = (value: number): string => {
+  const digits = String(Math.round(finiteNonNegative(value)));
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
 
 export const formatChatTokens = (tokens: number): string => {
   const value = finiteNonNegative(tokens);
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return Math.round(value).toLocaleString();
+  return String(Math.round(value));
 };
 
 const dateTime = (value: string | Date | undefined): string | null => {
@@ -86,19 +93,16 @@ const dateTime = (value: string | Date | undefined): string | null => {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 };
 
-const visibleTime = (value: string | Date | undefined): string | null => {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date) : null;
-};
-
 export function ChatMessage(props: ChatMessageProps): JSX.Element {
   const [busyActionId, setBusyActionId] = createSignal<string | null>(null);
   const [completedActionId, setCompletedActionId] = createSignal<string | null>(null);
   let completedTimer: ReturnType<typeof setTimeout> | undefined;
   const status = () => statusLabel(props.status);
   const timestamp = () => dateTime(props.createdAt);
-  const time = () => props.timeLabel ?? visibleTime(props.createdAt);
+  // Locale and timezone are application policy. Requiring an explicit visible
+  // label keeps SSR and hydration byte-stable while `createdAt` still supplies
+  // the semantic machine-readable timestamp.
+  const time = () => props.timeLabel ?? null;
   const actions = () => props.actions ?? [];
   const actionDisplay = () =>
     props.actionDisplay === "auto" || !props.actionDisplay ? (props.role === "user" ? "menu" : "inline") : props.actionDisplay;
@@ -262,6 +266,8 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
 }
 
 export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
+  const formatNumber = (value: number) => (props.formatNumber ?? formatStableInteger)(value);
+  const formattedUsageValue = (value: number | null): string => (value === null ? "Unknown" : formatNumber(value));
   const usage = () => normalizedUsage(props.usage);
   const loopUsage = () => normalizedUsage(props.loopUsage);
   const total = () => usage().total ?? 0;
@@ -272,10 +278,10 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
   const accessibleLabel = () => {
     if (!reported()) {
       return windowSize() > 0
-        ? `Context usage unavailable, ${windowSize().toLocaleString()} token context window`
+        ? `Context usage unavailable, ${formatNumber(windowSize())} token context window`
         : "Context usage unavailable";
     }
-    const usage = `${total().toLocaleString()} tokens used`;
+    const usage = `${formatNumber(total())} tokens used`;
     return percent() === null ? usage : `${usage}, ${percent()}% of the context window`;
   };
 
@@ -313,12 +319,12 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
             </Show>
             <div>
               <dt>Window</dt>
-              <dd>{windowSize() > 0 ? windowSize().toLocaleString() : "Not configured"}</dd>
+              <dd>{windowSize() > 0 ? formatNumber(windowSize()) : "Not configured"}</dd>
             </div>
             <Show when={remaining() !== null}>
               <div>
                 <dt>Remaining</dt>
-                <dd>{remaining()?.toLocaleString()}</dd>
+                <dd>{remaining() === null ? "Unknown" : formatNumber(remaining()!)}</dd>
               </div>
             </Show>
           </dl>
