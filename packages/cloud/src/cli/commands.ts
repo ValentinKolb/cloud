@@ -147,12 +147,14 @@ type CommandNode = {
   segment: string;
   children: Map<string, CommandNode>;
   command?: CliCommandDefinition;
+  groupSummary?: string;
 };
 
 type CliCommandsConfig = {
   name: string;
   summary: string;
   requiresCloud?: boolean;
+  groupSummaries?: Readonly<Record<string, string>>;
   commands: readonly CliCommandDefinition[];
 };
 
@@ -236,7 +238,7 @@ export const readCliInput = async (input: CliInputFlagValue, options: ReadCliInp
 };
 
 export const defineCliCommands = (config: CliCommandsConfig): CloudCliModule => {
-  const root = buildCommandTree(config.commands);
+  const root = buildCommandTree(config.commands, config.groupSummaries);
 
   return {
     name: config.name,
@@ -266,10 +268,12 @@ export const defineCliCommands = (config: CliCommandsConfig): CloudCliModule => 
 
 const toFlagName = (key: string): string => key.replace(/[A-Z]/g, (value) => `-${value.toLowerCase()}`);
 
-const buildCommandTree = (commands: readonly CliCommandDefinition[]): CommandNode => {
+const buildCommandTree = (
+  commands: readonly CliCommandDefinition[],
+  groupSummaries: Readonly<Record<string, string>> | undefined,
+): CommandNode => {
   const root: CommandNode = { segment: "", children: new Map() };
   for (const item of commands) {
-    if (item.path.length === 0) throw new Error("CLI command path must not be empty.");
     let node = root;
     for (const segment of item.path) {
       const current = node.children.get(segment) ?? { segment, children: new Map() };
@@ -278,6 +282,16 @@ const buildCommandTree = (commands: readonly CliCommandDefinition[]): CommandNod
     }
     if (node.command) throw new Error(`Duplicate CLI command path: ${item.path.join(" ")}`);
     node.command = item;
+  }
+  for (const [path, summary] of Object.entries(groupSummaries ?? {})) {
+    const segments = path.split(/\s+/).filter(Boolean);
+    let node: CommandNode | undefined = root;
+    for (const segment of segments) node = node?.children.get(segment);
+    if (segments.length === 0 || !node || node.children.size === 0 || node.command) {
+      throw new Error(`Unknown generated CLI command group: ${path || "<root>"}`);
+    }
+    if (!summary.trim()) throw new Error(`CLI command group "${path}" requires a summary.`);
+    node.groupSummary = summary.trim();
   }
   return root;
 };
@@ -294,12 +308,13 @@ const findNode = (root: CommandNode, path: readonly string[]): CommandNode | nul
 
 const findCommand = (root: CommandNode, args: readonly string[]) => {
   let node = root;
-  let command: CliCommandDefinition | undefined;
+  let command = root.command;
   let consumed = 0;
 
   for (let index = 0; index < args.length; index += 1) {
     const next = node.children.get(args[index]!);
     if (!next) break;
+    if (index === 0) command = undefined;
     node = next;
     if (node.command) {
       command = node.command;
@@ -487,21 +502,33 @@ const renderSubtreeHelp = (config: CliCommandsConfig, path: readonly string[], n
   const commands = [...node.children.values()]
     .sort((a, b) => a.segment.localeCompare(b.segment))
     .map((child) => {
-      const summary = child.command ? child.command.summary : "Commands";
+      const summary = child.command?.summary ?? child.groupSummary ?? "Commands";
       return `  ${child.segment.padEnd(14)} ${summary}`.trimEnd();
     })
     .join("\n");
 
-  return `${prefix}
-
-${path.length === 0 ? config.summary : (node.command?.summary ?? "Commands")}
-
-Usage:
-  ${prefix} <command> [options]
-  ${prefix} help
-
-Commands:
-${commands || "  (none)"}`;
+  const sections = [
+    prefix,
+    "",
+    path.length === 0 ? config.summary : (node.command?.summary ?? node.groupSummary ?? "Commands"),
+    "",
+    "Usage:",
+    ...(node.command ? [`  ${renderUsage(config, node.command)}`] : []),
+    `  ${prefix} <command> [options]`,
+    `  ${prefix} help`,
+    "",
+    "Commands:",
+    commands || "  (none)",
+  ];
+  if (node.command) {
+    const argsHelp = renderArgsHelp(node.command.args);
+    if (argsHelp) sections.push("", "Arguments:", argsHelp);
+    const flagsHelp = renderFlagsHelp(node.command.flags);
+    if (flagsHelp) sections.push("", "Flags:", flagsHelp);
+    if (node.command.examples?.length) sections.push("", "Examples:", ...node.command.examples.map((example) => `  ${example}`));
+    if (node.command.description) sections.push("", node.command.description);
+  }
+  return sections.join("\n");
 };
 
 const firstCommand = (node: CommandNode): CliCommandDefinition | undefined => {
@@ -515,7 +542,8 @@ const firstCommand = (node: CommandNode): CliCommandDefinition | undefined => {
 
 const renderCommandHelp = (config: CliCommandsConfig, item: CliCommandDefinition): string => {
   const usage = renderUsage(config, item);
-  const sections = [`cld ${config.name} ${item.path.join(" ")}`, "", item.summary, "", "Usage:", `  ${usage}`];
+  const heading = ["cld", config.name, ...item.path].join(" ");
+  const sections = [heading, "", item.summary, "", "Usage:", `  ${usage}`];
   const argsHelp = renderArgsHelp(item.args);
   if (argsHelp) sections.push("", "Arguments:", argsHelp);
   const flagsHelp = renderFlagsHelp(item.flags);
@@ -549,7 +577,7 @@ const renderFlagsHelp = (specs: CliFlagSpecs | undefined): string => {
 
 const renderFlagUsage = (key: string, spec: CliFlagSpec): string => {
   const name = spec.name ?? toFlagName(key);
-  const aliases = spec.aliases?.map((alias) => `--${alias}`).join(", ");
+  const aliases = spec.aliases?.map((alias) => `${alias.length === 1 ? "-" : "--"}${alias}`).join(", ");
   const suffix =
     spec.kind === "boolean"
       ? ""

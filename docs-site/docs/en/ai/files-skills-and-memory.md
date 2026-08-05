@@ -85,7 +85,7 @@ platform, organization, and application rules.
 The Cloud CLI exposes the same ownership boundary. Use `cld assistant skills`
 to manage personal skills, add `--workspace` to catalog operations that an
 administrator wants to apply to workspace skills, and use `skills enable` or
-`skills disable` for workspace availability. `cld assistant ask --skill <id-or-name>`
+`skills disable` for workspace availability. `cld assistant --skill <id-or-name>`
 applies one visible skill to one request; retries accept the same option.
 
 Mount `createAiSkillsRoutes()` only behind the platform authentication

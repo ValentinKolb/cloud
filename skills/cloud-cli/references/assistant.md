@@ -1,21 +1,40 @@
 # Assistant CLI
 
-Use `cld assistant` for non-interactive Assistant workflows. It can start or continue chats, stream responses, manage chat state and files, resolve pending actions, edit preferences, and manage reusable skills. An interactive terminal chat is not part of this interface yet.
+Use `cld assistant` for interactive chat and Assistant automation. The root command starts or continues a chat; named management commands inspect chat state and files, resolve pending actions, edit preferences, and manage reusable skills.
 
-## One-shot chat
+## Interactive and print modes
 
-Start a new chat and stream only the assistant response to stdout:
+Start a line-oriented terminal session:
 
 ```bash
-cld assistant ask "Summarize my open work"
-printf '%s' "Summarize this carefully" | cld assistant ask --stdin
+cld assistant
+cld assistant "Summarize my open work"
+cld assistant --chat <chat-id>
 ```
 
-Continue an existing chat by stable ID:
+The interactive commands are deliberately small: `/help`, `/exit`, `/attach`, `/files`, `/model`, and `/skill`. Run `/model` or `/skill` without an argument to choose from the visible options by number; an empty answer cancels without changing the selection. `/model <profile-id>` and `/skill <name-or-id>` remain direct shortcuts. Attachments and a selected skill apply to the next message. A selected model remains active for the session.
+
+Enable local computer access explicitly:
 
 ```bash
-cld assistant ask --chat <chat-id> "What changed since then?"
-cld assistant ask --skill "Release notes" "Summarize the latest changes"
+cld assistant --allow-bash
+```
+
+This adds the predefined `local_bash` client tool only to turns from that
+interactive session. The CLI prints the exact command and startup directory and
+requires `Y/n` before every execution. It runs `/bin/bash` as the current OS
+user with closed stdin, a fixed timeout, and bounded stdout/stderr. Tool calls
+and results are stored in Cloud and remain visible in web chat history. The web
+app cannot execute them. Do not use this mode for untrusted prompts without
+reviewing each command carefully.
+
+Use `--print` or `-p` to stream one response and exit:
+
+```bash
+cld assistant -p "Summarize my open work"
+cld assistant -p --chat <chat-id> "What changed since then?"
+printf '%s' "Summarize this carefully" | cld assistant -p
+cld assistant -p --skill "Release notes" "Summarize the latest changes"
 ```
 
 Useful options:
@@ -24,10 +43,12 @@ Useful options:
 - `--model <profile-id>` selects a model from `cld assistant models`.
 - `--skill <skill-id-or-name>` applies one visible skill to this request only.
 - Repeat `--attach <local-file>` for images or documents.
-- `--detach` submits the turn and returns its ID without waiting.
-- Repeat `--approve <exact-tool-name>` to approve only those tools for that turn. There is deliberately no approve-all flag.
+- `--detach` submits the turn and returns its ID without waiting in print mode.
+- Repeat `--approve <exact-tool-name>` in print mode to approve only those tools for that turn. There is deliberately no approve-all flag.
 
-Normal mode writes assistant text to stdout and tool progress to stderr. `--json` waits and prints one final aggregate. `--jsonl` emits versioned stream events such as text deltas, tool state changes, attention requests, and turn completion.
+Print mode writes assistant text to stdout and tool progress to stderr. `--json` waits and prints one final aggregate. `--jsonl` emits versioned stream events such as text deltas, tool state changes, attention requests, and turn completion. Structured output, detached submission, and piped input require `--print`.
+`--allow-bash` is deliberately rejected with `--print`, structured output, and
+detached execution.
 
 If a turn needs an approval or frontend tool result that was not supplied, the command exits with status `2`. Inspect and resolve it explicitly:
 

@@ -294,6 +294,58 @@ suite("AI executor integration", () => {
       expect(request).not.toContain("# Cloud capabilities");
       expect(request).toContain('"name":"search_help"');
       expect(request).toContain('"name":"read_help"');
+      expect(request).not.toContain('"name":"local_bash"');
+    } finally {
+      onCompletionRequest = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("advertises local Bash only when the durable turn opts in", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+
+    try {
+      completionRequestCount = 0;
+      nextCompletion = textCompletion("No command needed");
+      const requests: unknown[] = [];
+      onCompletionRequest = (body) => {
+        requests.push(body);
+      };
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: "Inspect this checkout",
+          actor: { kind: "user", user: actorUser(userId) },
+          toolSource: { kind: "default" },
+          clientToolIds: ["local_bash"],
+        },
+        userMessage: userMessage("Inspect this checkout"),
+      });
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "local-bash-exec",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+
+      await createExecutor("local-bash-exec", undefined, fakeValidateToolTurn).run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      expect(requests).toHaveLength(1);
+      const request = JSON.stringify(requests[0]);
+      expect(request).toContain('"name":"local_bash"');
+      expect(request).toContain("user's local CLI computer");
     } finally {
       onCompletionRequest = null;
       await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;

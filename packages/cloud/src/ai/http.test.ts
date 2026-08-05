@@ -44,6 +44,14 @@ describe("AI HTTP input helpers", () => {
     expect(() => AiTurnInputSchema.parse({ message: "Use it", skillId: "meeting-summary" })).toThrow();
   });
 
+  test("accepts only the predefined optional local client tool", () => {
+    expect(AiTurnInputSchema.parse({ message: "Inspect this checkout", clientToolIds: ["local_bash"] }).clientToolIds).toEqual([
+      "local_bash",
+    ]);
+    expect(() => AiTurnInputSchema.parse({ message: "Inspect this checkout", clientToolIds: ["arbitrary_tool"] })).toThrow();
+    expect(() => AiTurnInputSchema.parse({ message: "Inspect this checkout", clientToolIds: ["local_bash", "local_bash"] })).toThrow();
+  });
+
   test("steering is text-only and requires an idempotency key", () => {
     expect(AiSteerInputSchema.parse({ message: "  Change course  ", clientRequestId: "request-1" })).toEqual({
       message: "Change course",

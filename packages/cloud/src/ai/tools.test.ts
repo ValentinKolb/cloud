@@ -5,7 +5,12 @@ import type { Provider } from "@k2b/nessi/ai";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";
-import { CloudAiCardInputSchema, createConfiguredDefaultCloudAiTools, createDefaultCloudAiTools } from "./default-tools";
+import {
+  CloudAiCardInputSchema,
+  createCloudAiLocalBashTool,
+  createConfiguredDefaultCloudAiTools,
+  createDefaultCloudAiTools,
+} from "./default-tools";
 import { AiTurnActionSchema } from "./runtime";
 import { aiToolPromptHints, defineAiTool, prepareAiTools } from "./tools";
 
@@ -163,6 +168,16 @@ describe("AI tools", () => {
     expect(prepared.frontendModes.get("survey")).toBe("client_interaction");
     expect(prepared.approvalPolicies.get("card")).toBe("never");
     expect(prepared.approvalPolicies.get("survey")).toBe("never");
+  });
+
+  test("keeps local Bash outside the default toolset", () => {
+    const defaults = prepareAiTools({ tools: createDefaultCloudAiTools(), actor });
+    const localBash = prepareAiTools({ tools: [createCloudAiLocalBashTool()], actor });
+
+    expect(defaults.tools.some((tool) => tool.def.name === "local_bash")).toBe(false);
+    expect(localBash.tools[0]?.kind).toBe("client");
+    expect(localBash.frontendModes.get("local_bash")).toBe("client");
+    expect(localBash.approvalPolicies.get("local_bash")).toBe("never");
   });
 
   test("adds Firecrawl web tools only when configured", async () => {

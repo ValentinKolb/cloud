@@ -12,6 +12,7 @@ import { publishAiTurnAbort, publishAiWireEvent } from "./stream";
 import { aiToolAudit } from "./tool-audit";
 import type {
   AiChatTurnRunConfig,
+  AiClientToolId,
   AiCompactionTurnRunConfig,
   AiModelPolicy,
   AiPendingTurnAction,
@@ -65,6 +66,7 @@ export type SubmitAiChatTurnInput = {
   systemPrompt?: string;
   resourceContext?: string;
   skill?: AiChatTurnRunConfig["skill"];
+  clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: AiToolApprovalContext;
   /** Retry-in-place: drop active messages with seq >= this before creating the turn. */
@@ -72,6 +74,9 @@ export type SubmitAiChatTurnInput = {
 };
 
 export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ turn: AiTurn; message: AiStoredMessage }> => {
+  if (input.clientToolIds?.length && input.toolSource?.kind !== "default") {
+    throw new Error("Optional client tools require the default tool source.");
+  }
   const { resolved } = await validateAiTurnRequest({
     input: input.input,
     modelPolicy: input.modelPolicy,
@@ -86,6 +91,7 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
     systemPrompt: input.systemPrompt,
     resourceContext: input.resourceContext,
     skill: input.skill,
+    clientToolIds: input.clientToolIds,
     toolSource: input.toolSource ?? { kind: "none" },
     toolApprovalContext: input.toolApprovalContext,
   };

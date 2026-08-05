@@ -413,6 +413,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
                   revision: selectedSkill.revision,
                 }
               : undefined,
+            clientToolIds: body.clientToolIds,
             toolSource: ctx.toolSource,
             toolApprovalContext: ctx.toolApprovalContext,
           });

@@ -73,6 +73,18 @@ export const CloudAiSurveyOutputSchema = z.object({
   answers: z.record(z.string(), z.unknown()).default({}),
 });
 
+export const CloudAiLocalBashInputSchema = z.object({
+  command: z.string().trim().min(1).max(20_000),
+});
+
+export const CloudAiLocalBashOutputSchema = z.object({
+  status: z.enum(["completed", "denied", "failed", "timed_out"]),
+  exitCode: z.number().int().nullable(),
+  stdout: z.string().max(512 * 1024),
+  stderr: z.string().max(512 * 1024),
+  truncated: z.boolean(),
+});
+
 export const createCloudAiCardTool = () =>
   defineAiTool({
     name: "card",
@@ -94,6 +106,18 @@ export const createCloudAiSurveyTool = () =>
     approval: "never",
     promptHint: "collect explicit choices, ratings, or short structured answers from the user — instead of writing option lists in text.",
   }).clientInteraction();
+
+export const createCloudAiLocalBashTool = () =>
+  defineAiTool({
+    name: "local_bash",
+    description:
+      "Run one Bash command on the user's local CLI computer after the CLI shows the exact command and the user confirms it. Use only when local computer interaction is necessary. The command runs from the CLI's startup directory as the current OS user. Inspect the returned status, exit code, stdout, and stderr before continuing.",
+    inputSchema: CloudAiLocalBashInputSchema,
+    outputSchema: CloudAiLocalBashOutputSchema,
+    approval: "never",
+    promptHint:
+      "use local_bash only when work on the user's local CLI computer is necessary; every command requires local confirmation and its result must be checked.",
+  }).client();
 
 export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool()];
 
@@ -119,3 +143,5 @@ export type CloudAiCardInput = z.infer<typeof CloudAiCardInputSchema>;
 export type CloudAiCardOutput = z.infer<typeof CloudAiCardOutputSchema>;
 export type CloudAiSurveyInput = z.infer<typeof CloudAiSurveyInputSchema>;
 export type CloudAiSurveyOutput = z.infer<typeof CloudAiSurveyOutputSchema>;
+export type CloudAiLocalBashInput = z.infer<typeof CloudAiLocalBashInputSchema>;
+export type CloudAiLocalBashOutput = z.infer<typeof CloudAiLocalBashOutputSchema>;

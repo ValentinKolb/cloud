@@ -2,7 +2,7 @@ import { type AiStoredMessage, type AiStreamSseEvent, type AiTurnBlock, parseAiS
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { ASSISTANT_API, jsonRequest } from "./shared";
 
-type AssistantTurnStreamResult = {
+export type AssistantTurnStreamResult = {
   conversationId: string;
   turnId: string | null;
   status: "completed" | "failed" | "aborted" | "needs_attention" | "idle";
@@ -32,13 +32,17 @@ export const streamAssistantTurn = async (input: {
   turnId?: string;
   initialResponse?: Response;
   approveTools?: readonly string[];
+  signal?: AbortSignal;
+  onToolBlock?: (block: Extract<AiTurnBlock, { kind: "tool" }>) => void;
 }): Promise<AssistantTurnStreamResult> => {
   const { ctx, conversationId } = input;
   const approvedTools = new Set(input.approveTools ?? []);
   const approvedCalls = new Set<string>();
   const abort = new AbortController();
   const onInterrupt = () => abort.abort();
-  process.once("SIGINT", onInterrupt);
+  const onExternalAbort = () => abort.abort(input.signal?.reason);
+  if (input.signal) input.signal.addEventListener("abort", onExternalAbort, { once: true });
+  else process.once("SIGINT", onInterrupt);
 
   let targetTurnId = input.turnId ?? null;
   let initialResponse = input.initialResponse;
@@ -72,6 +76,52 @@ export const streamAssistantTurn = async (input: {
     return result;
   };
 
+  const handleToolBlock = async (
+    block: Extract<AiTurnBlock, { kind: "tool" }>,
+    previous?: AiTurnBlock,
+  ): Promise<AssistantTurnStreamResult | null> => {
+    if (previous?.kind !== "tool" || previous.status !== block.status) {
+      input.onToolBlock?.(block);
+      emitJsonLine({ type: "tool", callId: block.callId, name: block.name, status: block.status });
+      if (ctx.options.output === "text") ctx.error(`${block.name}: ${block.status.replaceAll("_", " ")}`);
+    }
+    if (block.status === "awaiting_approval") {
+      if (approvedTools.has(block.name) && !approvedCalls.has(block.callId)) {
+        approvedCalls.add(block.callId);
+        await ctx.readJson(
+          await ctx.fetch(
+            `${ASSISTANT_API}/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(targetTurnId!)}/actions/${encodeURIComponent(block.callId)}`,
+            jsonRequest("POST", { type: "approval_response", approved: true }),
+          ),
+        );
+        return null;
+      }
+      emitJsonLine({ type: "needs_attention", reason: "approval", callId: block.callId, name: block.name });
+      return {
+        conversationId,
+        turnId: targetTurnId,
+        status: "needs_attention",
+        error: null,
+        text: emittedText,
+        messages: [],
+        pending: { type: "approval", callId: block.callId, name: block.name },
+      };
+    }
+    if (block.status === "awaiting_client") {
+      emitJsonLine({ type: "needs_attention", reason: "client_tool", callId: block.callId, name: block.name });
+      return {
+        conversationId,
+        turnId: targetTurnId,
+        status: "needs_attention",
+        error: null,
+        text: emittedText,
+        messages: [],
+        pending: { type: "client_tool", callId: block.callId, name: block.name },
+      };
+    }
+    return null;
+  };
+
   const handleEvent = async (event: AiStreamSseEvent): Promise<AssistantTurnStreamResult | null> => {
     if (event.type === "state") {
       if (!targetTurnId) {
@@ -82,8 +132,13 @@ export const streamAssistantTurn = async (input: {
       }
       if (event.activeTurn?.turnId === targetTurnId) {
         for (const block of event.activeTurn.blocks) {
+          const previous = blocks.get(block.id);
           blocks.set(block.id, block);
           if (block.kind === "text") emitTextBlock(block.id, block.text);
+          if (block.kind === "tool") {
+            const result = await handleToolBlock(block, previous);
+            if (result) return result;
+          }
         }
       } else {
         const messages = event.messages.filter((message) => message.loopId === targetTurnId);
@@ -123,46 +178,7 @@ export const streamAssistantTurn = async (input: {
       blocks.set(event.block.id, event.block);
       if (event.block.kind === "text") emitTextBlock(event.block.id, event.block.text);
       if (event.block.kind !== "tool") return null;
-
-      if (previous?.kind !== "tool" || previous.status !== event.block.status) {
-        emitJsonLine({ type: "tool", callId: event.block.callId, name: event.block.name, status: event.block.status });
-        if (ctx.options.output === "text") ctx.error(`${event.block.name}: ${event.block.status.replaceAll("_", " ")}`);
-      }
-      if (event.block.status === "awaiting_approval") {
-        if (approvedTools.has(event.block.name) && !approvedCalls.has(event.block.callId)) {
-          approvedCalls.add(event.block.callId);
-          await ctx.readJson(
-            await ctx.fetch(
-              `${ASSISTANT_API}/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(targetTurnId!)}/actions/${encodeURIComponent(event.block.callId)}`,
-              jsonRequest("POST", { type: "approval_response", approved: true }),
-            ),
-          );
-          return null;
-        }
-        emitJsonLine({ type: "needs_attention", reason: "approval", callId: event.block.callId, name: event.block.name });
-        return {
-          conversationId,
-          turnId: targetTurnId,
-          status: "needs_attention",
-          error: null,
-          text: emittedText,
-          messages: [],
-          pending: { type: "approval", callId: event.block.callId, name: event.block.name },
-        };
-      }
-      if (event.block.status === "awaiting_client") {
-        emitJsonLine({ type: "needs_attention", reason: "client_tool", callId: event.block.callId, name: event.block.name });
-        return {
-          conversationId,
-          turnId: targetTurnId,
-          status: "needs_attention",
-          error: null,
-          text: emittedText,
-          messages: [],
-          pending: { type: "client_tool", callId: event.block.callId, name: event.block.name },
-        };
-      }
-      return null;
+      return handleToolBlock(event.block, previous);
     }
 
     const messages = event.messages ?? [];
@@ -201,7 +217,8 @@ export const streamAssistantTurn = async (input: {
       reconnectDelayMs = Math.min(reconnectDelayMs * 2, 4_000);
     }
   } finally {
-    process.removeListener("SIGINT", onInterrupt);
+    if (input.signal) input.signal.removeEventListener("abort", onExternalAbort);
+    else process.removeListener("SIGINT", onInterrupt);
   }
 
   const status = "aborted" as const;

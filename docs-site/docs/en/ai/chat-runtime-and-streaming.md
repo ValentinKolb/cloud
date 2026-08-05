@@ -79,6 +79,12 @@ network access beyond the explicit web tools. Enable the default set only when
 the chat needs those capabilities. See
 [Tools and approvals](/en/docs/ai/tools-and-approvals).
 
+An interactive Assistant CLI turn may additionally request the fixed
+`local_bash` client tool. It is not part of the default set: Cloud persists and
+streams its calls but has no shell executor, and browser clients neither opt in
+nor register a handler. See the local CLI boundary in
+[Tools and approvals](/en/docs/ai/tools-and-approvals#run-an-optional-tool-in-a-local-cli).
+
 `toolSource: { kind: "default", capabilities: true }` additionally enables the
 compact Cloud app capability discovery tools. It is an explicit opt-in: other
 chat and resource consumers keep their existing tool surface. Capability tools

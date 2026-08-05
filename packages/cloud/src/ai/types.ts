@@ -347,6 +347,8 @@ export type AiTurnToolSource =
   | { kind: "default"; capabilities?: boolean }
   | { kind: "resource"; resourceKey: string; params: Record<string, string> };
 
+export type AiClientToolId = "local_bash";
+
 /** Immutable instructions selected by the user for one turn. */
 export type AiSkillSnapshot = {
   id: string;
@@ -364,6 +366,7 @@ export type AiChatTurnRunConfig = {
   systemPrompt?: string;
   resourceContext?: string;
   skill?: AiSkillSnapshot;
+  clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: {
     actorUserId: string;

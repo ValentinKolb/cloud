@@ -6,101 +6,21 @@ import {
   type AiPendingTurnAction,
   type AiPublicModelProfile,
   type AiStoredMessage,
-  type AiTurnContentPart,
   type AiUserPrefs,
   guessAiMediaType,
 } from "@valentinkolb/cloud/ai";
-import { arg, type CloudCliContext, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
 import { ASSISTANT_API, jsonRequest, parseJson, printRows, printValue, queryString, readApi, requireConfirmation, shortId } from "./shared";
 import { resolveAssistantSkill } from "./skills";
 import { streamAssistantTurn } from "./stream";
+import { type ConversationDetail, conversationPath, submitAndMaybeWatch } from "./turn";
 
-type ConversationDetail = {
-  conversation: AiConversation;
+type FullConversationDetail = ConversationDetail & {
   messages: AiStoredMessage[];
   hasMoreMessages: boolean;
-  activeTurn: { turnId: string; status: string } | null;
   timeline: AiConversationTimelineEntry[];
 };
-
-type TurnSubmission = { turn: { id: string; status: string; modelProfileId: string | null }; message?: AiStoredMessage };
 type FileList = { files: AiFileStat[]; totalBytes: number };
-
-const conversationPath = (conversationId: string, suffix = ""): string => `/conversations/${encodeURIComponent(conversationId)}${suffix}`;
-
-const isSupportedImageType = (mediaType: string): mediaType is "image/gif" | "image/jpeg" | "image/png" | "image/webp" | "image/jpg" =>
-  ["image/gif", "image/jpeg", "image/png", "image/webp", "image/jpg"].includes(mediaType);
-
-const readPrompt = async (args: string[], input: Parameters<typeof readCliInput>[0]): Promise<string> => {
-  const positional = args.join(" ").trim();
-  const supplied = await readCliInput(input, { label: "message", trimFinalNewline: true });
-  if (positional && supplied !== undefined)
-    throw new Error("Pass the message either as arguments or with --message/--message-file/--stdin.");
-  const message = (supplied ?? positional).trim();
-  if (!message) throw new Error("Missing message.");
-  return message;
-};
-
-const uploadAttachment = async (ctx: CloudCliContext, conversationId: string, localPath: string): Promise<AiTurnContentPart> => {
-  const file = Bun.file(localPath);
-  if (!(await file.exists())) throw new Error(`Attachment not found: ${localPath}`);
-  const mediaType = file.type || guessAiMediaType(localPath);
-  if (isSupportedImageType(mediaType)) {
-    return { type: "file", data: Buffer.from(await file.arrayBuffer()).toString("base64"), mediaType };
-  }
-  const form = new FormData();
-  form.set("file", new File([await file.arrayBuffer()], basename(localPath), { type: mediaType }));
-  form.set("dir", "/input");
-  const uploaded = await ctx.readJson<{ file: AiFileStat }>(
-    await ctx.fetch(`${ASSISTANT_API}${conversationPath(conversationId, "/files")}`, { method: "POST", body: form }),
-  );
-  return { type: "attachment", path: uploaded.file.path, mediaType: uploaded.file.mediaType, size: uploaded.file.size };
-};
-
-const submitAndMaybeWatch = async (input: {
-  ctx: CloudCliContext;
-  conversationId: string;
-  path: string;
-  body: unknown;
-  watch: boolean;
-  approveTools?: readonly string[];
-}): Promise<number> => {
-  const streamResponse = input.watch
-    ? await input.ctx.fetch(`${ASSISTANT_API}${conversationPath(input.conversationId, "/stream")}`, {
-        headers: { Accept: "text/event-stream" },
-      })
-    : undefined;
-  if (streamResponse && (!streamResponse.ok || !streamResponse.body)) await input.ctx.readJson(streamResponse);
-  let submitted: TurnSubmission;
-  try {
-    submitted = await readApi<TurnSubmission>(input.ctx, input.path, jsonRequest("POST", input.body));
-  } catch (error) {
-    await streamResponse?.body?.cancel().catch(() => undefined);
-    throw error;
-  }
-  if (!input.watch) {
-    printValue(input.ctx, submitted, submitted.turn.id);
-    return 0;
-  }
-  const result = await streamAssistantTurn({
-    ctx: input.ctx,
-    conversationId: input.conversationId,
-    turnId: submitted.turn.id,
-    initialResponse: streamResponse,
-    approveTools: input.approveTools,
-  });
-  if (input.ctx.options.output === "json") input.ctx.json(result);
-  if (result.status === "failed") throw new Error(result.error || "Assistant turn failed.");
-  if (result.status === "needs_attention") {
-    if (input.ctx.options.output === "text") {
-      input.ctx.error(
-        `Turn ${result.turnId} needs attention. Run \`cld assistant actions list ${input.conversationId} ${result.turnId}\`.`,
-      );
-    }
-    return 2;
-  }
-  return result.status === "aborted" ? 130 : 0;
-};
 
 const messagePreview = (stored: AiStoredMessage): string => {
   if (stored.kind === "summary") return "[summary]";
@@ -121,50 +41,6 @@ const messagePreview = (stored: AiStoredMessage): string => {
 };
 
 export const assistantChatCommands = [
-  command("ask", {
-    summary: "Send one message and stream the response",
-    args: { prompt: arg.rest({ valueLabel: "message" }) },
-    flags: {
-      message: flag.input({ name: "message", fileName: "message-file", description: "Read the message from a value, file, or stdin" }),
-      chat: flag.string({ description: "Continue an existing chat ID" }),
-      title: flag.string({ description: "Title for a new chat" }),
-      model: flag.string({ description: "Model profile ID" }),
-      skill: flag.string({ description: "Apply one visible skill by exact name or ID" }),
-      attach: flag.stringList({ description: "Attach a local file; repeat for multiple files" }),
-      approve: flag.stringList({ description: "Approve this exact tool name for this turn; repeat as needed" }),
-      detach: flag.boolean({ description: "Submit without waiting for the response" }),
-    },
-    examples: [
-      'cld assistant ask "Summarize my open work"',
-      'cld assistant ask --chat <id> --attach report.pdf "What matters here?"',
-      'cld assistant ask --skill "Release notes" "Summarize the latest changes"',
-      'cld assistant ask --approve web_search "Check today\'s release notes"',
-    ],
-    async run({ ctx, args, flags }) {
-      const message = await readPrompt(args.prompt, flags.message);
-      if (flags.attach.length > 11) throw new Error("At most 11 attachments can be sent with one message.");
-      const skill = flags.skill ? await resolveAssistantSkill(ctx, flags.skill) : undefined;
-      const conversation = flags.chat
-        ? await readApi<ConversationDetail>(ctx, conversationPath(flags.chat)).then((detail) => detail.conversation)
-        : await readApi<AiConversation>(ctx, "/conversations", jsonRequest("POST", flags.title ? { title: flags.title } : {}));
-      const content: AiTurnContentPart[] = [];
-      for (const path of flags.attach) content.push(await uploadAttachment(ctx, conversation.id, path));
-      const body = {
-        message,
-        ...(content.length > 0 ? { content } : {}),
-        ...(flags.model ? { modelProfileId: flags.model } : {}),
-        ...(skill ? { skillId: skill.id } : {}),
-      };
-      return submitAndMaybeWatch({
-        ctx,
-        conversationId: conversation.id,
-        path: conversationPath(conversation.id, "/turns"),
-        body,
-        watch: !flags.detach,
-        approveTools: flags.approve,
-      });
-    },
-  }),
   command("status", {
     summary: "Show Assistant availability and configuration status",
     async run({ ctx }) {
@@ -223,7 +99,7 @@ export const assistantChatCommands = [
     summary: "Show one chat with its current state",
     args: { chat: arg.required({ valueLabel: "chat-id" }) },
     async run({ ctx, args }) {
-      const detail = await readApi<ConversationDetail>(ctx, conversationPath(args.chat));
+      const detail = await readApi<FullConversationDetail>(ctx, conversationPath(args.chat));
       printValue(ctx, detail);
     },
   }),
@@ -241,7 +117,7 @@ export const assistantChatCommands = [
     flags: { title: flag.string(), icon: flag.string(), description: flag.string() },
     async run({ ctx, args, flags }) {
       if (!flags.title && !flags.icon && flags.description === undefined) throw new Error("Pass --title, --icon, or --description.");
-      const current = await readApi<ConversationDetail>(ctx, conversationPath(args.chat));
+      const current = await readApi<FullConversationDetail>(ctx, conversationPath(args.chat));
       const updated = await readApi<AiConversation>(
         ctx,
         conversationPath(args.chat),
@@ -395,7 +271,7 @@ export const assistantManagementCommands = [
     },
     flags: { title: flag.string() },
     async run({ ctx, args, flags }) {
-      const fork = await readApi<ConversationDetail>(
+      const fork = await readApi<FullConversationDetail>(
         ctx,
         conversationPath(args.chat, `/messages/${encodeURIComponent(args.messageId)}/fork`),
         jsonRequest("POST", flags.title ? { title: flags.title } : {}),

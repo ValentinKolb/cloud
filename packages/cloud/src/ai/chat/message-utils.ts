@@ -268,6 +268,7 @@ export const isSurveyToolName = (name: string) => name === "survey" || name === 
 export const displayToolName = (name: string) => {
   if (isCardToolName(name)) return "card";
   if (isSurveyToolName(name)) return "survey";
+  if (name === "local_bash") return "Local Bash";
   return name;
 };
 

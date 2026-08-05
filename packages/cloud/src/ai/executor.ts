@@ -8,7 +8,7 @@ import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, ha
 import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
 import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
-import { createConfiguredDefaultCloudAiTools } from "./default-tools";
+import { createCloudAiLocalBashTool, createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { type AiUserPrefs, aiActorUser, aiUserPrefs } from "./prefs";
 import {
@@ -279,7 +279,13 @@ const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortS
     actor: config.actor,
     systemPrompt: config.systemPrompt,
     resourceContext: config.resourceContext,
-    tools: source.kind === "default" ? await createConfiguredDefaultCloudAiTools() : [],
+    tools:
+      source.kind === "default"
+        ? [
+            ...(await createConfiguredDefaultCloudAiTools()),
+            ...(config.clientToolIds?.includes("local_bash") ? [createCloudAiLocalBashTool()] : []),
+          ]
+        : [],
     toolApprovalContext: config.toolApprovalContext,
     modelPolicy: config.modelPolicy,
     requestedModelId: config.requestedModelId,

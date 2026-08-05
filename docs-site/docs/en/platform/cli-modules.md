@@ -64,8 +64,59 @@ The command path is relative to the module. This example runs as:
 cld inventory items get <item-id>
 ```
 
+Multi-word command paths create command groups automatically. Give those
+generated groups concise summaries so root and subtree help explains their
+purpose:
+
+```ts
+export default defineCliCommands({
+  name: "inventory",
+  summary: "Manage inventory items.",
+  groupSummaries: {
+    items: "Inspect and manage inventory items",
+    "items stock": "Review and adjust item stock",
+  },
+  commands: [
+    command("items list", { summary: "List inventory items", run: listItems }),
+    command("items stock get", { summary: "Show current stock", run: getStock }),
+  ],
+});
+```
+
+Keys are command paths relative to the module. Only generated group paths are
+accepted; leaf commands already use their own `summary`.
+
 `defineCliCommands()` rejects duplicate paths and dispatches the longest
 matching command path.
+
+Use `command("")` when the module itself has a primary operation. Named
+commands still take precedence; other positional input goes to the root
+command:
+
+```ts
+export default defineCliCommands({
+  name: "assistant",
+  summary: "Chat and manage Assistant.",
+  commands: [
+    command("", {
+      summary: "Chat with Assistant",
+      args: { prompt: arg.rest() },
+      flags: {
+        print: flag.boolean({ aliases: ["p"] }),
+      },
+      run: ({ args, flags }) => runChat(args.prompt, flags.print),
+    }),
+    command("status", {
+      summary: "Show status",
+      run: showStatus,
+    }),
+  ],
+});
+```
+
+This supports both `cld assistant` and `cld assistant -p "Hello"` without an
+application-specific dispatcher. Reserve named command prefixes for management
+operations; for example, `cld assistant status` still selects `status`.
 
 `requiresCloud` defaults to true. Set it to false only for a module that can
 run without a server profile or token.

@@ -63,6 +63,23 @@ tool output schema before continuing.
 Use a server tool for domain reads and writes. Use a frontend tool only when
 the action requires browser state or direct user interaction.
 
+### Run an optional tool in a local CLI
+
+The interactive Assistant CLI may opt one turn into the predefined
+`local_bash` client tool with `cld assistant --allow-bash`. AI Core persists
+the tool call and its result, but it never executes the command. The CLI shows
+the exact command and asks for confirmation before starting `/bin/bash` as the
+current OS user in the CLI's startup directory.
+
+The Assistant web app does not advertise or execute this tool. It still shows
+persisted local Bash calls and results in conversation history. A pending call
+is read-only there and can be continued only by an opted-in local CLI.
+
+Local command output is stored with the conversation and sent to the selected
+model. Treat retrieved mail, webpages, files, and tool output as untrusted:
+`--allow-bash` exposes the tool for the session, but never approves an
+individual command. There is no remembered or non-interactive Bash approval.
+
 ## Set the approval policy
 
 This policy belongs to tools declared with `defineAiTool()`. Dynamically loaded

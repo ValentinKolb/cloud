@@ -35,6 +35,42 @@ const createContext = (args: string[], flags: CloudCliFlags = {}) => {
 };
 
 describe("CLI command builder", () => {
+  test("dispatches a root command without hiding named commands", async () => {
+    const calls: unknown[] = [];
+    const mod = defineCliCommands({
+      name: "assistant",
+      summary: "Chat and manage Assistant",
+      commands: [
+        command("", {
+          summary: "Chat with Assistant",
+          args: { prompt: arg.rest() },
+          flags: { print: flag.boolean({ aliases: ["p"] }) },
+          examples: ["cld assistant", 'cld assistant -p "Hello"'],
+          run: ({ args, flags }) => void calls.push({ command: "root", args, flags }),
+        }),
+        command("status", {
+          summary: "Show status",
+          run: () => void calls.push({ command: "status" }),
+        }),
+      ],
+    });
+
+    expect(mod.booleanFlags).toContain("p");
+    await mod.run(createContext([], {}).ctx);
+    await mod.run(createContext(["Hello"], { p: true }).ctx);
+    await mod.run(createContext(["status"], {}).ctx);
+
+    expect(calls).toEqual([
+      { command: "root", args: { prompt: [] }, flags: { print: false } },
+      { command: "root", args: { prompt: ["Hello"] }, flags: { print: true } },
+      { command: "status" },
+    ]);
+    const help = mod.help?.() ?? "";
+    expect(help).toContain("cld assistant [<prompt...>] [options]");
+    expect(help).toContain("cld assistant <command> [options]");
+    expect(help).toContain("--print, -p");
+  });
+
   test("dispatches nested commands with typed args and flags", async () => {
     let captured: unknown;
     const mod = defineCliCommands({
@@ -130,6 +166,7 @@ describe("CLI command builder", () => {
     const mod = defineCliCommands({
       name: "admin",
       summary: "Admin commands",
+      groupSummaries: { logs: "Inspect application logs", "logs archived": "Inspect archived logs" },
       commands: [
         command("logs list", {
           summary: "List logs",
@@ -137,21 +174,49 @@ describe("CLI command builder", () => {
           examples: ["cld admin logs list --search timeout"],
           run: () => undefined,
         }),
+        command("logs archived list", {
+          summary: "List archived logs",
+          run: () => undefined,
+        }),
       ],
     });
 
-    expect(mod.help?.()).toContain("cld admin");
+    const rootHelp = mod.help?.() ?? "";
+    expect(rootHelp).toContain("cld admin");
+    expect(rootHelp).toContain("logs           Inspect application logs");
 
     const subtree = createContext(["logs", "help"]);
     await mod.run(subtree.ctx);
     expect(subtree.lines.join("\n")).toContain("cld admin logs");
+    expect(subtree.lines.join("\n")).toContain("Inspect application logs");
+    expect(subtree.lines.join("\n")).toContain("archived       Inspect archived logs");
 
     const commandHelp = createContext(["logs", "list"], { help: true });
     await mod.run(commandHelp.ctx);
     const output = commandHelp.lines.join("\n");
     expect(output).toContain("cld admin logs list");
-    expect(output).toContain("--search <value>, --q");
+    expect(output).toContain("--search <value>, -q");
     expect(output).toContain("cld admin logs list --search timeout");
+  });
+
+  test("rejects summaries for paths that are not generated command groups", () => {
+    expect(() =>
+      defineCliCommands({
+        name: "admin",
+        summary: "Admin commands",
+        groupSummaries: { missing: "Missing commands" },
+        commands: [command("logs list", { summary: "List logs", run: () => undefined })],
+      }),
+    ).toThrow("Unknown generated CLI command group: missing");
+
+    expect(() =>
+      defineCliCommands({
+        name: "admin",
+        summary: "Admin commands",
+        groupSummaries: { logs: "" },
+        commands: [command("logs list", { summary: "List logs", run: () => undefined })],
+      }),
+    ).toThrow('CLI command group "logs" requires a summary.');
   });
 
   test("rejects missing args, invalid ints, invalid enums, and unknown flags", async () => {
@@ -184,7 +249,14 @@ describe("CLI command builder", () => {
     const mod = defineCliCommands({
       name: "admin",
       summary: "Admin commands",
-      commands: [command("logs list", { summary: "List logs", run: () => { ran += 1; } })],
+      commands: [
+        command("logs list", {
+          summary: "List logs",
+          run: () => {
+            ran += 1;
+          },
+        }),
+      ],
     });
 
     // The runner reads global flags without consuming them, so they reach the

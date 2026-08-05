@@ -57,16 +57,38 @@ personalization, and guidance for better requests. Developers can read
 [Tools and approvals](/en/docs/ai/tools-and-approvals) for the shared contracts
 Assistant adopts.
 
-## Automate Assistant from the terminal
+## Use Assistant from the terminal
 
-Assistant provides a native CLI module for chat and workspace automation. Start
-with these read-only checks before choosing a model or continuing a chat:
+Assistant provides one native CLI entry point for interactive work and
+automation:
+
+```bash
+cld assistant
+cld assistant "Start with this request"
+cld assistant --chat <chat-id>
+cld assistant -p "Print one response and exit"
+```
+
+Interactive mode streams replies into the terminal and keeps the same chat for
+later prompts. Use `--print` or `-p` for scripts, pipelines, structured output,
+or one request without a prompt loop. Run `/model` or `/skill` without an
+argument to select an available model or visible skill by number. The model
+remains active for the session; the skill applies only to the next message.
+
+Use `cld assistant --allow-bash` when the Assistant must work on the computer
+running the CLI. This exposes a local Bash tool only for that interactive
+session. Every requested command is shown and requires a fresh `Y/n`
+confirmation. Commands run with the current OS user's permissions in the CLI's
+startup directory, and their bounded output is stored in the chat and sent to
+the model. The web app can display these calls later but cannot run them.
+
+Start with these read-only checks before choosing a model or continuing a chat:
 
 ```bash
 cld assistant status --json
 cld assistant models --json
 ```
 
-Run `cld assistant help` for chats, messages, files, preferences, skills, and
-turn actions. Run `cld assistant <command> --help` before submitting a request
-or approving an action.
+Run `cld assistant help` for chat flags and the management commands for chats,
+messages, files, preferences, skills, and turn actions. Run
+`cld assistant <command> --help` before approving or changing stored state.

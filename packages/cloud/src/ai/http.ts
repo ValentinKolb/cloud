@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
 import { aiAttachmentMarker } from "./attachments";
-import type { AiSettingsError, AiUserContentPart } from "./types";
+import type { AiClientToolId, AiSettingsError, AiUserContentPart } from "./types";
 import { isAiImageMediaType } from "./types";
 import { isAiSettingsError } from "./validate";
 
@@ -33,12 +33,15 @@ export const AiUserContentPartSchema = z.union([
 
 export type AiTurnContentPart = z.infer<typeof AiUserContentPartSchema>;
 
+export const AiClientToolIdSchema = z.enum(["local_bash"] satisfies [AiClientToolId]);
+
 export const AiTurnInputSchema = z
   .object({
     message: z.string().trim().max(20000).optional(),
     content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
     modelProfileId: z.string().trim().min(1).optional(),
     skillId: z.uuid().optional(),
+    clientToolIds: z.array(AiClientToolIdSchema).max(1).optional(),
   })
   .refine((input) => Boolean(input.message?.trim() || input.content?.length), {
     message: "Message or content is required.",

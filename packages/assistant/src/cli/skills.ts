@@ -7,7 +7,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const basePath = (workspace: boolean): string => (workspace ? "/admin" : "/");
 const skillPath = (skillId: string, workspace: boolean): string => `${workspace ? "/admin" : ""}/${encodeURIComponent(skillId)}`;
 
-const listSkills = (ctx: CloudCliContext, workspace: boolean): Promise<{ skills: AiSkillSummary[] }> =>
+export const listAssistantSkills = (ctx: CloudCliContext, workspace = false): Promise<{ skills: AiSkillSummary[] }> =>
   readSkillsApi(ctx, basePath(workspace));
 
 export const resolveAssistantSkill = async (ctx: CloudCliContext, reference: string, workspace = false): Promise<AiSkillSummary> => {
@@ -15,7 +15,7 @@ export const resolveAssistantSkill = async (ctx: CloudCliContext, reference: str
     const detail = await readSkillsApi<{ skill: AiSkill }>(ctx, skillPath(reference, workspace));
     return detail.skill;
   }
-  const { skills } = await listSkills(ctx, workspace);
+  const { skills } = await listAssistantSkills(ctx, workspace);
   const matches = skills.filter((skill) => skill.name.localeCompare(reference, undefined, { sensitivity: "accent" }) === 0);
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`Multiple skills are named "${reference}". Use the skill ID.`);
@@ -30,7 +30,7 @@ export const assistantSkillCommands = [
     summary: "List visible or workspace skills",
     flags: { workspace: flag.boolean({ description: "List the admin-managed workspace catalog" }) },
     async run({ ctx, flags }) {
-      const result = await listSkills(ctx, flags.workspace);
+      const result = await listAssistantSkills(ctx, flags.workspace);
       printRows(
         ctx,
         result,
