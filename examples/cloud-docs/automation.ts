@@ -1,9 +1,8 @@
 import { ephemeral, expBackoff, isRetryableTransportError, job, mutex, queue, ratelimit, retry, scheduler, topic } from "@k2b/sync";
 import {
   type WorkflowBoundPlan,
-  type WorkflowLanguageManifest,
+  defineWorkflowModule,
   workflowAction,
-  workflowBuiltinActionDescriptors,
   workflowEvent,
 } from "@valentinkolb/cloud/workflows";
 import { bindWorkflow, compileWorkflow } from "@valentinkolb/cloud/workflows/language";
@@ -26,7 +25,6 @@ import {
   WORKFLOW_RUN_LEASE_MS,
   WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES,
   type WorkflowActivationInput,
-  workflowActionDescriptors,
 } from "@valentinkolb/cloud/workflows/store";
 import { directOnlyProcessFixture, runWorkflowProcessFixture } from "@valentinkolb/cloud/workflows/testing";
 import type { SQL } from "bun";
@@ -106,9 +104,7 @@ export const INVENTORY_ACTIONS = {
   }),
 };
 
-export const inventoryWorkflowActions = createWorkflowActionPort(INVENTORY_ACTIONS);
-
-export const inventoryWorkflowManifest = {
+export const inventoryWorkflows = defineWorkflowModule({
   id: "inventory",
   version: 1,
   inputs: [
@@ -134,7 +130,8 @@ export const inventoryWorkflowManifest = {
       config: { kind: "object", properties: {} },
     },
   ],
-  actions: [...workflowActionDescriptors(INVENTORY_ACTIONS), ...workflowBuiltinActionDescriptors],
+  actions: INVENTORY_ACTIONS,
+  events: INVENTORY_EVENTS,
   limits: {
     maxInputs: 20,
     maxSteps: 200,
@@ -143,7 +140,10 @@ export const inventoryWorkflowManifest = {
     maxConditionDepth: 20,
     maxLoopItems: 500,
   },
-} satisfies WorkflowLanguageManifest;
+});
+
+export const inventoryWorkflowActions = createWorkflowActionPort(inventoryWorkflows);
+export const inventoryWorkflowManifest = inventoryWorkflows.manifest;
 
 export const inventoryWorkflowSource = `inputs:
   itemId:
@@ -193,11 +193,7 @@ export const publishInventoryWorkflow = async (input: { db: SQL; scopeId: string
     {
       workflowId: workflow.id,
       source: input.source,
-      sourceHash: plan.sourceHash,
       plan,
-      languageId: plan.languageId,
-      languageVersion: plan.languageVersion,
-      manifestHash: plan.manifestHash,
       author: { kind: "user", id: input.actorId },
       activations: inventoryWorkflowActivations(plan),
     },

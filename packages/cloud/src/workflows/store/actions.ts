@@ -15,8 +15,8 @@
  */
 import type { SQL } from "bun";
 import { type WorkflowDependency, type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
-import type { ErasedWorkflowAction, WorkflowActionMap } from "../definition";
-import { type DefinedWorkflowModule, workflowModuleActions } from "../module";
+import type { ErasedWorkflowAction } from "../definition";
+import type { DefinedWorkflowModule } from "../module";
 import type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
@@ -27,8 +27,6 @@ import type {
 import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget } from "./budget";
 import { beginWorkflowEffect, readWorkflowEffect, recordWorkflowEffect, settleWorkflowEffect } from "./runs";
 import { withTransaction } from "./transaction";
-
-export { workflowActionDescriptors } from "../module";
 
 /**
  * The key an idempotent effect deduplicates on.
@@ -335,15 +333,15 @@ const runDeclaredAction = async (
  * The port the worker executes with, built from an app's `workflows.ts`.
  *
  * ```ts
- * import { actions } from "./workflows";
- * tickWorkflows({ worker, appId: "grids", actions: createWorkflowActionPort(actions) });
+ * import { workflows } from "./workflows";
+ * tickWorkflows({ worker, appId: "grids", actions: createWorkflowActionPort(workflows) });
  * ```
  */
 export const createWorkflowActionPort = (
-  source: WorkflowActionMap | DefinedWorkflowModule,
+  module: DefinedWorkflowModule,
   options: WorkflowActionPortOptions = {},
 ): WorkflowExecuteActionPort => {
-  const actions = workflowModuleActions(source);
+  const actions = module.actions;
   return {
     get: (name) => {
       const action = actions[name];
@@ -372,8 +370,8 @@ export const createWorkflowActionPort = (
  * A pure action is simply run — it is deterministic and touches nothing, which
  * is what makes its dry run exact rather than a description.
  */
-export const createWorkflowDryRunPort = (source: WorkflowActionMap | DefinedWorkflowModule): WorkflowDryRunActionPort => {
-  const actions = workflowModuleActions(source);
+export const createWorkflowDryRunPort = (module: DefinedWorkflowModule): WorkflowDryRunActionPort => {
+  const actions = module.actions;
   return {
     get: (name) => {
       const action = actions[name];

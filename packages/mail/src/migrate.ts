@@ -5175,13 +5175,9 @@ const migrateMailTemplatesToLiquid = async (db: SqlClient): Promise<void> => {
         {
           workflowId,
           source: candidate.migration.source,
-          sourceHash: compiled.ir.sourceHash,
           plan,
           diagnostics: [],
           effectBudget: parseMigrationJson(candidate.version.effect_budget),
-          languageId: compiled.ir.languageId,
-          languageVersion: compiled.ir.languageVersion,
-          manifestHash: compiled.ir.manifestHash,
           authorization: parseMigrationJson(authorization as WorkflowJsonValue | string),
           author: workflowAuthor(candidate.version),
           activations,

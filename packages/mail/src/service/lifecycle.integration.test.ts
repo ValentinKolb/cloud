@@ -2416,11 +2416,7 @@ suite("mail lifecycle control plane", () => {
       const version = await publishWorkflowVersion({
         workflowId: workflow.id,
         source: "steps: []\n",
-        sourceHash: plan.sourceHash,
         plan,
-        languageId: plan.languageId,
-        languageVersion: plan.languageVersion,
-        manifestHash: plan.manifestHash,
         activations: [],
         activate: true,
         author: { kind: "system" },
@@ -2923,11 +2919,7 @@ suite("mail lifecycle control plane", () => {
       const version = await publishWorkflowVersion({
         workflowId: workflow.id,
         source: "steps: []\n",
-        sourceHash: plan.sourceHash,
         plan,
-        languageId: plan.languageId,
-        languageVersion: plan.languageVersion,
-        manifestHash: plan.manifestHash,
         activations: [],
         activate: true,
         author: { kind: "system" },

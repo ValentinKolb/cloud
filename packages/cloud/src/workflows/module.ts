@@ -6,18 +6,14 @@ export type DefinedWorkflowModule<
   Actions extends WorkflowActionMap = WorkflowActionMap,
   Events extends WorkflowEventMap = WorkflowEventMap,
 > = {
-  kind: "workflowModule";
   actions: Actions;
   events: Events;
   manifest: WorkflowLanguageManifest;
 };
 
-const isDefinedWorkflowModule = (value: object): value is DefinedWorkflowModule =>
-  Object.hasOwn(value, "kind") && (value as { kind?: unknown }).kind === "workflowModule";
-
-export const workflowActionDescriptors = (actions: WorkflowActionMap, namespace?: string): WorkflowActionDescriptor[] =>
+const workflowActionDescriptors = (actions: WorkflowActionMap): WorkflowActionDescriptor[] =>
   Object.entries(actions).map(([key, action]) => ({
-    kind: namespace ? `${namespace}.${key}` : key,
+    kind: key,
     label: action.label,
     description: action.description,
     config: action.config,
@@ -31,7 +27,6 @@ export const defineWorkflowModule = <const Actions extends WorkflowActionMap, co
 ): DefinedWorkflowModule<Actions, Events> => {
   const { actions, events, ...language } = definition;
   return {
-    kind: "workflowModule",
     actions,
     events,
     manifest: {
@@ -40,6 +35,3 @@ export const defineWorkflowModule = <const Actions extends WorkflowActionMap, co
     },
   };
 };
-
-export const workflowModuleActions = (source: WorkflowActionMap | DefinedWorkflowModule): WorkflowActionMap =>
-  isDefinedWorkflowModule(source) ? source.actions : source;

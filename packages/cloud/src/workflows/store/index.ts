@@ -10,7 +10,6 @@ export {
   type WorkflowActionPortOptions,
   type WorkflowEffectJournalPort,
   type WorkflowEffectJournalStep,
-  workflowActionDescriptors,
   workflowEffectKey,
 } from "./actions";
 export {

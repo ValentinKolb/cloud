@@ -13,13 +13,12 @@ import {
   type WorkflowBoundPlan,
   type WorkflowIrStep,
   type WorkflowJsonValue,
-  workflowBuiltinActionDescriptors,
 } from "@valentinkolb/cloud/workflows";
-import { createWorkflowRun, workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
+import { createWorkflowRun } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
+import { gridsWorkflows } from "../workflows/module";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
 import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
@@ -130,7 +129,7 @@ const hash = (seed: string): string => new Bun.CryptoHasher("sha256").update(see
  * would test a runtime nobody ships.
  */
 const ACTION_POLICIES = Object.fromEntries(
-  [...workflowActionDescriptors(GRIDS_WORKFLOW_ACTIONS), ...workflowBuiltinActionDescriptors].map((descriptor) => [
+  gridsWorkflows.manifest.actions.map((descriptor) => [
     descriptor.kind,
     { effect: descriptor.effect, dryRun: descriptor.dryRun },
   ]),

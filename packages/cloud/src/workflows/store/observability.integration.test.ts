@@ -35,7 +35,19 @@ const ready = (): Promise<boolean> => {
 };
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
-const PLAN = { steps: [] } as unknown as WorkflowBoundPlan;
+const PLAN: WorkflowBoundPlan = {
+  schemaVersion: 2,
+  languageId: "probe",
+  languageVersion: 1,
+  sourceHash: hex("source"),
+  manifestHash: hex("manifest"),
+  catalogHash: hex("catalog"),
+  actionPolicies: {},
+  inputs: [],
+  triggers: [],
+  steps: [],
+  bindings: {},
+};
 const testData = createWorkflowIntegrationFixture();
 
 const listening = async (appId: string, eventType: string) => {
@@ -44,11 +56,7 @@ const listening = async (appId: string, eventType: string) => {
   await publishWorkflowVersion({
     workflowId: workflow.id,
     source: "on: probe\nsteps: []",
-    sourceHash: hex(scopeId),
     plan: PLAN,
-    languageId: "probe",
-    languageVersion: 1,
-    manifestHash: hex("manifest"),
     effectBudget: { emails: 10 },
     author: { kind: "system" },
     activations: [{ key: "t0", eventType }],

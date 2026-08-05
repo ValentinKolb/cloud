@@ -85,7 +85,6 @@ export const workflowProcessManifest: WorkflowLanguageManifest = {
 };
 
 export const workflowProcessWorkflows = {
-  kind: "workflowModule",
   actions: {},
   events: {},
   manifest: workflowProcessManifest,

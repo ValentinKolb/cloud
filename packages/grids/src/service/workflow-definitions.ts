@@ -298,11 +298,7 @@ export const createWorkflow = async (
       {
         workflowId: workflow.id,
         source: input.source,
-        sourceHash: new Bun.CryptoHasher("sha256").update(input.source).digest("hex"),
         plan: plan.data,
-        languageId: manifest.id,
-        languageVersion: manifest.version,
-        manifestHash: plan.data.manifestHash,
         author: actorId ? { kind: "user", id: actorId } : { kind: "system" },
         activations: activationsFor(plan.data, enabled),
       },
@@ -390,11 +386,7 @@ export const updateWorkflow = async (
         {
           workflowId: id,
           source,
-          sourceHash: new Bun.CryptoHasher("sha256").update(source).digest("hex"),
           plan: plan.data,
-          languageId: manifest.id,
-          languageVersion: manifest.version,
-          manifestHash: plan.data.manifestHash,
           author: actorId ? { kind: "user", id: actorId } : { kind: "system" },
           activations: activationsFor(plan.data, enabled),
         },

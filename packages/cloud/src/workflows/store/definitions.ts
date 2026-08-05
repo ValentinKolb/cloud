@@ -154,12 +154,8 @@ export const deleteWorkflowScope = async (scope: { appId: string; scopeId: strin
 export type PublishWorkflowVersion = {
   workflowId: string;
   source: string;
-  sourceHash: string;
   plan: WorkflowBoundPlan;
   diagnostics?: WorkflowDiagnostic[];
-  languageId: string;
-  languageVersion: number;
-  manifestHash: string;
   /** Caps on external effects for runs of this version. Absent dimensions are uncapped. */
   effectBudget?: Record<string, number>;
   /**
@@ -213,8 +209,8 @@ export const publishWorkflowVersion = async (input: PublishWorkflowVersion, opti
       )
       SELECT ${input.workflowId}::uuid,
              COALESCE(max(revision), 0) + 1,
-             ${input.source}, ${input.sourceHash}, ${input.plan}, ${input.diagnostics ?? []}, ${input.effectBudget ?? {}},
-             ${input.languageId}, ${input.languageVersion}, ${input.manifestHash},
+             ${input.source}, ${input.plan.sourceHash}, ${input.plan}, ${input.diagnostics ?? []}, ${input.effectBudget ?? {}},
+             ${input.plan.languageId}, ${input.plan.languageVersion}, ${input.plan.manifestHash},
              ${input.author.kind}, ${input.author.id ?? null}::uuid
       FROM workflows.version WHERE workflow_id = ${input.workflowId}::uuid
       RETURNING *

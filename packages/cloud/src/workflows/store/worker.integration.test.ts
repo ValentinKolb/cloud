@@ -78,11 +78,7 @@ const workflowListening = async (eventType: string, plan: WorkflowBoundPlan) => 
   await publishWorkflowVersion({
     workflowId: workflow.id,
     source: "probe",
-    sourceHash: plan.sourceHash,
     plan,
-    languageId: "probe",
-    languageVersion: 1,
-    manifestHash: plan.manifestHash,
     author: { kind: "system" },
     activations: [{ key: "t0", eventType }],
   });

@@ -30,7 +30,19 @@ const ready = (): Promise<boolean> => {
 };
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
-const PLAN = { steps: [] } as unknown as WorkflowBoundPlan;
+const PLAN: WorkflowBoundPlan = {
+  schemaVersion: 2,
+  languageId: "probe",
+  languageVersion: 1,
+  sourceHash: hex("source"),
+  manifestHash: hex("manifest"),
+  catalogHash: hex("catalog"),
+  actionPolicies: {},
+  inputs: [],
+  triggers: [],
+  steps: [],
+  bindings: {},
+};
 const testData = createWorkflowIntegrationFixture();
 
 /** A workflow listening for one event type, isolated by a unique scope. */
@@ -45,11 +57,7 @@ const listeningInScope = async (scopeId: string, eventType: string, options: { a
   const version = await publishWorkflowVersion({
     workflowId: workflow.id,
     source: "source",
-    sourceHash: hex(scopeId),
     plan: PLAN,
-    languageId: "probe",
-    languageVersion: 1,
-    manifestHash: hex("manifest"),
     author: { kind: "system" },
     activations: Array.from({ length: options.activations ?? 1 }, (_, index) => ({ key: `t${index}`, eventType })),
   });
@@ -315,11 +323,7 @@ describe("workflow events", () => {
     await publishWorkflowVersion({
       workflowId,
       source: "v2",
-      sourceHash: hex(`${scopeId}-off`),
       plan: PLAN,
-      languageId: "probe",
-      languageVersion: 1,
-      manifestHash: hex("manifest"),
       author: { kind: "system" },
       activations: [{ key: "t0", eventType: "probe.stays-off" }],
     });
@@ -358,11 +362,7 @@ describe("workflow events", () => {
     const second = await publishWorkflowVersion({
       workflowId,
       source: "source v2",
-      sourceHash: hex(`${scopeId}-2`),
       plan: PLAN,
-      languageId: "probe",
-      languageVersion: 1,
-      manifestHash: hex("manifest"),
       author: { kind: "system" },
       activations: [{ key: "t0", eventType: "probe.published" }],
     });
@@ -388,11 +388,7 @@ describe("workflow events", () => {
     const second = await publishWorkflowVersion({
       workflowId,
       source: "source v2",
-      sourceHash: hex(`${scopeId}-receipt-v2`),
       plan: PLAN,
-      languageId: "probe",
-      languageVersion: 1,
-      manifestHash: hex("manifest"),
       author: { kind: "system" },
       activations: [{ key: "t0", eventType: "probe.receipt" }],
     });
@@ -412,11 +408,7 @@ describe("workflow events", () => {
     const draft = await publishWorkflowVersion({
       workflowId,
       source: "draft",
-      sourceHash: hex(`${scopeId}-draft`),
       plan: PLAN,
-      languageId: "probe",
-      languageVersion: 1,
-      manifestHash: hex("manifest"),
       authorization: { kind: "service_account", id: "draft" },
       author: { kind: "system" },
       activations: [{ key: "t0", eventType: "probe.draft" }],
@@ -446,11 +438,7 @@ describe("workflow events", () => {
     await publishWorkflowVersion({
       workflowId,
       source: "authorized v2",
-      sourceHash: hex(`${scopeId}-authorization`),
       plan: PLAN,
-      languageId: "probe",
-      languageVersion: 1,
-      manifestHash: hex("manifest"),
       authorization: { kind: "service_account", id: "sa-2" },
       author: { kind: "system" },
       activations: [{ key: "t0", eventType: "probe.authorization" }],
@@ -470,11 +458,7 @@ describe("workflow events", () => {
     await publishWorkflowVersion({
       workflowId,
       source: "source without the trigger",
-      sourceHash: hex(`${scopeId}-removed`),
       plan: PLAN,
-      languageId: "probe",
-      languageVersion: 1,
-      manifestHash: hex("manifest"),
       author: { kind: "system" },
       activations: [],
     });

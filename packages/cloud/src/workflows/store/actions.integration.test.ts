@@ -10,7 +10,8 @@ import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
 import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan, WorkflowIrStep } from "../contracts";
-import { workflowAction } from "../definition";
+import { workflowAction, type WorkflowActionMap } from "../definition";
+import { defineWorkflowModule } from "../module";
 import { createWorkflowActionPort, createWorkflowDryRunPort } from "./actions";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
@@ -43,6 +44,9 @@ const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest
 const testData = createWorkflowIntegrationFixture();
 
 const CONFIG = { kind: "object", properties: { to: { kind: "string" } } } as const;
+
+const workflowModule = <const Actions extends WorkflowActionMap>(actions: Actions) =>
+  defineWorkflowModule({ id: "probe", version: 1, inputs: [], triggers: [], limits: { maxSteps: 10 }, actions, events: {} });
 
 const plan = (actions: string[], steps: WorkflowIrStep[], bindings: Record<string, string> = {}): WorkflowBoundPlan => ({
   schemaVersion: 2,
@@ -79,11 +83,7 @@ const queued = async (
   await publishWorkflowVersion({
     workflowId: workflow.id,
     source: "probe",
-    sourceHash: hex(scopeId),
     plan: plan([action], [step(action, extraConfig)], bindings),
-    languageId: "probe",
-    languageVersion: 1,
-    manifestHash: hex("manifest"),
     effectBudget,
     author: { kind: "system" },
     activations: [{ key: "t0", eventType: "probe.declared" }],
@@ -118,7 +118,7 @@ describe("declared actions", () => {
       }),
     };
 
-    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) })).state).toBe("finished");
+    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) })).state).toBe("finished");
     expect(seen).toEqual(["a@b.c"]);
     // Nothing left the process, so there is nothing to reconcile.
     expect(await effectRow(runId)).toMatchObject({ effect_key: null, effect_state: null });
@@ -140,7 +140,7 @@ describe("declared actions", () => {
         },
       }),
     };
-    const port = createWorkflowActionPort(actions);
+    const port = createWorkflowActionPort(workflowModule(actions));
 
     const parked = await runOneWorkflow({ worker: "w1", runId, actions: port });
     expect(parked).toMatchObject({ state: "finished", result: { state: "waiting" } });
@@ -173,7 +173,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     expect(observed.effectState).toBe("executing");
     expect(await effectRow(runId)).toMatchObject({ effect_state: "succeeded" });
     expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
@@ -194,7 +194,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
 
     // Not a failure: "it may have gone through" is a real answer, and calling
     // it failure either loses the message or sends it twice.
@@ -228,7 +228,7 @@ describe("declared actions", () => {
         reconcile: async () => ({ state: "unknown", message: "provider has no record" }),
       }),
     };
-    const port = createWorkflowActionPort(actions);
+    const port = createWorkflowActionPort(workflowModule(actions));
 
     await runOneWorkflow({ worker: "w1", runId, actions: port });
     await resolveWorkflowRunAttention({
@@ -259,7 +259,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     const detail = await getWorkflowRun(runId);
     expect(detail?.state).toBe("needs_attention");
     expect(detail?.error).toMatchObject({ code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN" });
@@ -313,7 +313,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
 
     // The provider is asked, not asked again to send.
     expect(reconciled).toBe(true);
@@ -363,7 +363,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
 
     // Nothing is repeated on a human's behalf.
     expect(ran).toBe(false);
@@ -389,7 +389,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
 
     // Refused before the effect, not after — and by the same function that
     // answers a dry run, so preflight and execution cannot disagree.
@@ -418,7 +418,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
     expect(await effectRow(runId)).toMatchObject({ effect_state: "succeeded" });
   });
@@ -440,7 +440,7 @@ describe("declared actions", () => {
         plan: async () => ({ summary: "write" }),
       }),
     };
-    const port = createWorkflowActionPort(actions);
+    const port = createWorkflowActionPort(workflowModule(actions));
 
     await runOneWorkflow({ worker: "w1", runId, actions: port });
     // Re-open the finished run and drive the same step again: the recorded
@@ -475,7 +475,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     expect(ran).toBe(false);
     const detail = await getWorkflowRun(runId);
     expect(detail?.state).toBe("failed");
@@ -503,7 +503,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     expect(seen.actor).toBeDefined();
     expect(seen.context).toBeDefined();
   });
@@ -521,7 +521,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
 
     // Both apps did this inside every action, which meant every action also had
     // to remember to redo it when a replay restored a recorded outcome.
@@ -561,7 +561,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     expect(seen).toMatchObject({ table: "tbl-9f3", field: "fld-77", unbound: undefined, stepKey: "steps.0", reference: undefined });
   });
 
@@ -579,7 +579,7 @@ describe("declared actions", () => {
       }),
     };
 
-    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) });
     // "Deleted" and "not allowed" read identically as prose; the code is what
     // tells the operator which one happened.
     expect((await getWorkflowRun(runId))?.error).toMatchObject({ code: "NOT_FOUND", retryable: false });
@@ -601,7 +601,7 @@ describe("declared actions", () => {
 
     // Released rather than failed: a provider being briefly unreachable would
     // otherwise cost a whole run.
-    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) })).state).toBe("released");
+    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) })).state).toBe("released");
     expect((await getWorkflowRun(runId))?.state).toBe("queued");
   });
 
@@ -609,7 +609,7 @@ describe("declared actions", () => {
     if (!(await ready())) return;
     const { runId } = await queued("probe.always-down");
     let calls = 0;
-    const actions = createWorkflowActionPort({
+    const actions = createWorkflowActionPort(workflowModule({
       "probe.always-down": workflowAction.idempotent({
         label: "Down",
         description: "Always unavailable.",
@@ -620,7 +620,7 @@ describe("declared actions", () => {
         },
         plan: async () => ({ summary: "call" }),
       }),
-    });
+    }));
 
     for (let index = 0; index < WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES; index += 1) {
       expect((await runOneWorkflow({ worker: `w${index}`, runId, actions })).state).toBe("released");
@@ -637,7 +637,7 @@ describe("declared actions", () => {
   test("an action the app never declared is a missing handler, not a crash", async () => {
     if (!(await ready())) return;
     const { runId } = await queued("probe.unknown");
-    const outcome = await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort({}) });
+    const outcome = await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule({})) });
     expect(outcome.state).toBe("finished");
     expect((await getWorkflowRun(runId))?.state).toBe("failed");
   });
@@ -665,7 +665,7 @@ describe("declared actions", () => {
         reconcile: async () => ({ state: "unknown", message: "" }),
       }),
     };
-    const port = createWorkflowDryRunPort(actions);
+    const port = createWorkflowDryRunPort(workflowModule(actions));
     const ctx = {
       run: { runId: "r-1" },
       step: {

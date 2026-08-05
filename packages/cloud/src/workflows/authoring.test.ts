@@ -38,7 +38,6 @@ const manifest: WorkflowLanguageManifest = {
 };
 
 const workflows = {
-  kind: "workflowModule",
   actions: {},
   events: {},
   manifest,

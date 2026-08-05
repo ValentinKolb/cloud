@@ -12,7 +12,6 @@ export {
   type WorkflowBuiltinActionAuthorize,
   type WorkflowBuiltinActionPorts,
   type WorkflowBuiltinTextRenderer,
-  workflowBuiltinActionDescriptors,
 } from "./builtins";
 export type {
   WorkflowActionDescriptor,
@@ -72,5 +71,4 @@ export {
 export {
   type DefinedWorkflowModule,
   defineWorkflowModule,
-  workflowActionDescriptors,
 } from "./module";
