@@ -190,16 +190,20 @@ export const claimWorkflowAiTask = async (id: string, db: SQL = sql): Promise<Wo
   const rows = await db<WorkflowAiTaskRow[]>`
     UPDATE ai.workflow_task AS task
     SET status = 'running',
-        attempts = attempts + 1,
-        started_at = COALESCE(started_at, now()),
+        attempts = task.attempts + 1,
+        started_at = COALESCE(task.started_at, now()),
         error_code = NULL,
         error_message = NULL,
         updated_at = now()
+    FROM workflows.run AS run
     WHERE task.id = ${id}::uuid
+      AND run.id = task.run_id
+      AND run.cancel_requested_at IS NULL
+      AND run.state <> 'canceled'
       AND task.status IN ('queued', 'running')
     RETURNING ${db.unsafe(TASK_COLUMNS)}
   `;
-  return rows[0] ? taskFromRow(rows[0]) : null;
+  return rows[0] ? taskFromRow(rows[0]) : markWorkflowAiTaskCanceledIfRequested(id, db);
 };
 
 export const workflowAiTaskCancellationRequested = async (id: string, db: SQL = sql): Promise<boolean> => {
@@ -286,11 +290,18 @@ export const failWorkflowAiTask = async (
         error_message = ${error.message.slice(0, 2_000)},
         completed_at = now(),
         updated_at = now()
+    FROM workflows.run AS run
     WHERE task.id = ${id}::uuid
+      AND run.id = task.run_id
+      AND run.cancel_requested_at IS NULL
+      AND run.state <> 'canceled'
       AND task.status IN ('queued', 'running')
     RETURNING ${db.unsafe(TASK_COLUMNS)}
   `;
   const task = rows[0] ? taskFromRow(rows[0]) : null;
-  if (task) await wakeWorkflowAiTask(task);
-  return task;
+  if (task) {
+    await wakeWorkflowAiTask(task);
+    return task;
+  }
+  return markWorkflowAiTaskCanceledIfRequested(id, db);
 };

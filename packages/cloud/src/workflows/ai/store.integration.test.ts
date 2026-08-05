@@ -15,6 +15,7 @@ import {
   claimWorkflowAiTask,
   completeWorkflowAiTask,
   createWorkflowAiTask,
+  failWorkflowAiTask,
   getWorkflowAiTask,
   migrateWorkflowAi,
 } from "./store";
@@ -111,6 +112,28 @@ describe("durable workflow AI tasks", () => {
 
     expect(await requestWorkflowRunCancel(runId)).toBe(true);
     expect(await claimWorkflowAiTask(created.task.id)).toMatchObject({ status: "canceled", output: null });
+  });
+
+  test("keeps cancellation authoritative over a late provider failure", async () => {
+    if (!(await ready())) return;
+    const { runId } = await createRun();
+    const created = await createWorkflowAiTask({
+      runId,
+      stepKey: "step:ai",
+      effectKey: `workflow:${runId}:step:ai`,
+      request: { kind: "generate_text", prompt: "Draft" },
+      modelProfileId: "workflow-model",
+    });
+
+    await claimWorkflowAiTask(created.task.id);
+    expect(await requestWorkflowRunCancel(runId)).toBe(true);
+    await failWorkflowAiTask(created.task.id, { code: "WORKFLOW_AI_PROVIDER_ERROR", message: "late failure" });
+
+    expect(await getWorkflowAiTask(created.task.id)).toMatchObject({
+      status: "canceled",
+      output: null,
+      errorCode: "WORKFLOW_AI_CANCELED",
+    });
   });
 
   test("aborts running inference when its workflow is canceled", async () => {
