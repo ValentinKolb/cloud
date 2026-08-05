@@ -1,5 +1,5 @@
 import type { WorkflowBoundPlan, WorkflowIr, WorkflowJsonValue } from "../contracts";
-import { type WorkflowLanguage, workflowLanguageManifest } from "../module";
+import type { DefinedWorkflowModule } from "../module";
 import { hashWorkflowJson, normalizeWorkflowJson } from "./canonical";
 
 export type WorkflowCatalogBinding = {
@@ -11,10 +11,10 @@ export type WorkflowCatalogBinder = (ir: Readonly<WorkflowIr>) => WorkflowCatalo
 
 export const bindWorkflow = async (
   ir: WorkflowIr,
-  language: WorkflowLanguage,
+  workflows: DefinedWorkflowModule,
   bindCatalog: WorkflowCatalogBinder,
 ): Promise<WorkflowBoundPlan> => {
-  const manifest = workflowLanguageManifest(language);
+  const manifest = workflows.manifest;
   if (ir.languageId !== manifest.id || ir.languageVersion !== manifest.version) {
     throw new TypeError(
       `Workflow IR language ${ir.languageId}@${ir.languageVersion} does not match manifest ${manifest.id}@${manifest.version}`,

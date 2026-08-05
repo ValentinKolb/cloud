@@ -25,6 +25,7 @@ describe("inline response schedule migration", () => {
       minLength: 1,
       maxLength: 500,
     } satisfies WorkflowFieldSchema;
+    const legacyWorkflows = { ...mailWorkflows, manifest: legacyManifest };
     const source = `inputs:
   message:
     type: mailMessage
@@ -44,7 +45,7 @@ steps:
       body: Received
       schedule: Office hours
 `;
-    const compiled = await compileWorkflow(source, legacyManifest);
+    const compiled = await compileWorkflow(source, legacyWorkflows);
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     const boundPlan: WorkflowBoundPlan = {

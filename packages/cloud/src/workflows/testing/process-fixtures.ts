@@ -1,4 +1,5 @@
 import type { WorkflowInvocation, WorkflowJsonValue, WorkflowLanguageManifest, WorkflowLauncher } from "../contracts";
+import type { DefinedWorkflowModule } from "../module";
 
 const docs = { label: "Process fixture", description: "Framework-neutral workflow conformance fixture" };
 
@@ -82,6 +83,13 @@ export const workflowProcessManifest: WorkflowLanguageManifest = {
   ],
   limits: { maxInputs: 4, maxSteps: 10, maxDepth: 3, maxLoopItems: 100 },
 };
+
+export const workflowProcessWorkflows = {
+  kind: "workflowModule",
+  actions: {},
+  events: {},
+  manifest: workflowProcessManifest,
+} satisfies DefinedWorkflowModule;
 
 export type WorkflowProcessFixture = {
   id: string;

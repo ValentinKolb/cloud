@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { crypto } from "@k2b/stdlib";
 import type { WorkflowLanguageManifest } from "../contracts";
+import type { DefinedWorkflowModule } from "../module";
 import { bindWorkflow, canonicalWorkflowJson, compileWorkflow, hashWorkflowJson, parseWorkflowYaml } from "./index";
 
 const docs = { label: "Test", description: "Test descriptor" };
@@ -77,6 +78,15 @@ const manifest: WorkflowLanguageManifest = {
   limits: { maxInputs: 5, maxSteps: 20, maxDepth: 4, maxConditions: 20, maxConditionDepth: 4, maxLoopItems: 100 },
 };
 
+const workflowsWithManifest = (value: WorkflowLanguageManifest): DefinedWorkflowModule => ({
+  kind: "workflowModule",
+  actions: {},
+  events: {},
+  manifest: value,
+});
+
+const workflows = workflowsWithManifest(manifest);
+
 const directSource = `inputs:
   title:
     type: text
@@ -88,7 +98,7 @@ steps:
 `;
 
 const compileOk = async (source: string) => {
-  const result = await compileWorkflow(source, manifest);
+  const result = await compileWorkflow(source, workflows);
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.diagnostics.map((item) => item.message).join("\n"));
   return result.ir;
@@ -123,7 +133,7 @@ steps:
       name: invalid-name
       value: ok
 `;
-    const result = await compileWorkflow(source, manifest);
+    const result = await compileWorkflow(source, workflows);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.diagnostics.map(({ code, path }) => ({ code, path }))).toEqual(
@@ -155,9 +165,9 @@ describe("workflow compilation", () => {
   });
 
   test("allows omitted triggers, rejects empty triggers, and compiles trigger bindings", async () => {
-    expect((await compileWorkflow(directSource, manifest)).ok).toBe(true);
+    expect((await compileWorkflow(directSource, workflows)).ok).toBe(true);
 
-    const empty = await compileWorkflow("triggers: {}\nsteps:\n  - setVariable: { name: result, value: ok }\n", manifest);
+    const empty = await compileWorkflow("triggers: {}\nsteps:\n  - setVariable: { name: result, value: ok }\n", workflows);
     expect(empty.ok).toBe(false);
     if (!empty.ok) expect(empty.diagnostics[0]?.code).toBe("trigger.empty");
 
@@ -256,7 +266,7 @@ steps:
   test("rejects empty recursive condition groups", async () => {
     const result = await compileWorkflow(
       "steps:\n  - if: { all: [] }\n    then:\n      - setVariable: { name: matched, value: true }\n",
-      manifest,
+      workflows,
     );
 
     expect(result.ok).toBe(false);
@@ -273,14 +283,14 @@ steps:
     then:
       - setVariable: { name: matched, value: true }
 `;
-    const countResult = await compileWorkflow(source, {
-      ...manifest,
-      limits: { ...manifest.limits, maxConditions: 2, maxConditionDepth: 10 },
-    });
-    const depthResult = await compileWorkflow(source, {
-      ...manifest,
-      limits: { ...manifest.limits, maxConditions: 10, maxConditionDepth: 2 },
-    });
+    const countResult = await compileWorkflow(
+      source,
+      workflowsWithManifest({ ...manifest, limits: { ...manifest.limits, maxConditions: 2, maxConditionDepth: 10 } }),
+    );
+    const depthResult = await compileWorkflow(
+      source,
+      workflowsWithManifest({ ...manifest, limits: { ...manifest.limits, maxConditions: 10, maxConditionDepth: 2 } }),
+    );
 
     expect(countResult.ok).toBe(false);
     if (!countResult.ok) expect(countResult.diagnostics).toContainEqual(expect.objectContaining({ code: "limit.conditions" }));
@@ -300,10 +310,10 @@ steps:
   });
 
   test("rejects action descriptors that collide with control-flow names", async () => {
-    const result = await compileWorkflow(directSource, {
-      ...manifest,
-      actions: [{ ...manifest.actions[0]!, kind: "if" }],
-    });
+    const result = await compileWorkflow(
+      directSource,
+      workflowsWithManifest({ ...manifest, actions: [{ ...manifest.actions[0]!, kind: "if" }] }),
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "manifest.reserved" }));
   });
@@ -313,14 +323,14 @@ describe("workflow catalog binding", () => {
   test("binds through one callback and hashes canonical manifest and catalog snapshots", async () => {
     const ir = await compileOk(directSource);
     let receivedIr: Readonly<typeof ir> | undefined;
-    const first = await bindWorkflow(ir, manifest, (input) => {
+    const first = await bindWorkflow(ir, workflows, (input) => {
       receivedIr = input;
       return {
         catalog: { resources: { second: "resource-2", first: "resource-1" }, revision: 4 },
         bindings: { target: "resource-1", action: "setVariable" },
       };
     });
-    const repeated = await bindWorkflow(ir, manifest, () => ({
+    const repeated = await bindWorkflow(ir, workflows, () => ({
       catalog: { revision: 4, resources: { first: "resource-1", second: "resource-2" } },
       bindings: { action: "setVariable", target: "resource-1" },
     }));
@@ -348,14 +358,16 @@ describe("workflow catalog binding", () => {
 
   test("rejects binding against a different manifest version", async () => {
     const ir = await compileOk(directSource);
-    expect(bindWorkflow(ir, { ...manifest, version: 2 }, () => ({ catalog: {}, bindings: {} }))).rejects.toThrow("does not match manifest");
+    expect(bindWorkflow(ir, workflowsWithManifest({ ...manifest, version: 2 }), () => ({ catalog: {}, bindings: {} }))).rejects.toThrow(
+      "does not match manifest",
+    );
   });
 
   test("rejects binding against changed manifest content at the same version", async () => {
     const ir = await compileOk(directSource);
     let bindingCalled = false;
     await expect(
-      bindWorkflow(ir, { ...manifest, limits: { ...manifest.limits, maxLoopItems: 99 } }, () => {
+      bindWorkflow(ir, workflowsWithManifest({ ...manifest, limits: { ...manifest.limits, maxLoopItems: 99 } }), () => {
         bindingCalled = true;
         return { catalog: {}, bindings: {} };
       }),

@@ -1,4 +1,4 @@
-import { type WorkflowLanguage, workflowLanguageManifest } from "./module";
+import type { DefinedWorkflowModule } from "./module";
 
 export type WorkflowCompletionKind = "keyword" | "source" | "field" | "literal";
 
@@ -57,8 +57,12 @@ export const workflowCompletionItem = (
   ...(detail ? { detail } : {}),
 });
 
-export const buildWorkflowManifestCompletions = (source: string, caret: number, language: WorkflowLanguage): WorkflowCompletionItem[] => {
-  const manifest = workflowLanguageManifest(language);
+export const buildWorkflowManifestCompletions = (
+  source: string,
+  caret: number,
+  workflows: DefinedWorkflowModule,
+): WorkflowCompletionItem[] => {
+  const manifest = workflows.manifest;
   const context = workflowCompletionContext(source, caret);
   if (context.key === "type") {
     return manifest.inputs.map((input) => workflowCompletionItem(context, "literal", input.kind, input.kind, input.description));

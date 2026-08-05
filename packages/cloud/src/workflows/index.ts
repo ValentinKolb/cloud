@@ -72,7 +72,5 @@ export {
 export {
   type DefinedWorkflowModule,
   defineWorkflowModule,
-  type WorkflowLanguage,
   workflowActionDescriptors,
-  workflowLanguageManifest,
 } from "./module";

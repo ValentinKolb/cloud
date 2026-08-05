@@ -15,6 +15,7 @@ describe("single reference configuration migration", () => {
       minLength: 1,
       maxLength: 500,
     } satisfies WorkflowFieldSchema;
+    const legacyWorkflows = { ...mailWorkflows, manifest: legacyManifest };
     const source = `inputs:
   conversation:
     type: mailConversation
@@ -23,7 +24,7 @@ steps:
       conversation: inputs.conversation
       scheme: Support
 `;
-    const compiled = await compileWorkflow(source, legacyManifest);
+    const compiled = await compileWorkflow(source, legacyWorkflows);
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     const plan: WorkflowBoundPlan = {

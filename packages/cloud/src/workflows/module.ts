@@ -12,8 +12,6 @@ export type DefinedWorkflowModule<
   manifest: WorkflowLanguageManifest;
 };
 
-export type WorkflowLanguage = WorkflowLanguageManifest | DefinedWorkflowModule;
-
 const isDefinedWorkflowModule = (value: object): value is DefinedWorkflowModule =>
   Object.hasOwn(value, "kind") && (value as { kind?: unknown }).kind === "workflowModule";
 
@@ -42,9 +40,6 @@ export const defineWorkflowModule = <const Actions extends WorkflowActionMap, co
     },
   };
 };
-
-export const workflowLanguageManifest = (language: WorkflowLanguage): WorkflowLanguageManifest =>
-  isDefinedWorkflowModule(language) ? language.manifest : language;
 
 export const workflowModuleActions = (source: WorkflowActionMap | DefinedWorkflowModule): WorkflowActionMap =>
   isDefinedWorkflowModule(source) ? source.actions : source;

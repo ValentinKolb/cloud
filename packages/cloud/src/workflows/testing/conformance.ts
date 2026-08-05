@@ -8,7 +8,7 @@ import {
   type WorkflowRuntimeStepIdentity,
   type WorkflowRuntimeStepResult,
 } from "../runtime";
-import { type WorkflowProcessFixture, workflowProcessManifest } from "./process-fixtures";
+import { type WorkflowProcessFixture, workflowProcessWorkflows } from "./process-fixtures";
 
 class FixtureRepository implements WorkflowRuntimeRepositoryPort {
   readonly finished: Array<{ step: WorkflowRuntimeStepIdentity; result: WorkflowRuntimeStepResult }> = [];
@@ -40,11 +40,11 @@ export type WorkflowProcessFixtureResult = {
 };
 
 export const runWorkflowProcessFixture = async (fixture: WorkflowProcessFixture): Promise<WorkflowProcessFixtureResult> => {
-  const compiled = await compileWorkflow(fixture.source, workflowProcessManifest);
+  const compiled = await compileWorkflow(fixture.source, workflowProcessWorkflows);
   if (!compiled.ok) {
     throw new Error(compiled.diagnostics.map((diagnostic) => `${diagnostic.path.join(".")}: ${diagnostic.message}`).join("\n"));
   }
-  const plan = await bindWorkflow(compiled.ir, workflowProcessManifest, () => ({
+  const plan = await bindWorkflow(compiled.ir, workflowProcessWorkflows, () => ({
     catalog: fixture.catalog,
     bindings: fixture.bindings,
   }));

@@ -128,6 +128,8 @@ export const inventoryWorkflows = defineWorkflowModule({
 definitions and adds the core variable, success, and failure actions. The
 generated `inventoryWorkflows.manifest` is JSON-only. Cloud hashes that exact
 artifact when compiling and binding an immutable workflow version.
+Pass the module itself to compiler, binder, editor, and runtime helpers; the
+manifest is a serialized artifact, not a separate authoring API.
 
 Runtime events and authorable triggers are separate contracts. An application
 may emit internal or direct-invocation events that users cannot select in YAML,

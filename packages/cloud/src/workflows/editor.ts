@@ -1,7 +1,7 @@
 import { type Highlighter, highlight } from "@k2b/stdlib";
 import type { Completion, SuggestContext, Suggestion } from "@k2b/ui";
 import type { WorkflowCompletionItem, WorkflowFieldSchema } from "./index";
-import { type WorkflowLanguage, workflowLanguageManifest } from "./module";
+import type { DefinedWorkflowModule } from "./module";
 
 export type WorkflowAutocompleteRequest = {
   source: string;
@@ -67,8 +67,8 @@ const collectSchemaKeys = (schema: WorkflowFieldSchema, keys: Set<string>): void
 
 const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export const createWorkflowYamlHighlighter = (language?: WorkflowLanguage): Highlighter => {
-  const manifest = language ? workflowLanguageManifest(language) : undefined;
+export const createWorkflowYamlHighlighter = (workflows?: DefinedWorkflowModule): Highlighter => {
+  const manifest = workflows?.manifest;
   const keywords = new Set([
     "inputs",
     "triggers",

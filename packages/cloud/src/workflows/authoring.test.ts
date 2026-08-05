@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildWorkflowManifestCompletions, workflowCompletionContext } from "./authoring";
 import type { WorkflowLanguageManifest } from "./contracts";
+import type { DefinedWorkflowModule } from "./module";
 
 const manifest: WorkflowLanguageManifest = {
   id: "test",
@@ -36,6 +37,13 @@ const manifest: WorkflowLanguageManifest = {
   ],
 };
 
+const workflows = {
+  kind: "workflowModule",
+  actions: {},
+  events: {},
+  manifest,
+} satisfies DefinedWorkflowModule;
+
 describe("workflow authoring completions", () => {
   test("replaces only the current YAML value", () => {
     const source = "steps:\n  - move:\n      folder: Inb";
@@ -46,11 +54,11 @@ describe("workflow authoring completions", () => {
   });
 
   test("derives input, trigger, action, and root suggestions from the manifest", () => {
-    expect(buildWorkflowManifestCompletions("inputs:\n  item:\n    type: mes", 29, manifest).map((item) => item.label)).toEqual([
+    expect(buildWorkflowManifestCompletions("inputs:\n  item:\n    type: mes", 29, workflows).map((item) => item.label)).toEqual([
       "message",
     ]);
-    expect(buildWorkflowManifestCompletions("triggers:\n  ", 12, manifest).map((item) => item.label)).toEqual(["received"]);
-    expect(buildWorkflowManifestCompletions("steps:\n  - se", 13, manifest).map((item) => item.label)).toEqual(["send"]);
-    expect(buildWorkflowManifestCompletions("", 0, manifest).map((item) => item.label)).toEqual(["inputs", "triggers", "steps"]);
+    expect(buildWorkflowManifestCompletions("triggers:\n  ", 12, workflows).map((item) => item.label)).toEqual(["received"]);
+    expect(buildWorkflowManifestCompletions("steps:\n  - se", 13, workflows).map((item) => item.label)).toEqual(["send"]);
+    expect(buildWorkflowManifestCompletions("", 0, workflows).map((item) => item.label)).toEqual(["inputs", "triggers", "steps"]);
   });
 });
