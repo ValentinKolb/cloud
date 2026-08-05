@@ -39,7 +39,6 @@ const manifest: WorkflowLanguageManifest = {
 
 const workflows = {
   actions: {},
-  events: {},
   manifest,
 } satisfies DefinedWorkflowModule;
 

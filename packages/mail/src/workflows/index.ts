@@ -13,5 +13,5 @@ export {
   restoreMailWorkflowCatalog,
   snapshotMailWorkflowCatalog,
 } from "./catalog";
-export { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT, mailWorkflowEvents } from "./events";
+export { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "./events";
 export { mailWorkflows } from "./module";

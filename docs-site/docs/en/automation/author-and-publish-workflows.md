@@ -13,26 +13,14 @@ updated: 2026-08-05
 An application defines the language its users can author. It compiles and binds
 source before publishing an immutable version.
 
-## Define events and actions
+## Define actions and runtime event names
 
 ```ts
-import {
-  workflowAction,
-  workflowEvent,
-} from "@valentinkolb/cloud/workflows";
+import { workflowAction } from "@valentinkolb/cloud/workflows";
 
-export const INVENTORY_EVENTS = {
-  itemChanged: workflowEvent({
-    label: "Item changed",
-    description: "An inventory item changed.",
-    data: {
-      kind: "object",
-      properties: {
-        itemId: { kind: "string" },
-      },
-    },
-  }),
-};
+export const INVENTORY_EVENT = {
+  itemChanged: "inventory.itemChanged",
+} as const;
 
 export const INVENTORY_ACTIONS = {
   loadItem: workflowAction.pure({
@@ -59,8 +47,10 @@ Action config supports string, number, boolean, value, array, record, union,
 and object fields. Keep the schema as a literal so TypeScript can infer the
 handler input.
 
-Names are local keys. Namespace emitted event types with the app ID, such as
-`inventory.itemChanged`.
+Action names are local keys. Runtime event names are application-owned
+constants. Namespace them with the app ID, such as `inventory.itemChanged`.
+The durable emitter accepts those names and payloads; the workflow module
+describes only the triggers users can author.
 
 ## Choose an effect class
 
@@ -80,7 +70,7 @@ validation belongs in `run` so its failure keeps a useful code.
 ## Define one workflow module
 
 The module is the application's single workflow declaration. It combines the
-executable actions and runtime events with the authoring language:
+executable actions with the authoring language:
 
 ```ts
 import { defineWorkflowModule } from "@valentinkolb/cloud/workflows";
@@ -112,7 +102,6 @@ export const inventoryWorkflows = defineWorkflowModule({
     },
   ],
   actions: INVENTORY_ACTIONS,
-  events: INVENTORY_EVENTS,
   limits: {
     maxInputs: 20,
     maxSteps: 200,
@@ -131,11 +120,11 @@ artifact when compiling and binding an immutable workflow version.
 Pass the module itself to compiler, binder, editor, and runtime helpers; the
 manifest is a serialized artifact, not a separate authoring API.
 
-Runtime events and authorable triggers are separate contracts. An application
-may emit internal or direct-invocation events that users cannot select in YAML,
-and one authorable trigger may adapt a differently named runtime event. Keep
-both explicit in the module instead of exposing every runtime event as a
-trigger.
+Runtime events and authorable triggers are separate. An application may emit
+internal or direct-invocation events that users cannot select in YAML, and one
+authorable trigger may adapt a differently named runtime event. Keep runtime
+names as explicit application constants instead of adding declarations the
+emitter never reads.
 
 Set limits before accepting source. Changing the language requires a new
 manifest version.

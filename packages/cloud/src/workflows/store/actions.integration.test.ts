@@ -46,7 +46,7 @@ const testData = createWorkflowIntegrationFixture();
 const CONFIG = { kind: "object", properties: { to: { kind: "string" } } } as const;
 
 const workflowModule = <const Actions extends WorkflowActionMap>(actions: Actions) =>
-  defineWorkflowModule({ id: "probe", version: 1, inputs: [], triggers: [], limits: { maxSteps: 10 }, actions, events: {} });
+  defineWorkflowModule({ id: "probe", version: 1, inputs: [], triggers: [], limits: { maxSteps: 10 }, actions });
 
 const plan = (actions: string[], steps: WorkflowIrStep[], bindings: Record<string, string> = {}): WorkflowBoundPlan => ({
   schemaVersion: 2,

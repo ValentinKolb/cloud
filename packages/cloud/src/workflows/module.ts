@@ -1,13 +1,9 @@
 import { workflowBuiltinActionDescriptors } from "./builtins";
 import type { WorkflowActionDescriptor, WorkflowLanguageManifest } from "./contracts";
-import { LANGUAGE_EFFECT, type WorkflowActionMap, type WorkflowEventMap, type WorkflowModule } from "./definition";
+import { LANGUAGE_EFFECT, type WorkflowActionMap } from "./definition";
 
-export type DefinedWorkflowModule<
-  Actions extends WorkflowActionMap = WorkflowActionMap,
-  Events extends WorkflowEventMap = WorkflowEventMap,
-> = {
+export type DefinedWorkflowModule<Actions extends WorkflowActionMap = WorkflowActionMap> = {
   actions: Actions;
-  events: Events;
   manifest: WorkflowLanguageManifest;
 };
 
@@ -22,13 +18,12 @@ const workflowActionDescriptors = (actions: WorkflowActionMap): WorkflowActionDe
     dryRun: action.effect === "pure" ? "full" : "validate",
   }));
 
-export const defineWorkflowModule = <const Actions extends WorkflowActionMap, const Events extends WorkflowEventMap>(
-  definition: Omit<WorkflowLanguageManifest, "actions"> & WorkflowModule & { actions: Actions; events: Events },
-): DefinedWorkflowModule<Actions, Events> => {
-  const { actions, events, ...language } = definition;
+export const defineWorkflowModule = <const Actions extends WorkflowActionMap>(
+  definition: Omit<WorkflowLanguageManifest, "actions"> & { actions: Actions },
+): DefinedWorkflowModule<Actions> => {
+  const { actions, ...language } = definition;
   return {
     actions,
-    events,
     manifest: {
       ...language,
       actions: [...workflowActionDescriptors(actions), ...workflowBuiltinActionDescriptors],

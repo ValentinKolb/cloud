@@ -56,9 +56,6 @@ export type {
   WorkflowActionMap,
   WorkflowActionResult,
   WorkflowEffectClass,
-  WorkflowEventDefinition,
-  WorkflowEventMap,
-  WorkflowModule,
   WorkflowPlannedEffect,
   WorkflowReconcileResult,
 } from "./definition";
@@ -66,7 +63,6 @@ export {
   isReplayable,
   LANGUAGE_EFFECT,
   workflowAction,
-  workflowEvent,
 } from "./definition";
 export {
   type DefinedWorkflowModule,

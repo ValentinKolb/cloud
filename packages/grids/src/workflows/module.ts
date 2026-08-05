@@ -7,7 +7,6 @@
  */
 import { defineWorkflowModule, type WorkflowFieldSchema } from "@valentinkolb/cloud/workflows";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
-import { gridsWorkflowEvents } from "./events";
 
 const text = (description: string, optional = false, maxLength = 1_000): WorkflowFieldSchema => ({
   kind: "string",
@@ -110,5 +109,4 @@ export const gridsWorkflows = defineWorkflowModule({
     },
   ],
   actions: GRIDS_WORKFLOW_ACTIONS,
-  events: gridsWorkflowEvents,
 });

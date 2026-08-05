@@ -3,7 +3,6 @@ import {
   type WorkflowBoundPlan,
   defineWorkflowModule,
   workflowAction,
-  workflowEvent,
 } from "@valentinkolb/cloud/workflows";
 import { bindWorkflow, compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import {
@@ -78,16 +77,7 @@ export const inventoryRateLimit = ratelimit({
 
 export const inventoryScheduler = scheduler({ id: "inventory" });
 
-export const INVENTORY_EVENTS = {
-  itemChanged: workflowEvent({
-    label: "Item changed",
-    description: "An inventory item changed.",
-    data: {
-      kind: "object",
-      properties: { itemId: { kind: "string" } },
-    },
-  }),
-};
+export const INVENTORY_EVENT = { itemChanged: "inventory.itemChanged" } as const;
 
 export const INVENTORY_ACTIONS = {
   loadItem: workflowAction.pure({
@@ -131,7 +121,6 @@ export const inventoryWorkflows = defineWorkflowModule({
     },
   ],
   actions: INVENTORY_ACTIONS,
-  events: INVENTORY_EVENTS,
   limits: {
     maxInputs: 20,
     maxSteps: 200,

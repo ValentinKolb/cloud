@@ -304,24 +304,6 @@ export const workflowAction = {
   ): WorkflowActionDefinition<"ambiguous", Schema, Output> => ({ ...definition, effect: "ambiguous" }),
 };
 
-// ─── Event definition ────────────────────────────────────────────────────────
-
-export type WorkflowEventDefinition<Schema extends ObjectSchema = ObjectSchema> = {
-  label: string;
-  description: string;
-  /** Payload contract. Activations bind to the event, runs receive this. */
-  data: Schema;
-};
-
-/**
- * Declares one event type. Everything that starts work is an event — a
- * schedule tick, a button press, an inbound message — so a run always has an
- * inspectable cause instead of a bare channel enum.
- */
-export const workflowEvent = <const Schema extends ObjectSchema>(
-  definition: WorkflowEventDefinition<Schema>,
-): WorkflowEventDefinition<Schema> => definition;
-
 // ─── App module ──────────────────────────────────────────────
 
 /**
@@ -350,10 +332,3 @@ export type ErasedWorkflowAction = {
 };
 
 export type WorkflowActionMap = Record<string, ErasedWorkflowAction>;
-export type WorkflowEventMap = Record<string, WorkflowEventDefinition<ObjectSchema>>;
-
-/** Optional grouping for an app's declaration file; it is not auto-bound by `defineApp`. */
-export type WorkflowModule = {
-  actions: WorkflowActionMap;
-  events: WorkflowEventMap;
-};

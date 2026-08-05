@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { workflowAction, workflowEvent } from "./definition";
+import { workflowAction } from "./definition";
 import { bindWorkflow, compileWorkflow } from "./language";
 import { defineWorkflowModule } from "./module";
 import { createWorkflowActionPort, createWorkflowDryRunPort } from "./store";
@@ -10,13 +10,6 @@ const probeWorkflows = defineWorkflowModule({
   inputs: [],
   triggers: [],
   limits: { maxSteps: 10 },
-  events: {
-    requested: workflowEvent({
-      label: "Requested",
-      description: "A probe was requested.",
-      data: { kind: "object", properties: {} },
-    }),
-  },
   actions: {
     echo: workflowAction.pure({
       label: "Echo",

@@ -7,7 +7,6 @@ import {
   type WorkflowActionMap,
   type WorkflowActionResult,
   workflowAction,
-  workflowEvent,
 } from "./definition";
 
 /** Fails to compile unless the two types are identical, not merely assignable. */
@@ -177,16 +176,5 @@ describe("effect ladder", () => {
   test("maps onto the effect vocabulary the compiler already knows", () => {
     expect(LANGUAGE_EFFECT.idempotent).toBe("durable-intent");
     expect(LANGUAGE_EFFECT.ambiguous).toBe("ambiguous-external");
-  });
-});
-
-describe("workflowEvent", () => {
-  test("keeps its payload schema for inference", () => {
-    const event = workflowEvent({
-      label: "Record changed",
-      description: "A row changed in a base.",
-      data: { kind: "object", properties: { rowId: { kind: "string" } } },
-    });
-    exact<Exact<FromFieldSchema<typeof event.data>, { rowId: string }>>(true);
   });
 });
