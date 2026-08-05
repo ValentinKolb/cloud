@@ -15,7 +15,8 @@
  */
 import type { SQL } from "bun";
 import { type WorkflowDependency, type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
-import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
+import type { ErasedWorkflowAction, WorkflowActionMap } from "../definition";
+import { type DefinedWorkflowModule, workflowModuleActions } from "../module";
 import type {
   WorkflowActionStep,
   WorkflowDryRunActionContext,
@@ -26,6 +27,8 @@ import type {
 import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget } from "./budget";
 import { beginWorkflowEffect, readWorkflowEffect, recordWorkflowEffect, settleWorkflowEffect } from "./runs";
 import { withTransaction } from "./transaction";
+
+export { workflowActionDescriptors } from "../module";
 
 /**
  * The key an idempotent effect deduplicates on.
@@ -337,43 +340,27 @@ const runDeclaredAction = async (
  * ```
  */
 export const createWorkflowActionPort = (
-  actions: WorkflowActionMap,
+  source: WorkflowActionMap | DefinedWorkflowModule,
   options: WorkflowActionPortOptions = {},
-): WorkflowExecuteActionPort => ({
-  get: (name) => {
-    const action = actions[name];
-    if (!action) return undefined;
-    return {
-      execute: async (ctx, step) => {
-        const outcome = await runDeclaredAction(action, ctx, step, options);
-        if (outcome.state === "completed") applySaveAs(ctx, step, outcome.output);
-        return outcome;
-      },
-      // A restored outcome has to land in the same variable the first attempt
-      // would have written, or every step after it resolves to nothing.
-      restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
-    };
-  },
-});
-
-/**
- * The language descriptors an app's actions imply.
- *
- * Derived rather than written a second time: the descriptor and the
- * implementation used to be separate places that could disagree and only fail
- * at runtime.
- */
-export const workflowActionDescriptors = (actions: WorkflowActionMap, namespace?: string) =>
-  Object.entries(actions).map(([key, action]) => ({
-    kind: namespace ? `${namespace}.${key}` : key,
-    label: action.label,
-    description: action.description,
-    config: action.config,
-    effect: LANGUAGE_EFFECT[action.effect],
-    ...(action.outputType ? { outputType: action.outputType } : {}),
-    // A pure action has nothing to plan, so a dry run reports it in full.
-    dryRun: (action.effect === "pure" ? "full" : "validate") as "full" | "validate",
-  }));
+): WorkflowExecuteActionPort => {
+  const actions = workflowModuleActions(source);
+  return {
+    get: (name) => {
+      const action = actions[name];
+      if (!action) return undefined;
+      return {
+        execute: async (ctx, step) => {
+          const outcome = await runDeclaredAction(action, ctx, step, options);
+          if (outcome.state === "completed") applySaveAs(ctx, step, outcome.output);
+          return outcome;
+        },
+        // A restored outcome has to land in the same variable the first attempt
+        // would have written, or every step after it resolves to nothing.
+        restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
+      };
+    },
+  };
+};
 
 /**
  * The port a dry run executes with, built from the same declarations.
@@ -385,61 +372,64 @@ export const workflowActionDescriptors = (actions: WorkflowActionMap, namespace?
  * A pure action is simply run — it is deterministic and touches nothing, which
  * is what makes its dry run exact rather than a description.
  */
-export const createWorkflowDryRunPort = (actions: WorkflowActionMap): WorkflowDryRunActionPort => ({
-  get: (name) => {
-    const action = actions[name];
-    if (!action) return undefined;
-    return {
-      restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
-      plan: async (ctx: WorkflowDryRunActionContext, step: WorkflowActionStep) => {
-        const config = await resolveConfig(ctx, step);
-        const context = actionContext(ctx, step, workflowEffectKey(ctx.run.runId, ctx.step.key));
+export const createWorkflowDryRunPort = (source: WorkflowActionMap | DefinedWorkflowModule): WorkflowDryRunActionPort => {
+  const actions = workflowModuleActions(source);
+  return {
+    get: (name) => {
+      const action = actions[name];
+      if (!action) return undefined;
+      return {
+        restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
+        plan: async (ctx: WorkflowDryRunActionContext, step: WorkflowActionStep) => {
+          const config = await resolveConfig(ctx, step);
+          const context = actionContext(ctx, step, workflowEffectKey(ctx.run.runId, ctx.step.key));
 
-        if (action.effect === "pure") {
-          const result = await action.run(context, config as never);
-          if (result.state === "waiting") {
-            return {
-              state: "indeterminate" as const,
-              reason: `dependency ${result.dependency.kind}:${result.dependency.key} is not satisfied`,
-            };
+          if (action.effect === "pure") {
+            const result = await action.run(context, config as never);
+            if (result.state === "waiting") {
+              return {
+                state: "indeterminate" as const,
+                reason: `dependency ${result.dependency.kind}:${result.dependency.key} is not satisfied`,
+              };
+            }
+            if (result.state !== "succeeded") {
+              return { state: "terminal" as const, status: "failed" as const, message: result.message, effects: [] };
+            }
+            applySaveAs(ctx, step, (result.output ?? undefined) as WorkflowJsonValue | undefined);
+            return { state: "planned" as const, output: (result.output ?? null) as WorkflowJsonValue, effects: [] };
           }
-          if (result.state !== "succeeded") {
-            return { state: "terminal" as const, status: "failed" as const, message: result.message, effects: [] };
-          }
-          applySaveAs(ctx, step, (result.output ?? undefined) as WorkflowJsonValue | undefined);
-          return { state: "planned" as const, output: (result.output ?? null) as WorkflowJsonValue, effects: [] };
-        }
 
-        if (!action.plan) return { state: "unsupported" as const, reason: `${name} cannot be planned` };
+          if (!action.plan) return { state: "unsupported" as const, reason: `${name} cannot be planned` };
 
-        const planned = await action.plan(context, config as never);
-        applySaveAs(ctx, step, (planned.output ?? undefined) as WorkflowJsonValue | undefined);
-        return {
-          state: "planned" as const,
-          output: (planned.output ?? null) as WorkflowJsonValue,
-          effects: [
-            { action: name, summary: planned.summary, ...(planned.consumes ? { consumes: planned.consumes } : {}) } as WorkflowJsonValue,
-          ],
-          // An issue names the step it belongs to, so the dry-run view can point
-          // at what could not be determined rather than listing loose strings.
-          ...(planned.issues?.length
-            ? {
-                issues: planned.issues.map((reason) => ({
-                  state: "indeterminate" as const,
-                  reason,
-                  step: {
-                    key: ctx.step.key,
-                    sourcePath: ctx.step.sourcePath,
-                    iterationPath: ctx.step.iterationPath,
-                    path: ctx.step.path,
-                    kind: ctx.step.kind,
-                    ...(ctx.step.action ? { action: ctx.step.action } : {}),
-                  },
-                })),
-              }
-            : {}),
-        };
-      },
-    };
-  },
-});
+          const planned = await action.plan(context, config as never);
+          applySaveAs(ctx, step, (planned.output ?? undefined) as WorkflowJsonValue | undefined);
+          return {
+            state: "planned" as const,
+            output: (planned.output ?? null) as WorkflowJsonValue,
+            effects: [
+              { action: name, summary: planned.summary, ...(planned.consumes ? { consumes: planned.consumes } : {}) } as WorkflowJsonValue,
+            ],
+            // An issue names the step it belongs to, so the dry-run view can point
+            // at what could not be determined rather than listing loose strings.
+            ...(planned.issues?.length
+              ? {
+                  issues: planned.issues.map((reason) => ({
+                    state: "indeterminate" as const,
+                    reason,
+                    step: {
+                      key: ctx.step.key,
+                      sourcePath: ctx.step.sourcePath,
+                      iterationPath: ctx.step.iterationPath,
+                      path: ctx.step.path,
+                      kind: ctx.step.kind,
+                      ...(ctx.step.action ? { action: ctx.step.action } : {}),
+                    },
+                  })),
+                }
+              : {}),
+          };
+        },
+      };
+    },
+  };
+};

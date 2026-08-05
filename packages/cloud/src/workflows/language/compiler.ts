@@ -12,6 +12,7 @@ import type {
   WorkflowSourceLocation,
   WorkflowTriggerDescriptor,
 } from "../contracts";
+import { type WorkflowLanguage, workflowLanguageManifest } from "../module";
 import { hashWorkflowJson, hashWorkflowSource, normalizeWorkflowJson } from "./canonical";
 import { validateWorkflowField, workflowDiagnostic, workflowRecord } from "./schema";
 import { parseWorkflowYaml } from "./strict-yaml";
@@ -347,7 +348,8 @@ const compileSteps = (
   return result;
 };
 
-export const compileWorkflow = async (source: string, manifest: WorkflowLanguageManifest): Promise<CompileWorkflowResult> => {
+export const compileWorkflow = async (source: string, language: WorkflowLanguage): Promise<CompileWorkflowResult> => {
+  const manifest = workflowLanguageManifest(language);
   const parsed = parseWorkflowYaml(source);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
 
