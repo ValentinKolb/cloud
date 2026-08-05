@@ -24,7 +24,6 @@ suite("mail migrations", () => {
         actions_constraint_present: boolean;
         backfill_pointer_applied_count: number;
         backfill_pointer_present: boolean;
-        liquid_templates_applied_count: number;
         generalized_rules_applied_count: number;
         canonical_rule_names_applied_count: number;
         calendar_destination_applied_count: number;
@@ -103,11 +102,6 @@ suite("mail migrations", () => {
         (
           SELECT count(*)::int
           FROM mail.schema_migrations
-          WHERE version = 102 AND name = 'liquid_mail_templates'
-        ) AS liquid_templates_applied_count,
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
           WHERE version = 103 AND name = 'generalized_mail_rules'
         ) AS generalized_rules_applied_count,
         (
@@ -155,7 +149,6 @@ suite("mail migrations", () => {
       actions_constraint_present: true,
       backfill_pointer_applied_count: 1,
       backfill_pointer_present: true,
-      liquid_templates_applied_count: 1,
       generalized_rules_applied_count: 1,
       canonical_rule_names_applied_count: 1,
       calendar_destination_applied_count: 1,
@@ -1076,7 +1069,7 @@ suite("mail migrations", () => {
     }
   });
 
-  test("hard-cuts workflow storage while preserving the rest of the Mail schema", async () => {
+  test("installs only the shared workflow storage while preserving the rest of the Mail schema", async () => {
     await migrate();
     await migrate();
 
@@ -1095,13 +1088,7 @@ suite("mail migrations", () => {
       SELECT
         EXISTS (
           SELECT 1 FROM mail.schema_migrations
-          WHERE version = 93 AND name = 'shared_workflow_kernel'
-        ) AND EXISTS (
-          SELECT 1 FROM mail.schema_migrations
-          WHERE version = 94 AND name = 'workflow_command_generation_fence'
-        ) AND EXISTS (
-          SELECT 1 FROM mail.schema_migrations
-          WHERE version = 95 AND name = 'workflow_profile_manager'
+          WHERE version = 17
         ) AS migration_applied,
         NOT EXISTS (
           SELECT 1

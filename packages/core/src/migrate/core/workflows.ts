@@ -60,15 +60,6 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
     )
   `.simple();
   await db`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_scope_identity_uniq') THEN
-        ALTER TABLE workflows.workflow
-          ADD CONSTRAINT workflow_scope_identity_uniq UNIQUE (id, app_id, scope_id);
-      END IF;
-    END $$
-  `.simple();
-  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_workflow_scope
     ON workflows.workflow(app_id, scope_id, name, id)
   `.simple();
@@ -102,11 +93,6 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
       UNIQUE (workflow_id, revision),
       UNIQUE (id, workflow_id)
     )
-  `.simple();
-  await db`
-    ALTER TABLE workflows.version
-    ADD COLUMN IF NOT EXISTS effect_budget JSONB NOT NULL DEFAULT '{}'::jsonb
-      CHECK (jsonb_typeof(effect_budget) = 'object')
   `.simple();
   await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_version_history
@@ -222,29 +208,12 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
     )
   `.simple();
   await db`
-    ALTER TABLE workflows.event
-      ADD COLUMN IF NOT EXISTS context JSONB NOT NULL DEFAULT '{}'::jsonb
-        CHECK (jsonb_typeof(context) = 'object'),
-      ADD COLUMN IF NOT EXISTS target_workflow_id UUID,
-      ADD COLUMN IF NOT EXISTS authorization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb
-        CHECK (jsonb_typeof(authorization_snapshot) = 'object'),
-      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-      ADD COLUMN IF NOT EXISTS last_error TEXT,
-      ADD COLUMN IF NOT EXISTS dispatch_after TIMESTAMPTZ NOT NULL DEFAULT now(),
-      ADD COLUMN IF NOT EXISTS dispatch_failed_at TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS matched_count INTEGER NOT NULL DEFAULT 0 CHECK (matched_count >= 0)
-  `.simple();
-  // The first alpha schema omitted scope from this key. Recreate it by name so
-  // an existing installation gets the same isolation as a fresh one.
-  await db`DROP INDEX IF EXISTS workflows.idx_workflows_event_dedupe`.simple();
-  await db`
-    CREATE UNIQUE INDEX idx_workflows_event_dedupe
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_event_dedupe
     ON workflows.event(app_id, scope_id, type, dedupe_key)
     WHERE dedupe_key IS NOT NULL
   `.simple();
-  await db`DROP INDEX IF EXISTS workflows.idx_workflows_event_pending`.simple();
   await db`
-    CREATE INDEX idx_workflows_event_pending
+    CREATE INDEX IF NOT EXISTS idx_workflows_event_pending
     ON workflows.event(dispatch_after, occurred_at, id)
     WHERE dispatched_at IS NULL AND dispatch_failed_at IS NULL AND matched_count > 0
   `.simple();
@@ -275,40 +244,6 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
   await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_event_delivery_workflow
     ON workflows.event_delivery(workflow_id, event_id)
-  `.simple();
-  // Upgrade events recorded before receipt-time deliveries existed. Their
-  // historical activation set was never stored, so the only honest recovery
-  // is to pin the currently active set once; all new emissions pin atomically.
-  await db`
-    INSERT INTO workflows.event_delivery (
-      event_id, activation_id, workflow_id, workflow_version_id, authorization_snapshot
-    )
-    SELECT e.id, a.id, a.workflow_id, a.workflow_version_id, a.authorization_snapshot
-    FROM workflows.event AS e
-    JOIN workflows.workflow AS w
-      ON w.app_id = e.app_id AND w.scope_id = e.scope_id
-    JOIN workflows.activation AS a
-      ON a.workflow_id = w.id
-      AND a.workflow_version_id = w.active_version_id
-      AND a.enabled
-      AND a.event_type = e.type
-    WHERE e.dispatched_at IS NULL
-      AND e.matched_count = 0
-      AND (e.target_workflow_id IS NULL OR e.target_workflow_id = a.workflow_id)
-    ON CONFLICT DO NOTHING
-  `.simple();
-  await db`
-    UPDATE workflows.event AS e
-    SET matched_count = matches.count,
-        dispatched_at = CASE WHEN matches.count = 0 THEN now() ELSE e.dispatched_at END
-    FROM (
-      SELECT pending.id, count(d.activation_id)::integer AS count
-      FROM workflows.event AS pending
-      LEFT JOIN workflows.event_delivery AS d ON d.event_id = pending.id
-      WHERE pending.dispatched_at IS NULL AND pending.matched_count = 0
-      GROUP BY pending.id
-    ) AS matches
-    WHERE e.id = matches.id
   `.simple();
   console.log("  ✓ workflows.event table");
 
@@ -391,94 +326,12 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
         REFERENCES workflows.run(id, app_id, scope_id) ON DELETE CASCADE
     )
   `.simple();
-  await db`
-    ALTER TABLE workflows.run
-      ADD COLUMN IF NOT EXISTS context JSONB NOT NULL DEFAULT '{}'::jsonb
-        CHECK (jsonb_typeof(context) = 'object'),
-      ADD COLUMN IF NOT EXISTS effects_used JSONB NOT NULL DEFAULT '{}'::jsonb
-        CHECK (jsonb_typeof(effects_used) = 'object'),
-      ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
-      ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK (consecutive_failures >= 0),
-      ADD COLUMN IF NOT EXISTS retry_after TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS result_message TEXT
-  `.simple();
-  // Replace constraints whose definitions changed after the alpha schema was
-  // first shipped. Leaving the old lease-token check in place makes every
-  // claim fail; leaving RESTRICT makes a workflow with history undeletable.
-  await db`
-    ALTER TABLE workflows.run DROP CONSTRAINT IF EXISTS run_lease_chk;
-    ALTER TABLE workflows.run
-      ADD CONSTRAINT run_lease_chk CHECK ((lease_owner IS NULL) = (lease_expires_at IS NULL))
-  `.simple();
-  await db`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conrelid = 'workflows.run'::regclass
-          AND conname = 'run_workflow_version_id_workflow_id_fkey'
-          AND confdeltype <> 'c'
-      ) THEN
-        ALTER TABLE workflows.run
-          DROP CONSTRAINT run_workflow_version_id_workflow_id_fkey;
-        ALTER TABLE workflows.run
-          ADD CONSTRAINT run_workflow_version_id_workflow_id_fkey
-          FOREIGN KEY (workflow_version_id, workflow_id)
-          REFERENCES workflows.version(id, workflow_id) ON DELETE CASCADE;
-      END IF;
-    END $$
-  `.simple();
-  await db`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'run_scope_identity_uniq') THEN
-        ALTER TABLE workflows.run
-          ADD CONSTRAINT run_scope_identity_uniq UNIQUE (id, app_id, scope_id);
-      END IF;
-      IF EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'run_workflow_scope_fk' AND confdeltype <> 'c'
-      ) THEN
-        ALTER TABLE workflows.run DROP CONSTRAINT run_workflow_scope_fk;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'run_workflow_scope_fk') THEN
-        ALTER TABLE workflows.run
-          ADD CONSTRAINT run_workflow_scope_fk
-          FOREIGN KEY (workflow_id, app_id, scope_id)
-          REFERENCES workflows.workflow(id, app_id, scope_id) ON DELETE CASCADE;
-      END IF;
-      IF EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'run_parent_scope_fk' AND confdeltype <> 'c'
-      ) THEN
-        ALTER TABLE workflows.run DROP CONSTRAINT run_parent_scope_fk;
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'run_parent_scope_fk') THEN
-        ALTER TABLE workflows.run
-          ADD CONSTRAINT run_parent_scope_fk
-          FOREIGN KEY (parent_run_id, app_id, scope_id)
-          REFERENCES workflows.run(id, app_id, scope_id) ON DELETE CASCADE;
-      END IF;
-    END $$
-  `.simple();
   // Claimable work, oldest first:
-  //   WHERE state IN ('queued', 'running') AND GREATEST(...) < now()
-  //   ORDER BY GREATEST(...), created_at, id
-  //
-  // The expression is repeated rather than trusting the generated
-  // `claimable_at`: its alpha definition did not include retry_after, and
-  // PostgreSQL cannot replace a generated expression without dropping the
-  // column. Keeping the old compatibility column unused makes this upgrade
-  // additive while the expression index keeps claims efficient.
-  await db`DROP INDEX IF EXISTS workflows.idx_workflows_run_dispatch`.simple();
+  //   WHERE state IN ('queued', 'running') AND claimable_at < now()
+  //   ORDER BY claimable_at, created_at, id
   await db`
-    CREATE INDEX idx_workflows_run_dispatch
-    ON workflows.run(
-      GREATEST(COALESCE(lease_expires_at, '-infinity'::timestamptz), COALESCE(retry_after, '-infinity'::timestamptz)),
-      created_at,
-      id
-    )
+    CREATE INDEX IF NOT EXISTS idx_workflows_run_dispatch
+    ON workflows.run(claimable_at, created_at, id)
     WHERE state IN ('queued', 'running')
   `.simple();
   // Parked runs the wake scan has to pick up once their deadline passes.
@@ -557,7 +410,6 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
       CONSTRAINT step_outcome_dependency_chk CHECK ((state = 'waiting') = (dependency IS NOT NULL))
     )
   `.simple();
-  await db`ALTER TABLE workflows.step_outcome ADD COLUMN IF NOT EXISTS effect_output JSONB`.simple();
   // Resuming a parked run: find the steps blocked on a dependency that fired.
   await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_step_outcome_dependency

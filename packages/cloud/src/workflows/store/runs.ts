@@ -288,18 +288,12 @@ export const claimWorkflowRun = async (options: {
     WITH candidate AS (
       SELECT id FROM workflows.run
       WHERE state IN ('queued', 'running')
-        AND GREATEST(
-          COALESCE(lease_expires_at, '-infinity'::timestamptz),
-          COALESCE(retry_after, '-infinity'::timestamptz)
-        ) < now()
+        AND claimable_at < now()
         AND cancel_requested_at IS NULL
         AND (${options.runId ?? null}::uuid IS NULL OR id = ${options.runId ?? null}::uuid)
         AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
         AND mode = ${options.mode ?? "execute"}
-      ORDER BY GREATEST(
-        COALESCE(lease_expires_at, '-infinity'::timestamptz),
-        COALESCE(retry_after, '-infinity'::timestamptz)
-      ), created_at, id
+      ORDER BY claimable_at, created_at, id
       LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
@@ -568,15 +562,9 @@ export const listClaimableWorkflowRunIds = async (limit: number, options: { db?:
   const rows = await db<{ id: string }[]>`
     SELECT id FROM workflows.run
     WHERE state IN ('queued', 'running')
-      AND GREATEST(
-        COALESCE(lease_expires_at, '-infinity'::timestamptz),
-        COALESCE(retry_after, '-infinity'::timestamptz)
-      ) < now()
+      AND claimable_at < now()
       AND cancel_requested_at IS NULL
-    ORDER BY GREATEST(
-      COALESCE(lease_expires_at, '-infinity'::timestamptz),
-      COALESCE(retry_after, '-infinity'::timestamptz)
-    ), created_at, id
+    ORDER BY claimable_at, created_at, id
     LIMIT ${limit}
   `;
   return rows.map((row) => row.id);
