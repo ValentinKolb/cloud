@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectNumberedChoice, terminalSafeText } from "./terminal";
+import { selectNumberedChoice, terminalInfo, terminalSafeText } from "./terminal";
 
 const createOutput = () => {
   const printed: string[] = [];
@@ -17,6 +17,10 @@ const createOutput = () => {
 describe("Assistant terminal helpers", () => {
   test("escapes terminal control and bidirectional text before display", () => {
     expect(terminalSafeText("safe\u001b[2J\rhidden\u202Etxt")).toBe("safe\\u001b[2J\\u000dhidden\\u202etxt");
+  });
+
+  test("renders a blue info label without coloring or trusting its message", () => {
+    expect(terminalInfo("New chat\u001b[2J")).toBe("\u001b[34mInfo:\u001b[0m New chat\\u001b[2J");
   });
 
   test("re-prompts after invalid input and returns a numbered choice", async () => {

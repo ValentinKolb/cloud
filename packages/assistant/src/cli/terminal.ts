@@ -20,6 +20,8 @@ export const terminalSafeText = (value: string): string =>
     (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`,
   );
 
+export const terminalInfo = (message: string): string => `\u001b[34mInfo:\u001b[0m ${terminalSafeText(message)}`;
+
 const terminalLabel = (value: string): string => terminalSafeText(value).replaceAll(/\s+/g, " ").trim();
 
 const choiceLine = <T>(index: number, choice: NumberedChoice<T>): string => {

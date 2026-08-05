@@ -12,7 +12,7 @@ cld assistant "Summarize my open work"
 cld assistant --chat <chat-id>
 ```
 
-The interactive commands are deliberately small: `/help`, `/exit`, `/attach`, `/files`, `/model`, and `/skill`. Run `/model` or `/skill` without an argument to choose from the visible options by number; an empty answer cancels without changing the selection. `/model <profile-id>` and `/skill <name-or-id>` remain direct shortcuts. Attachments and a selected skill apply to the next message. A selected model remains active for the session.
+The startup line shows the effective model. New chats print their stable resume command, and the CLI repeats it when the session ends. Blue `Info:` messages confirm non-error state changes. The interactive commands are deliberately small: `/help`, `/exit`, `/attach`, `/files`, `/model`, and `/skill`. Run `/model` or `/skill` without an argument to choose from the visible options by number; an empty answer cancels without changing the selection. `/model <profile-id>` and `/skill <name-or-id>` remain direct shortcuts. Attachments and a selected skill apply to the next message. A selected model remains active for the session.
 
 Enable local computer access explicitly:
 

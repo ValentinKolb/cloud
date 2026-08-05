@@ -172,7 +172,7 @@ describe("assistant CLI", () => {
         },
       ),
     ];
-    const { ctx, stdout } = createContext([], async (path, init) => {
+    const { ctx, stdout, stderr } = createContext([], async (path, init) => {
       requests.push(`${init?.method ?? "GET"} ${String(path)}`);
       if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
       if (path === "/api/assistant/conversations/chat-1/stream") return streams[streamIndex++]!;
@@ -183,14 +183,24 @@ describe("assistant CLI", () => {
       return json({ message: "Not found" }, 404);
     });
     const lines = ["hello", "again", "/exit"];
+    const prompts: string[] = [];
     const reader = {
-      read: async () => lines.shift() ?? null,
+      read: async (prompt: string) => {
+        prompts.push(prompt);
+        return lines.shift() ?? null;
+      },
       close: () => undefined,
       onInterrupt: () => () => undefined,
     };
 
     expect(await runInteractiveAssistant(ctx, {}, reader)).toBe(0);
-    expect(stdout.join("")).toContain("First\nSecond\n");
+    const output = stdout.join("");
+    expect(output).toContain("\u001b[34mInfo:\u001b[0m New chat created. Resume this chat later with:\n      cld assistant --chat chat-1");
+    expect(output).toContain("\u001b[34mInfo:\u001b[0m Resume this chat later with:\n      cld assistant --chat chat-1");
+    expect(output.match(/cld assistant --chat chat-1/g)).toHaveLength(2);
+    expect(output).toContain("First\nSecond\n");
+    expect(stderr).not.toContain("Chat: chat-1");
+    expect(prompts).toEqual(["> ", "> ", "> "]);
     expect(requests.filter((request) => request === "POST /api/assistant/conversations")).toHaveLength(1);
     expect(requests.filter((request) => request === "POST /api/assistant/conversations/chat-1/turns")).toHaveLength(2);
   });
@@ -217,6 +227,15 @@ describe("assistant CLI", () => {
       ),
     );
     const { ctx, stdout } = createContext([], async (path, init) => {
+      if (path === "/api/assistant/status") {
+        return json({
+          defaultModelId: "model-1",
+          models: [
+            { id: "model-1", label: "Model One", provider: "provider", model: "one", capabilities: [] },
+            { id: "model-2", label: "Model Two", provider: "provider", model: "two", capabilities: [] },
+          ],
+        });
+      }
       if (path === "/api/assistant/models") {
         return json([
           { id: "model-1", label: "Model One", provider: "provider", model: "one", capabilities: [] },
@@ -262,6 +281,7 @@ describe("assistant CLI", () => {
       { message: "Continue", modelProfileId: "model-2" },
     ]);
     const output = stdout.join("");
+    expect(output).toContain("Assistant · Model One · /help for commands");
     expect(output).toContain("Select a model:");
     expect(output).toContain("2. Model Two · provider · two");
     expect(output).toContain("Select a skill for the next message:");

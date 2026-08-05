@@ -71,9 +71,13 @@ cld assistant -p "Print one response and exit"
 
 Interactive mode streams replies into the terminal and keeps the same chat for
 later prompts. Use `--print` or `-p` for scripts, pipelines, structured output,
-or one request without a prompt loop. Run `/model` or `/skill` without an
-argument to select an available model or visible skill by number. The model
-remains active for the session; the skill applies only to the next message.
+or one request without a prompt loop. Its startup line shows the effective
+model. A new chat prints its stable `cld assistant --chat <chat-id>` resume
+command, and the CLI repeats that command when the session ends. Blue `Info:`
+messages confirm non-error state changes such as attachments, model or skill
+selection, and stopped turns. Run `/model` or `/skill` without an argument to
+select an available model or visible skill by number. The model remains active
+for the session; the skill applies only to the next message.
 
 Use `cld assistant --allow-bash` when the Assistant must work on the computer
 running the CLI. This exposes a local Bash tool only for that interactive

@@ -14,7 +14,7 @@ import { deniedLocalBashResult, parseLocalBashInput, runLocalBash } from "./loca
 import { jsonRequest, readApi } from "./shared";
 import { listAssistantSkills, resolveAssistantSkill } from "./skills";
 import { type AssistantTurnStreamResult, streamAssistantTurn } from "./stream";
-import { selectNumberedChoice, terminalSafeText } from "./terminal";
+import { selectNumberedChoice, terminalInfo, terminalSafeText } from "./terminal";
 import { conversationPath, readConversationDetail, resolveConversation, submitAssistantTurn, uploadAttachment } from "./turn";
 
 type LineReader = {
@@ -34,6 +34,7 @@ type InteractiveOptions = {
 };
 
 type FileList = { files: AiFileStat[]; totalBytes: number };
+type AssistantStatus = { defaultModelId?: string; models?: AiPublicModelProfile[] };
 
 const createLineReader = (): LineReader => {
   const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -72,6 +73,27 @@ const printInteractiveHelp = (ctx: CloudCliContext): void => {
   ctx.print("/model [id|default]   Choose interactively or set the session model");
   ctx.print("/skill [name|clear]   Choose interactively for the next message");
   ctx.print("/exit                 End the session");
+};
+
+const readInitialModelLabel = async (ctx: CloudCliContext, requestedModelId?: string): Promise<string> => {
+  try {
+    const status = await readApi<AssistantStatus>(ctx, "/status");
+    const modelId = requestedModelId ?? status.defaultModelId;
+    return status.models?.find((profile) => profile.id === modelId)?.label ?? modelId ?? "Cloud default";
+  } catch {
+    return requestedModelId ?? "Cloud default";
+  }
+};
+
+const printInfo = (ctx: CloudCliContext, message: string): void => {
+  ctx.print(terminalInfo(message));
+};
+
+const printResumeHint = (ctx: CloudCliContext, conversationId: string, created = false): void => {
+  ctx.print();
+  printInfo(ctx, created ? "New chat created. Resume this chat later with:" : "Resume this chat later with:");
+  ctx.print(`      cld assistant --chat ${terminalSafeText(conversationId)}`);
+  ctx.print();
 };
 
 const printCard = (ctx: CloudCliContext, args: unknown): void => {
@@ -263,7 +285,7 @@ export const runInteractiveAssistant = async (
     const conversation = activeConversation;
     if (!conversationId) {
       conversationId = conversation.id;
-      ctx.error(`Chat: ${conversation.id}`);
+      printResumeHint(ctx, conversation.id, true);
     }
     if (preparedAttachments === null) {
       preparedAttachments = [];
@@ -299,7 +321,7 @@ export const runInteractiveAssistant = async (
       if (!result) return 0;
       if (result.status === "aborted") {
         await readApi(ctx, conversationPath(conversation.id, `/turns/${encodeURIComponent(submitted.turn.id)}/abort`), { method: "POST" });
-        ctx.error("Turn stopped.");
+        printInfo(ctx, "Turn stopped.");
         return 0;
       }
       if (result.status === "failed") {
@@ -324,7 +346,7 @@ export const runInteractiveAssistant = async (
           await readApi(ctx, conversationPath(conversation.id, `/turns/${encodeURIComponent(submitted.turn.id)}/abort`), {
             method: "POST",
           });
-          ctx.error("Turn stopped.");
+          printInfo(ctx, "Turn stopped.");
         } else if (attentionResult.status === "failed") {
           ctx.error(attentionResult.error || "Assistant turn failed.");
         }
@@ -340,7 +362,7 @@ export const runInteractiveAssistant = async (
     try {
       return await send(message);
     } catch (error) {
-      if ((error as { name?: string }).name === "AbortError") ctx.error("Turn stopped.");
+      if ((error as { name?: string }).name === "AbortError") printInfo(ctx, "Turn stopped.");
       else ctx.error(error instanceof Error ? error.message : String(error));
       return 0;
     }
@@ -415,7 +437,7 @@ export const runInteractiveAssistant = async (
       else {
         attachments.push(path);
         preparedAttachments = null;
-        ctx.print(`Attached for next message: ${basename(path)}`);
+        printInfo(ctx, `Attached for next message: ${basename(path)}`);
       }
       return true;
     }
@@ -438,14 +460,14 @@ export const runInteractiveAssistant = async (
       if (selected !== undefined) {
         model = selected ?? undefined;
         const label = model ? (models.find((profile) => profile.id === model)?.label ?? model) : undefined;
-        ctx.print(label ? `Model: ${label}` : "Model: default");
+        printInfo(ctx, label ? `Model: ${label}` : "Model: default");
       }
       return true;
     }
     if (line.startsWith("/model ")) {
       const value = line.slice(7).trim();
       model = value === "default" ? undefined : value || model;
-      ctx.print(model ? `Model: ${model}` : "Model: default");
+      printInfo(ctx, model ? `Model: ${model}` : "Model: default");
       return true;
     }
     if (line === "/skill") {
@@ -467,7 +489,7 @@ export const runInteractiveAssistant = async (
       });
       if (selected !== undefined) {
         nextSkill = selected ?? undefined;
-        ctx.print(nextSkill ? `Skill for next message: ${nextSkill.name}` : "Skill cleared.");
+        printInfo(ctx, nextSkill ? `Skill for next message: ${nextSkill.name}` : "Skill cleared.");
       }
       return true;
     }
@@ -475,17 +497,19 @@ export const runInteractiveAssistant = async (
       const value = line.slice(7).trim();
       nextSkill = value === "clear" ? undefined : value || nextSkill;
       const label = typeof nextSkill === "string" ? nextSkill : nextSkill?.name;
-      ctx.print(label ? `Skill for next message: ${label}` : "Skill cleared.");
+      printInfo(ctx, label ? `Skill for next message: ${label}` : "Skill cleared.");
       return true;
     }
     return false;
   };
 
   try {
-    ctx.print("Assistant · /help for commands");
+    ctx.print(`Assistant · ${await readInitialModelLabel(ctx, model)} · /help for commands`);
     if (options.allowBash) {
-      ctx.error(`Local Bash enabled in ${bashCwd}.`);
-      ctx.error("Commands run as your current OS user after confirmation; their output is stored in Cloud and sent to the model.");
+      printInfo(
+        ctx,
+        `Local Bash enabled in ${bashCwd}. Commands run as your current OS user after confirmation; their output is stored in Cloud and sent to the model.`,
+      );
     }
     const resumeCode = await resumeActiveTurn();
     if (resumeCode !== 0) return resumeCode;
@@ -494,7 +518,7 @@ export const runInteractiveAssistant = async (
       if (code !== 0) return code;
     }
     while (!exitRequested) {
-      const line = await reader.read("you> ");
+      const line = await reader.read("> ");
       if (line === null) break;
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -509,6 +533,7 @@ export const runInteractiveAssistant = async (
     }
     return 0;
   } finally {
+    if (activeConversation) printResumeHint(ctx, activeConversation.id);
     removeInterrupt();
     reader.close();
   }
