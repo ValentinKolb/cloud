@@ -28,5 +28,5 @@ Assistant keeps recent chats in the sidebar and stores older chats on the All Ch
 :::
 
 :::info Approvals and client actions
-Some turns can request an approval or a frontend tool result. Answer those prompts in the message list to let the turn continue.
+Some turns can request an approval or a frontend tool result. Answer those prompts in the message list to let the turn continue. Bounded, repeatable Actions may offer **Always approve** in the approval button menu; deletion, external effects, and other consequential Actions continue to ask every time.
 :::

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
-import { CAPABILITY_MAX_RESULT_BYTES, CapabilityActionReviewSchema, type CapabilityExecutionContext } from "@valentinkolb/cloud/contracts";
+import {
+  CAPABILITY_MAX_RESULT_BYTES,
+  type CapabilityActionDefinition,
+  CapabilityActionReviewSchema,
+  type CapabilityExecutionContext,
+} from "@valentinkolb/cloud/contracts";
 import { mailCapabilities } from "./capabilities";
 import {
   CommentListDataSchema,
@@ -34,6 +39,24 @@ describe("mail capabilities", () => {
     expect(manifest.appId).toBe("mail");
     expect(manifest.queries).toHaveLength(Object.keys(mailCapabilities.queries).length);
     expect(manifest.actions).toHaveLength(Object.keys(mailCapabilities.actions).length);
+  });
+
+  test("only exposes remembered approval for reversible internal mail changes", () => {
+    const rememberable = (Object.entries(mailCapabilities.actions) as Array<[string, CapabilityActionDefinition]>)
+      .filter(([, action]) => action.approval === "rememberable")
+      .map(([localId]) => localId)
+      .sort();
+    expect(rememberable).toEqual([
+      "conversation.collaboration.update",
+      "conversation.comment.update",
+      "conversation.mark",
+      "conversation.move",
+      "conversation.reminder.set",
+      "conversation.tag.update",
+      "draft.create",
+      "draft.update",
+      "mailbox.tag.update",
+    ]);
   });
 
   test("declares the complete daily-work v1 surface", () => {
@@ -113,6 +136,7 @@ describe("mail capabilities", () => {
       "conversation.tag.update",
       "delivery.cancel",
       "draft.attachment.remove",
+      "draft.create",
       "draft.discard",
       "draft.send",
       "draft.update",
@@ -157,6 +181,10 @@ describe("mail capabilities", () => {
     const denied = { ok: false as const, error: { code: "FORBIDDEN", message: "Denied", status: 403 as const } };
     const requirePermission = spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue(denied);
 
+    await mailCapabilities.actions["draft.create"].review(
+      DraftCreateInputSchema.parse({ mailboxId, senderIdentityId: conversationId }),
+      context,
+    );
     await mailCapabilities.actions["delivery.cancel"].review({ mailboxId, deliveryId: conversationId, disposition: "draft" }, context);
     await mailCapabilities.actions["mailbox.tag.update"].review(
       { mailboxId, tagId: conversationId, expectedRevision: 1, name: "Updated" },
@@ -172,8 +200,36 @@ describe("mail capabilities", () => {
       context,
     );
 
-    expect(requirePermission.mock.calls.slice(0, 4).map((call) => call[2])).toEqual(["write", "write", "write", "write"]);
-    expect(requirePermission.mock.calls[4]?.[2]).toBe("read");
+    expect(requirePermission.mock.calls.slice(0, 5).map((call) => call[2])).toEqual(["write", "write", "write", "write", "write"]);
+    expect(requirePermission.mock.calls[5]?.[2]).toBe("read");
+  });
+
+  test("reviews a new draft with its user-visible envelope", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    const review = await mailCapabilities.actions["draft.create"].review(
+      DraftCreateInputSchema.parse({
+        mailboxId,
+        senderIdentityId: conversationId,
+        to: [{ name: "Ada", address: "ada@example.test" }],
+        cc: [{ address: "team@example.test" }],
+        subject: "Release follow-up",
+        attachments: [{ filename: "notes.txt", contentType: "text/plain", base64: "bm90ZXM=" }],
+      }),
+      context,
+    );
+
+    expect(review).toEqual({
+      ok: true,
+      data: {
+        message: "The email will be saved as a draft and will not be sent.",
+        details: [
+          { label: "Subject", value: "Release follow-up" },
+          { label: "Recipients", value: "Ada, team@example.test" },
+          { label: "Attachments", value: "1" },
+        ],
+      },
+    });
+    if (review.ok) expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
   });
 
   test("keeps remote conversation subjects inside the review envelope", async () => {

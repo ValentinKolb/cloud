@@ -63,6 +63,7 @@ const example = () =>
         destructive: false,
         openWorld: false,
         idempotency: "required",
+        approval: "rememberable",
         review: async (input) =>
           ok({
             message: "This item will be renamed.",
@@ -87,8 +88,48 @@ describe("capability v1 compilation", () => {
     expect(first.manifest.queries[0]?.localId).toBe("get");
     expect(first.manifest.queries[0]?.openWorld).toBe(false);
     expect(first.manifest.queries[0]?.dataSchema).toBeDefined();
+    expect(first.manifest.actions[0]?.approval).toBe("rememberable");
     expect(first.manifest.actions[0]?.review).toBe(true);
     expect(first.manifest.manifestHash).toHaveLength(64);
+  });
+
+  test("requires a closed-world review before approval can be remembered", () => {
+    const action = {
+      title: "Update item",
+      description: "Updates one item.",
+      input: z.object({ id: z.string().describe("Stable item id.") }).strict(),
+      data: z.object({}).strict(),
+      destructive: true,
+      idempotency: "none" as const,
+      approval: "rememberable" as const,
+      run: async () => ok({ data: {} }),
+    };
+
+    expect(() =>
+      compileCapabilities(
+        "example",
+        defineCapabilities({
+          protocolVersion: 1,
+          actions: { update: { ...action, openWorld: false } },
+        }),
+      ),
+    ).toThrow("must provide a review");
+
+    expect(() =>
+      compileCapabilities(
+        "example",
+        defineCapabilities({
+          protocolVersion: 1,
+          actions: {
+            update: {
+              ...action,
+              openWorld: true,
+              review: async () => ok({ message: "This item will be updated." }),
+            },
+          },
+        }),
+      ),
+    ).toThrow("cannot remember approval for an open-world effect");
   });
 
   test("requires one globally unique local id across all capability kinds", () => {

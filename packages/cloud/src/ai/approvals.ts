@@ -7,6 +7,30 @@ export type AiToolApprovalContext = {
   resource?: AiConversationResource;
 };
 
+export type AiToolApprovalPreference = {
+  id: string;
+  contextAppId: string;
+  resource: Exclude<AiConversationResource, { kind: "direct" }> | null;
+  toolName: string;
+  approvalScope: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+};
+
+type AiToolApprovalPreferenceRow = {
+  id: string;
+  app_id: string;
+  resource_app_id: string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  tool_name: string;
+  approval_scope: string;
+  created_at: Date | string;
+  last_used_at: Date | string | null;
+  expires_at: Date | string | null;
+};
+
 type ApprovalResourceColumns = {
   resourceAppId: string | null;
   resourceType: string | null;
@@ -112,4 +136,56 @@ export const forgetAiToolApproval = async (
       AND tool_name = ${input.toolName}
       AND approval_scope = ${input.approvalScope}
   `;
+};
+
+const toIsoString = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
+
+const approvalPreferenceFromRow = (row: AiToolApprovalPreferenceRow): AiToolApprovalPreference => ({
+  id: row.id,
+  contextAppId: row.app_id,
+  resource:
+    row.resource_app_id && row.resource_type && row.resource_id
+      ? {
+          kind: "resource",
+          appId: row.resource_app_id,
+          resourceType: row.resource_type,
+          resourceId: row.resource_id,
+        }
+      : null,
+  toolName: row.tool_name,
+  approvalScope: row.approval_scope,
+  createdAt: toIsoString(row.created_at),
+  lastUsedAt: row.last_used_at ? toIsoString(row.last_used_at) : null,
+  expiresAt: row.expires_at ? toIsoString(row.expires_at) : null,
+});
+
+export const listAiToolApprovalPreferences = async (actorUserId: string): Promise<AiToolApprovalPreference[]> => {
+  const rows = await sql<AiToolApprovalPreferenceRow[]>`
+    SELECT
+      id,
+      app_id,
+      resource_app_id,
+      resource_type,
+      resource_id,
+      tool_name,
+      approval_scope,
+      created_at,
+      last_used_at,
+      expires_at
+    FROM ai.tool_approval_preferences
+    WHERE actor_user_id = ${actorUserId}
+      AND (expires_at IS NULL OR expires_at > now())
+    ORDER BY last_used_at DESC NULLS LAST, created_at DESC, id
+  `;
+  return rows.map(approvalPreferenceFromRow);
+};
+
+export const revokeAiToolApprovalPreference = async (actorUserId: string, preferenceId: string): Promise<boolean> => {
+  const rows = await sql<{ id: string }[]>`
+    DELETE FROM ai.tool_approval_preferences
+    WHERE id = ${preferenceId}
+      AND actor_user_id = ${actorUserId}
+    RETURNING id
+  `;
+  return rows.length > 0;
 };

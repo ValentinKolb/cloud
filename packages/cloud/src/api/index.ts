@@ -15,6 +15,7 @@
  */
 import { Hono } from "hono";
 import { prettyJSON } from "hono/pretty-json";
+import { createAiApprovalPreferenceRoutes } from "../ai/approval-routes";
 import { createAiSkillsRoutes } from "../ai/skills-routes";
 import accountsEntitiesRoutes from "./accounts-entities";
 import adminCoreSettingsRoutes from "./admin-core-settings";
@@ -42,6 +43,7 @@ const buildCoreApi = (options: CoreApiOptions) => {
   const capabilityRoutes = createCapabilityRoutes();
   const mcpRoutes = createMcpRoutes();
   const helpRoutes = createHelpRoutes();
+  const approvalPreferenceRoutes = createAiApprovalPreferenceRoutes();
   return new Hono()
     .use(prettyJSON())
     .route("/auth", createAuthRoutes(options.notifications))
@@ -52,6 +54,7 @@ const buildCoreApi = (options: CoreApiOptions) => {
     .route("/admin/core/announcements", adminAnnouncementRoutes)
     .route("/admin/core/settings", adminCoreSettingsRoutes)
     .route("/admin/lifecycle", adminLifecycleRoutes)
+    .route("/ai/approval-preferences", approvalPreferenceRoutes)
     .route("/ai/skills", createAiSkillsRoutes())
     .route("/", helpRoutes)
     .route("/", capabilityRoutes)

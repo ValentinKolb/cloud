@@ -904,6 +904,19 @@ const actionDefinitions = {
     destructive: false,
     openWorld: false,
     idempotency: "required",
+    approval: "rememberable",
+    review: async (input: z.output<typeof c.DraftCreateInputSchema>, context: CapabilityExecutionContext) => {
+      const access = await mailboxAccess.requireMailboxPermission(requestContext(context), input.mailboxId, "write");
+      if (!access.ok) return access;
+      return ok({
+        message: "The email will be saved as a draft and will not be sent.",
+        details: [
+          { label: "Subject", value: reviewSubject(input.subject) },
+          { label: "Recipients", value: recipientSummary(input) || "None" },
+          { label: "Attachments", value: String(input.attachments.length) },
+        ],
+      });
+    },
     run: async (input: z.output<typeof c.DraftCreateInputSchema>, context: CapabilityExecutionContext) => {
       const key = requireIdempotencyKey(context, "draft.create");
       if (!key.ok) return key;
@@ -969,6 +982,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.DraftUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const current = await requireDraftForReview(input.mailboxId, input.draftId, context);
       if (!current.ok) return current;
@@ -1192,6 +1206,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "required",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.ConversationMarkInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.target.conversationId, context);
       if (!conversation.ok) return conversation;
@@ -1245,6 +1260,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "required",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.ConversationMoveInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.target.conversationId, context);
       if (!conversation.ok) return conversation;
@@ -1300,6 +1316,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.ConversationTagUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const [conversation, tags] = await Promise.all([
         requireConversationForReview(input.mailboxId, input.conversationId, context),
@@ -1348,6 +1365,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
       if (!conversation.ok) return conversation;
@@ -1386,6 +1404,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.ReminderSetInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context, "read");
       if (!conversation.ok) return conversation;
@@ -1496,6 +1515,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
       if (!conversation.ok) return conversation;
@@ -1592,6 +1612,7 @@ const actionDefinitions = {
     destructive: true,
     openWorld: false,
     idempotency: "none",
+    approval: "rememberable",
     review: async (input: z.output<typeof c.TagUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const access = await mailboxAccess.requireMailboxPermission(requestContext(context), input.mailboxId, "write");
       if (!access.ok) return access;

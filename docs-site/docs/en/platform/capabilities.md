@@ -5,7 +5,7 @@ section: Platform services
 order: 555
 description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
 tags: [capabilities, rpc, agents, mcp]
-updated: 2026-08-04
+updated: 2026-08-05
 ---
 
 # App capabilities
@@ -144,6 +144,7 @@ export const inventoryCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async ({ itemId, name }, context) => {
         const item = visibleItem(itemId, context.accessSubject);
         if (!item) {
@@ -269,6 +270,7 @@ Actions declare the mutation's objective behavior:
 | `destructive` | `true` when the Action may delete, overwrite, remove, or otherwise destructively update existing state; `false` only for exclusively additive updates |
 | `openWorld` | `true` when the Action may interact with an open world of external entities; `false` when its interaction domain is closed |
 | `idempotency` | Retry contract: `none` or `required` |
+| `approval` | Optional Cloud client policy; `"rememberable"` lets a user remember approval for this closed-world Action |
 | `review` | Optional read-only description of the concrete effect for human review |
 
 Cloud follows the MCP `ToolAnnotations` meanings rather than inventing narrower
@@ -291,6 +293,20 @@ use trusted app metadata for confirmation, warning, retry, or untrusted-content
 treatment, but that behavior belongs to the client. See the official
 [MCP ToolAnnotations schema](https://modelcontextprotocol.io/specification/2025-11-25/schema#toolannotations)
 and [AI tools and approvals](/en/docs/ai/tools-and-approvals).
+
+`approval` is deliberately optional and has one value. Without it, AI Core
+asks for every Action call. `approval: "rememberable"` lets a supporting client
+offer an explicit **Always approve** choice after showing the Action review.
+Cloud rejects this policy on `openWorld` Actions and on Actions without a
+`review`. It does not weaken app-side authorization, input validation, audit,
+or concurrency checks, all of which still run for every invocation.
+
+Use remembered approval only for bounded, repeatable changes where future
+calls of the same Action are an understandable extension of the user's choice,
+such as editing a draft, marking a conversation, or updating a task. Do not use
+it for deletion, external communication, permission changes, financial or
+legal commitments, or other effects whose target and consequence should be
+confirmed every time.
 
 None of the metadata replaces application-side authorization. The owning app
 must authorize both an optional review and the eventual Action against current
@@ -383,6 +399,8 @@ Cloud validates the declaration at startup:
 - `idempotencyKey` is reserved for transports and cannot be an Action field;
 - Action reviews use the fixed platform schema and are advertised as
   `review: true` only when the callback exists;
+- `approval: "rememberable"` appears only on closed-world Actions with a
+  review;
 - every provider-owned Type used by `refs` or Universal Search is declared;
 - an app may declare at most 200 Types, 200 Queries, and 200 Actions;
 - the deterministic live manifest may not exceed 256 KiB.

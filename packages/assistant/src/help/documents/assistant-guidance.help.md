@@ -29,6 +29,7 @@ Assistant works best when the request states the outcome, the relevant context, 
 
 - **Instructions** describe stable preferences such as language, tone, background, or response format.
 - **Memory** lets Assistant reuse saved facts when memory is enabled. Review the saved entries instead of placing temporary task details there.
+- **Approvals** lists Actions you accepted with **Always approve**. Revoke an entry there whenever Assistant should ask again.
 - **Chat context** is still the best place for project-specific facts, source material, and one-off constraints.
 
 :::warning Review consequential output

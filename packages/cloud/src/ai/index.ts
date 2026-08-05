@@ -1,11 +1,15 @@
+export { type AiApprovalPreferenceRoutes, type AiApprovalPreferenceView, createAiApprovalPreferenceRoutes } from "./approval-routes";
 export {
   type AiToolApprovalContext,
+  type AiToolApprovalPreference,
   aiToolAllowsAlways,
   aiToolApprovalScope,
   aiToolNeedsApproval,
   forgetAiToolApproval,
   hasRememberedAiToolApproval,
+  listAiToolApprovalPreferences,
   rememberAiToolApproval,
+  revokeAiToolApprovalPreference,
 } from "./approvals";
 export { type AiAttachmentRef, aiAttachmentMarker, formatAiFileSize, parseAiAttachmentMarkers } from "./attachments";
 export { parseAiSse } from "./client/transport";

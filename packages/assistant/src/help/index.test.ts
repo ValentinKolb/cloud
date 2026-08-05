@@ -10,6 +10,7 @@ describe("assistantHelp", () => {
     ]);
     expect(assistantHelp.getMarkdown("assistant-overview")).toContain("Assistant is a personal AI workspace");
     expect(assistantHelp.getMarkdown("assistant-workflow")).toContain("Assistant keeps recent chats in the sidebar");
+    expect(assistantHelp.getMarkdown("assistant-workflow")).toContain("Always approve");
     expect(assistantHelp.getMarkdown("assistant-guidance")).toContain("Assistant works best when the request states");
   });
 });

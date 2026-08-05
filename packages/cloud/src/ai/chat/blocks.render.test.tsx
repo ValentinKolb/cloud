@@ -13,6 +13,7 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { AiTurnBlockView } = await import("./blocks");
+const { AiChatActionsProvider } = await import("./message-actions");
 
 const block = (status: "running" | "awaiting_approval" | "completed" | "failed"): AiTurnBlock => ({
   id: "tool-call-1",
@@ -48,5 +49,24 @@ describe("capability tool presentation", () => {
     const html = renderToString(() => createComponent(AiTurnBlockView, { block: block("awaiting_approval"), turnId: "turn-1" }));
     expect(html).toContain("Approve Contacts: List contacts");
     expect(html).toContain("ti-address-book");
+  });
+
+  test("offers remembered approval through the approval split button", () => {
+    const approvalBlock = block("awaiting_approval");
+    if (approvalBlock.kind !== "tool" || !approvalBlock.approval) throw new Error("approval block missing");
+    approvalBlock.approval.allowAlways = true;
+    const html = renderToString(() =>
+      createComponent(AiChatActionsProvider, {
+        actions: { onApproval: async () => undefined },
+        get children() {
+          return createComponent(AiTurnBlockView, { block: approvalBlock, turnId: "turn-1" });
+        },
+      }),
+    );
+
+    expect(html).toContain("k2b-split-button");
+    expect(html).toContain("Always approve");
+    expect(html).toContain("More approval options for List contacts");
+    expect(html).not.toContain("Always allow");
   });
 });

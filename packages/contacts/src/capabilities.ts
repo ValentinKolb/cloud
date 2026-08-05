@@ -846,6 +846,7 @@ export const contactsCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: (input, context) =>
         reviewContactAction(input.contactId, context, "write", async (contact) => {
           const changedFields = Object.keys(input).filter(
@@ -917,6 +918,7 @@ export const contactsCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         if (!userBacked(context)) return fail(err.forbidden("Favorites require a user-backed actor"));
         return reviewContactAction(input.contactId, context, "read", (contact) => ({
@@ -934,6 +936,7 @@ export const contactsCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const resolved = await resolveContact(input.contactId, context, "write");
         if (!resolved.ok) return resolved;

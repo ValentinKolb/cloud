@@ -30,6 +30,8 @@ export type AiCapabilityCatalogEntry = AiCapabilityCatalogItem & {
   operation: CapabilityQueryManifest | CapabilityActionManifest;
 };
 
+export type AiRememberableCapabilityApprovals = ReadonlyMap<string, string>;
+
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 50;
 const DEFAULT_SEARCH_LIMIT = 10;
@@ -494,7 +496,11 @@ export const createAiCapabilityToolResolver =
     maxLoadedCapabilities?: number;
     execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
     review?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<CapabilityActionReview | null>;
-    onPrepared?: (snapshot: { prepared: PreparedAiTools; presentations: Map<string, AiToolPresentation> }) => void;
+    onPrepared?: (snapshot: {
+      prepared: PreparedAiTools;
+      presentations: Map<string, AiToolPresentation>;
+      rememberableApprovals: AiRememberableCapabilityApprovals;
+    }) => void;
   }): ToolResolver =>
   async (): Promise<Tool[]> => {
     const [registry, persistedLoadedNames, helpRegistry] = await Promise.all([
@@ -532,6 +538,7 @@ export const createAiCapabilityToolResolver =
     });
     const catalogByName = new Map(catalog.map((entry) => [entry.name, entry]));
     const presentations = new Map<string, AiToolPresentation>();
+    const rememberableApprovals = new Map<string, string>();
     for (const name of loadedNames) {
       const entry = catalogByName.get(name);
       if (!entry) continue;
@@ -543,7 +550,10 @@ export const createAiCapabilityToolResolver =
         title: entry.title,
         capabilityKind: entry.kind,
       });
+      if (entry.kind === "action" && "approval" in entry.operation && entry.operation.approval === "rememberable") {
+        rememberableApprovals.set(name, `${entry.appId}.${entry.operation.localId}`);
+      }
     }
-    input.onPrepared?.({ prepared, presentations });
+    input.onPrepared?.({ prepared, presentations, rememberableApprovals });
     return prepared.tools;
   };

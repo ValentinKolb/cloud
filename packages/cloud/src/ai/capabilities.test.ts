@@ -55,6 +55,8 @@ const capabilityApp = (
           destructive: false,
           openWorld: false,
           idempotency: "none",
+          approval: "rememberable",
+          review: async ({ title }) => ok({ message: `Create ${title}.` }),
           run: async () => ok({ data: { id: "created" } }),
         },
       },
@@ -465,6 +467,27 @@ describe("AI capability catalog", () => {
     expect(searchDescription).toContain("Previously loaded capabilities currently absent from the live registry: contacts__query__list");
     expect(searchDescription).toContain("Treat them as temporarily unavailable");
     expect(searchDescription).not.toContain("spaces__action__create");
+  });
+
+  test("snapshots remembered-approval scope for a loaded capability", async () => {
+    let approvalScope: string | undefined;
+    const resolver = createAiCapabilityToolResolver({
+      conversationId: "conversation-1",
+      actor,
+      staticTools: [],
+      store: {
+        getLoadedCapabilities: async () => ["contacts__action__create"],
+        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+      },
+      listRegistry: async () => [capabilityApp("contacts", "Contacts")],
+      execute: async () => ({ data: [] }),
+      onPrepared: ({ rememberableApprovals }) => {
+        approvalScope = rememberableApprovals.get("contacts__action__create");
+      },
+    });
+
+    await resolver();
+    expect(approvalScope).toBe("contacts.create");
   });
 
   test("keeps capability discovery available when the Help registry fails", async () => {

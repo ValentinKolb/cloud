@@ -46,6 +46,8 @@ const compiled = compileCapabilities(
         destructive: true,
         openWorld: false,
         idempotency: "none",
+        approval: "rememberable",
+        review: async () => ok({ message: "Update the demo item." }),
         run: async ({ id }) => ok({ data: { id } }),
       },
     },
@@ -248,6 +250,8 @@ describe("capability MCP projection", () => {
       destructiveHint: true,
       openWorldHint: false,
     });
+    expect(update).not.toHaveProperty("approval");
+    expect(update._meta).not.toHaveProperty("cloud/approval");
     expect(get.annotations).toMatchObject({
       readOnlyHint: true,
       idempotentHint: true,

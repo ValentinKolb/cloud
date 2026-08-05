@@ -382,7 +382,7 @@ describe("assistant CLI", () => {
             name: "mail.createDraft",
             args: { subject: "Hello" },
             message: "Create draft",
-            allowAlways: false,
+            allowAlways: true,
           },
         ]);
       }
@@ -392,7 +392,7 @@ describe("assistant CLI", () => {
       }
       return json({ message: "Not found" }, 404);
     });
-    const lines = ["hello", "y", "/exit"];
+    const lines = ["hello", "a", "/exit"];
     const reader = {
       read: async () => lines.shift() ?? null,
       close: () => undefined,
@@ -400,7 +400,7 @@ describe("assistant CLI", () => {
     };
 
     expect(await runInteractiveAssistant(ctx, {}, reader)).toBe(0);
-    expect(approvalBody).toEqual({ type: "approval_response", approved: true });
+    expect(approvalBody).toEqual({ type: "approval_response", approved: true, remember: "always" });
     expect(stdout.join("")).toContain("Done\n");
   });
 

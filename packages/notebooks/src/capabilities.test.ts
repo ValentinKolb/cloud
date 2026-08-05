@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
+import type { CapabilityActionDefinition, CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
 import { decodeNotebookCapabilityCursor, decodeNotebookTreeCursor, notebooksCapabilities } from "./capabilities";
 import {
@@ -21,6 +21,14 @@ const otherNotebookId = "44444444-4444-4444-8444-444444444444";
 const noteId = "55555555-5555-4555-8555-555555555555";
 const createdAt = "2026-08-02T08:00:00.000Z";
 const activeSpies: Array<{ mockRestore(): void }> = [];
+
+test("only exposes remembered approval for reversible note changes", () => {
+  const rememberable = (Object.entries(notebooksCapabilities.actions) as Array<[string, CapabilityActionDefinition]>)
+    .filter(([, action]) => action.approval === "rememberable")
+    .map(([localId]) => localId)
+    .sort();
+  expect(rememberable).toEqual(["note.edit", "note.move"]);
+});
 
 const trackedSpy = <T extends { mockRestore(): void }>(spy: T): T => {
   activeSpies.push(spy);

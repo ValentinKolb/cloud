@@ -207,11 +207,11 @@ export const submitAiTurnAction = async (input: {
 
   if (input.action.type === "approval_response") {
     if (pending.kind === "client_tool") return { ok: false, status: 400, message: "Frontend tool requests require a tool result." };
-
-    if (input.action.approved && input.action.remember === "always" && pending.allowAlways && input.toolApprovalContext) {
-      await rememberAiToolApproval(input.toolApprovalContext, { toolName: pending.name, approvalScope: pending.approvalScope }).catch(
-        () => undefined,
-      );
+    if (input.action.remember === "always") {
+      if (!input.action.approved || !pending.allowAlways || !input.toolApprovalContext) {
+        return { ok: false, status: 400, message: "This approval cannot be remembered." };
+      }
+      await rememberAiToolApproval(input.toolApprovalContext, { toolName: pending.name, approvalScope: pending.approvalScope });
     }
     await aiToolAudit
       .noteApprovalResolved({

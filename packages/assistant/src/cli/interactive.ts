@@ -202,9 +202,19 @@ const resolveAttention = async (input: {
     if (action.type === "approval_request") {
       input.ctx.print(`Approval required: ${action.message ?? action.name}`);
       input.ctx.print(JSON.stringify(action.args, null, 2));
-      const answer = await readChoice(input.reader, "Approve? [y/N]: ", ["y", "yes", "n", "no"], "n");
+      const answer = await readChoice(
+        input.reader,
+        action.allowAlways ? "Approve? [y/N/a=always]: " : "Approve? [y/N]: ",
+        action.allowAlways ? ["y", "yes", "a", "always", "n", "no"] : ["y", "yes", "n", "no"],
+        "n",
+      );
       if (answer === null) return null;
-      await submitAction(input.ctx, action, { type: "approval_response", approved: answer === "y" || answer === "yes" });
+      const remember = answer === "a" || answer === "always";
+      await submitAction(input.ctx, action, {
+        type: "approval_response",
+        approved: answer === "y" || answer === "yes" || remember,
+        ...(remember ? { remember: "always" as const } : {}),
+      });
     } else if (action.name === "local_bash" && input.allowBash) {
       const bash = parseLocalBashInput(action.args);
       if (!bash) {

@@ -299,6 +299,12 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
   for (const [localId, definition] of Object.entries(definitions.actions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     registerLocalId(localId, "Action");
     const label = `Action ${localId}`;
+    if (definition.approval === "rememberable" && definition.openWorld) {
+      throw new Error(`${label} cannot remember approval for an open-world effect`);
+    }
+    if (definition.approval === "rememberable" && !definition.review) {
+      throw new Error(`${label} must provide a review before approval can be remembered`);
+    }
     const schemas = compileOperationSchemas(definition, label);
     const manifest = {
       localId,
@@ -310,6 +316,7 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       destructive: definition.destructive,
       openWorld: definition.openWorld,
       idempotency: definition.idempotency,
+      ...(definition.approval ? { approval: definition.approval } : {}),
       ...(definition.review ? { review: true as const } : {}),
     } satisfies CapabilityActionManifest;
     actions.set(localId, {

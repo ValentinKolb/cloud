@@ -5,7 +5,7 @@ section: AI
 order: 1040
 description: Let models request application actions while keeping authorization and approval explicit.
 tags: [ai, tools, approvals]
-updated: 2026-08-02
+updated: 2026-08-05
 ---
 
 # Tools and approvals
@@ -83,8 +83,9 @@ individual command. There is no remembered or non-interactive Bash approval.
 ## Set the approval policy
 
 This policy belongs to tools declared with `defineAiTool()`. Dynamically loaded
-app Capability Actions use the fixed AI Core policy described below; capability
-apps do not choose or enforce an AI approval policy.
+app Capability Actions use the fixed AI Core policy described below. A
+Capability app may only declare whether a reviewed closed-world Action is
+eligible for a remembered user choice; AI Core owns and enforces that choice.
 
 | Policy | Behavior |
 | --- | --- |
@@ -192,21 +193,30 @@ arguments; report the failure so the app can be fixed. Input validation and
 schema mismatch errors may be corrected or refreshed according to their
 structured error code.
 
-### Approve every Capability Action
+### Approve Capability Actions
 
 AI Core treats capability operation kinds as the approval boundary:
 
 | Capability kind | AI Core behavior |
 | --- | --- |
 | Query | Execute without interactive approval |
-| Action | Require fresh approval for that call |
+| Action without `approval` | Require fresh approval for that call |
+| Action with `approval: "rememberable"` | Require approval and allow the user to remember it |
 
 Capability manifests therefore describe objective Action properties such as
 `openWorld`, `destructive`, idempotency, and the optional availability of a
-review. They do not declare an AI approval policy. AI Core never remembers an
-approval for a dynamically loaded Capability Action. `openWorld` and
-`destructive` affect the warning shown to the user, not whether approval is
-required.
+review. The optional `approval: "rememberable"` field is the one Cloud client
+policy extension: it allows, but never silently creates, a remembered user
+choice. `openWorld` and `destructive` remain MCP-compatible annotations and do
+not themselves decide whether approval can be remembered.
+
+AI Core accepts remembered approval only for closed-world Actions with a
+review. The first call still runs the review and asks the user. Choosing
+**Always approve** stores the choice for the current user, host application,
+resource, tool, and approval scope. Later matching calls still run the live
+review, app authorization, input validation, and domain checks; only the
+interactive confirmation is skipped. Open-world Actions and Actions without
+the field always ask again.
 
 This approval confirms the user's intent for one model-requested call. It is
 not application authorization. After approval, the owning app validates the
@@ -243,10 +253,16 @@ The stream exposes pending actions. The shared controller provides:
 - `respondToApproval({ turnId, callId }, { approved, remember })`;
 - `submitFrontendToolResult({ turnId, callId }, result)`.
 
-Show the tool name, requested inputs, and consequence before approval.
-For a Capability Action, `allowAlways` is always false. When a review is
-available, show it instead of making the user interpret opaque IDs in the raw
-arguments.
+Show the tool name, requested inputs, and consequence before approval. For a
+Capability Action, `allowAlways` is true only when its live manifest declares
+`approval: "rememberable"`. Use a split approval button so approving once
+stays the primary action and **Always approve** remains an explicit secondary
+choice. When a review is available, show it instead of making the user
+interpret opaque IDs in the raw arguments.
+
+Users can list and revoke their remembered choices in Assistant under
+**Personalization → Approvals**. Revocation is ownership-scoped and takes
+effect on the next matching call.
 
 See [Resource authorization](/en/docs/identity/authorization) for the domain
 permission check.

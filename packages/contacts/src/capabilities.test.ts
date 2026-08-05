@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
+import type { CapabilityActionDefinition, CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { contactsCapabilities, decodeContactCapabilityCursor } from "./capabilities";
 import {
   CONTACT_COLLECTION_LIMIT,
@@ -18,6 +18,14 @@ const userId = "11111111-1111-4111-8111-111111111111";
 const bookId = "22222222-2222-4222-8222-222222222222";
 const contactId = "33333333-3333-4333-8333-333333333333";
 const timestamp = "2026-08-02T08:00:00.000Z";
+
+test("only exposes remembered approval for reversible contact changes", () => {
+  const rememberable = (Object.entries(contactsCapabilities.actions) as Array<[string, CapabilityActionDefinition]>)
+    .filter(([, action]) => action.approval === "rememberable")
+    .map(([localId]) => localId)
+    .sort();
+  expect(rememberable).toEqual(["contact.update", "favorite.set", "tag.change"]);
+});
 
 const user = {
   id: userId,
@@ -366,8 +374,7 @@ describe("contacts capabilities", () => {
           emails: [{ label: "work", email: "ada@example.com" }],
           phones: [{ label: "mobile", phone: "+49 170 1234567" }],
           contactPointsTruncated: false,
-          openHref:
-            "/app/contacts/553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef?contact=553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
+          openHref: "/app/contacts/553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef?contact=553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
           links: [
             {
               rel: "open",

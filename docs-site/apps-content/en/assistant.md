@@ -5,7 +5,7 @@ section: Work
 order: 100
 description: A personal AI workspace for conversations, files, skills, and reusable preferences.
 tags: [assistant, ai, chats]
-updated: 2026-08-02
+updated: 2026-08-05
 ---
 
 # Assistant
@@ -35,6 +35,7 @@ proposed actions before relying on them.
 | Message and turn | A request and the assistant run that answers it |
 | Chat files | Source files and editable artifacts kept with one conversation |
 | Preferences and memory | Reusable personal context applied across conversations when enabled |
+| Remembered approvals | User-managed choices for bounded Actions that may run without asking each time |
 | Skill | A managed set of instructions and files available to Assistant |
 
 A model profile selects the provider model and available capabilities for a
@@ -56,6 +57,12 @@ personalization, and guidance for better requests. Developers can read
 [Files, skills, and memory](/en/docs/ai/files-skills-and-memory), and
 [Tools and approvals](/en/docs/ai/tools-and-approvals) for the shared contracts
 Assistant adopts.
+
+Open **Personalization → Approvals** to review Actions previously accepted with
+**Always approve**. Revoking an entry makes Assistant ask again on the next
+matching call. Sending email, deleting data, open-world effects, and other
+Actions not explicitly marked as rememberable continue to require confirmation
+every time.
 
 ## Use Assistant from the terminal
 
@@ -85,6 +92,10 @@ session. Every requested command is shown and requires a fresh `Y/n`
 confirmation. Commands run with the current OS user's permissions in the CLI's
 startup directory, and their bounded output is stored in the chat and sent to
 the model. The web app can display these calls later but cannot run them.
+
+The interactive CLI offers `a` for **Always approve** only when the pending
+Capability Action supports remembered approval. Print mode never creates a
+remembered approval, and local Bash always requires a fresh confirmation.
 
 Start with these read-only checks before choosing a model or continuing a chat:
 

@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button } from "@k2b/ui";
+import { Button, SplitButton } from "@k2b/ui";
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
@@ -182,13 +182,30 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                     <Button size="xs" variant="secondary" onClick={() => submit({ approved: false })}>
                       Reject
                     </Button>
-                    <Button size="xs" variant="ai" onClick={() => submit({ approved: true })}>
-                      Approve
-                    </Button>
-                    <Show when={props.block.approval?.allowAlways}>
-                      <Button size="xs" variant="secondary" onClick={() => submit({ approved: true, remember: "always" })}>
-                        Always allow
-                      </Button>
+                    <Show
+                      when={props.block.approval?.allowAlways}
+                      fallback={
+                        <Button size="xs" variant="ai" onClick={() => submit({ approved: true })}>
+                          Approve
+                        </Button>
+                      }
+                    >
+                      <SplitButton
+                        size="xs"
+                        variant="ai"
+                        onClick={() => submit({ approved: true })}
+                        menuLabel={`More approval options for ${props.block.presentation?.title ?? displayToolName(props.block.name)}`}
+                        menuPosition="bottom-right"
+                        items={[
+                          {
+                            label: "Always approve",
+                            icon: "ti ti-shield-check",
+                            action: () => submit({ approved: true, remember: "always" }),
+                          },
+                        ]}
+                      >
+                        Approve
+                      </SplitButton>
                     </Show>
                   </div>
                 </Show>

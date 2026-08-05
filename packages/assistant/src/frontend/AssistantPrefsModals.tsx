@@ -1,7 +1,8 @@
 import { mutation } from "@k2b/stdlib/solid";
 import { Button, prompts, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
-import type { AiUserPrefs } from "@valentinkolb/cloud/ai";
-import { createSignal, Show } from "solid-js";
+import type { AiApprovalPreferenceView, AiUserPrefs } from "@valentinkolb/cloud/ai";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 
 // Kept in sync with AI_USER_*_MAX_CHARS in @valentinkolb/cloud/ai/prefs — the
@@ -10,7 +11,93 @@ import { assistantApi } from "../api/client";
 const INSTRUCTIONS_MAX_CHARS = 4_000;
 const MEMORY_MAX_CHARS = 24_000;
 
-type AssistantPrefsTab = "personalization" | "memory";
+type AssistantPrefsTab = "personalization" | "memory" | "approvals";
+
+const readApiError = async (response: Response, fallback: string): Promise<string> => {
+  const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+  return typeof body?.message === "string" ? body.message : fallback;
+};
+
+const loadApprovalPreferences = async (): Promise<AiApprovalPreferenceView[]> => {
+  const response = await coreClient.ai["approval-preferences"].$get();
+  if (!response.ok) throw new Error(await readApiError(response, "Failed to load remembered approvals"));
+  return (await response.json()).approvals;
+};
+
+function ApprovalPreferences() {
+  const [approvals, { refetch }] = createResource(loadApprovalPreferences);
+  const [revokingId, setRevokingId] = createSignal<string | null>(null);
+
+  const revoke = async (approval: AiApprovalPreferenceView) => {
+    if (revokingId()) return;
+    setRevokingId(approval.id);
+    try {
+      const response = await coreClient.ai["approval-preferences"][":preferenceId"].$delete({
+        param: { preferenceId: approval.id },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to revoke approval"));
+      await refetch();
+      toast.success(`${approval.title} will ask for approval again`);
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to revoke approval");
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  return (
+    <div class="flex flex-col gap-3" aria-busy={approvals.loading || Boolean(revokingId())}>
+      <Show when={approvals.error}>
+        <div class="flex items-center justify-between gap-3 rounded-lg border border-red-200 p-3 text-sm dark:border-red-900">
+          <span class="text-red-700 dark:text-red-300">{approvals.error.message}</span>
+          <Button size="xs" variant="secondary" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Show>
+      <Show when={approvals.loading}>
+        <p class="text-sm text-secondary">Loading remembered approvals…</p>
+      </Show>
+      <Show when={!approvals.loading && !approvals.error && (approvals()?.length ?? 0) === 0}>
+        <div class="rounded-lg border border-dashed p-4 text-sm text-secondary">
+          No remembered approvals. Actions will ask before they run.
+        </div>
+      </Show>
+      <Show when={!approvals.error && (approvals()?.length ?? 0) > 0}>
+        <ul class="divide-y overflow-hidden rounded-lg border">
+          <For each={approvals()}>
+            {(approval) => (
+              <li class="flex items-center gap-3 p-3">
+                <i
+                  class={`${approval.app?.icon ?? "ti ti-tool"} shrink-0 text-lg`}
+                  style={{ color: approval.app?.accent }}
+                  aria-hidden="true"
+                />
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium text-primary">{approval.title}</p>
+                  <p class="truncate text-xs text-secondary">
+                    {approval.app?.name ?? approval.contextAppId}
+                    {approval.resource ? ` · ${approval.resource.resourceType}` : " · Direct chats"}
+                  </p>
+                </div>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  loading={revokingId() === approval.id}
+                  loadingLabel="Revoking"
+                  disabled={Boolean(revokingId())}
+                  onClick={() => void revoke(approval)}
+                >
+                  Revoke
+                </Button>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+    </div>
+  );
+}
 
 function SystemPromptDisclosure() {
   const [prompt, setPrompt] = createSignal<string | null>(null);
@@ -171,6 +258,15 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
               </Button>
             </div>
           </form>
+        </SettingsModal.Tab>
+
+        <SettingsModal.Tab
+          id="approvals"
+          title="Approvals"
+          icon="ti ti-shield-check"
+          description="Manage actions Assistant may run without asking each time."
+        >
+          <ApprovalPreferences />
         </SettingsModal.Tab>
       </SettingsModal>
     </div>

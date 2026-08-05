@@ -419,6 +419,7 @@ export class AiTurnExecutor {
     const memoryToolEnabled = activeTools.some((tool) => tool.def.name === "memory");
 
     const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
+    const rememberableCapabilityApprovals = new Map<string, string>();
     pipeline.setFrontendModes(prepared.frontendModes);
     const toolPresentations = new Map<string, AiToolPresentation>();
     pipeline.setPresentations(toolPresentations);
@@ -478,12 +479,14 @@ export class AiTurnExecutor {
               args,
               context,
             }),
-          onPrepared: ({ prepared: snapshot, presentations }) => {
+          onPrepared: ({ prepared: snapshot, presentations, rememberableApprovals }) => {
             prepared.approvalPolicies.clear();
             prepared.frontendModes.clear();
+            rememberableCapabilityApprovals.clear();
             toolPresentations.clear();
             for (const [name, policy] of snapshot.approvalPolicies) prepared.approvalPolicies.set(name, policy);
             for (const [name, mode] of snapshot.frontendModes) prepared.frontendModes.set(name, mode);
+            for (const [name, scope] of rememberableApprovals) rememberableCapabilityApprovals.set(name, scope);
             for (const [name, presentation] of presentations) toolPresentations.set(name, presentation);
             pipeline.setFrontendModes(prepared.frontendModes);
             pipeline.setPresentations(toolPresentations);
@@ -562,6 +565,7 @@ export class AiTurnExecutor {
       abortController,
       prepared,
       approvalContext: material.toolApprovalContext,
+      rememberableCapabilityApprovals,
       appliedSteers,
     });
     signal.removeEventListener("abort", onSignal);
@@ -597,16 +601,36 @@ export class AiTurnExecutor {
     abortController: AbortController;
     prepared: PreparedAiTools;
     approvalContext?: AiToolApprovalContext;
+    rememberableCapabilityApprovals: ReadonlyMap<string, string>;
     appliedSteers: AiTurnSteer[];
   }): Promise<AttemptOutcome> {
-    const { loop, pipeline, conversationId, turnId, abortController, prepared, approvalContext, appliedSteers } = input;
+    const {
+      loop,
+      pipeline,
+      conversationId,
+      turnId,
+      abortController,
+      prepared,
+      approvalContext,
+      rememberableCapabilityApprovals,
+      appliedSteers,
+    } = input;
     const stopHeartbeat = this.startHeartbeat(conversationId, turnId, abortController);
     let lastIssueMessage: string | null = null;
 
     try {
       for await (const event of loop) {
         if (event.type === "tool_action_request") {
-          const suspended = await this.handleActionRequest({ event, loop, pipeline, conversationId, turnId, prepared, approvalContext });
+          const suspended = await this.handleActionRequest({
+            event,
+            loop,
+            pipeline,
+            conversationId,
+            turnId,
+            prepared,
+            approvalContext,
+            rememberableCapabilityApprovals,
+          });
           if (suspended) {
             abortController.abort();
             loop.abort();
@@ -673,13 +697,15 @@ export class AiTurnExecutor {
     turnId: string;
     prepared: PreparedAiTools;
     approvalContext?: AiToolApprovalContext;
+    rememberableCapabilityApprovals: ReadonlyMap<string, string>;
   }): Promise<boolean> {
-    const { event, loop, pipeline, conversationId, turnId, prepared, approvalContext } = input;
+    const { event, loop, pipeline, conversationId, turnId, prepared, approvalContext, rememberableCapabilityApprovals } = input;
     const approvalPolicy = prepared.approvalPolicies.get(event.name);
     const frontendMode: AiFrontendToolMode | undefined =
       event.kind === "client_tool" ? (prepared.frontendModes.get(event.name) ?? "client") : undefined;
-    const approvalScope = aiToolApprovalScope(event.name, approvalPolicy);
-    const allowAlways = aiToolAllowsAlways(approvalPolicy);
+    const capabilityApprovalScope = event.kind === "custom_approval" ? rememberableCapabilityApprovals.get(event.name) : undefined;
+    const approvalScope = capabilityApprovalScope ?? aiToolApprovalScope(event.name, approvalPolicy);
+    const allowAlways = capabilityApprovalScope !== undefined || aiToolAllowsAlways(approvalPolicy);
 
     // Display-only client_view tools (e.g. cards) never need user input — resolve
     // inline and keep streaming instead of taking a full suspend/continuation trip.

@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type { LoopAggregate, Message } from "@k2b/nessi";
 import { sql } from "bun";
 import { session as authSession } from "../services/session";
-import { forgetAiToolApproval, hasRememberedAiToolApproval, rememberAiToolApproval } from "./approvals";
+import {
+  forgetAiToolApproval,
+  hasRememberedAiToolApproval,
+  listAiToolApprovalPreferences,
+  rememberAiToolApproval,
+  revokeAiToolApprovalPreference,
+} from "./approvals";
 import { migrateCloudAi } from "./migrate";
 import { aiConversationStore } from "./store";
 
@@ -1076,8 +1082,9 @@ suite("AI conversation store integration", () => {
     }
   });
 
-  test("tool approval preferences remember and forget approvals", async () => {
+  test("tool approval preferences remember, list, revoke, and preserve ownership", async () => {
     const userId = await insertUser();
+    const otherUserId = await insertUser();
 
     try {
       const context = { actorUserId: userId, appId: "ai-test", resource: { kind: "direct" as const } };
@@ -1086,10 +1093,20 @@ suite("AI conversation store integration", () => {
       expect(await hasRememberedAiToolApproval(context, tool)).toBe(false);
       await rememberAiToolApproval(context, tool);
       expect(await hasRememberedAiToolApproval(context, tool)).toBe(true);
+      const preferences = await listAiToolApprovalPreferences(userId);
+      expect(preferences).toHaveLength(1);
+      expect(preferences[0]).toMatchObject({ contextAppId: "ai-test", resource: null, ...tool });
+      expect(await listAiToolApprovalPreferences(otherUserId)).toEqual([]);
+      expect(await revokeAiToolApprovalPreference(otherUserId, preferences[0]!.id)).toBe(false);
+      expect(await revokeAiToolApprovalPreference(userId, preferences[0]!.id)).toBe(true);
+      expect(await hasRememberedAiToolApproval(context, tool)).toBe(false);
+
+      await rememberAiToolApproval(context, tool);
       await forgetAiToolApproval(context, tool);
       expect(await hasRememberedAiToolApproval(context, tool)).toBe(false);
     } finally {
       await cleanupFixture({ userId, conversationIds: [] });
+      await cleanupFixture({ userId: otherUserId, conversationIds: [] });
     }
   });
 });

@@ -1,12 +1,19 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { ok } from "@k2b/stdlib";
-import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
+import type { CapabilityActionDefinition, CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
 import { audit, weatherService } from "@valentinkolb/cloud/services";
 import { decodeWeatherCapabilityCursor, weatherCapabilities } from "./capabilities";
 import { CurrentWeatherSchema } from "./contracts";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const locationId = "22222222-2222-4222-8222-222222222222";
+
+test("keeps permanent location deletion on fresh approval", () => {
+  const rememberable = (Object.values(weatherCapabilities.actions) as CapabilityActionDefinition[]).filter(
+    (action) => action.approval === "rememberable",
+  );
+  expect(rememberable).toEqual([]);
+});
 
 const user = {
   id: userId,

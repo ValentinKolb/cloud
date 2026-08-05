@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
-import { CAPABILITY_MAX_RESULT_BYTES, type CapabilityExecutionContext, type User } from "@valentinkolb/cloud/contracts";
+import {
+  CAPABILITY_MAX_RESULT_BYTES,
+  type CapabilityActionDefinition,
+  type CapabilityExecutionContext,
+  type User,
+} from "@valentinkolb/cloud/contracts";
 import { audit } from "@valentinkolb/cloud/services";
 import { decodeSpacesCapabilityCursor, spacesCapabilities } from "./capabilities";
 import {
@@ -27,6 +32,21 @@ const columnId = "55555555-5555-4555-8555-555555555555";
 const itemId = "66666666-6666-4666-8666-666666666666";
 const commentId = "77777777-7777-4777-8777-777777777777";
 const createdAt = "2026-08-02T08:00:00.000Z";
+
+test("only exposes remembered approval for reversible Space changes", () => {
+  const rememberable = (Object.entries(spacesCapabilities.actions) as Array<[string, CapabilityActionDefinition]>)
+    .filter(([, action]) => action.approval === "rememberable")
+    .map(([localId]) => localId)
+    .sort();
+  expect(rememberable).toEqual([
+    "calendar-invitation.response.commit",
+    "comment.update",
+    "event.invitation.commit",
+    "event.update",
+    "task.set-completed",
+    "task.update",
+  ]);
+});
 
 const user = {
   id: userId,

@@ -37,6 +37,13 @@ const userContext = (user: User): CapabilityExecutionContext => ({
   signal: new AbortController().signal,
 });
 
+test("keeps shift commitments on fresh approval", () => {
+  const rememberable = (Object.values(venueCapabilities.actions) as CapabilityActionDefinition[]).filter(
+    (action) => action.approval === "rememberable",
+  );
+  expect(rememberable).toEqual([]);
+});
+
 const invokeQuery = (localId: string, input: unknown, context: CapabilityExecutionContext) => {
   const operation = (venueCapabilities.queries as unknown as Readonly<Record<string, CapabilityQueryDefinition>>)[localId];
   if (!operation) throw new Error(`Missing Venue query ${localId}`);

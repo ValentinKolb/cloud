@@ -18,6 +18,13 @@ if (process.env.GRIDS_DB_TEST === "1") setDefaultTimeout(30_000);
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
+test("only exposes remembered approval for record updates", () => {
+  const rememberable = (Object.entries(gridsCapabilities.actions) as Array<[string, CapabilityActionDefinition]>)
+    .filter(([, action]) => action.approval === "rememberable")
+    .map(([localId]) => localId);
+  expect(rememberable).toEqual(["record.update"]);
+});
+
 const testUser = (id: string): User => ({
   id,
   uid: `grids-capability-${id}`,

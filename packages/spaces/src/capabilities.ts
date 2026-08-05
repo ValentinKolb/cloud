@@ -945,6 +945,7 @@ export const spacesCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -973,6 +974,7 @@ export const spacesCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -1003,6 +1005,7 @@ export const spacesCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
@@ -1041,6 +1044,7 @@ export const spacesCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const delivery = await spacesService.calendarInvitations.getEventInvitationCommitContext({
           deliveryId: input.deliveryId,
@@ -1095,6 +1099,7 @@ export const spacesCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         if (!context.user) return fail(err.forbidden("Comments require a user-backed actor"));
         const resolved = await resolveComment(input.commentId, context, "write");
@@ -1105,6 +1110,7 @@ export const spacesCapabilities = defineCapabilities({
           details: [
             { label: "Item", value: resolved.data.item.title },
             { label: "Current comment", value: resolved.data.comment.content.slice(0, 500) },
+            { label: "Replacement comment", value: input.content.slice(0, 500) },
           ],
           links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
         });
@@ -1180,6 +1186,7 @@ export const spacesCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const source = await spacesService.calendarInvitations.getCalendarResponseCommitContext({
           input,

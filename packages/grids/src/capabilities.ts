@@ -682,6 +682,7 @@ export const gridsCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         if (Object.keys(input.values).length === 0) return fail(err.badInput("values must contain at least one field"));
         const access = accessContext(context);

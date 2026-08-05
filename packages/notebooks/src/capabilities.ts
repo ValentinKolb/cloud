@@ -642,6 +642,7 @@ export const notebooksCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const resolved = await requireNote(input.noteId, context, "write");
         if (!resolved.ok) return resolved;
@@ -664,6 +665,7 @@ export const notebooksCapabilities = defineCapabilities({
       destructive: true,
       openWorld: false,
       idempotency: "none",
+      approval: "rememberable",
       review: async (input, context) => {
         const resolved = await requireNote(input.noteId, context, "write");
         if (!resolved.ok) return resolved;
