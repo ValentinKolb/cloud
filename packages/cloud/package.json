@@ -54,6 +54,7 @@
     "./contracts/notifications": "./src/contracts/notification-types.ts",
     "./contracts/*": "./src/contracts/*",
     "./workflows": "./src/workflows/index.ts",
+    "./workflows/ai": "./src/workflows/ai/index.ts",
     "./workflows/editor": "./src/workflows/editor.ts",
     "./workflows/language": "./src/workflows/language/index.ts",
     "./workflows/runtime": "./src/workflows/runtime/index.ts",
