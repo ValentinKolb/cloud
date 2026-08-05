@@ -13,6 +13,8 @@
  */
 import { type SQL, sql } from "bun";
 import type { WorkflowActor, WorkflowInvocationMode, WorkflowJsonValue } from "../contracts";
+import { hashWorkflowJson } from "../language/canonical";
+import type { DefinedWorkflowModule } from "../module";
 import { coordinateWorkflowExecution } from "../runtime/coordinator";
 import { dryRunWorkflowPlan, executeWorkflowPlan } from "../runtime/executor";
 import type {
@@ -43,10 +45,12 @@ const HEARTBEAT_MS = Math.floor(WORKFLOW_RUN_LEASE_MS / 3);
 export type WorkflowWorkerOptions = {
   /** Identifies this process in `lease_owner`. Only ever read by humans. */
   worker: string;
-  /** The app's action implementations. The only thing an app has to supply. */
+  /** The app's action implementations. */
   actions: WorkflowExecuteActionPort;
-  /** Restricts the worker to one app's runs. Omit to drain everything. */
-  appId?: string;
+  /** The app whose runs this worker may claim. */
+  appId: string;
+  /** The current language declaration. Older alpha manifests are not executed. */
+  module: DefinedWorkflowModule;
   trace?: WorkflowTracePort;
   /**
    * Builds the value resolver for one claimed run.
@@ -133,6 +137,29 @@ const traceRun = async (trace: WorkflowTracePort | undefined, event: Parameters<
   }
 };
 
+/** Refuses a plan that was bound against any language other than the app's current module. */
+const validateCurrentModule = async (
+  claim: WorkflowRunClaim,
+  module: DefinedWorkflowModule,
+): Promise<Extract<WorkflowRunResult, { state: "needs_attention" }> | null> => {
+  const manifestHash = await hashWorkflowJson(module.manifest);
+  if (
+    claim.plan.languageId === module.manifest.id &&
+    claim.plan.languageVersion === module.manifest.version &&
+    claim.plan.manifestHash === manifestHash
+  ) {
+    return null;
+  }
+  return {
+    state: "needs_attention",
+    error: {
+      code: "WORKFLOW_MODULE_MISMATCH",
+      message: "workflow version was bound against a different app module; publish it again with the current module",
+      retryable: false,
+    },
+  };
+};
+
 /**
  * Claims one run and carries it as far as it goes.
  *
@@ -154,6 +181,8 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
     port,
     execute: async ({ claim, heartbeat }) => {
       await traceRun(options.trace, { type: "run.started", run: runIdentity(claim, "execute") });
+      const incompatible = await validateCurrentModule(claim, options.module);
+      if (incompatible) return incompatible;
       if (claim.consecutiveFailures >= WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES) {
         const error = {
           code: "WORKFLOW_RETRY_EXHAUSTED",
@@ -297,6 +326,16 @@ export const dryRunOneWorkflow = async (options: WorkflowDryRunWorkerOptions & {
     port,
     execute: async ({ claim, heartbeat }) => {
       await traceRun(options.trace, { type: "run.started", run: runIdentity(claim, "dryRun") });
+      const incompatible = await validateCurrentModule(claim, options.module);
+      if (incompatible) {
+        planned = {
+          state: "terminal",
+          status: "failed",
+          message: String((incompatible.error as { message?: unknown }).message ?? "workflow module mismatch"),
+          effects: [],
+        };
+        return incompatible;
+      }
       planned = await dryRunWorkflowPlan({
         runId: claim.runId,
         executionGeneration: claim.executionGeneration,

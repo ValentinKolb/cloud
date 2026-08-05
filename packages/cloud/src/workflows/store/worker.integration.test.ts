@@ -13,6 +13,8 @@ import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
 import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan, WorkflowIrStep } from "../contracts";
+import { hashWorkflowJson } from "../language/canonical";
+import { defineWorkflowModule } from "../module";
 import type { WorkflowExecuteActionHandler, WorkflowExecuteActionPort } from "../runtime/ports";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
@@ -42,6 +44,16 @@ const ready = (): Promise<boolean> => {
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 const testData = createWorkflowIntegrationFixture();
+const probeWorkflows = defineWorkflowModule({
+  id: "probe",
+  version: 1,
+  inputs: [],
+  triggers: [],
+  limits: { maxSteps: 10 },
+  actions: {},
+});
+const probeManifestHash = await hashWorkflowJson(probeWorkflows.manifest);
+const forApp = (appId: string) => ({ appId, module: probeWorkflows });
 
 const actionStep = (index: number, action: string, config: Record<string, string> = {}): WorkflowIrStep => ({
   kind: "action",
@@ -55,7 +67,7 @@ const planWith = (steps: WorkflowIrStep[], actions: string[]): WorkflowBoundPlan
   languageId: "probe",
   languageVersion: 1,
   sourceHash: hex("source"),
-  manifestHash: hex("manifest"),
+  manifestHash: probeManifestHash,
   catalogHash: hex("catalog"),
   actionPolicies: Object.fromEntries(actions.map((action) => [action, { effect: "transactional" as const, dryRun: "full" as const }])),
   inputs: [],
@@ -98,7 +110,7 @@ describe("workflow worker", () => {
     // ago should not have to wait out a poll interval.
     const tick = await tickWorkflows({
       worker: "w1",
-      appId,
+      ...forApp(appId),
       actions: port({
         "probe.record": async (ctx) => {
           seen.push(ctx.run.runId);
@@ -124,6 +136,7 @@ describe("workflow worker", () => {
 
     const outcome = await runOneWorkflow({
       worker: "w1",
+      ...forApp(appId),
       runId: emission.runIds[0]!,
       actions: port({
         "probe.explode": async () => ({ state: "failed" as const, error: { code: "boom", message: "provider refused", retryable: false } }),
@@ -137,6 +150,37 @@ describe("workflow worker", () => {
     expect(JSON.stringify(detail?.error)).toContain("provider refused");
   });
 
+  test("a version bound against another app module is never executed", async () => {
+    if (!(await ready())) return;
+    const plan = {
+      ...planWith([actionStep(0, "probe.stale")], ["probe.stale"]),
+      manifestHash: hex("stale-manifest"),
+    };
+    const { appId, scopeId } = await workflowListening("probe.stale", plan);
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.stale" }, { dispatch: "now" });
+    const runId = emission.runIds[0]!;
+    let performed = 0;
+
+    const outcome = await runOneWorkflow({
+      worker: "w1",
+      ...forApp(appId),
+      runId,
+      actions: port({
+        "probe.stale": async () => {
+          performed += 1;
+          return { state: "completed", output: null };
+        },
+      }),
+    });
+
+    expect(outcome).toMatchObject({ state: "finished", result: { state: "needs_attention" } });
+    expect(performed).toBe(0);
+    expect(await getWorkflowRun(runId)).toMatchObject({
+      state: "needs_attention",
+      error: { code: "WORKFLOW_MODULE_MISMATCH" },
+    });
+  });
+
   test("a running cancel is finalized by the worker that observes it", async () => {
     if (!(await ready())) return;
     const plan = planWith([actionStep(0, "probe.cancel")], ["probe.cancel"]);
@@ -146,7 +190,7 @@ describe("workflow worker", () => {
 
     const outcome = await runOneWorkflow({
       worker: "w1",
-      appId,
+      ...forApp(appId),
       runId,
       actions: port({
         "probe.cancel": async () => {
@@ -170,7 +214,7 @@ describe("workflow worker", () => {
     expect(await requestWorkflowRunCancel(runId)).toBe(true);
     await sql`UPDATE workflows.run SET lease_expires_at = now() - interval '1 second' WHERE id = ${runId}::uuid`;
 
-    await tickWorkflows({ worker: "w2", appId, actions: port({}) });
+    await tickWorkflows({ worker: "w2", ...forApp(appId), actions: port({}) });
 
     expect((await getWorkflowRun(runId))?.state).toBe("canceled");
   });
@@ -202,7 +246,7 @@ describe("workflow worker", () => {
     expect(await requestWorkflowRunCancel(runId)).toBe(true);
     await sql`UPDATE workflows.run SET lease_expires_at = now() - interval '1 second' WHERE id = ${runId}::uuid`;
 
-    await tickWorkflows({ worker: "w2", appId, actions: port({}) });
+    await tickWorkflows({ worker: "w2", ...forApp(appId), actions: port({}) });
 
     const detail = await getWorkflowRun(runId);
     expect(detail?.state).toBe("needs_attention");
@@ -241,7 +285,7 @@ describe("workflow worker", () => {
         return { state: "completed" as const };
       },
     };
-    const first = await runOneWorkflow({ worker: "w1", runId, actions: port(losing) });
+    const first = await runOneWorkflow({ worker: "w1", ...forApp(appId), runId, actions: port(losing) });
     expect(first.state).toBe("lost");
     expect(firstRuns).toBe(1);
 
@@ -249,7 +293,7 @@ describe("workflow worker", () => {
     await sql`
       UPDATE workflows.run SET state = 'queued', retry_after = NULL, lease_owner = NULL, lease_expires_at = NULL WHERE id = ${runId}::uuid
     `;
-    const second = await runOneWorkflow({ worker: "w2", runId, actions: port(handlers) });
+    const second = await runOneWorkflow({ worker: "w2", ...forApp(appId), runId, actions: port(handlers) });
     expect(second.state).toBe("finished");
     // The whole point of the journal: step one is not run a second time.
     expect(firstRuns).toBe(1);
@@ -267,6 +311,7 @@ describe("workflow worker", () => {
     const seen: string[] = [];
     await runOneWorkflow({
       worker: "w1",
+      ...forApp(appId),
       runId,
       actions: port({ "probe.watched": async () => ({ state: "completed", output: null }) }),
       trace: {
@@ -293,6 +338,7 @@ describe("workflow worker", () => {
     // A browser stream or a metric sink is not part of the run's contract.
     const outcome = await runOneWorkflow({
       worker: "w1",
+      ...forApp(appId),
       runId,
       actions: port({ "probe.observed": async () => ({ state: "completed", output: null }) }),
       trace: {
@@ -329,6 +375,7 @@ describe("workflow worker", () => {
     let performed = 0;
     const outcome = await dryRunOneWorkflow({
       worker: "w1",
+      ...forApp(appId),
       runId,
       actions: {
         get: () => ({
@@ -369,7 +416,7 @@ describe("workflow worker", () => {
     let performed = 0;
     const outcome = await runOneWorkflow({
       worker: "w1",
-      appId,
+      ...forApp(appId),
       actions: port({
         "probe.untouched": async () => {
           performed += 1;
@@ -387,7 +434,7 @@ describe("workflow worker", () => {
   test("an idle worker says so instead of spinning", async () => {
     if (!(await ready())) return;
     // An app with nothing queued: the worker reports idle rather than looping.
-    expect(await runOneWorkflow({ worker: "w1", appId: `empty-${crypto.randomUUID()}`, actions: port({}) })).toEqual({ state: "idle" });
+    expect(await runOneWorkflow({ worker: "w1", ...forApp(`empty-${crypto.randomUUID()}`), actions: port({}) })).toEqual({ state: "idle" });
     expect(await claimWorkflowRun({ worker: "w1", appId: `empty-${crypto.randomUUID()}` })).toBeNull();
   });
 });

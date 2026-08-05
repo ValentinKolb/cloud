@@ -521,14 +521,14 @@ export const finishWorkflowRunCancel = async (
 /** Finalizes canceled runs whose worker disappeared before observing the request. */
 export const finishExpiredWorkflowRunCancels = async (
   limit: number,
-  options: { appId?: string; db?: SQL },
+  options: { appId: string; db?: SQL },
 ): Promise<number> => {
   const db = options.db ?? sql;
   return withTransaction(db, async (tx) => {
     const rows = await tx<{ id: string; execution_generation: string }[]>`
       SELECT id, execution_generation
       FROM workflows.run
-      WHERE (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+      WHERE app_id = ${options.appId}
         AND state = 'running'
         AND cancel_requested_at IS NOT NULL
         AND lease_expires_at < now()
@@ -550,7 +550,7 @@ export const finishExpiredWorkflowRunCancels = async (
 export const createWorkflowCoordinatorPort = (options: {
   worker: string;
   runId?: string;
-  appId?: string;
+  appId: string;
   mode?: WorkflowInvocationMode;
   leaseMs?: number;
 }): WorkflowCoordinatorPort<void, WorkflowRunClaim, WorkflowRunResult> => ({

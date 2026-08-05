@@ -110,7 +110,7 @@ const values = (claim: WorkflowRunClaim) => {
   };
 };
 
-const workerPorts = { worker: workerId, appId: MAIL_WORKFLOW_APP_ID, values } as const;
+const workerPorts = { worker: workerId, appId: MAIL_WORKFLOW_APP_ID, module: mailWorkflows, values } as const;
 
 export const runMailWorkflow = (runId: string, trace?: WorkflowTracePort) =>
   runOneWorkflow({ ...workerPorts, actions, runId, ...(trace ? { trace } : {}) });

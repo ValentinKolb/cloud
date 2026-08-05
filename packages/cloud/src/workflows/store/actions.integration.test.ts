@@ -11,6 +11,7 @@ import { migrate } from "../../../../core/src/migrate/core/workflows";
 import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan, WorkflowIrStep } from "../contracts";
 import { workflowAction, type WorkflowActionMap } from "../definition";
+import { hashWorkflowJson } from "../language/canonical";
 import { defineWorkflowModule } from "../module";
 import { createWorkflowActionPort, createWorkflowDryRunPort } from "./actions";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
@@ -24,7 +25,7 @@ import {
   WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES,
   wakeWorkflowRunsWaitingOn,
 } from "./runs";
-import { runOneWorkflow } from "./worker";
+import { runOneWorkflow as runWorker } from "./worker";
 
 let readiness: Promise<boolean> | null = null;
 const ready = (): Promise<boolean> => {
@@ -44,6 +45,18 @@ const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest
 const testData = createWorkflowIntegrationFixture();
 
 const CONFIG = { kind: "object", properties: { to: { kind: "string" } } } as const;
+const APP_ID = `decl-${crypto.randomUUID().slice(0, 8)}`;
+const probeWorkflows = defineWorkflowModule({
+  id: "probe",
+  version: 1,
+  inputs: [],
+  triggers: [],
+  limits: { maxSteps: 10 },
+  actions: {},
+});
+const probeManifestHash = await hashWorkflowJson(probeWorkflows.manifest);
+const runOneWorkflow = (options: Omit<Parameters<typeof runWorker>[0], "appId" | "module">) =>
+  runWorker({ ...options, appId: APP_ID, module: probeWorkflows });
 
 const workflowModule = <const Actions extends WorkflowActionMap>(actions: Actions) =>
   defineWorkflowModule({ id: "probe", version: 1, inputs: [], triggers: [], limits: { maxSteps: 10 }, actions });
@@ -53,7 +66,7 @@ const plan = (actions: string[], steps: WorkflowIrStep[], bindings: Record<strin
   languageId: "probe",
   languageVersion: 1,
   sourceHash: hex("source"),
-  manifestHash: hex("manifest"),
+  manifestHash: probeManifestHash,
   catalogHash: hex("catalog"),
   actionPolicies: Object.fromEntries(
     actions.map((action) => [action, { effect: "ambiguous-external" as const, dryRun: "validate" as const }]),
@@ -77,7 +90,7 @@ const queued = async (
   extraConfig: Record<string, string> = {},
   bindings: Record<string, string> = {},
 ) => {
-  const appId = `decl-${crypto.randomUUID().slice(0, 8)}`;
+  const appId = APP_ID;
   const scopeId = testData.scope(appId);
   const workflow = await createWorkflow({ appId, scopeId, key: "wf", name: "Declared", author: { kind: "system" } });
   await publishWorkflowVersion({

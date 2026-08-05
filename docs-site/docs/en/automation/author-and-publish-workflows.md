@@ -244,11 +244,7 @@ await publishWorkflowVersion(
   {
     workflowId: workflow.id,
     source,
-    sourceHash: boundPlan.sourceHash,
     plan: boundPlan,
-    languageId: boundPlan.languageId,
-    languageVersion: boundPlan.languageVersion,
-    manifestHash: boundPlan.manifestHash,
     author: { kind: "user", id: actor.id },
     activations: activationsFor(boundPlan),
     authorization: authorizationSnapshot,

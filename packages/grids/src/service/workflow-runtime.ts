@@ -359,7 +359,7 @@ const workflowValues = (claim: WorkflowRunClaim) =>
     });
   });
 
-const workerPorts = { worker: workerId, appId: GRIDS_APP_ID, values: workflowValues, trace: workflowTrace } as const;
+const workerPorts = { worker: workerId, appId: GRIDS_APP_ID, module: gridsWorkflows, values: workflowValues, trace: workflowTrace } as const;
 
 /**
  * Carries one named run, with the wiring the worker uses.

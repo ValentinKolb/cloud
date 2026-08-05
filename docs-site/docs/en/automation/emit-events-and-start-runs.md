@@ -80,11 +80,12 @@ import {
   tickWorkflows,
 } from "@valentinkolb/cloud/workflows/store";
 
-const actions = createWorkflowActionPort(INVENTORY_ACTIONS);
+const actions = createWorkflowActionPort(inventoryWorkflows);
 
 const result = await tickWorkflows({
   worker: process.env.HOSTNAME ?? "inventory-local",
   appId: "inventory",
+  module: inventoryWorkflows,
   actions,
   values: (claim) => createInventoryValueResolver(claim),
   trace: inventoryWorkflowTrace,
@@ -94,8 +95,10 @@ const result = await tickWorkflows({
 Call ticks from a bounded lifecycle loop. Do not start the next tick while the
 previous one is running.
 
-Always pass `appId` from an application worker. Without it, the worker may claim
-runs owned by another application.
+Every application worker must pass its `appId` and current module. The app ID
+keeps claims scoped to the app. The module prevents an alpha-era version bound
+against another language version or manifest from executing; publish that
+source again against the current module instead.
 
 The worker dispatches pending events, wakes expired waits, and executes ready
 runs. It renews run leases while actions execute.
