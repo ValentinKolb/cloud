@@ -1065,9 +1065,26 @@ export default function MailComposer(props: {
         <Tooltip.Anchor
           content={deliveryOptionsSummary().length > 0 ? `Message options: ${deliveryOptionsSummary().join(", ")}` : "Message options"}
         >
-          <IconButton
+          <Button
+            size="sm"
+            variant="secondary"
             type="button"
-            class="relative"
+            class="relative hidden sm:inline-flex"
+            aria-label="Message options"
+            disabled={!editable()}
+            onClick={() => void editMessageOptions()}
+          >
+            <i class="ti ti-adjustments-horizontal" aria-hidden="true" />
+            Options
+            <Show when={deliveryOptionsSummary().length > 0}>
+              <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
+            </Show>
+          </Button>
+          <IconButton
+            size="sm"
+            variant="secondary"
+            type="button"
+            class="relative sm:hidden"
             label="Message options"
             disabled={!editable()}
             onClick={() => void editMessageOptions()}
