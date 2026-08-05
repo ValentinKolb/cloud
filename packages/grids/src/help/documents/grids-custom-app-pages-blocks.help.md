@@ -1,0 +1,152 @@
+---
+id: grids-custom-app-pages-blocks
+title: Custom App pages & blocks
+icon: ti ti-layout-grid
+description: Compose responsive pages from typed, resource-backed blocks.
+order: 134
+---
+<!-- Unreleased contract: register this article only with the complete Custom Apps vertical slice. -->
+
+A Custom App is a small composition of existing Grids resources. Its page tree controls layout and navigation; its blocks control which resources appear and which already-defined operations a person may start.
+
+## Use stable definition IDs {icon="id"}
+
+Apps, pages, rows, columns, blocks, and actions have stable IDs. Labels may change without breaking links or state.
+
+- The app ID is a UUID supplied when the app is first created.
+- Grids assigns one immutable `shortId` for the standalone route.
+- Page, row, column, block, and action IDs are lowercase local identifiers unique inside their parent.
+- Resource references use canonical Grids UUIDs, never display names.
+
+A page route is `/apps/<shortId>/<pageId>`. Declared page parameters are query parameters, for example `/apps/a1b2c3/request?request_id=<record-id>`.
+
+App identity is intentionally restrained: a name, supported icon, and optional Cloud file as a header image. Pages and blocks use standard Cloud typography, spacing, colors, and interaction patterns. Custom CSS and arbitrary branding are not part of the definition.
+
+## Declare page context {icon="brackets"}
+
+A page declares every URL parameter before a block can use it. Supported parameter types are String, Number, Boolean, Date, Date time, and Record. A Record parameter also declares its table.
+
+A page may load one **page record** from a Record parameter. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
+
+Blocks bind values through a typed reference:
+
+```yaml
+source: PARAMS
+path: request_id
+```
+
+| Source | Available in | Example path |
+| --- | --- | --- |
+| `LITERAL` | Any supported binding | Uses `value` instead of `path` |
+| `PARAMS` | Current page | `request_id` |
+| `RECORD` | Page with an authorized page record | `id` or `fields.<fieldId>` |
+| `ROW` | One Records row link or row action | `id` or `fields.<outputId>` |
+| `RESULT` | The success handler of the operation that produced it | `recordId` or a declared workflow output |
+
+The builder shows only references valid in the current location. YAML validation applies the same scope and type rules. References cannot read arbitrary URL values, another block's internal state, or undeclared data.
+
+## Build responsive rows and columns {icon="columns"}
+
+Each page contains rows; each row contains columns; each column contains blocks. A column span is an integer from 1 to 12. Columns keep their order and stack to full width when the available space is too narrow.
+
+Use the simplest layout that preserves task order:
+
+- 12 for one primary task;
+- 8 + 4 for main content and supporting context;
+- 6 + 6 for two peers;
+- several small columns for compact metrics.
+
+Do not encode separate desktop and mobile layouts. The preview exposes desktop and narrow widths so the same definition can be checked before publication.
+
+## Configure resource-backed blocks {icon="blocks"}
+
+### Markdown
+
+Markdown renders headings, lists, links, and safe images. It does not run HTML, scripts, styles, or embedded application code. Use it for guidance and identity, not business state.
+
+### Records
+
+Records reads either an existing saved view or a bounded inline GQL query. It supports table and card presentation, explicit fields, empty copy, and a row navigation or row action.
+
+Inline GQL has a required maximum row count. The runtime also applies shared query budgets. Search, filter, sort, and pagination state is namespaced by the block ID in the URL, so two Records blocks cannot overwrite each other's state.
+
+An inline query may declare typed inputs and read them with GQL's `param('name')` helper. Values are bound separately from query text. Every helper call needs one declared input, and unused inputs are rejected. This provides bounded parameterized reads without string interpolation.
+
+Use `ROW` only while defining that block's row link or row action. Row actions use the same navigation and enabled-workflow contracts as an Actions block.
+
+### Metrics and Chart
+
+Metrics and Chart use the same bounded source contract as Records. Metrics renders named scalar results. Chart renders a supported chart from explicit category and value outputs. Neither block may fetch an unbounded dataset or define a second query language.
+
+### Form
+
+Form references one existing Grids form. The form owns visible fields, validation, required inputs, defaults, and record creation.
+
+The block may supply **fixed values** from `LITERAL`, `PARAMS`, or `RECORD`. A fixed value is set by the server and is not rendered as an editable input. This supports flows such as “add another article to this list” without asking for the same relation again.
+
+After success, the block may stay on the page or navigate. Navigation parameters may use `RESULT.recordId`.
+
+### Record
+
+Record requires a page record. It renders an explicit field list and may allow direct editing for an explicit subset of those fields. Fields not listed as editable remain read-only even when the account has broader table access.
+
+The block may also expose generated document runs from an explicit template allowlist. Document generation and file delivery remain owned by the template and document run.
+
+### Comments
+
+Comments requires a page record. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. Creating a comment requires comment access to that record. Editing and deleting comments are not part of the first release.
+
+Comments inherit record visibility. They do not introduce a separate audience or permission store.
+
+### Actions
+
+Actions contains buttons that either navigate or invoke an existing enabled workflow launcher. A workflow action declares typed input bindings and may navigate after its documented synchronous result returns.
+
+The block cannot call arbitrary URLs, update records directly, or invoke a workflow that was not included in the published capability set.
+An action that the current account cannot use is omitted without revealing its label, launcher, or required inputs.
+
+## Keep navigation explicit {icon="arrow-right"}
+
+Navigation has a target page ID, history behavior, and a mapping for every target parameter:
+
+```yaml
+kind: navigate
+pageId: request
+history: push
+params:
+  request_id: { source: ROW, path: id }
+```
+
+Use `push` for normal movement and `replace` after a successful create operation. A navigation target is valid only when all required target parameters are supplied with compatible types.
+
+For repeated entry, preserve the parent as a page parameter:
+
+```text
+/apps/<shortId>/add-article?list_id=<record-id>
+```
+
+The Form fixes its List relation from `PARAMS.list_id`. After success, one button navigates back to the same page with the same parameter; another navigates to the list detail. This needs no app-specific batch or wizard primitive.
+
+## Use small presentation conditions {icon="adjustments"}
+
+A block or action may declare a list of simple conditions. All conditions must match. Supported operators are Equals, Not equals, In, Is empty, and Is not empty over compatible scalar values.
+
+Conditions may use `LITERAL`, `PARAMS`, or `RECORD`; row actions may also use `ROW`. They control visibility or enabled state only. They never replace permission checks, form validation, or workflow preconditions.
+
+If a process needs complex branching, put that rule in a View, Form, or Workflow and expose the resulting resource or action.
+
+## Design local states {icon="info-circle"}
+
+Every data-backed block owns its local loading, empty, and recoverable error state. Standard denied and unavailable states are supplied by Grids and deliberately do not reveal whether a resource or record exists.
+
+Customize empty copy only when it can tell the person what to do next. Do not replace a local empty state with a page-wide spinner or make unrelated blocks wait for one slow source.
+
+Only the active page resolves. Within that request, identical authorized resource reads are deduplicated and every source remains bounded.
+
+## Know the deliberate limits {icon="barrier-block"}
+
+The first release has no app-global variables, general expression graph, reusable block definitions, arbitrary external fetch or action targets, cross-base resources, raw queries outside GQL, custom HTML, CSS, JavaScript, or domain-specific request, cart, batch, or loan blocks. Sanitized Markdown may still contain ordinary links.
+
+Compose repeated flows from typed page parameters, fixed Form values, bounded sources, navigation, and existing Workflows. If those primitives cannot express a process safely, extend the owning Grids resource rather than adding application-specific behavior to the page runtime.
+
+Continue with [Publish & permissions](/app/grids/help/grids-publish-custom-app) before making the app available to others.

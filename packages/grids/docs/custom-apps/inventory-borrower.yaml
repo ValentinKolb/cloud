@@ -1,0 +1,243 @@
+schemaVersion: 1
+kind: grids.custom-app
+id: 30000000-0000-4000-8000-000000000101
+baseId: 30000000-0000-4000-8000-000000000001
+name: Inventory lending
+icon: package
+startPageId: inventory
+pages:
+  - id: inventory
+    title: Inventory
+    navigation:
+      visible: true
+      order: 10
+    parameters: {}
+    rows:
+      - id: inventory
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: guidance
+                type: markdown
+                markdown: |
+                  ## Find equipment
+                  Browse the equipment catalogue, then start a request to choose a period.
+              - id: available-items
+                type: records
+                emptyText: No equipment is currently listed.
+                source:
+                  kind: view
+                  viewId: 30000000-0000-4000-8000-000000000403
+                display:
+                  kind: cards
+                  columnIds:
+                    - 30000000-0000-4000-8000-000000000301
+                    - 30000000-0000-4000-8000-000000000302
+                    - 30000000-0000-4000-8000-000000000303
+              - id: start-loan
+                type: actions
+                actions:
+                  - id: start
+                    label: Start a loan request
+                    icon: plus
+                    kind: navigate
+                    pageId: new-loan
+                    history: push
+                    params: {}
+
+  - id: new-loan
+    title: New loan
+    navigation:
+      visible: false
+      order: 20
+    parameters: {}
+    rows:
+      - id: form
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: loan-form
+                type: form
+                formId: 30000000-0000-4000-8000-000000000501
+                fixedValues: {}
+                onSuccess:
+                  kind: navigate
+                  pageId: loan
+                  history: replace
+                  params:
+                    loan_id: { source: RESULT, path: recordId }
+
+  - id: loans
+    title: My loans
+    navigation:
+      visible: true
+      order: 30
+    parameters: {}
+    rows:
+      - id: loans
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: loans
+                type: records
+                source:
+                  kind: view
+                  viewId: 30000000-0000-4000-8000-000000000401
+                display:
+                  kind: table
+                  columnIds:
+                    - 30000000-0000-4000-8000-000000000306
+                    - 30000000-0000-4000-8000-000000000304
+                    - 30000000-0000-4000-8000-000000000305
+                rowNavigate:
+                  kind: navigate
+                  pageId: loan
+                  history: push
+                  params:
+                    loan_id: { source: ROW, path: id }
+
+  - id: loan
+    title: Loan detail
+    navigation:
+      visible: false
+      order: 40
+    parameters:
+      loan_id:
+        type: record
+        tableId: 30000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 30000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: loan_id }
+    rows:
+      - id: detail
+        columns:
+          - id: loan
+            span: 8
+            blocks:
+              - id: loan
+                type: record
+                fieldIds:
+                  - 30000000-0000-4000-8000-000000000306
+                  - 30000000-0000-4000-8000-000000000304
+                  - 30000000-0000-4000-8000-000000000305
+                  - 30000000-0000-4000-8000-000000000307
+                editableFieldIds:
+                  - 30000000-0000-4000-8000-000000000304
+                  - 30000000-0000-4000-8000-000000000305
+                documents:
+                  templateIds:
+                    - 30000000-0000-4000-8000-000000000601
+                    - 30000000-0000-4000-8000-000000000602
+                  emptyText: Documents appear here when they are ready.
+              - id: loan-items
+                type: records
+                title: Requested items
+                source:
+                  kind: gql
+                  query: |
+                    from table "Loan items"
+                    select Item, "Condition on return", "Damage note"
+                    where Loan = param('loan_id')
+                    sort record.createdAt asc
+                    limit 100
+                  maxRows: 100
+                  inputs:
+                    loan_id: { source: RECORD, path: id }
+                display:
+                  kind: table
+                  columnIds:
+                    - 30000000-0000-4000-8000-000000000308
+                    - 30000000-0000-4000-8000-000000000309
+                    - 30000000-0000-4000-8000-000000000310
+                rowActions:
+                  - id: remove
+                    label: Remove
+                    icon: trash
+                    kind: workflow
+                    launcherId: 30000000-0000-4000-8000-000000000705
+                    inputs:
+                      loan_id: { source: RECORD, path: id }
+                      loan_item_id: { source: ROW, path: id }
+                    visibleWhen:
+                      - left: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000306 }
+                        operator: eq
+                        right: { source: LITERAL, value: Draft }
+          - id: discussion
+            span: 4
+            blocks:
+              - id: comments
+                type: comments
+              - id: actions
+                type: actions
+                actions:
+                  - id: add-item
+                    label: Add item
+                    icon: plus
+                    kind: navigate
+                    pageId: add-item
+                    history: push
+                    params:
+                      loan_id: { source: RECORD, path: id }
+                  - id: finalize
+                    label: Finalize request
+                    icon: check
+                    kind: workflow
+                    launcherId: 30000000-0000-4000-8000-000000000701
+                    inputs:
+                      loan_id: { source: RECORD, path: id }
+                    visibleWhen:
+                      - left: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000306 }
+                        operator: eq
+                        right: { source: LITERAL, value: Draft }
+
+  - id: add-item
+    title: Add item
+    navigation:
+      visible: false
+      order: 50
+    parameters:
+      loan_id:
+        type: record
+        tableId: 30000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 30000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: loan_id }
+    rows:
+      - id: item
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: available-items
+                type: records
+                emptyText: No equipment is available for this loan period.
+                source:
+                  kind: gql
+                  query: |
+                    from table "Availability windows" as availability
+                    left join table Items as item on Item = item.id
+                    select item.id as item_id, item.Name as name, item.Category as category, item.Description as description
+                    where Available = true and "Starts at" <= param('starts_at') and "Ends at" >= param('ends_at')
+                    sort name asc
+                    limit 100
+                  maxRows: 100
+                  inputs:
+                    starts_at: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000304 }
+                    ends_at: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000305 }
+                display:
+                  kind: cards
+                  columnIds: [name, category, description]
+                rowActions:
+                  - id: add
+                    label: Add item
+                    icon: plus
+                    kind: workflow
+                    launcherId: 30000000-0000-4000-8000-000000000704
+                    inputs:
+                      loan_id: { source: RECORD, path: id }
+                      item_id: { source: ROW, path: fields.item_id }

@@ -1,0 +1,135 @@
+schemaVersion: 1
+kind: grids.custom-app
+id: 20000000-0000-4000-8000-000000000101
+baseId: 20000000-0000-4000-8000-000000000001
+name: Article descriptions
+icon: list-details
+startPageId: lists
+pages:
+  - id: lists
+    title: Description lists
+    navigation:
+      visible: true
+      order: 10
+    parameters: {}
+    rows:
+      - id: lists
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: lists
+                type: records
+                source:
+                  kind: view
+                  viewId: 20000000-0000-4000-8000-000000000401
+                display:
+                  kind: table
+                  columnIds:
+                    - 20000000-0000-4000-8000-000000000301
+                rowNavigate:
+                  kind: navigate
+                  pageId: list
+                  history: push
+                  params:
+                    list_id: { source: ROW, path: id }
+
+  - id: list
+    title: Description list
+    navigation:
+      visible: false
+      order: 20
+    parameters:
+      list_id:
+        type: record
+        tableId: 20000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 20000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: list_id }
+    rows:
+      - id: list
+        columns:
+          - id: details
+            span: 8
+            blocks:
+              - id: list
+                type: record
+                fieldIds:
+                  - 20000000-0000-4000-8000-000000000301
+                editableFieldIds: []
+              - id: articles
+                type: records
+                title: Articles
+                emptyText: No articles have been added to this list.
+                source:
+                  kind: gql
+                  query: |
+                    from table "Articles"
+                    select Name, Weight, Description
+                    where List = param('list_id')
+                    sort record.createdAt asc
+                    limit 100
+                  maxRows: 100
+                  inputs:
+                    list_id: { source: PARAMS, path: list_id }
+                display:
+                  kind: table
+                  columnIds:
+                    - 20000000-0000-4000-8000-000000000303
+                    - 20000000-0000-4000-8000-000000000304
+                    - 20000000-0000-4000-8000-000000000305
+          - id: actions
+            span: 4
+            blocks:
+              - id: actions
+                type: actions
+                actions:
+                  - id: add-article
+                    label: Add article
+                    icon: plus
+                    kind: navigate
+                    pageId: add-article
+                    history: push
+                    params:
+                      list_id: { source: PARAMS, path: list_id }
+
+  - id: add-article
+    title: Add article
+    navigation:
+      visible: false
+      order: 30
+    parameters:
+      list_id:
+        type: record
+        tableId: 20000000-0000-4000-8000-000000000201
+        required: true
+    rows:
+      - id: entry
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: article-form
+                type: form
+                formId: 20000000-0000-4000-8000-000000000501
+                submitLabel: Add another
+                fixedValues:
+                  20000000-0000-4000-8000-000000000302: { source: PARAMS, path: list_id }
+                onSuccess:
+                  kind: navigate
+                  pageId: add-article
+                  history: replace
+                  params:
+                    list_id: { source: PARAMS, path: list_id }
+              - id: done
+                type: actions
+                actions:
+                  - id: finish
+                    label: Finish
+                    icon: check
+                    kind: navigate
+                    pageId: list
+                    history: push
+                    params:
+                      list_id: { source: PARAMS, path: list_id }

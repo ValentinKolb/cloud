@@ -1,0 +1,104 @@
+schemaVersion: 1
+kind: grids.custom-app
+id: 10000000-0000-4000-8000-000000000101
+baseId: 10000000-0000-4000-8000-000000000001
+name: Certificate requests
+icon: certificate
+startPageId: apply
+pages:
+  - id: apply
+    title: Apply
+    navigation:
+      visible: true
+      order: 10
+    parameters: {}
+    rows:
+      - id: intro
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: guidance
+                type: markdown
+                markdown: |
+                  ## Request a certificate
+                  Describe the voluntary work the certificate should cover.
+              - id: request-form
+                type: form
+                formId: 10000000-0000-4000-8000-000000000501
+                fixedValues: {}
+                onSuccess:
+                  kind: navigate
+                  pageId: request
+                  history: replace
+                  params:
+                    request_id: { source: RESULT, path: recordId }
+
+  - id: requests
+    title: My requests
+    navigation:
+      visible: true
+      order: 20
+    parameters: {}
+    rows:
+      - id: list
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: requests
+                type: records
+                title: My requests
+                emptyText: You have not submitted a certificate request yet.
+                source:
+                  kind: view
+                  viewId: 10000000-0000-4000-8000-000000000401
+                display:
+                  kind: cards
+                  columnIds:
+                    - 10000000-0000-4000-8000-000000000301
+                    - 10000000-0000-4000-8000-000000000302
+                    - 10000000-0000-4000-8000-000000000304
+                rowNavigate:
+                  kind: navigate
+                  pageId: request
+                  history: push
+                  params:
+                    request_id: { source: ROW, path: id }
+
+  - id: request
+    title: Request detail
+    navigation:
+      visible: false
+      order: 30
+    parameters:
+      request_id:
+        type: record
+        tableId: 10000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 10000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: request_id }
+    rows:
+      - id: detail
+        columns:
+          - id: request
+            span: 8
+            blocks:
+              - id: request
+                type: record
+                fieldIds:
+                  - 10000000-0000-4000-8000-000000000301
+                  - 10000000-0000-4000-8000-000000000302
+                  - 10000000-0000-4000-8000-000000000303
+                  - 10000000-0000-4000-8000-000000000304
+                editableFieldIds: []
+                documents:
+                  templateIds:
+                    - 10000000-0000-4000-8000-000000000601
+                  emptyText: Your certificate will appear here after approval.
+          - id: discussion
+            span: 4
+            blocks:
+              - id: comments
+                type: comments
