@@ -661,18 +661,24 @@
 }
 
 .help-document .md-table-wrap {
+  overflow: hidden;
   margin-block: 0.875rem 1.5rem;
 }
 
-.help-document .md-table {
+.help-document .md-table-wrap > .md-table {
   height: auto;
   margin: 0 !important;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-.help-document .md-table :where(th, td) {
+/* `MarkdownView` contributes its generic cell border with element specificity.
+   Keep the Help frame as the only edge owner so those cell borders cannot show
+   through the wrapper's rounded clipping corners. */
+.help-document .md-table :is(th, td) {
   min-width: 0;
   height: auto;
+  border: 0;
   padding: 0;
 }
 
@@ -687,24 +693,32 @@
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  overflow-wrap: break-word;
   padding: 0.65rem 0.75rem;
   font-size: 0.78rem;
   line-height: 1.45;
+  word-break: normal;
+}
+
+.help-document .md-table thead {
+  background: var(--ui-surface-subtle);
 }
 
 .help-document .md-table thead .md-table-cell {
-  background: var(--ui-surface-subtle);
   color: var(--color-zinc-700);
   font-size: 0.75rem;
   font-weight: 650;
 }
 
-.help-document .md-table tbody tr:nth-child(even) .md-table-cell {
-  background: color-mix(in srgb, var(--ui-surface-subtle) 72%, transparent);
+@media (hover: hover) {
+  .help-document .md-table tbody tr:not(.md-table-total-row):hover {
+    background: var(--ui-data-row-hover);
+  }
 }
 
-.help-document .md-table td:first-child .md-table-cell {
-  font-weight: 600;
+.help-document .md-table tbody tr:not(.md-table-total-row) .md-table-cell,
+.help-document .md-table tbody tr:not(.md-table-total-row) .md-table-cell :where(strong) {
+  font-weight: 400;
 }
 
 .help-document .md-table-cell :where(code) {
@@ -712,17 +726,16 @@
   background: transparent;
   color: inherit;
   font-size: inherit;
-  font-weight: 500;
+  font-weight: inherit;
   padding: 0;
 }
 
-.dark .help-document .md-table thead .md-table-cell {
+.dark .help-document .md-table thead {
   background: var(--ui-surface-subtle);
-  color: var(--color-zinc-200);
 }
 
-.dark .help-document .md-table tbody tr:nth-child(even) .md-table-cell {
-  background: color-mix(in srgb, var(--ui-surface-subtle) 64%, transparent);
+.dark .help-document .md-table thead .md-table-cell {
+  color: var(--color-zinc-200);
 }
 
 .dark .help-document :where(blockquote) {

@@ -703,7 +703,7 @@ const HelpShell = (props: {
 
         <Show when={view() === "article" && activeTopic()}>
           {(topic) => (
-            <article class="mx-auto max-w-7xl">
+            <article class="mx-auto flex min-h-full w-full max-w-7xl flex-col">
               <Show when={props.surface !== "modal"}>
                 <button
                   type="button"
@@ -740,8 +740,8 @@ const HelpShell = (props: {
               <Show when={topic().kind === "content"}>{legacyTopicContent(topic())}</Show>
               <Show when={topic().kind === "document"}>
                 <Show when={loading()}>
-                  <div class="flex items-center gap-2 py-8 text-sm text-dimmed">
-                    <i class="ti ti-loader-2 animate-spin" /> Loading help…
+                  <div class="flex flex-1 items-center justify-center gap-2 py-8 text-sm text-dimmed" role="status">
+                    <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Loading help…
                   </div>
                 </Show>
                 <Show when={loadError()}>
