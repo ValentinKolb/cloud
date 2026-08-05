@@ -5,7 +5,7 @@ section: Automation
 order: 680
 description: Build a workflow definition and publish a version that can be executed.
 tags: [workflows, authoring, publication]
-updated: 2026-07-27
+updated: 2026-08-05
 ---
 
 # Author and publish workflows
@@ -77,20 +77,15 @@ value.
 `authorize` may re-check permission immediately before an effect. Other
 validation belongs in `run` so its failure keeps a useful code.
 
-## Build the language manifest
+## Define one workflow module
 
-The manifest is the complete authoring language accepted by one application:
+The module is the application's single workflow declaration. It combines the
+executable actions and runtime events with the authoring language:
 
 ```ts
-import {
-  type WorkflowLanguageManifest,
-  workflowBuiltinActionDescriptors,
-} from "@valentinkolb/cloud/workflows";
-import {
-  workflowActionDescriptors,
-} from "@valentinkolb/cloud/workflows/store";
+import { defineWorkflowModule } from "@valentinkolb/cloud/workflows";
 
-export const inventoryWorkflowManifest = {
+export const inventoryWorkflows = defineWorkflowModule({
   id: "inventory",
   version: 1,
   inputs: [
@@ -116,10 +111,8 @@ export const inventoryWorkflowManifest = {
       config: { kind: "object", properties: {} },
     },
   ],
-  actions: [
-    ...workflowActionDescriptors(INVENTORY_ACTIONS),
-    ...workflowBuiltinActionDescriptors,
-  ],
+  actions: INVENTORY_ACTIONS,
+  events: INVENTORY_EVENTS,
   limits: {
     maxInputs: 20,
     maxSteps: 200,
@@ -128,11 +121,19 @@ export const inventoryWorkflowManifest = {
     maxConditionDepth: 20,
     maxLoopItems: 500,
   },
-} satisfies WorkflowLanguageManifest;
+});
 ```
 
-`workflowActionDescriptors()` keeps descriptors and implementations together.
-Built-in actions provide variable assignment and explicit success or failure.
+`defineWorkflowModule()` derives action descriptors from the executable action
+definitions and adds the core variable, success, and failure actions. The
+generated `inventoryWorkflows.manifest` is JSON-only. Cloud hashes that exact
+artifact when compiling and binding an immutable workflow version.
+
+Runtime events and authorable triggers are separate contracts. An application
+may emit internal or direct-invocation events that users cannot select in YAML,
+and one authorable trigger may adapt a differently named runtime event. Keep
+both explicit in the module instead of exposing every runtime event as a
+trigger.
 
 Set limits before accepting source. Changing the language requires a new
 manifest version.
@@ -169,13 +170,13 @@ export const compileAndBindInventoryWorkflow = async (
 ) => {
   const compiled = await compileWorkflow(
     source,
-    inventoryWorkflowManifest,
+    inventoryWorkflows,
   );
   if (!compiled.ok) return compiled;
 
   const plan = await bindWorkflow(
     compiled.ir,
-    inventoryWorkflowManifest,
+    inventoryWorkflows,
     async (ir) => {
       const catalog = await loadInventoryWorkflowCatalog();
       return {
@@ -198,6 +199,17 @@ is hashed into the plan. Its `bindings` are available to actions through
 Return compiler diagnostics to the editor. Convert application catalog or
 binding failures into equally clear editor errors. Do not publish an invalid
 plan.
+
+The worker uses the same module for application actions:
+
+```ts
+import { createWorkflowActionPort } from "@valentinkolb/cloud/workflows/store";
+
+const actions = createWorkflowActionPort(inventoryWorkflows);
+```
+
+The built-in runtime port remains application-wired because authorization and
+text rendering belong to the application.
 
 ## Publish one version
 
