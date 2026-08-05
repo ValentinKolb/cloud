@@ -141,7 +141,10 @@ const TextDemo = () => {
       id="text"
       chip={{ kind: "component", name: "TextInput", from: "@k2b/ui" }}
       description="Accessor-controlled text, password, multiline, and AI-marked fields with shared labels, help, errors, and native input hints."
-      code={`<TextInput label="Project" value={project} onValueChange={setProject} clearable />`}
+      code={`<TextInput label="Project" value={project} onValueChange={setProject} clearable icon="ti ti-folder" />
+<TextInput label="Token" description="The package owns the reveal control." value={token} onValueChange={setToken} password autocomplete="current-password" />
+<TextInput label="Notes" value={notes} onValueChange={setNotes} multiline lines={3} icon="ti ti-notes" />
+<TextInput label="AI prompt" value={prompt} onValueChange={setPrompt} variant="ai" />`}
     >
       <div class="ui-demo-form-grid">
         <TextInput label="Project" value={project} onValueChange={setProject} clearable icon="ti ti-folder" />
@@ -171,7 +174,14 @@ const AutocompleteDemo = () => {
         from: "@k2b/ui",
       }}
       description="A controlled textarea with width-neutral highlighting, ghost suggestions, accessible dropdown navigation, synchronous or abortable asynchronous completion, and native composition behavior."
-      code={`<AutocompleteEditor label="Message" value={value()} onValueChange={setValue} completions={completions} />`}
+      code={`<AutocompleteEditor
+  label="Message"
+  description="Type @de for a dropdown or :sp for a ghost suggestion."
+  value={value()}
+  onValueChange={setValue}
+  completions={[mentionCompletion, emojiCompletion]}
+  lines={5}
+/>`}
     >
       <AutocompleteEditor
         label="Message"
@@ -197,7 +207,17 @@ const MarkdownDemo = () => {
         from: "@k2b/ui",
       }}
       description="Native textarea editing with a roving formatting toolbar, active format state, list continuation, smart URL paste, Markdown highlighting, statistics, save shortcuts, abbreviations, and accessible completions."
-      code={`<MarkdownEditor label="Release note" value={value()} onValueChange={setValue} completions={[mentions]} onSave={save} />`}
+      code={`<MarkdownEditor
+  label="Release note"
+  description="Use the toolbar or keyboard shortcuts."
+  value={value()}
+  onValueChange={setValue}
+  lines={8}
+  abbreviations={{ afaik: "as far as I know" }}
+  completions={[mentionCompletion]}
+  onSave={save}
+  toolbarTrailing={<span role="status">{saved() ? "Saved" : "Unsaved"}</span>}
+/>`}
     >
       <MarkdownEditor
         label="Release note"
@@ -230,7 +250,19 @@ const NumberDemo = () => {
       id="number"
       chip={{ kind: "component", name: "NumberInput", from: "@k2b/ui" }}
       description="Accessor-controlled numeric input with raw focused text, committed bounds, precision, steppers, units, and an explicit empty state."
-      code={`<NumberInput label="Budget" value={value} onValueChange={setValue} prefix="€" decimalPlaces={2} />`}
+      code={`<NumberInput
+  label="Budget"
+  value={budget}
+  onValueChange={setBudget}
+  prefix="€"
+  suffix="gross"
+  decimalPlaces={2}
+  min={0}
+  step={0.5}
+  clearable
+/>
+<NumberInput label="Capacity" value={capacity} onValueChange={setCapacity} suffix="%" min={0} max={100} step={5} />
+<NumberInput label="Workers" value={count} onValueChange={setCount} min={1} max={64} step={1} />`}
     >
       <div class="ui-demo-form-grid">
         <NumberInput
@@ -286,7 +318,18 @@ const DateDemo = () => {
         { kind: "component", name: "DateRangePicker", from: "@k2b/ui" },
       ]}
       description="Date, date-time, and range pickers share one controlled, timezone-aware calendar interaction with clear and preset support."
-      code={`<DatePicker label="Release" value={date()} onValueChange={setDate} />`}
+      code={`<DatePicker label="Release date" value={date()} onValueChange={setDate} clearable />
+<DateTimePicker label="Starts at" value={dateTime()} onValueChange={setDateTime} dateConfig={dateConfig} />
+<DateRangePicker label="Window" value={range()} onValueChange={setRange} presets={datePresets} />
+<DateRangePicker
+  label="Meeting window"
+  value={dateTimeRange()}
+  onValueChange={setDateTimeRange}
+  withTime
+  dateConfig={dateConfig}
+  datePresets={datePresets}
+  durationPresets={durationPresets}
+/>`}
     >
       <div class="ui-demo-form-grid">
         <DatePicker label="Release date" value={date()} onValueChange={setDate} clearable />
@@ -351,10 +394,12 @@ const SelectDemo = () => {
         { kind: "component", name: "SelectChip", from: "@k2b/ui" },
       ]}
       description="Select filters its static options only when searchable is set; MultiSelectInput renders its search field by default. An option color replaces the icon with a dot in Select, and tints the icon and selected pill in MultiSelectInput. SelectChip is the compact form: a 10rem menu with a trailing check marker."
-      code={`<Select label="Team" value={team} options={options} onValueChange={setTeam} searchable clearable />
+      code={`<Select label="Team" description="Type to filter the static options." value={team} options={options} onValueChange={setTeam} searchable clearable />
 
 {/* MultiSelectInput always renders its search field */}
 <MultiSelectInput label="Teams" value={teams} onValueChange={setTeams} options={options} clearable />
+
+<Select label="Team (no search)" value={team} onValueChange={setTeam} options={options} />
 
 <SelectChip aria-label="Range" value={range()} onValueChange={setRange} icon="ti ti-calendar" options={rangeOptions} />`}
     >
@@ -428,6 +473,10 @@ const TagEditorDemo = () => {
       description="Tag owns compact presentation; TagEditor owns accessible create/edit/delete interaction while the application owns persistence and confirmation. MultiSelectInput assigns existing tags and accepts custom option/value rendering."
       code={`const [tags, setTags] = createSignal<TagEditorItem[]>(initialTags);
 
+<Tag color="#0891b2">Platform</Tag>
+<Tag color="#8b5cf6" icon="ti ti-palette">Design</Tag>
+<Tag size="sm">Neutral</Tag>
+
 <TagEditor
   items={tags()}
   onCreate={async (value) => setTags((items) => [...items, { id: crypto.randomUUID(), ...value }])}
@@ -441,6 +490,11 @@ const TagEditorDemo = () => {
   onValueChange={setSelected}
   options={tags().map((tag) => ({ value: tag.id, label: tag.name, color: tag.color }))}
   renderValue={(option) => <strong>{option.label}</strong>}
+  renderOption={(option) => <TagOption option={option} />}
+  searchPlaceholder="Search tags..."
+  emptyLabel="No tags available"
+  noResultsLabel="No matching tags"
+  clearable
 />`}
     >
       <div class="ui-demo-form-grid">
@@ -539,18 +593,20 @@ const SmallChoicesDemo = (props: { kind: "color" | "tags" | "pin" | "icon" | "sl
   };
   const snippets = {
     color: `<ColorInput
+  label="Accent"
   value={color}
   onValueChange={setColor}
   transparent
   transparentValue={transparent}
   onTransparentValueChange={setTransparent}
 />`,
-    tags: `<TagsInput aria-label="Tags" value={tags} onValueChange={setTags} maxTags={5} />`,
-    pin: `<PinInput aria-label="Verification code" value={pin} onValueChange={setPin} length={6} stretch />`,
-    icon: `<IconInput value={icon()} onValueChange={setIcon} />`,
+    tags: `<TagsInput label="Tags" value={tags} onValueChange={setTags} maxTags={5} />`,
+    pin: `<PinInput label="Verification code" value={pin} onValueChange={setPin} length={6} stretch />`,
+    icon: `<IconInput label="Icon" value={icon()} onValueChange={setIcon} />`,
     slider: `<Slider
-  value={capacity}
-  onValueChange={setCapacity}
+  label="Capacity"
+  value={slider}
+  onValueChange={setSlider}
   min={0}
   max={100}
   defaultValue={50}
@@ -596,7 +652,14 @@ const FileDemo = (props: { image?: boolean }) => {
         props.image
           ? `<ImageInput label="Avatar" value={image} onValueChange={setImage} round />
 <ImageInput aria-label="Compact logo" value={image} onValueChange={setImage} variant="small" />`
-          : `<FileDropzone label="Attachment" accept="image/*" multiple={false} onDrop={upload} />`
+          : `<FileDropzone
+  label="Attachment"
+  accept="image/*"
+  multiple={false}
+  subtitle="PNG, JPG, or WebP"
+  hint={lastFile() ? \`Selected \${lastFile()}\` : "One image"}
+  onDrop={upload}
+/>`
       }
     >
       {props.image ? (
@@ -682,7 +745,9 @@ const BooleanDemo = () => {
         { kind: "component", name: "CheckboxCard", from: "@k2b/ui" },
       ]}
       description="Native checkbox semantics wrapped in three accessor-controlled presentations for immediate settings, form choices, and descriptive cards."
-      code={`<Switch label="Automation" value={enabled} onValueChange={setEnabled} />`}
+      code={`<Switch label="Automation" value={enabled} onValueChange={setEnabled} />
+<Checkbox label="Send a summary" description="Notify everyone when the run finishes." value={checked} onValueChange={setChecked} />
+<CheckboxCard label="Early access" description="Preview new components." icon="ti ti-flask" value={checked} onValueChange={setChecked} />`}
     >
       <div class="ui-demo-form-grid">
         <Switch label="Automation" value={enabled} onValueChange={setEnabled} />

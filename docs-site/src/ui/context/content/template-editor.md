@@ -99,4 +99,12 @@ const preview = createMemo(() =>
 />
 
 <TemplatePreview html={preview()} />
+
+<TemplateSampleData
+  variables={variables}
+  values={sample()}
+  onValueChange={(name, value) =>
+    setSample((current) => ({ ...current, [name]: value }))
+  }
+/>
 ```

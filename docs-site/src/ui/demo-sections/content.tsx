@@ -39,9 +39,10 @@ const ChartDemo = () => (
     id="charts"
     chip={{ kind: "component", name: "Chart", from: "@k2b/ui" }}
     description="Typed SSR charts with bounded line inspection, map pan and zoom, and state-timeline navigation. The wrapper is a plain block, so the caller owns the height — except for stateTimeline, which derives its own from the row count."
-    code={`<Chart kind="line" style={{ height: "14rem" }} series={series} interactive />
+    code={`<RangePicker value="24h" options={rangeOptions} />
+<Chart kind="line" style={{ height: "14rem" }} series={series} legend smooth interactive />
 <Chart kind="map" style={{ height: "14rem" }} series={locations} interactive />
-<Chart kind="stateTimeline" rows={rows} states={states} interactive />`}
+<Chart kind="stateTimeline" rows={rows} states={states} domain={[0, 10]} interactive />`}
   >
     <RangePicker
       value="24h"
@@ -126,8 +127,12 @@ const TableDemo = () => (
     code={`<DataTable
   rows={rows}
   columns={columns}
+  getRowId={(row) => row.id}
+  selectedRowId="api"
+  sort={{ key: "name", direction: "asc" }}
   renderCell={({ col, value, render }) => col.id === "name" ? <strong>{value}</strong> : render(value)}
   sortHref={(sort) => \`?sort=\${sort.key}&direction=\${sort.direction}\`}
+  footer={{ values: { name: "Total", requests: 21_766 } }}
 />
 <Pagination currentPage={2} totalPages={6} baseUrl="?page=" />`}
   >
@@ -211,16 +216,20 @@ const ProfessionalTableDemo = () => {
   </DataTable.Header>
 
   <DataTable.Controls>
-    <TextInput aria-label="Search orders" value={query()} onValueChange={setQuery} icon="ti ti-search" />
+    <TextInput aria-label="Search orders" value={query()} onValueChange={setQuery} icon="ti ti-search" placeholder="Search orders..." clearable />
     <FilterChip label="Status" icon="ti ti-filter" value={statuses()} onValueChange={setStatuses} options={statusOptions} />
   </DataTable.Controls>
 
   <DataTable
     rows={filteredRows()}
     columns={columns}
+    getRowId={(row) => row.id}
     footer={{ values: { customer: "Total", items: totals().items, total: totals().total } }}
     renderCell={({ row, col, value, render }) => {
-      if (col.id === "status") return <StatusBadge {...statusFor(row.status)} />;
+      if (col.id === "status") {
+        const status = orderStatus[row.status];
+        return <StatusBadge label={status.label} tone={status.tone} icon={null} />;
+      }
       if (col.id === "actions") return <Button size="sm" variant="subtle">Open</Button>;
       return col.id === "total" ? formatCurrency(value) : render(value);
     }}
@@ -311,7 +320,8 @@ const CodeDemo = () => (
     id="code"
     chip={{ kind: "component", name: "CodeDisplay", from: "@k2b/ui" }}
     description="Selectable source with quiet chrome, optional titles, copy, and exact language modes."
-    code={`<CodeDisplay title="Install" language="script" code="bun add @k2b/ui" />`}
+    code={`<CodeDisplay title="Install" language="script" code="bun add @k2b/ui" />
+<CodeDisplay title="component.tsx" language="tsx" code={componentSource} />`}
   >
     <CodeDisplay title="Install" language="script" code={"bun add @k2b/ui\nbun run build"} />
     <CodeDisplay title="component.tsx" language="tsx" code={'export const Status = () => <span data-ready="true">Ready</span>;'} />
@@ -383,8 +393,13 @@ const MediaDemo = () => {
         { kind: "component", name: "PdfPreview", from: "@k2b/ui" },
       ]}
       description="Application-owned media in a native image dialog and an explicitly requested local PDF preview."
-      code={`<Show when={open()}><Lightbox images={images} onClose={() => setOpen(false)} /></Show>
-<PdfPreview request={() => Promise.resolve(pdfBlob)} title="Report" />`}
+      code={`const [open, setOpen] = createSignal(false);
+
+<Button variant="secondary" onClick={() => setOpen(true)}>Open gallery</Button>
+<Show when={open()}>
+  <Lightbox images={images} initialIndex={0} onClose={() => setOpen(false)} />
+</Show>
+<PdfPreview request={() => Promise.resolve(pdfBlob)} title="Report" emptyText="Generate the report to inspect it." />`}
     >
       <div class="ui-demo-row">
         <Button variant="secondary" onClick={() => setOpen(true)}>
@@ -539,8 +554,15 @@ const TemplateDemo = () => {
         { kind: "component", name: "TemplateSampleData", from: "@k2b/ui" },
       ]}
       description="Portable HTML and Liquid editing with a sandboxed illustrative preview, not a Liquid renderer. Rendering policy and persistence remain application-owned."
-      code={`<TemplateEditor value={value()} onValueChange={setValue} variables={variables} />
-<TemplatePreview html={interpolatePreviewTokens(value(), sample())} />`}
+      code={`<TemplateEditor
+  aria-label="Template source"
+  value={value()}
+  onValueChange={setValue}
+  variables={variables}
+  lines={8}
+/>
+<TemplatePreview html={html()} />
+<TemplateSampleData variables={variables} values={sample()} onValueChange={setSampleValue} />`}
     >
       <div class="ui-template-demo">
         <section class="ui-showcase-frame">
@@ -580,7 +602,12 @@ const DocsDemo = () => (
     description="Portable in-product documentation primitives for an application-owned composition."
     code={`<DocPage>
   <DocLead>…</DocLead>
-  <DocSection title="Install"><DocCode code="bun add @k2b/ui" /></DocSection>
+  <DocConceptGrid items={concepts} />
+  <DocSection title="Install" eyebrow="Package">
+    <DocCode language="script" code="bun add @k2b/ui" />
+    <DocNote title="Keep the scope" variant="tip">…</DocNote>
+  </DocSection>
+  <DocRows items={references} />
 </DocPage>`}
   >
     <DocPage>
@@ -614,11 +641,14 @@ const MarkdownDemo = (props: { html: string }) => {
         { kind: "component", name: "MarkdownEditor", from: "@k2b/ui" },
       ]}
       description="Untrusted Markdown is safe by default. Already-rendered HTML crosses an explicit caller-owned trust boundary."
-      code={`<MarkdownView markdown={source} />
-<MarkdownView trustedHtml={sanitizedHtml} />
-<MarkdownEditor value={source()} onValueChange={setSource} />`}
+      code={`<MarkdownView markdown={value()} />
+<MarkdownView trustedHtml={trustedHtml} />
+<MarkdownEditor value={value()} onValueChange={setValue} aria-label="Markdown source" />`}
     >
-      <section aria-label="Rendered Markdown">
+      <section aria-label="Rendered untrusted Markdown">
+        <MarkdownView markdown={value()} />
+      </section>
+      <section aria-label="Rendered trusted HTML">
         <MarkdownView trustedHtml={props.html} />
       </section>
       <MarkdownEditor value={value()} onValueChange={setValue} aria-label="Markdown source" />

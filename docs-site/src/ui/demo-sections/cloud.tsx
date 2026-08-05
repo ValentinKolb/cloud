@@ -51,8 +51,10 @@ const AssistantDemo = () => {
           { kind: "component", name: "createAiChatTimeline", from: "@valentinkolb/cloud/ai/ui" },
         ]}
         description="The generic timeline owns chat presentation. Cloud projects its persisted messages and active turn into that contract."
-        code={`<AiChatActionsProvider actions={messageActions}>
-  <Conversation />
+        code={`const items = createAiChatTimeline({ messages: () => [], activeTurn: () => null });
+
+<AiChatActionsProvider>
+  <Chat.Timeline items={items()} emptyTitle="Start a conversation" />
 </AiChatActionsProvider>`}
       >
         <div class="k2b-ui h-48 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
@@ -75,6 +77,13 @@ const AssistantDemo = () => {
   models={aiChatModelOptions(models)}
   selectedModelId={selectedModelId()}
   onModelChange={setSelectedModelId}
+  commands={commands}
+  contextUsage={{
+    usage: latestUsage,
+    loopUsage: latestLoopUsage,
+    contextWindow: 262_000,
+    modelLabel: "vLLM Qwen 3.6",
+  }}
   onSubmit={(input) => sendMessage(aiComposerSendInput(input))}
 />`}
       >
@@ -174,9 +183,16 @@ const DashboardWidgetsDemo = () => (
       { kind: "component", name: "WidgetHero", from: "@k2b/ui" },
     ]}
     description="Public Cloud widget primitives rendered from bounded fixture data; endpoint discovery remains a server concern."
-    code={`<Widget title="Service health" icon="ti ti-heartbeat" size="compact">
-  <WidgetStatus tone="success" title="All systems operational" />
-  <WidgetPills pills={[{ label: "Healthy", value: 8, tone: "emerald" }]} />
+    code={`<Widget title="Account requests" icon="ti ti-users" size="compact">
+  <WidgetStat value={7} label="Open" sub="Needs review" accent={{ tone: "amber", icon: "ti ti-clock" }} />
+  <WidgetPills pills={[{ label: "New", value: 3, tone: "blue" }, { label: "Waiting", value: 4, tone: "amber" }]} />
+</Widget>
+<Widget title="Recent notes" icon="ti ti-notebook" size="compact">
+  <WidgetList grow items={recentNotes} />
+</Widget>
+<Widget title="Service health" icon="ti ti-heartbeat" size="compact">
+  <WidgetStatus tone="success" title="All systems operational" message="8 services report healthy." />
+  <WidgetHero title="No active incidents" icon="ti ti-circle-check" tone="emerald" />
 </Widget>`}
   >
     <div class="ui-cloud-widget-demo grid gap-4 lg:grid-cols-3">

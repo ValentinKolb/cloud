@@ -32,6 +32,7 @@ const BadgesDemo = () => (
     chip={{ kind: "component", name: "StatusBadge", from: "@k2b/ui" }}
     description="One semantic status vocabulary with chip, dot, and text variants."
     code={`<StatusBadge label="Healthy" tone="ok" />
+<StatusBadge label="Degraded" tone="degraded" />
 <StatusBadge label="Running" tone="running" variant="dot" />
 <StatusBadge label="Offline" tone="error" variant="text" />`}
   >
@@ -122,7 +123,7 @@ const TooltipDemo = () => (
   placement="bottom"
   content="A longer explanation wraps before its final viewport position is calculated."
 >
-  <span>Non-button target</span>
+  <span tabindex="0">Non-button target</span>
 </Tooltip.Anchor>`}
   >
     <div class="ui-tooltip-demo">

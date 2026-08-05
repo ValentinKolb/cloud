@@ -11,6 +11,10 @@ Use `Placeholder` for an empty table, loading panel, or section that failed to
 load. Use the compact variant inside a section and the panel variant for a
 whole work area.
 
+`state` controls semantics and the default icon, while `variant` and `align`
+control layout independently. Name non-default layout choices in examples so
+different states are not mistaken for different component implementations.
+
 Use `NotFoundState` when a requested page or resource cannot be shown. Display
 a code such as `404` only when it accurately describes the result.
 

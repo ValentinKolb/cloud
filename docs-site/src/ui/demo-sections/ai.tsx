@@ -102,13 +102,18 @@ const ChatDemo = () => {
       ]}
       description="Portable, controlled chat presentation with generic tool activity. The host owns protocol, persistence, uploads, and model execution."
       code={`<Chat>
-  <Chat.Timeline items={items()} />
+  <Chat.Timeline items={items()} conversationKey="fibel-demo" />
   <Chat.Composer
     value={draft()}
     onValueChange={setDraft}
+    placeholder="Write a message…"
     onSubmit={sendMessage}
-    state={runState()}
     models={models}
+    selectedModelId={model()}
+    onModelChange={setModel}
+    fileSelection={{ onSelect: addFiles }}
+    menuActions={menuActions}
+    commands={commands}
     contextUsage={{ usage: usage(), contextWindow: 128_000 }}
   />
 </Chat>`}
@@ -173,6 +178,7 @@ const ContextUsageDemo = () => (
     code={`<Chat.ContextUsage
   modelLabel="Deep"
   usage={{ input: 18_420, output: 2_140, total: 20_560 }}
+  loopUsage={{ total: 31_800 }}
   contextWindow={128_000}
 />`}
   >

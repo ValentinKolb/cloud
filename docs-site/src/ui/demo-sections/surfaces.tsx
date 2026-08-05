@@ -51,19 +51,28 @@ import "@k2b/ui/fonts/plex.css";
 import "@k2b/ui/icons/tabler.css";
 
 const [violet, setViolet] = createSignal(false);
+const violetTheme = { /* --k2b-accent-50 through --k2b-accent-950 */ };
 
-<section
-  class="k2b-ui"
-  style={violet() ? {
-    "--k2b-accent-500": "#8b5cf6",
-    "--k2b-accent-600": "#7c3aed",
-    "--k2b-accent-700": "#6d28d9",
-  } : undefined}
+<div
+  class="k2b-ui ui-theme-demo"
+  style={violet() ? violetTheme : undefined}
 >
-  <Button onClick={() => setViolet((value) => !value)}>
-    Switch accent
+  <Button
+    variant={violet() ? "secondary" : "primary"}
+    aria-pressed={!violet()}
+    onClick={() => setViolet(false)}
+  >
+    Default blue
   </Button>
-</section>`}
+  <Button
+    variant={violet() ? "primary" : "secondary"}
+    aria-pressed={violet()}
+    onClick={() => setViolet(true)}
+  >
+    Violet
+  </Button>
+  <Button variant="ghost"><i class="ti ti-palette" /> Themed icon</Button>
+</div>`}
     >
       <div class="k2b-ui ui-theme-demo" style={violet() ? violetTheme : undefined}>
         <div class="ui-theme-demo__swatches">
@@ -103,13 +112,19 @@ const EmptyDemo = () => (
       { kind: "component", name: "Placeholder", from: "@k2b/ui" },
       { kind: "component", name: "NotFoundState", from: "@k2b/ui" },
     ]}
-    description="Compact and panel placeholders expose empty, polite-loading, and alert semantics; NotFoundState handles a route-level dead end."
-    code={`import { NotFoundState, Placeholder } from "@k2b/ui";
+    description="The examples intentionally combine compact, panel, centered, and left-aligned placeholders; the code below names each non-default layout choice. NotFoundState handles a route-level dead end."
+    code={`import { Button, NotFoundState, Placeholder } from "@k2b/ui";
 
-<Placeholder title="No projects" description="Create the first project." />
-<Placeholder state="loading" variant="panel" title="Loading projects" />
-<Placeholder state="error" title="Projects unavailable" />
-<NotFoundState code="404" title="Project not found" action={{ label: "All projects", href: "/projects" }} />`}
+<Placeholder
+  surface="paper"
+  title="No projects"
+  description="Create the first project."
+  icon="ti ti-folder-off"
+  action={<Button size="sm">New project</Button>}
+/>
+<Placeholder surface="paper" state="loading" variant="panel" title="Loading projects" description="Fetching the latest projects." />
+<Placeholder surface="paper" state="error" align="left" title="Projects unavailable" description="Reload the page to try again." />
+<NotFoundState code="404" title="Project not found" description="It may have been moved." action={{ label: "All projects", href: "/projects" }} />`}
   >
     <div class="ui-demo-form-grid">
       <Placeholder
@@ -142,7 +157,8 @@ const CardsDemo = () => (
     code={`import { Avatar, LinkCard } from "@k2b/ui";
 
 <LinkCard href="/runtime" title="Runtime" description="Open details" icon="ti ti-server" color="cyan" />
-<Avatar name="Ada Lovelace" src="/avatars/ada.webp" size="lg" />`}
+<Avatar name="Ada Lovelace" src="/avatars/ada.webp" size="lg" />
+<Avatar name="Grace Hopper" fallback="GH" size="md" />`}
   >
     <div class="ui-demo-form-grid">
       <LinkCard href="#cards" title="Runtime" description="Open runtime details" icon="ti ti-server" color="cyan" />
@@ -193,7 +209,9 @@ const ProgressDemo = () => (
     id="progress"
     chip={{ kind: "component", name: "ProgressBar", from: "@k2b/ui" }}
     description="Determinate progress in semantic tones and three compact sizes."
-    code={`<ProgressBar value={72.4} label="Upload progress" tone="success" showValue />`}
+    code={`<ProgressBar value={72.4} label="Upload progress" tone="success" showValue />
+<ProgressBar value={38} label="Indexing" size="sm" showValue />
+<ProgressBar value={16} label="Storage limit" tone="danger" size="xs" showValue />`}
   >
     <div class="ui-demo-form-grid">
       <ProgressBar value={72.4} label="Upload progress" tone="success" showValue />
@@ -210,13 +228,13 @@ const StatsDemo = () => (
       { kind: "component", name: "StatGrid", from: "@k2b/ui" },
       { kind: "component", name: "StatCell", from: "@k2b/ui" },
     ]}
-    description="The default grid uses the six-column responsive ladder. Cells can link, show contextual accents, and render compact trends."
+    description="This example pins three columns for its three cells; omitting columns uses the six-column responsive ladder. Cells can link, show contextual accents, and render compact trends."
     code={`import { StatCell, StatGrid } from "@k2b/ui";
 
-<StatGrid title="Runtime" action={{ label: "Observability", href: "./observability" }}>
+<StatGrid columns={3} title="Runtime" action={{ label: "Observability", href: "./observability" }}>
   <StatCell label="Requests" value="42k" sub="last hour" trend={[12, 18, 16, 24, 42]} />
   <StatCell label="Latency" value="83 ms" sub="p95" href="./observability" valueClass="app-latency-warning" />
-  <StatCell label="Errors" value={12} accent={{ tone: "red", icon: "ti ti-alert-circle", text: "inspect" }} />
+  <StatCell label="Errors" value={12} sub="last hour" accent={{ tone: "red", icon: "ti ti-alert-circle", text: "inspect" }} />
 </StatGrid>`}
   >
     <StatGrid columns={3} title="Runtime" action={{ label: "Observability", href: "./observability" }}>
@@ -348,7 +366,21 @@ export const CalendarDemo = () => {
       id="calendar"
       chip={{ kind: "component", name: "Calendar", from: "@k2b/ui" }}
       description="A controlled calendar: navigate, switch views, select events, and drag or resize timed entries."
-      code={`<Calendar date={date()} view={view()} events={events()} onDateChange={setDate} onViewChange={setView} />`}
+      code={`const [selectedEventId, setSelectedEventId] = createSignal<string>();
+
+<Calendar
+  date={date()}
+  view={view()}
+  views={["day", "week", "month", "year"]}
+  dateConfig={{ timeZone: "UTC", locale: "en" }}
+  events={events()}
+  selectedEventId={selectedEventId()}
+  onDateChange={setDate}
+  onViewChange={setView}
+  onEventActivate={(event) => setSelectedEventId(event.id)}
+  onEventDrop={moveEvent}
+  onEventResize={resizeEvent}
+/>`}
     >
       <Calendar
         date={date()}

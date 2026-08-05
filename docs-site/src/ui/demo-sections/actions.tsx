@@ -33,18 +33,25 @@ const ButtonsDemo = () => (
     ]}
     description="Package-native buttons share one variant and size contract. Button defaults to primary, IconButton defaults to ghost, and subtle xs actions suit dense contextual surfaces without masquerading as status badges."
     code={`<Button variant="primary">Save</Button>
+<Button variant="secondary">Preview</Button>
+<Button variant="ghost">Later</Button>
 <Button variant="danger" size="sm">Delete</Button>
 <Button variant="subtle" size="xs">
   <i class="ti ti-activity" aria-hidden="true" /> Status
 </Button>
+<Button loading loadingLabel="Saving">Save</Button>
+<Button disabled>Disabled</Button>
 
 {/* IconButton defaults to variant="ghost" */}
 <IconButton label="Settings">
   <i class="ti ti-settings" />
 </IconButton>
+<IconButton label="Publish" variant="primary"><i class="ti ti-rocket" /></IconButton>
+<IconButton label="Refresh" variant="secondary"><i class="ti ti-refresh" /></IconButton>
 <IconButton label="Delete" variant="danger">
   <i class="ti ti-trash" />
 </IconButton>
+<IconButton label="Saving" loading loadingLabel="Saving"><i class="ti ti-device-floppy" /></IconButton>
 
 {/* Navigational counterparts render anchors */}
 <ButtonLink href="/settings" variant="secondary">Settings</ButtonLink>
@@ -173,7 +180,9 @@ const MenusDemo = () => (
   <Dropdown.Trigger variant="secondary">Wide menu</Dropdown.Trigger>
 </Dropdown.Root>
 
-<ContextMenu items={items}><div>Right click</div></ContextMenu>`}
+<ContextMenu label="Record actions" items={items}>
+  <div>Right click or press Shift+F10</div>
+</ContextMenu>`}
   >
     <div class="ui-demo-row">
       <Dropdown.Root
@@ -215,10 +224,17 @@ const SegmentedDemo = () => {
       id="segmented"
       chip={{ kind: "component", name: "SegmentedControl", from: "@k2b/ui" }}
       description="A full-width controlled radio group with dividers, wrapping arrow-key selection, Home/End navigation, and roving focus."
-      code={`<SegmentedControl
+      code={`const [view, setView] = createSignal("week");
+
+<SegmentedControl
+  ariaLabel="Calendar view"
   value={view}
   onValueChange={setView}
-  options={[{ value: "day", label: "Day" }, ...]}
+  options={[
+    { value: "day", label: "Day", icon: "ti ti-calendar" },
+    { value: "week", label: "Week", icon: "ti ti-calendar-week" },
+    { value: "month", label: "Month", icon: "ti ti-calendar-month" },
+  ]}
 />`}
     >
       <SegmentedControl
@@ -251,6 +267,9 @@ const TabsDemo = () => {
   <Tabs.Item value="activity" label="Activity" icon="ti ti-activity">
     <Activity />
   </Tabs.Item>
+  <Tabs.Item value="archive" label="Archive" disabled>
+    <Archive />
+  </Tabs.Item>
 </Tabs>`}
     >
       <Tabs ariaLabel="Project sections" value={tab} onValueChange={setTab}>
@@ -277,7 +296,7 @@ const DisclosureDemo = () => {
       description="Disclosure reveals optional detail with native details semantics and occupies only the height of its current content."
       code={`const [advanced, setAdvanced] = createSignal(false);
 
-<Disclosure summary="Advanced settings" value={advanced} onValueChange={setAdvanced}>
+<Disclosure summary="Advanced settings" icon="ti ti-adjustments" value={advanced} onValueChange={setAdvanced}>
   Extra controls
 </Disclosure>`}
     >
@@ -295,11 +314,11 @@ const ToolbarDemo = () => (
     description="A semantic action row with named groups, separators, a flexible spacer, and optional wrapping. Buttons retain their own keyboard behavior."
     code={`<Toolbar label="Document actions" wrap>
   <Toolbar.Group label="History">
-    <IconButton label="Undo"><i class="ti ti-arrow-back-up" /></IconButton>
-    <IconButton label="Redo"><i class="ti ti-arrow-forward-up" /></IconButton>
+    <IconButton size="xs" label="Undo"><i class="ti ti-arrow-back-up" /></IconButton>
+    <IconButton size="xs" label="Redo"><i class="ti ti-arrow-forward-up" /></IconButton>
   </Toolbar.Group>
   <Toolbar.Separator />
-  <Button size="xs" variant="subtle">Status</Button>
+  <Button size="xs" variant="subtle"><i class="ti ti-activity" /> Status</Button>
   <Toolbar.Spacer />
   <Button size="sm">Publish</Button>
 </Toolbar>`}

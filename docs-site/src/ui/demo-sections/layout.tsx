@@ -171,9 +171,9 @@ const [drawerOpen, setDrawerOpen] = createSignal(true);
       <AppWorkspace.MainPane id="main-2" label="Main 2" open={paneOpen()}>…</AppWorkspace.MainPane>
       …
     </AppWorkspace.Main>
-    <AppWorkspace.Detail id="record" open={detailOpen()}>…</AppWorkspace.Detail>
+    <AppWorkspace.Detail id="record" open={detailOpen()} width="sm">…</AppWorkspace.Detail>
   </AppWorkspace.Content>
-  <AppWorkspace.BottomDrawer id="events" open={drawerOpen()}>…</AppWorkspace.BottomDrawer>
+  <AppWorkspace.BottomDrawer id="events" open={drawerOpen()} height="sm">…</AppWorkspace.BottomDrawer>
 </AppWorkspace>`}
     >
       <div class="ui-workspace-demo">
@@ -192,10 +192,11 @@ const PanesDemo = () => {
       id="panes"
       chip={{ kind: "component", name: "Panes", from: "@k2b/ui" }}
       description="A controlled, serializable tree of tabs and splits with resize, reorder, move, split, and close behavior."
-      code={`const [layout, setLayout] = createSignal(createPanesValue(["source", "preview"]));
-<Panes.Root value={layout()} onValueChange={setLayout}>
-  <Panes.Element id="source" title="Source">…</Panes.Element>
-  <Panes.Element id="preview" title="Preview">…</Panes.Element>
+      code={`const [layout, setLayout] = createSignal(createPanesValue(["source", "preview", "data"]));
+<Panes.Root value={layout()} onValueChange={setLayout} label="Editor panes">
+  <Panes.Element id="source" title="Source" icon="ti ti-code">…</Panes.Element>
+  <Panes.Element id="preview" title="Preview" icon="ti ti-eye">…</Panes.Element>
+  <Panes.Element id="data" title="Data" icon="ti ti-database">…</Panes.Element>
 </Panes.Root>`}
     >
       <div class="ui-panes-demo">
@@ -226,9 +227,13 @@ const OverviewDemo = () => (
     id="overview"
     chip={{ kind: "component", name: "AppOverview", from: "@k2b/ui" }}
     description="An application landing page with a required identity icon, a strong main task, and a quieter supporting panel."
-    code={`<AppOverview title="Projects" subtitle="Your work" icon="ti ti-folders">
-  <AppOverview.Main title="Recent">…</AppOverview.Main>
-  <AppOverview.Aside title="Status">…</AppOverview.Aside>
+    code={`<AppOverview title="Projects" subtitle="Portable application overview" icon="ti ti-folders">
+  <AppOverview.Main title="Recent work" description="Updated today">
+    <AppOverview.EmptyState title="No recent projects" description="Open a project to see it here." icon="ti ti-folder-off">
+      <Button size="sm">New project</Button>
+    </AppOverview.EmptyState>
+  </AppOverview.Main>
+  <AppOverview.Aside title="Workspace status">…</AppOverview.Aside>
 </AppOverview>`}
   >
     <AppOverview title="Projects" subtitle="Portable application overview" icon="ti ti-folders">
@@ -252,11 +257,11 @@ const DataPanelDemo = () => (
       { kind: "component", name: "PanelHeader", from: "@k2b/ui" },
     ]}
     description="DataPanel frames records and their load states; PanelHeader supplies the reusable title, subtitle, and action row without adding another surface."
-    code={`<DataPanel title="Deployments" subtitle="2 active" actions={<Button>New</Button>}>
+    code={`<DataPanel title="Deployments" subtitle="2 active" actions={<Button size="sm">New deployment</Button>} footer="Showing the latest deployments">
   <DeploymentRows />
 </DataPanel>
 
-<PanelHeader title="Runtime" subtitle="Healthy" actions={<Button>Restart</Button>} />`}
+<PanelHeader title="Runtime" subtitle="Healthy" actions={<Button size="sm" variant="secondary">Restart</Button>} />`}
   >
     <DataPanel
       title="Deployments"
@@ -295,18 +300,19 @@ const SettingsDemo = () => {
         { kind: "component", name: "SettingsPanelFooter", from: "@k2b/ui" },
       ]}
       description="Compound settings tabs plus field, sticky-save, and panel-footer helpers, without a persistence backend."
-      code={`<SettingsModal title="Settings" activeTab={active()} onTabChange={setActive}>
+      code={`<SettingsModal title="Application settings" activeTab={active()} onTabChange={setActive}>
   <SettingsModal.Tab id="general" title="General" icon="ti ti-adjustments">
-    <SettingsField
-      label="Endpoint"
-      description="Public service URL"
-      error={() => undefined}
-      changed={changed}
-    >
-      …
+    <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
+      <TextInput aria-label="Endpoint" value={endpoint()} onValueChange={setEndpoint} />
     </SettingsField>
   </SettingsModal.Tab>
-</SettingsModal>`}
+  <SettingsModal.Tab id="security" title="Security" icon="ti ti-lock" description="Authentication controls">
+    Security settings
+  </SettingsModal.Tab>
+</SettingsModal>
+
+<SettingsSaveBar changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+<SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />`}
     >
       <div class="ui-settings-demo">
         <SettingsModal title="Application settings" activeTab={active()} onTabChange={setActive}>
@@ -353,10 +359,21 @@ const SettingsPageDemo = () => {
   title="Project settings"
   subtitle="Identity and defaults"
   icon="ti ti-settings"
-  actions={<Button>Test connection</Button>}
-  footer={<SettingsPanelFooter … />}
+  actions={<Button size="sm" variant="secondary">Test connection</Button>}
+  footer={
+    <SettingsPanelFooter
+      changeCount={() => (changed() ? 1 : 0)}
+      loading={() => false}
+      onDiscard={discard}
+      onSave={save}
+    />
+  }
 >
-  <SettingsSection title="Identity">…</SettingsSection>
+  <SettingsSection title="Identity" subtitle="Public service details" icon="ti ti-id">
+    <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
+      <TextInput value={endpoint()} onValueChange={setEndpoint} />
+    </SettingsField>
+  </SettingsSection>
 </SettingsPage>`}
     >
       <div style="height: 22rem">
@@ -396,10 +413,18 @@ const PanelDemo = () => {
       id="panel-dialog"
       chip={{ kind: "component", name: "PanelDialog", from: "@k2b/ui" }}
       description="A composable contained or floating frame for complex editors. The host chooses how it opens."
-      code={`<PanelDialog>
-  <PanelDialog.Header title="Edit project" />
-  <PanelDialog.Body>…</PanelDialog.Body>
-  <PanelDialog.Footer>…</PanelDialog.Footer>
+      code={`<PanelDialog surface="contained">
+  <PanelDialog.Header title="Edit project" subtitle="General settings" icon="ti ti-settings" />
+  <PanelDialog.Tabs value={tab()} onValueChange={setTab} options={tabOptions} />
+  <PanelDialog.Body>
+    <PanelDialog.Section title="Profile" subtitle="Visible to collaborators" icon="ti ti-user">
+      <TextInput label="Name" value="Launch plan" />
+    </PanelDialog.Section>
+  </PanelDialog.Body>
+  <PanelDialog.Footer>
+    <Button variant="secondary">Cancel</Button>
+    <Button>Save</Button>
+  </PanelDialog.Footer>
 </PanelDialog>`}
     >
       <PanelDialog surface="contained">
@@ -436,13 +461,23 @@ const FloatingDemo = () => {
       id="floating-window"
       chip={{ kind: "component", name: "FloatingWindow", from: "@k2b/ui" }}
       description="A movable, resizable utility window that fits the viewport, uses an explicit portal scope, and becomes an inset surface on mobile."
-      code={`<FloatingWindow
-  title="Inspector"
-  resolveScope={() => appShell}
-  onClose={() => setOpen(false)}
->
-  …
-</FloatingWindow>`}
+      code={`const [open, setOpen] = createSignal(false);
+
+<div ref={appShell}>
+  <Button variant="secondary" onClick={() => setOpen(true)}>Open inspector</Button>
+  <Show when={open()}>
+    <FloatingWindow
+      title="Inspector"
+      icon="ti ti-adjustments"
+      initialWidth={520}
+      initialHeight={380}
+      resolveScope={() => appShell}
+      onClose={() => setOpen(false)}
+    >
+      …
+    </FloatingWindow>
+  </Show>
+</div>`}
     >
       <div ref={scope}>
         <Button variant="secondary" onClick={() => setOpen(true)}>
