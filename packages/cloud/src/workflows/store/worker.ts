@@ -7,9 +7,9 @@
  * run, Mail leased a target, and only one of them woke parked runs on a
  * deadline.
  *
- * An app now brings its action handlers and nothing else. Everything about
- * *when* something runs, *which* plan it runs, and what happens if the process
- * dies belongs here.
+ * An app now brings its ID, current module, and runtime ports. Everything
+ * about *when* something runs, *which* plan it runs, and what happens if the
+ * process dies belongs here.
  */
 import { type SQL, sql } from "bun";
 import type { WorkflowActor, WorkflowInvocationMode, WorkflowJsonValue } from "../contracts";

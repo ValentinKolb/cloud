@@ -72,7 +72,10 @@ const changed = await requestWorkflowRunCancel(runId);
 ```
 
 The request includes child runs. Queued and waiting runs become canceled
-immediately. A running worker observes cancellation at its next heartbeat.
+immediately. A running worker observes cancellation at its next heartbeat. If
+that worker disappears first, the next app tick finalizes the request after
+the lease expires. A step with an executing or ambiguous external effect moves
+to `needs_attention` instead of being reported as safely canceled.
 
 Authorize the operation in the application service before calling the store.
 The store does not know which application user may control a run.

@@ -67,7 +67,7 @@ const listeningInScope = async (scopeId: string, eventType: string, options: { a
 const listening = (eventType: string, options: { activations?: number } = {}) => listeningInScope(testData.scope(), eventType, options);
 
 describe("workflow events", () => {
-  test("workflow schema upgrades are idempotent and include runtime columns", async () => {
+  test("current workflow schema setup is idempotent and includes runtime columns", async () => {
     if (!(await ready())) return;
     await migrate();
     const rows = await sql<{ table_name: string; column_name: string }[]>`

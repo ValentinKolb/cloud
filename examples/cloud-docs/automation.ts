@@ -132,7 +132,6 @@ export const inventoryWorkflows = defineWorkflowModule({
 });
 
 export const inventoryWorkflowActions = createWorkflowActionPort(inventoryWorkflows);
-export const inventoryWorkflowManifest = inventoryWorkflows.manifest;
 
 export const inventoryWorkflowSource = `inputs:
   itemId:
@@ -155,9 +154,9 @@ const inventoryWorkflowActivations = (plan: WorkflowBoundPlan): WorkflowActivati
   }));
 
 export const compileAndBindInventoryWorkflow = async (source: string) => {
-  const compiled = await compileWorkflow(source, inventoryWorkflowManifest);
+  const compiled = await compileWorkflow(source, inventoryWorkflows);
   if (!compiled.ok) return compiled;
-  const plan = await bindWorkflow(compiled.ir, inventoryWorkflowManifest, async () => ({
+  const plan = await bindWorkflow(compiled.ir, inventoryWorkflows, async () => ({
     catalog: {},
     bindings: {},
   }));
