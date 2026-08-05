@@ -40,6 +40,26 @@ class WorkflowAiAttemptError extends Error {
   }
 }
 
+type WorkflowAiAttemptFailure = Pick<WorkflowAiAttemptError, "code" | "message" | "retryable">;
+
+export const settleWorkflowAiAttemptFailure = async (
+  taskId: string,
+  error: WorkflowAiAttemptFailure,
+  failureCount: number,
+  maxAttempts: number,
+): Promise<"canceled" | "retry" | "failed"> => {
+  if (await workflowAiTaskCancellationRequested(taskId)) {
+    await markWorkflowAiTaskCanceledIfRequested(taskId);
+    return "canceled";
+  }
+  if (error.retryable && failureCount + 1 < maxAttempts) {
+    await requeueWorkflowAiTask(taskId);
+    return "retry";
+  }
+  await failWorkflowAiTask(taskId, { code: error.code, message: error.message });
+  return "failed";
+};
+
 const asJson = (value: unknown): WorkflowJsonValue => JSON.parse(JSON.stringify(value)) as WorkflowJsonValue;
 const choiceEnum = (values: string[]) => z.enum(values as [string, ...string[]]);
 
@@ -195,16 +215,10 @@ const createWorkflowAiJob = (input: WorkflowAiRuntimeOptions = {}) => {
           : new WorkflowAiAttemptError("WORKFLOW_AI_RUNTIME_ERROR", ctx.error.message, true);
       const delayMs = ctx.expBackoff({ baseMs: 1_000, maxMs: 30_000 });
       try {
-        if (await workflowAiTaskCancellationRequested(ctx.input.taskId)) {
-          await markWorkflowAiTaskCanceledIfRequested(ctx.input.taskId);
-          return;
-        }
-        if (error.retryable && ctx.failureCount + 1 < options.maxAttempts) {
-          await requeueWorkflowAiTask(ctx.input.taskId);
+        const outcome = await settleWorkflowAiAttemptFailure(ctx.input.taskId, error, ctx.failureCount, options.maxAttempts);
+        if (outcome === "retry") {
           ctx.reschedule({ delayMs });
-          return;
         }
-        await failWorkflowAiTask(ctx.input.taskId, { code: error.code, message: error.message });
       } catch {
         // `after` errors are swallowed by @k2b/sync. Explicitly reschedule so a
         // temporary database failure cannot acknowledge unfinished durable work.

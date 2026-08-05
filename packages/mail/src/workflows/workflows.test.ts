@@ -13,6 +13,7 @@ const ids = {
   bob: "44444444-4444-4444-8444-444444444444",
   financeTag: "55555555-5555-4555-8555-555555555555",
   supportSender: "66666666-6666-4666-8666-666666666666",
+  urgentTag: "77777777-7777-4777-8777-777777777777",
 } as const;
 
 const officeHours = {
@@ -36,7 +37,10 @@ const catalog = (reverse = false): MailWorkflowCatalog => {
     folders: reverse ? folders.reverse() : folders,
     assignableUsers: reverse ? assignableUsers.reverse() : assignableUsers,
     senderIdentities: [{ id: ids.supportSender, name: "Support" }],
-    localTags: [{ id: ids.financeTag, name: "Finance" }],
+    localTags: [
+      { id: ids.financeTag, name: "Finance" },
+      { id: ids.urgentTag, name: "Urgent" },
+    ],
   });
 };
 
@@ -129,6 +133,38 @@ describe("Mail workflow catalog", () => {
 });
 
 describe("Mail workflow binder", () => {
+  test("routes one AI classification through an existing Mail action", async () => {
+    const source = `inputs:
+  message:
+    type: mailMessage
+    required: true
+steps:
+  - aiClassify:
+      input:
+        subject: "\${{ inputs.message.subject }}"
+      prompt: Select exactly one route.
+      choices:
+        - finance
+        - support
+      saveAs: route
+  - switch: "\${{ route }}"
+    cases:
+      - when: finance
+        do:
+          - moveMessage:
+              message: inputs.message
+              folder: Invoices
+    default:
+      - succeed:
+          message: No folder change.
+`;
+
+    const result = await bindMailWorkflow(await compile(source), catalog());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.bindings).toMatchObject({ "steps.1.cases.0.do.0.moveMessage.folder": ids.invoices });
+  });
+
   test("composes shared AI output with Mail tagging and draft actions", async () => {
     const source = `inputs:
   message:
@@ -155,6 +191,14 @@ steps:
       - addLocalTag:
           conversation: "\${{ inputs.conversation }}"
           tag: Finance
+  - if:
+      includes:
+        - "\${{ categories }}"
+        - urgent
+    then:
+      - addLocalTag:
+          conversation: "\${{ inputs.conversation }}"
+          tag: Urgent
   - aiGenerateText:
       prompt: Write a concise reply draft. Do not send it.
       input:
@@ -176,7 +220,8 @@ steps:
     if (!result.ok) return;
     expect(result.plan.bindings).toMatchObject({
       "steps.1.then.0.addLocalTag.tag": ids.financeTag,
-      "steps.3.createDraft.sender": ids.supportSender,
+      "steps.2.then.0.addLocalTag.tag": ids.urgentTag,
+      "steps.4.createDraft.sender": ids.supportSender,
     });
   });
 
