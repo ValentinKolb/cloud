@@ -70,10 +70,14 @@ describe("geo service", () => {
   test("combines caller cancellation with the fixed request timeout", async () => {
     const controller = new AbortController();
     let outboundSignal: AbortSignal | undefined;
-    spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      outboundSignal = init?.signal ?? undefined;
-      return new Response(JSON.stringify({ places: [] }));
-    });
+    const fetchMock = Object.assign(
+      async (...[_input, init]: Parameters<typeof fetch>) => {
+        outboundSignal = init?.signal ?? undefined;
+        return new Response(JSON.stringify({ places: [] }));
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    ) satisfies typeof fetch;
+    spyOn(globalThis, "fetch").mockImplementation(fetchMock);
 
     const result = await geoService.place.list({
       baseUrl: "https://geo.example.test",

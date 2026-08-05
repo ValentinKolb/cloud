@@ -419,7 +419,9 @@ describe("Grids capabilities", () => {
       expect(firstPage.ok).toBe(true);
       if (!firstPage.ok || !firstPage.data.page?.hasMore) throw new Error("Expected a byte-bounded first GQL page");
       expect(new TextEncoder().encode(JSON.stringify(firstPage.data)).byteLength).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
-      const firstIds = (firstPage.data.data.ok ? firstPage.data.data.rows : []).flatMap((row) => (row.recordId ? [row.recordId] : []));
+      const firstIds = (firstPage.data.data.ok ? firstPage.data.data.rows : []).flatMap((row: { recordId?: string }) =>
+        row.recordId ? [row.recordId] : [],
+      );
       const secondPage = await invoke(
         "query",
         "gql.execute",
@@ -428,9 +430,11 @@ describe("Grids capabilities", () => {
       );
       expect(secondPage.ok).toBe(true);
       if (!secondPage.ok) throw new Error(secondPage.error.message);
-      const secondIds = (secondPage.data.data.ok ? secondPage.data.data.rows : []).flatMap((row) => (row.recordId ? [row.recordId] : []));
+      const secondIds = (secondPage.data.data.ok ? secondPage.data.data.rows : []).flatMap((row: { recordId?: string }) =>
+        row.recordId ? [row.recordId] : [],
+      );
       expect(new Set([...firstIds, ...secondIds]).size).toBe(30);
-      expect(secondIds.some((id) => firstIds.includes(id))).toBe(false);
+      expect(secondIds.some((id: string) => firstIds.includes(id))).toBe(false);
 
       const reviewInput = Object.fromEntries(Array.from({ length: 200 }, () => [uuid(), "changed"]));
       const updateReview = await review("record.update", { tableId, recordId: record.id, values: reviewInput, ifVersion: 3 }, context);

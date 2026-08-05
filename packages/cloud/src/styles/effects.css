@@ -114,7 +114,7 @@
 }
 
 .assistant-markdown-block :where(a.md-link-widget:hover) {
-  color: var(--k2b-action);
+  color: var(--ui-app-accent-text);
 }
 
 .assistant-markdown-block :where(code) {

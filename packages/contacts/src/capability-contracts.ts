@@ -6,6 +6,7 @@ const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
+const ContactOpenHrefSchema = z.string().regex(/^\/app\/contacts\/.*/);
 const ReadableContactBookIdSchema = z.union([z.uuid(), z.literal("system")]);
 export const CONTACT_COLLECTION_LIMIT = 20;
 export const CONTACT_TAG_LIMIT = 100;
@@ -96,6 +97,7 @@ export const ContactSuggestionDataSchema = z
     emails: z.array(ContactLookupEmailDataSchema).min(1).max(20),
     phones: z.array(ContactLookupPhoneDataSchema).max(20),
     contactPointsTruncated: z.boolean(),
+    openHref: ContactOpenHrefSchema,
     links: ResourceLinksSchema,
     updatedAt: TimestampSchema,
   })
@@ -128,6 +130,7 @@ export const ContactResolveMatchDataSchema = z
     emails: z.array(ContactLookupEmailDataSchema).max(20),
     phones: z.array(ContactLookupPhoneDataSchema).max(20),
     contactPointsTruncated: z.boolean(),
+    openHref: ContactOpenHrefSchema,
     links: ResourceLinksSchema,
     updatedAt: TimestampSchema,
   })

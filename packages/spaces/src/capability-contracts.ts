@@ -18,10 +18,6 @@ const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maxim
 const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
 const IdListSchema = z.array(z.uuid()).max(100);
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
-const ItemPageInputShape = {
-  cursor: CursorSchema,
-  limit: z.number().int().min(1).max(50).default(25).describe("Maximum number of task or event results to return."),
-};
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 const SpaceColumnDataSchema = z
@@ -161,8 +157,8 @@ export const EventListItemDataSchema = z
     hasRecurrence: z.boolean(),
   })
   .strict();
-export const TaskListDataSchema = z.array(TaskListItemDataSchema).max(50);
-export const EventListDataSchema = z.array(EventListItemDataSchema).max(50);
+export const TaskListDataSchema = z.array(TaskListItemDataSchema).max(100);
+export const EventListDataSchema = z.array(EventListItemDataSchema).max(100);
 
 const ItemListBaseShape = {
   spaceId: z.uuid().describe("Space whose items should be listed."),
@@ -178,7 +174,7 @@ const ItemListBaseShape = {
     .describe("Assignment-state filter; me uses the user backing the current actor."),
   sort: z.enum(["column", "priority", "deadline", "created", "updated", "title"]).default("updated").describe("Stable item sort key."),
   sortDesc: z.boolean().default(true).describe("Sort descending when true."),
-  ...ItemPageInputShape,
+  ...PageInputShape,
 };
 
 export const TaskListInputSchema = z.object(ItemListBaseShape).strict();

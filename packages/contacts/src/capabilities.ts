@@ -156,6 +156,7 @@ const mapContactSuggestion = (contact: Contact) => ({
   emails: contact.emails.slice(0, 20).map((item) => ({ label: item.label, email: item.email })),
   phones: contact.phones.slice(0, 20).map((item) => ({ label: item.label, phone: item.phone })),
   contactPointsTruncated: contact.emails.length > 20 || contact.phones.length > 20,
+  openHref: contactHref(contact),
   links: [{ rel: "open" as const, href: contactHref(contact) }],
   updatedAt: contact.updatedAt,
 });
@@ -429,6 +430,7 @@ const runContactResolve = async (input: z.infer<typeof ContactResolveInputSchema
     ...resolvedData,
     items: resolvedData.items.map((contact) => ({
       ...contact,
+      openHref: contactHrefById(contact.bookId, contact.contactId),
       links: [{ rel: "open" as const, href: contactHrefById(contact.bookId, contact.contactId) }],
     })),
   };

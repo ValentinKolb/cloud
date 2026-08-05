@@ -428,12 +428,12 @@
 }
 
 .md-link-widget:hover {
-  color: var(--k2b-action);
+  color: var(--ui-app-accent-text);
 }
 
 .md-link-widget:focus-visible {
   border-radius: 0.125rem;
-  outline: 2px solid var(--k2b-action);
+  outline: 2px solid var(--ui-app-accent-border);
   outline-offset: 2px;
 }
 

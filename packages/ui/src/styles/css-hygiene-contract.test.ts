@@ -58,12 +58,13 @@ describe("@k2b/ui stylesheet hygiene", () => {
     expect(plex).not.toContain("ibm-plex-sans-condensed");
   });
 
-  test("keeps scoped normalization below consumer utilities", () => {
+  test("keeps normalization scoped without owning a global base layer", () => {
     const index = readFileSync(resolve(stylesDir, "index.css"), "utf8");
 
     expect(index).toContain("@layer theme, base, components, utilities;");
+    expect(index).not.toContain("@layer base {");
     expect(index).toMatch(
-      /@layer base \{[\s\S]*?box-sizing: border-box;[\s\S]*?\.k2b-ui :where\(button, input, select, textarea\) \{\s*font: inherit;/,
+      /\.k2b-ui,\s*\.k2b-ui \*,\s*\.k2b-ui \*::before,\s*\.k2b-ui \*::after \{\s*box-sizing: border-box;[\s\S]*?\.k2b-ui :where\(button, input, select, textarea\) \{\s*font: inherit;/,
     );
   });
 });

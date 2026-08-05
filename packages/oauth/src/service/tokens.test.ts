@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createMcpRoutes } from "@valentinkolb/cloud/api";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { oauthTokens, serviceAccounts } from "@valentinkolb/cloud/services";
 import { redis, sql } from "bun";
 import { Hono } from "hono";
 import * as jose from "jose";
-import { createMcpRoutes } from "../../../cloud/src/api/mcp";
 import { migrate } from "../migrate";
 import oauthRoutes from "../oauth";
 import { oauth } from "./oauth";

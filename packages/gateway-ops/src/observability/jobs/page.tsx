@@ -4,11 +4,13 @@ import {
   DataTable,
   type DataTableColumn,
   IconButtonLink,
+  isStructuredDataValue,
   Pagination,
   Placeholder,
   StatCell,
   StatGrid,
   StructuredDataPreview,
+  type StructuredDataValue,
 } from "@k2b/ui";
 import { createPagination } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
@@ -70,6 +72,9 @@ const durationLabel = (filter: JobsFilterState): string =>
   jobsDurationOptions.find((option) => option.value === filter.duration)?.label ?? "All durations";
 
 const runKey = (span: Pick<TraceSpan, "traceId" | "spanId">): string => `${span.traceId}:${span.spanId}`;
+
+const traceData = (value: Record<string, unknown>): StructuredDataValue =>
+  isStructuredDataValue(value) ? value : { error: "Trace data is not valid JSON." };
 
 const parseRunKey = (value: string | null): { traceId: string; spanId: string } | null => {
   if (!value) return null;
@@ -426,13 +431,13 @@ const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHre
 
       {props.span.summary ? (
         <section class="detail-section">
-          <StructuredDataPreview title="Summary" data={props.span.summary} maxRows={8} />
+          <StructuredDataPreview title="Summary" data={traceData(props.span.summary)} maxRows={8} />
         </section>
       ) : null}
 
       {props.span.attributes ? (
         <section class="detail-section">
-          <StructuredDataPreview title="Attributes" data={props.span.attributes} maxRows={10} />
+          <StructuredDataPreview title="Attributes" data={traceData(props.span.attributes)} maxRows={10} />
         </section>
       ) : null}
 
@@ -450,7 +455,7 @@ const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHre
                 </div>
                 <p class="mt-1 text-[10px] text-dimmed">{event.severity}</p>
                 {event.body ? <p class="mt-1 break-words text-[10px] text-primary">{event.body}</p> : null}
-                {event.attributes ? <StructuredDataPreview class="mt-1" data={event.attributes} maxRows={6} /> : null}
+                {event.attributes ? <StructuredDataPreview class="mt-1" data={traceData(event.attributes)} maxRows={6} /> : null}
               </article>
             ))
           )}

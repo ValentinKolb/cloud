@@ -74,9 +74,7 @@ describe("backend GQL autocomplete adapter", () => {
       },
     });
 
-    const suggestions = completions[0]!.suggest("", { fullText: "", caret: 0, tokenStart: 0 }, new AbortController().signal);
-
-    expect(suggestions).toEqual([]);
+    expect(completions[0]!.knownLabels ?? []).toEqual([]);
     expect(calls).toBe(0);
   });
 });

@@ -79,6 +79,8 @@ export type AuditRecordParams = {
 
 type AuditDb = typeof sql;
 
+type AuditableResult = { ok: true; data: unknown } | { ok: false; error: { code: string; message: string; status: number } };
+
 type DbAuditRow = {
   id: number;
   created_at: Date | string;
@@ -192,7 +194,7 @@ const mapSelfServiceActivityRow = (row: DbAuditRow): SelfServiceAuditActivity =>
   context: row.target_label ?? null,
 });
 
-const outcomeForError = (error: Pick<ServiceError, "status"> | null | undefined): AuditOutcome => {
+const outcomeForError = (error: { status: number } | null | undefined): AuditOutcome => {
   if (!error) return "allowed";
   return error.status === 401 || error.status === 403 ? "denied" : "failed";
 };
@@ -247,15 +249,15 @@ const record = async (params: AuditRecordParams, db: AuditDb = sql): Promise<voi
   }
 };
 
-const recordResult = async <T>(params: {
+const recordResult = async <R extends AuditableResult>(params: {
   action: string;
   actor?: AuditActor | null;
   target?: AuditTarget | null;
   metadata?: Record<string, unknown> | null;
   requestId?: string | null;
-  result: Result<T>;
+  result: R;
   db?: AuditDb;
-}): Promise<Result<T>> => {
+}): Promise<R> => {
   await record(
     {
       action: params.action,
@@ -277,14 +279,14 @@ const recordResult = async <T>(params: {
  * checks and pre-mutation validation must keep using `record`/`recordResult`
  * so missing audit storage can still fail closed before anything changes.
  */
-const recordResultAfterSideEffect = async <T>(params: {
+const recordResultAfterSideEffect = async <R extends AuditableResult>(params: {
   action: string;
   actor?: AuditActor | null;
   target?: AuditTarget | null;
   metadata?: Record<string, unknown> | null;
   requestId?: string | null;
-  result: Result<T>;
-}): Promise<Result<T>> => {
+  result: R;
+}): Promise<R> => {
   try {
     await recordResult(params);
   } catch (error) {

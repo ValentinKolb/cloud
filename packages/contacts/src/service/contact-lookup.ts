@@ -1,18 +1,18 @@
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
-import { ContactResolveDataSchema, ContactResolveInputSchema, ContactResolveMatchDataSchema } from "../capability-contracts";
+import type { ContactResolveDataSchema, ContactResolveInputSchema, ContactResolveMatchDataSchema } from "../capability-contracts";
 import { SYSTEM_BOOK_ID, SYSTEM_BOOK_NAME } from "./system";
 
 const cursorSchema = z.object({ version: z.literal(1), source: z.enum(["manual", "system"]), id: z.uuid() }).strict();
 
 type MatchCursor = z.infer<typeof cursorSchema>;
 type ContactResolveInput = z.infer<typeof ContactResolveInputSchema>;
-type ContactResolveData = z.infer<typeof ContactResolveDataSchema>;
-type ContactResolveMatch = z.infer<typeof ContactResolveMatchDataSchema>;
+type ContactResolveMatch = Omit<z.infer<typeof ContactResolveMatchDataSchema>, "links" | "openHref">;
+type ContactResolveData = Omit<z.infer<typeof ContactResolveDataSchema>, "items"> & { items: ContactResolveMatch[] };
 type ContactResolvePage = ContactResolveData & { nextCursor: string | null };
 
 type MatchRow = {

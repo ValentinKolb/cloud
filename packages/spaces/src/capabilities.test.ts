@@ -550,7 +550,7 @@ describe("spaces capabilities", () => {
     expect(Buffer.byteLength(JSON.stringify({ data: parsedTasks }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
     expect(Buffer.byteLength(JSON.stringify({ data: parsedEvents }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
     expect(Buffer.byteLength(JSON.stringify({ data: parsedComments }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
-    expect(TaskListInputSchema.safeParse({ spaceId, limit: 51 }).success).toBeFalse();
+    expect(TaskListInputSchema.safeParse({ spaceId, limit: 101 }).success).toBeFalse();
   });
 });
 

@@ -77,5 +77,6 @@ export {
   CLOUD_MCP_PROTECTED_RESOURCE_PATH,
   cloudMcpResourceUri,
   createMcpProtectedResourceRoutes,
+  createMcpRoutes,
   publicCloudOrigin,
 } from "./mcp";

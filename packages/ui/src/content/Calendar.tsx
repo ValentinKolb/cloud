@@ -377,6 +377,7 @@ const EventChip = (props: {
     </>
   );
   const content = () => renderedEvent() ?? defaultContent;
+  const isActionable = () => isInteractive() || Boolean(props.onMovePointerDown);
   let suppressClickUntil = 0;
   const onClick = (event: MouseEvent) => {
     if (performance.now() < suppressClickUntil) {
@@ -431,8 +432,9 @@ const EventChip = (props: {
     >
       {content()}
     </a>
-  ) : (
-    <div
+  ) : isActionable() ? (
+    <button
+      type="button"
       class="k2b-calendar-event"
       data-calendar-event=""
       data-color={props.event.colorHex ? undefined : color()}
@@ -440,15 +442,30 @@ const EventChip = (props: {
       data-compact={props.compact ? "true" : undefined}
       data-fill={props.fill ? "true" : undefined}
       data-moving={props.moving ? "true" : undefined}
-      data-interactive={isInteractive() ? "true" : undefined}
+      data-interactive="true"
       data-display={props.event.display}
       style={style()}
-      role={isInteractive() ? "button" : undefined}
-      tabIndex={isInteractive() ? 0 : undefined}
       onClick={onClick}
       onDblClick={onDoubleClick}
       onPointerDown={onPointerDown}
       onKeyDown={onButtonKeyDown}
+      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
+    >
+      {content()}
+    </button>
+  ) : (
+    <div
+      class="k2b-calendar-event"
+      role="group"
+      data-calendar-event=""
+      data-color={props.event.colorHex ? undefined : color()}
+      data-selected={selected() ? "true" : undefined}
+      data-compact={props.compact ? "true" : undefined}
+      data-fill={props.fill ? "true" : undefined}
+      data-moving={props.moving ? "true" : undefined}
+      data-interactive={undefined}
+      data-display={props.event.display}
+      style={style()}
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
     >
       {content()}
@@ -457,8 +474,7 @@ const EventChip = (props: {
 };
 
 const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTimeChange, suppressed?: () => boolean) => {
-  const isSlotChild = (event: Event) =>
-    event.target instanceof Element && Boolean(event.target.closest("a,button,[data-calendar-event]"));
+  const isSlotChild = (event: Event) => event.target instanceof Element && Boolean(event.target.closest("a,button,[data-calendar-event]"));
   const interactive = Boolean(owner.onSlotActivate);
   const activate = (event: Event) => {
     if (!owner.onSlotActivate || isSlotChild(event) || suppressed?.()) return;
@@ -605,8 +621,6 @@ const adjacentCalendarDate = (date: Date, view: CalendarView, direction: -1 | 1,
   return calendar.addDays(date, direction * (view === "day" ? 1 : 7), dateConfig);
 };
 
-const calendarViews = ["day", "week", "month", "year"] as const satisfies readonly CalendarView[];
-
 const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Required<CalendarLabels>; owner: CalendarProps }): JSX.Element => {
   const dateConfig = () => ownerDateConfig(props.owner);
   const previous = () => adjacentCalendarDate(props.date, props.view, -1, dateConfig());
@@ -671,11 +685,7 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
         {props.labels.today}
       </button>
     ) : (
-      <CalendarNavigationLink
-        owner={props.owner}
-        href={href ?? "#"}
-        anchorProps={{ class: "k2b-calendar-header__today" }}
-      >
+      <CalendarNavigationLink owner={props.owner} href={href ?? "#"} anchorProps={{ class: "k2b-calendar-header__today" }}>
         {props.labels.today}
       </CalendarNavigationLink>
     );
@@ -781,10 +791,7 @@ const MonthView = (props: {
   onCleanup(() => cancelInteraction?.());
   return (
     <div class="k2b-calendar-month" style={{ "grid-template-rows": `auto repeat(${weeks().length}, minmax(5rem, 1fr))` }}>
-      <div
-        class="k2b-calendar-month__weekdays"
-        data-week-numbers={props.owner.withWeekNumbers ? "true" : undefined}
-      >
+      <div class="k2b-calendar-month__weekdays" data-week-numbers={props.owner.withWeekNumbers ? "true" : undefined}>
         <Show when={props.owner.withWeekNumbers}>
           <div class="k2b-calendar-month__weekday">Wk</div>
         </Show>
@@ -792,14 +799,9 @@ const MonthView = (props: {
       </div>
       <For each={weeks()}>
         {(week) => (
-          <div
-            class="k2b-calendar-month__week"
-            data-week-numbers={props.owner.withWeekNumbers ? "true" : undefined}
-          >
+          <div class="k2b-calendar-month__week" data-week-numbers={props.owner.withWeekNumbers ? "true" : undefined}>
             <Show when={props.owner.withWeekNumbers}>
-              <div class="k2b-calendar-month__week-number">
-                {zonedWeekNumber(week[0]!, dateConfig())}
-              </div>
+              <div class="k2b-calendar-month__week-number">{zonedWeekNumber(week[0]!, dateConfig())}</div>
             </Show>
             <For each={week}>
               {(day) => {
@@ -868,11 +870,7 @@ const MonthView = (props: {
                         )}
                       </For>
                       <Show when={events.length > 3}>
-                        <CalendarNavigationLink
-                          owner={props.owner}
-                          href={href ?? "#"}
-                          anchorProps={{ class: "k2b-calendar-month__more" }}
-                        >
+                        <CalendarNavigationLink owner={props.owner} href={href ?? "#"} anchorProps={{ class: "k2b-calendar-month__more" }}>
                           +{events.length - 3} more
                         </CalendarNavigationLink>
                       </Show>
@@ -1101,10 +1099,7 @@ const TimeGridView = (props: {
   });
   return (
     <div class="k2b-calendar-time-grid">
-      <div
-        class="k2b-calendar-time-grid__days"
-        style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}
-      >
+      <div class="k2b-calendar-time-grid__days" style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}>
         <div />
         <For each={props.days}>
           {(day) => {
@@ -1116,10 +1111,7 @@ const TimeGridView = (props: {
                 href={props.owner.getDateHref?.(day, "day") ?? "#"}
                 anchorProps={{ class: "k2b-calendar-time-grid__day" }}
               >
-                <span
-                  class="k2b-calendar-time-grid__day-label"
-                  data-today={today() ? "true" : undefined}
-                >
+                <span class="k2b-calendar-time-grid__day-label" data-today={today() ? "true" : undefined}>
                   {formatDay(day, dateConfig())}
                 </span>
                 <Show when={dayBadge}>
@@ -1167,13 +1159,7 @@ const TimeGridView = (props: {
                   )}
                 >
                   <div class="k2b-calendar-time-grid__all-day-events">
-                    <For each={previewAllDay}>
-                      {(event) => (
-                        <div class="k2b-calendar-preview">
-                          {event.title}
-                        </div>
-                      )}
-                    </For>
+                    <For each={previewAllDay}>{(event) => <div class="k2b-calendar-preview">{event.title}</div>}</For>
                     <For each={allDay()}>
                       {(event) => (
                         <EventChip
@@ -1235,10 +1221,7 @@ const TimeGridView = (props: {
                   }}
                 >
                   <Show when={currentTimeLine(day) !== null}>
-                    <div
-                      class="k2b-calendar-time-grid__now"
-                      style={{ top: `${currentTimeLine(day) ?? 0}%` }}
-                    />
+                    <div class="k2b-calendar-time-grid__now" style={{ top: `${currentTimeLine(day) ?? 0}%` }} />
                   </Show>
                   <For each={hours()}>
                     {(hour) => (
@@ -1369,10 +1352,7 @@ const TimeGridView = (props: {
                             <span class="k2b-calendar-time-grid__overflow-count">+{overflow.hiddenEvents.length}</span>
                           </button>
                           <Show when={expandedOverflow() === key}>
-                            <div
-                              class="k2b-calendar-time-grid__overflow-menu"
-                              style={{ top: `${layout.top}%` }}
-                            >
+                            <div class="k2b-calendar-time-grid__overflow-menu" style={{ top: `${layout.top}%` }}>
                               <div class="k2b-calendar-time-grid__overflow-title">
                                 {formatTime(overflow.groupStartDate, dateConfig())} - {formatTime(overflow.groupEndDate, dateConfig())}
                               </div>
@@ -1415,16 +1395,19 @@ const YearView = (props: { owner: CalendarProps; date: Date; now: Date; events: 
       return {
         date,
         label: date.toLocaleDateString(context.locale ?? "en", { month: "long", timeZone: context.timeZone }),
-        days: calendar.getMonthGrid(year(), month, context).flat().map((day) => {
-          const key = calendar.formatDateKey(day, context);
-          return {
-            date: day,
-            events: eventsByDay().get(key) ?? [],
-            isToday: key === todayKey(),
-            outside: !calendar.isSameMonth(day, date, context),
-            number: calendar.formatDayNumber(day, context),
-          };
-        }),
+        days: calendar
+          .getMonthGrid(year(), month, context)
+          .flat()
+          .map((day) => {
+            const key = calendar.formatDateKey(day, context);
+            return {
+              date: day,
+              events: eventsByDay().get(key) ?? [],
+              isToday: key === todayKey(),
+              outside: !calendar.isSameMonth(day, date, context),
+              number: calendar.formatDayNumber(day, context),
+            };
+          }),
       };
     });
   });
@@ -1498,10 +1481,7 @@ const MobileMonthView = (props: {
             timeZone: dateConfig().timeZone,
           })}
         </div>
-        <Show
-          when={selectedEvents().length > 0}
-          fallback={<div class="k2b-calendar-mobile-month__empty">{props.labels.noEvents}</div>}
-        >
+        <Show when={selectedEvents().length > 0} fallback={<div class="k2b-calendar-mobile-month__empty">{props.labels.noEvents}</div>}>
           <div class="k2b-calendar-mobile-month__events">
             <For each={selectedEvents()}>
               {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} />}
@@ -1513,9 +1493,7 @@ const MobileMonthView = (props: {
   );
 };
 
-const CalendarBody = (props: { children: JSX.Element }): JSX.Element => (
-  <div class="k2b-calendar-body">{props.children}</div>
-);
+const CalendarBody = (props: { children: JSX.Element }): JSX.Element => <div class="k2b-calendar-body">{props.children}</div>;
 
 const Calendar = (props: CalendarProps): JSX.Element => {
   const view = () => props.view ?? "month";
@@ -1544,10 +1522,7 @@ const Calendar = (props: CalendarProps): JSX.Element => {
   });
 
   return (
-    <section
-      class={`k2b-content-calendar ${props.class ?? ""}`}
-      aria-busy={props.navigationPending ? "true" : undefined}
-    >
+    <section class={`k2b-content-calendar ${props.class ?? ""}`} aria-busy={props.navigationPending ? "true" : undefined}>
       <CalendarHeader date={date()} view={view()} labels={mergedLabels()} owner={props} />
       {props.toolbarContent}
       <Show

@@ -366,6 +366,8 @@ describe("contacts capabilities", () => {
           emails: [{ label: "work", email: "ada@example.com" }],
           phones: [{ label: "mobile", phone: "+49 170 1234567" }],
           contactPointsTruncated: false,
+          openHref:
+            "/app/contacts/553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef?contact=553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
           links: [
             {
               rel: "open",
@@ -378,22 +380,21 @@ describe("contacts capabilities", () => {
     ).toBeTrue();
   });
 
-  test("emits semantic contact links without the legacy openHref field", async () => {
+  test("emits semantic contact links while preserving the v1 openHref contract", async () => {
     spyOn(contactsService.contact, "search").mockResolvedValue({
       items: [contact],
       page: 1,
       perPage: 8,
       total: 1,
-      totalPages: 1,
       hasNext: false,
     });
     const suggested = await contactsCapabilities.queries["contact.suggest"].run({ query: "Ada", limit: 8 }, context);
     expect(suggested.ok).toBeTrue();
     if (!suggested.ok) return;
     expect(suggested.data.data[0]).toMatchObject({
+      openHref: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`,
       links: [{ rel: "open", href: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}` }],
     });
-    expect("openHref" in suggested.data.data[0]!).toBeFalse();
 
     spyOn(contactsService.lookup, "resolveContactsByEmail").mockResolvedValue({
       ok: true,
@@ -421,9 +422,9 @@ describe("contacts capabilities", () => {
     expect(resolved.ok).toBeTrue();
     if (!resolved.ok) return;
     expect(resolved.data.data.items[0]).toMatchObject({
+      openHref: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`,
       links: [{ rel: "open", href: `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}` }],
     });
-    expect("openHref" in resolved.data.data.items[0]!).toBeFalse();
   });
 
   test("keeps exact resolution bounded and rejects unrelated contact fields", () => {

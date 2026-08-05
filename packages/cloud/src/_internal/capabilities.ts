@@ -396,6 +396,36 @@ const sameSchema = (left: unknown, right: unknown): boolean =>
   JSON.stringify(stableJsonValue(schemaSemantics(left))) === JSON.stringify(stableJsonValue(schemaSemantics(right)));
 
 const schemaEvolutionIssues = (previous: JsonSchema, next: JsonSchema, path: string, direction: "input" | "data"): string[] => {
+  for (const keyword of ["oneOf", "anyOf"] as const) {
+    const previousBranches = previous[keyword];
+    const nextBranches = next[keyword];
+    if (!Array.isArray(previousBranches) || !Array.isArray(nextBranches)) continue;
+    const previousRest = { ...previous };
+    const nextRest = { ...next };
+    delete previousRest[keyword];
+    delete nextRest[keyword];
+    if (!sameSchema(previousRest, nextRest) || previousBranches.length !== nextBranches.length) {
+      return [`${path} changed`];
+    }
+    return previousBranches.flatMap((branch, index) =>
+      schemaEvolutionIssues(branch as JsonSchema, nextBranches[index] as JsonSchema, `${path} ${keyword}[${index}]`, direction),
+    );
+  }
+  if (previous.type === "array" && next.type === "array") {
+    const previousRest = { ...previous };
+    const nextRest = { ...next };
+    const previousItems = previousRest.items;
+    const nextItems = nextRest.items;
+    delete previousRest.items;
+    delete nextRest.items;
+    const issues = sameSchema(previousRest, nextRest) ? [] : [`${path} constraints changed`];
+    if (previousItems && nextItems) {
+      issues.push(...schemaEvolutionIssues(previousItems as JsonSchema, nextItems as JsonSchema, `${path} items`, direction));
+    } else if (!sameSchema(previousItems, nextItems)) {
+      issues.push(`${path} items changed`);
+    }
+    return issues;
+  }
   if (previous.type !== "object" || next.type !== "object") {
     return sameSchema(previous, next) ? [] : [`${path} changed`];
   }

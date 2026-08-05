@@ -33,6 +33,17 @@ const report = (file: string, message: string): void => {
 
 const withoutCssComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, "");
 
+const selectorPrelude = (lines: readonly string[], index: number): string => {
+  const parts = [lines[index]!.trim()];
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const previous = lines[cursor]!.trim();
+    if (!previous) continue;
+    if (/[{};]$/.test(previous) || previous.startsWith("@")) break;
+    parts.unshift(previous);
+  }
+  return parts.join(" ");
+};
+
 const checkEmbeddableUiStyles = () => {
   if (!existsSync(uiStylesheet)) {
     report(uiStylesheet, "missing @k2b/ui stylesheet entrypoint");
@@ -50,7 +61,8 @@ const checkEmbeddableUiStyles = () => {
     report(uiStylesheet, "embeddable UI CSS must not style html, body, or :root");
   }
 
-  for (const line of source.split("\n")) {
+  const lines = source.split("\n");
+  for (const [index, line] of lines.entries()) {
     const selector = line.trim();
     if (
       !selector.endsWith("{") ||
@@ -60,8 +72,9 @@ const checkEmbeddableUiStyles = () => {
       /^(?:\d+(?:\.\d+)?%)(?:\s*,\s*\d+(?:\.\d+)?%)*\s*\{$/.test(selector)
     )
       continue;
-    if (!selector.includes(".k2b-ui")) {
-      report(uiStylesheet, `selector must stay below .k2b-ui: ${selector.slice(0, -1).trim()}`);
+    const prelude = selectorPrelude(lines, index);
+    if (!prelude.includes(".k2b-ui")) {
+      report(uiStylesheet, `selector must stay below .k2b-ui: ${prelude.slice(0, -1).trim()}`);
     }
   }
 
@@ -69,11 +82,13 @@ const checkEmbeddableUiStyles = () => {
     report(uiFontPreset, "missing optional IBM Plex preset");
   } else {
     const fontSource = withoutCssComments(readFileSync(uiFontPreset, "utf8"));
-    for (const line of fontSource.split("\n")) {
+    const lines = fontSource.split("\n");
+    for (const [index, line] of lines.entries()) {
       const selector = line.trim();
       if (!selector.endsWith("{") || selector.startsWith("@")) continue;
-      if (!selector.includes(".k2b-ui")) {
-        report(uiFontPreset, `font preset selector must stay below .k2b-ui: ${selector.slice(0, -1).trim()}`);
+      const prelude = selectorPrelude(lines, index);
+      if (!prelude.includes(".k2b-ui")) {
+        report(uiFontPreset, `font preset selector must stay below .k2b-ui: ${prelude.slice(0, -1).trim()}`);
       }
     }
   }

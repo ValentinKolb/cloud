@@ -506,6 +506,32 @@ describe("capability v1 compilation", () => {
     );
     expect(capabilityManifestEvolutionIssues(previous, additive)).toEqual([]);
 
+    const previousArrayItem = manifest(
+      z.object({ id: z.string().describe("Stable item id.") }).strict(),
+      z.array(z.object({ id: z.string() }).strict()),
+    );
+    const additiveArrayItem = manifest(
+      z.object({ id: z.string().describe("Stable item id.") }).strict(),
+      z.array(z.object({ id: z.string(), label: z.string().optional() }).strict()),
+    );
+    expect(capabilityManifestEvolutionIssues(previousArrayItem, additiveArrayItem)).toEqual([]);
+
+    const previousUnion = manifest(
+      z.object({ id: z.string().describe("Stable item id.") }).strict(),
+      z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("first"), id: z.string() }).strict(),
+        z.object({ kind: z.literal("second"), id: z.string() }).strict(),
+      ]),
+    );
+    const additiveUnion = manifest(
+      z.object({ id: z.string().describe("Stable item id.") }).strict(),
+      z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("first"), id: z.string(), label: z.string().optional() }).strict(),
+        z.object({ kind: z.literal("second"), id: z.string() }).strict(),
+      ]),
+    );
+    expect(capabilityManifestEvolutionIssues(previousUnion, additiveUnion)).toEqual([]);
+
     const clarified = manifest(
       z.object({ id: z.string().describe("A clearer stable item identifier.") }).strict(),
       z.object({ id: z.string().describe("The stable item identifier.") }).strict(),
