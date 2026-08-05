@@ -236,6 +236,13 @@ const workflowEffectBudgetFlags = {
     default: 2_000,
     description: "Maximum collaboration changes per run",
   }),
+  maxAiCalls: flag.int({
+    name: "max-ai-calls",
+    min: 0,
+    max: 1_000,
+    default: 10,
+    description: "Maximum AI tasks per run",
+  }),
 };
 
 const workflowEffectBudget = (flags: {
@@ -248,6 +255,7 @@ const workflowEffectBudget = (flags: {
   maxNotifications?: number;
   maxKeywordChanges?: number;
   maxCollaborationChanges?: number;
+  maxAiCalls?: number;
 }): WorkflowEffectBudget => ({
   maxTargets: flags.maxTargets ?? 1_000,
   maxMoves: flags.maxMoves ?? 1_000,
@@ -258,6 +266,7 @@ const workflowEffectBudget = (flags: {
   maxNotifications: flags.maxNotifications ?? 1_000,
   maxKeywordChanges: flags.maxKeywordChanges ?? 2_000,
   maxCollaborationChanges: flags.maxCollaborationChanges ?? 2_000,
+  maxAiCalls: flags.maxAiCalls ?? 10,
 });
 
 const pollUntil = async <T>(params: {

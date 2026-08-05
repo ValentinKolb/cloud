@@ -15,7 +15,7 @@
  */
 import type { SQL } from "bun";
 import { type WorkflowDependency, type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
-import type { ErasedWorkflowAction } from "../definition";
+import type { ErasedWorkflowAction, WorkflowActionContext } from "../definition";
 import type { DefinedWorkflowModule } from "../module";
 import type {
   WorkflowActionStep,
@@ -163,6 +163,8 @@ export type WorkflowActionPortOptions = {
   budget?: boolean;
   db?: SQL;
   journal?: WorkflowEffectJournalPort;
+  /** App-owned authorization applied to selected shared actions at execution time. */
+  authorize?: (context: WorkflowActionContext, step: WorkflowActionStep) => Promise<boolean>;
 };
 
 /**
@@ -264,6 +266,7 @@ const runDeclaredAction = async (
       // Checked on the transaction's own handle: access can be revoked between
       // queueing and running, and a check on another connection is checking a
       // world this write will not see.
+      if (options.authorize && !(await options.authorize(txCtx, step))) return denied();
       if (action.authorize && !(await action.authorize(txCtx, config as never))) return denied();
       const overspent = await charge(tx);
       if (overspent) return overspent;
@@ -283,7 +286,9 @@ const runDeclaredAction = async (
     });
   }
 
-  if (action.authorize && !(await action.authorize(actionContext(ctx, step, effectKey), config as never))) return denied();
+  const context = actionContext(ctx, step, effectKey);
+  if (options.authorize && !(await options.authorize(context, step))) return denied();
+  if (action.authorize && !(await action.authorize(context, config as never))) return denied();
 
   if (action.effect !== "pure") {
     // Charged per attempt. A replayed in-flight step charges twice, which is
@@ -298,7 +303,7 @@ const runDeclaredAction = async (
 
   let result: Awaited<ReturnType<typeof action.run>>;
   try {
-    result = await action.run(actionContext(ctx, step, effectKey), config as never);
+    result = await action.run(context, config as never);
   } catch (error) {
     if (action.effect !== "ambiguous") throw error;
     // The exception happened after the external effect was marked executing.

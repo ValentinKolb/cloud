@@ -45,6 +45,7 @@ const DEFAULT_BUDGET: WorkflowEffectBudget = {
   maxNotifications: 1_000,
   maxKeywordChanges: 2_000,
   maxCollaborationChanges: 2_000,
+  maxAiCalls: 10,
 };
 
 const STARTER_SOURCE = `inputs:
@@ -95,6 +96,7 @@ function WorkflowEditor(props: {
   const [maxNotifications, setMaxNotifications] = createSignal(initialBudget.maxNotifications ?? DEFAULT_BUDGET.maxNotifications ?? 1_000);
   const [maxKeywordChanges, setMaxKeywordChanges] = createSignal(initialBudget.maxKeywordChanges);
   const [maxCollaborationChanges, setMaxCollaborationChanges] = createSignal(initialBudget.maxCollaborationChanges);
+  const [maxAiCalls, setMaxAiCalls] = createSignal(initialBudget.maxAiCalls);
   const [validation, setValidation] = createSignal<WorkflowValidation | null>(null);
   const [referenceConfiguration, setReferenceConfiguration] = createSignal(props.referenceConfiguration);
   const [validating, setValidating] = createSignal(false);
@@ -112,6 +114,7 @@ function WorkflowEditor(props: {
     maxNotifications: maxNotifications(),
     maxKeywordChanges: maxKeywordChanges(),
     maxCollaborationChanges: maxCollaborationChanges(),
+    maxAiCalls: maxAiCalls(),
   });
 
   const fetchAutocomplete = async (request: WorkflowAutocompleteRequest, signal: AbortSignal): Promise<WorkflowAutocomplete> => {
@@ -389,6 +392,7 @@ function WorkflowEditor(props: {
               min={0}
               max={100_000}
             />
+            <NumberInput label="AI calls" value={maxAiCalls} onValueChange={(value) => setMaxAiCalls(value ?? 0)} min={0} max={1_000} />
           </div>
         </PanelDialog.Section>
       </PanelDialog.Body>

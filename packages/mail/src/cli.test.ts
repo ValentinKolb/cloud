@@ -3612,6 +3612,7 @@ const workflowVersion = {
     maxNotifications: 0,
     maxKeywordChanges: 1,
     maxCollaborationChanges: 0,
+    maxAiCalls: 0,
   },
   languageId: "mail",
   languageVersion: 1,
@@ -3700,6 +3701,8 @@ test("workflow create forwards explicit effect budgets", async () => {
       "20",
       "--max-collaboration-changes",
       "15",
+      "--max-ai-calls",
+      "3",
     ],
     workflowSource,
   );
@@ -3708,7 +3711,7 @@ test("workflow create forwards explicit effect budgets", async () => {
   expect(requestBody as Record<string, unknown> | null).toMatchObject({
     name: "Budgeted workflow",
     source: workflowSource,
-    effectBudget: { maxTargets: 25, maxMoves: 10, maxKeywordChanges: 20, maxCollaborationChanges: 15 },
+    effectBudget: { maxTargets: 25, maxMoves: 10, maxKeywordChanges: 20, maxCollaborationChanges: 15, maxAiCalls: 3 },
   });
 });
 

@@ -502,6 +502,9 @@ const bindAction = (
         }
       }
     }
+  } else if (step.action === "aiGenerateText" || step.action === "aiClassify" || step.action === "aiClassifyMany") {
+    if (config.prompt !== undefined) bindValue(config.prompt, [...path, "prompt"], scope, context);
+    if (config.input !== undefined) bindValue(config.input, [...path, "input"], scope, context);
   } else if (step.action === "setVariable") {
     const value = bindValue(config.value!, [...path, "value"], scope, context);
     defineValue(config.name, value, [...path, "name"], scope, context);

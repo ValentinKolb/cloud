@@ -176,6 +176,7 @@ const workflowBudget = (actions: MailRuleAction[]): WorkflowEffectBudget => ({
   )
     ? 100_000
     : 0,
+  maxAiCalls: 0,
 });
 
 const workflowAction = (action: MailRuleAction): Record<string, unknown> => {

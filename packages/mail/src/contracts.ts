@@ -1464,6 +1464,7 @@ export const workflowEffectBudgetSchema = z
     maxNotifications: z.number().int().min(0).max(50_000).default(1_000),
     maxKeywordChanges: z.number().int().min(0).max(100_000).default(2_000),
     maxCollaborationChanges: z.number().int().min(0).max(100_000).default(2_000),
+    maxAiCalls: z.number().int().min(0).max(1_000).default(10),
   })
   .strict()
   .default({
@@ -1476,6 +1477,7 @@ export const workflowEffectBudgetSchema = z
     maxNotifications: 1_000,
     maxKeywordChanges: 2_000,
     maxCollaborationChanges: 2_000,
+    maxAiCalls: 10,
   });
 type ParsedWorkflowEffectBudget = z.infer<typeof workflowEffectBudgetSchema>;
 export type WorkflowEffectBudget = Omit<

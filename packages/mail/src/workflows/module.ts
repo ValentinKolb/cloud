@@ -1,4 +1,4 @@
-import { defineWorkflowModule, type WorkflowFieldSchema } from "@valentinkolb/cloud/workflows";
+import { AI_WORKFLOW_ACTIONS, defineWorkflowModule, type WorkflowFieldSchema } from "@valentinkolb/cloud/workflows";
 import { MAIL_WORKFLOW_ACTIONS } from "./actions";
 
 const text = (description: string, optional = false, maxLength = 1_000): WorkflowFieldSchema => ({
@@ -66,5 +66,5 @@ export const mailWorkflows = defineWorkflowModule({
       }),
     },
   ],
-  actions: MAIL_WORKFLOW_ACTIONS,
+  actions: { ...MAIL_WORKFLOW_ACTIONS, ...AI_WORKFLOW_ACTIONS },
 });

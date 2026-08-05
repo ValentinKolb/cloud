@@ -170,7 +170,7 @@ const loadScope = async (ctx: Pick<WorkflowActionContext, "runId">, db: SqlClien
   };
 };
 
-const authorized = async (ctx: WorkflowActionContext): Promise<boolean> => {
+export const authorizeMailWorkflowExecution = async (ctx: WorkflowActionContext): Promise<boolean> => {
   try {
     const scope = await loadScope(ctx, (ctx.tx as SqlClient | undefined) ?? sql);
     return mailWorkflowExecutionAuthorityActive(
@@ -183,6 +183,7 @@ const authorized = async (ctx: WorkflowActionContext): Promise<boolean> => {
     return false;
   }
 };
+const authorized = authorizeMailWorkflowExecution;
 
 /**
  * Locks the kernel run and verifies that the step trying to create a provider

@@ -228,6 +228,7 @@ const managedWorkflowBudget = (ensureReference: boolean): WorkflowEffectBudget =
   maxSends: 1,
   maxKeywordChanges: 0,
   maxCollaborationChanges: ensureReference ? 1 : 0,
+  maxAiCalls: 0,
 });
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();

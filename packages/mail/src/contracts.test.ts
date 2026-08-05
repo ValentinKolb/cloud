@@ -614,6 +614,7 @@ describe("mail workflow contracts", () => {
     const created = createWorkflowInputSchema.parse({ name: "Route mail", source });
     expect(created).toMatchObject({ name: "Route mail", source, priority: 100 });
     expect(created.effectBudget.maxTargets).toBe(1_000);
+    expect(created.effectBudget.maxAiCalls).toBe(10);
     expect(createWorkflowInputSchema.safeParse({ name: "Route mail", source, enabled: true }).success).toBe(false);
     expect(createWorkflowVersionInputSchema.safeParse({ name: "Not version metadata", source }).success).toBe(false);
   });

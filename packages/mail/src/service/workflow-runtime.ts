@@ -1,5 +1,6 @@
 import { createRuntimeLifecycle, createRuntimeTaskTracker, logger } from "@valentinkolb/cloud/services";
-import { createWorkflowBuiltinActionPorts, type WorkflowExecutionError } from "@valentinkolb/cloud/workflows";
+import { AI_WORKFLOW_ACTIONS, createWorkflowBuiltinActionPorts, type WorkflowExecutionError } from "@valentinkolb/cloud/workflows";
+import { startWorkflowAiRuntime, stopWorkflowAiRuntime } from "@valentinkolb/cloud/workflows/ai";
 import type { WorkflowExecuteActionPort, WorkflowTracePort } from "@valentinkolb/cloud/workflows/runtime";
 import {
   createWorkflowActionPort,
@@ -10,6 +11,7 @@ import {
 } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { MAIL_WORKFLOW_APP_ID } from "../workflows/events";
+import { authorizeMailWorkflowExecution } from "../workflows/actions";
 import { mailWorkflows } from "../workflows/module";
 import { renderMailLiquidTemplate } from "./template-rendering";
 import { publishMailWorkflowCollaborationEventFromOutput } from "./workflow-collaboration-events";
@@ -22,7 +24,10 @@ const log = logger("mail:workflows");
 const WORKER_INTERVAL_MS = 1_000;
 const workerId = `mail:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
 
-const declaredActions = createWorkflowActionPort(mailWorkflows);
+const aiActionNames = new Set(Object.keys(AI_WORKFLOW_ACTIONS));
+const declaredActions = createWorkflowActionPort(mailWorkflows, {
+  authorize: (context, step) => (aiActionNames.has(step.action) ? authorizeMailWorkflowExecution(context) : Promise.resolve(true)),
+});
 const builtins = createWorkflowBuiltinActionPorts({
   authorize: async (context): Promise<WorkflowExecutionError | undefined> => {
     const [active] = await sql<{ active: boolean }[]>`
@@ -142,15 +147,24 @@ const drainOnce = (): void => {
 const lifecycle = createRuntimeLifecycle({
   start: async () => {
     tasks.open();
-    await startMailWorkflowScheduleRuntime();
-    await wakeExpiredWorkflowRuns(100, { appId: MAIL_WORKFLOW_APP_ID });
-    drainOnce();
-    workerTimer = setInterval(drainOnce, WORKER_INTERVAL_MS);
+    try {
+      await startWorkflowAiRuntime();
+      await startMailWorkflowScheduleRuntime();
+      await wakeExpiredWorkflowRuns(100, { appId: MAIL_WORKFLOW_APP_ID });
+      drainOnce();
+      workerTimer = setInterval(drainOnce, WORKER_INTERVAL_MS);
+    } catch (error) {
+      await stopMailWorkflowScheduleRuntime();
+      stopWorkflowAiRuntime();
+      await tasks.close();
+      throw error;
+    }
   },
   stop: async () => {
     if (workerTimer) clearInterval(workerTimer);
     workerTimer = null;
     await stopMailWorkflowScheduleRuntime();
+    stopWorkflowAiRuntime();
     await tasks.close();
   },
 });

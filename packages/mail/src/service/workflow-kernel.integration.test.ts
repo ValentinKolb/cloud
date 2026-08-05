@@ -36,6 +36,7 @@ const noEffectBudget = {
   maxNotifications: 0,
   maxKeywordChanges: 0,
   maxCollaborationChanges: 0,
+  maxAiCalls: 0,
 };
 
 suite("Mail shared workflow kernel", () => {
@@ -211,6 +212,7 @@ steps:
           maxNotifications: 0,
           maxKeywordChanges: 0,
           maxCollaborationChanges: 0,
+          maxAiCalls: 0,
         },
       },
     });
@@ -829,6 +831,7 @@ steps:
           maxNotifications: 0,
           maxKeywordChanges: 0,
           maxCollaborationChanges: 0,
+          maxAiCalls: 0,
         },
       },
     });
@@ -922,6 +925,7 @@ steps:
           maxNotifications: 0,
           maxKeywordChanges: 0,
           maxCollaborationChanges: 2,
+          maxAiCalls: 0,
         },
       },
     });

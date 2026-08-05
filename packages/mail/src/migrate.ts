@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { migrateWorkflowAi } from "@valentinkolb/cloud/workflows/ai";
 import { canonicalizeSavedViewFilter } from "./saved-view-search-migration";
 import { validateComposeTemplateSource } from "./service/compose-renderer";
 import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./service/search-chunks";
@@ -3962,6 +3963,7 @@ export const migrate = async (): Promise<void> => {
       await acquireMigrationLock(connection);
       locked = true;
       await runMigrations(connection);
+      await migrateWorkflowAi(connection);
       return;
     } catch (error) {
       if (migrationErrorCode(error) !== "55P03" || attempt === 2) throw error;

@@ -856,6 +856,7 @@ suite("conversation references and automatic reply policies", () => {
           maxNotifications: 0,
           maxKeywordChanges: 0,
           maxCollaborationChanges: 0,
+          maxAiCalls: 0,
         },
       },
     });

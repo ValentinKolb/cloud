@@ -137,6 +137,30 @@ describe("declared actions", () => {
     expect(await effectRow(runId)).toMatchObject({ effect_key: null, effect_state: null });
   });
 
+  test("applies app-owned authorization before a shared action runs", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.shared");
+    let calls = 0;
+    const actions = {
+      "probe.shared": workflowAction.idempotent({
+        label: "Shared",
+        description: "Shared action.",
+        config: CONFIG,
+        plan: async () => ({ summary: "shared" }),
+        run: async () => {
+          calls += 1;
+          return { state: "succeeded", output: undefined };
+        },
+      }),
+    };
+    const port = createWorkflowActionPort(workflowModule(actions), { authorize: async () => false });
+
+    await runOneWorkflow({ worker: "w1", runId, actions: port });
+
+    expect(calls).toBe(0);
+    expect((await getWorkflowRun(runId))?.error).toMatchObject({ code: "FORBIDDEN" });
+  });
+
   test("a declared action can park, wake, and resume without losing the signal", async () => {
     if (!(await ready())) return;
     const { runId, appId } = await queued("probe.await");
