@@ -103,6 +103,43 @@ describe("@k2b/ui action runtime behavior", () => {
     dom.cleanup();
   });
 
+  test("keeps split button primary and menu actions independent", async () => {
+    const dom = createDomTestHarness();
+    installPopoverStub();
+    const { SplitButton } = await import("../src/actions/SplitButton");
+    let primaryCalls = 0;
+    let draftCalls = 0;
+
+    const dispose = render(
+      () =>
+        createComponent(SplitButton, {
+          items: [{ label: "Save as draft", action: () => draftCalls++ }],
+          menuLabel: "More send options",
+          onClick: () => primaryCalls++,
+          children: "Send",
+        }),
+      dom.root,
+    );
+
+    dom.root.querySelector<HTMLButtonElement>(".k2b-split-button__primary")?.click();
+    expect(primaryCalls).toBe(1);
+    expect(draftCalls).toBe(0);
+
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-split-button__menu-trigger");
+    trigger?.click();
+    await flush();
+    expect(primaryCalls).toBe(1);
+    expect(dom.root.querySelector<HTMLElement>(".k2b-dropdown__menu")?.matches(":popover-open")).toBe(true);
+
+    dom.root.querySelector<HTMLButtonElement>("[role='menuitem']")?.click();
+    await flush();
+    expect(primaryCalls).toBe(1);
+    expect(draftCalls).toBe(1);
+
+    dispose();
+    dom.cleanup();
+  });
+
   test("switches a DropdownItem reactively between a disabled button and link", async () => {
     const dom = createDomTestHarness();
     const { DropdownItem } = await import("../src/actions/Dropdown");

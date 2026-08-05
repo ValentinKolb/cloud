@@ -26,6 +26,7 @@ const {
   isSpotlightShortcut,
   RemoveButton,
   SegmentedControl,
+  SplitButton,
   SpotlightButton,
   Tabs,
   Toolbar,
@@ -159,6 +160,44 @@ describe("@k2b/ui complete action migrations", () => {
     const aiRule = rule('.k2b-ui .k2b-button[data-variant="ai"]');
     expect(aiRule).toContain("color: var(--k2b-ai-on-solid)");
     expect(aiRule).toContain("background: var(--k2b-ai-solid)");
+  });
+
+  test("renders a split button as separate primary and menu actions", () => {
+    const html = renderToString(() =>
+      createComponent(SplitButton, {
+        items: [{ label: "Save as draft", action: () => {} }],
+        menuLabel: "More send options",
+        size: "sm",
+        variant: "primary",
+        children: "Send",
+      }),
+    );
+
+    expect(html.match(/<button/g)).toHaveLength(3);
+    expect(html).toContain("k2b-split-button__primary");
+    expect(html).toContain("k2b-split-button__menu-trigger");
+    expect(html).toContain('aria-label="More send options"');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain('data-size="sm"');
+    expect(html).toContain('data-variant="primary"');
+    expect(html).toContain("Save as draft");
+    expect(rule(".k2b-ui .k2b-dropdown.k2b-split-button")).toContain("gap: 0");
+  });
+
+  test("disables both split button actions while loading", () => {
+    const html = renderToString(() =>
+      createComponent(SplitButton, {
+        items: [{ label: "Save as draft", action: () => {} }],
+        loading: true,
+        loadingLabel: "Sending",
+        menuLabel: "More send options",
+        children: "Send",
+      }),
+    );
+
+    expect(html).toContain("Sending");
+    expect(html.match(/ disabled/g)).toHaveLength(2);
+    expect(html).toContain('aria-busy="true"');
   });
 
   test("renders navigational actions as styled links", () => {

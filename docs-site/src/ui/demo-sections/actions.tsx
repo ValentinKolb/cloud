@@ -11,6 +11,7 @@ import {
   openSpotlightSearch,
   RemoveButton,
   SegmentedControl,
+  SplitButton,
   SpotlightButton,
   type SpotlightSearchResolver,
   Tabs,
@@ -28,6 +29,7 @@ const ButtonsDemo = () => (
       { kind: "component", name: "ButtonLink", from: "@k2b/ui" },
       { kind: "component", name: "IconButton", from: "@k2b/ui" },
       { kind: "component", name: "IconButtonLink", from: "@k2b/ui" },
+      { kind: "component", name: "SplitButton", from: "@k2b/ui" },
     ]}
     description="Package-native buttons share one variant and size contract. Button defaults to primary, IconButton defaults to ghost, and subtle xs actions suit dense contextual surfaces without masquerading as status badges."
     code={`<Button variant="primary">Save</Button>
@@ -48,7 +50,18 @@ const ButtonsDemo = () => (
 <ButtonLink href="/settings" variant="secondary">Settings</ButtonLink>
 <IconButtonLink href="/settings" label="Open settings">
   <i class="ti ti-external-link" />
-</IconButtonLink>`}
+</IconButtonLink>
+
+<SplitButton
+  onClick={send}
+  menuLabel="More send options"
+  items={[
+    { label: "Save as draft", icon: "ti ti-device-floppy", action: saveDraft },
+    { label: "Send later", icon: "ti ti-clock", action: scheduleSend },
+  ]}
+>
+  <i class="ti ti-send" aria-hidden="true" /> Send
+</SplitButton>`}
   >
     <div class="ui-demo-row">
       <Button variant="primary">Save</Button>
@@ -87,6 +100,16 @@ const ButtonsDemo = () => (
       <IconButtonLink href="#buttons" label="Open button links">
         <i class="ti ti-external-link" aria-hidden="true" />
       </IconButtonLink>
+      <SplitButton
+        onClick={() => {}}
+        menuLabel="More send options"
+        items={[
+          { label: "Save as draft", icon: "ti ti-device-floppy", action: () => {} },
+          { label: "Send later", icon: "ti ti-clock", action: () => {} },
+        ]}
+      >
+        <i class="ti ti-send" aria-hidden="true" /> Send
+      </SplitButton>
     </div>
   </DemoCard>
 );

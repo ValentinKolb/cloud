@@ -37,6 +37,8 @@ export {
 } from "./SpotlightSearch";
 export type { SegmentedControlProps, SegmentOption } from "./SegmentedControl";
 export { SegmentedControl } from "./SegmentedControl";
+export type { SplitButtonProps } from "./SplitButton";
+export { SplitButton } from "./SplitButton";
 export type { TabOption, TabsItemProps, TabsProps } from "./Tabs";
 export { Tabs } from "./Tabs";
 export type { ToolbarGroupProps, ToolbarProps, ToolbarSeparatorProps } from "./Toolbar";

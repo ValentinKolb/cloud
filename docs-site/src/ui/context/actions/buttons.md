@@ -1,6 +1,6 @@
 # Buttons
 
-`Button`, `ButtonLink`, `IconButton`, and `IconButtonLink` provide one semantic action hierarchy with consistent focus, sizing, and variants.
+`Button`, `ButtonLink`, `IconButton`, `IconButtonLink`, and `SplitButton` provide one semantic action hierarchy with consistent focus, sizing, and variants.
 
 ## Use Buttons
 
@@ -9,7 +9,7 @@ Use `primary` for the main forward action, `secondary` for supporting actions, `
 ## Import
 
 ```tsx
-import { Button, ButtonLink, IconButton, IconButtonLink } from "@k2b/ui";
+import { Button, ButtonLink, IconButton, IconButtonLink, SplitButton } from "@k2b/ui";
 ```
 
 ## Example
@@ -32,9 +32,22 @@ import { Button, ButtonLink, IconButton, IconButtonLink } from "@k2b/ui";
 <IconButtonLink href="/settings" label="Open settings">
   <i class="ti ti-external-link" aria-hidden="true" />
 </IconButtonLink>
+
+<SplitButton
+  onClick={send}
+  menuLabel="More send options"
+  items={[
+    { label: "Save as draft", icon: "ti ti-device-floppy", action: saveDraft },
+    { label: "Send later", icon: "ti ti-clock", action: scheduleSend },
+  ]}
+>
+  <i class="ti ti-send" aria-hidden="true" /> Send
+</SplitButton>
 ```
 
 `size` accepts `xs`, `sm`, `md`, or `lg`. `Button` defaults to `primary`; `IconButton` defaults to `ghost`. Loading disables the action, exposes busy semantics, and may replace the visible label through `loadingLabel`.
+
+Use `SplitButton` when one immediate action has closely related alternatives. The main segment remains a native button; the icon-only segment opens the existing `DropdownItem` menu contract. `variant`, `size`, `disabled`, and `loading` apply to both segments. `menuLabel` is required as the secondary trigger's accessible name.
 
 Links use normal document navigation by default. Inside a hydrated SSR workspace, opt into the shared navigation contract explicitly:
 
@@ -46,7 +59,7 @@ Links use normal document navigation by default. Inside a hydrated SSR workspace
 
 ## Accessibility
 
-All matching native button or anchor attributes pass through. The default button `type` is `button`, so form submission stays explicit. `IconButton` and `IconButtonLink` require `label`, which supplies their accessible name and title.
+All matching native button or anchor attributes pass through. The default button `type` is `button`, so form submission stays explicit. `IconButton` and `IconButtonLink` require `label`; `SplitButton` requires `menuLabel`. These labels supply the icon-only control's accessible name and title.
 
 ## Runtime
 

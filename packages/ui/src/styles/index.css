@@ -1029,6 +1029,22 @@
   width: 2.5rem;
 }
 
+.k2b-ui .k2b-dropdown.k2b-split-button {
+  gap: 0;
+}
+
+.k2b-ui .k2b-split-button > .k2b-split-button__primary {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.k2b-ui .k2b-split-button > .k2b-split-button__menu-trigger {
+  margin-inline-start: -1px;
+  border-inline-start-color: color-mix(in srgb, currentColor 24%, transparent);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
 .k2b-ui .k2b-spin {
   animation: k2b-spin 900ms linear infinite;
 }
