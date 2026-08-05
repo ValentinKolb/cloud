@@ -600,6 +600,9 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     test("keeps the workspace surface hierarchy aligned with Cloud", () => {
       expect(rule(".k2b-app-workspace")).toContain("--k2b-workspace-resize-hit-size:1.25rem");
       expect(rule(".k2b-app-workspace")).toContain("background:var(--k2b-surface)");
+      expect(rule(".k2b-app-workspace")).toContain("border:1px solid #0000");
+      expect(css).toContain(".k2b-ui:is([data-theme=dark],.k2b-dark) .k2b-app-workspace");
+      expect(css).toContain("border-color:var(--k2b-border)");
       expect(rule(".k2b-app-workspace__sidebar")).toContain("background:var(--k2b-surface-muted)");
       expect(rule(".k2b-app-workspace__sidebar-desktop")).toContain("display:flex");
       expect(rule(".k2b-app-workspace__sidebar-desktop")).toContain("padding:.5rem");
