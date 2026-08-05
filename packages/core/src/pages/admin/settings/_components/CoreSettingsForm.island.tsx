@@ -148,6 +148,7 @@ const AI_COMPACTION_PROMPT_SETTING_KEY = "ai.compaction_prompt";
 const AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY = "ai.max_tool_result_chars";
 const AI_FIRECRAWL_API_KEY_SETTING_KEY = "ai.firecrawl_api_key";
 const AI_BACKGROUND_MODEL_SETTING_KEY = "ai.background_model_id";
+const AI_WORKFLOW_MODEL_SETTING_KEY = "ai.workflow_model_id";
 const AI_ENRICH_CRON_SETTING_KEY = "ai.enrich_cron";
 
 const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
@@ -159,6 +160,7 @@ const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY,
   AI_FIRECRAWL_API_KEY_SETTING_KEY,
   AI_BACKGROUND_MODEL_SETTING_KEY,
+  AI_WORKFLOW_MODEL_SETTING_KEY,
   AI_ENRICH_CRON_SETTING_KEY,
 ]);
 
@@ -1202,6 +1204,26 @@ function AiSettingsPanel(props: {
             ]}
             icon="ti ti-clock-bolt"
             error={() => props.errorFor(AI_BACKGROUND_MODEL_SETTING_KEY)}
+          />
+
+          <Select
+            label="Workflow model"
+            description="Model used for AI workflow actions. Falls back to the background model when unset."
+            value={() => asString(props.valueOf(AI_WORKFLOW_MODEL_SETTING_KEY))}
+            onValueChange={(value) => props.onChange(AI_WORKFLOW_MODEL_SETTING_KEY, value ?? "")}
+            options={[
+              { id: "", label: "Use background model", icon: "ti ti-sparkles" },
+              ...profiles()
+                .filter((profile) => profile.enabled)
+                .map((profile) => ({
+                  id: profile.id,
+                  label: profile.label,
+                  description: `${providerOption(profile.provider).label} · ${profile.model}`,
+                  icon: "ti ti-sparkles",
+                })),
+            ]}
+            icon="ti ti-route"
+            error={() => props.errorFor(AI_WORKFLOW_MODEL_SETTING_KEY)}
           />
 
           <TextInput

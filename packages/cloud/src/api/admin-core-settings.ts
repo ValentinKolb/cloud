@@ -42,7 +42,14 @@ const AI_PROFILES_KEY = "ai.model_profiles_json";
 const AI_ENABLED_KEY = "ai.enabled";
 const AI_DEFAULT_MODEL_KEY = "ai.default_model_id";
 const AI_BACKGROUND_MODEL_KEY = "ai.background_model_id";
-const AI_CONFIGURATION_KEYS = new Set([AI_ENABLED_KEY, AI_DEFAULT_MODEL_KEY, AI_BACKGROUND_MODEL_KEY, AI_PROFILES_KEY]);
+const AI_WORKFLOW_MODEL_KEY = "ai.workflow_model_id";
+const AI_CONFIGURATION_KEYS = new Set([
+  AI_ENABLED_KEY,
+  AI_DEFAULT_MODEL_KEY,
+  AI_BACKGROUND_MODEL_KEY,
+  AI_WORKFLOW_MODEL_KEY,
+  AI_PROFILES_KEY,
+]);
 const INTEGER_FREEIPA_SETTINGS = new Set(["freeipa.sync_guard.max_user_changes", "freeipa.sync_guard.max_group_deletions"]);
 
 /**
@@ -85,10 +92,11 @@ const prepareAiSettingsMutation = async (
   const keys = [...Object.keys(updates), ...resets];
   if (!keys.some((key) => AI_CONFIGURATION_KEYS.has(key))) return { errors: {} };
 
-  const [currentEnabled, currentDefaultModelId, currentBackgroundModelId, currentProfilesJson] = await Promise.all([
+  const [currentEnabled, currentDefaultModelId, currentBackgroundModelId, currentWorkflowModelId, currentProfilesJson] = await Promise.all([
     settings.get<boolean>(AI_ENABLED_KEY),
     settings.get<string>(AI_DEFAULT_MODEL_KEY),
     settings.get<string>(AI_BACKGROUND_MODEL_KEY),
+    settings.get<string>(AI_WORKFLOW_MODEL_KEY),
     settings.get<string>(AI_PROFILES_KEY),
   ]);
 
@@ -127,6 +135,7 @@ const prepareAiSettingsMutation = async (
     enabled: nextEnabled,
     defaultModelId: String(valueAfterMutation(AI_DEFAULT_MODEL_KEY, currentDefaultModelId ?? "", updates, resets)),
     backgroundModelId: String(valueAfterMutation(AI_BACKGROUND_MODEL_KEY, currentBackgroundModelId ?? "", updates, resets)),
+    workflowModelId: String(valueAfterMutation(AI_WORKFLOW_MODEL_KEY, currentWorkflowModelId ?? "", updates, resets)),
     profiles: nextParsed.profiles,
     credentialProfileIds: keepCredentialProfileIds ?? existingCredentialProfileIds,
   });

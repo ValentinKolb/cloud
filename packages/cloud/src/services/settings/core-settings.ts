@@ -138,6 +138,13 @@ export const CORE_SETTINGS = {
     description: "Model profile id used for background AI jobs (chat enrichment). Empty = platform default model.",
     placeholder: "e.g. openrouter-fast",
   },
+  "ai.workflow_model_id": {
+    kind: "string",
+    label: "Workflow Model ID",
+    default: "",
+    description: "Model profile id used for AI workflow actions. Empty = background model, then platform default.",
+    placeholder: "e.g. openrouter-fast",
+  },
   "ai.enrich_cron": {
     kind: "cron",
     label: "Chat Enrichment Schedule",

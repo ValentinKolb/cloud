@@ -187,6 +187,7 @@ export {
   type RunAiStructuredInput,
   type RunAiStructuredResult,
   resolveAiBackgroundModel,
+  resolveAiWorkflowModel,
   runAiStructured,
 } from "./structured";
 export { aiGlobalInstructionsContext, composeAiSystemPrompt, renderAiGlobalInstructions } from "./system-prompt";

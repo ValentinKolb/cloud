@@ -8,6 +8,14 @@ import { resolveAiModel } from "./settings";
 import type { AiResolvedModel } from "./types";
 
 export const AI_BACKGROUND_MODEL_SETTING_KEY = "ai.background_model_id";
+export const AI_WORKFLOW_MODEL_SETTING_KEY = "ai.workflow_model_id";
+
+export const selectAiWorkflowModelId = (input: {
+  requestedModelId?: string;
+  workflowModelId?: string;
+  backgroundModelId?: string;
+}): string | undefined =>
+  input.requestedModelId?.trim() || input.workflowModelId?.trim() || input.backgroundModelId?.trim() || undefined;
 
 /**
  * Resolve the model for background inference: explicit request →
@@ -17,6 +25,22 @@ export const AI_BACKGROUND_MODEL_SETTING_KEY = "ai.background_model_id";
 export const resolveAiBackgroundModel = async (requestedModelId?: string): Promise<AiResolvedModel> => {
   const backgroundModelId = String((await coreSettings.get<string>(AI_BACKGROUND_MODEL_SETTING_KEY)) ?? "").trim();
   return resolveAiModel({ kind: "selectable" }, requestedModelId?.trim() || backgroundModelId || undefined);
+};
+
+/** Resolve a workflow model: action override → workflow setting → background setting → platform default. */
+export const resolveAiWorkflowModel = async (requestedModelId?: string): Promise<AiResolvedModel> => {
+  const [workflowModelId, backgroundModelId] = await Promise.all([
+    coreSettings.get<string>(AI_WORKFLOW_MODEL_SETTING_KEY),
+    coreSettings.get<string>(AI_BACKGROUND_MODEL_SETTING_KEY),
+  ]);
+  return resolveAiModel(
+    { kind: "selectable" },
+    selectAiWorkflowModelId({
+      requestedModelId,
+      workflowModelId: String(workflowModelId ?? ""),
+      backgroundModelId: String(backgroundModelId ?? ""),
+    }),
+  );
 };
 
 export type RunAiStructuredInput<TOutput extends z.ZodType> = {

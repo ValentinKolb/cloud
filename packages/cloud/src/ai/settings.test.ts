@@ -249,6 +249,7 @@ describe("AI settings admin invariants", () => {
         enabled: true,
         defaultModelId: "local",
         backgroundModelId: "",
+        workflowModelId: "",
         profiles,
         credentialProfileIds: [],
       }),
@@ -261,17 +262,20 @@ describe("AI settings admin invariants", () => {
       enabled: true,
       defaultModelId: "missing",
       backgroundModelId: "missing",
+      workflowModelId: "missing",
       profiles,
       credentialProfileIds: [],
     });
 
     expect(invalid["ai.default_model_id"]).toBeDefined();
     expect(invalid["ai.background_model_id"]).toBeDefined();
+    expect(invalid["ai.workflow_model_id"]).toBeDefined();
     expect(
       validateAiSettingsConfiguration({
         enabled: false,
         defaultModelId: "missing",
         backgroundModelId: "missing",
+        workflowModelId: "missing",
         profiles,
         credentialProfileIds: [],
       }),

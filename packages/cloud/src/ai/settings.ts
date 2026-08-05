@@ -175,6 +175,7 @@ export const validateAiSettingsConfiguration = (input: {
   enabled: boolean;
   defaultModelId: string;
   backgroundModelId: string;
+  workflowModelId: string;
   profiles: readonly AiModelProfile[];
   credentialProfileIds: readonly string[];
 }): Record<string, string> => {
@@ -190,6 +191,11 @@ export const validateAiSettingsConfiguration = (input: {
   if (input.backgroundModelId) {
     const backgroundProfile = input.profiles.find((profile) => profile.id === input.backgroundModelId);
     if (!backgroundProfile?.enabled) errors["ai.background_model_id"] = "Choose an enabled model profile or use the platform default.";
+  }
+
+  if (input.workflowModelId) {
+    const workflowProfile = input.profiles.find((profile) => profile.id === input.workflowModelId);
+    if (!workflowProfile?.enabled) errors["ai.workflow_model_id"] = "Choose an enabled model profile or use the background model.";
   }
 
   const configured = new Set(input.credentialProfileIds);
