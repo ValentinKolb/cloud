@@ -8,6 +8,7 @@ import {
   IconButton,
   IconInput,
   PanelDialog,
+  Placeholder,
   panelDialogOptions,
   prompts,
   TextInput,
@@ -414,7 +415,7 @@ function TableSettingsBody(props: {
             subtitle="These publications delegate the mapped fields to separately permissioned read-only tables."
             icon="ti ti-database-share"
           >
-            <Show when={!publicationsLoading()} fallback={<div class="text-sm text-dimmed">Loading publications…</div>}>
+            <Show when={!publicationsLoading()} fallback={<Placeholder state="loading" align="left" title="Loading publications…" />}>
               <For each={publications()}>
                 {(publication) => (
                   <div class="paper flex items-center gap-3 p-3">

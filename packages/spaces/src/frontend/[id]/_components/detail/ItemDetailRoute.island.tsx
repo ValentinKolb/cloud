@@ -217,9 +217,7 @@ export default function ItemDetailRoute(props: Props) {
           keyed
           fallback={
             loadDetail.loading() ? (
-              <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-                <i class="ti ti-loader-2 animate-spin text-sm" /> Loading item details
-              </p>
+              <Placeholder state="loading" title="Loading item details" />
             ) : (
               <Placeholder icon="ti ti-click" description={<>Select an item to view details</>} />
             )

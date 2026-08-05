@@ -465,7 +465,7 @@ export default function MailOperationalSettings(props: {
                 }}
               </For>
               <Show when={status().recentCommands.length === 0}>
-                <Show when={status().sync.lastAt} fallback={<p class="px-3 py-4 text-sm text-dimmed">No maintenance activity yet.</p>}>
+                <Show when={status().sync.lastAt} fallback={<Placeholder align="left" description="No maintenance activity yet." />}>
                   {(lastAt) => (
                     <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5">
                       <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center">

@@ -1,5 +1,5 @@
 import { clipboard, hotkeys } from "@k2b/stdlib/solid";
-import { Button, IconButton, IconButtonLink, MarkdownView, prompts } from "@k2b/ui";
+import { Button, IconButton, IconButtonLink, MarkdownView, Placeholder, prompts } from "@k2b/ui";
 import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { appAccentStyle } from "./app-appearance";
@@ -693,10 +693,7 @@ const HelpShell = (props: {
             </p>
             <TopicList items={results()} />
             <Show when={results().length === 0 && !searching()}>
-              <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-6 text-center">
-                <i class="ti ti-search-off text-xl text-dimmed" />
-                <p class="mt-2 text-sm font-medium">No help topic matches this search.</p>
-              </div>
+              <Placeholder icon="ti ti-search-off" title="No help topic matches this search." />
             </Show>
           </div>
         </Show>
@@ -740,9 +737,7 @@ const HelpShell = (props: {
               <Show when={topic().kind === "content"}>{legacyTopicContent(topic())}</Show>
               <Show when={topic().kind === "document"}>
                 <Show when={loading()}>
-                  <div class="flex flex-1 items-center justify-center gap-2 py-8 text-sm text-dimmed" role="status">
-                    <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Loading help…
-                  </div>
+                  <Placeholder state="loading" variant="panel" title="Loading help…" />
                 </Show>
                 <Show when={loadError()}>
                   {(message) => (

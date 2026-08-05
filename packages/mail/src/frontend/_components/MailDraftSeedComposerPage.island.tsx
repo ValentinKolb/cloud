@@ -22,7 +22,7 @@ export default function MailDraftSeedComposerPage(props: {
   return (
     <Show
       when={seed() !== undefined}
-      fallback={<div class="flex h-full items-center justify-center text-sm text-dimmed">Preparing message...</div>}
+      fallback={<Placeholder state="loading" variant="panel" class="h-full" title="Preparing message..." />}
     >
       <Show
         when={seed()}

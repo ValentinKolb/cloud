@@ -166,7 +166,7 @@ function SearchIndexSection(props: { conversationId: string }) {
           getRowId={(run) => run.id}
           density="compact"
           class="max-h-48 overflow-auto rounded-md"
-          empty={<p class="px-3 py-4 text-xs text-dimmed">No index runs yet.</p>}
+          empty="No index runs yet."
           renderCell={({ row, col, value, render }) => {
             if (col.id === "status") {
               const badge = RUN_STATUS_BADGES[row.status];

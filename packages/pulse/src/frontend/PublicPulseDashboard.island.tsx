@@ -1,4 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
+import { Placeholder } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import type { PulseDashboardSnapshot } from "../contracts";
 import { jsonFetch } from "./http";
@@ -131,7 +132,7 @@ export default function PublicPulseDashboard(props: Props) {
 
         <Show
           when={snapshot().dashboard.config.layout?.sections.length}
-          fallback={<p class="paper p-8 text-center text-sm text-dimmed">This dashboard has no widgets.</p>}
+          fallback={<Placeholder surface="paper" variant="panel" title="This dashboard has no widgets." />}
         >
           <section class={`space-y-6 ${props.displayHeight === "full" ? "min-h-0 flex-1 overflow-hidden" : ""}`}>
             <PublicDashboardSections snapshot={snapshot()} dateContext={dateContext()} />

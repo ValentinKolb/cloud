@@ -148,12 +148,11 @@ export default ssr<AuthContext>(async (c) => {
                 readOnly={readonlyMode}
               />
             ) : (
-              <div class="flex-1 flex items-center justify-center">
-                <p class="flex items-center gap-1.5 text-xs text-dimmed">
-                  <i class="ti ti-file-text text-sm" />
-                  {tree.length === 0 ? "No notes yet" : "Select a note to collaborate"}
-                </p>
-              </div>
+              <Placeholder
+                class="flex-1"
+                icon="ti ti-file-text"
+                description={tree.length === 0 ? "No notes yet" : "Select a note to collaborate"}
+              />
             )}
           </AppWorkspace.Main>
 

@@ -1,5 +1,5 @@
 import { dates } from "@k2b/stdlib";
-import { ButtonLink } from "@k2b/ui";
+import { ButtonLink, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, audit, coreSettings, notifications, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
@@ -181,9 +181,7 @@ export default ssr<AuthContext>(async (c) => {
                 ))}
               </div>
             ) : (
-              <p class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 text-xs text-dimmed">
-                No recent account activity.
-              </p>
+              <Placeholder align="left" description="No recent account activity." />
             )}
           </section>
         </div>

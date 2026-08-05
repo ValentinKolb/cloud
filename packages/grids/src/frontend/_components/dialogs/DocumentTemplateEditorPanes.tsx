@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Panes, type PanesValue, PdfPreview, TemplateEditor, type TemplateVariable, Button } from "@k2b/ui";
+import { Panes, type PanesValue, PdfPreview, Placeholder, TemplateEditor, type TemplateVariable, Button } from "@k2b/ui";
 import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
@@ -164,7 +164,7 @@ export function DocumentTemplateEditorPanes(props: Props) {
             fallback={<div class="p-3 text-sm text-dimmed">Save the template before configuring document access.</div>}
           >
             {(savedTemplate) => (
-              <Show when={!props.accessLoading()} fallback={<div class="p-3 text-sm text-dimmed">Loading access…</div>}>
+              <Show when={!props.accessLoading()} fallback={<Placeholder state="loading" align="left" title="Loading access…" />}>
                 <Show
                   when={!props.accessError() && props.accessEntries()}
                   fallback={

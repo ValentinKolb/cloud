@@ -1,4 +1,4 @@
-import { Button, Chart, DataTable, MarkdownView, Select, TextInput } from "@k2b/ui";
+import { Button, Chart, DataTable, MarkdownView, Placeholder, Select, TextInput } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { type Accessor, createMemo, For, Show } from "solid-js";
 import type {
@@ -456,9 +456,12 @@ export const DashboardContent = (props: {
     <Show
       when={currentConfig()}
       fallback={
-        <div class="paper flex flex-1 items-center justify-center p-8 text-center text-sm text-dimmed">
-          {props.empty ?? "Open the dashboard editor to add the first widget."}
-        </div>
+        <Placeholder
+          surface="paper"
+          variant="panel"
+          class="flex-1"
+          description={props.empty ?? "Open the dashboard editor to add the first widget."}
+        />
       }
     >
       {(config) => (

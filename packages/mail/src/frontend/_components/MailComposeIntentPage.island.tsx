@@ -157,9 +157,7 @@ export default function MailComposeIntentPage(props: {
   return (
     <div class="relative flex h-full min-h-0 items-start justify-center overflow-y-auto p-3 sm:p-6">
       <Show when={autoStartPending()}>
-        <div class="absolute inset-0 flex items-center justify-center gap-2 text-sm text-dimmed" role="status">
-          <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Preparing message...
-        </div>
+        <Placeholder state="loading" variant="panel" class="absolute inset-0" title="Preparing message..." />
       </Show>
       <section
         class="paper mt-[8vh] flex w-full max-w-xl flex-col gap-4 p-4 sm:p-6"

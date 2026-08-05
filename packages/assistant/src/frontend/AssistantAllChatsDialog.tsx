@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, dialogCore, PanelDialog, panelDialogFixedOptions, SegmentedControl, TextInput } from "@k2b/ui";
+import { Button, dialogCore, PanelDialog, panelDialogFixedOptions, Placeholder, SegmentedControl, TextInput } from "@k2b/ui";
 import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
@@ -141,9 +141,11 @@ function AssistantAllChatsDialog(props: {
         <Show
           when={result() && result()!.items.length > 0}
           fallback={
-            <div class="flex min-h-40 items-center justify-center px-4 py-8 text-sm text-dimmed">
-              {load.loading() && !result() ? "Loading chats…" : emptyViewText(view(), query().trim())}
-            </div>
+            <Placeholder
+              state={load.loading() && !result() ? "loading" : "empty"}
+              variant="panel"
+              title={load.loading() && !result() ? "Loading chats…" : emptyViewText(view(), query().trim())}
+            />
           }
         >
           <AssistantAllChatsList

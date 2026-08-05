@@ -1,4 +1,4 @@
-import { CopyButton, type TemplateVariable } from "@k2b/ui";
+import { CopyButton, Placeholder, type TemplateVariable } from "@k2b/ui";
 import { createMemo, For, Show } from "solid-js";
 
 type DocumentDataTreeRow = {
@@ -82,13 +82,13 @@ export function DocumentDataTree(props: {
   const rows = createMemo(() => dataTreeRows(props.data()));
   return (
     <section class="min-h-0 flex-1 overflow-auto">
-      <Show when={!props.loading()} fallback={<div class="p-3 text-sm text-dimmed">Loading preview data...</div>}>
+      <Show when={!props.loading()} fallback={<Placeholder state="loading" align="left" title="Loading preview data..." />}>
         <Show
           when={props.error()}
           fallback={
             <Show
               when={rows().length > 0}
-              fallback={<div class="p-3 text-sm text-dimmed">Choose a preview record to inspect available template data.</div>}
+              fallback={<Placeholder align="left" description="Choose a preview record to inspect available template data." />}
             >
               <div class="flex flex-col gap-1 p-1 text-xs">
                 <For each={rows()}>
@@ -125,13 +125,13 @@ export function RenderedDocumentSource(props: { source: () => string | null; loa
   const sourceText = () => props.source() ?? "";
   return (
     <section class="relative min-h-0 flex-1 overflow-hidden">
-      <Show when={!props.loading()} fallback={<div class="p-3 text-sm text-dimmed">Rendering source...</div>}>
+      <Show when={!props.loading()} fallback={<Placeholder state="loading" align="left" title="Rendering source..." />}>
         <Show
           when={props.error()}
           fallback={
             <Show
               when={sourceText()}
-              fallback={<div class="p-3 text-sm text-dimmed">Choose a preview record to inspect rendered GQL.</div>}
+              fallback={<Placeholder align="left" description="Choose a preview record to inspect rendered GQL." />}
             >
               <pre class="h-full overflow-auto whitespace-pre-wrap p-3 pr-20 font-mono text-xs leading-relaxed text-secondary">
                 {sourceText()}

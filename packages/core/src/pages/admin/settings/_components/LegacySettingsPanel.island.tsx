@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, DataTable, type DataTableColumn, prompts, SettingsSection, toast } from "@k2b/ui";
+import { Button, DataTable, type DataTableColumn, Placeholder, prompts, SettingsSection, toast } from "@k2b/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { createResource, Show } from "solid-js";
@@ -90,7 +90,7 @@ export function LegacySettingsSection() {
         </Button>
       }
     >
-      <Show when={!legacySettings.loading} fallback={<div class="p-3 text-xs text-dimmed">Loading legacy settings...</div>}>
+      <Show when={!legacySettings.loading} fallback={<Placeholder state="loading" align="left" title="Loading legacy settings..." />}>
         <DataTable
           rows={legacySettings() ?? []}
           columns={columns}

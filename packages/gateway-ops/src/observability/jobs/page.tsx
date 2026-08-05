@@ -445,7 +445,7 @@ const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHre
         <h3 class="detail-section-label">Events</h3>
         <div class="flex flex-col gap-1.5">
           {props.events.length === 0 ? (
-            <p class="text-[11px] text-dimmed">No events recorded for this run.</p>
+            <Placeholder align="left" description="No events recorded for this run." />
           ) : (
             props.events.map((event) => (
               <article class="rounded-md border border-zinc-100 p-2 dark:border-zinc-800">

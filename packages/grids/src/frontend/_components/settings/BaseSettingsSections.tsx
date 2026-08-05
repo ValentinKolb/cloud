@@ -199,17 +199,13 @@ export function TrashSection(props: { baseId: string }) {
   };
 
   return (
-    <Show when={!trash.loading} fallback={<p class="text-xs text-dimmed">Loading…</p>}>
+    <Show when={!trash.loading} fallback={<Placeholder state="loading" align="left" title="Loading…" />}>
       <Show
         when={
           trash() &&
           (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.dashboards.length > 0 || trash()!.forms.length > 0)
         }
-        fallback={
-          <Placeholder align="left" class="px-0 py-1" description={<>
-            Trash is empty.
-          </>} />
-        }
+        fallback={<Placeholder align="left" class="px-0 py-1" description={<>Trash is empty.</>} />}
       >
         <div class="flex flex-col gap-4">
           <Show when={trash()!.tables.length > 0}>
@@ -391,9 +387,11 @@ export function DefaultDashboardSelect(props: { baseId: string; initial: string 
 
   if (props.dashboards.length === 0) {
     return (
-      <Placeholder align="left" class="px-0 py-1" description={<>
-        No dashboards on this base yet. Create one from the records sidebar to enable this setting.
-      </>} />
+      <Placeholder
+        align="left"
+        class="px-0 py-1"
+        description={<>No dashboards on this base yet. Create one from the records sidebar to enable this setting.</>}
+      />
     );
   }
 

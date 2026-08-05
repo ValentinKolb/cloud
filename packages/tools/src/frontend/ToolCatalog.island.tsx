@@ -1,4 +1,4 @@
-import { TextInput } from "@k2b/ui";
+import { Placeholder, TextInput } from "@k2b/ui";
 import { fuzzy } from "@k2b/stdlib";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { taskGroupOrder, taskGroups, tools, toolSearchText, type ToolDef, type ToolTaskGroup } from "./tools/registry";
@@ -95,13 +95,7 @@ export default function ToolCatalog() {
         <Show
           when={matches().length > 0}
           fallback={
-            <div class="rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] px-4 py-8 text-center">
-              <div class="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-[var(--ui-radius-control)] border border-[var(--ui-state-icon-border)] bg-[var(--ui-state-icon-surface)] text-dimmed">
-                <i class="ti ti-search-off text-base" />
-              </div>
-              <p class="text-sm font-medium text-primary">No tools match this task</p>
-              <p class="mt-0.5 text-xs text-dimmed">Try a tool name, format, or action.</p>
-            </div>
+            <Placeholder icon="ti ti-search-off" title="No tools match this task" description="Try a tool name, format, or action." />
           }
         >
           <div class="grid gap-x-5 gap-y-4 lg:grid-cols-2">

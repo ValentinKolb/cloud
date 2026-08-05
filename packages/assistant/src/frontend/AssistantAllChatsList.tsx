@@ -1,6 +1,6 @@
 import { Link, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { IconButton, prompts, Tooltip } from "@k2b/ui";
+import { IconButton, Placeholder, prompts, Tooltip } from "@k2b/ui";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -118,7 +118,7 @@ export default function AssistantAllChatsList(props: Props) {
         )}
       </For>
       <Show when={conversations().length === 0}>
-        <div class="px-2 py-6 text-sm text-dimmed">No chats left on this page.</div>
+        <Placeholder align="left" description="No chats left on this page." />
       </Show>
     </div>
   );

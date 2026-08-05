@@ -1,4 +1,4 @@
-import { Button, IconButton, Tooltip } from "@k2b/ui";
+import { Button, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { type DndBuildIntentContext, dnd } from "@k2b/stdlib/solid";
 import { createMemo, For, onCleanup, Show } from "solid-js";
@@ -605,16 +605,18 @@ function CellRenderer(props: {
 
 function EmptyDashboardState(props: { edit?: Props["edit"] }) {
   return (
-    <div class="flex min-h-40 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-      <i class="ti ti-layout-dashboard text-2xl text-dimmed" />
-      <p class="text-sm font-medium text-primary">Nothing here yet</p>
-      <Show when={props.edit} fallback={<p class="text-xs text-dimmed">Open edit mode to build this dashboard.</p>}>
-        {(edit) => (
-          <Button variant="success" size="sm" type="button" class="mt-1" onClick={edit().onAddFirstWidget}>
+    <Placeholder
+      icon="ti ti-layout-dashboard"
+      variant="panel"
+      title="Nothing here yet"
+      description={!props.edit ? "Open edit mode to build this dashboard." : undefined}
+      action={
+        props.edit ? (
+          <Button variant="success" size="sm" type="button" class="mt-1" onClick={props.edit.onAddFirstWidget}>
             <i class="ti ti-plus" /> Add first widget
           </Button>
-        )}
-      </Show>
-    </div>
+        ) : undefined
+      }
+    />
   );
 }

@@ -450,7 +450,7 @@ export default function HealthWebhooksPanel() {
 
       <Show
         when={!webhooks.loading && !webhooks.error}
-        fallback={webhooks.error ? null : <div class="paper p-4 text-sm text-dimmed">Loading webhooks...</div>}
+        fallback={webhooks.error ? null : <Placeholder state="loading" surface="paper" title="Loading webhooks..." />}
       >
         <DataTable
           rows={webhooks() ?? []}

@@ -1,4 +1,4 @@
-import { AutocompleteEditor, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue, Button } from "@k2b/ui";
+import { AutocompleteEditor, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue, Button, Placeholder } from "@k2b/ui";
 import type { Accessor } from "solid-js";
 import { Show } from "solid-js";
 import type { ComposePreview } from "../../contracts";
@@ -65,7 +65,7 @@ export default function MailComposerEditor(props: {
         fallback={
           <Show
             when={props.previewError()}
-            fallback={<div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Preparing preview...</div>}
+            fallback={<Placeholder state="loading" variant="panel" class="h-full min-h-72" title="Preparing preview..." />}
           >
             {(message) => (
               <div class="flex h-full min-h-72 flex-col items-center justify-center gap-2 p-4 text-sm text-red-600">

@@ -151,14 +151,10 @@ const SettingsBody = (props: { close: () => void }) => {
       />
       <PanelDialog.Body>
         <PanelDialog.Section title="Settings" subtitle="Registered Notebooks settings and their current values." icon="ti ti-adjustments">
-          <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings...</p>}>
+          <Show when={!entries.loading} fallback={<Placeholder state="loading" align="left" title="Loading settings..." />}>
             <Show
               when={(entries() ?? []).length > 0}
-              fallback={
-                <Placeholder align="left" class="px-0 py-2" description={<>
-                  No notebooks-app settings registered.
-                </>} />
-              }
+              fallback={<Placeholder align="left" class="px-0 py-2" description={<>No notebooks-app settings registered.</>} />}
             >
               <div class="flex flex-col gap-3">
                 <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}</For>

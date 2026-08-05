@@ -297,7 +297,7 @@ export default function MailConversationContext(props: {
   return (
     <section class="detail-section">
       <h3 class="detail-section-label">Contacts</h3>
-      <Show when={loaded()} fallback={<p class="text-xs text-dimmed">Loading contacts...</p>}>
+      <Show when={loaded()} fallback={<Placeholder state="loading" align="left" title="Loading contacts..." />}>
         <Show
           when={!error()}
           fallback={<Placeholder title="Contacts unavailable" description={error() ?? ""} icon="ti ti-address-book-off" />}

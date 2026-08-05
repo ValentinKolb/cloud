@@ -4,6 +4,7 @@ import {
   dialogCore,
   isStructuredDataValue,
   PanelDialog,
+  Placeholder,
   PdfPreview,
   panelDialogOptions,
   prompts,
@@ -311,7 +312,7 @@ export default function RecordDocumentsSection(props: {
             </Show>
           </div>
           <Show when={manualSnapshots().length === 0}>
-            <p class="text-sm text-dimmed">No snapshots yet.</p>
+            <Placeholder align="left" description="No snapshots yet." />
           </Show>
           <For each={manualSnapshots()}>
             {(snapshot) => (
@@ -353,7 +354,7 @@ export default function RecordDocumentsSection(props: {
             </Show>
           </div>
           <Show when={generatedRuns().length === 0}>
-            <p class="text-sm text-dimmed">No generated documents yet.</p>
+            <Placeholder align="left" description="No generated documents yet." />
           </Show>
           <For each={generatedRuns()}>
             {(run) => (

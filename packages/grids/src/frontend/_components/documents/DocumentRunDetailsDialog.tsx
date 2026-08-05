@@ -1,4 +1,15 @@
-import { Button, dialogCore, IconButton, PanelDialog, panelDialogOptions, prompts, StatusBadge, TagsInput, TextInput } from "@k2b/ui";
+import {
+  Button,
+  dialogCore,
+  IconButton,
+  PanelDialog,
+  panelDialogOptions,
+  Placeholder,
+  prompts,
+  StatusBadge,
+  TagsInput,
+  TextInput,
+} from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -109,14 +120,14 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
               </Button>
             </div>
             <div class="flex flex-col gap-1">
-              <Show when={!links.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading links...</div>}>
+              <Show when={!links.loading} fallback={<Placeholder state="loading" align="left" title="Loading links..." />}>
                 <Show
                   when={!links.error}
                   fallback={<div class="p-3 text-sm text-red-600">{links.error?.message ?? "Could not load links."}</div>}
                 >
                   <Show
                     when={(links() ?? []).length > 0}
-                    fallback={<div class="p-3 text-sm text-dimmed">No public links for this document.</div>}
+                    fallback={<Placeholder align="left" description="No public links for this document." />}
                   >
                     <For each={links()}>
                       {(link) => {
