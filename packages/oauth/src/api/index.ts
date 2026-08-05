@@ -1,5 +1,5 @@
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@k2b/stdlib";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -7,8 +7,8 @@ import {
   CreateOAuthClientSchema,
   ErrorResponseSchema,
   MessageResponseSchema,
-  OAuthClientSchema,
   OAuthClientParamSchema,
+  OAuthClientSchema,
   OAuthClientWithSecretSchema,
   UpdateOAuthClientSchema,
 } from "@/contracts";
@@ -156,8 +156,10 @@ const app = new Hono<AuthContext>()
     v("param", OAuthClientParamSchema),
     async (c) => {
       const { id } = c.req.valid("param");
+      const user = getUserBackedActor(c);
+      if (!user) return respond(c, fail(err.forbidden("OAuth client management requires a user-backed actor")));
 
-      return respondMessage(c, oauthService.client.remove({ id }), "Client deleted");
+      return respondMessage(c, oauthService.client.remove({ id, actor: user }), "Client deleted");
     },
   )
 

@@ -19,10 +19,10 @@ export default function McpSetup(props: { endpoint: string }) {
   return (
     <div class="flex flex-col gap-4">
       <Snippet label="Endpoint" value={snippets.endpoint} />
+      <Snippet label="Codex with browser login" value={snippets.codexOAuth} />
+      <Snippet label="Claude Code with browser login" value={snippets.claudeOAuth} />
       <Snippet label="Codex with API key" value={snippets.codexApiKey} />
       <Snippet label="Claude Code with API key" value={snippets.claudeApiKey} />
-      <Snippet label="Codex with preregistered OAuth client" value={snippets.codexOAuth} />
-      <Snippet label="Claude Code with preregistered OAuth client" value={snippets.claudeOAuth} />
     </div>
   );
 }

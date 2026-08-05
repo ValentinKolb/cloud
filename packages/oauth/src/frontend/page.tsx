@@ -17,10 +17,11 @@ export default ssr<AuthContext>(async (c) => {
   const baseUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
 
   const publicClients = clients.filter((client) => client.isPublic).length;
-  const confidentialClients = clients.length - publicClients;
+  const dynamicClients = clients.filter((client) => client.registrationKind === "dynamic").length;
   type ClientRow = (typeof clients)[number];
   const columns: DataTableColumn<ClientRow>[] = [
     { id: "client", header: "Client", value: (client) => client.name },
+    { id: "registration", header: "Registration", value: (client) => client.registrationKind },
     { id: "description", header: "Description", value: (client) => client.description, cellClass: "max-w-[18rem]" },
     { id: "type", header: "Type", value: (client) => client.isPublic },
     { id: "access", header: "Access", value: (client) => client.accessMode },
@@ -46,7 +47,7 @@ export default ssr<AuthContext>(async (c) => {
         <StatGrid columns={3}>
           <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-key" }} />
           <StatCell label="Public" value={publicClients} sub="PKCE, no secret" />
-          <StatCell label="Confidential" value={confidentialClients} sub="with secret" accent={{ tone: "emerald", icon: "ti ti-lock" }} />
+          <StatCell label="Dynamic" value={dynamicClients} sub="browser consent" accent={{ tone: "emerald", icon: "ti ti-world" }} />
         </StatGrid>
 
         <div class="flex justify-end">
@@ -69,6 +70,15 @@ export default ssr<AuthContext>(async (c) => {
                       {client.description || <span class="italic">No description</span>}
                     </span>
                   );
+                }
+                if (col.id === "registration") {
+                  const label =
+                    client.registrationKind === "first_party"
+                      ? "First-party"
+                      : client.registrationKind === "dynamic"
+                        ? "Dynamic"
+                        : "Managed";
+                  return <span class="text-dimmed">{label}</span>;
                 }
                 if (col.id === "type") {
                   return (
@@ -120,9 +130,10 @@ export default ssr<AuthContext>(async (c) => {
             />
           </section>
         ) : (
-          <Placeholder surface="paper" description={<>
-            No OAuth clients found. Create one to allow external applications to authenticate users.
-          </>} />
+          <Placeholder
+            surface="paper"
+            description={<>No OAuth clients found. Create one to allow external applications to authenticate users.</>}
+          />
         )}
 
         <section class="info-block-info p-4" style="view-transition-name: admin-oauth-reference">
@@ -151,6 +162,10 @@ export default ssr<AuthContext>(async (c) => {
             <div class="flex flex-col gap-0.5">
               <span class="opacity-70">Token Endpoint URL:</span>
               <code class="break-all">{baseUrl}/oauth/token</code>
+            </div>
+            <div class="flex flex-col gap-0.5">
+              <span class="opacity-70">Dynamic Registration Endpoint URL:</span>
+              <code class="break-all">{baseUrl}/oauth/register</code>
             </div>
             <div class="flex flex-col gap-0.5">
               <span class="opacity-70">User Info Endpoint URL:</span>

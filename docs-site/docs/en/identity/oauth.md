@@ -5,7 +5,7 @@ section: Identity and access
 order: 355
 description: Configure OAuth clients and choose authorization code or client credentials.
 tags: [identity, oauth, oidc]
-updated: 2026-08-04
+updated: 2026-08-05
 ---
 
 # OAuth clients and flows
@@ -15,6 +15,13 @@ credentials when a service acts on one application resource.
 
 Both flows use the platform identity model. Applications receive `actor` and
 `accessSubject`; they do not verify OAuth tokens themselves.
+
+Cloud has three client origins:
+
+- `managed`: created and configured by an administrator;
+- `first_party`: seeded by Cloud and protected from editing or deletion;
+- `dynamic`: untrusted public clients registered automatically through RFC
+  7591 and authorized through explicit user consent.
 
 ## Authorization-code flow
 
@@ -40,6 +47,12 @@ The authorization request accepts:
 | `code_challenge_method` | With challenge | `S256` for public clients; `S256` or `plain` for confidential clients |
 
 Public clients must use PKCE with `S256`.
+
+Dynamic clients additionally require an explicit `resource` on the same Cloud
+origin. Before issuing a code, Cloud shows the resource owner the client name,
+callback host, exact resource, and requested scopes. Approval and denial are
+single-use and expire after five minutes. Authorization responses include the
+issuer identifier so clients can reject mix-up attacks.
 
 Exchange the returned code:
 
@@ -126,10 +139,39 @@ Supported scopes:
 openid profile email groups offline_access read write admin
 ```
 
+Automatic discovery advertises only the delegated dynamic-client subset:
+`openid profile email offline_access read write`. The privacy-sensitive
+`groups` scope and privileged `admin` scope remain available only to explicitly
+configured managed or first-party clients.
+
 Scope, audience, redirect, user, and group lists accept at most 50 entries.
 
 `serviceAccountId` is valid only for an active resource-bound service account.
 Clients with a service-account binding must be confidential.
+
+## Register a dynamic public client
+
+OAuth clients that do not have a prior relationship with the Cloud instance
+can discover `registration_endpoint` in the OpenID configuration and send RFC
+7591 metadata to:
+
+```text
+POST /oauth/register
+```
+
+Cloud accepts authorization-code public clients only. A request must use JSON,
+contain one to ten exact callback URIs, use `token_endpoint_auth_method: none`,
+and request only `authorization_code` and optional `refresh_token` grants.
+Callbacks must use HTTPS or HTTP on `localhost`, `127.0.0.1`, or `::1`; user
+information, fragments, and embedded credentials are rejected. Optional
+`application_type` values are `native` and `web`.
+
+Dynamic registration does not grant access. The later authorization request
+must use PKCE `S256`, an explicit same-origin resource, allowed scopes, and
+browser consent. Access tokens stay bound to that exact audience. Administrators
+can identify and revoke dynamic clients from **Admin → OAuth**; revocation also
+invalidates existing access and refresh tokens. Abandoned dynamic registrations
+that never start authorization are cleaned up automatically.
 
 ## Restrict authorization
 

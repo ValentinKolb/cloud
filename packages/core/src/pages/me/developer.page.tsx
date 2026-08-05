@@ -38,11 +38,11 @@ export default ssr<AuthContext>(async (c) => {
             <McpSetup endpoint={mcpResource} />
             <div class="mt-4 flex flex-col gap-2 text-xs text-dimmed">
               <p>
-                OAuth is available when an administrator has preregistered your client ID, exact callback URI, and the MCP endpoint as an
-                allowed audience. This release intentionally does not register MCP clients dynamically.
+                Browser login registers a public OAuth client automatically. Review the client name, requested scopes, callback host, and
+                this Cloud resource before allowing access.
               </p>
               <p>
-                For immediate personal use, create an API key below and set it as{" "}
+                If your MCP client does not support browser login, create an API key below and set it as{" "}
                 <code class="font-mono text-secondary">CLOUD_API_KEY</code>. Claude Code stores the header in its local MCP configuration,
                 so use a dedicated expiring key.
               </p>

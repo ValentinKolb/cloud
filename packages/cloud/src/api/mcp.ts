@@ -600,7 +600,7 @@ export const createMcpProtectedResourceRoutes = (dependencies: Pick<McpRouteDepe
     return c.json({
       resource: cloudMcpResourceUri(appUrl),
       authorization_servers: [origin],
-      scopes_supported: ["read", "write"],
+      scopes_supported: ["read", "write", "offline_access"],
       bearer_methods_supported: ["header"],
       resource_name: "Cloud MCP",
     });

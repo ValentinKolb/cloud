@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createMcpRoutes } from "@valentinkolb/cloud/api";
-import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, v } from "@valentinkolb/cloud/server";
 import { oauthTokens, serviceAccounts } from "@valentinkolb/cloud/services";
 import { redis, sql } from "bun";
 import { Hono } from "hono";
 import * as jose from "jose";
+import { ConsentDecisionSchema, completeConsent } from "../frontend/consent-action";
 import { migrate } from "../migrate";
 import oauthRoutes from "../oauth";
 import { oauth } from "./oauth";
@@ -90,6 +91,15 @@ const actorProbe = () =>
       accessSubject: c.get("accessSubject"),
     });
   });
+
+const consentActionRoutes = () =>
+  new Hono<AuthContext>().post(
+    "/oauth/consent",
+    auth.requireRole("authenticated"),
+    auth.requireUser(),
+    v("form", ConsentDecisionSchema),
+    (c) => completeConsent(c, c.req.valid("form")),
+  );
 
 suite("OAuth resource access tokens", () => {
   test("authorization-code access tokens resolve as user actors in Core auth", async () => {
@@ -230,7 +240,9 @@ suite("OAuth resource access tokens", () => {
       expect(authorizeResponse.status).toBe(302);
       const location = authorizeResponse.headers.get("location");
       expect(location).toBeTruthy();
-      const code = new URL(location!).searchParams.get("code");
+      const authorizationResult = new URL(location!);
+      expect(authorizationResult.searchParams.get("iss")).toBe("http://localhost:3000");
+      const code = authorizationResult.searchParams.get("code");
       expect(code).toBeTruthy();
 
       const consumed = await oauth.codes.consume({
@@ -357,6 +369,7 @@ suite("OAuth resource access tokens", () => {
       accessMode: "profiles",
       accessUsers: [],
       accessGroups: [],
+      registrationKind: "managed",
       isPublic: true,
       createdAt: new Date().toISOString(),
       createdBy: null,
@@ -377,13 +390,330 @@ suite("OAuth resource access tokens", () => {
     expect(configuration.grant_types_supported).toContain("authorization_code");
     expect(configuration.grant_types_supported).toContain("refresh_token");
     expect(configuration.scopes_supported).toContain("offline_access");
+    expect(configuration.scopes_supported).not.toContain("groups");
+    expect(configuration.scopes_supported).not.toContain("admin");
     expect(configuration.token_endpoint_auth_methods_supported).toContain("none");
+    expect(configuration.registration_endpoint).toBe("https://cloud.example.test/oauth/register");
     expect(configuration.revocation_endpoint).toBe("https://cloud.example.test/oauth/revoke");
     expect(configuration.code_challenge_methods_supported).toContain("S256");
     expect(configuration.resource_parameter_supported).toBe(true);
     const response = await oauthRoutes.request("/.well-known/oauth-authorization-server");
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ issuer: "http://localhost:3000", resource_parameter_supported: true });
+    expect(await response.json()).toMatchObject({
+      issuer: "http://localhost:3000",
+      registration_endpoint: "http://localhost:3000/oauth/register",
+      resource_parameter_supported: true,
+    });
+  });
+
+  test("dynamically registers repeatable public client names without credentials", async () => {
+    const clientIds: string[] = [];
+    try {
+      for (const redirectUri of ["http://127.0.0.1:49152/callback", "http://localhost:49153/callback"]) {
+        const response = await oauthRoutes.request("/oauth/register", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": crypto.randomUUID() },
+          body: JSON.stringify({
+            client_name: "MCP test client",
+            application_type: "native",
+            redirect_uris: [redirectUri],
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            token_endpoint_auth_method: "none",
+          }),
+        });
+        expect(response.status).toBe(201);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        const registered = (await response.json()) as {
+          application_type?: string;
+          client_id: string;
+          client_secret?: string;
+          scope: string;
+        };
+        expect(registered.client_id).toBeTruthy();
+        expect(registered.application_type).toBe("native");
+        expect(registered.client_secret).toBeUndefined();
+        expect(registered.scope.split(" ")).toEqual(["openid", "profile", "email", "offline_access", "read", "write"]);
+        clientIds.push(registered.client_id);
+
+        const client = await oauth.clients.getByClientId({ clientId: registered.client_id });
+        expect(client).toMatchObject({
+          name: "MCP test client",
+          audiences: [],
+          registrationKind: "dynamic",
+          isPublic: true,
+          createdBy: null,
+        });
+      }
+      expect(new Set(clientIds).size).toBe(2);
+    } finally {
+      for (const clientId of clientIds) await sql`DELETE FROM oauth.clients WHERE client_id = ${clientId}`;
+    }
+  });
+
+  test("rejects unsafe dynamic client metadata before persistence", async () => {
+    const response = await oauthRoutes.request("/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": crypto.randomUUID() },
+      body: JSON.stringify({
+        client_name: "Unsafe client",
+        redirect_uris: ["http://attacker.example/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_redirect_uri" });
+  });
+
+  test("bounds dynamic registration transport input", async () => {
+    const wrongType = await oauthRoutes.request("/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "text/plain", "x-forwarded-for": crypto.randomUUID() },
+      body: "not json",
+    });
+    expect(wrongType.status).toBe(415);
+    expect(wrongType.headers.get("cache-control")).toBe("no-store");
+
+    const tooLarge = await oauthRoutes.request("/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": crypto.randomUUID() },
+      body: JSON.stringify({ client_name: "x".repeat(9_000), redirect_uris: ["http://127.0.0.1/callback"] }),
+    });
+    expect(tooLarge.status).toBe(413);
+    expect(await tooLarge.json()).toMatchObject({ error: "invalid_client_metadata" });
+  });
+
+  test("rate-limits anonymous dynamic registration attempts", async () => {
+    const forwardedFor = crypto.randomUUID();
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const response = await oauthRoutes.request("/oauth/register", {
+        method: "POST",
+        headers: { "content-type": "text/plain", "x-forwarded-for": forwardedFor },
+        body: "not json",
+      });
+      statuses.push(response.status);
+    }
+    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(415));
+    expect(statuses[10]).toBe(429);
+  });
+
+  test("cleans only abandoned dynamic registrations", async () => {
+    const clients = await Promise.all([
+      oauth.clients.registerDynamic({
+        name: "Unused dynamic client",
+        redirectUris: ["http://127.0.0.1:49154/callback"],
+        scopes: ["read"],
+      }),
+      oauth.clients.registerDynamic({
+        name: "Authorized dynamic client",
+        redirectUris: ["http://127.0.0.1:49155/callback"],
+        scopes: ["read"],
+      }),
+    ]);
+    try {
+      await sql`UPDATE oauth.clients SET created_at = now() - INTERVAL '2 hours' WHERE id IN (${clients[0].id}::uuid, ${clients[1].id}::uuid)`;
+      await oauth.clients.markDynamicAuthorized({ id: clients[1].id });
+
+      expect(await oauth.clients.cleanupUnusedDynamic()).toBeGreaterThanOrEqual(1);
+      expect(await oauth.clients.get({ id: clients[0].id })).toBeNull();
+      expect(await oauth.clients.get({ id: clients[1].id })).not.toBeNull();
+    } finally {
+      await sql`DELETE FROM oauth.clients WHERE id IN (${clients[0].id}::uuid, ${clients[1].id}::uuid)`;
+    }
+  });
+
+  test("requires one-time browser consent before a dynamic client can exchange a resource-bound code", async () => {
+    const userId = await insertUser();
+    const sessionToken = await createSessionToken(userId);
+    const resource = "http://localhost:3000/api/mcp/v1";
+    const redirectUri = "http://127.0.0.1:49152/callback";
+    const verifier = "dynamic-client-verifier-0123456789-abcdefghi";
+    const challenge = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).toBase64({
+      alphabet: "base64url",
+      omitPadding: true,
+    });
+    let clientId: string | null = null;
+
+    try {
+      const client = await oauth.clients.registerDynamic({
+        name: "Consent test client",
+        redirectUris: [redirectUri],
+        scopes: ["offline_access", "read", "write"],
+      });
+      clientId = client.clientId;
+
+      const authorize = (state: string) =>
+        oauthRoutes.request(
+          `/oauth/authorize?${new URLSearchParams({
+            client_id: client.clientId,
+            redirect_uri: redirectUri,
+            response_type: "code",
+            scope: "offline_access read write",
+            resource,
+            state,
+            code_challenge: challenge,
+            code_challenge_method: "S256",
+          })}`,
+          { headers: { cookie: `session_token=${sessionToken}` }, redirect: "manual" },
+        );
+
+      const approvalStart = await authorize("approval-state");
+      expect(approvalStart.status).toBe(302);
+      const consentLocation = approvalStart.headers.get("location");
+      expect(consentLocation).toStartWith("/oauth/consent?request=");
+      const requestId = new URL(consentLocation!, "http://localhost:3000").searchParams.get("request");
+      expect(requestId).toBeTruthy();
+
+      const crossOriginApproval = await consentActionRoutes().request("/oauth/consent", {
+        method: "POST",
+        headers: {
+          cookie: `session_token=${sessionToken}`,
+          "content-type": "application/x-www-form-urlencoded",
+          origin: "https://attacker.example",
+        },
+        body: new URLSearchParams({ request: requestId!, decision: "approve" }),
+        redirect: "manual",
+      });
+      expect(crossOriginApproval.headers.get("location")).toContain("/oauth/error?error=invalid_request");
+
+      const approve = await consentActionRoutes().request("/oauth/consent", {
+        method: "POST",
+        headers: {
+          cookie: `session_token=${sessionToken}`,
+          "content-type": "application/x-www-form-urlencoded",
+          origin: "http://localhost:3000",
+        },
+        body: new URLSearchParams({ request: requestId!, decision: "approve" }),
+        redirect: "manual",
+      });
+      expect(approve.status).toBe(302);
+      const callback = new URL(approve.headers.get("location")!);
+      expect(callback.origin + callback.pathname).toBe(redirectUri);
+      expect(callback.searchParams.get("state")).toBe("approval-state");
+      expect(callback.searchParams.get("iss")).toBe("http://localhost:3000");
+      const code = callback.searchParams.get("code");
+      expect(code).toBeTruthy();
+      const [authorizedClient] = await sql<{ authorized_at: Date | null }[]>`
+        SELECT authorized_at FROM oauth.clients WHERE id = ${client.id}::uuid
+      `;
+      expect(authorizedClient?.authorized_at).toBeInstanceOf(Date);
+
+      const replay = await consentActionRoutes().request("/oauth/consent", {
+        method: "POST",
+        headers: { cookie: `session_token=${sessionToken}`, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ request: requestId!, decision: "approve" }),
+        redirect: "manual",
+      });
+      expect(replay.headers.get("location")).toContain("/oauth/error?error=invalid_request");
+
+      const exchange = await oauthRoutes.request("/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: client.clientId,
+          code: code!,
+          redirect_uri: redirectUri,
+          resource,
+          code_verifier: verifier,
+        }),
+      });
+      expect(exchange.status).toBe(200);
+      const tokens = (await exchange.json()) as { access_token: string; refresh_token: string; id_token?: string };
+      expect(await oauthTokens.verifyAccessToken(tokens.access_token, resource)).not.toBeNull();
+      expect(await oauthTokens.verifyAccessToken(tokens.access_token)).toBeNull();
+      expect(tokens.refresh_token).toStartWith("cld_rt_");
+      expect(tokens).not.toHaveProperty("id_token");
+
+      const refresh = await oauthRoutes.request("/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: client.clientId,
+          refresh_token: tokens.refresh_token,
+          resource,
+        }),
+      });
+      expect(refresh.status).toBe(200);
+      const refreshed = (await refresh.json()) as { access_token: string; refresh_token: string; id_token?: string };
+      expect(await oauthTokens.verifyAccessToken(refreshed.access_token, resource)).not.toBeNull();
+      expect(refreshed.refresh_token).toStartWith("cld_rt_");
+      expect(refreshed).not.toHaveProperty("id_token");
+
+      const denialStart = await authorize("denial-state");
+      const denialRequest = new URL(denialStart.headers.get("location")!, "http://localhost:3000").searchParams.get("request");
+      const deny = await consentActionRoutes().request("/oauth/consent", {
+        method: "POST",
+        headers: { cookie: `session_token=${sessionToken}`, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ request: denialRequest!, decision: "deny" }),
+        redirect: "manual",
+      });
+      const denialCallback = new URL(deny.headers.get("location")!);
+      expect(denialCallback.searchParams.get("error")).toBe("access_denied");
+      expect(denialCallback.searchParams.get("state")).toBe("denial-state");
+      expect(denialCallback.searchParams.get("iss")).toBe("http://localhost:3000");
+
+      const foreignResource = await oauthRoutes.request(
+        `/oauth/authorize?${new URLSearchParams({
+          client_id: client.clientId,
+          redirect_uri: redirectUri,
+          response_type: "code",
+          scope: "read",
+          resource: "https://other.example/api/mcp/v1",
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        })}`,
+        { headers: { cookie: `session_token=${sessionToken}` }, redirect: "manual" },
+      );
+      expect(foreignResource.status).toBe(400);
+
+      const immutableUpdate = await oauth.clients.update({ id: client.id, data: { name: "Changed by administrator" } });
+      expect(immutableUpdate).toMatchObject({ ok: false, status: 400 });
+
+      const revoked = await oauth.clients.delete_({
+        id: client.id,
+        actor: { id: userId, uid: `oauth-admin-${userId}`, provider: "local", roles: ["admin"] },
+      });
+      expect(revoked.ok).toBe(true);
+      if (revoked.ok) clientId = null;
+      expect(await oauthTokens.verifyAccessToken(tokens.access_token, resource)).toBeNull();
+
+      const refreshAfterRevocation = await oauthRoutes.request("/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: client.clientId,
+          refresh_token: refreshed.refresh_token,
+          resource,
+        }),
+      });
+      expect(refreshAfterRevocation.status).toBe(401);
+      expect(await refreshAfterRevocation.json()).toMatchObject({ error: "invalid_client" });
+    } finally {
+      await redis.del(`session:${sessionToken}`);
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE client_id = ${clientId}`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("keeps seeded first-party clients immutable and non-revocable through the admin lifecycle", async () => {
+    const userId = await insertUser();
+    try {
+      const client = await oauth.clients.getByClientId({ clientId: "cloud-cli" });
+      expect(client?.registrationKind).toBe("first_party");
+      expect(await oauth.clients.update({ id: client!.id, data: { name: "Changed Cloud CLI" } })).toMatchObject({ ok: false, status: 400 });
+      expect(
+        await oauth.clients.delete_({
+          id: client!.id,
+          actor: { id: userId, uid: `oauth-admin-${userId}`, provider: "local", roles: ["admin"] },
+        }),
+      ).toMatchObject({ ok: false, status: 400 });
+    } finally {
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
   });
 
   test("token endpoint failures are non-cacheable and machine-readable", async () => {
@@ -845,11 +1175,11 @@ suite("OAuth resource access tokens", () => {
       const tokenBody = (await tokenResponse.json()) as {
         access_token: string;
         token_type: string;
-        id_token: string | null;
+        id_token?: string;
         scope: string;
       };
       expect(tokenBody.token_type).toBe("Bearer");
-      expect(tokenBody.id_token).toBeNull();
+      expect(tokenBody).not.toHaveProperty("id_token");
       expect(tokenBody.scope).toBe("read");
 
       const verified = await oauthTokens.verifyAccessToken(tokenBody.access_token, "https://oauth-test.example/api");

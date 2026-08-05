@@ -1,6 +1,6 @@
-import { oauth } from "./oauth";
-import { err, fail, ok, paginate, type PageParams, type Paginated, type Result, type ServiceError } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result, type ServiceError } from "@valentinkolb/cloud/server";
 import type { MutationResult } from "@/contracts";
+import { oauth } from "./oauth";
 
 type OAuthClient = Awaited<ReturnType<typeof oauth.clients.list>>[number];
 type MutationStatus = Extract<MutationResult, { ok: false }>["status"];
@@ -68,7 +68,8 @@ export const oauthService = {
       fromMutation(await oauth.clients.create(config)),
     update: async (config: { id: string; data: Parameters<typeof oauth.clients.update>[0]["data"] }) =>
       fromMutation(await oauth.clients.update(config)),
-    remove: async (config: { id: string }) => fromMutation(await oauth.clients.delete_(config)),
+    remove: async (config: { id: string; actor: Parameters<typeof oauth.clients.delete_>[0]["actor"] }) =>
+      fromMutation(await oauth.clients.delete_(config)),
     regenerateSecret: async (config: { id: string }) => fromMutation(await oauth.clients.regenerateSecret(config)),
   },
 };

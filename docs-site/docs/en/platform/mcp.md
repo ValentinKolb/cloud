@@ -5,7 +5,7 @@ section: Platform services
 order: 565
 description: Connect MCP clients to live Cloud capabilities and registered app Help.
 tags: [mcp, capabilities, help, oauth, agents]
-updated: 2026-08-04
+updated: 2026-08-05
 ---
 
 # Cloud MCP server
@@ -72,27 +72,34 @@ Assistant, and MCP. See [In-product Help](/en/docs/platform/help).
 
 ## Authenticate
 
-OAuth is available for preregistered clients. The MCP endpoint returns an RFC
+OAuth is the default onboarding path. The MCP endpoint returns an RFC
 9728 `WWW-Authenticate` challenge and publishes protected-resource metadata at:
 
 ```text
 /.well-known/oauth-protected-resource/api/mcp/v1
 ```
 
-Cloud v1 supports preregistered OAuth clients; it intentionally does not offer
-Dynamic Client Registration. Register the MCP client's exact callback URI and
-add the exact MCP endpoint URI to the client's allowed audiences. An
-administrator must give the user the resulting client ID. The client must send
-the absolute, fragment-free endpoint URI as the RFC 8707 `resource` parameter
-in both authorization and token requests. Cloud binds authorization codes and
-refresh-token families to that audience and rejects access tokens without it.
+Compatible clients discover Cloud's authorization server and create an
+untrusted public client through RFC 7591 Dynamic Client Registration. The user
+only needs the MCP endpoint URL. Cloud requires PKCE with `S256`, an exact
+registered callback, and explicit browser consent. Dynamic callbacks must use
+HTTPS or HTTP on a loopback host.
+
+The client sends the absolute, fragment-free MCP endpoint URI as the RFC 8707
+`resource` parameter in authorization and token requests. Cloud accepts a
+dynamic client only for a resource on the same Cloud origin, binds the code and
+refresh-token family to that exact audience, and rejects access tokens without
+it. Consent shows the client name, callback host, resource, and requested
+scopes before any code is issued.
 
 OAuth `read` permits Help and Capability Queries. OAuth `write` permits
-Capability Actions. `admin` permits both. Sessions and personal API keys keep
-their existing application authorization behavior.
+Capability Actions. `offline_access` lets a compatible client refresh its
+login until the grant or dynamic client is revoked. `admin` permits both read
+and write. Sessions and personal API keys keep their existing application
+authorization behavior.
 
 Personal Cloud API keys remain an explicit compatibility path for clients that
-cannot use a preregistered OAuth client. Send the key only in the bearer header:
+cannot use browser OAuth. Send the key only in the bearer header:
 
 ```http
 Authorization: Bearer cld_...
@@ -117,15 +124,12 @@ codex mcp add cloud \
   --bearer-token-env-var CLOUD_API_KEY
 ```
 
-For a preregistered OAuth client, use the client ID supplied by an
-administrator:
+For browser OAuth, add only the URL and start login:
 
 ```bash
 codex mcp add cloud \
-  --url https://cloud.example/api/mcp/v1 \
-  --oauth-client-id <client-id> \
-  --oauth-resource https://cloud.example/api/mcp/v1
-codex mcp login cloud --scopes read,write
+  --url https://cloud.example/api/mcp/v1
+codex mcp login cloud --scopes read,write,offline_access
 ```
 
 Run `codex mcp list` to inspect either configuration.
@@ -141,18 +145,16 @@ claude mcp add --transport http --scope user cloud \
 ```
 
 Then run `claude mcp get cloud`. The header is stored in the local Claude Code
-configuration, so use a dedicated expiring key. A compatible preregistered
-OAuth setup must use the supplied client ID and a callback port whose exact
-loopback callback URI is registered by the administrator:
+configuration, so use a dedicated expiring key. For browser OAuth, omit the
+header and log in after adding the URL:
 
 ```bash
 claude mcp add --transport http --scope user \
-  --client-id <client-id> \
-  --callback-port <registered-port> \
   cloud https://cloud.example/api/mcp/v1
+claude mcp login cloud
 ```
 
-Authenticate from Claude Code's `/mcp` menu.
+Claude Code's `/mcp` menu can also start the same login.
 
 ## Understand failure behavior
 

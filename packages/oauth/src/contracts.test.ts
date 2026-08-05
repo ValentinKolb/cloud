@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { CreateOAuthClientSchema, OAuthClientParamSchema, UpdateOAuthClientSchema } from "./contracts";
+import {
+  CreateOAuthClientSchema,
+  DynamicClientRegistrationRequestSchema,
+  OAuthClientParamSchema,
+  UpdateOAuthClientSchema,
+} from "./contracts";
 
 describe("OAuth contracts", () => {
   test("normalizes create payloads without changing valid client intent", () => {
@@ -83,5 +88,52 @@ describe("OAuth contracts", () => {
       allowedUserIds: ["11111111-1111-4111-8111-111111111111"],
       allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
     });
+  });
+
+  test("accepts bounded public dynamic client metadata", () => {
+    expect(
+      DynamicClientRegistrationRequestSchema.parse({
+        client_name: "Codex",
+        application_type: "native",
+        redirect_uris: ["http://127.0.0.1:49152/callback", "https://client.example.test/oauth/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        scope: "read write offline_access read",
+      }),
+    ).toEqual({
+      client_name: "Codex",
+      application_type: "native",
+      redirect_uris: ["http://127.0.0.1:49152/callback", "https://client.example.test/oauth/callback"],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "read write offline_access",
+    });
+  });
+
+  test("rejects unsafe or privileged dynamic client metadata", () => {
+    for (const redirectUri of [
+      "http://client.example.test/callback",
+      "https://user:password@client.example.test/callback",
+      "https://client.example.test/callback#fragment",
+    ]) {
+      expect(DynamicClientRegistrationRequestSchema.safeParse({ redirect_uris: [redirectUri] }).success).toBe(false);
+    }
+    expect(
+      DynamicClientRegistrationRequestSchema.safeParse({ redirect_uris: ["http://localhost:49152/callback"], scope: "read admin" }).success,
+    ).toBe(false);
+    expect(
+      DynamicClientRegistrationRequestSchema.safeParse({
+        redirect_uris: ["http://[::1]:49152/callback"],
+        token_endpoint_auth_method: "client_secret_post",
+      }).success,
+    ).toBe(false);
+    expect(
+      DynamicClientRegistrationRequestSchema.safeParse({
+        client_name: "Trusted\u202eClient",
+        redirect_uris: ["http://127.0.0.1:49152/callback"],
+      }).success,
+    ).toBe(false);
   });
 });

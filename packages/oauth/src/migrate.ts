@@ -16,11 +16,12 @@ export const migrate = async (): Promise<void> => {
       audiences TEXT[] NOT NULL DEFAULT ARRAY['cloud'],
       service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL,
       allowed_profiles TEXT[] NOT NULL DEFAULT ARRAY['user', 'guest'],
+      registration_kind TEXT NOT NULL DEFAULT 'managed',
       is_public BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      authorized_at TIMESTAMPTZ,
       created_by UUID REFERENCES auth.users(id),
-      logout_uri TEXT,
-      CONSTRAINT clients_name_key UNIQUE (name)
+      logout_uri TEXT
     )
   `.simple();
   await sql`
@@ -54,15 +55,39 @@ export const migrate = async (): Promise<void> => {
     ON oauth.clients(service_account_id)
   `.simple();
   await sql`
+    ALTER TABLE oauth.clients
+    ADD COLUMN IF NOT EXISTS registration_kind TEXT NOT NULL DEFAULT 'managed'
+  `.simple();
+  await sql`
+    ALTER TABLE oauth.clients
+    ADD COLUMN IF NOT EXISTS authorized_at TIMESTAMPTZ
+  `.simple();
+  await sql`ALTER TABLE oauth.clients DROP CONSTRAINT IF EXISTS clients_name_key`.simple();
+  await sql`ALTER TABLE oauth.clients DROP CONSTRAINT IF EXISTS oauth_clients_name_key`.simple();
+  await sql`
     DO $$
     BEGIN
       IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'oauth_clients_name_key'
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'oauth_clients_registration_kind_check'
+          AND conrelid = 'oauth.clients'::regclass
       ) THEN
         ALTER TABLE oauth.clients
-        ADD CONSTRAINT oauth_clients_name_key UNIQUE (name);
+        ADD CONSTRAINT oauth_clients_registration_kind_check
+        CHECK (registration_kind IN ('managed', 'first_party', 'dynamic'));
       END IF;
-    END $$;
+    END $$
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS oauth_clients_managed_name_key
+    ON oauth.clients(name)
+    WHERE registration_kind IN ('managed', 'first_party')
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS oauth_clients_dynamic_created_at
+    ON oauth.clients(created_at)
+    WHERE registration_kind = 'dynamic'
   `.simple();
   console.log("  ✓ oauth.clients table");
 
@@ -197,9 +222,15 @@ export const migrate = async (): Promise<void> => {
             SELECT DISTINCT value
             FROM unnest(audiences || ARRAY['cloud']) AS added(value)
           ),
+          registration_kind = 'first_party',
           is_public = true
         WHERE client_id = 'cloud-cli';
-      ELSIF EXISTS (SELECT 1 FROM oauth.clients WHERE name = 'Cloud CLI') THEN
+      ELSIF EXISTS (
+        SELECT 1
+        FROM oauth.clients
+        WHERE name = 'Cloud CLI'
+          AND registration_kind <> 'dynamic'
+      ) THEN
         UPDATE oauth.clients
         SET client_id = 'cloud-cli',
           description = COALESCE(description, 'First-party public OAuth client for the cloud CLI.'),
@@ -215,8 +246,10 @@ export const migrate = async (): Promise<void> => {
             SELECT DISTINCT value
             FROM unnest(audiences || ARRAY['cloud']) AS added(value)
           ),
+          registration_kind = 'first_party',
           is_public = true
-        WHERE name = 'Cloud CLI';
+        WHERE name = 'Cloud CLI'
+          AND registration_kind <> 'dynamic';
       ELSE
         INSERT INTO oauth.clients (
           name,
@@ -227,6 +260,7 @@ export const migrate = async (): Promise<void> => {
           audiences,
           allowed_profiles,
           access_mode,
+          registration_kind,
           is_public
         )
         VALUES (
@@ -238,6 +272,7 @@ export const migrate = async (): Promise<void> => {
           ARRAY['cloud'],
           ARRAY['user', 'guest'],
           'profiles',
+          'first_party',
           true
         );
       END IF;

@@ -75,6 +75,15 @@ export const verifyAccessToken = async (
 
   if (payload.token_use !== "access") return null;
 
+  const clientId = getStringClaim(payload, "client_id");
+  if (!clientId) return null;
+  const [client] = await sql<{ present: boolean }[]>`
+    SELECT true AS present
+    FROM oauth.clients
+    WHERE client_id = ${clientId}
+  `;
+  if (!client) return null;
+
   const serviceAccountId = getStringClaim(payload, "service_account_id");
   if (serviceAccountId) {
     const serviceAccount = await serviceAccounts.get({ id: serviceAccountId });

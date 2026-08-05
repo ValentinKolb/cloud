@@ -590,7 +590,7 @@ describe("capability MCP projection", () => {
     expect(await (await discovery.request("/.well-known/oauth-protected-resource/api/mcp/v1")).json()).toEqual({
       resource: cloudMcpResourceUri("cloud.example"),
       authorization_servers: ["https://cloud.example"],
-      scopes_supported: ["read", "write"],
+      scopes_supported: ["read", "write", "offline_access"],
       bearer_methods_supported: ["header"],
       resource_name: "Cloud MCP",
     });

@@ -20,6 +20,9 @@ export type OAuthAllowedProfile = z.infer<typeof OAuthAllowedProfileSchema>;
 export const OAuthAccessModeSchema = z.enum(["profiles", "specific"]);
 export type OAuthAccessMode = z.infer<typeof OAuthAccessModeSchema>;
 
+export const OAuthClientRegistrationKindSchema = z.enum(["managed", "first_party", "dynamic"]);
+export type OAuthClientRegistrationKind = z.infer<typeof OAuthClientRegistrationKindSchema>;
+
 const AllowedProfilesSchema = z
   .array(OAuthAllowedProfileSchema)
   .max(MAX_ARRAY_ITEMS)
@@ -56,6 +59,7 @@ export const OAuthClientSchema = z.object({
   accessMode: OAuthAccessModeSchema,
   accessUsers: z.array(OAuthAccessUserSchema),
   accessGroups: z.array(OAuthAccessGroupSchema),
+  registrationKind: OAuthClientRegistrationKindSchema,
   isPublic: z.boolean(),
   createdAt: z.string(),
   createdBy: z.string().nullable(),
@@ -104,6 +108,66 @@ export type OAuthAccessUser = z.infer<typeof OAuthAccessUserSchema>;
 export type OAuthAccessGroup = z.infer<typeof OAuthAccessGroupSchema>;
 export type CreateOAuthClient = z.infer<typeof CreateOAuthClientSchema>;
 export type UpdateOAuthClient = z.infer<typeof UpdateOAuthClientSchema>;
+
+export const DYNAMIC_CLIENT_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "read",
+  "write",
+] as const satisfies readonly OAuthScope[];
+
+const DynamicRedirectUriSchema = UrlSchema.refine((value) => {
+  const url = new URL(value);
+  if (url.hash || url.username || url.password) return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname);
+}, "Redirect URI must use HTTPS or an HTTP loopback host and must not contain credentials or a fragment");
+
+const DynamicScopeListSchema = z
+  .string()
+  .trim()
+  .max(MAX_TEXT_LENGTH)
+  .transform((value) => Array.from(new Set(value.split(/\s+/).filter(Boolean))))
+  .refine(
+    (scopes) => scopes.every((scope) => DYNAMIC_CLIENT_SCOPES.includes(scope as (typeof DYNAMIC_CLIENT_SCOPES)[number])),
+    "Dynamic clients may only request supported delegated scopes",
+  )
+  .transform((scopes) => scopes.join(" "));
+
+const DynamicClientNameSchema = NameSchema.refine(
+  (value) => !/[\p{Cc}\p{Cf}]/u.test(value),
+  "Client name must not contain control or formatting characters",
+);
+
+export const DynamicClientRegistrationRequestSchema = z.object({
+  client_name: DynamicClientNameSchema.default("Dynamic OAuth Client"),
+  application_type: z.enum(["native", "web"]).optional(),
+  redirect_uris: z.array(DynamicRedirectUriSchema).min(1).max(10).transform(dedupe),
+  grant_types: z
+    .array(z.enum(["authorization_code", "refresh_token"]))
+    .min(1)
+    .max(2)
+    .transform(dedupe)
+    .default(["authorization_code"]),
+  response_types: z.array(z.literal("code")).min(1).max(1).transform(dedupe).default(["code"]),
+  token_endpoint_auth_method: z.literal("none").default("none"),
+  scope: DynamicScopeListSchema.optional(),
+});
+
+export const DynamicClientRegistrationResponseSchema = DynamicClientRegistrationRequestSchema.extend({
+  client_id: z.string().min(1),
+  client_id_issued_at: z.number().int().nonnegative(),
+});
+
+export const DynamicClientRegistrationErrorSchema = z.object({
+  error: z.enum(["invalid_redirect_uri", "invalid_client_metadata"]),
+  error_description: z.string(),
+});
+
+export type DynamicClientRegistrationRequest = z.infer<typeof DynamicClientRegistrationRequestSchema>;
+export type DynamicClientRegistrationResponse = z.infer<typeof DynamicClientRegistrationResponseSchema>;
 
 export type { MutationResult } from "@valentinkolb/cloud/contracts";
 export { ErrorResponseSchema, MessageResponseSchema } from "@valentinkolb/cloud/contracts";

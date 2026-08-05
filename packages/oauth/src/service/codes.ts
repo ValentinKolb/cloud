@@ -35,10 +35,11 @@ export const create = async (params: {
   nonce?: string;
   codeChallenge?: string;
   codeChallengeMethod?: "S256" | "plain";
+  db?: typeof sql;
 }): Promise<string> => {
-  const { clientId, userId, redirectUri, scopes, resource, nonce, codeChallenge, codeChallengeMethod } = params;
+  const { clientId, userId, redirectUri, scopes, resource, nonce, codeChallenge, codeChallengeMethod, db = sql } = params;
 
-  const [row] = await sql<{ code: string }[]>`
+  const [row] = await db<{ code: string }[]>`
     INSERT INTO oauth.codes (client_id, user_id, redirect_uri, scopes, resource, nonce, code_challenge, code_challenge_method)
     VALUES (
       ${clientId},

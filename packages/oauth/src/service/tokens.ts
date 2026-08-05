@@ -1,7 +1,7 @@
 import { accounts, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import * as jose from "jose";
-import type { OAuthClient, OAuthScope } from "@/contracts";
+import { DYNAMIC_CLIENT_SCOPES, type OAuthClient, type OAuthScope } from "@/contracts";
 import * as refreshTokens from "./refresh-tokens";
 
 // ==========================
@@ -150,6 +150,7 @@ export const getOpenIdConfiguration = (issuer: string) => ({
   issuer,
   authorization_endpoint: `${issuer}/oauth/authorize`,
   token_endpoint: `${issuer}/oauth/token`,
+  registration_endpoint: `${issuer}/oauth/register`,
   userinfo_endpoint: `${issuer}/oauth/userinfo`,
   end_session_endpoint: `${issuer}/oauth/logout`,
   revocation_endpoint: `${issuer}/oauth/revoke`,
@@ -157,7 +158,7 @@ export const getOpenIdConfiguration = (issuer: string) => ({
   response_types_supported: ["code"],
   subject_types_supported: ["public"],
   id_token_signing_alg_values_supported: ["RS256"],
-  scopes_supported: ["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"],
+  scopes_supported: [...DYNAMIC_CLIENT_SCOPES],
   token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
   claims_supported: [
     "sub",
@@ -188,6 +189,8 @@ export const getOpenIdConfiguration = (issuer: string) => ({
   code_challenge_methods_supported: ["S256", "plain"],
   grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
   resource_parameter_supported: true,
+  // Authorization responses include RFC 9207 `iss`; keep its optional support
+  // flag unadvertised until current loopback MCP clients preserve the value.
 });
 
 /**

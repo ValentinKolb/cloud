@@ -1,4 +1,4 @@
-import { serviceAccounts, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { audit, serviceAccounts, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type {
   CreateOAuthClient,
@@ -8,6 +8,7 @@ import type {
   OAuthAccessUser,
   OAuthAllowedProfile,
   OAuthClient,
+  OAuthClientRegistrationKind,
   OAuthClientWithSecret,
   OAuthScope,
   UpdateOAuthClient,
@@ -30,6 +31,7 @@ type DbClient = {
   service_account_id: string | null;
   allowed_profiles: string[];
   access_mode: string;
+  registration_kind: string;
   is_public: boolean;
   created_at: Date;
   created_by: string | null;
@@ -57,6 +59,13 @@ type AccessPrincipals = {
   groups: OAuthAccessGroup[];
 };
 
+type OAuthClientAdminActor = {
+  id: string;
+  uid: string;
+  provider: string;
+  roles: readonly string[];
+};
+
 /**
  * Maps an OAuth client row to the API-facing client object.
  */
@@ -74,6 +83,7 @@ const mapToClient = (row: DbClient, access: AccessPrincipals = { users: [], grou
   accessMode: row.access_mode === "specific" ? "specific" : "profiles",
   accessUsers: access.users,
   accessGroups: access.groups,
+  registrationKind: row.registration_kind as OAuthClientRegistrationKind,
   isPublic: row.is_public,
   createdAt: row.created_at.toISOString(),
   createdBy: row.created_by,
@@ -197,7 +207,7 @@ const replaceAccessPrincipals = async (params: {
  */
 export const list = async (): Promise<OAuthClient[]> => {
   const rows = await sql<DbClient[]>`
-    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, created_at, created_by
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
     FROM oauth.clients
     ORDER BY created_at DESC
   `;
@@ -210,7 +220,7 @@ export const list = async (): Promise<OAuthClient[]> => {
  */
 export const get = async (params: { id: string }): Promise<OAuthClient | null> => {
   const [row] = await sql<DbClient[]>`
-    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, created_at, created_by
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
     FROM oauth.clients
     WHERE id = ${params.id}
   `;
@@ -224,7 +234,7 @@ export const get = async (params: { id: string }): Promise<OAuthClient | null> =
  */
 export const getByClientId = async (params: { clientId: string }): Promise<OAuthClient | null> => {
   const [row] = await sql<DbClient[]>`
-    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, created_at, created_by
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
     FROM oauth.clients
     WHERE client_id = ${params.clientId}
   `;
@@ -284,7 +294,7 @@ export const create = async (params: { data: CreateOAuthClient; createdBy: strin
       ${clientSecretHash},
       ${createdBy}
     )
-    RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, created_at, created_by
+    RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
   `;
 
   if (!row) {
@@ -309,6 +319,90 @@ export const create = async (params: { data: CreateOAuthClient; createdBy: strin
   };
 };
 
+/** Register an untrusted public client through RFC 7591. */
+export const registerDynamic = async (params: { name: string; redirectUris: string[]; scopes: OAuthScope[] }): Promise<OAuthClient> =>
+  sql.begin(async (tx) => {
+    const [row] = await tx<DbClient[]>`
+      INSERT INTO oauth.clients (
+        name,
+        description,
+        redirect_uris,
+        scopes,
+        audiences,
+        allowed_profiles,
+        access_mode,
+        registration_kind,
+        is_public,
+        client_secret_hash,
+        created_by
+      )
+      VALUES (
+        ${params.name},
+        'Dynamically registered public OAuth client.',
+        ${toPgTextArray(params.redirectUris)}::text[],
+        ${toPgTextArray(params.scopes)}::text[],
+        ARRAY[]::text[],
+        ARRAY['user', 'guest'],
+        'profiles',
+        'dynamic',
+        true,
+        NULL,
+        NULL
+      )
+      RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
+    `;
+    if (!row) throw new Error("Failed to register dynamic OAuth client");
+
+    const client = mapToClient(row);
+    await audit.record(
+      {
+        action: "oauth.dynamic_client.register",
+        outcome: "allowed",
+        target: { type: "oauth_client", id: client.id, label: client.name },
+        metadata: {
+          clientId: client.clientId,
+          redirectHosts: client.redirectUris.map((uri) => new URL(uri).host),
+          scopes: client.scopes,
+        },
+      },
+      tx,
+    );
+    return client;
+  });
+
+/** Remove abandoned DCR rows that have never reached authorization. */
+export const cleanupUnusedDynamic = async (): Promise<number> => {
+  const result = await sql`
+    DELETE FROM oauth.clients c
+    WHERE c.registration_kind = 'dynamic'
+      AND c.authorized_at IS NULL
+      AND c.created_at < now() - INTERVAL '1 hour'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM oauth.codes code
+        WHERE code.client_id = c.client_id
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM oauth.refresh_token_families family
+        WHERE family.client_id = c.client_id
+      )
+  `;
+  return result.count;
+};
+
+/** Persist that a dynamic registration reached explicit resource-owner approval. */
+export const markDynamicAuthorized = async (params: { id: string; db?: typeof sql }): Promise<void> => {
+  const { id, db = sql } = params;
+  const result = await db`
+    UPDATE oauth.clients
+    SET authorized_at = COALESCE(authorized_at, now())
+    WHERE id = ${id}::uuid
+      AND registration_kind = 'dynamic'
+  `;
+  if (result.count !== 1) throw new Error("Dynamic OAuth client is no longer available");
+};
+
 /**
  * Update an OAuth client
  */
@@ -318,6 +412,9 @@ export const update = async (params: { id: string; data: UpdateOAuthClient }): P
   const existing = await get({ id });
   if (!existing) {
     return { ok: false, error: "Client not found", status: 404 };
+  }
+  if (existing.registrationKind !== "managed") {
+    return { ok: false, error: "Only managed OAuth clients can be edited", status: 400 };
   }
 
   const redirectUrisLiteral = toPgTextArray(data.redirectUris ?? existing.redirectUris);
@@ -366,17 +463,37 @@ export const update = async (params: { id: string; data: UpdateOAuthClient }): P
 /**
  * Delete an OAuth client
  */
-export const delete_ = async (params: { id: string }): Promise<MutationResult<void>> => {
-  const result = await sql`
-    DELETE FROM oauth.clients
-    WHERE id = ${params.id}
-  `;
-
-  if (result.count === 0) {
-    return { ok: false, error: "Client not found", status: 404 };
+export const delete_ = async (params: { id: string; actor: OAuthClientAdminActor }): Promise<MutationResult<void>> => {
+  const existing = await get({ id: params.id });
+  if (!existing) return { ok: false, error: "Client not found", status: 404 };
+  if (existing.registrationKind === "first_party") {
+    return { ok: false, error: "First-party OAuth clients cannot be deleted", status: 400 };
   }
 
-  return { ok: true, data: undefined };
+  return sql.begin(async (tx) => {
+    const result = await tx`
+      DELETE FROM oauth.clients
+      WHERE id = ${params.id}
+    `;
+    if (result.count === 0) return { ok: false, error: "Client not found", status: 404 } as const;
+
+    await audit.record(
+      {
+        action: "oauth.client.revoke",
+        outcome: "allowed",
+        actor: {
+          userId: params.actor.id,
+          uid: params.actor.uid,
+          provider: params.actor.provider,
+          roles: params.actor.roles,
+        },
+        target: { type: "oauth_client", id: existing.id, label: existing.name },
+        metadata: { clientId: existing.clientId, registrationKind: existing.registrationKind },
+      },
+      tx,
+    );
+    return { ok: true, data: undefined } as const;
+  });
 };
 
 /**
@@ -409,7 +526,7 @@ export const regenerateSecret = async (params: { id: string }): Promise<Mutation
  */
 export const validateCredentials = async (params: { clientId: string; clientSecret?: string }): Promise<OAuthClient | null> => {
   const [row] = await sql<(DbClient & { client_secret_hash: string | null })[]>`
-    SELECT id, name, description, client_id, client_secret_hash, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, created_at, created_by
+    SELECT id, name, description, client_id, client_secret_hash, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
     FROM oauth.clients
     WHERE client_id = ${params.clientId}
   `;
@@ -439,6 +556,17 @@ export const validateCredentials = async (params: { clientId: string; clientSecr
  */
 export const validateRedirectUri = (client: OAuthClient, redirectUri: string): boolean => {
   return client.redirectUris.some((registeredUri) => registeredUri === redirectUri || isLoopbackRedirectMatch(registeredUri, redirectUri));
+};
+
+/** Dynamic public clients are resource-bound to an explicit URI on this Cloud origin. */
+export const validateResource = (client: OAuthClient, resource: string | undefined, issuer: string): boolean => {
+  if (client.registrationKind !== "dynamic") return !resource || client.audiences.includes(resource);
+  if (!resource) return false;
+  try {
+    return new URL(resource).origin === new URL(issuer).origin;
+  } catch {
+    return false;
+  }
 };
 
 const LOOPBACK_IP_LITERAL_HOSTS = new Set(["127.0.0.1", "::1", "[::1]"]);

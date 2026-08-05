@@ -1,7 +1,7 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { clipboard } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { CopyButton, Dropdown, dialogCore, IconButton, panelDialogWideOptions, prompts, Tooltip, toast } from "@k2b/ui";
+import { CopyButton, Dropdown, dialogCore, panelDialogWideOptions, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { OAuthClient, UpdateOAuthClient } from "@/contracts";
 import OAuthClientDialog from "./OAuthClientDialog";
@@ -104,12 +104,13 @@ const ClientActions = (props: ClientActionsProps) => {
   };
 
   const handleDelete = async () => {
+    const isDynamic = client.registrationKind === "dynamic";
     const confirmed = await prompts.confirm(
-      `Are you sure you want to delete "${client.name}"? This will invalidate all tokens for this client.`,
+      `Are you sure you want to ${isDynamic ? "revoke" : "delete"} "${client.name}"? This will invalidate all tokens for this client.`,
       {
-        title: "Delete Client?",
+        title: isDynamic ? "Revoke Client?" : "Delete Client?",
         icon: "ti ti-trash",
-        confirmText: "Delete",
+        confirmText: isDynamic ? "Revoke" : "Delete",
         cancelText: "Cancel",
         variant: "danger",
       },
@@ -155,12 +156,16 @@ const ClientActions = (props: ClientActionsProps) => {
               label: "Copy Client ID",
               action: handleCopyClientId,
             },
-            {
-              icon: "ti ti-pencil",
-              label: "Edit",
-              action: handleEdit,
-            },
-            ...(!client.isPublic
+            ...(client.registrationKind === "managed"
+              ? [
+                  {
+                    icon: "ti ti-pencil",
+                    label: "Edit",
+                    action: handleEdit,
+                  },
+                ]
+              : []),
+            ...(client.registrationKind === "managed" && !client.isPublic
               ? [
                   {
                     icon: "ti ti-key",
@@ -171,16 +176,20 @@ const ClientActions = (props: ClientActionsProps) => {
               : []),
           ],
         },
-        {
-          items: [
-            {
-              icon: "ti ti-trash",
-              label: "Delete",
-              action: handleDelete,
-              variant: "danger",
-            },
-          ],
-        },
+        ...(client.registrationKind !== "first_party"
+          ? [
+              {
+                items: [
+                  {
+                    icon: "ti ti-trash",
+                    label: client.registrationKind === "dynamic" ? "Revoke" : "Delete",
+                    action: handleDelete,
+                    variant: "danger" as const,
+                  },
+                ],
+              },
+            ]
+          : []),
       ]}
     >
       <Dropdown.Trigger iconOnly size="xs" label="OAuth client actions" tooltip="OAuth client actions">

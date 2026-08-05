@@ -1,10 +1,17 @@
-import { type AuthContext, auth, jsonResponse, v } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, jsonResponse, rateLimit, v } from "@valentinkolb/cloud/server";
 import { accounts, get, logger } from "@valentinkolb/cloud/services";
 import { createLoginRedirectUrl, publicCloudOrigin } from "@valentinkolb/cloud/shared";
 import { type Context, Hono } from "hono";
 import { describeRoute, validator as openApiValidator } from "hono-openapi";
 import { z } from "zod";
-import { ErrorResponseSchema, type OAuthScope } from "@/contracts";
+import {
+  DYNAMIC_CLIENT_SCOPES,
+  DynamicClientRegistrationErrorSchema,
+  DynamicClientRegistrationRequestSchema,
+  DynamicClientRegistrationResponseSchema,
+  ErrorResponseSchema,
+  type OAuthScope,
+} from "@/contracts";
 import { oauth } from "./service/oauth";
 
 const log = logger("oauth");
@@ -17,6 +24,7 @@ const getIssuer = async (): Promise<string> => {
 const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"];
 const DEFAULT_AUTHORIZATION_SCOPES: OAuthScope[] = ["openid"];
 const PKCE_VALUE_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
+const DYNAMIC_REGISTRATION_MAX_BYTES = 8 * 1024;
 const isOAuthScope = (value: string): value is OAuthScope => OAUTH_SCOPES.includes(value as OAuthScope);
 
 const parseScopes = (value: string | undefined): string[] =>
@@ -37,9 +45,6 @@ const resolveRequestedScopes = (clientScopes: OAuthScope[], requestedScope: stri
 };
 
 const isPkceValue = (value: string | undefined): value is string => Boolean(value && PKCE_VALUE_PATTERN.test(value));
-
-const isAllowedResource = (client: { audiences: string[] }, resource: string | undefined): boolean =>
-  !resource || client.audiences.includes(resource);
 
 const ResourceIndicatorSchema = z
   .string()
@@ -120,7 +125,7 @@ const TokenResponseSchema = z.object({
   access_token: z.string(),
   token_type: z.literal("Bearer"),
   expires_in: z.number(),
-  id_token: z.string().nullable(),
+  id_token: z.string().optional(),
   scope: z.string(),
   refresh_token: z.string().optional(),
 });
@@ -132,6 +137,44 @@ const TokenErrorResponseSchema = z.object({
 
 const tokenError = (c: Context<AuthContext>, error: string, description: string, status: 400 | 401 | 403 | 500 = 400) =>
   c.json({ error, error_description: description }, status);
+
+const registrationError = (
+  c: Context<AuthContext>,
+  error: "invalid_redirect_uri" | "invalid_client_metadata",
+  description: string,
+  status: 400 | 413 | 415 | 500 = 400,
+) => c.json({ error, error_description: description }, status);
+
+const readBoundedRegistrationJson = async (request: Request): Promise<{ ok: true; data: unknown } | { ok: false; tooLarge: boolean }> => {
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > DYNAMIC_REGISTRATION_MAX_BYTES) return { ok: false, tooLarge: true };
+
+  const reader = request.body?.getReader();
+  if (!reader) return { ok: false, tooLarge: false };
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > DYNAMIC_REGISTRATION_MAX_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      return { ok: false, tooLarge: true };
+    }
+    chunks.push(chunk.value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return { ok: true, data: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) };
+  } catch {
+    return { ok: false, tooLarge: false };
+  }
+};
 
 const validateTokenBody = openApiValidator("form", TokenBodySchema, (result, c: Context<AuthContext>) => {
   if (!result.success) return tokenError(c, "invalid_request", "Token request validation failed");
@@ -170,6 +213,78 @@ const app = new Hono<AuthContext>()
       );
     }
   })
+  .post(
+    "/oauth/register",
+    describeRoute({
+      tags: ["OAuth"],
+      summary: "Register a public OAuth client",
+      description: "Dynamically registers an untrusted public Authorization Code client using RFC 7591.",
+      responses: {
+        201: jsonResponse(DynamicClientRegistrationResponseSchema, "Registered public client"),
+        400: jsonResponse(DynamicClientRegistrationErrorSchema, "Invalid client metadata"),
+        413: jsonResponse(DynamicClientRegistrationErrorSchema, "Client metadata too large"),
+        415: jsonResponse(DynamicClientRegistrationErrorSchema, "Unsupported media type"),
+      },
+    }),
+    rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }),
+    async (c) => {
+      c.header("Cache-Control", "no-store");
+      c.header("Pragma", "no-cache");
+      if (!c.req.header("content-type")?.toLowerCase().startsWith("application/json")) {
+        return registrationError(c, "invalid_client_metadata", "Registration requests must use application/json", 415);
+      }
+
+      const body = await readBoundedRegistrationJson(c.req.raw);
+      if (!body.ok) {
+        return registrationError(
+          c,
+          "invalid_client_metadata",
+          body.tooLarge ? "Client metadata exceeds 8192 bytes" : "Registration request body must be valid JSON",
+          body.tooLarge ? 413 : 400,
+        );
+      }
+      const parsed = DynamicClientRegistrationRequestSchema.safeParse(body.data);
+      if (!parsed.success) {
+        const redirectFailure = parsed.error.issues.some((issue) => issue.path[0] === "redirect_uris");
+        return registrationError(
+          c,
+          redirectFailure ? "invalid_redirect_uri" : "invalid_client_metadata",
+          parsed.error.issues[0]?.message ?? "Invalid client metadata",
+        );
+      }
+      if (!parsed.data.grant_types.includes("authorization_code")) {
+        return registrationError(c, "invalid_client_metadata", "Dynamic clients must use the authorization_code grant");
+      }
+
+      try {
+        const client = await oauth.clients.registerDynamic({
+          name: parsed.data.client_name,
+          redirectUris: parsed.data.redirect_uris,
+          scopes: [...DYNAMIC_CLIENT_SCOPES],
+        });
+        await oauth.clients.cleanupUnusedDynamic().catch((error) => {
+          log.warn("Failed to clean abandoned dynamic OAuth clients", { error: error instanceof Error ? error.message : String(error) });
+        });
+        return c.json(
+          {
+            client_id: client.clientId,
+            client_id_issued_at: Math.floor(new Date(client.createdAt).getTime() / 1_000),
+            client_name: client.name,
+            application_type: parsed.data.application_type,
+            redirect_uris: client.redirectUris,
+            grant_types: ["authorization_code", "refresh_token"] as const,
+            response_types: ["code"] as const,
+            token_endpoint_auth_method: "none" as const,
+            scope: client.scopes.join(" "),
+          },
+          201,
+        );
+      } catch (error) {
+        log.error("Failed to register dynamic OAuth client", { error: error instanceof Error ? error.message : String(error) });
+        return registrationError(c, "invalid_client_metadata", "Dynamic client registration failed", 500);
+      }
+    },
+  )
   .get(
     "/oauth/authorize",
     describeRoute({
@@ -199,7 +314,8 @@ const app = new Hono<AuthContext>()
       if (!scopes) {
         return c.json({ message: "Requested scope is not allowed for this client" }, 400);
       }
-      if (!isAllowedResource(client, query.resource)) {
+      const issuer = await getIssuer();
+      if (!oauth.clients.validateResource(client, query.resource, issuer)) {
         return c.json({ message: "Requested resource is not allowed for this client" }, 400);
       }
 
@@ -241,6 +357,21 @@ const app = new Hono<AuthContext>()
         );
       }
 
+      if (client.registrationKind === "dynamic") {
+        const consentRequest = await oauth.consent.create({
+          userId: user.id,
+          clientId: client.clientId,
+          redirectUri: redirect_uri,
+          scopes,
+          resource: query.resource!,
+          state,
+          nonce,
+          codeChallenge: code_challenge!,
+          codeChallengeMethod: "S256",
+        });
+        return c.redirect(`/oauth/consent?request=${encodeURIComponent(consentRequest)}`);
+      }
+
       const code = await oauth.codes.create({
         clientId: client.clientId,
         userId: user.id,
@@ -254,6 +385,7 @@ const app = new Hono<AuthContext>()
 
       const redirectUrl = new URL(redirect_uri);
       redirectUrl.searchParams.set("code", code);
+      redirectUrl.searchParams.set("iss", issuer);
       if (state) {
         redirectUrl.searchParams.set("state", state);
       }
@@ -317,7 +449,6 @@ const app = new Hono<AuthContext>()
             access_token: token.accessToken,
             token_type: "Bearer" as const,
             expires_in: token.expiresIn,
-            id_token: null,
             scope: token.scope,
           });
         } catch (err) {
@@ -349,7 +480,7 @@ const app = new Hono<AuthContext>()
         let rotated: Awaited<ReturnType<typeof oauth.refreshTokens.rotate>>;
         try {
           rotated = await oauth.refreshTokens.rotate(body.refresh_token, client_id, body.resource, requestedScopes, async (grant) => {
-              issued.value = await oauth.tokens.createTokens({
+            issued.value = await oauth.tokens.createTokens({
               userId: grant.userId,
               client,
               issuer: await getIssuer(),
@@ -376,7 +507,7 @@ const app = new Hono<AuthContext>()
           access_token: tokens.accessToken,
           token_type: "Bearer" as const,
           expires_in: tokens.expiresIn,
-          id_token: tokens.idToken,
+          ...(tokens.idToken ? { id_token: tokens.idToken } : {}),
           scope: tokens.scope,
           refresh_token: rotated.refreshToken,
         });
@@ -417,7 +548,7 @@ const app = new Hono<AuthContext>()
           access_token: tokens.accessToken,
           token_type: "Bearer" as const,
           expires_in: tokens.expiresIn,
-          id_token: tokens.idToken,
+          ...(tokens.idToken ? { id_token: tokens.idToken } : {}),
           scope: tokens.scope,
           ...(tokens.refreshToken ? { refresh_token: tokens.refreshToken } : {}),
         });
