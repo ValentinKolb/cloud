@@ -82,6 +82,7 @@
     0 1px 5px rgb(15 23 19 / 0.04);
   --k2b-shadow-workspace-edge: -3px 0 6px -5px rgb(0 0 0 / 0.1), 3px 0 6px -5px rgb(0 0 0 / 0.1);
   --k2b-shadow-float: 0 18px 48px rgb(9 9 11 / 0.18);
+  --k2b-shadow-toast: 0 8px 24px -12px rgb(9 9 11 / 0.28);
 
   --stdlib-chart-c1: var(--k2b-accent-500);
   --stdlib-chart-c2: var(--k2b-success-500);
@@ -140,6 +141,7 @@
     0 -3px 10px -8px rgb(0 0 0 / 0.32), 0 0 16px -9px rgb(0 0 0 / 0.56), 0 16px 40px -30px rgb(0 0 0 / 0.48), 0 1px 7px rgb(0 0 0 / 0.14);
   --k2b-shadow-workspace-edge: -3px 0 6px -5px rgb(0 0 0 / 0.28), 3px 0 6px -5px rgb(0 0 0 / 0.28);
   --k2b-shadow-float: 0 22px 56px rgb(0 0 0 / 0.52);
+  --k2b-shadow-toast: 0 10px 28px -14px rgb(0 0 0 / 0.58);
   color-scheme: dark;
 }
 

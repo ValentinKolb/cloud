@@ -142,6 +142,8 @@ describe("@k2b/ui Cloud feedback parity", () => {
     expect(feedbackCss).toContain("var(--k2b-dialog-available-height)");
     expect(feedbackCss).toContain("[popover].k2b-tooltip");
     expect(feedbackCss).toContain("[data-k2b-toast-container]");
+    expect(feedbackCss).toContain("box-shadow: var(--k2b-shadow-toast)");
+    expect(indexCss).toContain("--k2b-shadow-toast:");
     expect(feedbackCss).not.toContain("#ui-toast-container");
     expect(feedbackCss).toContain(".dark .k2b-ui");
   });

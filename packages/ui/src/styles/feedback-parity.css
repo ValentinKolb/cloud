@@ -482,7 +482,7 @@
   opacity: 0;
   color: var(--k2b-text);
   background: var(--k2b-surface-elevated);
-  box-shadow: var(--k2b-shadow-float);
+  box-shadow: var(--k2b-shadow-toast);
   transform: translateX(0.5rem);
   transition:
     opacity 200ms ease-out,
