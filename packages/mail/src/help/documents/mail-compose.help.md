@@ -22,7 +22,7 @@ An email link can supply To, Cc, Bcc, Subject, and plain-text Body. Cloud shows 
 
 ## Choose Markdown or Plain text {icon="route"}
 
-The format selector applies to the current draft:
+Open **Message options** and choose the format for the current draft:
 
 :::compare
 - **Markdown** shows **Write** and **Preview** panes. Mail sends readable HTML with the mailbox email design and a text alternative. You can arrange the panes and Mail remembers your pane layout on this device.
@@ -56,7 +56,7 @@ Administrators manage templates and defaults under **Settings > Writing**. Choos
 
 ## Attach files {icon="paperclip"}
 
-Select **Attach files** and choose one or more files. Upload progress and failures appear next to the draft attachments. You can retry or cancel an incomplete upload and remove an attached file before sending.
+Select **Attach files** and choose one or more files, or drag files onto the composer from your desktop. The composer highlights while it can accept the drop. Upload progress and failures appear next to the draft attachments. You can retry or cancel an incomplete upload and remove an attached file before sending.
 
 Each outgoing attachment is limited to 100 MiB. A message cannot be sent while an attachment upload is incomplete or failed.
 
@@ -72,7 +72,7 @@ When forwarding a message with attachments, Mail includes the original files in 
 
 ## Add a calendar invitation {icon="calendar-plus"}
 
-Select **Add calendar invitation** beside **Attach files** to choose an existing event or create a small event directly in a writable Space. Spaces owns the event and its invitation sequence; Mail attaches the generated `.ics` file to the current draft. Nothing is sent until you use the normal send action.
+Open **Message options** and select **Add calendar invitation** to choose an existing event or create a small event directly in a writable Space. Spaces owns the event and its invitation sequence; Mail attaches the generated `.ics` file to the current draft. Nothing is sent until you use the normal send action.
 
 Mail derives the organizer from the draft's verified sender identity. **To** and **Cc** recipients become invitation attendees, while **Bcc** recipients are deliberately excluded so hidden addresses are never disclosed through calendar data. If Spaces is unavailable or you cannot write to any Space, the calendar action stays hidden and the rest of the composer keeps working.
 
@@ -92,7 +92,9 @@ For a message previously sent by this mailbox, **Resend as a new draft** creates
 
 Select the main action button to queue delivery now. If **Undo send window** is greater than zero under **Settings > Writing**, Mail delays immediate delivery for that many seconds and offers an undo route through **Scheduled**. The setting can be between 0 and 60 seconds.
 
-Select the clock side of the split action button to open **Schedule delivery**. Choose a time at least one minute in the future. The dialog shows the effective mailbox time zone and the exact delivery time.
+Open the split action menu and select **Send later** to open **Schedule delivery**. Choose a time at least one minute in the future. The dialog shows the effective mailbox time zone and the exact delivery time.
+
+Select **Save as draft** from the same menu to keep meaningful changes and return to the mailbox. Mail does not create an empty draft when the composer still contains only its untouched initial content.
 
 Scheduled messages appear under **Scheduled** with recipients, content preview, creator, delivery time, and retry state. Until delivery begins, **Cancel** lets you:
 
@@ -104,7 +106,7 @@ After successful delivery, the message becomes normal sent mail. Scheduled deliv
 
 ## Choose priority and receipt requests {icon="mail-cog"}
 
-Open **Delivery options** in the composer to change the selected identity's defaults for this draft:
+Open **Message options**, then **Delivery options**, to change the selected identity's defaults for this draft:
 
 - **Priority** adds standard high- or low-importance headers. The recipient's mail client decides whether and how to show them.
 - **Delivery receipt** asks the SMTP server for a delivery-status report. The option is available only when the selected sending server advertises support.

@@ -647,14 +647,54 @@ const runSmoke = async (fixture: Fixture) => {
       (url) => url.pathname === `/app/mail/${fixture.mailboxId}/compose/${materialized.id}`,
       "meaningful input promotes the local seed to its canonical draft route",
     );
-    await page.getByRole("button", { name: "Back to mailbox" }).click();
+
+    const sendOptions = page.getByRole("button", { name: "More send options", exact: true });
+    await sendOptions.click();
+    let sendOptionsMenu = page.locator('[role="menu"]:popover-open');
+    await sendOptionsMenu.getByText("Save as draft", { exact: true }).waitFor();
+    await sendOptionsMenu.getByText("Send later", { exact: true }).waitFor();
+    if ((await sendOptionsMenu.getByRole("menuitem").count()) !== 2) {
+      fail("composer split action contains unexpected alternatives");
+    }
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Message options", exact: true }).click();
+    const messageOptionsDialog = page.getByRole("dialog").filter({ hasText: "Message options" });
+    await messageOptionsDialog.getByText("Message format", { exact: true }).waitFor();
+    await messageOptionsDialog.getByRole("button", { name: "Delivery options", exact: true }).click();
+    const deliveryOptionsDialog = page.getByRole("dialog").filter({ hasText: "Delivery options" });
+    await deliveryOptionsDialog.getByText("Priority", { exact: true }).waitFor();
+    await deliveryOptionsDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    await sendOptions.click();
+    sendOptionsMenu = page.locator('[role="menu"]:popover-open');
+    await sendOptionsMenu.getByText("Send later", { exact: true }).click();
+    const scheduleDialog = page.getByRole("dialog").filter({ hasText: "Schedule delivery" });
+    await scheduleDialog.getByText("Delivery time", { exact: true }).waitFor();
+    await scheduleDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    const droppedFilename = "composer-drop.txt";
+    await page.locator(".mail-composer-surface").evaluate((element, filename) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["Dropped through the composer smoke."], filename, { type: "text/plain" }));
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        element.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      }
+    }, droppedFilename);
+    await page.getByText(droppedFilename, { exact: true }).waitFor();
+    await page.getByRole("button", { name: `Remove ${droppedFilename}`, exact: true }).click();
+    await page.getByText(droppedFilename, { exact: true }).waitFor({ state: "detached" });
+
+    await sendOptions.click();
+    sendOptionsMenu = page.locator('[role="menu"]:popover-open');
+    await sendOptionsMenu.getByText("Save as draft", { exact: true }).click();
     await body.waitFor({ state: "detached" });
     await expectUrl(
       page,
       (url) => url.pathname === mailboxPath && url.searchParams.get("conversation") === fixture.conversationId,
       "composer returns to the originating conversation",
     );
-    ok("draft saves and the focused composer closes cleanly");
+    ok("composer options, file drop, and explicit draft save work through the canonical flows");
 
     await page.getByRole("button", { name: "Reply", exact: true }).click();
     await continueDraft(page);

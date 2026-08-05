@@ -1,20 +1,21 @@
 import { navigateTo } from "@k2b/ssr/nav";
+import { type DateContext, dates } from "@k2b/stdlib";
+import { dropzone, mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   CheckboxCard,
   type Completion,
   Dropdown,
   type DropdownItem,
+  IconButton,
   type PanesValue,
   prompts,
   Select,
+  SplitButton,
   TextInput,
   Tooltip,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { type DateContext, dates } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
@@ -42,10 +43,10 @@ import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
 import { createMailComposerAttachmentManager } from "./mail-composer-attachment-manager";
 import { focusMailComposerEditorAtStart } from "./mail-composer-editor-focus";
 import { createMailComposerTransition } from "./mail-composer-transition";
-import { writeMailSenderPreference } from "./mail-sender-preference";
 import { removeMailDraftSeed } from "./mail-draft-seed-store";
 import { createMailDraftSession } from "./mail-draft-session";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
+import { writeMailSenderPreference } from "./mail-sender-preference";
 
 class ComposeSafetyCancelled extends Error {}
 class ComposeSafetyAttachmentRequested extends Error {}
@@ -246,6 +247,12 @@ export default function MailComposer(props: {
     isDisposed: () => disposed,
   });
   const uploads = attachments.uploads;
+  const attachmentDropzone = dropzone.create({
+    onDrop: (files) => {
+      if (!editable() || files.length === 0) return;
+      void attachments.addFiles(files);
+    },
+  });
 
   const addCalendarInvitation = async () => {
     const reservation = composerTransition.reserve("calendar");
@@ -624,6 +631,60 @@ export default function MailComposer(props: {
     }
   };
 
+  const openMessageOptionsDialog = () =>
+    prompts.dialog<"calendar" | "delivery">(
+      (close) => (
+        <div class="flex flex-col gap-4">
+          <Select
+            label="Message format"
+            description="Choose how this message is written and delivered."
+            value={format}
+            onValueChange={(value) => setFormat(value === "plain" ? "plain" : "markdown")}
+            options={[
+              { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
+              { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
+            ]}
+          />
+          <div class="flex flex-col gap-2">
+            <Show when={props.calendarIntegrationAvailable}>
+              <Button variant="secondary" type="button" class="w-full justify-start" onClick={() => close("calendar")}>
+                <i class="ti ti-calendar-plus" aria-hidden="true" />
+                Add calendar invitation
+              </Button>
+            </Show>
+            <Button variant="secondary" type="button" class="w-full justify-start" onClick={() => close("delivery")}>
+              <i class="ti ti-mail-cog" aria-hidden="true" />
+              Delivery options
+              <Show when={deliveryOptionsSummary().length > 0}>
+                <span class="ml-auto text-xs font-normal text-dimmed">{deliveryOptionsSummary().join(", ")}</span>
+              </Show>
+            </Button>
+          </div>
+          <div class="flex justify-end">
+            <Button variant="secondary" size="sm" type="button" onClick={() => close(undefined)}>
+              Done
+            </Button>
+          </div>
+        </div>
+      ),
+      { title: "Message options", icon: "ti ti-adjustments-horizontal", size: "medium" },
+    );
+
+  const editMessageOptions = async () => {
+    if (!editable()) return;
+    const reservation = composerTransition.reserve("delivery_options");
+    if (!reservation) return;
+    let choice: "calendar" | "delivery" | undefined;
+    try {
+      choice = await openMessageOptionsDialog();
+    } finally {
+      composerTransition.release(reservation);
+    }
+    if (disposed) return;
+    if (choice === "calendar") await addCalendarInvitation();
+    if (choice === "delivery") await editDeliveryOptions();
+  };
+
   const discard = mutations.create<boolean, void>({
     mutation: async (_input, { abortSignal }) => {
       if (uploads().length > 0) throw new Error("Cancel attachment uploads before discarding this draft.");
@@ -847,7 +908,18 @@ export default function MailComposer(props: {
   ]);
 
   return (
-    <div class="mail-composer-surface h-full min-w-0 overflow-hidden">
+    <div class="mail-composer-surface relative h-full min-w-0 overflow-hidden" {...attachmentDropzone.handlers}>
+      <Show when={editable() && attachmentDropzone.isDragging()}>
+        <div
+          class="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-[var(--ui-radius-surface)] border-2 border-dashed border-[var(--ui-accent)] bg-[color-mix(in_srgb,var(--ui-surface)_88%,transparent)]"
+          role="status"
+        >
+          <div class="flex items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-4 py-3 text-sm font-medium text-primary shadow-lg">
+            <i class="ti ti-paperclip text-[var(--ui-accent)]" aria-hidden="true" />
+            Drop files to attach
+          </div>
+        </div>
+      </Show>
       <Show when={!props.popout}>
         <header class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
           <Tooltip.Anchor content="Back to mailbox">
@@ -975,30 +1047,37 @@ export default function MailComposer(props: {
       </div>
 
       <footer class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
-        <div class="mail-delivery-actions inline-flex shrink-0">
-          <Button
-            size="sm"
+        <SplitButton
+          size="sm"
+          type="button"
+          loading={send.loading()}
+          disabled={!editable() || uploads().length > 0}
+          menuLabel="More send options"
+          items={[
+            { label: "Save as draft", icon: "ti ti-device-floppy", action: () => void leaveComposer() },
+            { label: "Send later", icon: "ti ti-clock", action: () => void schedule() },
+          ]}
+          onClick={() => void sendDraft({})}
+        >
+          <i class={`ti ${intentIcon(composerIntent())}`} aria-hidden="true" />
+          {intentLabel(composerIntent())}
+        </SplitButton>
+        <Tooltip.Anchor
+          content={deliveryOptionsSummary().length > 0 ? `Message options: ${deliveryOptionsSummary().join(", ")}` : "Message options"}
+        >
+          <IconButton
             type="button"
-            class="rounded-r-none"
-            disabled={!editable() || send.loading() || uploads().length > 0}
-            onClick={() => void sendDraft({})}
+            class="relative"
+            label="Message options"
+            disabled={!editable()}
+            onClick={() => void editMessageOptions()}
           >
-            <i class={`ti ${send.loading() ? "ti-loader-2 animate-spin" : intentIcon(composerIntent())}`} aria-hidden="true" />
-            {intentLabel(composerIntent())}
-          </Button>
-          <Tooltip.Anchor content="Schedule delivery">
-            <Button
-              size="sm"
-              type="button"
-              class="min-w-8 rounded-l-none border-l border-l-white/30 px-2"
-              aria-label="Schedule delivery"
-              disabled={!editable() || send.loading() || uploads().length > 0}
-              onClick={() => void schedule()}
-            >
-              <i class="ti ti-clock" aria-hidden="true" />
-            </Button>
-          </Tooltip.Anchor>
-        </div>
+            <i class="ti ti-adjustments-horizontal" aria-hidden="true" />
+            <Show when={deliveryOptionsSummary().length > 0}>
+              <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
+            </Show>
+          </IconButton>
+        </Tooltip.Anchor>
         <Tooltip.Anchor content="Attach files">
           <IconButton type="button" label="Attach files" disabled={!editable()} onClick={() => attachmentInput?.click()}>
             <i class="ti ti-paperclip" aria-hidden="true" />
@@ -1016,41 +1095,6 @@ export default function MailComposer(props: {
             void attachments.addFiles(files);
           }}
         />
-        <Show when={props.calendarIntegrationAvailable}>
-          <Tooltip.Anchor content="Add calendar invitation">
-            <IconButton type="button" label="Add calendar invitation" disabled={!editable()} onClick={() => void addCalendarInvitation()}>
-              <i class="ti ti-calendar-plus" aria-hidden="true" />
-            </IconButton>
-          </Tooltip.Anchor>
-        </Show>
-        <Select
-          placeholder="Message format"
-          value={format}
-          onValueChange={(value) => {
-            setFormat(value === "plain" ? "plain" : "markdown");
-          }}
-          options={[
-            { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
-            { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
-          ]}
-          disabled={!editable()}
-        />
-        <Tooltip.Anchor
-          content={deliveryOptionsSummary().length > 0 ? `Delivery options: ${deliveryOptionsSummary().join(", ")}` : "Delivery options"}
-        >
-          <IconButton
-            type="button"
-            class="relative"
-            label="Delivery options"
-            disabled={!editable()}
-            onClick={() => void editDeliveryOptions()}
-          >
-            <i class="ti ti-adjustments" aria-hidden="true" />
-            <Show when={deliveryOptionsSummary().length > 0}>
-              <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
-            </Show>
-          </IconButton>
-        </Tooltip.Anchor>
         <span class="flex-1" />
         <Tooltip.Anchor content="Discard draft">
           <IconButton type="button" label="Discard draft" disabled={!editable() || discard.loading()} onClick={() => void discardDraft()}>
