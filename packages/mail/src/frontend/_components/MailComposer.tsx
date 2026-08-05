@@ -1069,34 +1069,27 @@ export default function MailComposer(props: {
             size="sm"
             variant="secondary"
             type="button"
-            class="relative hidden sm:inline-flex"
+            class="relative"
             aria-label="Message options"
             disabled={!editable()}
             onClick={() => void editMessageOptions()}
           >
             <i class="ti ti-adjustments-horizontal" aria-hidden="true" />
-            Options
+            <span class="hidden sm:inline">Options</span>
             <Show when={deliveryOptionsSummary().length > 0}>
               <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
             </Show>
           </Button>
+        </Tooltip.Anchor>
+        <Tooltip.Anchor content="Attach files">
           <IconButton
             size="sm"
             variant="secondary"
             type="button"
-            class="relative sm:hidden"
-            label="Message options"
+            label="Attach files"
             disabled={!editable()}
-            onClick={() => void editMessageOptions()}
+            onClick={() => attachmentInput?.click()}
           >
-            <i class="ti ti-adjustments-horizontal" aria-hidden="true" />
-            <Show when={deliveryOptionsSummary().length > 0}>
-              <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
-            </Show>
-          </IconButton>
-        </Tooltip.Anchor>
-        <Tooltip.Anchor content="Attach files">
-          <IconButton type="button" label="Attach files" disabled={!editable()} onClick={() => attachmentInput?.click()}>
             <i class="ti ti-paperclip" aria-hidden="true" />
           </IconButton>
         </Tooltip.Anchor>
