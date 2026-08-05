@@ -136,6 +136,7 @@ describe("Grids API permissions", () => {
       formId: null,
       documentTemplateId: null,
       dashboardId: null,
+      customAppId: null,
       workflowId: null,
     });
   });

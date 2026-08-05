@@ -10,7 +10,7 @@ const LEVEL_RANK: Record<PermissionLevel, number> = {
 
 const LEVEL_BY_RANK: PermissionLevel[] = ["none", "read", "write", "admin"];
 
-export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard" | "workflow";
+export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard" | "customApp" | "workflow";
 
 /**
  * Principal tier — captures HOW the loaded grant matched the user.
@@ -36,6 +36,7 @@ export type ResolveTarget =
   | { baseId: string; tableId: string; formId: string }
   | { baseId: string; tableId: string; documentTemplateId: string }
   | { baseId: string; dashboardId: string }
+  | { baseId: string; customAppId: string }
   | { baseId: string; workflowId: string };
 
 const PRINCIPAL_TIERS: PrincipalTier[] = ["serviceAccount", "user", "group", "authenticated", "public"];
@@ -92,6 +93,10 @@ export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarge
     const lvl = tryScope("dashboard", target.dashboardId);
     if (lvl !== null) return lvl;
   }
+  if ("customAppId" in target) {
+    const lvl = tryScope("customApp", target.customAppId);
+    if (lvl !== null) return lvl;
+  }
   if ("workflowId" in target) {
     const lvl = tryScope("workflow", target.workflowId);
     if (lvl !== null) return lvl;
@@ -137,9 +142,9 @@ export const hasGrantsForResource = (grants: Grant[], resourceType: ResourceType
 type DbRow = Record<string, unknown>;
 
 /**
- * Loads all grants reachable for this user across base / table / view /
- * form / dashboard ACLs for the given target chain. One query, five UNION
- * ALL legs — keeps permission lookup to a single round-trip.
+ * Loads all grants reachable for this user across the registered resource
+ * scopes for the given target chain. One UNION query keeps permission lookup
+ * to a single round-trip.
  *
  * Each row carries a principal_tier label derived from the auth.access
  * row's shape: explicit user_id ⇒ user, explicit group_id ⇒ group,
@@ -153,6 +158,7 @@ type LoadGrantTargets = {
   formId?: string | null;
   documentTemplateId?: string | null;
   dashboardId?: string | null;
+  customAppId?: string | null;
   workflowId?: string | null;
 };
 
@@ -165,6 +171,7 @@ export const loadGrantsForSubject = async (
   const formId = params.formId ?? null;
   const documentTemplateId = params.documentTemplateId ?? null;
   const dashboardId = params.dashboardId ?? null;
+  const customAppId = params.customAppId ?? null;
   const workflowId = params.workflowId ?? null;
 
   // CASE expression that classifies each auth.access row into one of
@@ -229,6 +236,13 @@ export const loadGrantsForSubject = async (
     FROM grids.dashboard_access da
     JOIN auth.access a ON a.id = da.access_id
     WHERE da.dashboard_id = ${dashboardId}::uuid AND ${principalMatch}
+
+    UNION ALL
+
+    SELECT 'customApp'::text, caa.custom_app_id::text, a.permission, ${tierExpr}
+    FROM grids.custom_app_access caa
+    JOIN auth.access a ON a.id = caa.access_id
+    WHERE caa.custom_app_id = ${customAppId}::uuid AND ${principalMatch}
 
     UNION ALL
 

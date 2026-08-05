@@ -2,19 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { gridsHelp } from ".";
 
 const futureHelpFiles = [
-  "grids-custom-apps.help.md",
   "grids-build-custom-app.help.md",
   "grids-custom-app-pages-blocks.help.md",
   "grids-publish-custom-app.help.md",
   "grids-custom-app-yaml-cli.help.md",
 ] as const;
 
-const exampleFiles = [
-  "certificate-requests.yaml",
-  "article-entry.yaml",
-  "inventory-borrower.yaml",
-  "inventory-loan-desk.yaml",
-] as const;
+const exampleFiles = ["certificate-requests.yaml", "article-entry.yaml", "inventory-borrower.yaml", "inventory-loan-desk.yaml"] as const;
 
 type DefinitionNode = {
   id?: unknown;
@@ -27,7 +21,10 @@ type DefinitionNode = {
 
 const assertUniqueIds = (items: DefinitionNode[] | undefined, location: string): void => {
   const ids = (items ?? []).map((item) => item.id);
-  expect(ids.every((id) => typeof id === "string" && id.length > 0), `${location} ids`).toBe(true);
+  expect(
+    ids.every((id) => typeof id === "string" && id.length > 0),
+    `${location} ids`,
+  ).toBe(true);
   expect(new Set(ids).size, `${location} ids`).toBe(ids.length);
 };
 
@@ -74,7 +71,10 @@ describe("future Custom Apps documentation contract", () => {
       expect(typeof definition.baseId, filename).toBe("string");
       expect(definition.shortId, `${filename} must let Grids assign shortId`).toBeUndefined();
       expect(definition.pages?.length ?? 0, filename).toBeGreaterThan(0);
-      expect(definition.pages?.some((page) => page.id === definition.startPageId), filename).toBe(true);
+      expect(
+        definition.pages?.some((page) => page.id === definition.startPageId),
+        filename,
+      ).toBe(true);
 
       assertUniqueIds(definition.pages, `${filename} pages`);
       for (const page of definition.pages ?? []) {

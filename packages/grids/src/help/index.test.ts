@@ -25,6 +25,7 @@ const expectedTopics = [
   "grids-formulas",
   "grids-forms-dashboards",
   "grids-documents-pdfs",
+  "grids-custom-apps",
   "grids-workflows",
   "grids-permissions",
   "grids-operations-troubleshooting",
@@ -100,6 +101,12 @@ describe("grids help", () => {
       expect(formsDashboards, `missing dashboard chart type ${chartType}`).toContain(chartType);
     }
 
+    const customApps = gridsHelp.getMarkdown("grids-custom-apps")!;
+    for (const capability of ["Markdown", "Records", "saved view", "apps validate", "apps plan", "apps apply", "apps publish"]) {
+      expect(customApps, `missing Custom App capability ${capability}`).toContain(capability);
+    }
+    expect(customApps).toContain("signed-in Cloud accounts only");
+
     const documents = gridsHelp.getMarkdown("grids-documents-pdfs")!;
     for (const capability of ["recursive snapshot", "public link", "1, 7, 30, or 90 days", "barcode_data_url"]) {
       expect(documents, `missing document capability ${capability}`).toContain(capability);
@@ -118,7 +125,17 @@ describe("grids help", () => {
     expect(permissions).toContain("Cloud administrators are not automatic Grids superusers");
     expect(permissions).toContain("Saved views and document templates are deliberate included-data boundaries");
     expect(permissions).toContain("only the exact enabled launcher saved in a readable dashboard widget");
-    for (const resource of ["Base", "Stored table", "Combined table", "View", "Form", "Dashboard", "Document template", "Workflow"]) {
+    for (const resource of [
+      "Base",
+      "Stored table",
+      "Combined table",
+      "View",
+      "Form",
+      "Dashboard",
+      "Custom App",
+      "Document template",
+      "Workflow",
+    ]) {
       expect(permissions, `missing permission resource ${resource}`).toContain(resource);
     }
 

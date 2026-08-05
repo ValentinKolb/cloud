@@ -7,6 +7,7 @@ const tableId = "table-1";
 const viewId = "view-1";
 const documentTemplateId = "template-1";
 const dashboardId = "dash-1";
+const customAppId = "app-1";
 const workflowId = "workflow-1";
 
 // Most tests use the "user" tier (most-specific principal). Cross-tier
@@ -107,6 +108,21 @@ describe("resolveEffectivePermission — dashboard target", () => {
   test("dashboard inherits from base when no dashboard grant", () => {
     const grants: Grant[] = [u({ resourceType: "base", resourceId: baseId, level: "admin" })];
     expect(resolveEffectivePermission(grants, { baseId, dashboardId })).toBe("admin");
+  });
+});
+
+describe("resolveEffectivePermission — Custom App target", () => {
+  test("uses an explicit Custom App grant before the base grant", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "base", resourceId: baseId, level: "admin" }),
+      u({ resourceType: "customApp", resourceId: customAppId, level: "read" }),
+    ];
+    expect(resolveEffectivePermission(grants, { baseId, customAppId })).toBe("read");
+  });
+
+  test("inherits the base level when no Custom App grant exists", () => {
+    const grants: Grant[] = [u({ resourceType: "base", resourceId: baseId, level: "admin" })];
+    expect(resolveEffectivePermission(grants, { baseId, customAppId })).toBe("admin");
   });
 });
 

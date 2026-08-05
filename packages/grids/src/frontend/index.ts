@@ -12,6 +12,7 @@ import formulaReferencePage from "./[baseId]/table/[tableId]/formula-reference/p
 import tableRecordsPage from "./[baseId]/table/[tableId]/page";
 import viewRecordsPage from "./[baseId]/table/[tableId]/view/[viewId]/page";
 import adminPage from "./admin";
+import customAppPage from "./custom-app/page";
 import indexPage from "./page";
 import publicFormPage from "./public/forms/[token]/page";
 
@@ -39,6 +40,13 @@ export const publicRoutes = new Hono<AuthContext>()
       "X-Grids-Document-Link-Id": resolved.data.link.id,
     });
   });
+
+/** Standalone published Custom Apps mounted at `/apps`. */
+export const customAppRoutes = new Hono<AuthContext>().get(
+  "/:shortId",
+  auth.requireRole("authenticated", auth.redirectToLogin),
+  ...customAppPage,
+);
 
 /**
  * Default export = user-facing app pages mounted at `/app/grids`.

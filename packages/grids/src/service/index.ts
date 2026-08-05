@@ -3,6 +3,7 @@ import * as audit from "./audit";
 import * as baseCatalog from "./base-catalog";
 import * as bases from "./bases";
 import * as combinedAudit from "./combined-audit";
+import * as customApps from "./custom-apps";
 import * as dashboards from "./dashboards";
 import * as documents from "./documents";
 import * as emailTemplates from "./email-templates";
@@ -46,15 +47,10 @@ import {
   validateWorkflowSource,
 } from "./workflow-definitions";
 import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-launcher-invocations";
-import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-record-events";
-import {
-  invokeGridsWorkflow,
-  reconcileWorkflowRuntime,
-  startWorkflowRuntime,
-  stopWorkflowRuntime,
-} from "./workflow-runtime";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
+import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-record-events";
 import { getWorkflowRun } from "./workflow-runs";
+import { invokeGridsWorkflow, reconcileWorkflowRuntime, startWorkflowRuntime, stopWorkflowRuntime } from "./workflow-runtime";
 
 export const gridsService = {
   operations: {
@@ -160,11 +156,21 @@ export const gridsService = {
     listForForm: access.listFormAccess,
     listForDocumentTemplate: access.listDocumentTemplateAccess,
     listForDashboard: access.listDashboardAccess,
+    listForCustomApp: access.listCustomAppAccess,
     listForWorkflow: access.listWorkflowAccess,
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
     resolveBinding: access.resolveAccessBinding,
     resolveResource: access.resolveResourceBinding,
+  },
+  customApp: {
+    compile: customApps.compile,
+    plan: customApps.plan,
+    apply: customApps.apply,
+    publish: customApps.publish,
+    get: customApps.get,
+    getPublishedByShortId: customApps.getPublishedByShortId,
+    listByBase: customApps.listByBase,
   },
   view: {
     listForTable: views.listForTable,

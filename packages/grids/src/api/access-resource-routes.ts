@@ -8,6 +8,7 @@ import {
   type BaseAdminAuthorization,
   grantAccess,
   listBaseAccess,
+  listCustomAppAccess,
   listDashboardAccess,
   listDocumentTemplateAccess,
   listFormAccess,
@@ -52,7 +53,7 @@ const defaultDeps: AccessRouteDeps = {
 
 const resolveRegisteredResource = async (resourceType: Exclude<AccessResourceType, "base" | "table" | "workflow">, resourceId: string) => {
   const binding = await resolveResourceBinding(resourceType, resourceId, {
-    includeDeleted: resourceType === "documentTemplate" ? false : undefined,
+    includeDeleted: resourceType === "documentTemplate" || resourceType === "customApp" ? false : undefined,
   });
   return binding?.baseId ?? null;
 };
@@ -117,6 +118,16 @@ const ACCESS_ROUTE_CONFIGS = {
     grantError: "Dashboard only accepts level 'read' or 'none'",
     resolveBaseId: (dashboardId) => resolveRegisteredResource("dashboard", dashboardId),
     list: listDashboardAccess,
+  },
+  customApp: {
+    resourceType: "customApp",
+    path: "/by-custom-app/:customAppId",
+    param: "customAppId",
+    label: "Custom App",
+    grantSummary: "Grant read access on a Custom App (only 'read' / 'none' accepted)",
+    grantError: "Custom App only accepts level 'read' or 'none'",
+    resolveBaseId: (customAppId) => resolveRegisteredResource("customApp", customAppId),
+    list: listCustomAppAccess,
   },
   workflow: {
     resourceType: "workflow",
@@ -220,6 +231,12 @@ export const createAccessResourceRoutes = (deps: AccessRouteDeps = defaultDeps) 
     )
     .post("/by-dashboard/:dashboardId", grantDescription(ACCESS_ROUTE_CONFIGS.dashboard), v("json", GrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.dashboard, c.req.valid("json"), deps),
+    )
+    .get("/by-custom-app/:customAppId", listDescription(ACCESS_ROUTE_CONFIGS.customApp), (c) =>
+      listResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, deps),
+    )
+    .post("/by-custom-app/:customAppId", grantDescription(ACCESS_ROUTE_CONFIGS.customApp), v("json", GrantAccessSchema), (c) =>
+      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, c.req.valid("json"), deps),
     )
     .get("/by-workflow/:workflowId", listDescription(ACCESS_ROUTE_CONFIGS.workflow), (c) =>
       listResourceAccess(c, ACCESS_ROUTE_CONFIGS.workflow, deps),

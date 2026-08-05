@@ -92,6 +92,7 @@ const loadCurrentGrants = (access: GridsAccessContext, target: ResolveTarget): P
     formId: "formId" in target ? target.formId : null,
     documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
     dashboardId: "dashboardId" in target ? target.dashboardId : null,
+    customAppId: "customAppId" in target ? target.customAppId : null,
     workflowId: "workflowId" in target ? target.workflowId : null,
   });
 };

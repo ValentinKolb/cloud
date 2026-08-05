@@ -1290,6 +1290,44 @@ const migrateDashboards = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.dashboard_access");
 };
 
+const migrateCustomApps = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.custom_apps (
+      id UUID PRIMARY KEY,
+      short_id TEXT NOT NULL,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      icon TEXT,
+      draft_definition JSONB NOT NULL,
+      draft_capabilities JSONB NOT NULL,
+      published_definition JSONB,
+      published_capabilities JSONB,
+      published_at TIMESTAMPTZ,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT custom_apps_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_custom_apps_short_id
+    ON grids.custom_apps(short_id) WHERE deleted_at IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_custom_apps_base
+    ON grids.custom_apps(base_id, name) WHERE deleted_at IS NULL
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.custom_app_access (
+      custom_app_id UUID NOT NULL REFERENCES grids.custom_apps(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (custom_app_id, access_id)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_custom_app_access_access ON grids.custom_app_access(access_id)`.simple();
+  console.log("  ✓ grids.custom_apps + grids.custom_app_access");
+};
+
 const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
   // Opaque scan codes are lazy-generated record lookup keys. A code does not
   // grant access; scanner workflows still resolve and run through permissions.
@@ -1439,6 +1477,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);
     await migrateDashboards(connection);
+    await migrateCustomApps(connection);
     await migrateGridsWorkflowTables(connection);
     await migrateRecordScanCodes(connection);
     await migrateOperationalHealth(connection);

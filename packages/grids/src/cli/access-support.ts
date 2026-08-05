@@ -1,6 +1,7 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { resolveAccessPrincipal } from "@valentinkolb/cloud/cli";
 import type { PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { resolveCustomApp } from "./custom-apps";
 import { resolveDocumentTemplateFromCommand } from "./documents-support";
 import { resolveDashboardFromCommand, resolveFormFromCommand } from "./forms-dashboards-support";
 import { resolveBase, resolveBaseFromCommand, resolveTable } from "./resources";
@@ -10,7 +11,7 @@ import { resolveWorkflowFromCommand } from "./workflows-support";
 
 export const PERMISSION_LEVELS = ["none", "read", "write", "admin"] as const satisfies readonly PermissionLevel[];
 
-export const ACCESS_RESOURCE_TYPES = ["base", "table", "view", "form", "dashboard", "document-template", "workflow"] as const;
+export const ACCESS_RESOURCE_TYPES = ["base", "table", "view", "form", "dashboard", "custom-app", "document-template", "workflow"] as const;
 
 type AccessResourceType = (typeof ACCESS_RESOURCE_TYPES)[number];
 
@@ -34,6 +35,7 @@ export const accessPermissionsForResource = (type: AccessResourceType): readonly
     case "form":
       return ["write", "none"];
     case "dashboard":
+    case "custom-app":
       return ["read", "none"];
     case "document-template":
     case "workflow":
@@ -77,6 +79,11 @@ export const resolveAccessResource = async (ctx: CloudCliContext, args: string[]
   if (type === "dashboard") {
     const { dashboard } = await resolveDashboardFromCommand(ctx, rest, undefined);
     return { type, id: dashboard.id, label: `${dashboard.name} (${dashboard.shortId})`, allowed: accessPermissionsForResource(type) };
+  }
+  if (type === "custom-app") {
+    const { base, rest: appRest } = await resolveBaseFromCommand(ctx, rest, 1);
+    const app = await resolveCustomApp(ctx, base.id, requireRestArg(appRest, 0, "Custom App"));
+    return { type, id: app.id, label: `${app.name} (${app.shortId})`, allowed: accessPermissionsForResource(type) };
   }
   if (type === "document-template") {
     const { template } = await resolveDocumentTemplateFromCommand(ctx, rest, {});

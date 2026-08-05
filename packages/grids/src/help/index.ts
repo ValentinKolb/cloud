@@ -2,6 +2,7 @@ import { defineHelp } from "@valentinkolb/cloud/server";
 import buildBase from "./documents/grids-build-base.help.md" with { type: "text" };
 import combinedTables from "./documents/grids-combined-tables.help.md" with { type: "text" };
 import coreModel from "./documents/grids-core-model.help.md" with { type: "text" };
+import customApps from "./documents/grids-custom-apps.help.md" with { type: "text" };
 import documents from "./documents/grids-documents-pdfs.help.md" with { type: "text" };
 import formsDashboards from "./documents/grids-forms-dashboards.help.md" with { type: "text" };
 import formulas from "./documents/grids-formulas.help.md" with { type: "text" };
@@ -24,6 +25,7 @@ export const gridsHelp = defineHelp({
     gql,
     formulas,
     formsDashboards,
+    customApps,
     documents,
     workflows,
     permissions,

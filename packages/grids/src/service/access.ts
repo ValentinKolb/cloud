@@ -1,5 +1,5 @@
-import type { AccessEntry, AccessSubject, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import type { AccessEntry, AccessSubject, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
@@ -59,6 +59,15 @@ const ACCESS_RESOURCES = {
     bindingIdKey: "dashboardId",
     allowedPermissions: ["read", "none"],
     invalidPermissionMessage: "Dashboard grants only accept 'read' or 'none'",
+  },
+  customApp: {
+    junctionTable: "grids.custom_app_access",
+    junctionResourceColumn: "custom_app_id",
+    resourceTable: "grids.custom_apps",
+    scope: "baseChild",
+    bindingIdKey: "customAppId",
+    allowedPermissions: ["read", "none"],
+    invalidPermissionMessage: "Custom App grants only accept 'read' or 'none'",
   },
   workflow: {
     junctionTable: "grids.workflow_access",
@@ -355,6 +364,9 @@ export const grantAccess = async (params: {
   actorId?: string | null;
   authorization?: BaseAdminAuthorization;
 }): Promise<Result<{ accessId: string }>> => {
+  if (params.resourceType === "customApp" && params.principal.type === "public") {
+    return fail(err.badInput("Custom Apps require a signed-in Cloud account"));
+  }
   const createdAccess = await sql.begin(async (tx): Promise<Result<{ accessId: string }>> => {
     const resource = await resolveResourceBinding(params.resourceType, params.resourceId, { client: tx });
     if (!resource) return fail(err.notFound("Resource"));
@@ -409,6 +421,7 @@ export const listViewAccess = (viewId: string) => listAccess("view", viewId);
 export const listFormAccess = (formId: string) => listAccess("form", formId);
 export const listDocumentTemplateAccess = (templateId: string) => listAccess("documentTemplate", templateId);
 export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
+export const listCustomAppAccess = (customAppId: string) => listAccess("customApp", customAppId);
 export const listWorkflowAccess = (workflowId: string) => listAccess("workflow", workflowId);
 
 const accessResourceEntries = Object.entries(ACCESS_RESOURCES) as [AccessResourceType, AccessResourceDefinition][];
@@ -580,6 +593,7 @@ export type AccessBinding =
   | { resourceType: "form"; baseId: string; tableId: string; formId: string }
   | { resourceType: "documentTemplate"; baseId: string; tableId: string; documentTemplateId: string }
   | { resourceType: "dashboard"; baseId: string; dashboardId: string }
+  | { resourceType: "customApp"; baseId: string; customAppId: string }
   | { resourceType: "workflow"; baseId: string; workflowId: string };
 
 type DbAccessBinding = {

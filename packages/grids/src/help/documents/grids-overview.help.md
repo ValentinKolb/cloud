@@ -18,6 +18,7 @@ Once the records are useful, the same saved data can support different jobs:
 - **Views** show the records people need for a task, such as available items or overdue loans.
 - **Forms** give people a focused way to add records without opening the full table.
 - **Dashboards** combine numbers, charts, record lists, forms, instructions, links, and workflow actions.
+- **Custom Apps** publish a focused read-only page from Markdown and saved views for signed-in Cloud users.
 - **Documents** turn records into PDFs such as invoices, labels, agreements, and reports.
 - **Workflows** carry out repeatable steps manually, from a scanner or selection, on a schedule, or after a record changes.
 - **Combined tables** publish one governed, read-only dataset from tables in several bases.

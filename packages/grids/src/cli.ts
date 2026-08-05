@@ -1,6 +1,7 @@
 import { defineCliCommands } from "@valentinkolb/cloud/cli";
 import { accessCommands } from "./cli/access";
 import { baseCrudCommands } from "./cli/bases";
+import { customAppCommands } from "./cli/custom-apps";
 import { documentCommands, documentTemplateCommands } from "./cli/documents";
 import { dashboardCommands, formCommands } from "./cli/forms-dashboards";
 import { recordCommands, snapshotCommands } from "./cli/records";
@@ -12,9 +13,10 @@ import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflo
 export default defineCliCommands({
   name: "grids",
   summary:
-    "Manage Grids bases, schema, records, forms, dashboards, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
+    "Manage Grids bases, schema, records, forms, Custom Apps, dashboards, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
   groupSummaries: {
     access: "Manage direct access to Grids resources",
+    apps: "Plan, validate, and publish Grids Custom Apps",
     bases: "Create, inspect, and manage Grids bases",
     dashboards: "Create, inspect, and manage dashboards",
     "document-templates": "Create, preview, and manage document templates",
@@ -42,6 +44,7 @@ export default defineCliCommands({
     ...baseCrudCommands,
     ...baseTemplateCommands,
     ...accessCommands,
+    ...customAppCommands,
     ...gqlCommands,
     ...formulaCommands,
     ...tableCommands,

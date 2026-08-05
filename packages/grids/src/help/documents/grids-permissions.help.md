@@ -5,7 +5,7 @@ icon: ti ti-lock
 description: Share bases and resources without exposing unrelated data or actions.
 order: 145
 ---
-Grids checks access at the resource a person is using. This makes it possible to share a view, form, dashboard, document template, or workflow without opening the entire base.
+Grids checks access at the resource a person is using. This makes it possible to share a view, form, dashboard, Custom App, document template, or workflow without opening the entire base.
 
 Cloud administrators are not automatic Grids superusers. They can manage access from the Grids administration area, but ordinary Grids pages still follow the same grants as every other user.
 
@@ -21,6 +21,7 @@ Not every resource supports every level:
 | View | Read, Admin, None |
 | Form | Write/Use, None |
 | Dashboard | Read, None |
+| Custom App | Read, None |
 | Document template | Read, Write, Admin, None |
 | Workflow | Read, Write, Admin, None |
 
@@ -40,12 +41,15 @@ In practice:
 - a readable view can expose its saved result without exposing the source table;
 - a form can accept a submission from a user who cannot browse the table;
 - a dashboard can include data while links from it still check their own targets.
+- a Custom App requires its own explicit grant and separately checks every saved view it displays.
 
 ## Included data and linked targets {icon="point"}
 
 **Included data** is rendered as part of the resource already opened, such as records in a view or numbers on a dashboard. It follows that resource's access.
 
 Saved views and document templates are deliberate included-data boundaries. Their administrator chooses the stored GQL, including joins. Granting access exposes that saved result or generated document without granting access to browse the source tables or replace the stored query.
+
+A Custom App adds another explicit boundary around its published page. App access alone never grants view access. A reader must be signed in, have a direct matching **Read** grant on the app, and be allowed to read every saved view whose records the app displays. Public Custom App grants are not available.
 
 A **linked target** is a different resource opened separately. A dashboard link, a related record, or the original table checks its own access when opened. Do not assume that seeing a label grants navigation to its source.
 

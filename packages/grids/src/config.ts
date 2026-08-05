@@ -37,7 +37,7 @@ export const app = defineApp({
   openapi: "/api/grids/openapi.json",
   // `/share/grids` hosts anonymous-friendly pages (public forms etc);
   // `/public/grids` is reserved for this app's generated CSS/assets.
-  routes: ["/api/grids", "/app/grids", "/admin/grids", "/share/grids", "/public/grids"],
+  routes: ["/api/grids", "/app/grids", "/admin/grids", "/share/grids", "/public/grids", "/apps"],
 });
 
 export const { ssr, plugin } = app;

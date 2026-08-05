@@ -5,7 +5,7 @@ import { websocket } from "hono/bun";
 import apiRoutes from "./api";
 import { gridsCapabilities } from "./capabilities";
 import { app } from "./config";
-import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
+import pageRoutes, { adminRoutes, customAppRoutes, publicRoutes } from "./frontend";
 import { gridsHelp } from "./help";
 import { migrate } from "./migrate";
 import { gridsService } from "./service";
@@ -20,7 +20,8 @@ const router = new Hono<AuthContext>()
   .route("/api/grids", apiRoutes)
   .route("/app/grids", pageRoutes)
   .route("/admin/grids", adminRoutes)
-  .route("/share/grids", publicRoutes);
+  .route("/share/grids", publicRoutes)
+  .route("/apps", customAppRoutes);
 
 const gridsRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {

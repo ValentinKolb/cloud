@@ -1,6 +1,6 @@
 # Grids CLI
 
-Grids stores structured operational data in bases made of tables, fields, records, views, forms, dashboards, documents, and workflows. Use `cld grids` to inspect and change the Grids resources available to the signed-in user through the same permission-checked HTTP API used by the app.
+Grids stores structured operational data in bases made of tables, fields, records, views, forms, Custom Apps, dashboards, documents, and workflows. Use `cld grids` to inspect and change the Grids resources available to the signed-in user through the same permission-checked HTTP API used by the app.
 
 ## Contents
 
@@ -11,6 +11,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - [Publish Combined tables](#publish-combined-tables)
 - [Query data with GQL](#query-data-with-gql)
 - [Create views, forms, and dashboards](#create-views-forms-and-dashboards)
+- [Publish a Custom App](#publish-a-custom-app)
 - [Generate documents](#generate-documents)
 - [Manage access](#manage-access)
 - [Build and operate workflows](#build-and-operate-workflows)
@@ -26,6 +27,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
 - A **dashboard** contains configured widgets that reference resources by UUID.
+- A **Custom App** is one independently shared read-only page compiled from Markdown and saved-view Records blocks.
 - A **document template** renders GQL data through Liquid HTML and Gotenberg. A generated document keeps a recursive record snapshot.
 - A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and dashboard
   interactions. Grids contributes the actions and the events; the runs themselves live in Cloud's shared workflow kernel, so
@@ -582,6 +584,32 @@ Scanner retries should reuse `--operation-id`; when omitted, the CLI generates a
 caller must reject a launcher that was revalidated against a different workflow revision. Otherwise, the server uses the launcher's
 current validated revision without requiring direct workflow access from the dashboard reader.
 
+## Publish a Custom App
+
+Custom Apps are strict YAML definitions owned by one base. The current contract supports one page containing responsive rows and columns,
+with Markdown blocks and up to four saved-view Records blocks. Run the live reference before authoring a definition:
+
+```bash
+cld grids apps reference
+cld grids apps validate Bookshop --source-file app.yaml
+cld grids apps plan Bookshop --source-file app.yaml
+cld grids apps apply Bookshop --source-file app.yaml --json
+```
+
+The definition chooses a stable UUID. Omit `shortId` on creation; Grids assigns and preserves it, and the original file remains safe to
+apply again. `apply` changes the draft only. Grant explicit read access to the app and read access to every saved view it displays, then
+publish the current validated draft:
+
+```bash
+cld grids access grant custom-app Bookshop "Request overview" --group "Request team" --permission read
+cld grids access grant view Bookshop Requests "My requests" --group "Request team" --permission read
+cld grids apps publish Bookshop "Request overview" --yes
+```
+
+The standalone app is available to signed-in readers at `/apps/<shortId>`. Public Custom App grants are rejected. Applying a later draft
+does not affect the published snapshot until the next publish. Commands are
+`apps reference|list|get|validate|plan|apply|export|publish`; `export --out <path>` writes normalized deterministic YAML.
+
 ## Generate documents
 
 Document templates combine GQL source, Liquid HTML, optional header/footer HTML, and page CSS. Read the runtime reference before creating one:
@@ -647,6 +675,7 @@ Supported resource references are:
 - `view <base> <table> <view>`: `read`, `admin`, or `none`.
 - `form <base> <table> <form>`: `write` or `none`.
 - `dashboard <base> <dashboard>`: `read` or `none`.
+- `custom-app <base> <app>`: `read` or `none`; signed-in principals only.
 - `document-template <base> <table> <template>`: `read`, `write`, `admin`, or `none`.
 - `workflow <base> <workflow>`: `read`, `write`, `admin`, or `none`.
 
@@ -943,6 +972,7 @@ views list|get|create|update|delete|restore
 forms list|default|get|create|update|delete|restore|submit
 dashboards reference|list|get|create|update|delete|restore
 dashboards widgets resolve|run|scan
+apps reference|list|get|validate|plan|apply|export|publish
 document-templates reference|list|get|create|update|delete
 document-templates preview-data|preview-pdf|preview-draft-data|preview-draft-pdf
 documents list|browse|by-record|generate|update|download

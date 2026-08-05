@@ -7,6 +7,7 @@ import {
   grantAccess,
   listAccessForBaseTree,
   listBaseAccess,
+  listCustomAppAccess,
   listDashboardAccess,
   listDocumentTemplateAccess,
   listFormAccess,
@@ -30,6 +31,7 @@ const fixture = () => ({
   formId: uuid(),
   documentTemplateId: uuid(),
   dashboardId: uuid(),
+  customAppId: uuid(),
   workflowId: uuid(),
 });
 
@@ -57,6 +59,10 @@ const insertFixture = async (item: Fixture) => {
     INSERT INTO grids.dashboards (id, short_id, base_id, name)
     VALUES (${item.dashboardId}::uuid, ${shortId("A")}, ${item.baseId}::uuid, 'Operations')
   `;
+  await sql`
+    INSERT INTO grids.custom_apps (id, short_id, base_id, name, draft_definition, draft_capabilities)
+    VALUES (${item.customAppId}::uuid, ${shortId("C")}, ${item.baseId}::uuid, 'Request portal', '{}'::jsonb, '{"views":[]}'::jsonb)
+  `;
   await insertTestWorkflow({
     id: item.workflowId,
     shortId: shortId("W"),
@@ -74,6 +80,7 @@ const resources = (item: Fixture): Array<{ type: AccessBinding["resourceType"]; 
   { type: "form", id: item.formId, permission: "write" },
   { type: "documentTemplate", id: item.documentTemplateId, permission: "admin" },
   { type: "dashboard", id: item.dashboardId, permission: "read" },
+  { type: "customApp", id: item.customAppId, permission: "read" },
   { type: "workflow", id: item.workflowId, permission: "write" },
 ];
 
@@ -147,7 +154,7 @@ describe("access resource registry integration", () => {
         const result = await grantAccess({
           resourceType: resource.type,
           resourceId: resource.id,
-          principal: { type: "public" },
+          principal: resource.type === "customApp" ? { type: "authenticated" } : { type: "public" },
           permission: resource.permission,
         });
         expect(result.ok).toBe(true);
@@ -162,9 +169,10 @@ describe("access resource registry integration", () => {
         listFormAccess(item.formId),
         listDocumentTemplateAccess(item.documentTemplateId),
         listDashboardAccess(item.dashboardId),
+        listCustomAppAccess(item.customAppId),
         listWorkflowAccess(item.workflowId),
       ]);
-      expect(lists.map((entries) => entries.length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+      expect(lists.map((entries) => entries.length)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
 
       const bindings = await Promise.all(accessIds.map((accessId) => resolveAccessBinding(accessId)));
       expect(bindings).toEqual([
@@ -179,6 +187,7 @@ describe("access resource registry integration", () => {
           documentTemplateId: item.documentTemplateId,
         },
         { resourceType: "dashboard", baseId: item.baseId, dashboardId: item.dashboardId },
+        { resourceType: "customApp", baseId: item.baseId, customAppId: item.customAppId },
         { resourceType: "workflow", baseId: item.baseId, workflowId: item.workflowId },
       ]);
 
@@ -193,6 +202,7 @@ describe("access resource registry integration", () => {
         "form",
         "documentTemplate",
         "dashboard",
+        "customApp",
         "workflow",
       ]);
     } finally {

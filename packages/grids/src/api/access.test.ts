@@ -24,6 +24,7 @@ describe("validateAccessLevelForResource", () => {
     expect(validateAccessLevelForResource("table", "admin")).toBe("Table grants only accept 'read' / 'write' / 'none'");
     expect(validateAccessLevelForResource("form", "read")).toBe("Form grants only accept 'write' or 'none'");
     expect(validateAccessLevelForResource("dashboard", "write")).toBe("Dashboard grants only accept 'read' or 'none'");
+    expect(validateAccessLevelForResource("customApp", "write")).toBe("Custom App grants only accept 'read' or 'none'");
     expect(validateAccessLevelForResource("workflow", "owner")).toBe("Workflow grants only accept 'read', 'write', 'admin', or 'none'");
   });
 });
