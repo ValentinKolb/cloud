@@ -6,6 +6,8 @@ import { FormConfigSchema, ShortIdSchema, UserInputFormFieldEntrySchema } from "
 import { gridsService } from "../service";
 import { type FormSubmission, MAX_INLINE_CREATES_PER_FIELD, MAX_INLINE_CREATES_PER_SUBMISSION } from "../service/form-submission";
 import type { Form } from "../service/forms";
+import type { AuthorizedRecordAccess } from "../service/record-access";
+import type { ExpansionViewer } from "../service/relation-access";
 
 export const FormSchema = z.object({
   id: z.string(),
@@ -104,10 +106,11 @@ export const submitFormResponse = async (
   submitted: Record<string, unknown>,
   actorId: string | null,
   deps: SubmitFormDeps = {},
+  access?: { recordAccess: AuthorizedRecordAccess; viewer: ExpansionViewer },
 ) => {
   const submission = parseSubmission(submitted);
   if (!submission) return context.json({ message: "Invalid form submission" }, 400);
   const dateConfig = await (deps.dateConfig ?? getDateConfig)(context);
   const submit = deps.submit ?? gridsService.form.submit;
-  return respond(context, () => submit({ form, submission, actorId, dateConfig }), 201);
+  return respond(context, () => submit({ form, submission, actorId, dateConfig, ...access }), 201);
 };

@@ -19,8 +19,9 @@ import { isBoundedQueryTimeoutError } from "../service/bounded-query";
 import { verifyRevisionScope } from "../service/federated-tables";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import { validateRecordQueryForFields } from "../service/query-validation";
+import type { AuthorizedRecordAccess } from "../service/record-access";
 import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
-import { currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { currentActorViewer, gateAt, hasExplicitGrant, resolveRecordAccess, resolveWithGrants } from "./permissions";
 import { queryAdmissionMiddleware } from "./query-admission";
 import { requireUuidParam } from "./route-params";
 
@@ -44,6 +45,7 @@ type QueryTarget = {
   table: { id: string; baseId: string; kind: "stored" | "federated" };
   view: QueryView | null;
   trustedView: QueryView | null;
+  recordAccess: AuthorizedRecordAccess;
 };
 
 type TableQueryRouteDeps = {
@@ -54,6 +56,7 @@ type TableQueryRouteDeps = {
   dateConfig: typeof getDateConfig;
   gate: typeof gateAt;
   resolve: typeof resolveWithGrants;
+  resolveRecordAccess: typeof resolveRecordAccess;
   viewer: typeof currentActorViewer;
   hasExplicitGrant: typeof hasExplicitGrant;
   verifyFederatedRevision: typeof verifyRevisionScope;
@@ -67,6 +70,7 @@ const defaultDeps: TableQueryRouteDeps = {
   dateConfig: getDateConfig,
   gate: gateAt,
   resolve: resolveWithGrants,
+  resolveRecordAccess,
   viewer: currentActorViewer,
   hasExplicitGrant,
   verifyFederatedRevision: verifyRevisionScope,
@@ -278,9 +282,10 @@ const loadQueryTarget = async (
 
   const tableGate = await deps.gate(c, { baseId: table.baseId, tableId }, "read");
   if (!view) {
-    return tableGate.ok
-      ? { ok: true, data: { table, view: null, trustedView: null } }
-      : fail(403, "You do not have permission to access this resource.");
+    const access = await deps.resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
+    return access.ok
+      ? { ok: true, data: { table, view: null, trustedView: null, recordAccess: access.data.recordAccess } }
+      : fail(403, access.error.message);
   }
 
   const { level, grants } = await deps.resolve(c, { baseId: table.baseId, tableId, viewId: view.id });
@@ -292,7 +297,10 @@ const loadQueryTarget = async (
     return fail(404, "View not found");
   }
 
-  return { ok: true, data: { table, view, trustedView: tableGate.ok ? null : view } };
+  const access = await deps.resolveRecordAccess(c, { baseId: table.baseId, tableId, viewId: view.id }, "read");
+  if (!access.ok) return fail(403, access.error.message);
+
+  return { ok: true, data: { table, view, trustedView: tableGate.ok ? null : view, recordAccess: access.data.recordAccess } };
 };
 
 const resolveQuery = async (
@@ -367,6 +375,7 @@ const runGroupedQuery = async (
     fields: tableFields,
     signal: params.signal,
     dedupeKey: `${params.dedupeKey}:group`,
+    recordAccess: target.recordAccess,
   });
   if (!result.ok) return fail(result.error.status, result.error.message);
   const relationLabels = await deps.service.relations.buildLabelCacheForGroupedKeys(
@@ -418,6 +427,7 @@ const runListQuery = async (
     fields: params.tableFields,
     signal: params.signal,
     dedupeKey: params.dedupeKey,
+    recordAccess: target.recordAccess,
   });
   if (!listResult.ok) return fail(listResult.error.status, listResult.error.message);
 
@@ -436,6 +446,7 @@ const runListQuery = async (
       fields: params.tableFields,
       signal: params.signal,
       dedupeKey: `${params.dedupeKey}:aggregates`,
+      recordAccess: target.recordAccess,
     });
     if (aggregateResult.ok) aggregates = { ...aggregates, ...aggregateResult.data };
   }

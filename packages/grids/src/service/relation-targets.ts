@@ -4,6 +4,7 @@ import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-ds
 import { mapFieldRow } from "./field-read";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
+import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { readRecordLinksBatch } from "./relation-links";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
@@ -68,6 +69,7 @@ export const collectHydratedRelationTargetIds = (records: GridRecord[], fields: 
 
 export const loadRelationTargetsBatch = async (
   idsByTargetTable: ReadonlyMap<string, Set<string>>,
+  recordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>,
 ): Promise<Map<string, RelationTargets>> => {
   const targetTableIds = [...idsByTargetTable.keys()];
   if (targetTableIds.length === 0) return new Map();
@@ -100,7 +102,7 @@ export const loadRelationTargetsBatch = async (
     const fields = relationLabelFields(allFields);
     targetsByTable.set(targetTableId, { fields, records: [] });
     const ids = idsByTargetTable.get(targetTableId);
-    if (!ids || ids.size === 0 || fields.length === 0) continue;
+    if (!ids || ids.size === 0 || fields.length === 0 || (recordAccessByTableId && !recordAccessByTableId.has(targetTableId))) continue;
     if (tableKinds.get(targetTableId) === "federated") {
       federatedTableIds.push(targetTableId);
       continue;
@@ -112,6 +114,9 @@ export const loadRelationTargetsBatch = async (
   }
 
   if (storedTableIds.length > 0 && storedRecordIds.size > 0) {
+    const accessClause = storedTableIds
+      .map((tableId) => sql`(r.table_id = ${tableId}::uuid AND ${recordAccessPredicate(recordAccessByTableId?.get(tableId), "r")})`)
+      .reduce((left, right) => sql`${left} OR ${right}`);
     const storedRows = await sql<Array<{ id: string; table_id: string; data: unknown }>>`
       SELECT r.id, r.table_id, r.data
       FROM grids.records r
@@ -119,6 +124,7 @@ export const loadRelationTargetsBatch = async (
       WHERE r.id = ANY(${toPgUuidArray([...storedRecordIds])}::uuid[])
         AND r.table_id = ANY(${toPgUuidArray(storedTableIds)}::uuid[])
         AND r.deleted_at IS NULL
+        AND (${accessClause})
     `;
     for (const row of storedRows) {
       const targets = targetsByTable.get(row.table_id);
@@ -141,6 +147,7 @@ export const loadRelationTargetsBatch = async (
       FROM ${recordSource.relation} r
       WHERE r.id = ANY(${toPgUuidArray([...ids])}::uuid[])
         AND r.deleted_at IS NULL
+        AND ${recordAccessPredicate(recordAccessByTableId?.get(targetTableId), "r")}
     `;
     targetsByTable.get(targetTableId)!.records = rows.map((row) => ({
       id: row.id,
@@ -150,7 +157,14 @@ export const loadRelationTargetsBatch = async (
   return targetsByTable;
 };
 
-export const loadRelationTargets = async (targetTableId: string, ids: Set<string>): Promise<RelationTargets> => {
-  const targets = await loadRelationTargetsBatch(new Map([[targetTableId, ids]]));
+export const loadRelationTargets = async (
+  targetTableId: string,
+  ids: Set<string>,
+  recordAccess?: AuthorizedRecordAccess,
+): Promise<RelationTargets> => {
+  const targets = await loadRelationTargetsBatch(
+    new Map([[targetTableId, ids]]),
+    recordAccess ? new Map([[targetTableId, recordAccess]]) : undefined,
+  );
   return targets.get(targetTableId) ?? { fields: [], records: [] };
 };

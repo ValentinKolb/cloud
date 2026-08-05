@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { createRecordSnapshot, filterSnapshotRelatedRecords } from "./document-snapshots";
+import { ALL_RECORD_ACCESS } from "./record-access";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
@@ -35,7 +36,7 @@ describe("record snapshot relation access", () => {
         tableId,
         recordId,
         actorId: null,
-        canReadRelatedTable: async () => true,
+        resolveRecordAccess: async () => ALL_RECORD_ACCESS,
       });
 
       expect(snapshot.ok).toBe(false);
@@ -99,16 +100,16 @@ describe("record snapshot relation access", () => {
         tableId: rootTableId,
         recordId: rootRecordId,
         actorId: null,
-        canReadRelatedTable: async (target) => {
+        resolveRecordAccess: async (target) => {
           checkedTargets.push(target.tableId);
-          return target.tableId === readableTableId;
+          return target.tableId === rootTableId || target.tableId === readableTableId ? ALL_RECORD_ACCESS : null;
         },
       });
 
       expect(snapshot.ok).toBe(true);
       if (!snapshot.ok) throw new Error(snapshot.error.message);
       const graph = snapshot.data.graph as { records: Record<string, unknown> };
-      expect(new Set(checkedTargets)).toEqual(new Set([readableTableId, deniedTableId]));
+      expect(new Set(checkedTargets)).toEqual(new Set([rootTableId, readableTableId, deniedTableId]));
       expect(Object.keys(graph.records).sort()).toEqual(
         [`${rootTableId}:${rootRecordId}`, `${readableTableId}:${readableRecordId}`].sort(),
       );
@@ -119,7 +120,7 @@ describe("record snapshot relation access", () => {
         tableId: rootTableId,
         recordId: rootRecordId,
         actorId: null,
-        canReadRelatedTable: async () => true,
+        resolveRecordAccess: async () => ALL_RECORD_ACCESS,
       });
       if (!completeSnapshot.ok) throw new Error(completeSnapshot.error.message);
       const filtered = await filterSnapshotRelatedRecords(
@@ -127,7 +128,7 @@ describe("record snapshot relation access", () => {
           ...completeSnapshot.data,
           graph: { ...completeSnapshot.data.graph, documentData: { secret: "must not escape" } },
         },
-        async (target) => target.tableId === readableTableId,
+        async (target) => (target.tableId === readableTableId ? ALL_RECORD_ACCESS : null),
       );
       const filteredGraph = filtered.graph as { records: Record<string, unknown> };
       expect(Object.keys(filtered.graph).sort()).toEqual(["records", "rootId"]);
@@ -188,9 +189,9 @@ describe("record snapshot relation access", () => {
           tableId,
           recordId: recordIds[0]!,
           actorId: null,
-          canReadRelatedTable: async () => {
+          resolveRecordAccess: async () => {
             permissionChecks += 1;
-            return true;
+            return ALL_RECORD_ACCESS;
           },
         });
 

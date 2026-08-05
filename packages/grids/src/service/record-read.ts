@@ -7,11 +7,12 @@ import {
   buildComputedProjections,
   buildFormulaSqlProjections,
   type ComputedProjection,
-  readableComputedTargetTableIds,
+  readableComputedTargetRecordAccess,
 } from "./computed-projections";
 import { listByTable as listFields } from "./fields";
 import { withLookupTargetMetadata } from "./lookup-display";
 import { liveRecordParentJoinSql } from "./parent-checks";
+import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { mapRecordRow } from "./record-persistence";
 import { attachRelationExpansion, type ExpansionViewer, enrichRecordsWithFormulas, hydrateRelationsFromLinks } from "./relations";
 import { get as getTable } from "./tables";
@@ -39,11 +40,13 @@ type FormulaLookupTargetPlan = {
   projections: ComputedProjection[];
   projectionFragments: unknown;
   formulaFieldIds: Set<string>;
+  recordAccess?: AuthorizedRecordAccess;
 };
 
 type FormulaLookupPlan = {
   specs: FormulaLookupSpec[];
   targets: Map<string, FormulaLookupTargetPlan>;
+  viewer?: ExpansionViewer;
 };
 
 const prepareFormulaLookupPlan = async (
@@ -52,7 +55,7 @@ const prepareFormulaLookupPlan = async (
   viewer?: ExpansionViewer,
   authorizeComputedTable?: (tableId: string) => Promise<boolean>,
 ): Promise<FormulaLookupPlan> => {
-  const readableTargetTableIds = await readableComputedTargetTableIds(fields, viewer, authorizeComputedTable);
+  const targetRecordAccess = await readableComputedTargetRecordAccess(fields, viewer, authorizeComputedTable);
   const specs = fields
     .filter((field) => field.type === "lookup" && !field.deletedAt && lookupTargetMeta(field)?.type === "formula")
     .map((lookupField) => {
@@ -66,15 +69,16 @@ const prepareFormulaLookupPlan = async (
     })
     .filter(
       (spec): spec is NonNullable<typeof spec> =>
-        Boolean(spec) && (readableTargetTableIds === undefined || readableTargetTableIds.includes(spec!.targetTableId)),
+        Boolean(spec) && (targetRecordAccess === undefined || targetRecordAccess.has(spec!.targetTableId)),
     );
 
   const targets = new Map<string, FormulaLookupTargetPlan>();
   for (const { targetTableId } of specs) {
     if (targets.has(targetTableId)) continue;
     const targetFields = await listFields(targetTableId);
+    const nestedRecordAccess = await readableComputedTargetRecordAccess(targetFields, viewer, authorizeComputedTable);
     const targetComputed = await buildComputedProjections(targetFields, {
-      readableTableIds: await readableComputedTargetTableIds(targetFields, viewer, authorizeComputedTable),
+      recordAccessByTableId: nestedRecordAccess,
     });
     const targetFormulaSql = buildFormulaSqlProjections(targetFields, { dateConfig });
     const targetProjections = [...targetComputed, ...targetFormulaSql];
@@ -83,9 +87,10 @@ const prepareFormulaLookupPlan = async (
       projections: targetProjections,
       projectionFragments: projectionFragmentsFor(targetProjections),
       formulaFieldIds: new Set(targetFormulaSql.map((projection) => projection.fieldId)),
+      recordAccess: targetRecordAccess?.get(targetTableId),
     });
   }
-  return { specs, targets };
+  return { specs, targets, viewer };
 };
 
 const enrichFormulaLookupsWithPlan = async (
@@ -116,9 +121,10 @@ const enrichFormulaLookupsWithPlan = async (
       WHERE r.table_id = ${tableId}::uuid
         AND r.id = ANY(${sql.array([...ids], "UUID")})
         AND r.deleted_at IS NULL
+        AND ${recordAccessPredicate(target.recordAccess, "r")}
     `;
     const targetRecords = rows.map(mapRecordRow);
-    await hydrateRelationsFromLinks(targetRecords, target.fields);
+    await hydrateRelationsFromLinks(targetRecords, target.fields, plan.viewer);
     const recordsById = new Map(targetRecords.map((record) => [record.id, record]));
     applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, target.projections);
     enrichRecordsWithFormulas(targetRecords, target.fields, {
@@ -151,13 +157,14 @@ export const enrichFormulaLookups = async (
   await enrichFormulaLookupsWithPlan(records, plan, options);
 };
 
-type RecordReadOptions = {
+export type RecordReadOptions = {
   includeRelations?: boolean;
   viewer?: ExpansionViewer;
   authorizeComputedTable?: (tableId: string) => Promise<boolean>;
   dateConfig?: DateContext;
   fields?: Field[];
   deleted?: "live" | "include" | "only";
+  recordAccess?: AuthorizedRecordAccess;
 };
 
 export type RecordReader = {
@@ -189,6 +196,7 @@ const createFederatedReader = async (tableId: string, fields: Field[], opts: Rec
       SELECT r.*${projectionFragments}
       FROM ${recordSource.relation} r
       WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
+        AND ${recordAccessPredicate(opts.recordAccess, "r")}
     `;
     const records = rows.map(mapRecordRow);
     const recordsById = new Map(records.map((record) => [record.id, record]));
@@ -216,8 +224,8 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
   const table = await getTable(tableId);
   if (table?.kind === "federated") return createFederatedReader(tableId, fields, opts);
   const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
-  const readableTargetTableIds = await readableComputedTargetTableIds(fields, opts.viewer, opts.authorizeComputedTable);
-  const computed = await buildComputedProjections(fields, { readableTableIds: readableTargetTableIds });
+  const targetRecordAccess = await readableComputedTargetRecordAccess(fields, opts.viewer, opts.authorizeComputedTable);
+  const computed = await buildComputedProjections(fields, { recordAccessByTableId: targetRecordAccess });
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });
   const projections = [...computed, ...formulaSql];
   const projectionFragments = projectionFragmentsFor(projections);
@@ -236,9 +244,10 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
       WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
         AND r.table_id = ${tableId}::uuid
         AND ${deletedClause}
+        AND ${recordAccessPredicate(opts.recordAccess, "r")}
     `;
     const records = rows.map(mapRecordRow);
-    await hydrateRelationsFromLinks(records, fields);
+    await hydrateRelationsFromLinks(records, fields, opts.viewer);
     const recordsById = new Map(records.map((record) => [record.id, record]));
     applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, projections);
     await enrichFormulaLookupsWithPlan(records, formulaLookupPlan, { dateConfig: opts.dateConfig });

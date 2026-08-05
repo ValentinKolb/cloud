@@ -43,6 +43,24 @@ In practice:
 - a dashboard can include data while links from it still check their own targets.
 - a Custom App requires its own explicit grant and separately checks every saved view it displays.
 
+## Limit a grant to owned records {icon="filter-lock"}
+
+Base, stored-table, and view grants can optionally limit which records the grant covers:
+
+| Record access | Visible records |
+| --- | --- |
+| **All records** | Every record allowed by the resource grant. This is the default and preserves existing grants. |
+| **Created by the user** | Records whose immutable creator is the current Cloud account. |
+| **Linked to the user's record** | Child records whose selected relation points to a record created by the current Cloud account. Available on tables and views. |
+
+Linked ownership follows exactly one live relation field in the same base. It is intended for bounded parent-child data such as request comments or line items, not as a general authorization query language. Ownership-based scopes require a Cloud user identity; service accounts always use **All records**.
+
+Resource and principal precedence is resolved first. If several allowed grants remain at the winning resource and principal level, their record scopes are combined. One **All records** grant therefore makes that decision unrestricted; otherwise the allowed owned scopes form a union. A more specific table or view grant still prevents a broader base grant from widening its rows.
+
+The selected scope applies consistently to lists, direct record access, search, counts, groups, aggregates, relations, exports, documents, workflows, and live updates. Creating or editing a record is rejected when the resulting record would fall outside the writer's scope.
+
+For a common request workflow, grant requesters table access with **Created by the user** and grant the responsible group the same table access with **All records**. The same Cloud permission editor is used for both; no separate guest or app-specific account model is introduced.
+
 ## Included data and linked targets {icon="point"}
 
 **Included data** is rendered as part of the resource already opened, such as records in a view or numbers on a dashboard. It follows that resource's access.
@@ -75,6 +93,13 @@ Workflow **Read** exposes the workflow and its permitted observability. **Write*
 
 Public forms and expiring public document links are deliberate exceptions. Anyone holding the token can use that public surface until it is disabled, revoked, or expires.
 
-:::note Permissions do not filter rows
-A table grant applies to the table, not selected records. Use a view or dashboard as a controlled included-data surface when different readers should see a defined result.
-:::
+The CLI exposes the same contract:
+
+```text
+cld grids access grant table MyBase Requests --authenticated --permission read --record-scope created-by
+cld grids access grant table MyBase Comments --authenticated --permission read \
+  --record-scope related-created-by --relation-field-id <relation-field-uuid>
+cld grids access grant table MyBase Requests --group "Request team" --permission write --record-scope all
+```
+
+Use `cld grids access list …` to verify the stored record scope. Omitting `--record-scope` keeps **All records** for new grants and preserves the current scope when updating an existing grant.

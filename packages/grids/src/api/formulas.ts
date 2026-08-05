@@ -5,7 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { gridsService } from "../service";
 import { checkFormula } from "../service/formula-preview";
-import { gateAt } from "./permissions";
+import { currentActorViewer, resolveRecordAccess } from "./permissions";
 
 const FormulaCheckBodySchema = z.object({
   expression: z.string().max(10_000),
@@ -48,7 +48,7 @@ const app = new Hono<AuthContext>().use(auth.requireRole("authenticated")).post(
     const tableId = c.req.param("tableId")!;
     const table = await gridsService.table.get(tableId);
     if (!table) return c.json({ message: "Table not found" }, 404);
-    const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+    const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
     if (!gate.ok) return respond(c, () => Promise.resolve(gate));
     const body = c.req.valid("json");
     const dateConfig = await getDateConfig(c);
@@ -58,6 +58,8 @@ const app = new Hono<AuthContext>().use(auth.requireRole("authenticated")).post(
         expression: body.expression,
         currentFieldId: body.currentFieldId ?? null,
         dateConfig,
+        recordAccess: gate.data.recordAccess,
+        viewer: currentActorViewer(c),
       }),
     );
   },

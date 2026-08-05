@@ -62,8 +62,9 @@ describe("grids schema migration", () => {
         `;
         // workflow_profile and workflow_run_profile arrived; grids.workflows,
         // workflow_revisions, workflow_runs and workflow_step_runs moved into
-        // the kernel, taking workflow_effect_intents with them.
-        expect(row?.tableCount).toBe(34);
+        // the kernel, taking workflow_effect_intents with them. Custom Apps add
+        // custom_apps and custom_app_access to the current Grids schema.
+        expect(row?.tableCount).toBe(36);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -83,6 +84,54 @@ describe("grids schema migration", () => {
           "idx_grids_tables_live_name",
           "idx_grids_views_live_name",
         ]);
+        const recordScopeColumns = await database<Array<{ tableName: string; nullable: string; defaultValue: string | null }>>`
+          SELECT table_name AS "tableName", is_nullable AS nullable, column_default AS "defaultValue"
+          FROM information_schema.columns
+          WHERE table_schema = 'grids'
+            AND table_name IN ('base_access', 'table_access', 'view_access')
+            AND column_name = 'record_scope'
+          ORDER BY table_name
+        `;
+        expect(recordScopeColumns.map((column) => column.tableName)).toEqual(["base_access", "table_access", "view_access"]);
+        expect(recordScopeColumns.every((column) => column.nullable === "NO")).toBe(true);
+        expect(recordScopeColumns.every((column) => column.defaultValue?.includes('"kind": "all"'))).toBe(true);
+
+        const accessIdIndexes = await database<Array<{ indexName: string }>>`
+          SELECT indexname AS "indexName"
+          FROM pg_indexes
+          WHERE schemaname = 'grids'
+            AND indexname IN (
+              'idx_grids_base_access_access',
+              'idx_grids_table_access_access',
+              'idx_grids_view_access_access'
+            )
+          ORDER BY indexname
+        `;
+        expect(accessIdIndexes.map((index) => index.indexName)).toEqual([
+          "idx_grids_base_access_access",
+          "idx_grids_table_access_access",
+          "idx_grids_view_access_access",
+        ]);
+
+        const userId = uuid();
+        const baseId = uuid();
+        const tableId = uuid();
+        const accessId = uuid();
+        await database`INSERT INTO auth.users (id) VALUES (${userId}::uuid)`;
+        await database`INSERT INTO auth.access (id) VALUES (${accessId}::uuid)`;
+        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Scopes')`;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name)
+          VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Scoped')
+        `;
+        await database`
+          INSERT INTO grids.table_access (table_id, access_id, record_scope)
+          VALUES (
+            ${tableId}::uuid,
+            ${accessId}::uuid,
+            ${{ kind: "related_created_by", relationFieldId: uuid() }}::jsonb
+          )
+        `;
         const [health] = await database<Array<{ status: string; outboxPending: number }>>`
           SELECT status, outbox_pending::int AS "outboxPending"
           FROM grids.operational_health

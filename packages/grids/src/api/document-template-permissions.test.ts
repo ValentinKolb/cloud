@@ -148,6 +148,9 @@ describe("document template permission surfaces", () => {
     snapshotFilterInput = undefined;
 
     spyOn(gridsService.table, "get").mockImplementation(async (id) => (id === tableId ? table : null) as never);
+    spyOn(gridsService.record, "get").mockImplementation(async (requestedTableId, requestedRecordId) =>
+      requestedTableId === tableId && requestedRecordId === recordId ? ({ id: recordId } as never) : null,
+    );
     spyOn(gridsService.table, "listByBase").mockImplementation(async (id) => (id === baseId ? [table] : []) as never);
     spyOn(gridsService.field, "listByTable").mockImplementation(async () => {
       fieldListCalls += 1;
@@ -167,8 +170,8 @@ describe("document template permission surfaces", () => {
       snapshotGetCalls += 1;
       return (id === snapshotId ? snapshot : null) as never;
     });
-    spyOn(gridsService.document, "filterSnapshotRelatedRecords").mockImplementation(async (input, canReadRelatedTable) => {
-      snapshotFilterInput = { input, canReadRelatedTable };
+    spyOn(gridsService.document, "filterSnapshotRelatedRecords").mockImplementation(async (input, resolveRecordAccess) => {
+      snapshotFilterInput = { input, resolveRecordAccess };
       return input as never;
     });
     spyOn(gridsService.document, "summarizeTemplate").mockImplementation(((row: typeof template) => ({
@@ -188,6 +191,10 @@ describe("document template permission surfaces", () => {
       if ("documentTemplateId" in target) return templateLevel;
       if ("tableId" in target) return tableLevel;
       return baseLevel;
+    });
+    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target) => {
+      const level = "documentTemplateId" in target ? templateLevel : "tableId" in target ? tableLevel : baseLevel;
+      return { level, recordAccess: level === "none" ? null : { kind: "all" } };
     });
   });
 
@@ -306,13 +313,14 @@ describe("document template permission surfaces", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ snapshot });
     expect(snapshotCreateCalls).toBe(1);
-    const { canReadRelatedTable, ...snapshotParams } = snapshotCreateInput as {
+    const { resolveRecordAccess, viewer, ...snapshotParams } = snapshotCreateInput as {
       baseId: string;
       tableId: string;
       recordId: string;
       actorId: string;
       dateConfig: { timeZone: string; locale: string; firstDayOfWeek: number };
-      canReadRelatedTable: (target: { baseId: string; tableId: string }) => Promise<boolean>;
+      viewer: unknown;
+      resolveRecordAccess: (target: { baseId: string; tableId: string }) => Promise<{ kind: "all" } | null>;
     };
     expect(snapshotParams).toEqual({
       baseId,
@@ -321,9 +329,10 @@ describe("document template permission surfaces", () => {
       actorId: user.id,
       dateConfig: { timeZone: "UTC", locale: "en", firstDayOfWeek: 1 },
     });
-    expect(await canReadRelatedTable({ baseId, tableId })).toBe(true);
+    expect(viewer).toMatchObject({ userId: user.id });
+    expect(await resolveRecordAccess({ baseId, tableId })).toEqual({ kind: "all" });
     tableLevel = "none";
-    expect(await canReadRelatedTable({ baseId, tableId })).toBe(false);
+    expect(await resolveRecordAccess({ baseId, tableId })).toBeNull();
   });
 
   test("requires table read access to open a standalone snapshot", async () => {
@@ -346,12 +355,12 @@ describe("document template permission surfaces", () => {
     expect(snapshotGetCalls).toBe(1);
     const filterInput = snapshotFilterInput as {
       input: typeof snapshot;
-      canReadRelatedTable: (target: { baseId: string; tableId: string }) => Promise<boolean>;
+      resolveRecordAccess: (target: { baseId: string; tableId: string }) => Promise<{ kind: "all" } | null>;
     };
     expect(filterInput.input).toBe(snapshot);
-    expect(await filterInput.canReadRelatedTable({ baseId, tableId })).toBe(true);
+    expect(await filterInput.resolveRecordAccess({ baseId, tableId })).toEqual({ kind: "all" });
     tableLevel = "none";
-    expect(await filterInput.canReadRelatedTable({ baseId, tableId })).toBe(false);
+    expect(await filterInput.resolveRecordAccess({ baseId, tableId })).toBeNull();
   });
 
   test("returns 404 for an unknown standalone snapshot", async () => {

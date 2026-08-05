@@ -26,6 +26,7 @@ import {
   type GridsAccessContext,
   gateAtAccess,
   gateCredentialScopeFor,
+  resolveRecordAccessForAccess,
   resourceBoundBaseIdFor,
 } from "./api/permissions";
 import { isQueryAdmissionError } from "./api/query-admission";
@@ -171,6 +172,13 @@ const requireTable = async (tableId: string, access: GridsAccessContext, require
   if (!table) return fail(err.notFound("Table"));
   const gate = await gateAtAccess(access, { baseId: table.baseId, tableId }, required);
   return gate.ok ? ok(table) : gate;
+};
+
+const requireTableRecordAccess = async (tableId: string, access: GridsAccessContext, required: "read" | "write") => {
+  const table = await gridsService.table.get(tableId);
+  if (!table) return fail(err.notFound("Table"));
+  const authorization = await resolveRecordAccessForAccess(access, { baseId: table.baseId, tableId }, required);
+  return authorization.ok ? ok({ table, recordAccess: authorization.data.recordAccess }) : authorization;
 };
 
 const runBaseGet = async (input: z.infer<typeof BaseGetInputSchema>, context: CapabilityExecutionContext) => {
@@ -542,32 +550,34 @@ const recordResult = async (record: GridRecord, table: Table) => {
 
 const runRecordGet = async (input: z.infer<typeof RecordGetInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
-  const table = await requireTable(input.tableId, access, "read");
+  const table = await requireTableRecordAccess(input.tableId, access, "read");
   if (!table.ok) return table;
   const dateConfig = await capabilityDateConfig();
   const record = await gridsService.record.get(input.tableId, input.recordId, {
     dateConfig,
     viewer: actorViewerFor(access),
+    recordAccess: table.data.recordAccess,
   });
-  return record ? recordResult(record, table.data) : fail(err.notFound("Record"));
+  return record ? recordResult(record, table.data.table) : fail(err.notFound("Record"));
 };
 
 const runRecordCreate = async (input: z.infer<typeof RecordCreateInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
-  const table = await requireTable(input.tableId, access, "write");
+  const table = await requireTableRecordAccess(input.tableId, access, "write");
   if (!table.ok) return table;
   const dateConfig = await capabilityDateConfig();
   const result = await gridsService.record.create(input.tableId, input.values, accessActorUser(access)?.id ?? null, {
     dateConfig,
     viewer: actorViewerFor(access),
+    recordAccess: table.data.recordAccess,
   });
-  return result.ok ? recordResult(result.data, table.data) : result;
+  return result.ok ? recordResult(result.data, table.data.table) : result;
 };
 
 const runRecordUpdate = async (input: z.infer<typeof RecordUpdateInputSchema>, context: CapabilityExecutionContext) => {
   if (Object.keys(input.values).length === 0) return fail(err.badInput("values must contain at least one field"));
   const access = accessContext(context);
-  const table = await requireTable(input.tableId, access, "write");
+  const table = await requireTableRecordAccess(input.tableId, access, "write");
   if (!table.ok) return table;
   const dateConfig = await capabilityDateConfig();
   const result = await gridsService.record.update(
@@ -576,9 +586,9 @@ const runRecordUpdate = async (input: z.infer<typeof RecordUpdateInputSchema>, c
     input.values,
     accessActorUser(access)?.id ?? null,
     input.ifVersion,
-    { dateConfig, viewer: actorViewerFor(access), audit: input.audit },
+    { dateConfig, viewer: actorViewerFor(access), audit: input.audit, recordAccess: table.data.recordAccess },
   );
-  return result.ok ? recordResult(result.data, table.data) : result;
+  return result.ok ? recordResult(result.data, table.data.table) : result;
 };
 
 export const gridsCapabilities = defineCapabilities({
@@ -686,20 +696,24 @@ export const gridsCapabilities = defineCapabilities({
       review: async (input, context) => {
         if (Object.keys(input.values).length === 0) return fail(err.badInput("values must contain at least one field"));
         const access = accessContext(context);
-        const table = await requireTable(input.tableId, access, "write");
+        const table = await requireTableRecordAccess(input.tableId, access, "write");
         if (!table.ok) return table;
         const dateConfig = await capabilityDateConfig();
         const record = await gridsService.record.get(input.tableId, input.recordId, {
           dateConfig,
           viewer: actorViewerFor(access),
+          recordAccess: table.data.recordAccess,
         });
         if (!record) return fail(err.notFound("Record"));
-        const [base, fields] = await Promise.all([gridsService.base.get(table.data.baseId), gridsService.field.listByTable(input.tableId)]);
+        const [base, fields] = await Promise.all([
+          gridsService.base.get(table.data.table.baseId),
+          gridsService.field.listByTable(input.tableId),
+        ]);
         const fieldNames = new Map(fields.map((field) => [field.id, field.name]));
         return ok({
-          message: `Update one record in ${table.data.name}.`,
+          message: `Update one record in ${table.data.table.name}.`,
           details: [
-            { label: "Table", value: table.data.name },
+            { label: "Table", value: table.data.table.name },
             { label: "Record", value: input.recordId },
             { label: "Current version", value: String(record.version) },
             {
@@ -707,7 +721,7 @@ export const gridsCapabilities = defineCapabilities({
               value: changedFieldsReview(Object.keys(input.values), fieldNames),
             },
           ],
-          ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data, input.recordId) }] } : {}),
+          ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data.table, input.recordId) }] } : {}),
         });
       },
       run: runRecordUpdate,

@@ -189,6 +189,13 @@ describe("document template routes", () => {
       if ("tableId" in target) return tableLevel;
       return baseLevel;
     });
+    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target, required) => {
+      const level = "documentTemplateId" in target ? templateLevel : "tableId" in target ? tableLevel : baseLevel;
+      return {
+        level,
+        recordAccess: gridsService.permission.hasAtLeast(level, required) ? { kind: "all" } : null,
+      } as never;
+    });
   });
 
   afterEach(() => mock.restore());
@@ -390,7 +397,13 @@ describe("document template routes", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ items: [{ id: lookupRecordId, label: "Invoice recipient" }] });
-    expect(lookupInput).toEqual({ targetTableId: tableId, q: "recipient", limit: 7, excludeIds: [excludedRecordId] });
+    expect(lookupInput).toEqual({
+      targetTableId: tableId,
+      q: "recipient",
+      limit: 7,
+      excludeIds: [excludedRecordId],
+      recordAccess: { kind: "all" },
+    });
   });
 
   test("requires base admin to look up records through a disabled template", async () => {
@@ -405,6 +418,12 @@ describe("document template routes", () => {
     const response = await app().request(path(`/templates/${templateId}/records/lookup`));
 
     expect(response.status).toBe(200);
-    expect(lookupInput).toEqual({ targetTableId: tableId, q: "", limit: 10, excludeIds: [] });
+    expect(lookupInput).toEqual({
+      targetTableId: tableId,
+      q: "",
+      limit: 10,
+      excludeIds: [],
+      recordAccess: { kind: "all" },
+    });
   });
 });

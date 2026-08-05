@@ -13,19 +13,21 @@ import {
   submitFormResponse,
   UpdateFormSchema,
 } from "./form-api-shared";
-import { currentActorUserId, gateAt } from "./permissions";
+import { currentActorUserId, currentActorViewer, gateAt, resolveRecordAccess } from "./permissions";
 import { uuidParam } from "./route-params";
 
 type AuthenticatedFormRoutesDeps = SubmitFormDeps & {
   service?: typeof gridsService;
   gate?: typeof gateAt;
   actorId?: typeof currentActorUserId;
+  resolveRecordAccess?: typeof resolveRecordAccess;
 };
 
 export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps = {}) => {
   const service = deps.service ?? gridsService;
   const gateAtTarget = deps.gate ?? gateAt;
   const actorId = deps.actorId ?? currentActorUserId;
+  const resolveRecords = deps.resolveRecordAccess ?? resolveRecordAccess;
 
   return new Hono<AuthContext>()
     .get(
@@ -82,9 +84,12 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!form || !form.isActive) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
         if (!table) return context.json({ message: "Form not found" }, 404);
-        const gate = await gateAtTarget(context, { baseId: table.baseId, tableId: table.id, formId }, "write");
+        const gate = await resolveRecords(context, { baseId: table.baseId, tableId: table.id, formId }, "write");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
-        return submitFormResponse(context, form, context.req.valid("json"), actorId(context), deps);
+        return submitFormResponse(context, form, context.req.valid("json"), actorId(context), deps, {
+          recordAccess: gate.data.recordAccess,
+          viewer: currentActorViewer(context),
+        });
       },
     )
     .get(

@@ -6,7 +6,8 @@ import { get as getField } from "./field-read";
 import { storageOf } from "./field-storage";
 import { compileFormulaSourceToSql, type FormulaSqlExpression, type FormulaSqlType } from "./formula-sql-compiler";
 import { liveRecordParentJoinSql } from "./parent-checks";
-import { type ExpansionViewer, filterReadableTableIdsByViewer } from "./relation-access";
+import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
+import { type ExpansionViewer, resolveRecordAccessByTableIds } from "./relation-access";
 import { assertSqlIdentifier } from "./sql-ident";
 import type { Field } from "./types";
 
@@ -127,12 +128,23 @@ export const readableComputedTargetTableIds = async (
   viewer?: ExpansionViewer,
   authorizeTable?: (tableId: string) => Promise<boolean>,
 ): Promise<readonly string[] | undefined> => {
+  const access = await readableComputedTargetRecordAccess(fields, viewer, authorizeTable);
+  return access ? [...access.keys()] : undefined;
+};
+
+export const readableComputedTargetRecordAccess = async (
+  fields: Field[],
+  viewer?: ExpansionViewer,
+  authorizeTable?: (tableId: string) => Promise<boolean>,
+): Promise<ReadonlyMap<string, AuthorizedRecordAccess> | undefined> => {
   const targetTableIds = [...new Set(computedTargetTableIds(fields))];
   if (authorizeTable) {
     const verdicts = await Promise.all(targetTableIds.map(async (tableId) => ((await authorizeTable(tableId)) ? tableId : null)));
-    return verdicts.filter((tableId): tableId is string => tableId !== null);
+    return new Map(
+      verdicts.filter((tableId): tableId is string => tableId !== null).map((tableId) => [tableId, ALL_RECORD_ACCESS] as const),
+    );
   }
-  return viewer ? [...(await filterReadableTableIdsByViewer(targetTableIds, viewer))] : undefined;
+  return viewer ? resolveRecordAccessByTableIds(targetTableIds, viewer) : undefined;
 };
 
 type TargetFieldResolver = (id: string) => Promise<Field | null>;
@@ -164,8 +176,9 @@ const buildLookupProjection = async (options: {
   field: Field;
   recordAlias: string;
   resolveTargetField: TargetFieldResolver;
+  recordAccess?: AuthorizedRecordAccess;
 }): Promise<ComputedProjection | null> => {
-  const { config, field, recordAlias, resolveTargetField } = options;
+  const { config, field, recordAlias, resolveTargetField, recordAccess } = options;
   if (!config.relationFieldId || !config.targetFieldId) return null;
   const targetField = await resolveTargetField(config.targetFieldId);
   if (!targetField || targetField.deletedAt) return null;
@@ -185,6 +198,7 @@ const buildLookupProjection = async (options: {
        WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
          AND rl.from_field_id = ${config.relationFieldId}::uuid
          AND t.deleted_at IS NULL
+         AND ${recordAccessPredicate(recordAccess, "t")}
          AND t.data->${config.targetFieldId} IS NOT NULL
        ORDER BY rl.position
        LIMIT 1)`;
@@ -211,8 +225,9 @@ const buildRollupProjection = async (options: {
   field: Field;
   recordAlias: string;
   resolveTargetField: TargetFieldResolver;
+  recordAccess?: AuthorizedRecordAccess;
 }): Promise<ComputedProjection | null> => {
-  const { config, field, recordAlias, resolveTargetField } = options;
+  const { config, field, recordAlias, resolveTargetField, recordAccess } = options;
   if (!config.relationFieldId) return null;
   const alias = rollupAlias(field.id);
   if (config.agg === "count") {
@@ -223,7 +238,8 @@ const buildRollupProjection = async (options: {
          ${liveRecordParentJoinSql("t", "tt", "tb")}
          WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
            AND rl.from_field_id = ${config.relationFieldId}::uuid
-           AND t.deleted_at IS NULL)`;
+           AND t.deleted_at IS NULL
+           AND ${recordAccessPredicate(recordAccess, "t")})`;
     return {
       fieldId: field.id,
       alias,
@@ -248,7 +264,8 @@ const buildRollupProjection = async (options: {
        ${liveRecordParentJoinSql("t", "tt", "tb")}
        WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
          AND rl.from_field_id = ${config.relationFieldId}::uuid
-         AND t.deleted_at IS NULL)`;
+         AND t.deleted_at IS NULL
+         AND ${recordAccessPredicate(recordAccess, "t")})`;
   return {
     fieldId: field.id,
     alias,
@@ -276,7 +293,11 @@ const buildRollupProjection = async (options: {
  */
 export const buildComputedProjections = async (
   fields: Field[],
-  options: { recordAlias?: string; readableTableIds?: readonly string[] } = {},
+  options: {
+    recordAlias?: string;
+    readableTableIds?: readonly string[];
+    recordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>;
+  } = {},
 ): Promise<ComputedProjection[]> => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const out: ComputedProjection[] = [];
@@ -293,10 +314,12 @@ export const buildComputedProjections = async (
     if (!relationField || relationField.type !== "relation") continue;
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     if (options.readableTableIds && (!targetTableId || !options.readableTableIds.includes(targetTableId))) continue;
+    if (options.recordAccessByTableId && (!targetTableId || !options.recordAccessByTableId.has(targetTableId))) continue;
+    const recordAccess = targetTableId ? options.recordAccessByTableId?.get(targetTableId) : undefined;
     const projection =
       field.type === "lookup"
-        ? await buildLookupProjection({ config: cfg, field, recordAlias, resolveTargetField })
-        : await buildRollupProjection({ config: cfg, field, recordAlias, resolveTargetField });
+        ? await buildLookupProjection({ config: cfg, field, recordAlias, resolveTargetField, recordAccess })
+        : await buildRollupProjection({ config: cfg, field, recordAlias, resolveTargetField, recordAccess });
     if (projection) out.push(projection);
   }
 
@@ -311,7 +334,11 @@ export const buildComputedProjections = async (
  */
 export const buildComputedFieldSqlMap = async (
   fields: Field[],
-  options: { recordAlias?: string; readableTableIds?: readonly string[] } = {},
+  options: {
+    recordAlias?: string;
+    readableTableIds?: readonly string[];
+    recordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>;
+  } = {},
 ): Promise<Map<string, FormulaSqlExpression>> => {
   const projections = await buildComputedProjections(fields, options);
   return new Map(projections.map((p) => [p.fieldId, { sql: p.expr, type: computedOutputToFormulaType(p.outputType) }]));

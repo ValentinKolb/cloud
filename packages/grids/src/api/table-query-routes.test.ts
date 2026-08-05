@@ -63,6 +63,10 @@ const makeDeps = (
     gate: async () =>
       overrides.tableReadable ? ok("read" as const) : fail(err.forbidden("You do not have permission to access this resource.")),
     resolve: async () => ({ level: overrides.viewLevel ?? "read", grants: [] }),
+    resolveRecordAccess: async (_context: unknown, target: { viewId?: string }) =>
+      ("viewId" in target ? overrides.explicitViewGrant : overrides.tableReadable)
+        ? ok({ level: "read" as const, recordAccess: { kind: "all" as const } })
+        : fail(err.forbidden("You do not have permission to access this resource.")),
     viewer: () => ({ userId, userGroups: [], serviceAccountId: null }),
     hasExplicitGrant: () => overrides.explicitViewGrant ?? false,
     verifyFederatedRevision: async () => ok(),

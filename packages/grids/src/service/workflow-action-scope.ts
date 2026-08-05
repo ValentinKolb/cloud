@@ -18,8 +18,10 @@ import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import { get as getDashboard } from "./dashboards";
+import type { AuthorizedRecordAccess } from "./record-access";
 import {
   authorizeWorkflowTarget,
+  resolveWorkflowTargetRecordAccess,
   revalidateWorkflowPrincipal,
   revalidateWorkflowPrincipalInTransaction,
   workflowPermissionAllows,
@@ -137,6 +139,17 @@ export const requirePermission = async (
   client?: SqlClient,
 ): Promise<void> => {
   if (!(await authorizeWorkflowTarget(scope.principal, { baseId: scope.baseId, ...target }, required, client))) throw forbidden();
+};
+
+export const requireRecordAccess = async (
+  scope: GridsWorkflowActionScope,
+  tableId: string,
+  required: PermissionLevel,
+  client?: SqlClient,
+): Promise<AuthorizedRecordAccess> => {
+  const access = await resolveWorkflowTargetRecordAccess(scope.principal, { baseId: scope.baseId, tableId }, required, client);
+  if (!access) throw forbidden();
+  return access;
 };
 
 /** Provenance an audit entry carries, so a write can be traced back to its credential. */

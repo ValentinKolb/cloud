@@ -10,7 +10,7 @@ import { type CompiledClause, compileFilter, renderClause } from "../service/fil
 import { get as getTable } from "../service/tables";
 import type { Field } from "../service/types";
 import type { DslWherePredicate } from "./resolver";
-import type { DslSqlRecordSource } from "./sql-compiler-types";
+import type { DslSqlFederatedRecordSource, DslSqlRecordSource } from "./sql-compiler-types";
 
 const joinSql = (parts: unknown[], separator: unknown): unknown => {
   if (parts.length === 0) return sql``;
@@ -218,8 +218,8 @@ const branchForSource = async (params: {
              ${data} AS data,
              source_record.version,
              source_record.deleted_at,
-             NULL::uuid AS created_by,
-             NULL::uuid AS updated_by,
+             source_record.created_by,
+             source_record.updated_by,
              source_record.created_at,
              source_record.updated_at
       FROM grids.records source_record
@@ -252,7 +252,10 @@ const branchForSource = async (params: {
  * Call this before every read of `source.relation`. It raises P0001, which the
  * DSL consumers already translate into a "publication changed; reload" conflict.
  */
-export const assertFederatedPublication = async (source: DslSqlRecordSource, client: SqlClient = sql): Promise<void> => {
+export const assertFederatedPublication = async (
+  source: Extract<DslSqlRecordSource, { kind: "federated" }>,
+  client: SqlClient = sql,
+): Promise<void> => {
   await client`
     SELECT grids.assert_federated_revision(
       ${source.tableId}::uuid,
@@ -267,7 +270,7 @@ export const buildDslSqlRecordSource = async (
   tableId: string,
   fieldsByTableId: Record<string, Field[]>,
   pushdown?: PushdownInput,
-): Promise<DslSqlRecordSource | null> => {
+): Promise<DslSqlFederatedRecordSource | null> => {
   const table = await getTable(tableId);
   if (!table || table.kind !== "federated") return null;
 

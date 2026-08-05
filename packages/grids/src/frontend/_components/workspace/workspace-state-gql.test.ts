@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { gridsService } from "../../../service";
+import { ALL_RECORD_ACCESS } from "../../../service/record-access";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
 const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
@@ -128,6 +129,10 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     );
     spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => ("viewId" in target ? viewLevel : baseLevel));
+    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target) => {
+      const level = "viewId" in target ? viewLevel : baseLevel;
+      return { level, recordAccess: level === "none" ? null : ALL_RECORD_ACCESS };
+    });
     spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(

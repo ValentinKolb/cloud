@@ -71,6 +71,7 @@ describe("Grids workspace record detail", () => {
       requireAuthenticated: authenticated,
       getTable: async () => ({ id: tableId, baseId }) as never,
       gate: async () => ({ ok: true, value: "read" }) as never,
+      resolveRecordAccess: async () => ({ ok: true, data: { level: "read", recordAccess: { kind: "all" } } }) as never,
       getRecord: async () => ({ id: recordId }) as never,
       listFields: async () => [],
       loadRecordDetail: async () => detail,

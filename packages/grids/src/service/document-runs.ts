@@ -1,5 +1,5 @@
-import { GotenbergRenderError, isUniqueViolation, mergePdfs, type RenderHtmlToPdfResult } from "@valentinkolb/cloud/services";
 import { type DateContext, err, fail, ok, type Result, type ServiceError } from "@k2b/stdlib";
+import { GotenbergRenderError, isUniqueViolation, mergePdfs, type RenderHtmlToPdfResult } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { DocumentRun, DocumentTemplate, RecordSnapshot, UpdateDocumentRunMetadataInput } from "../contracts";
 import { logAudit } from "./audit";
@@ -7,8 +7,10 @@ import { type DocumentRunReadAuthorizer, loadReadableWorkflowRunDocumentScopes, 
 import { type DocumentDbRow, mapDocumentRun } from "./document-mappers";
 import { buildDocumentRunRenderData, buildLiveRenderData, renderRunPdf } from "./document-rendering";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
-import { createRecordSnapshotDraft, persistRecordSnapshot, type SnapshotRelatedTableGuard } from "./document-snapshots";
+import { createRecordSnapshotDraft, persistRecordSnapshot, type SnapshotRecordAccessResolver } from "./document-snapshots";
+import type { AuthorizedRecordAccess } from "./record-access";
 import { get as getRecord } from "./records";
+import type { ExpansionViewer } from "./relation-access";
 import { insertWithShortId } from "./short-id";
 import type { Table } from "./types";
 
@@ -31,7 +33,9 @@ export const createRunForRecord = async (params: {
   table: Table;
   recordId: string;
   actorId: string | null;
-  canReadRelatedTable: SnapshotRelatedTableGuard;
+  recordAccess: AuthorizedRecordAccess;
+  resolveRecordAccess: SnapshotRecordAccessResolver;
+  viewer?: ExpansionViewer;
   dateConfig?: DateContext;
   generatedAt?: Date;
   filename?: string | null;
@@ -52,7 +56,11 @@ export const createRunForRecord = async (params: {
     if (existing) return ok(mapDocumentRun(existing));
   }
 
-  const record = await getRecord(params.table.id, params.recordId, { dateConfig: params.dateConfig });
+  const record = await getRecord(params.table.id, params.recordId, {
+    dateConfig: params.dateConfig,
+    recordAccess: params.recordAccess,
+    viewer: params.viewer,
+  });
   if (!record) return fail(err.notFound("record"));
 
   const generatedAt = params.generatedAt ?? new Date();
@@ -70,7 +78,8 @@ export const createRunForRecord = async (params: {
     tableId: params.table.id,
     recordId: params.recordId,
     actorId: params.actorId,
-    canReadRelatedTable: params.canReadRelatedTable,
+    resolveRecordAccess: params.resolveRecordAccess,
+    viewer: params.viewer,
     dateConfig: params.dateConfig,
   });
   if (!snapshot.ok) return snapshot;

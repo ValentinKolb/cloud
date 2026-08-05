@@ -11,6 +11,7 @@ import {
   getTemplate,
   updateRunMetadata,
 } from "./documents";
+import { ALL_RECORD_ACCESS } from "./record-access";
 import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 type Fixture = {
@@ -103,7 +104,7 @@ describe("document audit integration", () => {
         tableId: fixture.tableId,
         recordId: fixture.recordId,
         actorId: fixture.actorId,
-        canReadRelatedTable: async () => true,
+        resolveRecordAccess: async () => ALL_RECORD_ACCESS,
       });
       expect(snapshot.ok).toBe(true);
       if (!snapshot.ok) throw new Error(snapshot.error.message);
@@ -165,7 +166,7 @@ describe("document audit integration", () => {
         tableId: fixture.tableId,
         recordId: fixture.recordId,
         actorId: fixture.actorId,
-        canReadRelatedTable: async () => true,
+        resolveRecordAccess: async () => ALL_RECORD_ACCESS,
       });
       if (!snapshot.ok) throw new Error(snapshot.error.message);
 
@@ -224,7 +225,7 @@ describe("document audit integration", () => {
         tableId: fixture.tableId,
         recordId: fixture.recordId,
         actorId: fixture.actorId,
-        canReadRelatedTable: async () => true,
+        resolveRecordAccess: async () => ALL_RECORD_ACCESS,
       });
       if (!snapshot.ok) throw new Error(snapshot.error.message);
       const run = await createDocumentRun({

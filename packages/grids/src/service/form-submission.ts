@@ -2,8 +2,10 @@ import { type DateContext, err, fail, isServiceError, ok, type Result } from "@k
 import { sql } from "bun";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import type { Form } from "./forms";
+import type { AuthorizedRecordAccess } from "./record-access";
 import { notifyRecordEventOutbox } from "./record-event-outbox";
 import { createInTransaction } from "./record-write";
+import type { ExpansionViewer } from "./relation-access";
 
 type InlineCreateDraft = {
   tempId: string;
@@ -37,6 +39,8 @@ export const submitForm = async (params: {
   submission: FormSubmission;
   actorId: string | null;
   dateConfig: DateContext;
+  recordAccess?: AuthorizedRecordAccess;
+  viewer?: ExpansionViewer;
 }): Promise<Result<{ recordId: string }>> => {
   const inlineCreateBounds = validateInlineCreateBounds(params.submission.inlineCreates);
   if (!inlineCreateBounds.ok) return inlineCreateBounds;
@@ -158,6 +162,7 @@ export const submitForm = async (params: {
           const created = await createInTransaction(tx, targetTableId, draftPayload, params.actorId, {
             bypassDirectInsertCheck: true,
             dateConfig: params.dateConfig,
+            viewer: params.viewer,
           });
           if (!created.ok) throw created.error;
           replacements.set(draft.tempId, created.data.record.id);
@@ -176,6 +181,8 @@ export const submitForm = async (params: {
       const created = await createInTransaction(tx, params.form.tableId, payload, params.actorId, {
         bypassDirectInsertCheck: true,
         dateConfig: params.dateConfig,
+        recordAccess: params.recordAccess,
+        viewer: params.viewer,
       });
       if (!created.ok) throw created.error;
       outboxIds.push(created.data.outboxId);

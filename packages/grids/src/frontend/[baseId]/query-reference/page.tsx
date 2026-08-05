@@ -1,6 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
-import { sql } from "bun";
 import { currentActorUser } from "../../../api/permissions";
 import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
@@ -43,20 +42,17 @@ export default ssr<AuthContext>(async (c) => {
     userId: user.id,
     userGroups: user.memberofGroupIds,
   });
-  const tableIds = catalog.tables.map((table) => table.id);
-  const countRows =
-    tableIds.length > 0
-      ? await sql`
-          SELECT table_id, COUNT(*)::int AS record_count
-          FROM grids.records
-          WHERE table_id = ANY(${sql.array(tableIds, "UUID")})
-            AND deleted_at IS NULL
-          GROUP BY table_id
-        `
-      : [];
-  const recordCountsByTable = Object.fromEntries(
-    countRows.map((row: { table_id: string; record_count: number | string | null }) => [row.table_id, Number(row.record_count ?? 0)]),
-  ) as Record<string, number>;
+  const recordCountsByTable = await gridsService.record.countAccessibleByTable(
+    catalog.tables.flatMap((table) => {
+      const access = gridsService.permission.resolveRecordAccess(
+        grants,
+        { baseId: base.id, tableId: table.id },
+        "read",
+        user.id,
+      ).recordAccess;
+      return access ? [{ tableId: table.id, recordAccess: access }] : [];
+    }),
+  );
   const helpDocuments = getRuntimeContext(c).apps.find((registeredApp) => registeredApp.id === "grids")?.help?.documents ?? [];
 
   return () => (

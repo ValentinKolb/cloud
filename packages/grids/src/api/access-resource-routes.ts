@@ -3,6 +3,7 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { RecordScopeSchema } from "../contracts";
 import {
   type AccessResourceType,
   type BaseAdminAuthorization,
@@ -22,7 +23,9 @@ import { get as getTable } from "../service/tables";
 import { getWorkflow } from "../service/workflow-definitions";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
-const AccessListSchema = z.array(AccessEntrySchema);
+const GridsAccessEntrySchema = AccessEntrySchema.extend({ recordScope: RecordScopeSchema.optional() });
+const GridsGrantAccessSchema = GrantAccessSchema.extend({ recordScope: RecordScopeSchema.optional() });
+const AccessListSchema = z.array(GridsAccessEntrySchema);
 const CreatedAccessSchema = z.object({ accessId: z.string().uuid() });
 
 type AccessRouteConfig = {
@@ -178,7 +181,7 @@ const listResourceAccess = async (c: Context<AuthContext>, config: AccessRouteCo
 const grantResourceAccess = async (
   c: Context<AuthContext>,
   config: AccessRouteConfig,
-  body: z.infer<typeof GrantAccessSchema>,
+  body: z.infer<typeof GridsGrantAccessSchema>,
   deps: AccessRouteDeps,
 ) => {
   const id = resourceId(c.req.param(), config);
@@ -205,43 +208,46 @@ const grantResourceAccess = async (
 export const createAccessResourceRoutes = (deps: AccessRouteDeps = defaultDeps) =>
   new Hono<AuthContext>()
     .get("/by-base/:baseId", listDescription(ACCESS_ROUTE_CONFIGS.base), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.base, deps))
-    .post("/by-base/:baseId", grantDescription(ACCESS_ROUTE_CONFIGS.base), v("json", GrantAccessSchema), (c) =>
+    .post("/by-base/:baseId", grantDescription(ACCESS_ROUTE_CONFIGS.base), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.base, c.req.valid("json"), deps),
     )
     .get("/by-table/:tableId", listDescription(ACCESS_ROUTE_CONFIGS.table), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.table, deps))
-    .post("/by-table/:tableId", grantDescription(ACCESS_ROUTE_CONFIGS.table), v("json", GrantAccessSchema), (c) =>
+    .post("/by-table/:tableId", grantDescription(ACCESS_ROUTE_CONFIGS.table), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.table, c.req.valid("json"), deps),
     )
     .get("/by-view/:viewId", listDescription(ACCESS_ROUTE_CONFIGS.view), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.view, deps))
-    .post("/by-view/:viewId", grantDescription(ACCESS_ROUTE_CONFIGS.view), v("json", GrantAccessSchema), (c) =>
+    .post("/by-view/:viewId", grantDescription(ACCESS_ROUTE_CONFIGS.view), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.view, c.req.valid("json"), deps),
     )
     .get("/by-form/:formId", listDescription(ACCESS_ROUTE_CONFIGS.form), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.form, deps))
-    .post("/by-form/:formId", grantDescription(ACCESS_ROUTE_CONFIGS.form), v("json", GrantAccessSchema), (c) =>
+    .post("/by-form/:formId", grantDescription(ACCESS_ROUTE_CONFIGS.form), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.form, c.req.valid("json"), deps),
     )
     .get("/by-document-template/:templateId", listDescription(ACCESS_ROUTE_CONFIGS.documentTemplate), (c) =>
       listResourceAccess(c, ACCESS_ROUTE_CONFIGS.documentTemplate, deps),
     )
-    .post("/by-document-template/:templateId", grantDescription(ACCESS_ROUTE_CONFIGS.documentTemplate), v("json", GrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.documentTemplate, c.req.valid("json"), deps),
+    .post(
+      "/by-document-template/:templateId",
+      grantDescription(ACCESS_ROUTE_CONFIGS.documentTemplate),
+      v("json", GridsGrantAccessSchema),
+      (c) => grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.documentTemplate, c.req.valid("json"), deps),
     )
     .get("/by-dashboard/:dashboardId", listDescription(ACCESS_ROUTE_CONFIGS.dashboard), (c) =>
       listResourceAccess(c, ACCESS_ROUTE_CONFIGS.dashboard, deps),
     )
-    .post("/by-dashboard/:dashboardId", grantDescription(ACCESS_ROUTE_CONFIGS.dashboard), v("json", GrantAccessSchema), (c) =>
+    .post("/by-dashboard/:dashboardId", grantDescription(ACCESS_ROUTE_CONFIGS.dashboard), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.dashboard, c.req.valid("json"), deps),
     )
     .get("/by-custom-app/:customAppId", listDescription(ACCESS_ROUTE_CONFIGS.customApp), (c) =>
       listResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, deps),
     )
-    .post("/by-custom-app/:customAppId", grantDescription(ACCESS_ROUTE_CONFIGS.customApp), v("json", GrantAccessSchema), (c) =>
+    .post("/by-custom-app/:customAppId", grantDescription(ACCESS_ROUTE_CONFIGS.customApp), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, c.req.valid("json"), deps),
     )
     .get("/by-workflow/:workflowId", listDescription(ACCESS_ROUTE_CONFIGS.workflow), (c) =>
       listResourceAccess(c, ACCESS_ROUTE_CONFIGS.workflow, deps),
     )
-    .post("/by-workflow/:workflowId", grantDescription(ACCESS_ROUTE_CONFIGS.workflow), v("json", GrantAccessSchema), (c) =>
+    .post("/by-workflow/:workflowId", grantDescription(ACCESS_ROUTE_CONFIGS.workflow), v("json", GridsGrantAccessSchema), (c) =>
       grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.workflow, c.req.valid("json"), deps),
     );
 

@@ -16,11 +16,11 @@
  * sent twice.
  */
 
+import type { DateContext } from "@k2b/stdlib";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowActionContext, WorkflowActionResult, WorkflowJsonValue, WorkflowPlannedEffect } from "@valentinkolb/cloud/workflows";
 import { workflowAction } from "@valentinkolb/cloud/workflows";
-import type { DateContext } from "@k2b/stdlib";
 import type { RecordMutationAudit, Table } from "./contracts";
 import { logAudit, type SqlClient } from "./service/audit";
 import { summarizeDocumentRun } from "./service/document-mappers";
@@ -35,11 +35,10 @@ import {
   canExecuteRun,
   GridsWorkflowActionError,
   type GridsWorkflowActionScope,
-  type GridsWorkflowActionTarget,
-  type PermissionLevel,
   requireExecution,
   requireOk,
   requirePermission,
+  requireRecordAccess,
   workflowAuditMeta,
   workflowRunScope,
 } from "./service/workflow-action-scope";
@@ -85,6 +84,12 @@ const dateContext = async (): Promise<DateContext> => ({
   timeZone: normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
   locale: "en",
   firstDayOfWeek: 1,
+});
+
+const viewerForScope = (scope: GridsWorkflowActionScope) => ({
+  userId: scope.principal.userId,
+  userGroups: scope.principal.groupIds,
+  serviceAccountId: scope.principal.serviceAccountId,
 });
 
 /**
@@ -137,9 +142,13 @@ const recordReference = async (ctx: WorkflowActionContext, reference: string, ke
  */
 const readableRecord = async (scope: GridsWorkflowActionScope, reference: RuntimeRecord, required: "read" | "write"): Promise<void> => {
   await currentTable(scope, reference.tableId);
-  await requirePermission(scope, { tableId: reference.tableId }, required);
+  const recordAccess = await requireRecordAccess(scope, reference.tableId, required);
   if (reference.planned) return;
-  const record = await getRecord(reference.tableId, reference.recordId, { includeRelations: true, dateConfig: await dateContext() });
+  const record = await getRecord(reference.tableId, reference.recordId, {
+    includeRelations: true,
+    dateConfig: await dateContext(),
+    recordAccess,
+  });
   if (!record) throw actionError("NOT_FOUND", "Workflow record is no longer available");
 };
 
@@ -195,16 +204,6 @@ const boundId = (ctx: WorkflowActionContext, key: string): string => {
 const mayExecute = async (ctx: WorkflowActionContext): Promise<boolean> => {
   try {
     return await canExecuteRun(await workflowRunScope(ctx));
-  } catch (error) {
-    if (error instanceof GridsWorkflowActionError) return false;
-    throw error;
-  }
-};
-
-const permits = async (scope: GridsWorkflowActionScope, target: GridsWorkflowActionTarget, required: PermissionLevel): Promise<boolean> => {
-  try {
-    await requirePermission(scope, target, required);
-    return true;
   } catch (error) {
     if (error instanceof GridsWorkflowActionError) return false;
     throw error;
@@ -369,12 +368,14 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         await requireExecution(scope, tx);
         const record = await recordReference(ctx, config.record, "record");
         await currentTable(scope, record.tableId);
-        await requirePermission(scope, { tableId: record.tableId }, "write", tx);
+        const recordAccess = await requireRecordAccess(scope, record.tableId, "write", tx);
         const values = fieldPayload(ctx, "set", config.set);
         const audit = auditAnswerPayload(config.audit);
         const updated = requireOk(
           await updateRecordInTransaction(tx, record.tableId, record.recordId, values, actorId(scope), undefined, {
             dateConfig: await dateContext(),
+            recordAccess,
+            viewer: viewerForScope(scope),
             ...(audit ? { audit } : {}),
           }),
         );
@@ -435,10 +436,14 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         await requireExecution(scope, tx);
         const tableId = boundId(ctx, "table");
         await currentTable(scope, tableId);
-        await requirePermission(scope, { tableId }, "write", tx);
+        const recordAccess = await requireRecordAccess(scope, tableId, "write", tx);
         const values = fieldPayload(ctx, "values", config.values);
         const created = requireOk(
-          await createRecordInTransaction(tx, tableId, values, actorId(scope), { dateConfig: await dateContext() }),
+          await createRecordInTransaction(tx, tableId, values, actorId(scope), {
+            dateConfig: await dateContext(),
+            recordAccess,
+            viewer: viewerForScope(scope),
+          }),
         );
         await logAudit(
           {
@@ -463,7 +468,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         await requireExecution(scope);
         const tableId = boundId(ctx, "table");
         await currentTable(scope, tableId);
-        await requirePermission(scope, { tableId }, "write");
+        await requireRecordAccess(scope, tableId, "write");
         const values = fieldPayload(ctx, "values", config.values);
         return {
           summary: `Create one record with ${Object.keys(values).length} field(s)`,
@@ -499,13 +504,20 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         const table = await currentTable(scope, template.tableId);
         const record = await documentRecord(ctx, scope, table.id, config.record, "read");
         await requirePermission(scope, { tableId: table.id, documentTemplateId: template.id }, "write");
+        const recordAccess = await requireRecordAccess(scope, table.id, "read");
         const run = requireOk(
           await createRunForRecord({
             template,
             table,
             recordId: record.recordId,
             actorId: actorId(scope),
-            canReadRelatedTable: ({ tableId }) => permits(scope, { tableId }, "read"),
+            recordAccess,
+            resolveRecordAccess: ({ tableId }) => requireRecordAccess(scope, tableId, "read").catch(() => null),
+            viewer: {
+              userId: scope.principal.userId,
+              userGroups: scope.principal.groupIds,
+              serviceAccountId: scope.principal.serviceAccountId,
+            },
             dateConfig: await dateContext(),
             filename: typeof config.filename === "string" ? config.filename : null,
             tags: documentTags(config.tags),

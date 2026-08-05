@@ -4,8 +4,8 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { CreateRecordSnapshotResponseSchema, RecordSnapshotListResponseSchema, RecordSnapshotSchema } from "../contracts";
 import { gridsService } from "../service";
-import { snapshotRelatedTableGuard, uuidParam } from "./documents-api-shared";
-import { currentActorUserId, gateAt } from "./permissions";
+import { snapshotRecordAccessResolver, uuidParam } from "./documents-api-shared";
+import { currentActorUserId, currentActorViewer, resolveRecordAccess } from "./permissions";
 
 export const createDocumentSnapshotRoutes = () =>
   new Hono<AuthContext>()
@@ -25,8 +25,11 @@ export const createDocumentSnapshotRoutes = () =>
         if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
-        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        if (!(await gridsService.record.get(tableId, recordId, { recordAccess: gate.data.recordAccess }))) {
+          return c.json({ message: "Record not found" }, 404);
+        }
         return c.json({ items: await gridsService.document.listSnapshotsForRecord(tableId, recordId) });
       },
     )
@@ -47,14 +50,15 @@ export const createDocumentSnapshotRoutes = () =>
         if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
-        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const snapshot = await gridsService.document.createRecordSnapshot({
           baseId: table.baseId,
           tableId,
           recordId,
           actorId: currentActorUserId(c),
-          canReadRelatedTable: snapshotRelatedTableGuard(c),
+          resolveRecordAccess: snapshotRecordAccessResolver(c),
+          viewer: currentActorViewer(c),
           dateConfig: await getDateConfig(c),
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
@@ -77,8 +81,16 @@ export const createDocumentSnapshotRoutes = () =>
         if (!snapshotId) return c.json({ message: "Record snapshot not found" }, 404);
         const snapshot = await gridsService.document.getSnapshot(snapshotId);
         if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
-        const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "read");
+        const gate = await resolveRecordAccess(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return c.json(await gridsService.document.filterSnapshotRelatedRecords(snapshot, snapshotRelatedTableGuard(c)));
+        if (
+          !(await gridsService.record.get(snapshot.tableId, snapshot.recordId, {
+            recordAccess: gate.data.recordAccess,
+            deleted: "include",
+          }))
+        ) {
+          return c.json({ message: "Record snapshot not found" }, 404);
+        }
+        return c.json(await gridsService.document.filterSnapshotRelatedRecords(snapshot, snapshotRecordAccessResolver(c)));
       },
     );

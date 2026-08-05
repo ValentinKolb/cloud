@@ -2,6 +2,9 @@ import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
 import { liveRecordParentJoinSql } from "./parent-checks";
+import type { AuthorizedRecordAccess } from "./record-access";
+import { recordAccessPredicate } from "./record-access";
+import { accessibleRecordIdsByTable, type ExpansionViewer } from "./relation-access";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -10,6 +13,7 @@ export const validateRelationTargets = async (
   targetTableId: string,
   targetIds: string[],
   client: SqlClient = sql,
+  recordAccess?: AuthorizedRecordAccess,
 ): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
   if (targetIds.length === 0) return { ok: true };
   const rows = await client<{ id: string }[]>`
@@ -19,6 +23,7 @@ export const validateRelationTargets = async (
     WHERE r.id = ANY(${client.array(targetIds, "UUID")})
       AND r.table_id = ${targetTableId}::uuid
       AND r.deleted_at IS NULL
+      AND ${recordAccessPredicate(recordAccess, "r")}
   `;
   const found = new Set(rows.map((row) => row.id));
   const missing = targetIds.filter((id) => !found.has(id));
@@ -82,7 +87,7 @@ export const readRecordLinksBatch = async (recordIds: string[], fieldIds: string
   return links;
 };
 
-export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: Field[]): Promise<void> => {
+export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: Field[], viewer?: ExpansionViewer): Promise<void> => {
   if (records.length === 0) return;
   const relationFields = fields.filter((field) => field.type === "relation" && !field.deletedAt);
   if (relationFields.length === 0) return;
@@ -90,8 +95,29 @@ export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: F
     records.map((record) => record.id),
     relationFields.map((field) => field.id),
   );
+  let accessibleByTableId: Map<string, Set<string>> | undefined;
+  if (viewer) {
+    const idsByTableId = new Map<string, Set<string>>();
+    for (const field of relationFields) {
+      const targetTableId = typeof field.config.targetTableId === "string" ? field.config.targetTableId : null;
+      if (!targetTableId) continue;
+      const ids = idsByTableId.get(targetTableId) ?? new Set<string>();
+      for (const record of records) for (const id of links.get(record.id)?.get(field.id) ?? []) ids.add(id);
+      idsByTableId.set(targetTableId, ids);
+    }
+    accessibleByTableId = await accessibleRecordIdsByTable(idsByTableId, viewer);
+  }
   for (const record of records) {
     const recordLinks = links.get(record.id);
-    for (const field of relationFields) record.data[field.id] = recordLinks?.get(field.id) ?? [];
+    for (const field of relationFields) {
+      const linkedIds = recordLinks?.get(field.id) ?? [];
+      if (!accessibleByTableId) {
+        record.data[field.id] = linkedIds;
+        continue;
+      }
+      const targetTableId = typeof field.config.targetTableId === "string" ? field.config.targetTableId : null;
+      const accessibleIds = targetTableId ? accessibleByTableId.get(targetTableId) : undefined;
+      record.data[field.id] = accessibleIds ? linkedIds.filter((id) => accessibleIds.has(id)) : [];
+    }
   }
 };

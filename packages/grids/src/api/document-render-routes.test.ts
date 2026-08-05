@@ -311,6 +311,10 @@ describe("document render routes", () => {
       if ("tableId" in target) return tableLevel;
       return baseLevel;
     });
+    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target) => {
+      const level = "documentTemplateId" in target ? templateLevel : "tableId" in target ? tableLevel : baseLevel;
+      return { level, recordAccess: level === "none" ? null : { kind: "all" } };
+    });
     spyOn(gridsService.permission, "hasAtLeast").mockImplementation((actual, expected) => {
       permissionChecks.push(expected);
       const rank = { none: 0, read: 1, write: 2, admin: 3 };
@@ -496,7 +500,7 @@ describe("document render routes", () => {
 
   test("persists only an already-rendered run with actor inputs and exact download headers", async () => {
     templateLevel = "write";
-    tableLevel = "none";
+    tableLevel = "read";
     const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
 
     await expectPdf(response, `attachment; filename="Invoice July.pdf"; filename*=UTF-8''Invoice%20July.pdf`, {
@@ -505,16 +509,18 @@ describe("document render routes", () => {
       "x-grids-document-filename": "Invoice%20July.pdf",
     });
     expect(callOrder).toEqual(["live-data", "snapshot", "run"]);
-    const { canReadRelatedTable, ...snapshotParams } = snapshotInput as {
+    const { resolveRecordAccess, viewer, ...snapshotParams } = snapshotInput as {
       baseId: string;
       tableId: string;
       recordId: string;
       actorId: string;
       dateConfig: typeof dateConfig;
-      canReadRelatedTable: (target: { baseId: string; tableId: string }) => Promise<boolean>;
+      viewer: unknown;
+      resolveRecordAccess: (target: { baseId: string; tableId: string }) => Promise<{ kind: "all" } | null>;
     };
     expect(snapshotParams).toEqual({ baseId, tableId, recordId, actorId: userId, dateConfig });
-    expect(await canReadRelatedTable({ baseId, tableId })).toBe(false);
+    expect(viewer).toMatchObject({ userId });
+    expect(await resolveRecordAccess({ baseId, tableId })).toEqual({ kind: "all" });
     expect(createRunInput).toEqual({
       template,
       snapshot,
@@ -526,6 +532,17 @@ describe("document render routes", () => {
       tags: ["finance", "july"],
       persistSnapshot: true,
     });
+  });
+
+  test("does not generate from a readable template when the record data is not readable", async () => {
+    templateLevel = "write";
+    tableLevel = "none";
+
+    const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Record not found" });
+    expect(callOrder).toEqual([]);
   });
 
   for (const [suffix, body, failureStatus, expectedStatus, expectedBody] of [

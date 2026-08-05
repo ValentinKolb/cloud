@@ -3,6 +3,7 @@ import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { RecordScopeSchema } from "../contracts";
 import { gridsService } from "../service";
 import { validateAccessLevelForResource } from "./access";
 import { currentActorUserId } from "./permissions";
@@ -13,9 +14,12 @@ const ScopedAccessEntrySchema = AccessEntrySchema.extend({
   resourceName: z.string(),
   tableId: z.string().uuid().nullable(),
   tableName: z.string().nullable(),
+  recordScope: RecordScopeSchema.optional(),
 });
 const ScopedAccessListSchema = z.array(ScopedAccessEntrySchema);
-const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema });
+const GridsAccessEntrySchema = AccessEntrySchema.extend({ recordScope: RecordScopeSchema.optional() });
+const GridsGrantAccessSchema = GrantAccessSchema.extend({ recordScope: RecordScopeSchema.optional() });
+const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema, recordScope: RecordScopeSchema.optional() });
 
 export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthContext> } = {}) => {
   const requireAdmin = deps.requireAdmin ?? auth.requireRole("admin");
@@ -47,11 +51,11 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
         tags: ["Grids:Admin"],
         summary: "Grant base access as platform admin",
         responses: {
-          201: jsonResponse(AccessEntrySchema, "Created"),
+          201: jsonResponse(GridsAccessEntrySchema, "Created"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
-      v("json", GrantAccessSchema),
+      v("json", GridsGrantAccessSchema),
       async (c) => {
         const baseId = c.req.param("baseId")!;
         const base = await gridsService.base.get(baseId);
@@ -87,10 +91,10 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
         if (!binding || binding.baseId !== baseId) {
           return c.json({ message: "Access entry not found" }, 404);
         }
-        const permission = c.req.valid("json").permission;
+        const { permission, recordScope } = c.req.valid("json");
         const validationError = validateAccessLevelForResource(binding.resourceType, permission);
         if (validationError) return c.json({ message: validationError }, 400);
-        const result = await gridsService.access.updateLevel(accessId, permission, currentActorUserId(c));
+        const result = await gridsService.access.updateLevel(accessId, permission, currentActorUserId(c), undefined, recordScope);
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },

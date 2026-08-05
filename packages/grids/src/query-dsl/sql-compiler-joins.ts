@@ -25,7 +25,7 @@ export const compileRelationJoin = (
   const targetSource = options.recordSourcesByTableId?.get(join.tableId);
   const fromSource = join.fromScope ? options.recordSourcesByTableId?.get(join.fromTableId) : options.recordSource;
 
-  if (targetSource && join.direction === "reverse") {
+  if (targetSource?.kind === "federated" && join.direction === "reverse") {
     const mappings = targetSource.relationMappings.filter((mapping) => mapping.targetFieldId === join.relationFieldId);
     if (mappings.length === 0) {
       return { ok: false, error: `reverse join "${join.alias}" uses an unmapped Combined-table relation field` };

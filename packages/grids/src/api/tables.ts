@@ -23,7 +23,14 @@ import {
   ValidateFederatedDraftSchema,
 } from "../contracts";
 import { gridsService } from "../service";
-import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
+import {
+  currentAccessSubject,
+  currentActorUserId,
+  currentCredentialPermission,
+  currentResourceBoundBaseId,
+  gateAt,
+  resolveRecordAccess,
+} from "./permissions";
 import { requireUuidParam } from "./route-params";
 import { tableQueryRoutes } from "./table-query-routes";
 
@@ -590,8 +597,8 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const access = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
+      if (!access.ok) return respond(c, () => Promise.resolve(access));
 
       const { q, limit, excludeIds, includeDeleted } = c.req.valid("query");
 
@@ -601,6 +608,7 @@ const app = new Hono<AuthContext>()
         limit,
         excludeIds,
         includeDeleted: includeDeleted === "true",
+        recordAccess: access.data.recordAccess,
       });
       return c.json(result);
     },

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect } from "bun:test";
-import type { AuthContext } from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@k2b/stdlib";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { Hono } from "hono";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
@@ -12,6 +12,7 @@ type Fixture = {
   userId: string;
   baseId: string;
   tableId: string;
+  relationFieldId: string;
   tableAccessId: string;
   foreignBaseId: string;
   foreignTableId: string;
@@ -45,6 +46,8 @@ const insertFixture = async (): Promise<Fixture> => {
   if (!authUser) throw new Error("Access route integration test needs one auth user");
   const baseId = uuid();
   const tableId = uuid();
+  const parentTableId = uuid();
+  const relationFieldId = uuid();
   const foreignBaseId = uuid();
   const foreignTableId = uuid();
   await sql`
@@ -57,7 +60,19 @@ const insertFixture = async (): Promise<Fixture> => {
     INSERT INTO grids.tables (id, short_id, base_id, name)
     VALUES
       (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Items'),
+      (${parentTableId}::uuid, ${shortId("P")}, ${baseId}::uuid, 'Owners'),
       (${foreignTableId}::uuid, ${shortId("X")}, ${foreignBaseId}::uuid, 'Foreign items')
+  `;
+  await sql`
+    INSERT INTO grids.fields (id, short_id, table_id, name, type, config)
+    VALUES (
+      ${relationFieldId}::uuid,
+      ${shortId("R")},
+      ${tableId}::uuid,
+      'Owner',
+      'relation',
+      ${{ targetTableId: parentTableId }}::jsonb
+    )
   `;
 
   const baseAdminId = await insertAccess("admin", authUser.id);
@@ -70,6 +85,7 @@ const insertFixture = async (): Promise<Fixture> => {
     userId: authUser.id,
     baseId,
     tableId,
+    relationFieldId,
     tableAccessId,
     foreignBaseId,
     foreignTableId,
@@ -109,6 +125,63 @@ describe("access routes integration", () => {
 
       expect((await app.request(`/${uuid()}`, { method: "DELETE" })).status).toBe(404);
       expect((await app.request(`/${fixture.foreignAccessId}`, { method: "DELETE" })).status).toBe(403);
+    } finally {
+      await cleanup(fixture);
+    }
+  });
+
+  postgresTest("creates, lists, and updates validated record scopes", async () => {
+    const fixture = await insertFixture();
+    const app = appFor(fixture);
+    try {
+      const createdResponse = await app.request(`/by-table/${fixture.tableId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          principal: { type: "user", userId: fixture.userId },
+          permission: "read",
+          recordScope: { kind: "created_by" },
+        }),
+      });
+      expect(createdResponse.status).toBe(201);
+      const created = (await createdResponse.json()) as { accessId: string };
+      fixture.accessIds.push(created.accessId);
+
+      const listed = (await (await app.request(`/by-table/${fixture.tableId}`)).json()) as Array<{
+        id: string;
+        recordScope: unknown;
+      }>;
+      expect(listed.find((entry) => entry.id === created.accessId)?.recordScope).toEqual({ kind: "created_by" });
+
+      const updated = await app.request(`/${created.accessId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          permission: "write",
+          recordScope: { kind: "related_created_by", relationFieldId: fixture.relationFieldId },
+        }),
+      });
+      expect(updated.status).toBe(204);
+
+      const afterUpdate = (await (await app.request(`/by-table/${fixture.tableId}`)).json()) as Array<{
+        id: string;
+        permission: string;
+        recordScope: unknown;
+      }>;
+      expect(afterUpdate.find((entry) => entry.id === created.accessId)).toMatchObject({
+        permission: "write",
+        recordScope: { kind: "related_created_by", relationFieldId: fixture.relationFieldId },
+      });
+
+      const invalid = await app.request(`/${created.accessId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          permission: "write",
+          recordScope: { kind: "related_created_by", relationFieldId: uuid() },
+        }),
+      });
+      expect(invalid.status).toBe(400);
     } finally {
       await cleanup(fixture);
     }

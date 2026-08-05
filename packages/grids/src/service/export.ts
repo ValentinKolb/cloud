@@ -1,5 +1,5 @@
-import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
 import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
+import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
 import type { ExportFieldSpec, RecordQuery, SearchSpec } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
@@ -10,6 +10,7 @@ import { type FederatedRevisionScope, verifyRevisionScope } from "./federated-ta
 import { listByTable as listFields } from "./fields";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import type { AuthorizedRecordAccess } from "./record-access";
 import { list as listRecords } from "./records";
 import { loadRelationTargets } from "./relation-targets";
 import type { ExpansionViewer } from "./relations";
@@ -32,6 +33,7 @@ const createStoredPageReader = (params: {
   query: RecordQuery;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
+  recordAccess?: AuthorizedRecordAccess;
 }): ExportPageReader => {
   let cursor: string | null = null;
   let returned = 0;
@@ -51,6 +53,7 @@ const createStoredPageReader = (params: {
       includeRelations: false,
       viewer: params.viewer,
       dateConfig: params.dateConfig,
+      recordAccess: params.recordAccess,
     });
     if (!page.ok) return fail(page.error);
     returned += page.data.items.length;
@@ -68,6 +71,7 @@ const createFederatedPageReader = async (params: {
   query: RecordQuery;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
+  recordAccess?: AuthorizedRecordAccess;
 }): Promise<Result<ExportPageReader>> => {
   const converted = simpleQueryToGqlSource({ tableId: params.tableId, query: params.query });
   if (!converted.ok) return fail(err.badInput(converted.reason));
@@ -101,6 +105,7 @@ const createFederatedPageReader = async (params: {
       cursorFingerprint,
       cursorSigningKey: EXPORT_CURSOR_SIGNING_KEY,
       viewer: params.viewer,
+      ...(params.recordAccess ? { primaryRecordAccess: params.recordAccess } : {}),
       labelRelationValues: false,
       expectedFederatedRevisionScope: expectedRevisionScope,
       onFederatedRevisionScope: (scope) => {
@@ -134,6 +139,7 @@ const createExportPageReader = async (params: {
   query: RecordQuery;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
+  recordAccess?: AuthorizedRecordAccess;
 }): Promise<Result<ExportPageReader>> => {
   const table = await getTable(params.tableId);
   if (!table) return fail(err.notFound("Table"));
@@ -230,6 +236,7 @@ const pickColumns = async (params: {
   specs?: ExportFieldSpec[];
   query: RecordQuery;
   viewer?: ExpansionViewer;
+  recordAccess?: AuthorizedRecordAccess;
 }): Promise<Result<{ columns: ExportColumn[]; selected: Array<{ field: Field; spec?: ExportFieldSpec }> }>> => {
   const byId = new Map(params.fields.map((f) => [f.id, f]));
   const requested = params.specs?.length
@@ -396,6 +403,7 @@ export const exportRecords = async (params: {
   dateConfig?: DateContext;
   /** Optional viewer gates relation-field expansion across target tables. */
   viewer?: ExpansionViewer;
+  recordAccess?: AuthorizedRecordAccess;
 }): Promise<Result<ExportResult>> => {
   const fields = await listFields(params.tableId);
   const query = params.query ?? {};
@@ -413,6 +421,7 @@ export const exportRecords = async (params: {
     query,
     viewer: params.viewer,
     dateConfig: params.dateConfig,
+    recordAccess: params.recordAccess,
   });
   if (!pageReader.ok) return fail(pageReader.error);
   const options: ExportFormatOptions = { markdown: params.markdown ?? "raw", dateConfig: params.dateConfig };

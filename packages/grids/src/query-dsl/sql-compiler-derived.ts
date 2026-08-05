@@ -227,7 +227,7 @@ const compileDerivedRelationSearchClause = (
   column: DslDerivedViewColumn,
   q: string,
   pattern: string,
-  options: Pick<DslSqlCompileOptions, "fieldsByTableId">,
+  options: Pick<DslSqlCompileOptions, "fieldsByTableId" | "recordSourcesByTableId">,
   readableTableIds?: readonly string[],
 ): unknown | null => {
   if (column.type !== "relation" || !column.targetTableId) return null;
@@ -239,10 +239,12 @@ const compileDerivedRelationSearchClause = (
   if (fieldClauses.length === 0) return null;
   const targetWhere = joinFragments(fieldClauses, sql` OR `);
   const relationId = sql`NULLIF(${derivedColumnReference(column)}::text, '')::uuid`;
+  const targetSource = options.recordSourcesByTableId?.get(column.targetTableId);
+  const targetRelation = targetSource ? sql`${targetSource.relation} target` : sql`grids.records target`;
 
   return sql`EXISTS (
     SELECT 1
-    FROM grids.records target
+    FROM ${targetRelation}
     WHERE target.id = ${relationId}
       AND target.table_id = ${column.targetTableId}::uuid
       AND target.deleted_at IS NULL
@@ -253,7 +255,7 @@ const compileDerivedRelationSearchClause = (
 const compileDerivedSelectSearchClause = (
   column: DslDerivedViewColumn,
   q: string,
-  options: Pick<DslSqlCompileOptions, "fieldsByTableId">,
+  options: Pick<DslSqlCompileOptions, "fieldsByTableId" | "recordSourcesByTableId">,
   sourceTableId: string,
 ): unknown | null => {
   if (column.type !== "select" || !column.fieldId) return null;
@@ -268,7 +270,7 @@ const compileDerivedSearchColumnClause = (
   column: DslDerivedViewColumn,
   q: string,
   pattern: string,
-  options: Pick<DslSqlCompileOptions, "fieldsByTableId">,
+  options: Pick<DslSqlCompileOptions, "fieldsByTableId" | "recordSourcesByTableId">,
   sourceTableId: string,
   readableTableIds?: readonly string[],
 ): unknown | null => {
@@ -283,7 +285,7 @@ const compileDerivedSearchColumnClause = (
 
 const compileDerivedSearchClause = (
   search: NonNullable<NonNullable<DslResolvedSqlQueryPlan["derivedViewSource"]>["search"]>,
-  options: Pick<DslSqlCompileOptions, "fieldsByTableId">,
+  options: Pick<DslSqlCompileOptions, "fieldsByTableId" | "recordSourcesByTableId">,
   sourceTableId: string,
   readableTableIds?: readonly string[],
 ): unknown => {
@@ -300,7 +302,7 @@ const compileDerivedSearchClause = (
 
 const compileDerivedSearchCondition = (
   derived: NonNullable<DslResolvedSqlQueryPlan["derivedViewSource"]>,
-  options: Pick<DslSqlCompileOptions, "fieldsByTableId">,
+  options: Pick<DslSqlCompileOptions, "fieldsByTableId" | "recordSourcesByTableId">,
   sourceTableId: string,
   joinedSearchClause?: unknown,
   readableTableIds?: readonly string[],

@@ -9,7 +9,14 @@ import {
 } from "@valentinkolb/cloud/services";
 import type { sql } from "bun";
 import type { GridsWorkflowCredential, GridsWorkflowCredentialBinding, GridsWorkflowPrincipal } from "../workflows/contracts";
-import { hasAtLeast, loadGrantsForSubject, type ResolveTarget, resolveEffectivePermission } from "./permission-resolver";
+import {
+  hasAtLeast,
+  loadGrantsForSubject,
+  type ResolveTarget,
+  resolveAuthorizedRecordAccess,
+  resolveEffectivePermission,
+} from "./permission-resolver";
+import type { AuthorizedRecordAccess } from "./record-access";
 
 type SqlClient = typeof sql;
 type WorkflowAuthorizationUser = Pick<User, "id" | "accountExpires">;
@@ -283,4 +290,27 @@ export const authorizeWorkflowTarget = async (
     db,
   );
   return hasAtLeast(resolveEffectivePermission(grants, target), required);
+};
+
+export const resolveWorkflowTargetRecordAccess = async (
+  principal: GridsWorkflowPrincipal,
+  target: ResolveTarget,
+  required: PermissionLevel,
+  db?: SqlClient,
+): Promise<AuthorizedRecordAccess | null> => {
+  const revalidated = db
+    ? await revalidateWorkflowPrincipalInTransaction(principal, target.baseId, db)
+    : await revalidateWorkflowPrincipal(principal, target.baseId);
+  if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, required)) return null;
+  const grants = await loadGrantsForSubject(
+    {
+      subject: revalidated.subject,
+      baseId: target.baseId,
+      tableId: "tableId" in target ? target.tableId : null,
+      viewId: "viewId" in target ? target.viewId : null,
+    },
+    db,
+  );
+  return resolveAuthorizedRecordAccess(grants, target, required, revalidated.subject.type === "user" ? revalidated.subject.userId : null)
+    .recordAccess;
 };

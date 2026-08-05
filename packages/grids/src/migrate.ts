@@ -101,8 +101,25 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     CREATE TABLE IF NOT EXISTS grids.base_access (
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb,
       PRIMARY KEY (base_id, access_id)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.base_access ADD COLUMN IF NOT EXISTS record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb`.simple();
+  await sql`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'base_access_record_scope_chk' AND conrelid = 'grids.base_access'::regclass) THEN
+        ALTER TABLE grids.base_access ADD CONSTRAINT base_access_record_scope_chk CHECK (
+          record_scope IN ('{"kind":"all"}'::jsonb, '{"kind":"created_by"}'::jsonb) OR (
+            jsonb_typeof(record_scope) = 'object'
+            AND record_scope->>'kind' = 'related_created_by'
+            AND jsonb_typeof(record_scope->'relationFieldId') = 'string'
+            AND record_scope - 'kind' - 'relationFieldId' = '{}'::jsonb
+            AND record_scope->>'relationFieldId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          )
+        );
+      END IF;
+    END $$
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_base_access_access ON grids.base_access(access_id)`.simple();
   console.log("  ✓ grids.base_access");
@@ -184,8 +201,25 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     CREATE TABLE IF NOT EXISTS grids.table_access (
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb,
       PRIMARY KEY (table_id, access_id)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.table_access ADD COLUMN IF NOT EXISTS record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb`.simple();
+  await sql`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'table_access_record_scope_chk' AND conrelid = 'grids.table_access'::regclass) THEN
+        ALTER TABLE grids.table_access ADD CONSTRAINT table_access_record_scope_chk CHECK (
+          record_scope IN ('{"kind":"all"}'::jsonb, '{"kind":"created_by"}'::jsonb) OR (
+            jsonb_typeof(record_scope) = 'object'
+            AND record_scope->>'kind' = 'related_created_by'
+            AND jsonb_typeof(record_scope->'relationFieldId') = 'string'
+            AND record_scope - 'kind' - 'relationFieldId' = '{}'::jsonb
+            AND record_scope->>'relationFieldId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          )
+        );
+      END IF;
+    END $$
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_table_access_access ON grids.table_access(access_id)`.simple();
   console.log("  ✓ grids.table_access");
@@ -501,6 +535,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   `.simple();
   // Composite index for the hot path: list live rows of a table in id order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_records_table_live ON grids.records(table_id, id) WHERE deleted_at IS NULL`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_records_table_creator_live ON grids.records(table_id, created_by, id) WHERE deleted_at IS NULL`.simple();
   // Trash queries: list soft-deleted rows of a table (ordered by deletion time).
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_records_table_trash ON grids.records(table_id, deleted_at) WHERE deleted_at IS NOT NULL`.simple();
   console.log("  ✓ grids.records");
@@ -639,8 +674,25 @@ const migrateViews = async (sql: SQL): Promise<void> => {
     CREATE TABLE IF NOT EXISTS grids.view_access (
       view_id UUID NOT NULL REFERENCES grids.views(id) ON DELETE CASCADE,
       access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb,
       PRIMARY KEY (view_id, access_id)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.view_access ADD COLUMN IF NOT EXISTS record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb`.simple();
+  await sql`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'view_access_record_scope_chk' AND conrelid = 'grids.view_access'::regclass) THEN
+        ALTER TABLE grids.view_access ADD CONSTRAINT view_access_record_scope_chk CHECK (
+          record_scope IN ('{"kind":"all"}'::jsonb, '{"kind":"created_by"}'::jsonb) OR (
+            jsonb_typeof(record_scope) = 'object'
+            AND record_scope->>'kind' = 'related_created_by'
+            AND jsonb_typeof(record_scope->'relationFieldId') = 'string'
+            AND record_scope - 'kind' - 'relationFieldId' = '{}'::jsonb
+            AND record_scope->>'relationFieldId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          )
+        );
+      END IF;
+    END $$
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_view_access_access ON grids.view_access(access_id)`.simple();
   console.log("  ✓ grids.view_access");

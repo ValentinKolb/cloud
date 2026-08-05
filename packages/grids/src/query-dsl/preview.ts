@@ -8,6 +8,7 @@ import { runBoundedQuery } from "../service/bounded-query";
 import { buildComputedFieldSqlMap } from "../service/computed-projections";
 import { type FederatedRevisionScope, verifyRevisionScope } from "../service/federated-tables";
 import { isMultiSelectField, storageOf } from "../service/field-storage";
+import { type AuthorizedRecordAccess, recordAccessPredicate } from "../service/record-access";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
 import type { Field } from "../service/types";
@@ -23,6 +24,7 @@ import {
   dslDerivedJoinRecordAlias,
   dslJoinRecordAlias,
 } from "./sql-compiler";
+import type { DslSqlRecordSource } from "./sql-compiler-types";
 import { buildDslSqlRecordSource } from "./sql-record-source";
 
 type DslQueryPreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
@@ -49,6 +51,11 @@ type DslQueryPreviewOptions = {
   expectedFederatedRevisionScope?: FederatedRevisionScope;
   onFederatedRevisionScope?: (scope: FederatedRevisionScope) => void;
   signal?: AbortSignal;
+  /** Authorized row sets for every table reachable by this plan. Supplying
+   * the map makes a missing table fail closed. */
+  authorizedRecordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>;
+  /** View-level policy for the primary source. */
+  primaryRecordAccess?: AuthorizedRecordAccess | null;
 };
 
 const MAX_PREVIEW_ROWS = 500;
@@ -88,6 +95,10 @@ const queryExecutionKey = (
       fingerprint: options.cursorFingerprint,
       mode,
       revisions: revisionScopeKey(revisionScope),
+      recordAccess: options.authorizedRecordAccessByTableId
+        ? [...options.authorizedRecordAccessByTableId].sort(([left], [right]) => left.localeCompare(right))
+        : null,
+      primaryRecordAccess: options.primaryRecordAccess ?? null,
       timeZone: options.timeZone ?? null,
       viewer: viewer
         ? {
@@ -409,7 +420,7 @@ const compileDslSearchClause = async (
   plan: DslResolvedSqlQueryPlan,
   options: DslQueryPreviewOptions,
   relationSource: "links" | "recordData",
-  recordSourcesByTableId: Map<string, NonNullable<Awaited<ReturnType<typeof buildDslSqlRecordSource>>>>,
+  recordSourcesByTableId: Map<string, DslSqlRecordSource>,
 ): Promise<{ clause: unknown } | undefined> => {
   const clauses: unknown[] = [];
   if (plan.query.search) {
@@ -485,33 +496,52 @@ export const previewDslQuery = async (
     const recordSourcesByTableId = new Map(
       (
         await Promise.all(
-          sourceTableIds.map(
-            async (tableId) =>
-              [
-                tableId,
-                await buildDslSqlRecordSource(
-                  tableId,
-                  options.fieldsByTableId,
-                  tableId === plan.tableId
-                    ? {
-                        ...(plan.query.filter ? { filter: plan.query.filter } : {}),
-                        ...(plan.wherePredicate ? { wherePredicate: plan.wherePredicate } : {}),
-                        ...(options.timeZone ? { timeZone: options.timeZone } : {}),
-                        ...(plan.query.includeDeleted ? { includeDeleted: true } : {}),
-                        ...(plan.query.deletedOnly ? { deletedOnly: true } : {}),
-                      }
-                    : undefined,
-                ),
-              ] as const,
-          ),
+          sourceTableIds.map(async (tableId) => {
+            const physicalSource = await buildDslSqlRecordSource(
+              tableId,
+              options.fieldsByTableId,
+              tableId === plan.tableId
+                ? {
+                    ...(plan.query.filter ? { filter: plan.query.filter } : {}),
+                    ...(plan.wherePredicate ? { wherePredicate: plan.wherePredicate } : {}),
+                    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+                    ...(plan.query.includeDeleted ? { includeDeleted: true } : {}),
+                    ...(plan.query.deletedOnly ? { deletedOnly: true } : {}),
+                  }
+                : undefined,
+            );
+            const isPrimary = tableId === plan.tableId;
+            const access =
+              isPrimary && Object.hasOwn(options, "primaryRecordAccess")
+                ? options.primaryRecordAccess
+                : options.authorizedRecordAccessByTableId?.get(tableId);
+            const authorizationRequired =
+              (isPrimary && Object.hasOwn(options, "primaryRecordAccess")) || options.authorizedRecordAccessByTableId !== undefined;
+            if (!authorizationRequired || access?.kind === "all") return [tableId, physicalSource] as const;
+
+            const baseRelation = physicalSource?.relation ?? sql`grids.records`;
+            const predicate = access ? recordAccessPredicate(access, "access_record") : sql`FALSE`;
+            const relation = sql`(
+                SELECT access_record.*
+                FROM ${baseRelation} access_record
+                WHERE access_record.table_id = ${tableId}::uuid
+                  AND ${predicate}
+              )`;
+            const source: DslSqlRecordSource = physicalSource
+              ? { ...physicalSource, relation }
+              : { kind: "stored", tableId, relation, relationMappings: [] };
+            return [tableId, source] as const;
+          }),
         )
-      ).filter((entry): entry is readonly [string, NonNullable<(typeof entry)[1]>] => entry[1] !== null),
+      ).filter((entry): entry is readonly [string, DslSqlRecordSource] => entry[1] !== null),
     );
-    const revisionScope = [...recordSourcesByTableId].map(([tableId, source]) => ({
-      tableId,
-      revisionId: source.revisionId,
-      revisionToken: source.revisionToken,
-    }));
+    const revisionScope = [...recordSourcesByTableId]
+      .filter((entry) => entry[1].kind === "federated")
+      .map(([tableId, source]) => ({
+        tableId,
+        revisionId: source.kind === "federated" ? source.revisionId : "",
+        revisionToken: source.kind === "federated" ? source.revisionToken : "",
+      }));
     if (
       options.expectedFederatedRevisionScope &&
       revisionScopeKey(revisionScope) !== revisionScopeKey(options.expectedFederatedRevisionScope)
@@ -549,12 +579,14 @@ export const previewDslQuery = async (
     // formulas — same values as the records pipeline.
     const computedFieldSql = await buildComputedFieldSqlMap(options.fieldsByTableId[plan.tableId] ?? [], {
       readableTableIds: plan.readableTableIds,
+      recordAccessByTableId: options.authorizedRecordAccessByTableId,
     });
     const computedFieldSqlByJoinAlias = new Map<string, Awaited<ReturnType<typeof buildComputedFieldSqlMap>>>();
     for (const [index, join] of (plan.joins ?? []).entries()) {
       const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], {
         recordAlias: dslJoinRecordAlias(index),
         readableTableIds: plan.readableTableIds,
+        recordAccessByTableId: options.authorizedRecordAccessByTableId,
       });
       if (map.size > 0) computedFieldSqlByJoinAlias.set(join.alias, map);
     }
@@ -562,6 +594,7 @@ export const previewDslQuery = async (
       const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], {
         recordAlias: dslDerivedJoinRecordAlias(index),
         readableTableIds: plan.readableTableIds,
+        recordAccessByTableId: options.authorizedRecordAccessByTableId,
       });
       if (map.size > 0) computedFieldSqlByJoinAlias.set(join.alias, map);
     }
@@ -569,6 +602,7 @@ export const previewDslQuery = async (
       const map = await buildComputedFieldSqlMap(options.fieldsByTableId[join.tableId] ?? [], {
         recordAlias: dslJoinRecordAlias(index),
         readableTableIds: plan.readableTableIds,
+        recordAccessByTableId: options.authorizedRecordAccessByTableId,
       });
       if (map.size > 0) computedFieldSqlByJoinAlias.set(join.alias, map);
     }

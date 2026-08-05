@@ -6,8 +6,10 @@ import { sql } from "bun";
 import { z } from "zod";
 import type { GridRecord } from "../contracts";
 import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/contracts";
-import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import type { AuthorizedRecordAccess } from "./record-access";
+import { recordAccessPredicate } from "./record-access";
 import { createReader } from "./record-read";
+import { resolveWorkflowTargetRecordAccess } from "./workflow-authorization";
 
 export type WorkflowRecordReference = {
   kind: "record";
@@ -24,7 +26,7 @@ type WorkflowInputPreparationDeps = {
 
 type WorkflowInputPreparationOptions = {
   trustedRecordIds?: ReadonlyMap<string, ReadonlySet<string>>;
-  authorizeTable?: (tableId: string) => Promise<boolean>;
+  resolveRecordAccess?: (tableId: string) => Promise<AuthorizedRecordAccess | null>;
 };
 
 type WorkflowValueResolverDeps = {
@@ -214,57 +216,75 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
   }
 }
 
-const permissionChecker =
-  (baseId: string, principal: GridsWorkflowPrincipal, authorizeTable?: (tableId: string) => Promise<boolean>) =>
-  async (tableId: string): Promise<boolean> => {
-    if (authorizeTable) return authorizeTable(tableId);
-    const grants = await loadGrantsForUser({
-      userId: principal.userId,
-      userGroups: principal.groupIds,
-      serviceAccountId: principal.serviceAccountId,
-      baseId,
-      tableId,
-    });
-    return hasAtLeast(resolveEffectivePermission(grants, { baseId, tableId }), "read");
+const recordAccessChecker = (
+  baseId: string,
+  principal: GridsWorkflowPrincipal,
+  override?: (tableId: string) => Promise<AuthorizedRecordAccess | null>,
+) => {
+  const cache = new Map<string, Promise<AuthorizedRecordAccess | null>>();
+  return (tableId: string): Promise<AuthorizedRecordAccess | null> => {
+    let access = cache.get(tableId);
+    if (!access) {
+      access = override ? override(tableId) : resolveWorkflowTargetRecordAccess(principal, { baseId, tableId }, "read");
+      cache.set(tableId, access);
+    }
+    return access;
   };
+};
 
 export const createWorkflowInputPreparationDeps = (
   baseId: string,
   principal: GridsWorkflowPrincipal,
   options: WorkflowInputPreparationOptions = {},
-): WorkflowInputPreparationDeps => ({
-  canReadTable: permissionChecker(baseId, principal, options.authorizeTable),
-  existingRecordIds: async (tableId, recordIds) => {
-    if (recordIds.length === 0) return new Set();
-    const rows = await sql<Array<{ id: string }>>`
-      SELECT r.id::text AS id
-      FROM grids.records r
-      JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
-      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE r.table_id = ${tableId}::uuid
-        AND r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
-        AND r.deleted_at IS NULL
-    `;
-    const ids = new Set(rows.map((record) => record.id));
-    const trusted = options.trustedRecordIds?.get(tableId);
-    if (trusted) for (const recordId of recordIds) if (trusted.has(recordId)) ids.add(recordId);
-    return ids;
-  },
-});
+): WorkflowInputPreparationDeps => {
+  const recordAccessFor = recordAccessChecker(baseId, principal, options.resolveRecordAccess);
+  return {
+    canReadTable: async (tableId) => (await recordAccessFor(tableId)) !== null,
+    existingRecordIds: async (tableId, recordIds) => {
+      if (recordIds.length === 0) return new Set();
+      const recordAccess = await recordAccessFor(tableId);
+      if (!recordAccess) return new Set();
+      const rows = await sql<Array<{ id: string }>>`
+        SELECT r.id::text AS id
+        FROM grids.records r
+        JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE r.table_id = ${tableId}::uuid
+          AND r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
+          AND r.deleted_at IS NULL
+          AND ${recordAccessPredicate(recordAccess, "r")}
+      `;
+      const ids = new Set(rows.map((record) => record.id));
+      const trusted = options.trustedRecordIds?.get(tableId);
+      if (trusted) for (const recordId of recordIds) if (trusted.has(recordId)) ids.add(recordId);
+      return ids;
+    },
+  };
+};
 
 export const createGridsWorkflowValueResolver = (
   baseId: string,
   principal: GridsWorkflowPrincipal,
-  options: Pick<WorkflowInputPreparationOptions, "authorizeTable"> = {},
+  options: Pick<WorkflowInputPreparationOptions, "resolveRecordAccess"> = {},
 ): GridsWorkflowValueResolver => {
   const readers = new Map<string, ReturnType<typeof createReader>>();
-  const canReadTable = permissionChecker(baseId, principal, options.authorizeTable);
+  const recordAccessFor = recordAccessChecker(baseId, principal, options.resolveRecordAccess);
+  const canReadTable = async (tableId: string) => (await recordAccessFor(tableId)) !== null;
   return new GridsWorkflowValueResolver({
     canReadTable,
     readRecord: async (tableId, recordId) => {
       let reader = readers.get(tableId);
       if (!reader) {
-        reader = createReader(tableId, { authorizeComputedTable: canReadTable });
+        const recordAccess = await recordAccessFor(tableId);
+        if (!recordAccess) return null;
+        reader = createReader(tableId, {
+          recordAccess,
+          viewer: {
+            userId: principal.userId,
+            userGroups: principal.groupIds,
+            serviceAccountId: principal.serviceAccountId,
+          },
+        });
         readers.set(tableId, reader);
       }
       return (await reader).get(recordId);

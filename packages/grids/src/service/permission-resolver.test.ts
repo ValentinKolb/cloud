@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { type Grant, hasAtLeast, loadBaseWorkflowGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
+import {
+  type Grant,
+  hasAtLeast,
+  loadBaseWorkflowGrantsForSubject,
+  resolveAuthorizedRecordAccess,
+  resolveEffectivePermission,
+} from "./permission-resolver";
 
 const baseId = "base-1";
 const tableId = "table-1";
@@ -191,6 +197,139 @@ describe("resolveEffectivePermission — principal tier", () => {
   test("public tier is the last fallback within a resource scope", () => {
     const grants: Grant[] = [{ resourceType: "table", resourceId: tableId, level: "read", principalTier: "public" }];
     expect(resolveEffectivePermission(grants, { baseId, tableId })).toBe("read");
+  });
+});
+
+describe("resolveAuthorizedRecordAccess", () => {
+  const userId = "00000000-0000-4000-8000-000000000001";
+  const relationA = "00000000-0000-4000-8000-000000000002";
+  const relationB = "00000000-0000-4000-8000-000000000003";
+
+  test("preserves pre-migration grants as unrestricted", () => {
+    const grants: Grant[] = [u({ resourceType: "table", resourceId: tableId, level: "read" })];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", userId)).toEqual({
+      level: "read",
+      recordAccess: { kind: "all" },
+    });
+  });
+
+  test("all dominates restricted grants at the winning resource and principal tier", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "created_by" } }),
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "all" } }),
+    ];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", userId).recordAccess).toEqual({ kind: "all" });
+  });
+
+  test("ORs the surviving restricted grants", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "created_by" } }),
+      u({
+        resourceType: "table",
+        resourceId: tableId,
+        level: "write",
+        recordScope: { kind: "related_created_by", relationFieldId: relationA },
+      }),
+      u({
+        resourceType: "table",
+        resourceId: tableId,
+        level: "read",
+        recordScope: { kind: "related_created_by", relationFieldId: relationB },
+      }),
+    ];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", userId)).toEqual({
+      level: "write",
+      recordAccess: {
+        kind: "restricted",
+        userId,
+        scopes: [
+          { kind: "created_by" },
+          { kind: "related_created_by", relationFieldId: relationA },
+          { kind: "related_created_by", relationFieldId: relationB },
+        ],
+      },
+    });
+  });
+
+  test("deduplicates and orders equivalent restricted grants", () => {
+    const grants: Grant[] = [
+      u({
+        resourceType: "table",
+        resourceId: tableId,
+        level: "read",
+        recordScope: { kind: "related_created_by", relationFieldId: relationB },
+      }),
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "created_by" } }),
+      u({
+        resourceType: "table",
+        resourceId: tableId,
+        level: "write",
+        recordScope: { kind: "related_created_by", relationFieldId: relationB },
+      }),
+      u({
+        resourceType: "table",
+        resourceId: tableId,
+        level: "read",
+        recordScope: { kind: "related_created_by", relationFieldId: relationA },
+      }),
+    ];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", userId).recordAccess).toEqual({
+      kind: "restricted",
+      userId,
+      scopes: [
+        { kind: "created_by" },
+        { kind: "related_created_by", relationFieldId: relationA },
+        { kind: "related_created_by", relationFieldId: relationB },
+      ],
+    });
+  });
+
+  test("requires a user-backed identity for ownership scopes", () => {
+    const grants: Grant[] = [u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "created_by" } })];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", null)).toEqual({
+      level: "read",
+      recordAccess: null,
+    });
+  });
+
+  test("does not let a broader unrestricted grant widen a table scope", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "base", resourceId: baseId, level: "admin", recordScope: { kind: "all" } }),
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "created_by" } }),
+    ];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", userId).recordAccess).toEqual({
+      kind: "restricted",
+      userId,
+      scopes: [{ kind: "created_by" }],
+    });
+  });
+
+  test("only combines grants that satisfy the requested operation", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "created_by" } }),
+      u({
+        resourceType: "table",
+        resourceId: tableId,
+        level: "write",
+        recordScope: { kind: "related_created_by", relationFieldId: relationA },
+      }),
+    ];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "write", userId).recordAccess).toEqual({
+      kind: "restricted",
+      userId,
+      scopes: [{ kind: "related_created_by", relationFieldId: relationA }],
+    });
+  });
+
+  test("a deny at the winning tier yields no row access", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "table", resourceId: tableId, level: "read", recordScope: { kind: "all" } }),
+      u({ resourceType: "table", resourceId: tableId, level: "none", recordScope: { kind: "all" } }),
+    ];
+    expect(resolveAuthorizedRecordAccess(grants, { baseId, tableId }, "read", userId)).toEqual({
+      level: "none",
+      recordAccess: null,
+    });
   });
 });
 

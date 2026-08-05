@@ -20,7 +20,7 @@ import {
   RecordLookupQuerySchema,
   uuidParam,
 } from "./documents-api-shared";
-import { currentActorUserId, gateAt } from "./permissions";
+import { currentActorUserId, gateAt, resolveRecordAccess } from "./permissions";
 
 export const createDocumentTemplateRoutes = () =>
   new Hono<AuthContext>()
@@ -198,7 +198,25 @@ export const createDocumentTemplateRoutes = () =>
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateEnabledTemplateWrite(c, loaded);
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const access = await resolveRecordAccess(
+          c,
+          {
+            baseId: loaded.table.baseId,
+            tableId: loaded.table.id,
+            documentTemplateId: loaded.template.id,
+          },
+          "read",
+        );
+        if (!access.ok) return respond(c, () => Promise.resolve(access));
         const { q, limit, excludeIds } = c.req.valid("query");
-        return c.json(await gridsService.relations.lookup({ targetTableId: loaded.table.id, q, limit, excludeIds }));
+        return c.json(
+          await gridsService.relations.lookup({
+            targetTableId: loaded.table.id,
+            q,
+            limit,
+            excludeIds,
+            recordAccess: access.data.recordAccess,
+          }),
+        );
       },
     );

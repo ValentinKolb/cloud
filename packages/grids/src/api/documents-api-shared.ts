@@ -5,7 +5,7 @@ import type { DocumentTemplateDraftPreviewSchema } from "../contracts";
 import { gridsService } from "../service";
 import { decodeDocumentRunCursor } from "../service/document-run-values";
 import { pdfResponse } from "./download-response";
-import { gateAt } from "./permissions";
+import { currentActorViewer, gateAt, gridsAccessContext, resolveRecordAccessForAccess } from "./permissions";
 import { isUuid } from "./route-params";
 
 export { uuidParam } from "./route-params";
@@ -88,8 +88,10 @@ export const gateTemplate = async (
   required: "read" | "write" | "admin",
 ) => gateAt(c, { baseId: loaded.table.baseId, tableId: loaded.table.id, documentTemplateId: loaded.template.id }, required);
 
-export const snapshotRelatedTableGuard = (c: Context<AuthContext>) => async (target: { baseId: string; tableId: string }) =>
-  (await gateAt(c, target, "read")).ok;
+export const snapshotRecordAccessResolver = (c: Context<AuthContext>) => async (target: { baseId: string; tableId: string }) => {
+  const resolved = await resolveRecordAccessForAccess(gridsAccessContext(c), target, "read");
+  return resolved.ok ? resolved.data.recordAccess : null;
+};
 
 export const gateRun = async (
   c: Context<AuthContext>,
@@ -129,10 +131,13 @@ export const liveRenderData = async (
 ) => {
   const table = await gridsService.table.get(params.tableId);
   if (!table) return { ok: false as const, status: 404, phase: "data" as const, message: "Table not found" };
+  const recordAccess = await resolveRecordAccessForAccess(gridsAccessContext(c), { baseId: table.baseId, tableId: table.id }, "read");
+  if (!recordAccess.ok) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
   const dateConfig = params.dateConfig ?? (await getDateConfig(c));
   const record = await gridsService.record.get(params.tableId, params.recordId, {
     dateConfig,
-    viewer: { userId: null, userGroups: [], isAdmin: true },
+    viewer: currentActorViewer(c),
+    recordAccess: recordAccess.data.recordAccess,
   });
   if (!record) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
 

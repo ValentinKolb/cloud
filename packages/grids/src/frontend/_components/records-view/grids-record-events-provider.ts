@@ -88,7 +88,7 @@ export const createGridsRecordEventsProvider = (opts: GridsRecordEventsProviderO
       if (message.type !== gridsWorkspace.wsType.recordsEvent || !message.payload || typeof message.payload !== "object") return;
       const payload = message.payload as { tableId?: unknown; cursor?: unknown; event?: unknown };
       const cursor = isGridsStreamCursor(payload.cursor) ? payload.cursor : null;
-      if (opts.dashboardId && payload.tableId === opts.tableId && payload.event === undefined) {
+      if (payload.tableId === opts.tableId && payload.event === undefined) {
         opts.onEvent?.(null, cursor);
         return;
       }

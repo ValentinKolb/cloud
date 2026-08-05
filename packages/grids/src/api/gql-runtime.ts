@@ -24,6 +24,7 @@ import type { DslQueryAst } from "../query-dsl/types";
 import { gridsService } from "../service";
 import type { FederatedRevisionScope } from "../service/federated-tables";
 import { buildTrustedGqlResolverContext, hydrateDslViewQueries } from "../service/gql-resolver-context";
+import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "../service/record-access";
 import type { Field, Table } from "../service/types";
 import { type GqlRuntimeOperation, type GqlRuntimeTracer, traceGqlRuntime } from "./gql-observability";
 import {
@@ -31,9 +32,9 @@ import {
   actorViewerFor,
   credentialPermissionFor,
   type GridsAccessContext,
-  gateAtAccess,
   gridsAccessContext,
   minPermission,
+  resolveRecordAccessForAccess,
   resourceBoundBaseIdFor,
 } from "./permissions";
 import { runWithQueryAdmission, runWithQueryAdmissionSignal } from "./query-admission";
@@ -54,6 +55,8 @@ export type GridsGqlRuntimeContext = {
 
 export type PermissionedGqlResolverContext = DslResolverContext & {
   tablePermissionsById: Record<string, PermissionLevel>;
+  recordAccessByTableId: Map<string, AuthorizedRecordAccess>;
+  recordAccessByViewId: Map<string, AuthorizedRecordAccess>;
 };
 
 const httpGqlRuntimeContext = (c: Context<AuthContext>, signal: AbortSignal): GridsGqlRuntimeContext => ({
@@ -126,6 +129,15 @@ export const buildPermissionedGqlResolverContextForAccess = async (
   const readableTables: Table[] = tables.filter((table) =>
     gridsService.permission.hasAtLeast(tablePermissionsById[table.id] ?? "none", "read"),
   );
+  const subject = accessSubjectFor(access);
+  const userId = subject?.type === "user" ? subject.userId : null;
+  const recordAccessByTableId = new Map<string, AuthorizedRecordAccess>();
+  for (const table of readableTables) {
+    const recordAccess = options.trustedAllSources
+      ? ALL_RECORD_ACCESS
+      : gridsService.permission.resolveRecordAccess(catalogGrants, { baseId, tableId: table.id }, "read", userId).recordAccess;
+    if (recordAccess) recordAccessByTableId.set(table.id, recordAccess);
+  }
 
   const dslTables: DslTableSource[] = readableTables.map((table) => ({
     kind: "table",
@@ -171,6 +183,14 @@ export const buildPermissionedGqlResolverContextForAccess = async (
     Field[]
   >;
   const hydratedViews = hydrateDslViewQueries({ tables: dslTables, views, fieldsByTableId });
+  const recordAccessByViewId = new Map<string, AuthorizedRecordAccess>();
+  for (const view of hydratedViews) {
+    const recordAccess = options.trustedAllSources
+      ? ALL_RECORD_ACCESS
+      : gridsService.permission.resolveRecordAccess(catalogGrants, { baseId, tableId: view.tableId, viewId: view.id }, "read", userId)
+          .recordAccess;
+    if (recordAccess) recordAccessByViewId.set(view.id, recordAccess);
+  }
 
   return {
     ...(currentTable ? { currentTable } : {}),
@@ -178,6 +198,8 @@ export const buildPermissionedGqlResolverContextForAccess = async (
     views: hydratedViews,
     fieldsByTableId,
     tablePermissionsById,
+    recordAccessByTableId,
+    recordAccessByViewId,
   };
 };
 
@@ -220,6 +242,8 @@ const previewResolvedGqlPlan = async (
     expectedFederatedRevisionScope?: FederatedRevisionScope;
     onFederatedRevisionScope?: (scope: FederatedRevisionScope) => void;
     signal?: AbortSignal;
+    authorizedRecordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>;
+    primaryRecordAccess?: AuthorizedRecordAccess | null;
   },
 ): Promise<DslQueryPreviewResponse> => {
   const result = await previewDslQuery(plan, {
@@ -237,6 +261,8 @@ const previewResolvedGqlPlan = async (
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
     ...(options.maxResultBytes !== undefined ? { maxResultBytes: options.maxResultBytes } : {}),
     viewer: actorViewerFor(runtime.access),
+    authorizedRecordAccessByTableId: options.authorizedRecordAccessByTableId,
+    ...(Object.hasOwn(options, "primaryRecordAccess") ? { primaryRecordAccess: options.primaryRecordAccess } : {}),
   });
   return result.ok ? result.data : { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(plan, result.error.message)] };
 };
@@ -393,6 +419,11 @@ const executeGqlSourceUnadmitted = async (
       labelRelationValues: options.labelRelationValues,
       expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
       signal: runtime.signal,
+      authorizedRecordAccessByTableId: ctx.recordAccessByTableId,
+      primaryRecordAccess:
+        resolved.plan.source.kind === "view"
+          ? (ctx.recordAccessByViewId.get(resolved.plan.source.id) ?? null)
+          : (ctx.recordAccessByTableId.get(resolved.plan.tableId) ?? null),
       onFederatedRevisionScope: (scope) => {
         revisionScope = scope;
       },
@@ -461,7 +492,7 @@ const executeSavedViewSourceUnadmitted = async (
     const view = await gridsService.view.get(viewId);
     const table = view ? await gridsService.table.get(view.tableId) : null;
     if (!view || !table || table.baseId !== baseId) return inaccessibleView();
-    const access = await gateAtAccess(runtime.access, { baseId, tableId: table.id, viewId: view.id }, "read");
+    const access = await resolveRecordAccessForAccess(runtime.access, { baseId, tableId: table.id, viewId: view.id }, "read");
     if (!access.ok) return inaccessibleView();
     const parsed = parseGridsQueryDsl(view.source);
     if (!parsed.ok) {
@@ -527,6 +558,7 @@ const executeSavedViewSourceUnadmitted = async (
       cursorFingerprint,
       cursorSigningKey,
       signal: runtime.signal,
+      primaryRecordAccess: access.data.recordAccess,
     });
     await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
     return response;

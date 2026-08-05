@@ -6,11 +6,13 @@ import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { requireStoredTableWritable } from "./parent-checks";
+import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { buildRecordAuditContext, loadTableAuditPolicy } from "./record-audit";
 import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
 import { createReader, get } from "./record-read";
 import { recordUniqueConflict } from "./record-unique-conflicts";
+import { resolveRecordAccessByTableIds } from "./relation-access";
 import { type ExpansionViewer, enrichRecordsWithFormulas, validateRelationTargets, writeRecordLinks } from "./relations";
 import type { Field, GridRecord } from "./types";
 
@@ -38,6 +40,7 @@ const preflightRelationTargets = async (
   relations: Map<string, string[]>, // fieldId -> toIds
   fieldsById: Map<string, Field>,
   client: SqlClient = sql,
+  viewer?: ExpansionViewer,
 ): Promise<Result<void>> => {
   // Group all (fieldId, toIds) by their relation field's targetTableId.
   // Track which fields contributed to each group so we can attribute
@@ -53,18 +56,61 @@ const preflightRelationTargets = async (
     groups.set(targetTableId, g);
   }
 
+  const accessByTableId = viewer ? await resolveRecordAccessByTableIds(groups.keys(), viewer, client) : null;
   for (const [targetTableId, group] of groups) {
     const ids = [...group.ids];
     if (ids.length === 0) continue;
-    const check = await validateRelationTargets(targetTableId, ids, client);
+    const access = accessByTableId?.get(targetTableId);
+    const check =
+      accessByTableId && !access ? { ok: false as const, missing: ids } : await validateRelationTargets(targetTableId, ids, client, access);
     if (!check.ok) {
       const fieldNamePart =
         group.fieldNames.length === 1 ? `field "${group.fieldNames[0]}"` : `fields [${group.fieldNames.map((n) => `"${n}"`).join(", ")}]`;
       const noun = check.missing.length === 1 ? "record" : "records";
-      return fail(err.badInput(`${fieldNamePart}: linked ${noun} no longer exists`));
+      return fail(err.badInput(`${fieldNamePart}: linked ${noun} no longer exists or is unavailable`));
     }
   }
   return ok();
+};
+
+const matchesRestrictedRecordAccess = async (params: {
+  tableId: string;
+  createdBy: string | null;
+  relations: Map<string, string[]>;
+  access: Extract<AuthorizedRecordAccess, { kind: "restricted" }>;
+  client: SqlClient;
+}): Promise<boolean> => {
+  for (const scope of params.access.scopes) {
+    if (scope.kind === "created_by") {
+      if (params.createdBy === params.access.userId) return true;
+      continue;
+    }
+    const ids = params.relations.get(scope.relationFieldId) ?? [];
+    if (ids.length === 0) continue;
+    const [owned] = await params.client<Array<{ found: boolean }>>`
+      SELECT TRUE AS found
+      FROM grids.fields access_field
+      JOIN grids.tables access_source_table
+        ON access_source_table.id = access_field.table_id
+       AND access_source_table.deleted_at IS NULL
+      JOIN grids.tables access_parent_table
+        ON access_parent_table.id::text = access_field.config->>'targetTableId'
+       AND access_parent_table.deleted_at IS NULL
+       AND access_parent_table.base_id = access_source_table.base_id
+      JOIN grids.records access_parent
+        ON access_parent.table_id = access_parent_table.id
+       AND access_parent.id = ANY(${params.client.array(ids, "UUID")})
+       AND access_parent.deleted_at IS NULL
+       AND access_parent.created_by = ${params.access.userId}::uuid
+      WHERE access_field.id = ${scope.relationFieldId}::uuid
+        AND access_field.table_id = ${params.tableId}::uuid
+        AND access_field.deleted_at IS NULL
+        AND access_field.type = 'relation'
+      LIMIT 1
+    `;
+    if (owned) return true;
+  }
+  return false;
 };
 
 /**
@@ -148,6 +194,7 @@ const loadStoredRecordForUpdate = async (
   tableId: string,
   recordId: string,
   fields: Field[],
+  recordAccess?: AuthorizedRecordAccess,
 ): Promise<GridRecord | null> => {
   const [row] = await client<DbRow[]>`
     SELECT r.*
@@ -155,6 +202,7 @@ const loadStoredRecordForUpdate = async (
     WHERE r.id = ${recordId}::uuid
       AND r.table_id = ${tableId}::uuid
       AND r.deleted_at IS NULL
+      AND ${recordAccessPredicate(recordAccess, "r")}
   `;
   if (!row) return null;
 
@@ -193,6 +241,8 @@ export const createInTransaction = async (
   opts: {
     bypassDirectInsertCheck?: boolean;
     dateConfig?: DateContext;
+    recordAccess?: AuthorizedRecordAccess;
+    viewer?: ExpansionViewer;
   } = {},
 ): Promise<Result<CreateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
@@ -225,8 +275,23 @@ export const createInTransaction = async (
     if (!validated.ok) return validated;
 
     split = splitRelationsFromData(validated.data, fields);
-    const preflight = await preflightRelationTargets(split.relations, fieldsById, client);
+    const preflight = await preflightRelationTargets(split.relations, fieldsById, client, opts.viewer);
     if (!preflight.ok) return preflight;
+
+    if (opts.recordAccess?.kind === "restricted") {
+      const restrictedAccess = opts.recordAccess;
+      if (!actorId || actorId !== restrictedAccess.userId) {
+        return fail(err.forbidden("Ownership-based record access requires the current Cloud user."));
+      }
+      const matches = await matchesRestrictedRecordAccess({
+        tableId,
+        createdBy: actorId,
+        relations: split.relations,
+        access: restrictedAccess,
+        client,
+      });
+      if (!matches) return fail(err.forbidden("The new record is outside your allowed record scope."));
+    }
 
     id = Bun.randomUUIDv7();
     const changedFieldIds = Object.keys(validated.data);
@@ -309,6 +374,7 @@ export const create = async (
     includeRelations?: boolean;
     viewer?: ExpansionViewer;
     dateConfig?: DateContext;
+    recordAccess?: AuthorizedRecordAccess;
   } = {},
 ): Promise<Result<GridRecord>> => {
   const created = await sql
@@ -316,6 +382,8 @@ export const create = async (
       createInTransaction(tx, tableId, payload, actorId, {
         bypassDirectInsertCheck: opts.bypassDirectInsertCheck,
         dateConfig: opts.dateConfig,
+        recordAccess: opts.recordAccess,
+        viewer: opts.viewer,
       }),
     )
     .catch(async (error: unknown) => {
@@ -339,6 +407,7 @@ export const createMany = async (
     includeRelations?: boolean;
     viewer?: ExpansionViewer;
     dateConfig?: DateContext;
+    recordAccess?: AuthorizedRecordAccess;
   } = {},
 ): Promise<Result<GridRecord[]>> => {
   if (payloads.length === 0) return ok([]);
@@ -350,6 +419,8 @@ export const createMany = async (
         const result = await createInTransaction(tx, tableId, payload, actorId, {
           bypassDirectInsertCheck: opts.bypassDirectInsertCheck,
           dateConfig: opts.dateConfig,
+          recordAccess: opts.recordAccess,
+          viewer: opts.viewer,
         });
         if (!result.ok) {
           const rollback = new Error(result.error.message) as RollbackError;
@@ -387,12 +458,12 @@ export const updateInTransaction = async (
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
-  opts: { dateConfig?: DateContext; audit?: RecordMutationAudit } = {},
+  opts: { dateConfig?: DateContext; audit?: RecordMutationAudit; recordAccess?: AuthorizedRecordAccess; viewer?: ExpansionViewer } = {},
 ): Promise<Result<UpdateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
   if (!writable.ok) return writable;
   const fields = await listFields(tableId, false, client);
-  const existing = await loadStoredRecordForUpdate(client, tableId, recordId, fields);
+  const existing = await loadStoredRecordForUpdate(client, tableId, recordId, fields, opts.recordAccess);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   if (ifMatchVersion !== undefined && ifMatchVersion !== existing.version) {
     return fail(recordVersionConflict());
@@ -407,8 +478,26 @@ export const updateInTransaction = async (
   // Pre-flight relation-target existence check (same reasoning as create).
   // Batched per target table; runs outside the write transaction.
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  const preflight = await preflightRelationTargets(split.relations, fieldsById, client);
+  const preflight = await preflightRelationTargets(split.relations, fieldsById, client, opts.viewer);
   if (!preflight.ok) return preflight;
+
+  if (opts.recordAccess?.kind === "restricted") {
+    const candidateRelations = new Map<string, string[]>();
+    for (const field of fields) {
+      if (field.type !== "relation") continue;
+      const current = existing.data[field.id];
+      candidateRelations.set(field.id, Array.isArray(current) ? current.filter((value): value is string => typeof value === "string") : []);
+    }
+    for (const [fieldId, ids] of split.relations) candidateRelations.set(fieldId, ids);
+    const matches = await matchesRestrictedRecordAccess({
+      tableId,
+      createdBy: existing.createdBy,
+      relations: candidateRelations,
+      access: opts.recordAccess,
+      client,
+    });
+    if (!matches) return fail(err.forbidden("The updated record is outside your allowed record scope."));
+  }
 
   // Merge: existing JSONB data + only the validated NON-RELATION fields.
   // Relations are managed exclusively via record_links — they MUST NOT
@@ -441,6 +530,7 @@ export const updateInTransaction = async (
         AND table_id = ${tableId}::uuid
         AND deleted_at IS NULL
         AND version = ${existing.version}
+        AND ${recordAccessPredicate(opts.recordAccess, "grids.records")}
       RETURNING *, grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
     `;
   if (!row) return fail(recordVersionConflict());
@@ -474,6 +564,7 @@ export const update = async (
     viewer?: ExpansionViewer;
     dateConfig?: DateContext;
     audit?: RecordMutationAudit;
+    recordAccess?: AuthorizedRecordAccess;
   } = {},
 ): Promise<Result<GridRecord>> => {
   const fields = await listFields(tableId);
@@ -482,6 +573,8 @@ export const update = async (
       updateInTransaction(tx, tableId, recordId, payload, actorId, ifMatchVersion, {
         dateConfig: opts.dateConfig,
         audit: opts.audit,
+        recordAccess: opts.recordAccess,
+        viewer: opts.viewer,
       }),
     )
     .catch((error: unknown) => {
@@ -502,10 +595,11 @@ export const softDelete = async (
   recordId: string,
   actorId: string | null,
   audit?: RecordMutationAudit,
+  recordAccess?: AuthorizedRecordAccess,
 ): Promise<Result<void>> => {
   const writable = await requireStoredTableWritable(tableId);
   if (!writable.ok) return writable;
-  const existing = await get(tableId, recordId);
+  const existing = await get(tableId, recordId, { recordAccess });
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   const eventPayload = {
     v: 1,
@@ -527,6 +621,7 @@ export const softDelete = async (
           AND table_id = ${tableId}::uuid
           AND deleted_at IS NULL
           AND version = ${existing.version}
+          AND ${recordAccessPredicate(recordAccess, "grids.records")}
         RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
       `;
       if (!row) {
@@ -557,6 +652,7 @@ export const restore = async (
   recordId: string,
   actorId: string | null,
   audit?: RecordMutationAudit,
+  recordAccess?: AuthorizedRecordAccess,
 ): Promise<Result<void>> => {
   const fields = await listFields(tableId);
   const eventPayload = {
@@ -578,6 +674,7 @@ export const restore = async (
         UPDATE grids.records
         SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
         WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NOT NULL
+          AND ${recordAccessPredicate(recordAccess, "grids.records")}
         RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
       `;
       if (!row) return fail(err.notFound("Record"));

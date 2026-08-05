@@ -36,7 +36,14 @@ export type DslSqlCompileOptions = {
   viewSourceSearchClause?: unknown;
 };
 
-export type DslSqlRecordSource = {
+type DslSqlStoredRecordSource = {
+  kind: "stored";
+  relation: unknown;
+  tableId: string;
+  relationMappings: [];
+};
+
+export type DslSqlFederatedRecordSource = {
   kind: "federated";
   relation: unknown;
   tableId: string;
@@ -46,6 +53,8 @@ export type DslSqlRecordSource = {
   sourceTableIds: string[];
   relationMappings: Array<{ targetFieldId: string; sourceTableId: string; sourceFieldId: string }>;
 };
+
+export type DslSqlRecordSource = DslSqlStoredRecordSource | DslSqlFederatedRecordSource;
 
 export type DslSqlCompiledQuery = {
   sql: unknown;

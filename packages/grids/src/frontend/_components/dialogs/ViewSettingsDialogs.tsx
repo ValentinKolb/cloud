@@ -81,7 +81,12 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
       />
 
       <PanelDialog.Section title="Permissions" subtitle="Choose who can open this view. Views only support View access." icon="ti ti-lock">
-        <ViewPermissions viewId={props.initialView.id} initialEntries={props.initialAccessEntries} canEdit={props.canEditAccess} />
+        <ViewPermissions
+          viewId={props.initialView.id}
+          tableId={props.initialView.tableId}
+          initialEntries={props.initialAccessEntries}
+          canEdit={props.canEditAccess}
+        />
       </PanelDialog.Section>
 
       <PanelDialog.Section
@@ -383,10 +388,11 @@ function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId
 // Views intentionally expose read/admin only. There is no view-write level:
 // editing the view definition is an admin action.
 
-function ViewPermissions(props: { viewId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
+function ViewPermissions(props: { viewId: string; tableId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
   return (
     <ScopedPermissionEditor
       scope={{ type: "view", id: props.viewId }}
+      tableId={props.tableId}
       initialEntries={props.initialEntries}
       canEdit={props.canEdit}
       allowedLevels={[

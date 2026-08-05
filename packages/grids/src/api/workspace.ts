@@ -7,7 +7,14 @@ import { loadWorkflowRunDetail } from "../frontend/_components/workspace/workspa
 import { gridsService } from "../service";
 import { hasAtLeast } from "../service/permission-resolver";
 import { compileGqlToRecordQuery, executeSavedViewSource } from "./gql-runtime";
-import { currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import {
+  currentActorViewer,
+  gateAt,
+  gridsAccessContext,
+  hasExplicitGrant,
+  resolveRecordAccessForAccess,
+  resolveWithGrants,
+} from "./permissions";
 
 const recordMetaFor = (recordMeta: { ids?: string[] } | null | undefined, recordId: string) => {
   if (recordMeta?.ids?.length && !recordMeta.ids.includes(recordId)) return null;
@@ -49,6 +56,7 @@ export const createWorkspaceApi = (
     getRecord?: typeof gridsService.record.get;
     listFields?: typeof gridsService.field.listByTable;
     gate?: typeof gateAt;
+    resolveRecordAccess?: typeof resolveRecordAccessForAccess;
     loadRecordDetail?: typeof loadRecordDetailData;
     getView?: typeof gridsService.view.get;
     resolve?: typeof resolveWithGrants;
@@ -86,10 +94,17 @@ export const createWorkspaceApi = (
         let detailFields: Awaited<ReturnType<typeof gridsService.field.listByTable>> | null = null;
         const loadFields = () => (deps.listFields ?? gridsService.field.listByTable)(tableId);
         if (tableAccess.ok) {
+          const recordAccess = await (deps.resolveRecordAccess ?? resolveRecordAccessForAccess)(
+            gridsAccessContext(c),
+            { baseId: table.baseId, tableId },
+            "read",
+          );
+          if (!recordAccess.ok) return c.json({ message: "Record not found" }, 404);
           const getRecord = deps.getRecord ?? gridsService.record.get;
           const record = await getRecord(tableId, recordId, {
             deleted: deletedOnly ? "only" : "live",
             viewer: (deps.viewer ?? currentActorViewer)(c),
+            recordAccess: recordAccess.data.recordAccess,
           });
           if (!record) return c.json({ message: "Record not found" }, 404);
           detailFields = await loadFields();

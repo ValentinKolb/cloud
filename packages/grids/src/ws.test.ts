@@ -11,6 +11,8 @@ import {
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const workflowId = "22222222-2222-4222-8222-222222222222";
+const tableId = "33333333-3333-4333-8333-333333333333";
+const recordId = "44444444-4444-4444-8444-444444444444";
 
 const testSocket = (sendStatus = 1) => {
   const messages: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -37,6 +39,12 @@ const workflowSubscribe = () =>
   JSON.stringify({
     type: "grids.workflow-runs.subscribe",
     payload: { workflowId, sessionToken: "session", fromCursor: "1-0" },
+  });
+
+const recordsSubscribe = () =>
+  JSON.stringify({
+    type: "grids.records.subscribe",
+    payload: { tableId, sessionToken: "session", fromCursor: "1-0" },
   });
 
 const socket = (status: number) =>
@@ -272,6 +280,52 @@ describe("Grids websocket server sessions", () => {
       },
     ]);
     await session.close();
+  });
+
+  test("redacts record event payloads for row-scoped subscriptions", async () => {
+    for (const visibility of ["full", "cursor_only"] as const) {
+      const socket = testSocket();
+      const access = { ok: true as const, baseId, tableId, recordEventVisibility: visibility };
+      const session = createWorkspaceWebSocketSession("session", {
+        evaluateRecordsAccess: async () => access,
+        evaluateSubscriptionAccess: async () => access,
+        latestRecordCursor: async () => "1-0",
+        recordEvents: async function* ({ signal }: { signal?: AbortSignal }) {
+          yield {
+            cursor: "1-1",
+            data: {
+              v: 1,
+              type: "record.updated",
+              baseId,
+              tableId,
+              recordId,
+              version: 2,
+              changedFieldIds: [],
+              actorId: null,
+              occurredAt: "2026-01-01T00:00:00.000Z",
+            },
+          };
+          await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+        } as never,
+        schedule: (() => 1) as never,
+        cancel: (() => undefined) as never,
+      });
+
+      session.open(socket.socket);
+      session.message(recordsSubscribe());
+      await session.drain();
+      await Bun.sleep(0);
+
+      const eventMessage = socket.messages.find((message) => message.type === "grids.records.event");
+      expect(eventMessage?.payload?.cursor).toBe("1-1");
+      expect(eventMessage?.payload?.tableId).toBe(tableId);
+      if (visibility === "full") {
+        expect(eventMessage?.payload?.event).toMatchObject({ recordId, version: 2 });
+      } else {
+        expect(eventMessage?.payload).not.toHaveProperty("event");
+      }
+      await session.close();
+    }
   });
 
   test("aborts replaced and closed streams without emitting a terminal stream error", async () => {

@@ -1,5 +1,7 @@
 import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
+import type { RecordScope } from "../contracts";
+import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "./record-access";
 
 const LEVEL_RANK: Record<PermissionLevel, number> = {
   none: 0,
@@ -27,6 +29,8 @@ export type Grant = {
   resourceId: string;
   principalTier: PrincipalTier;
   level: PermissionLevel;
+  /** Missing only for pre-migration/in-memory callers; persisted grants always provide it. */
+  recordScope?: RecordScope;
 };
 
 export type ResolveTarget =
@@ -68,6 +72,71 @@ const resolveResourceLevel = (grants: Grant[]): PermissionLevel | null => {
   return null;
 };
 
+type ResourceDecision = { level: PermissionLevel; grants: Grant[] };
+
+const resolveResourceDecision = (grants: Grant[]): ResourceDecision | null => {
+  for (const tier of PRINCIPAL_TIERS) {
+    const tierGrants = grants.filter((grant) => grant.principalTier === tier);
+    if (tierGrants.length === 0) continue;
+    if (tierGrants.some((grant) => grant.level === "none")) return { level: "none", grants: [] };
+    const level = resolveResourceLevel(tierGrants) ?? "none";
+    return { level, grants: tierGrants };
+  }
+  return null;
+};
+
+const targetScopes = (target: ResolveTarget): Array<[ResourceType, string]> => [
+  ...("dashboardId" in target ? [["dashboard", target.dashboardId] as [ResourceType, string]] : []),
+  ...("customAppId" in target ? [["customApp", target.customAppId] as [ResourceType, string]] : []),
+  ...("workflowId" in target ? [["workflow", target.workflowId] as [ResourceType, string]] : []),
+  ...("documentTemplateId" in target ? [["documentTemplate", target.documentTemplateId] as [ResourceType, string]] : []),
+  ...("formId" in target ? [["form", target.formId] as [ResourceType, string]] : []),
+  ...("viewId" in target ? [["view", target.viewId] as [ResourceType, string]] : []),
+  ...("tableId" in target ? [["table", target.tableId] as [ResourceType, string]] : []),
+  ["base", target.baseId],
+];
+
+export const resolvePermissionDecision = (grants: Grant[], target: ResolveTarget): ResourceDecision => {
+  for (const [resourceType, resourceId] of targetScopes(target)) {
+    const scoped = grants.filter((grant) => grant.resourceType === resourceType && grant.resourceId === resourceId);
+    const decision = resolveResourceDecision(scoped);
+    if (decision) return decision;
+  }
+  return { level: "none", grants: [] };
+};
+
+export const resolveAuthorizedRecordAccess = (
+  grants: Grant[],
+  target: ResolveTarget,
+  required: PermissionLevel,
+  userId: string | null,
+): { level: PermissionLevel; recordAccess: AuthorizedRecordAccess | null } => {
+  const decision = resolvePermissionDecision(grants, target);
+  if (!hasAtLeast(decision.level, required)) return { level: decision.level, recordAccess: null };
+  const qualifying = decision.grants.filter((grant) => hasAtLeast(grant.level, required));
+  if (qualifying.some((grant) => (grant.recordScope ?? { kind: "all" }).kind === "all")) {
+    return { level: decision.level, recordAccess: ALL_RECORD_ACCESS };
+  }
+  if (!userId) return { level: decision.level, recordAccess: null };
+  const scopes = [
+    ...new Map(
+      qualifying
+        .flatMap((grant) => {
+          const scope = grant.recordScope ?? { kind: "all" as const };
+          return scope.kind === "all" ? [] : [scope];
+        })
+        .map((scope) => [scope.kind === "created_by" ? scope.kind : `${scope.kind}:${scope.relationFieldId}`, scope] as const),
+    ).values(),
+  ].sort((left, right) => {
+    const leftKey = left.kind === "created_by" ? left.kind : `${left.kind}:${left.relationFieldId}`;
+    const rightKey = right.kind === "created_by" ? right.kind : `${right.kind}:${right.relationFieldId}`;
+    return leftKey.localeCompare(rightKey);
+  });
+  return scopes.length > 0
+    ? { level: decision.level, recordAccess: { kind: "restricted", userId, scopes } }
+    : { level: decision.level, recordAccess: null };
+};
+
 /**
  * Most-specific-RESOURCE-wins: walk dashboard / view / form / table /
  * base and return the first scope that has any grants visible to the
@@ -84,41 +153,7 @@ const resolveResourceLevel = (grants: Grant[]): PermissionLevel | null => {
  * returns the effective ACL level.
  */
 export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarget): PermissionLevel => {
-  const tryScope = (resourceType: ResourceType, resourceId: string): PermissionLevel | null => {
-    const scoped = grants.filter((g) => g.resourceType === resourceType && g.resourceId === resourceId);
-    return scoped.length > 0 ? resolveResourceLevel(scoped) : null;
-  };
-
-  if ("dashboardId" in target) {
-    const lvl = tryScope("dashboard", target.dashboardId);
-    if (lvl !== null) return lvl;
-  }
-  if ("customAppId" in target) {
-    const lvl = tryScope("customApp", target.customAppId);
-    if (lvl !== null) return lvl;
-  }
-  if ("workflowId" in target) {
-    const lvl = tryScope("workflow", target.workflowId);
-    if (lvl !== null) return lvl;
-  }
-  if ("documentTemplateId" in target) {
-    const lvl = tryScope("documentTemplate", target.documentTemplateId);
-    if (lvl !== null) return lvl;
-  }
-  if ("formId" in target) {
-    const lvl = tryScope("form", target.formId);
-    if (lvl !== null) return lvl;
-  }
-  if ("viewId" in target) {
-    const lvl = tryScope("view", target.viewId);
-    if (lvl !== null) return lvl;
-  }
-  if ("tableId" in target) {
-    const lvl = tryScope("table", target.tableId);
-    if (lvl !== null) return lvl;
-  }
-  const baseLvl = tryScope("base", target.baseId);
-  return baseLvl ?? "none";
+  return resolvePermissionDecision(grants, target).level;
 };
 
 /** Compares two levels via the rank order. */
@@ -197,56 +232,56 @@ export const loadGrantsForSubject = async (
   });
 
   const rows = await db<DbRow[]>`
-    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier
+    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier, ba.record_scope
     FROM grids.base_access ba
     JOIN auth.access a ON a.id = ba.access_id
     WHERE ba.base_id = ${params.baseId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'table'::text, ta.table_id::text, a.permission, ${tierExpr}
+    SELECT 'table'::text, ta.table_id::text, a.permission, ${tierExpr}, ta.record_scope
     FROM grids.table_access ta
     JOIN auth.access a ON a.id = ta.access_id
     WHERE ta.table_id = ${tableId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'view'::text, va.view_id::text, a.permission, ${tierExpr}
+    SELECT 'view'::text, va.view_id::text, a.permission, ${tierExpr}, va.record_scope
     FROM grids.view_access va
     JOIN auth.access a ON a.id = va.access_id
     WHERE va.view_id = ${viewId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'form'::text, fa.form_id::text, a.permission, ${tierExpr}
+    SELECT 'form'::text, fa.form_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
     FROM grids.form_access fa
     JOIN auth.access a ON a.id = fa.access_id
     WHERE fa.form_id = ${formId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'documentTemplate'::text, dta.template_id::text, a.permission, ${tierExpr}
+    SELECT 'documentTemplate'::text, dta.template_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
     FROM grids.document_template_access dta
     JOIN auth.access a ON a.id = dta.access_id
     WHERE dta.template_id = ${documentTemplateId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'dashboard'::text, da.dashboard_id::text, a.permission, ${tierExpr}
+    SELECT 'dashboard'::text, da.dashboard_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
     FROM grids.dashboard_access da
     JOIN auth.access a ON a.id = da.access_id
     WHERE da.dashboard_id = ${dashboardId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'customApp'::text, caa.custom_app_id::text, a.permission, ${tierExpr}
+    SELECT 'customApp'::text, caa.custom_app_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
     FROM grids.custom_app_access caa
     JOIN auth.access a ON a.id = caa.access_id
     WHERE caa.custom_app_id = ${customAppId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}
+    SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
     FROM grids.workflow_access wa
     JOIN auth.access a ON a.id = wa.access_id
     WHERE wa.workflow_id = ${workflowId}::uuid AND ${principalMatch}
@@ -257,12 +292,13 @@ export const loadGrantsForSubject = async (
     resourceId: row.resource_id as string,
     principalTier: row.principal_tier as PrincipalTier,
     level: row.level as PermissionLevel,
+    recordScope: (row.record_scope ?? { kind: "all" }) as RecordScope,
   }));
 };
 
 /**
- * Loads the base and table grants needed to authorize a complete table
- * catalog. GQL uses this instead of issuing one grant query per table.
+ * Loads the base, table, and view grants needed to authorize a complete query
+ * catalog. GQL uses this instead of issuing one grant query per resource.
  */
 export const loadBaseTableGrantsForSubject = async (
   params: { baseId: string; subject: AccessSubject | null },
@@ -286,17 +322,26 @@ export const loadBaseTableGrantsForSubject = async (
   });
 
   const rows = await db<DbRow[]>`
-    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier
+    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier, ba.record_scope
     FROM grids.base_access ba
     JOIN auth.access a ON a.id = ba.access_id
     WHERE ba.base_id = ${params.baseId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'table'::text, ta.table_id::text, a.permission, ${tierExpr}
+    SELECT 'table'::text, ta.table_id::text, a.permission, ${tierExpr}, ta.record_scope
     FROM grids.table_access ta
     JOIN grids.tables t ON t.id = ta.table_id
     JOIN auth.access a ON a.id = ta.access_id
+    WHERE t.base_id = ${params.baseId}::uuid AND ${principalMatch}
+
+    UNION ALL
+
+    SELECT 'view'::text, va.view_id::text, a.permission, ${tierExpr}, va.record_scope
+    FROM grids.view_access va
+    JOIN grids.views v ON v.id = va.view_id
+    JOIN grids.tables t ON t.id = v.table_id
+    JOIN auth.access a ON a.id = va.access_id
     WHERE t.base_id = ${params.baseId}::uuid AND ${principalMatch}
   `;
 
@@ -305,6 +350,7 @@ export const loadBaseTableGrantsForSubject = async (
     resourceId: row.resource_id as string,
     principalTier: row.principal_tier as PrincipalTier,
     level: row.level as PermissionLevel,
+    recordScope: (row.record_scope ?? { kind: "all" }) as RecordScope,
   }));
 };
 
@@ -330,14 +376,14 @@ export const loadBaseWorkflowGrantsForSubject = async (
   });
 
   const rows = await db<DbRow[]>`
-    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier
+    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier, ba.record_scope
     FROM grids.base_access ba
     JOIN auth.access a ON a.id = ba.access_id
     WHERE ba.base_id = ${params.baseId}::uuid AND ${principalMatch}
 
     UNION ALL
 
-    SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}
+    SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
     FROM grids.workflow_access wa
     JOIN grids.workflow_profile w ON w.id = wa.workflow_id
     JOIN auth.access a ON a.id = wa.access_id
@@ -349,6 +395,7 @@ export const loadBaseWorkflowGrantsForSubject = async (
     resourceId: row.resource_id as string,
     principalTier: row.principal_tier as PrincipalTier,
     level: row.level as PermissionLevel,
+    recordScope: (row.record_scope ?? { kind: "all" }) as RecordScope,
   }));
 };
 

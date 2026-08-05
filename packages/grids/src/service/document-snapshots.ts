@@ -3,7 +3,10 @@ import { type SQL, sql } from "bun";
 import type { RecordSnapshot, RecordSnapshotSummary } from "../contracts";
 import { logAudit } from "./audit";
 import { type DocumentDbRow, mapRecordSnapshot, mapRecordSnapshotSummary } from "./document-mappers";
+import type { AuthorizedRecordAccess } from "./record-access";
+import { recordAccessPredicate } from "./record-access";
 import { createReader, type RecordReader } from "./record-read";
+import type { ExpansionViewer } from "./relation-access";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord, Table } from "./types";
 
@@ -15,7 +18,7 @@ type SnapshotRelatedTableTarget = {
   tableId: string;
 };
 
-export type SnapshotRelatedTableGuard = (target: SnapshotRelatedTableTarget) => Promise<boolean>;
+export type SnapshotRecordAccessResolver = (target: SnapshotRelatedTableTarget) => Promise<AuthorizedRecordAccess | null>;
 
 export type SnapshotRecord = {
   id: string;
@@ -88,7 +91,8 @@ const buildRecordSnapshotGraph = async (
   recordId: string,
   options: {
     baseId: string;
-    canReadRelatedTable: SnapshotRelatedTableGuard;
+    resolveRecordAccess: SnapshotRecordAccessResolver;
+    viewer?: ExpansionViewer;
     dateConfig?: DateContext;
     maxDepth?: number;
     maxRecords?: number;
@@ -100,7 +104,7 @@ const buildRecordSnapshotGraph = async (
   const seen = new Set<string>();
   const tables = new Map<string, Table>();
   const readers = new Map<string, RecordReader>();
-  const readableRelatedTables = new Map<string, boolean>();
+  const recordAccessByTableId = new Map<string, AuthorizedRecordAccess | null>();
 
   const loadTable = async (tableId: string): Promise<Table | null> => {
     const cached = tables.get(tableId);
@@ -110,20 +114,30 @@ const buildRecordSnapshotGraph = async (
     return table;
   };
 
-  const loadReader = async (tableId: string): Promise<RecordReader> => {
-    const cached = readers.get(tableId);
-    if (cached) return cached;
-    const reader = await createReader(tableId, { dateConfig: options.dateConfig });
-    readers.set(tableId, reader);
-    return reader;
+  const loadRecordAccess = async (table: Table): Promise<AuthorizedRecordAccess | null> => {
+    if (recordAccessByTableId.has(table.id)) return recordAccessByTableId.get(table.id) ?? null;
+    const access = await options.resolveRecordAccess({ baseId: table.baseId, tableId: table.id });
+    recordAccessByTableId.set(table.id, access);
+    if (options.viewer) {
+      options.viewer.recordAccessByTableId ??= new Map();
+      options.viewer.recordAccessByTableId.set(table.id, access);
+    }
+    return access;
   };
 
-  const canReadRelatedTable = async (table: Table): Promise<boolean> => {
-    const cached = readableRelatedTables.get(table.id);
-    if (cached !== undefined) return cached;
-    const readable = await options.canReadRelatedTable({ baseId: table.baseId, tableId: table.id });
-    readableRelatedTables.set(table.id, readable);
-    return readable;
+  const loadReader = async (table: Table): Promise<RecordReader | null> => {
+    const tableId = table.id;
+    const cached = readers.get(tableId);
+    if (cached) return cached;
+    const recordAccess = await loadRecordAccess(table);
+    if (!recordAccess) return null;
+    const reader = await createReader(tableId, {
+      dateConfig: options.dateConfig,
+      recordAccess,
+      viewer: options.viewer,
+    });
+    readers.set(tableId, reader);
+    return reader;
   };
 
   let frontier = [{ tableId, recordId }];
@@ -140,19 +154,28 @@ const buildRecordSnapshotGraph = async (
     const capturedAtDepth: Array<{ record: GridRecord; reader: RecordReader }> = [];
     for (const [currentTableId, recordIds] of pendingByTable) {
       const table = await loadTable(currentTableId);
-      if (!table) return fail(err.notFound("Table"));
+      if (!table) {
+        if (depth === 0) return fail(err.notFound("Table"));
+        continue;
+      }
       if (depth === 0 && table.baseId !== options.baseId) return fail(err.badInput("record does not belong to base"));
-      if (depth > 0 && !(await canReadRelatedTable(table))) continue;
-      if (seen.size + recordIds.size > maxRecords) return fail(err.badInput(`snapshot exceeds ${maxRecords} records`));
 
       const ids = [...recordIds];
-      for (const id of ids) seen.add(`${currentTableId}:${id}`);
-      const reader = await loadReader(currentTableId);
+      const reader = await loadReader(table);
+      if (!reader) {
+        if (depth === 0) return fail(err.notFound("Record"));
+        continue;
+      }
       const loaded = await reader.getMany(ids);
+      if (seen.size + loaded.length > maxRecords) return fail(err.badInput(`snapshot exceeds ${maxRecords} records`));
       const loadedById = new Map(loaded.map((record) => [record.id, record]));
       for (const id of ids) {
         const record = loadedById.get(id);
-        if (!record) return fail(err.notFound("Record"));
+        if (!record) {
+          if (depth === 0) return fail(err.notFound("Record"));
+          continue;
+        }
+        seen.add(`${currentTableId}:${id}`);
         records[`${currentTableId}:${id}`] = snapshotRecord(table, reader.fields, record);
         capturedAtDepth.push({ record, reader });
       }
@@ -174,6 +197,14 @@ const buildRecordSnapshotGraph = async (
   const rootId = `${tableId}:${recordId}`;
   const root = records[rootId];
   if (!root) return fail(err.internal("Snapshot root was not captured"));
+  for (const captured of Object.values(records)) {
+    for (const field of captured.fields) {
+      if (field.type !== "relation") continue;
+      const targetTableId = typeof field.config.targetTableId === "string" ? field.config.targetTableId : null;
+      if (!targetTableId) continue;
+      captured.data[field.id] = relationIds(captured.data[field.id]).filter((id) => records[`${targetTableId}:${id}`] !== undefined);
+    }
+  }
   return ok({ root, graph: { rootId, records } });
 };
 
@@ -182,14 +213,16 @@ type CreateRecordSnapshotParams = {
   tableId: string;
   recordId: string;
   actorId: string | null;
-  canReadRelatedTable: SnapshotRelatedTableGuard;
+  resolveRecordAccess: SnapshotRecordAccessResolver;
+  viewer?: ExpansionViewer;
   dateConfig?: DateContext;
 };
 
 export const createRecordSnapshotDraft = async (params: CreateRecordSnapshotParams): Promise<Result<RecordSnapshot>> => {
   const graph = await buildRecordSnapshotGraph(params.tableId, params.recordId, {
     baseId: params.baseId,
-    canReadRelatedTable: params.canReadRelatedTable,
+    resolveRecordAccess: params.resolveRecordAccess,
+    viewer: params.viewer,
     dateConfig: params.dateConfig,
   });
   if (!graph.ok) return graph;
@@ -257,11 +290,12 @@ const snapshotGraphParts = (snapshot: RecordSnapshot): { rootId: string; records
 
 export const filterSnapshotRelatedRecords = async (
   snapshot: RecordSnapshot,
-  canReadRelatedTable: SnapshotRelatedTableGuard,
+  resolveRecordAccess: SnapshotRecordAccessResolver,
 ): Promise<RecordSnapshot> => {
   const { rootId, records } = snapshotGraphParts(snapshot);
   const filteredRecords: Record<string, unknown> = { [rootId]: snapshot.root };
-  const readableTables = new Map<string, boolean>();
+  const accessByTableId = new Map<string, AuthorizedRecordAccess | null>();
+  const idsByTableId = new Map<string, Set<string>>();
 
   for (const [key, value] of Object.entries(records)) {
     if (key === rootId || !value || typeof value !== "object" || Array.isArray(value)) continue;
@@ -270,16 +304,54 @@ export const filterSnapshotRelatedRecords = async (
     const tableId = (tableValue as { id?: unknown }).id;
     if (typeof tableId !== "string") continue;
 
-    let readable = readableTables.get(tableId);
-    if (readable === undefined) {
-      const table = await getTable(tableId);
-      readable = Boolean(table && (await canReadRelatedTable({ baseId: table.baseId, tableId: table.id })));
-      readableTables.set(tableId, readable);
-    }
-    if (readable) filteredRecords[key] = value;
+    const recordId = key.startsWith(`${tableId}:`) ? key.slice(tableId.length + 1) : null;
+    if (!recordId) continue;
+    const ids = idsByTableId.get(tableId) ?? new Set<string>();
+    ids.add(recordId);
+    idsByTableId.set(tableId, ids);
   }
 
-  return { ...snapshot, graph: { rootId, records: filteredRecords } };
+  for (const tableId of idsByTableId.keys()) {
+    const table = await getTable(tableId);
+    accessByTableId.set(tableId, table ? await resolveRecordAccess({ baseId: table.baseId, tableId }) : null);
+  }
+  const clauses = [...idsByTableId].flatMap(([tableId, ids]) => {
+    const access = accessByTableId.get(tableId);
+    if (!access) return [];
+    return [
+      sql`(r.table_id = ${tableId}::uuid AND r.id = ANY(${sql.array([...ids], "UUID")}::uuid[]) AND ${recordAccessPredicate(access, "r")})`,
+    ];
+  });
+  if (clauses.length > 0) {
+    const where = clauses.slice(1).reduce((combined, clause) => sql`${combined} OR ${clause}`, clauses[0]!);
+    const rows = await sql<Array<{ id: string; table_id: string }>>`
+      SELECT r.id::text, r.table_id::text
+      FROM grids.records r
+      WHERE (${where})
+    `;
+    for (const row of rows) {
+      const key = `${row.table_id}:${row.id}`;
+      const value = records[key];
+      if (value !== undefined) filteredRecords[key] = value;
+    }
+  }
+
+  const sanitizedRecords = Object.fromEntries(
+    Object.entries(filteredRecords).map(([key, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [key, value];
+      const record = value as SnapshotRecord;
+      const data = { ...record.data };
+      for (const field of record.fields ?? []) {
+        if (field.type !== "relation") continue;
+        const targetTableId = typeof field.config.targetTableId === "string" ? field.config.targetTableId : null;
+        if (!targetTableId) continue;
+        data[field.id] = relationIds(data[field.id]).filter((id) => filteredRecords[`${targetTableId}:${id}`] !== undefined);
+      }
+      return [key, { ...record, data }];
+    }),
+  );
+  const root = (sanitizedRecords[rootId] ?? snapshot.root) as Record<string, unknown>;
+  return { ...snapshot, root, graph: { rootId, records: sanitizedRecords } };
 };
 
 export const listSnapshotsForRecord = async (tableId: string, recordId: string, limit = 100): Promise<RecordSnapshotSummary[]> => {

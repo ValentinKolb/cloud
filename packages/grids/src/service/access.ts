@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { AccessEntry, AccessSubject, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
+import { type RecordScope, RecordScopeSchema } from "../contracts";
 import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { hasAtLeast, loadGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
@@ -93,6 +94,7 @@ type DbAccessRow = {
   permission: PermissionLevel;
   created_at: Date;
   display_name: string | null;
+  record_scope: RecordScope | null;
 };
 
 type DbAccessSnapshot = {
@@ -158,7 +160,10 @@ type AccessAuditSnapshot = {
   resourceId: string;
   principal: Principal;
   permission: PermissionLevel;
+  recordScope?: RecordScope;
 };
+
+export type GridsAccessEntry = AccessEntry & { recordScope?: RecordScope };
 
 type ScopedAccessEntry = AccessEntry & {
   resourceType: AccessResourceType;
@@ -166,6 +171,7 @@ type ScopedAccessEntry = AccessEntry & {
   resourceName: string;
   tableId: string | null;
   tableName: string | null;
+  recordScope?: RecordScope;
 };
 
 const emitAccessChanged = async (binding: AccessBinding | null, accessId: string, actorId: string | null = null): Promise<void> => {
@@ -190,12 +196,13 @@ const principalFromRow = (row: Pick<DbAccessRow, "user_id" | "group_id" | "servi
   return { type: "public" };
 };
 
-const mapAccessRow = (row: DbAccessRow): AccessEntry => ({
+const mapAccessRow = (row: DbAccessRow): GridsAccessEntry => ({
   id: row.access_id,
   principal: principalFromRow(row),
   permission: row.permission,
   createdAt: row.created_at.toISOString(),
   displayName: row.display_name ?? undefined,
+  ...(row.record_scope ? { recordScope: row.record_scope } : {}),
 });
 
 const mapScopedAccessRow = (
@@ -230,6 +237,8 @@ export const buildAccessAuditDiff = (
   binding: AccessBinding,
   access: Pick<DbAccessSnapshot, "id" | "permission" | "user_id" | "group_id" | "service_account_id" | "authenticated_only">,
   nextPermission: PermissionLevel | null,
+  oldRecordScope?: RecordScope,
+  nextRecordScope?: RecordScope,
 ): { access: { old: AccessAuditSnapshot | null; new: AccessAuditSnapshot | null } } => {
   const snapshot: AccessAuditSnapshot = {
     id: access.id,
@@ -242,12 +251,20 @@ export const buildAccessAuditDiff = (
       authenticated_only: access.authenticated_only,
     }),
     permission: access.permission,
+    ...(oldRecordScope ? { recordScope: oldRecordScope } : {}),
   };
 
   return {
     access: {
       old: action === "access.granted" ? null : snapshot,
-      new: nextPermission === null ? null : { ...snapshot, permission: nextPermission },
+      new:
+        nextPermission === null
+          ? null
+          : {
+              ...snapshot,
+              permission: nextPermission,
+              ...(nextRecordScope ? { recordScope: nextRecordScope } : {}),
+            },
     },
   };
 };
@@ -306,13 +323,103 @@ const insertAccessBinding = async (
   resourceType: AccessResourceType,
   resourceId: string,
   accessId: string,
+  recordScope: RecordScope,
   client: SqlClient,
 ): Promise<void> => {
   const definition = ACCESS_RESOURCES[resourceType];
+  const supportsRecordScope = resourceType === "base" || resourceType === "table" || resourceType === "view";
+  if (supportsRecordScope) {
+    await client`
+      INSERT INTO ${client.unsafe(definition.junctionTable)}
+        (${client.unsafe(definition.junctionResourceColumn)}, access_id, record_scope)
+      VALUES (${resourceId}::uuid, ${accessId}::uuid, ${recordScope}::jsonb)
+    `;
+    return;
+  }
   await client`
-    INSERT INTO ${client.unsafe(definition.junctionTable)} (${client.unsafe(definition.junctionResourceColumn)}, access_id)
+    INSERT INTO ${client.unsafe(definition.junctionTable)}
+      (${client.unsafe(definition.junctionResourceColumn)}, access_id)
     VALUES (${resourceId}::uuid, ${accessId}::uuid)
   `;
+};
+
+const supportsRecordScope = (resourceType: AccessResourceType): boolean =>
+  resourceType === "base" || resourceType === "table" || resourceType === "view";
+
+const getBindingRecordScope = async (binding: AccessBinding, accessId: string, client: SqlClient): Promise<RecordScope | undefined> => {
+  if (!supportsRecordScope(binding.resourceType)) return undefined;
+  const definition = ACCESS_RESOURCES[binding.resourceType];
+  const [row] = await client<Array<{ record_scope: RecordScope }>>`
+    SELECT record_scope
+    FROM ${client.unsafe(definition.junctionTable)}
+    WHERE access_id = ${accessId}::uuid
+  `;
+  return row?.record_scope ?? { kind: "all" };
+};
+
+const updateBindingRecordScope = async (
+  binding: AccessBinding,
+  accessId: string,
+  recordScope: RecordScope,
+  client: SqlClient,
+): Promise<void> => {
+  if (!supportsRecordScope(binding.resourceType)) return;
+  const definition = ACCESS_RESOURCES[binding.resourceType];
+  await client`
+    UPDATE ${client.unsafe(definition.junctionTable)}
+    SET record_scope = ${recordScope}::jsonb
+    WHERE access_id = ${accessId}::uuid
+  `;
+};
+
+const validateRecordScope = async (
+  resourceType: AccessResourceType,
+  resourceId: string,
+  scope: RecordScope,
+  principal: Principal,
+  client: SqlClient,
+): Promise<Result<void>> => {
+  if (scope.kind === "all") return ok();
+  if (resourceType !== "base" && resourceType !== "table" && resourceType !== "view") {
+    return fail(err.badInput("Record scopes are only supported on bases, tables, and views"));
+  }
+  if (principal.type === "service_account") {
+    return fail(err.badInput("Ownership-based record scopes require a Cloud user access subject"));
+  }
+  if (scope.kind === "created_by") return ok();
+  if (resourceType === "base") {
+    return fail(err.badInput("related_created_by requires a table or view resource"));
+  }
+  const [row] = await client<Array<{ source_table_id: string; kind: string; target_base_id: string | null; source_base_id: string }>>`
+    SELECT f.table_id::text AS source_table_id,
+           source.kind,
+           target.base_id::text AS target_base_id,
+           source.base_id::text AS source_base_id
+    FROM grids.fields f
+    JOIN grids.tables source ON source.id = f.table_id AND source.deleted_at IS NULL
+    LEFT JOIN grids.tables target
+      ON target.id::text = f.config->>'targetTableId'
+     AND target.deleted_at IS NULL
+    WHERE f.id = ${scope.relationFieldId}::uuid
+      AND f.deleted_at IS NULL
+      AND f.type = 'relation'
+  `;
+  if (!row || !row.target_base_id || row.source_base_id !== row.target_base_id) {
+    return fail(err.badInput("relationFieldId must reference a live same-base relation field"));
+  }
+  const sourceTableId =
+    resourceType === "table"
+      ? resourceId
+      : (
+          await client<Array<{ table_id: string }>>`
+            SELECT table_id::text FROM grids.views WHERE id = ${resourceId}::uuid AND deleted_at IS NULL
+          `
+        )[0]?.table_id;
+  if (!sourceTableId || row.source_table_id !== sourceTableId) {
+    return fail(err.badInput("relationFieldId must belong to the protected table"));
+  }
+  if (row.kind === "federated") return fail(err.badInput("Ownership-based record scopes are not supported on combined tables"));
+  return ok();
 };
 
 const validateResourcePermission = async (
@@ -337,6 +444,8 @@ const logAccessAudit = async (params: {
   access: DbAccessSnapshot;
   actorId: string | null;
   nextPermission: PermissionLevel | null;
+  oldRecordScope?: RecordScope;
+  nextRecordScope?: RecordScope;
   client: SqlClient;
 }): Promise<void> => {
   const scope = auditScopeFromBinding(params.binding);
@@ -345,7 +454,14 @@ const logAccessAudit = async (params: {
       ...scope,
       userId: params.actorId,
       action: params.action,
-      diff: buildAccessAuditDiff(params.action, params.binding, params.access, params.nextPermission),
+      diff: buildAccessAuditDiff(
+        params.action,
+        params.binding,
+        params.access,
+        params.nextPermission,
+        params.oldRecordScope,
+        params.nextRecordScope,
+      ),
     },
     params.client,
   );
@@ -361,6 +477,7 @@ export const grantAccess = async (params: {
   resourceId: string;
   principal: Principal;
   permission: PermissionLevel;
+  recordScope?: RecordScope;
   actorId?: string | null;
   authorization?: BaseAdminAuthorization;
 }): Promise<Result<{ accessId: string }>> => {
@@ -375,9 +492,14 @@ export const grantAccess = async (params: {
     if (!authorized.ok) return fail(authorized.error);
     const permission = await validateResourcePermission(params.resourceType, params.resourceId, params.permission, tx);
     if (!permission.ok) return fail(permission.error);
+    const parsedScope = RecordScopeSchema.safeParse(params.recordScope ?? { kind: "all" });
+    if (!parsedScope.success) return fail(err.badInput("Invalid record scope"));
+    const recordScope = parsedScope.data;
+    const scopeValidation = await validateRecordScope(params.resourceType, params.resourceId, recordScope, params.principal, tx);
+    if (!scopeValidation.ok) return fail(scopeValidation.error);
     const created = await insertAccessRow({ principal: params.principal, permission: params.permission }, tx);
     if (!created.ok) return fail(created.error);
-    await insertAccessBinding(params.resourceType, params.resourceId, created.data.id, tx);
+    await insertAccessBinding(params.resourceType, params.resourceId, created.data.id, recordScope, tx);
     const binding = await resolveAccessBinding(created.data.id, tx);
     if (!binding) throw err.internal("Failed to resolve access binding");
     const access = await getAccessSnapshot(created.data.id, tx);
@@ -388,6 +510,7 @@ export const grantAccess = async (params: {
       access,
       actorId: params.actorId ?? null,
       nextPermission: params.permission,
+      nextRecordScope: recordScope,
       client: tx,
     });
     return ok({ accessId: created.data.id });
@@ -398,11 +521,12 @@ export const grantAccess = async (params: {
   return createdAccess;
 };
 
-const listAccess = async (resourceType: AccessResourceType, resourceId: string): Promise<AccessEntry[]> => {
+const listAccess = async (resourceType: AccessResourceType, resourceId: string): Promise<GridsAccessEntry[]> => {
   const definition = ACCESS_RESOURCES[resourceType];
   const rows = await sql<DbAccessRow[]>`
     SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
            a.permission, a.created_at,
+           ${resourceType === "base" || resourceType === "table" || resourceType === "view" ? sql`binding.record_scope` : sql`NULL::jsonb`} AS record_scope,
            COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
     FROM ${sql.unsafe(definition.junctionTable)} binding
     JOIN auth.access a ON a.id = binding.access_id
@@ -463,6 +587,7 @@ const baseTreeSelect = (resourceType: AccessResourceType, definition: AccessReso
       a.authenticated_only,
       a.permission,
       a.created_at,
+      ${resourceType === "base" || resourceType === "table" || resourceType === "view" ? sql`binding.record_scope` : sql`NULL::jsonb`} AS record_scope,
       COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
     FROM ${sql.unsafe(definition.junctionTable)} binding
     JOIN ${sql.unsafe(`${definition.resourceTable} resource`)} ON resource.id = ${sql.unsafe(`binding.${definition.junctionResourceColumn}`)}
@@ -506,6 +631,7 @@ export const updateAccessLevel = async (
   level: PermissionLevel,
   actorId: string | null = null,
   authorization?: BaseAdminAuthorization,
+  recordScope?: RecordScope,
 ): Promise<Result<void>> => {
   const result = await sql.begin(async (tx): Promise<Result<AccessBinding>> => {
     const binding = await resolveAccessBinding(accessId, tx);
@@ -517,19 +643,35 @@ export const updateAccessLevel = async (
     if (!permission.ok) return fail(permission.error);
     const access = await getAccessSnapshot(accessId, tx);
     if (!access) return fail(err.notFound("Access entry"));
+    const oldRecordScope = await getBindingRecordScope(binding, accessId, tx);
+    const parsedScope = RecordScopeSchema.safeParse(recordScope ?? oldRecordScope ?? { kind: "all" });
+    if (!parsedScope.success) return fail(err.badInput("Invalid record scope"));
+    const nextRecordScope = parsedScope.data;
+    const scopeValidation = await validateRecordScope(
+      binding.resourceType,
+      resourceIdFromBinding(binding),
+      nextRecordScope,
+      principalFromRow(access),
+      tx,
+    );
+    if (!scopeValidation.ok) return fail(scopeValidation.error);
     const update = await tx`
       UPDATE auth.access
       SET permission = ${level}::auth.permission_level
       WHERE id = ${accessId}::uuid
     `;
     if (update.count === 0) return fail(err.notFound("Access entry"));
-    if (access.permission !== level) {
+    await updateBindingRecordScope(binding, accessId, nextRecordScope, tx);
+    const scopeChanged = JSON.stringify(oldRecordScope ?? { kind: "all" }) !== JSON.stringify(nextRecordScope);
+    if (access.permission !== level || scopeChanged) {
       await logAccessAudit({
         action: "access.updated",
         binding,
         access,
         actorId,
         nextPermission: level,
+        oldRecordScope,
+        nextRecordScope,
         client: tx,
       });
     }
@@ -560,6 +702,7 @@ export const revokeAccess = async (
     if (!authorized.ok) return fail(authorized.error);
     const access = await getAccessSnapshot(accessId, tx);
     if (!access) return fail(err.notFound("Access entry"));
+    const oldRecordScope = await getBindingRecordScope(binding, accessId, tx);
     const deleted = await tx`
       DELETE FROM auth.access
       WHERE id = ${accessId}::uuid
@@ -571,6 +714,7 @@ export const revokeAccess = async (
       access,
       actorId,
       nextPermission: null,
+      oldRecordScope,
       client: tx,
     });
     return ok(binding);

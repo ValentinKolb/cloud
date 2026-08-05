@@ -24,6 +24,7 @@ import {
   loadBaseWorkflowGrantsForSubject,
   loadGrantsForSubject,
   loadGrantsForUser,
+  resolveAuthorizedRecordAccess,
   resolveEffectivePermission,
 } from "./permission-resolver";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
@@ -113,6 +114,7 @@ export const gridsService = {
   },
   record: {
     list: records.list,
+    countAccessibleByTable: records.countAccessibleByTable,
     get: records.get,
     create: records.create,
     createMany: records.createMany,
@@ -136,6 +138,7 @@ export const gridsService = {
   },
   permission: {
     resolve: resolveEffectivePermission,
+    resolveRecordAccess: resolveAuthorizedRecordAccess,
     loadGrants: loadGrantsForUser,
     loadGrantsForSubject,
     loadBaseTableGrantsForSubject,

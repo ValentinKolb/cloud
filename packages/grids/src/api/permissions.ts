@@ -3,6 +3,7 @@ import type { AccessSubject, AuthContext, PermissionLevel, RequestActor } from "
 import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
 import { gridsService } from "../service";
+import type { AuthorizedRecordAccess } from "../service/record-access";
 import { workflowCredentialBinding } from "../service/workflow-authorization";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 
@@ -189,6 +190,31 @@ export const gateAtAccess = async (
 
 export const gateAt = (c: Context<AuthContext>, target: ResolveTarget, required: PermissionLevel): Promise<Result<PermissionLevel>> =>
   gateAtAccess(gridsAccessContext(c), target, required);
+
+export const resolveRecordAccessForAccess = async (
+  access: GridsAccessContext,
+  target: ResolveTarget,
+  required: PermissionLevel,
+): Promise<Result<{ level: PermissionLevel; recordAccess: AuthorizedRecordAccess }>> => {
+  if (!targetMatchesResourceBinding(access, target)) {
+    return fail(err.forbidden("You do not have permission to access this resource."));
+  }
+  const credentialLevel = credentialPermissionFor(access);
+  if (!gridsService.permission.hasAtLeast(credentialLevel, required)) {
+    return fail(err.forbidden("The API credential does not grant the required Grids scope."));
+  }
+  const grants = await loadCurrentGrants(access, target);
+  const subject = accessSubjectFor(access);
+  const resolved = gridsService.permission.resolveRecordAccess(grants, target, required, subject?.type === "user" ? subject.userId : null);
+  const level = minPermission(resolved.level, credentialLevel);
+  if (!gridsService.permission.hasAtLeast(level, required) || !resolved.recordAccess) {
+    return fail(err.forbidden("You do not have permission to access this resource."));
+  }
+  return ok({ level, recordAccess: resolved.recordAccess });
+};
+
+export const resolveRecordAccess = (c: Context<AuthContext>, target: ResolveTarget, required: PermissionLevel) =>
+  resolveRecordAccessForAccess(gridsAccessContext(c), target, required);
 
 /**
  * Loads the user's grants AND resolves the level in one go. Used by

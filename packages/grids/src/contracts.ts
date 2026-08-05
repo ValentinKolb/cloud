@@ -11,6 +11,13 @@ import { AGGREGATE_KINDS } from "./aggregate-catalog";
 export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
 const IconNameSchema = z.string().max(200).nullable().optional();
 
+export const RecordScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("all") }).strict(),
+  z.object({ kind: z.literal("created_by") }).strict(),
+  z.object({ kind: z.literal("related_created_by"), relationFieldId: z.string().uuid() }).strict(),
+]);
+export type RecordScope = z.infer<typeof RecordScopeSchema>;
+
 export const DocumentProfileSchema = z
   .object({
     legalName: z.string().max(200).optional(),

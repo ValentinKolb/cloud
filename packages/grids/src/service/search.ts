@@ -1,9 +1,9 @@
 import { sql } from "bun";
 import type { SearchSpec } from "../contracts";
 import { listByTable as listFields } from "./fields";
-import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
+import { resolveRecordAccessByTableIds } from "./relation-access";
 import { type ExpansionViewer, relationLabelFields } from "./relations";
-import { get as getTable } from "./tables";
 import type { Field } from "./types";
 
 type SearchClause = { clause: any };
@@ -47,23 +47,8 @@ export const compileDirectFieldSearchClause = (field: Field, alias: string, q: s
   return null;
 };
 
-const canReadTargetTable = async (targetTableId: string, viewer?: ExpansionViewer): Promise<boolean> => {
-  if (!viewer || viewer.isAdmin) return true;
-  const target = await getTable(targetTableId);
-  if (!target) return false;
-  const grants = await loadGrantsForUser({
-    userId: viewer.userId,
-    userGroups: viewer.userGroups,
-    serviceAccountId: viewer.serviceAccountId,
-    baseId: target.baseId,
-    tableId: targetTableId,
-  });
-  const level = resolveEffectivePermission(grants, {
-    baseId: target.baseId,
-    tableId: targetTableId,
-  });
-  return hasAtLeast(level, "read");
-};
+const targetRecordAccess = async (targetTableId: string, viewer?: ExpansionViewer): Promise<AuthorizedRecordAccess | null> =>
+  viewer ? ((await resolveRecordAccessByTableIds([targetTableId], viewer)).get(targetTableId) ?? null) : ALL_RECORD_ACCESS;
 
 const relationSearchFields = (targetFields: Field[]): Field[] => relationLabelFields(targetFields);
 
@@ -74,19 +59,19 @@ const relationClause = async (params: {
   pattern: string;
   viewer?: ExpansionViewer;
   targetFieldsCache: Map<string, Field[]>;
-  targetReadCache: Map<string, boolean>;
+  targetReadCache: Map<string, AuthorizedRecordAccess | null>;
   relationSource?: "links" | "recordData";
   recordSourcesByTableId?: Map<string, RecordSource>;
 }): Promise<SearchClause | null> => {
   const cfg = params.field.config as { targetTableId?: string };
   if (!cfg.targetTableId) return null;
 
-  let canRead = params.targetReadCache.get(cfg.targetTableId);
-  if (canRead === undefined) {
-    canRead = await canReadTargetTable(cfg.targetTableId, params.viewer);
-    params.targetReadCache.set(cfg.targetTableId, canRead);
+  let recordAccess = params.targetReadCache.get(cfg.targetTableId);
+  if (recordAccess === undefined) {
+    recordAccess = await targetRecordAccess(cfg.targetTableId, params.viewer);
+    params.targetReadCache.set(cfg.targetTableId, recordAccess);
   }
-  if (!canRead) return null;
+  if (!recordAccess) return null;
 
   let targetFields = params.targetFieldsCache.get(cfg.targetTableId);
   if (!targetFields) {
@@ -117,6 +102,7 @@ const relationClause = async (params: {
         ON target.id = relation_id.value::uuid
        AND target.table_id = ${cfg.targetTableId}::uuid
        AND target.deleted_at IS NULL
+       AND ${recordAccessPredicate(recordAccess, "target")}
       WHERE ${targetWhere}
     )`,
       }
@@ -128,6 +114,7 @@ const relationClause = async (params: {
       ON target.id = search_rl.to_record_id
      AND target.table_id = ${cfg.targetTableId}::uuid
      AND target.deleted_at IS NULL
+     AND ${recordAccessPredicate(recordAccess, "target")}
     WHERE search_rl.from_record_id = ${sql.unsafe(`${params.alias}.id`)}
       AND search_rl.from_field_id = ${params.field.id}::uuid
       AND (${targetWhere})
@@ -156,7 +143,7 @@ export const compileSearchClause = async (params: {
 
   const clauses: any[] = [];
   const targetFieldsCache = new Map<string, Field[]>();
-  const targetReadCache = new Map<string, boolean>();
+  const targetReadCache = new Map<string, AuthorizedRecordAccess | null>();
 
   for (const field of scoped) {
     const direct = compileDirectFieldSearchClause(field, alias, q, pattern);

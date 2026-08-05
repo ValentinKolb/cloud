@@ -46,7 +46,7 @@ import type {
 import { GRIDS_EVENT } from "../workflows/events";
 import { gridsWorkflows } from "../workflows/module";
 import { canExecuteWorkflow } from "./workflow-action-scope";
-import { authorizeWorkflowTarget } from "./workflow-authorization";
+import { resolveWorkflowTargetRecordAccess } from "./workflow-authorization";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
 import { createWorkflowRecordEventRuntime } from "./workflow-record-events";
@@ -355,11 +355,17 @@ const workflowValues = (claim: WorkflowRunClaim) =>
     const scope = await getWorkflowRunScope(claim.runId);
     if (!scope) throw workflowConflict("Workflow run is no longer available.");
     return createGridsWorkflowValueResolver(scope.baseId, scope.principal, {
-      authorizeTable: (tableId) => authorizeWorkflowTarget(scope.principal, { baseId: scope.baseId, tableId }, "read"),
+      resolveRecordAccess: (tableId) => resolveWorkflowTargetRecordAccess(scope.principal, { baseId: scope.baseId, tableId }, "read"),
     });
   });
 
-const workerPorts = { worker: workerId, appId: GRIDS_APP_ID, module: gridsWorkflows, values: workflowValues, trace: workflowTrace } as const;
+const workerPorts = {
+  worker: workerId,
+  appId: GRIDS_APP_ID,
+  module: gridsWorkflows,
+  values: workflowValues,
+  trace: workflowTrace,
+} as const;
 
 /**
  * Carries one named run, with the wiring the worker uses.

@@ -1,6 +1,7 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { resolveAccessPrincipal } from "@valentinkolb/cloud/cli";
 import type { PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { type RecordScope, RecordScopeSchema } from "../contracts";
 import { resolveCustomApp } from "./custom-apps";
 import { resolveDocumentTemplateFromCommand } from "./documents-support";
 import { resolveDashboardFromCommand, resolveFormFromCommand } from "./forms-dashboards-support";
@@ -17,11 +18,41 @@ type AccessResourceType = (typeof ACCESS_RESOURCE_TYPES)[number];
 
 export type AccessPermission = (typeof PERMISSION_LEVELS)[number];
 
-type AccessResource = {
+export type AccessResource = {
   type: AccessResourceType;
   id: string;
   label: string;
   allowed: readonly AccessPermission[];
+};
+
+export const accessResourceSupportsRecordScope = (resource: AccessResource): boolean =>
+  resource.type === "base" || resource.type === "table" || resource.type === "view";
+
+export const recordScopeFromFlags = (resource: AccessResource, flags: Record<string, unknown>): RecordScope | undefined => {
+  const kind = flags.recordScope;
+  const relationFieldId = flags.relationFieldId;
+  if (kind === undefined && relationFieldId === undefined) return undefined;
+  if (!accessResourceSupportsRecordScope(resource)) {
+    throw new Error("Record scopes are only supported on base, table, and view grants.");
+  }
+  if (kind === undefined) throw new Error("Pass --record-scope when using --relation-field-id.");
+  if (kind === "related-created-by") {
+    if (resource.type === "base") {
+      throw new Error("--record-scope related-created-by requires a table or view resource.");
+    }
+    if (typeof relationFieldId !== "string" || !relationFieldId) {
+      throw new Error("--record-scope related-created-by requires --relation-field-id <uuid>.");
+    }
+    const parsed = RecordScopeSchema.safeParse({ kind: "related_created_by", relationFieldId });
+    if (!parsed.success) throw new Error("--relation-field-id must be a UUID.");
+    return parsed.data;
+  }
+  if (relationFieldId !== undefined) {
+    throw new Error("--relation-field-id is only valid with --record-scope related-created-by.");
+  }
+  if (kind === "created-by") return { kind: "created_by" };
+  if (kind === "all") return { kind: "all" };
+  throw new Error("--record-scope must be one of: all, created-by, related-created-by.");
 };
 
 export const accessPermissionsForResource = (type: AccessResourceType): readonly AccessPermission[] => {

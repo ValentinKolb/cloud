@@ -14,11 +14,11 @@ import {
   loadTemplateAndTable,
   renderDraftDataResponse,
   renderDraftPdfResponse,
-  snapshotRelatedTableGuard,
+  snapshotRecordAccessResolver,
   uuidParam,
 } from "./documents-api-shared";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
-import { currentActorUserId, gateAt } from "./permissions";
+import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 
 export const createDocumentRenderRoutes = () =>
   new Hono<AuthContext>()
@@ -230,7 +230,8 @@ export const createDocumentRenderRoutes = () =>
           tableId: loaded.table.id,
           recordId: body.recordId,
           actorId: currentActorUserId(c),
-          canReadRelatedTable: snapshotRelatedTableGuard(c),
+          resolveRecordAccess: snapshotRecordAccessResolver(c),
+          viewer: currentActorViewer(c),
           dateConfig,
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);

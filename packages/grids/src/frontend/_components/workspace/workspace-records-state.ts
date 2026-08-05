@@ -3,12 +3,13 @@ import type { RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import type { DslResolverDiagnostic } from "../../../query-dsl/resolver";
 import type { Field, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
+import type { AuthorizedRecordAccess } from "../../../service/record-access";
 import { filterSearchableFields } from "../../../service/search";
 import { activeDisplayConfig } from "../records-view/display-mode";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 import { emptyRecordDetail, loadRecordDetailData, writableDocumentTemplates } from "./workspace-record-detail-state";
 import { compileViewSource, isComputedColumn, loadInitialRecords, outputFieldsForQuery } from "./workspace-records-query";
-import { viewLevelForUser, workflowLevelForUser } from "./workspace-state-access";
+import { recordAccessForUser, viewLevelForUser, workflowLevelForUser } from "./workspace-state-access";
 import { buildViewer, okState } from "./workspace-state-helpers";
 import type {
   AuthUser,
@@ -55,6 +56,7 @@ const loadSelectedRecordThroughView = async (params: {
   viewQuery: RecordQuery;
   user: AuthUser;
   dateConfig?: DateContext;
+  recordAccess: AuthorizedRecordAccess;
 }): Promise<GridRecord | null> => {
   const recordMeta = selectedRecordMeta(params.viewQuery.recordMeta ?? null, params.selectedRecordId);
   if (!recordMeta) return null;
@@ -77,6 +79,7 @@ const loadSelectedRecordThroughView = async (params: {
         viewer: buildViewer(params.user),
         dateConfig: params.dateConfig,
         computedColumns: params.viewQuery.columns?.filter(isComputedColumn),
+        recordAccess: params.recordAccess,
       });
       if (!result.ok) return null;
       const record = result.data.items.find((item) => item.id === params.selectedRecordId);
@@ -101,6 +104,7 @@ const loadSelectedRecordThroughView = async (params: {
     viewer: buildViewer(params.user),
     dateConfig: params.dateConfig,
     computedColumns: params.viewQuery.columns?.filter(isComputedColumn),
+    recordAccess: params.recordAccess,
   });
   if (!result.ok) return null;
   return result.data.items.find((record) => record.id === params.selectedRecordId) ?? null;
@@ -113,6 +117,7 @@ type ResolvedRecordsView = {
   queryResultView: View | null;
   canEditActiveView: boolean;
   fields: Field[];
+  recordAccess: AuthorizedRecordAccess | null;
 };
 
 const resolveRecordsView = async (
@@ -164,6 +169,11 @@ const resolveRecordsView = async (
         }
       : null;
   const queryResultFieldIds = compiledView?.ok && compiledView.kind === "queryResult" ? new Set(compiledView.fieldIds) : null;
+  const recordAccess = await recordAccessForUser(common.params.user, {
+    baseId: common.base.id,
+    tableId: activeTable.id,
+    ...(activeView ? { viewId: activeView.id } : {}),
+  });
   return {
     activeTableLevel,
     activeView,
@@ -176,6 +186,7 @@ const resolveRecordsView = async (
       : queryResultFieldIds
         ? allFields.filter((field) => queryResultFieldIds.has(field.id))
         : allFields,
+    recordAccess,
   };
 };
 
@@ -215,6 +226,7 @@ const loadSelectedRecord = async (params: {
       viewQuery: params.view.activeViewForQuery.query,
       user: params.common.params.user,
       dateConfig: params.common.params.dateConfig,
+      recordAccess: params.view.recordAccess!,
     });
   }
   const listedRecord = params.initial.records.items.find((record) => record.id === selectedRecordId);
@@ -223,6 +235,7 @@ const loadSelectedRecord = async (params: {
     dateConfig: params.common.params.dateConfig,
     viewer: buildViewer(params.common.params.user),
     deleted: params.common.chrome.trashMode ? "only" : params.initial.effectiveIncludeDeleted ? "include" : "live",
+    recordAccess: params.view.recordAccess!,
   });
 };
 
@@ -326,6 +339,7 @@ export const loadRecordsState = async (
   if (!gridsService.permission.hasAtLeast(view.activeTableLevel, "read") && !view.activeView) {
     return okState(common, { kind: "empty" });
   }
+  if (!view.recordAccess) return okState(common, { kind: "empty" });
   if (view.queryResultView) {
     return okState(common, await buildQueryResultViewRoute(common, activeTable, view), [
       ...common.chrome.titleBase,
@@ -349,6 +363,7 @@ export const loadRecordsState = async (
     trashMode: strictViewScope ? view.activeViewForQuery?.query.deletedOnly === true : common.chrome.trashMode,
     user: common.params.user,
     dateConfig: common.params.dateConfig,
+    recordAccess: view.recordAccess,
   });
   const selectedRecord = await loadSelectedRecord({ common, activeTable, view, recordsState, initial });
   const route = await buildRecordsRoute({ common, activeTable, view, recordsState, displayConfig, initial, selectedRecord });

@@ -4,10 +4,11 @@ import { evaluate, renderResult } from "../formula/evaluator";
 import { isFormulaError } from "../formula/functions";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
-import { applyComputedProjections, buildComputedProjections } from "./computed-projections";
+import { applyComputedProjections, buildComputedProjections, readableComputedTargetRecordAccess } from "./computed-projections";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
-import { enrichRecordsWithFormulas, hydrateRelationsFromLinks } from "./relations";
+import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
+import { type ExpansionViewer, enrichRecordsWithFormulas, hydrateRelationsFromLinks } from "./relations";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -79,8 +80,13 @@ const resolveFormulaRefs = (refs: Set<string>, fields: Field[]) => {
   return { resolved, missing };
 };
 
-const loadLatestRows = async (tableId: string, fields: Field[]): Promise<GridRecord[]> => {
-  const computed = await buildComputedProjections(fields);
+const loadLatestRows = async (
+  tableId: string,
+  fields: Field[],
+  options: { recordAccess?: AuthorizedRecordAccess; viewer?: ExpansionViewer },
+): Promise<GridRecord[]> => {
+  const targetRecordAccess = await readableComputedTargetRecordAccess(fields, options.viewer);
+  const computed = await buildComputedProjections(fields, { recordAccessByTableId: targetRecordAccess });
   const projectionFragments =
     computed.length > 0 ? computed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
 
@@ -91,12 +97,13 @@ const loadLatestRows = async (tableId: string, fields: Field[]): Promise<GridRec
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE r.table_id = ${tableId}::uuid
       AND r.deleted_at IS NULL
+      AND ${recordAccessPredicate(options.recordAccess, "r")}
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT 5
   `;
 
   const items = rows.map(mapRow);
-  await hydrateRelationsFromLinks(items, fields);
+  await hydrateRelationsFromLinks(items, fields, options.viewer);
   const recordsById = new Map(items.map((record) => [record.id, record]));
   applyComputedProjections(rows, recordsById, computed);
   return items;
@@ -107,6 +114,8 @@ export const checkFormula = async (params: {
   expression: string;
   currentFieldId?: string | null;
   dateConfig?: DateContext;
+  recordAccess?: AuthorizedRecordAccess;
+  viewer?: ExpansionViewer;
 }): Promise<Result<FormulaPreviewResult>> => {
   const expression = params.expression.trim();
   if (!expression) {
@@ -141,7 +150,10 @@ export const checkFormula = async (params: {
     });
   }
 
-  const rows = await loadLatestRows(params.tableId, usableFields);
+  const rows = await loadLatestRows(params.tableId, usableFields, {
+    recordAccess: params.recordAccess,
+    viewer: params.viewer,
+  });
   const formulaFields = params.currentFieldId ? usableFields.filter((field) => field.id !== params.currentFieldId) : usableFields;
   enrichRecordsWithFormulas(rows, formulaFields, { dateConfig: params.dateConfig });
 

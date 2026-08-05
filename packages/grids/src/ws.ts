@@ -72,7 +72,13 @@ type WsContext = {
 };
 
 type AccessResult =
-  | { ok: true; baseId: string; tableId?: string; workflowId?: string }
+  | {
+      ok: true;
+      baseId: string;
+      tableId?: string;
+      workflowId?: string;
+      recordEventVisibility?: "full" | "cursor_only";
+    }
   | { ok: false; code: string; message: string; tableId?: string };
 
 type DashboardScope = { id: string; widgetId: string };
@@ -211,12 +217,17 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
     baseId: table.baseId,
     tableId: table.id,
   });
-  const level = gridsService.permission.resolve(grants, { baseId: table.baseId, tableId: table.id });
-  if (!gridsService.permission.hasAtLeast(level, "read")) {
+  const decision = gridsService.permission.resolveRecordAccess(grants, { baseId: table.baseId, tableId: table.id }, "read", user.id);
+  if (!decision.recordAccess) {
     return { ok: false, code: "access_denied", message: "Access denied", tableId: table.id };
   }
 
-  return { ok: true, baseId: table.baseId, tableId: table.id };
+  return {
+    ok: true,
+    baseId: table.baseId,
+    tableId: table.id,
+    recordEventVisibility: decision.recordAccess.kind === "all" ? "full" : "cursor_only",
+  };
 };
 
 const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: string, sessionToken: string | null): Promise<AccessResult> => {
@@ -236,7 +247,7 @@ const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: strin
   });
   if (!canRead) return { ok: false, code: "access_denied", message: "Access denied", tableId };
 
-  return { ok: true, baseId: dashboard.baseId, tableId };
+  return { ok: true, baseId: dashboard.baseId, tableId, recordEventVisibility: "cursor_only" };
 };
 
 const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): Promise<AccessResult> => {
@@ -360,12 +371,16 @@ const workspaceRuntime: WorkspaceRuntime = {
   cancel: (timeout) => clearTimeout(timeout),
 };
 
-const ensureCurrentAccess = async (ctx: WsContext, runtime: WorkspaceRuntime, subscription: Subscription): Promise<boolean> => {
+const ensureCurrentAccess = async (
+  ctx: WsContext,
+  runtime: WorkspaceRuntime,
+  subscription: Subscription,
+): Promise<Extract<AccessResult, { ok: true }> | null> => {
   const access = await runtime.evaluateSubscriptionAccess(subscription, ctx.sessionToken);
-  if (ctx.phase !== "subscribed" || ctx.subscription !== subscription) return false;
-  if (access.ok) return true;
+  if (ctx.phase !== "subscribed" || ctx.subscription !== subscription) return null;
+  if (access.ok) return access;
   revokeAccess(ctx, runtime, subscription, access);
-  return false;
+  return null;
 };
 
 const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: string | null) => {
@@ -384,11 +399,12 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
         for await (const event of runtime.recordEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (event.data.tableId !== tableId) continue;
-          if (!(await ensureCurrentAccess(ctx, runtime, subscription))) break;
+          const access = await ensureCurrentAccess(ctx, runtime, subscription);
+          if (!access) break;
           const sent = send(
             ctx.socket,
             WS_TYPE.recordsEvent,
-            subscription.dashboardId
+            access.recordEventVisibility === "cursor_only"
               ? {
                   tableId,
                   cursor: event.cursor,

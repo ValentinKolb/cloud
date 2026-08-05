@@ -1,7 +1,7 @@
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowInvocationMode, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import { type RecordQuery, RecordQuerySchema } from "../contracts";
@@ -14,8 +14,14 @@ import {
   GridsWorkflowPrincipalSchema,
   scannerLauncherInputSources,
 } from "../workflows/contracts";
+import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { list as listRecords } from "./records";
-import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissionAllows } from "./workflow-authorization";
+import {
+  authorizeWorkflowTarget,
+  resolveWorkflowTargetRecordAccess,
+  revalidateWorkflowPrincipal,
+  workflowPermissionAllows,
+} from "./workflow-authorization";
 import { loadWorkflowCatalog, resolveWorkflowFieldRef } from "./workflow-catalog";
 import { getWorkflow } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
@@ -110,11 +116,27 @@ type LauncherAuthorizationInput = {
 export type WorkflowLauncherInvocationDeps = {
   getLauncher: typeof getLauncher;
   getWorkflow: typeof getWorkflow;
-  authorize: (input: LauncherAuthorizationInput) => Promise<Result<void>>;
-  resolveScanCode: (baseId: string, tableId: string, scannedText: string) => Promise<Result<string>>;
-  resolveUniqueField: (baseId: string, tableId: string, fieldRef: string, scannedText: string) => Promise<Result<string>>;
-  resolveExplicitRecordIds: (baseId: string, tableId: string, recordIds: string[]) => Promise<Result<string[]>>;
-  resolveQueryRecordIds: (tableId: string, query: RecordQuery, principal: GridsWorkflowPrincipal) => Promise<Result<string[]>>;
+  authorize: (input: LauncherAuthorizationInput) => Promise<Result<AuthorizedRecordAccess | null>>;
+  resolveScanCode: (baseId: string, tableId: string, scannedText: string, recordAccess: AuthorizedRecordAccess) => Promise<Result<string>>;
+  resolveUniqueField: (
+    baseId: string,
+    tableId: string,
+    fieldRef: string,
+    scannedText: string,
+    recordAccess: AuthorizedRecordAccess,
+  ) => Promise<Result<string>>;
+  resolveExplicitRecordIds: (
+    baseId: string,
+    tableId: string,
+    recordIds: string[],
+    recordAccess: AuthorizedRecordAccess,
+  ) => Promise<Result<string[]>>;
+  resolveQueryRecordIds: (
+    tableId: string,
+    query: RecordQuery,
+    principal: GridsWorkflowPrincipal,
+    recordAccess: AuthorizedRecordAccess,
+  ) => Promise<Result<string[]>>;
   invokeWorkflow: typeof invokeGridsWorkflow;
 };
 
@@ -148,13 +170,15 @@ const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ workflow
   ) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
-  if (tableId && !(await authorizeWorkflowTarget(principal, { baseId: workflow.baseId, tableId }, "read"))) {
-    return fail(err.forbidden("Workflow actor cannot read the launcher input table."));
+  if (tableId) {
+    const recordAccess = await resolveWorkflowTargetRecordAccess(principal, { baseId: workflow.baseId, tableId }, "read");
+    if (!recordAccess) return fail(err.forbidden("Workflow actor cannot read the launcher input table."));
+    return ok(recordAccess);
   }
-  return ok();
+  return ok(null);
 };
 
-const resolveScanCode: WorkflowLauncherInvocationDeps["resolveScanCode"] = async (baseId, tableId, scannedText) => {
+const resolveScanCode: WorkflowLauncherInvocationDeps["resolveScanCode"] = async (baseId, tableId, scannedText, recordAccess) => {
   const [row] = await sql<Array<{ id: string }>>`
     SELECT r.id::text AS id
     FROM grids.record_scan_codes scan
@@ -166,11 +190,18 @@ const resolveScanCode: WorkflowLauncherInvocationDeps["resolveScanCode"] = async
       AND scan.base_id = ${baseId}::uuid
       AND scan.table_id = ${tableId}::uuid
       AND r.table_id = ${tableId}::uuid
+      AND ${recordAccessPredicate(recordAccess, "r")}
   `;
   return row ? ok(row.id) : fail(err.notFound("scan code"));
 };
 
-const resolveUniqueField: WorkflowLauncherInvocationDeps["resolveUniqueField"] = async (baseId, tableId, fieldRef, scannedText) => {
+const resolveUniqueField: WorkflowLauncherInvocationDeps["resolveUniqueField"] = async (
+  baseId,
+  tableId,
+  fieldRef,
+  scannedText,
+  recordAccess,
+) => {
   const field = resolveWorkflowFieldRef(await loadWorkflowCatalog(baseId), tableId, fieldRef);
   if (!field) return fail(err.badInput(`unknown or ambiguous scanner field "${fieldRef}"`));
   const [storedField] = await sql<Array<{ unique_constraint: boolean }>>`
@@ -194,6 +225,7 @@ const resolveUniqueField: WorkflowLauncherInvocationDeps["resolveUniqueField"] =
       AND r.table_id = ${tableId}::uuid
       AND r.deleted_at IS NULL
       AND r.data ->> ${field.id} = ${scannedText}
+      AND ${recordAccessPredicate(recordAccess, "r")}
     ORDER BY r.id
     LIMIT 2
   `;
@@ -202,7 +234,12 @@ const resolveUniqueField: WorkflowLauncherInvocationDeps["resolveUniqueField"] =
   return ok(rows[0]!.id);
 };
 
-const resolveExplicitRecordIds: WorkflowLauncherInvocationDeps["resolveExplicitRecordIds"] = async (baseId, tableId, recordIds) => {
+const resolveExplicitRecordIds: WorkflowLauncherInvocationDeps["resolveExplicitRecordIds"] = async (
+  baseId,
+  tableId,
+  recordIds,
+  recordAccess,
+) => {
   const rows = await sql<Array<{ id: string }>>`
     SELECT r.id::text AS id
     FROM grids.records r
@@ -212,12 +249,13 @@ const resolveExplicitRecordIds: WorkflowLauncherInvocationDeps["resolveExplicitR
       AND r.table_id = ${tableId}::uuid
       AND r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
       AND r.deleted_at IS NULL
+      AND ${recordAccessPredicate(recordAccess, "r")}
   `;
   const found = new Set(rows.map((row) => row.id));
   return found.size === recordIds.length ? ok(recordIds) : fail(err.notFound("bulk selection record"));
 };
 
-const resolveQueryRecordIds: WorkflowLauncherInvocationDeps["resolveQueryRecordIds"] = async (tableId, query, principal) => {
+const resolveQueryRecordIds: WorkflowLauncherInvocationDeps["resolveQueryRecordIds"] = async (tableId, query, principal, recordAccess) => {
   if ((query.groupBy?.length ?? 0) > 0 || (query.aggregations?.length ?? 0) > 0 || (query.groupSort?.length ?? 0) > 0) {
     return fail(err.badInput("bulk selection queries must be row-shaped"));
   }
@@ -241,6 +279,7 @@ const resolveQueryRecordIds: WorkflowLauncherInvocationDeps["resolveQueryRecordI
       recordMeta: query.recordMeta ?? null,
       sort: query.sort ?? [],
       viewer: { userId: principal.userId, userGroups: principal.groupIds, serviceAccountId: principal.serviceAccountId },
+      recordAccess,
       dateConfig,
     });
     if (!page.ok) return page;
@@ -397,10 +436,11 @@ export const invokeScannerLauncher = async (
     controlledInputs[scanInputName] = scannedText;
   } else {
     if (!ctx.tableId) return fail(err.internal("scanner record input has no table"));
+    if (!authorized.data) return fail(err.internal("scanner record input has no record access policy"));
     const recordId =
       scanSource.resolve.by === "field"
-        ? await deps.resolveUniqueField(ctx.workflow.baseId, ctx.tableId, scanSource.resolve.field!, scannedText)
-        : await deps.resolveScanCode(ctx.workflow.baseId, ctx.tableId, scannedText);
+        ? await deps.resolveUniqueField(ctx.workflow.baseId, ctx.tableId, scanSource.resolve.field!, scannedText, authorized.data)
+        : await deps.resolveScanCode(ctx.workflow.baseId, ctx.tableId, scannedText, authorized.data);
     if (!recordId.ok) return recordId;
     controlledInputs[scanInputName] = recordId.data;
   }
@@ -425,10 +465,11 @@ export const invokeBulkLauncher = async (
     authorization: input.data.authorization,
   });
   if (!authorized.ok) return authorized;
+  if (!authorized.data) return fail(err.internal("bulk launcher input has no record access policy"));
   const recordIds =
     "recordIds" in input.data
-      ? await deps.resolveExplicitRecordIds(ctx.workflow.baseId, ctx.tableId, input.data.recordIds)
-      : await deps.resolveQueryRecordIds(ctx.tableId, input.data.query, input.data.principal);
+      ? await deps.resolveExplicitRecordIds(ctx.workflow.baseId, ctx.tableId, input.data.recordIds, authorized.data)
+      : await deps.resolveQueryRecordIds(ctx.tableId, input.data.query, input.data.principal, authorized.data);
   if (!recordIds.ok) return recordIds;
   const inputs = mergeInputs({ [ctx.config.input]: recordIds.data }, input.data.inputs);
   return inputs.ok ? invoke(ctx, { ...input.data, inputs: inputs.data }, deps) : inputs;
