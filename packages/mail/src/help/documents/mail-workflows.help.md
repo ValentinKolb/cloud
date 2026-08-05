@@ -164,13 +164,16 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `addFlag` / `removeFlag` | `message`, `flag` | Changes `seen`, `answered`, `flagged`, or `draft` through the provider command journal |
 | `assignConversation` | `conversation`, `user` | Assigns by accessible user name or ID; `null` unassigns |
 | `setConversationStatus` | `conversation`, `status` | Sets `needs_action`, `waiting`, or `done` |
-| `ensureConversationReference` | `conversation`; optional `result` | Allocates or reuses the permanent mailbox reference and optionally stores its result |
+| `ensureConversationReference` | `conversation`; optional `saveAs` | Allocates or reuses the permanent mailbox reference and optionally stores its result |
 | `addLocalTag` / `removeLocalTag` | `conversation`, `tag` | Changes a mailbox-local conversation tag |
 | `addComment` | `conversation`, `body` | Adds an internal comment attributed to the workflow version |
-| `createDraft` | `sender`, `to`, `subject`, `body`, `result` | Creates a normal-delivery workflow draft for a later step |
+| `createDraft` | `sender`, `to`, `subject`, `body`, `saveAs` | Creates a normal-delivery workflow draft for a later step |
 | `scheduleDraftSend` | `draft`, `scheduledAt` | Schedules a created normal-delivery draft through the durable outbox |
 | `notifyUser` | `user`, `title`, `body` | Sends an internal notification to a current mailbox reader |
 | `automaticReply` | `message`, `conversation`, `sender`, `subject`, `body` | Queues one guarded automatic response |
+| `aiGenerateText` | `prompt`, `saveAs` | Generates bounded text; `input`, `model`, and `maxOutputChars` are optional |
+| `aiClassify` | `input`, `prompt`, `choices`, `saveAs` | Returns exactly one declared choice |
+| `aiClassifyMany` | `input`, `prompt`, `choices`, `saveAs` | Returns a unique subset of declared choices |
 | `setVariable` | `name`, `value` | Stores a value for later steps |
 | `succeed` | `message` | Stops the run successfully |
 | `fail` | `message` | Stops the run with a non-retryable workflow error |
@@ -182,6 +185,78 @@ One reachable path cannot apply several provider mutations to the same message. 
 `createDraft` always produces `deliveryClass: normal`. Only `automaticReply` can create `deliveryClass: automatic_reply`; normal workflow sends therefore do not receive automatic-reply headers or a null envelope sender. `scheduleDraftSend` accepts only a `mail.draft` result created earlier in the same reachable scope.
 
 `forEach` is part of the shared workflow grammar but is deliberately unsupported by the Mail vocabulary. Mail workflows operate on one materialized message target at a time.
+
+## Classify mail and create drafts with AI {icon="sparkles"}
+
+Mail explicitly enables the shared AI actions. AI produces only a value; Mail actions still perform tagging, assignment, folder, draft, and send effects under normal mailbox authorization and budgets.
+
+This example classifies one message into several labels, uses exact array membership to tag and assign the conversation, and creates a draft without sending it:
+
+```yaml
+inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
+steps:
+  - aiClassifyMany:
+      input:
+        subject: "${{ inputs.message.subject }}"
+        body: "${{ inputs.message.bodyText }}"
+      prompt: Select every matching category.
+      choices: [finance, urgent, support]
+      maxChoices: 3
+      saveAs: categories
+  - if:
+      includes:
+        - "${{ categories }}"
+        - finance
+    then:
+      - addLocalTag:
+          conversation: inputs.conversation
+          tag: Finance
+  - if:
+      includes:
+        - "${{ categories }}"
+        - urgent
+    then:
+      - addLocalTag:
+          conversation: inputs.conversation
+          tag: Urgent
+      - assignConversation:
+          conversation: inputs.conversation
+          user: Alice Example
+  - aiGenerateText:
+      prompt: Write a concise reply draft. Do not invent facts or promise a deadline.
+      input:
+        subject: "${{ inputs.message.subject }}"
+        body: "${{ inputs.message.bodyText }}"
+      maxOutputChars: 4000
+      saveAs: reply
+  - createDraft:
+      sender: Support
+      to:
+        - address: "${{ inputs.message.fromAddress }}"
+      subject: "Re: {{ inputs.message.subject }}"
+      body: "{{ reply }}"
+      format: plain
+      saveAs: draft
+```
+
+Use `aiClassify` when exactly one choice is allowed. Use `aiClassifyMany` when zero or more choices may apply; `minChoices` and `maxChoices` bound the result. Choices are exact values, not free-form model output.
+
+An optional `model` selects an enabled profile for one action. Otherwise Mail uses the platform workflow model, then the background model, then the platform default. Each newly created AI task consumes one `maxAiCalls` budget unit; Mail defaults that budget to 10 per run.
+
+AI tasks survive worker restarts. Canceling the Mail run aborts running inference when supported and discards late output. A dry run cannot predict AI output, so it reports the unavailable value instead of continuing with a fabricated classification or draft.
+
+Prompts, inputs, and outputs are stored with the durable task. Include only message fields needed for the decision. Keep generated replies as drafts when a person should review them; add `scheduleDraftSend` only when unattended sending is intentionally approved.
 
 ## Allocate a conversation reference {icon="book-2"}
 
@@ -281,10 +356,11 @@ Supported comparisons:
 
 - `equals` and `notEquals`
 - `contains`, `startsWith`, and `endsWith` for text
+- `includes` for exact membership in an array such as `aiClassifyMany` output
 - `exists` for one raw reference
 - recursive `all`, `any`, and `not`
 
-`equals` and `notEquals` compare exact values. `contains`, `startsWith`, and `endsWith` normalize Unicode text and ignore letter case.
+`equals`, `notEquals`, and `includes` compare exact values. `contains`, `startsWith`, and `endsWith` normalize Unicode text and ignore letter case.
 
 ```yaml
 inputs:

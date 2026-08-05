@@ -5,7 +5,7 @@ section: Automation
 order: 710
 description: Make external side effects recoverable when workflow steps retry or workers crash.
 tags: [workflows, effects, retry]
-updated: 2026-07-27
+updated: 2026-08-05
 ---
 
 # Effects, retry, and reconciliation
@@ -77,6 +77,10 @@ for the resolution API.
 | Ambiguous effect cannot be reconciled | Ends the run as `needs_attention` without repeating the effect |
 | Cancellation is requested | Cancels queued and waiting runs immediately; a running worker stops at a heartbeat |
 
+Shared workflow AI tasks also observe the parent run's cancellation. Queued
+tasks become canceled, running provider calls receive an abort signal, and a
+late provider result is discarded instead of waking the run with stale output.
+
 Repeated crashes and retryable failures are bounded. After the exported
 `WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES` limit, the worker records
 `WORKFLOW_RETRY_EXHAUSTED`.
@@ -108,6 +112,9 @@ that they are planned.
 
 Publication can set an `effectBudget`. The kernel charges the root run, so
 fan-out cannot multiply an allowed effect count.
+
+AI actions consume `maxAiCalls`. A replay of an already-created durable AI task
+does not charge that unit again.
 
 ## Wait for a dependency
 

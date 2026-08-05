@@ -15,7 +15,7 @@ Open **Automations** from **Mailbox tools**. The full-width overview shows what 
 | Send an out-of-office or receipt acknowledgement | **Automatic replies** |
 | Route, mark, or label matching mail | **Mail rules** |
 | Give conversations permanent human-facing IDs | A reference acknowledgement or custom **Workflow** |
-| Tag, move, assign, change status, allocate references, or send guarded replies from conditions | **Workflows** |
+| Tag, move, assign, classify, draft, allocate references, or send guarded replies from conditions | **Workflows** |
 
 The tools can work together, but creating one does not activate another. Reference-number settings define the format; a workflow still decides when to allocate a number. Saving a workflow does not activate it.
 
@@ -115,7 +115,7 @@ The **Reference acknowledgement** preset assigns the reference before sending an
 
 Saving never activates a version. An already active version continues to run until an administrator explicitly activates the newer one. **Update available** means the saved current version and active version differ.
 
-Effect budgets are hard upper bounds for moves, sends, keyword changes, and collaboration changes during one execution. An execution stops before applying an effect that would exceed its budget.
+Effect budgets are hard upper bounds for moves, sends, keyword changes, collaboration changes, and AI calls during one execution. An execution stops before applying an effect that would exceed its budget. AI output remains data until a later Mail action uses it, so classification, tagging, assignment, drafting, and sending remain independently reviewable steps.
 
 ## Observe and stop workflow runs {icon="activity"}
 
