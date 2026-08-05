@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { bindMailWorkflow } from "../workflows/binder";
 import { buildMailWorkflowCatalog } from "../workflows/catalog";
-import { mailWorkflowManifest } from "../workflows/manifest";
+import { mailWorkflows } from "../workflows/module";
 import { mailHelp } from ".";
 
 const expectedIds = [
@@ -162,7 +162,7 @@ describe("mailHelp", () => {
 
     expect(examples.length).toBeGreaterThanOrEqual(7);
     for (const source of examples) {
-      const compiled = await compileWorkflow(source, mailWorkflowManifest);
+      const compiled = await compileWorkflow(source, mailWorkflows);
       expect(compiled.ok).toBe(true);
       if (!compiled.ok) continue;
       expect((await bindMailWorkflow(compiled.ir, catalog)).ok).toBe(true);

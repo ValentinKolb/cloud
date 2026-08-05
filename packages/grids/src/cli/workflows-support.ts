@@ -8,7 +8,7 @@ import type {
   GridsWorkflowRun as WorkflowRun,
   GridsWorkflowStepRun as WorkflowStepRun,
 } from "../workflows/contracts";
-import { gridsWorkflowManifest } from "../workflows/manifest";
+import { gridsWorkflows } from "../workflows/module";
 import { assertBaseScoped, resolveBaseFromCommand, UUID_RE } from "./resources";
 import { compactId, exactMatch, readApi, requireRestArg } from "./runtime";
 
@@ -88,13 +88,13 @@ export const EMAIL_TEMPLATE_REFERENCE = {
 
 export const WORKFLOW_REFERENCE = {
   language: {
-    id: gridsWorkflowManifest.id,
-    version: gridsWorkflowManifest.version,
-    limits: gridsWorkflowManifest.limits,
+    id: gridsWorkflows.manifest.id,
+    version: gridsWorkflows.manifest.version,
+    limits: gridsWorkflows.manifest.limits,
     topLevel: ["inputs", "triggers", "steps"],
-    inputs: gridsWorkflowManifest.inputs,
-    triggers: gridsWorkflowManifest.triggers,
-    actions: gridsWorkflowManifest.actions,
+    inputs: gridsWorkflows.manifest.inputs,
+    triggers: gridsWorkflows.manifest.triggers,
+    actions: gridsWorkflows.manifest.actions,
     controlFlow: ["if/then/else", "switch/cases/default", "forEach/as/do"],
   },
   invocation: {

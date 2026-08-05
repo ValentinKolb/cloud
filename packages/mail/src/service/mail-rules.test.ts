@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { bindMailWorkflow } from "../workflows/binder";
 import { buildMailWorkflowCatalog } from "../workflows/catalog";
-import { mailWorkflowManifest } from "../workflows/manifest";
+import { mailWorkflows } from "../workflows/module";
 import { buildMailRuleWorkflowSource, mailRuleExistingDedupeKey } from "./mail-rules";
 
 const catalog = buildMailWorkflowCatalog({
@@ -34,7 +34,7 @@ describe("mail rule workflow source", () => {
     expect(source).toContain(`inputs.message.${field}`);
     expect(source).toContain(condition.value);
 
-    const compiled = await compileWorkflow(source, mailWorkflowManifest);
+    const compiled = await compileWorkflow(source, mailWorkflows);
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     expect((await bindMailWorkflow(compiled.ir, catalog)).ok).toBe(true);
@@ -63,7 +63,7 @@ describe("mail rule workflow source", () => {
     expect(source.indexOf("assignConversation")).toBeLessThan(source.indexOf("setConversationStatus"));
     expect(source).toContain("textEquals");
     expect(source).toContain("attachments.0");
-    const compiled = await compileWorkflow(source, mailWorkflowManifest);
+    const compiled = await compileWorkflow(source, mailWorkflows);
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     const bound = await bindMailWorkflow(compiled.ir, catalog);

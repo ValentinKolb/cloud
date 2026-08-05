@@ -9,8 +9,8 @@ import {
   wakeExpiredWorkflowRuns,
 } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
-import { MAIL_WORKFLOW_ACTIONS } from "../workflows/actions";
 import { MAIL_WORKFLOW_APP_ID } from "../workflows/events";
+import { mailWorkflows } from "../workflows/module";
 import { renderMailLiquidTemplate } from "./template-rendering";
 import { publishMailWorkflowCollaborationEventFromOutput } from "./workflow-collaboration-events";
 import type { FrozenMailWorkflowSource } from "./workflow-data";
@@ -22,7 +22,7 @@ const log = logger("mail:workflows");
 const WORKER_INTERVAL_MS = 1_000;
 const workerId = `mail:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
 
-const declaredActions = createWorkflowActionPort(MAIL_WORKFLOW_ACTIONS);
+const declaredActions = createWorkflowActionPort(mailWorkflows);
 const builtins = createWorkflowBuiltinActionPorts({
   authorize: async (context): Promise<WorkflowExecutionError | undefined> => {
     const [active] = await sql<{ active: boolean }[]>`

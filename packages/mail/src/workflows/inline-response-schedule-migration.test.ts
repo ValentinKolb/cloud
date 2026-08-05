@@ -4,7 +4,7 @@ import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { bindMailWorkflow } from "./binder";
 import { buildMailWorkflowCatalog } from "./catalog";
 import { inlineWorkflowResponseSchedules } from "./inline-response-schedule-migration";
-import { mailWorkflowManifest } from "./manifest";
+import { mailWorkflows } from "./module";
 
 const schedule = {
   mode: "windows" as const,
@@ -16,7 +16,7 @@ const schedule = {
 
 describe("inline response schedule migration", () => {
   test("replaces a named schedule in source, IR, and bound plan", async () => {
-    const legacyManifest = structuredClone(mailWorkflowManifest);
+    const legacyManifest = structuredClone(mailWorkflows.manifest);
     const automaticReply = legacyManifest.actions.find((action) => action.kind === "automaticReply");
     if (!automaticReply) throw new Error("automaticReply action is missing");
     automaticReply.config.properties.schedule = {
@@ -79,7 +79,7 @@ steps:
     expect(migrated.source).toContain("timeZone: Europe/Berlin");
     expect(migrated.boundPlan.bindings).not.toHaveProperty("steps.0.automaticReply.schedule");
 
-    const recompiled = await compileWorkflow(migrated.source, mailWorkflowManifest);
+    const recompiled = await compileWorkflow(migrated.source, mailWorkflows);
     expect(recompiled.ok).toBe(true);
     if (!recompiled.ok) return;
     const rebound = await bindMailWorkflow(

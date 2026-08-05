@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowBoundPlan, WorkflowFieldSchema } from "@valentinkolb/cloud/workflows";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
-import { mailWorkflowManifest } from "./manifest";
+import { mailWorkflows } from "./module";
 import { removeWorkflowReferenceSchemeSelection } from "./single-reference-configuration-migration";
 
 describe("single reference configuration migration", () => {
   test("removes legacy scheme selection from source, IR, plan, and bindings", async () => {
-    const legacyManifest = structuredClone(mailWorkflowManifest);
+    const legacyManifest = structuredClone(mailWorkflows.manifest);
     const action = legacyManifest.actions.find((candidate) => candidate.kind === "ensureConversationReference");
     if (!action) throw new Error("ensureConversationReference action is missing");
     action.config.properties.scheme = {
@@ -48,6 +48,6 @@ steps:
     expect(migrated.source).not.toContain("scheme:");
     expect(migrated.ir.steps[0]).not.toHaveProperty("config.scheme");
     expect(migrated.boundPlan.bindings).toEqual({});
-    expect((await compileWorkflow(migrated.source, mailWorkflowManifest)).ok).toBe(true);
+    expect((await compileWorkflow(migrated.source, mailWorkflows)).ok).toBe(true);
   });
 });

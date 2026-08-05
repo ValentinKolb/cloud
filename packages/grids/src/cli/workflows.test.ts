@@ -3,7 +3,7 @@ import { type CloudCliContext, type CloudCliFlags, defineCliCommands } from "@va
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { buildWorkflowCatalog } from "../service/workflow-catalog";
 import { bindGridsWorkflow } from "../workflows/binder";
-import { gridsWorkflowManifest } from "../workflows/manifest";
+import { gridsWorkflows } from "../workflows/module";
 import { workflowCommands, workflowRunCommands } from "./workflows";
 import { WORKFLOW_REFERENCE, workflowRunRows, workflowStepRows } from "./workflows-support";
 
@@ -118,7 +118,7 @@ describe("Grids workflow CLI", () => {
   test("keeps the reference invocation aligned with a compilable and bindable YAML example", async () => {
     expect(WORKFLOW_REFERENCE.invocation.direct.inputs).toEqual({ item: "00000000-0000-4000-8000-000000000001" });
 
-    const compiled = await compileWorkflow(WORKFLOW_REFERENCE.example, gridsWorkflowManifest);
+    const compiled = await compileWorkflow(WORKFLOW_REFERENCE.example, gridsWorkflows);
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
 

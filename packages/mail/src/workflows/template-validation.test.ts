@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
-import { mailWorkflowManifest } from "./manifest";
+import { mailWorkflows } from "./module";
 import { validateMailWorkflowTemplates } from "./template-validation";
 
 const diagnosticsFor = async (source: string) => {
-  const compiled = await compileWorkflow(source, mailWorkflowManifest);
+  const compiled = await compileWorkflow(source, mailWorkflows);
   if (!compiled.ok) throw new Error(compiled.diagnostics[0]?.message);
   return validateMailWorkflowTemplates(compiled.ir);
 };

@@ -25,7 +25,7 @@ import { buildWorkflowCatalog } from "../service/workflow-catalog";
 import { validateLauncherConfig } from "../service/workflow-launchers";
 import { bindGridsWorkflow } from "../workflows/binder";
 import { CreateGridsWorkflowSchema, scannerLauncherInputSources } from "../workflows/contracts";
-import { gridsWorkflowManifest } from "../workflows/manifest";
+import { gridsWorkflows } from "../workflows/module";
 import { templates } from ".";
 import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
 import { field, formula } from "./types";
@@ -1102,7 +1102,7 @@ describe("built-in grid templates", () => {
       });
       for (const workflow of template.workflows ?? []) {
         expect(CreateGridsWorkflowSchema.safeParse(workflow).success, `${template.id}.${workflow.key} workflow payload`).toBe(true);
-        const compiled = await compileWorkflow(workflow.source, gridsWorkflowManifest);
+        const compiled = await compileWorkflow(workflow.source, gridsWorkflows);
         expect(
           compiled.ok,
           `${template.id}.${workflow.key} workflow YAML: ${compiled.ok ? "" : compiled.diagnostics.map((item) => item.message).join("; ")}`,
@@ -1120,7 +1120,7 @@ describe("built-in grid templates", () => {
         const workflow = workflowsByKey.get(launcher.workflow);
         expect(workflow, `${template.id}.${launcher.key} launcher workflow`).toBeDefined();
         if (!workflow) continue;
-        const compiled = await compileWorkflow(workflow.source, gridsWorkflowManifest);
+        const compiled = await compileWorkflow(workflow.source, gridsWorkflows);
         expect(compiled.ok, `${template.id}.${launcher.key} launcher workflow compiles`).toBe(true);
         if (!compiled.ok) continue;
         const bound = await bindGridsWorkflow(compiled.ir, workflowCatalog);

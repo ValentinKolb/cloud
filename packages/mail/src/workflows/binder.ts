@@ -27,7 +27,9 @@ import {
   type MailWorkflowCatalogIndex,
   snapshotMailWorkflowCatalog,
 } from "./catalog";
-import { mailWorkflowManifest } from "./manifest";
+import { mailWorkflows } from "./module";
+
+const manifest = mailWorkflows.manifest;
 
 export type BindMailWorkflowResult = { ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
@@ -512,7 +514,7 @@ const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, provi
 };
 
 const bindInputs = (context: BindingContext): void => {
-  const inputTypes = new Map(mailWorkflowManifest.inputs.map((input) => [input.kind, input.valueType]));
+  const inputTypes = new Map(manifest.inputs.map((input) => [input.kind, input.valueType]));
   for (const input of context.ir.inputs) {
     const descriptor = valueDescriptor(inputTypes.get(input.type) ?? "core.value");
     context.inputs.set(input.name, {
@@ -544,7 +546,7 @@ const resolveTriggerBindingType = (
 
 const bindTrigger = (
   trigger: WorkflowIr["triggers"][number],
-  descriptor: (typeof mailWorkflowManifest.triggers)[number],
+  descriptor: (typeof manifest.triggers)[number],
   context: BindingContext,
 ): void => {
   const path = ["triggers", trigger.kind] as Array<string | number>;
@@ -576,7 +578,7 @@ const bindTrigger = (
 };
 
 const bindTriggers = (context: BindingContext): void => {
-  const descriptors = new Map(mailWorkflowManifest.triggers.map((trigger) => [trigger.kind, trigger]));
+  const descriptors = new Map(manifest.triggers.map((trigger) => [trigger.kind, trigger]));
   for (const trigger of context.ir.triggers) {
     const descriptor = descriptors.get(trigger.kind);
     if (descriptor) bindTrigger(trigger, descriptor, context);
@@ -584,13 +586,13 @@ const bindTriggers = (context: BindingContext): void => {
 };
 
 export const bindMailWorkflow = async (ir: WorkflowIr, catalog: MailWorkflowCatalog): Promise<BindMailWorkflowResult> => {
-  if (ir.languageId !== mailWorkflowManifest.id || ir.languageVersion !== mailWorkflowManifest.version) {
+  if (ir.languageId !== manifest.id || ir.languageVersion !== manifest.version) {
     return {
       ok: false,
       diagnostics: [
         {
           code: "binding.language",
-          message: `Expected ${mailWorkflowManifest.id}@${mailWorkflowManifest.version}, received ${ir.languageId}@${ir.languageVersion}`,
+          message: `Expected ${manifest.id}@${manifest.version}, received ${ir.languageId}@${ir.languageVersion}`,
           severity: "error",
           path: [],
         },
@@ -603,7 +605,7 @@ export const bindMailWorkflow = async (ir: WorkflowIr, catalog: MailWorkflowCata
   bindSteps(ir.steps, new Map(), new Set(), context);
   if (context.diagnostics.length > 0) return { ok: false, diagnostics: context.diagnostics };
 
-  const plan = await bindWorkflow(ir, mailWorkflowManifest, () => ({
+  const plan = await bindWorkflow(ir, mailWorkflows, () => ({
     catalog: snapshotMailWorkflowCatalog(catalog),
     bindings: context.bindings,
   }));

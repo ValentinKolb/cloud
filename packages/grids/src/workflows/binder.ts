@@ -24,7 +24,9 @@ import {
   type WorkflowCatalogEntry,
   type WorkflowCatalogIndex,
 } from "../service/workflow-catalog";
-import { gridsWorkflowManifest } from "./manifest";
+import { gridsWorkflows } from "./module";
+
+const manifest = gridsWorkflows.manifest;
 
 export type BindGridsWorkflowResult = { ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
@@ -89,8 +91,8 @@ type BindingContext = {
   diagnostics: WorkflowDiagnostic[];
 };
 
-const inputTypes = new Map(gridsWorkflowManifest.inputs.map((input) => [input.kind, input.valueType]));
-const actionTypes = new Map(gridsWorkflowManifest.actions.map((action) => [action.kind, action.outputType]));
+const inputTypes = new Map(manifest.inputs.map((input) => [input.kind, input.valueType]));
+const actionTypes = new Map(manifest.actions.map((action) => [action.kind, action.outputType]));
 
 const locationForPath = (
   path: Array<string | number>,
@@ -440,7 +442,7 @@ const typesCompatible = (expected: string, actual: string): boolean =>
   ((expected === "core.date" || expected === "core.dateTime") && actual === "core.text");
 
 const bindTriggers = (context: BindingContext): void => {
-  const descriptors = new Map(gridsWorkflowManifest.triggers.map((trigger) => [trigger.kind, trigger]));
+  const descriptors = new Map(manifest.triggers.map((trigger) => [trigger.kind, trigger]));
   for (const trigger of context.ir.triggers) {
     const path = ["triggers", trigger.kind] as Array<string | number>;
     const descriptor = descriptors.get(trigger.kind);
@@ -529,13 +531,13 @@ const bindInputs = (context: BindingContext): void => {
 };
 
 export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog): Promise<BindGridsWorkflowResult> => {
-  if (ir.languageId !== gridsWorkflowManifest.id || ir.languageVersion !== gridsWorkflowManifest.version) {
+  if (ir.languageId !== manifest.id || ir.languageVersion !== manifest.version) {
     return {
       ok: false,
       diagnostics: [
         {
           code: "binding.language",
-          message: `Expected ${gridsWorkflowManifest.id}@${gridsWorkflowManifest.version}, received ${ir.languageId}@${ir.languageVersion}`,
+          message: `Expected ${manifest.id}@${manifest.version}, received ${ir.languageId}@${ir.languageVersion}`,
           severity: "error",
           path: [],
         },
@@ -548,7 +550,7 @@ export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog
   bindSteps(ir.steps, new Map(), context);
   if (context.diagnostics.length > 0) return { ok: false, diagnostics: context.diagnostics };
 
-  const plan = await bindWorkflow(ir, gridsWorkflowManifest, () => ({
+  const plan = await bindWorkflow(ir, gridsWorkflows, () => ({
     catalog: snapshotWorkflowCatalog(catalog),
     bindings: context.bindings,
   }));

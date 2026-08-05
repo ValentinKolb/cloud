@@ -5,9 +5,9 @@
  * than written again: a descriptor and its implementation used to be two places
  * that could disagree, and only a run in production would say so.
  */
-import { type WorkflowFieldSchema, type WorkflowLanguageManifest, workflowBuiltinActionDescriptors } from "@valentinkolb/cloud/workflows";
-import { workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
+import { defineWorkflowModule, type WorkflowFieldSchema } from "@valentinkolb/cloud/workflows";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
+import { gridsWorkflowEvents } from "./events";
 
 const text = (description: string, optional = false, maxLength = 1_000): WorkflowFieldSchema => ({
   kind: "string",
@@ -30,7 +30,7 @@ const commonInputProperties = {
   required: { kind: "boolean", optional: true, description: "Whether callers must provide this input." },
 } satisfies Record<string, WorkflowFieldSchema>;
 
-export const gridsWorkflowManifest: WorkflowLanguageManifest = {
+export const gridsWorkflows = defineWorkflowModule({
   id: "grids",
   version: 1,
   limits: {
@@ -109,5 +109,6 @@ export const gridsWorkflowManifest: WorkflowLanguageManifest = {
       }),
     },
   ],
-  actions: [...workflowActionDescriptors(GRIDS_WORKFLOW_ACTIONS), ...workflowBuiltinActionDescriptors],
-};
+  actions: GRIDS_WORKFLOW_ACTIONS,
+  events: gridsWorkflowEvents,
+});

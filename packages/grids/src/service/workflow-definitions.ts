@@ -20,6 +20,7 @@
  * has no activation to carry it.
  */
 
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import type { WorkflowActivationInput } from "@valentinkolb/cloud/workflows/store";
@@ -29,7 +30,6 @@ import {
   renameWorkflow as renameKernelWorkflow,
   setWorkflowEnabled,
 } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { bindGridsWorkflow } from "../workflows/binder";
 import type {
@@ -41,13 +41,15 @@ import type {
 } from "../workflows/contracts";
 import { GridsWorkflowRevisionSchema, GridsWorkflowSchema } from "../workflows/contracts";
 import { GRIDS_EVENT } from "../workflows/events";
-import { gridsWorkflowManifest } from "../workflows/manifest";
+import { gridsWorkflows } from "../workflows/module";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { loadWorkflowCatalog } from "./workflow-catalog";
 import { assertWorkflowEmailTemplatesAvailable, lockWorkflowCatalogMutation } from "./workflow-catalog-mutation";
 import { emitWorkflowRuntimeEvent } from "./workflow-runtime-events";
+
+const manifest = gridsWorkflows.manifest;
 
 /** How Grids identifies itself to the kernel. A base is one scope. */
 const APP_ID = "grids";
@@ -109,7 +111,7 @@ const mapWorkflow = (row: DbRow): GridsWorkflow => {
 };
 
 const compileAndBind = async (baseId: string, source: string): Promise<Result<WorkflowBoundPlan>> => {
-  const compiled = await compileWorkflow(source, gridsWorkflowManifest);
+  const compiled = await compileWorkflow(source, gridsWorkflows);
   if (!compiled.ok) return fail(err.badInput(compiled.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
   const bound = await bindGridsWorkflow(compiled.ir, await loadWorkflowCatalog(baseId));
   return bound.ok ? ok(bound.plan) : fail(err.badInput(bound.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
@@ -119,7 +121,7 @@ export const validateWorkflowSource = async (
   baseId: string,
   source: string,
 ): Promise<{ ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] }> => {
-  const compiled = await compileWorkflow(source, gridsWorkflowManifest);
+  const compiled = await compileWorkflow(source, gridsWorkflows);
   if (!compiled.ok) return compiled;
   const bound = await bindGridsWorkflow(compiled.ir, await loadWorkflowCatalog(baseId));
   return bound.ok ? { ok: true, plan: bound.plan } : bound;
@@ -298,8 +300,8 @@ export const createWorkflow = async (
         source: input.source,
         sourceHash: new Bun.CryptoHasher("sha256").update(input.source).digest("hex"),
         plan: plan.data,
-        languageId: gridsWorkflowManifest.id,
-        languageVersion: gridsWorkflowManifest.version,
+        languageId: manifest.id,
+        languageVersion: manifest.version,
         manifestHash: plan.data.manifestHash,
         author: actorId ? { kind: "user", id: actorId } : { kind: "system" },
         activations: activationsFor(plan.data, enabled),
@@ -390,8 +392,8 @@ export const updateWorkflow = async (
           source,
           sourceHash: new Bun.CryptoHasher("sha256").update(source).digest("hex"),
           plan: plan.data,
-          languageId: gridsWorkflowManifest.id,
-          languageVersion: gridsWorkflowManifest.version,
+          languageId: manifest.id,
+          languageVersion: manifest.version,
           manifestHash: plan.data.manifestHash,
           author: actorId ? { kind: "user", id: actorId } : { kind: "system" },
           activations: activationsFor(plan.data, enabled),

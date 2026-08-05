@@ -20,7 +20,7 @@ import {
   type WorkflowCompletionItem,
   WorkflowDiagnosticSchema,
 } from "../workflows/contracts";
-import { gridsWorkflowManifest } from "../workflows/manifest";
+import { gridsWorkflows } from "../workflows/module";
 import {
   currentAccessSubject,
   currentCredentialPermission,
@@ -178,7 +178,7 @@ export const validatePermissionedWorkflowSource = async (
   source: string,
   catalog?: WorkflowCatalog,
 ) => {
-  const compiled = await compileWorkflow(source, gridsWorkflowManifest);
+  const compiled = await compileWorkflow(source, gridsWorkflows);
   if (!compiled.ok) return compiled;
   return bindGridsWorkflow(compiled.ir, catalog ?? (await permissionedWorkflowCatalog(c, baseId)));
 };
@@ -212,7 +212,7 @@ export const buildWorkflowCompletions = (source: string, caret: number, catalog:
       ),
     ];
   }
-  return buildWorkflowManifestCompletions(source, caret, gridsWorkflowManifest);
+  return buildWorkflowManifestCompletions(source, caret, gridsWorkflows);
 };
 
 export const baseExists = async (baseId: string): Promise<boolean> => Boolean(await getBase(baseId));

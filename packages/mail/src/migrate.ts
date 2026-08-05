@@ -16,7 +16,7 @@ import {
 import { validateMailWorkflowTemplateReferences } from "./workflows/binder";
 import { inlineWorkflowResponseSchedules } from "./workflows/inline-response-schedule-migration";
 import { migrateMailWorkflowSourceToLiquid } from "./workflows/liquid-template-migration";
-import { mailWorkflowManifest } from "./workflows/manifest";
+import { mailWorkflows } from "./workflows/module";
 import { removeWorkflowReferenceSchemeSelection } from "./workflows/single-reference-configuration-migration";
 import { validateMailWorkflowTemplates } from "./workflows/template-validation";
 
@@ -3108,7 +3108,7 @@ const inlineAutomaticReplySchedules = async (db: SqlClient): Promise<void> => {
     });
     if (migrated.migratedActions === 0) continue;
 
-    const compiled = await compileWorkflow(migrated.source, mailWorkflowManifest);
+    const compiled = await compileWorkflow(migrated.source, mailWorkflows);
     if (!compiled.ok) {
       throw new Error(
         `Cannot compile migrated Mail workflow ${version.workflow_id}: ${compiled.diagnostics[0]?.message ?? "invalid source"}`,
@@ -3336,7 +3336,7 @@ const simplifyConversationReferenceConfiguration = async (db: SqlClient): Promis
     });
     if (migrated.migratedActions === 0) continue;
 
-    const compiled = await compileWorkflow(migrated.source, mailWorkflowManifest);
+    const compiled = await compileWorkflow(migrated.source, mailWorkflows);
     if (!compiled.ok) {
       throw new Error(
         `Cannot compile migrated Mail workflow ${version.workflow_id}: ${compiled.diagnostics[0]?.message ?? "invalid source"}`,
@@ -5098,7 +5098,7 @@ const migrateMailTemplatesToLiquid = async (db: SqlClient): Promise<void> => {
       migration: migrateMailWorkflowSourceToLiquid(version.source),
     }));
     for (const candidate of migrated) {
-      const compiled = await compileWorkflow(candidate.migration.source, mailWorkflowManifest);
+      const compiled = await compileWorkflow(candidate.migration.source, mailWorkflows);
       if (!compiled.ok) {
         throw new Error(
           `Cannot compile Mail workflow ${workflowId} under Liquid semantics: ${compiled.diagnostics[0]?.message ?? "invalid source"}`,
@@ -5116,7 +5116,7 @@ const migrateMailTemplatesToLiquid = async (db: SqlClient): Promise<void> => {
     if (!migrated.some((candidate) => candidate.migration.migratedTemplates > 0)) continue;
 
     const publishSuccessor = async (candidate: (typeof migrated)[number], activate: boolean): Promise<void> => {
-      const compiled = await compileWorkflow(candidate.migration.source, mailWorkflowManifest);
+      const compiled = await compileWorkflow(candidate.migration.source, mailWorkflows);
       if (!compiled.ok) {
         throw new Error(`Cannot compile migrated Mail workflow ${workflowId}: ${compiled.diagnostics[0]?.message ?? "invalid source"}`);
       }

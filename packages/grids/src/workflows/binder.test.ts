@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { buildWorkflowCatalog, type WorkflowCatalog } from "../service/workflow-catalog";
 import { bindGridsWorkflow } from "./binder";
-import { gridsWorkflowManifest } from "./manifest";
+import { gridsWorkflows } from "./module";
 
 const ids = {
   items: "11111111-1111-4111-8111-111111111111",
@@ -35,7 +35,7 @@ const catalog = (): WorkflowCatalog =>
   });
 
 const compile = async (source: string) => {
-  const result = await compileWorkflow(source, gridsWorkflowManifest);
+  const result = await compileWorkflow(source, gridsWorkflows);
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
   return result.ir;

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { gridsWorkflowManifest } from "./manifest";
+import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
+import { gridsWorkflows } from "./module";
+
+const gridsWorkflowManifest = gridsWorkflows.manifest;
 
 describe("Grids workflow manifest", () => {
   test("is serializable and has unique vocabulary keys", () => {
@@ -7,6 +10,10 @@ describe("Grids workflow manifest", () => {
     for (const descriptors of [gridsWorkflowManifest.inputs, gridsWorkflowManifest.triggers, gridsWorkflowManifest.actions]) {
       expect(new Set(descriptors.map((descriptor) => descriptor.kind)).size).toBe(descriptors.length);
     }
+  });
+
+  test("preserves the published manifest hash", async () => {
+    expect(await hashWorkflowJson(gridsWorkflowManifest)).toBe("b89dbb07ae090eeb2c52c7483044a4319eabf498b7c653f2534ad4fe4f5910ac");
   });
 
   test("classifies every effectful action explicitly", () => {

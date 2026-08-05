@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
+import { compileWorkflow, hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import { bindMailWorkflow, validateMailWorkflowTemplateReferences } from "./binder";
 import { buildMailWorkflowCatalog, type MailWorkflowCatalog, snapshotMailWorkflowCatalog } from "./catalog";
-import { mailWorkflowManifest } from "./manifest";
+import { mailWorkflows } from "./module";
+
+const mailWorkflowManifest = mailWorkflows.manifest;
 
 const ids = {
   inbox: "11111111-1111-4111-8111-111111111111",
@@ -37,7 +39,7 @@ const catalog = (reverse = false): MailWorkflowCatalog => {
 };
 
 const compile = async (source: string) => {
-  const result = await compileWorkflow(source, mailWorkflowManifest);
+  const result = await compileWorkflow(source, mailWorkflows);
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n"));
   return result.ir;
@@ -77,6 +79,10 @@ describe("Mail workflow manifest", () => {
     expect(mailWorkflowManifest.inputs.every((input) => Object.keys(input.config.properties).every((key) => key === "required"))).toBe(
       true,
     );
+  });
+
+  test("preserves the published manifest hash", async () => {
+    expect(await hashWorkflowJson(mailWorkflowManifest)).toBe("9c8043439c6e0920fe27cff0ff280ac273184d00e5de4d7b4c7c2cd6cbea2846");
   });
 
   test("classifies provider, collaboration, and terminal effects", () => {

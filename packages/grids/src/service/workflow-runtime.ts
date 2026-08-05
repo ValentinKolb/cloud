@@ -7,6 +7,9 @@
  * claimable for this app. The lease protocol, the journal, recovery and the
  * generation fence are all the kernel's — there is no second copy here.
  */
+
+import { err, fail, type Result } from "@k2b/stdlib";
+import { scheduler } from "@k2b/sync";
 import { createRuntimeLifecycle, createRuntimeTaskTracker, logger, stopRuntimeResources, trace } from "@valentinkolb/cloud/services";
 import {
   createWorkflowBuiltinActionPorts,
@@ -32,10 +35,7 @@ import {
   type WorkflowRunClaim,
   wakeExpiredWorkflowRuns,
 } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, type Result } from "@k2b/stdlib";
-import { scheduler } from "@k2b/sync";
 import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
-import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 import type {
   GridsWorkflow,
   GridsWorkflowChannel,
@@ -44,6 +44,7 @@ import type {
   WorkflowTriggerRuntimeState,
 } from "../workflows/contracts";
 import { GRIDS_EVENT } from "../workflows/events";
+import { gridsWorkflows } from "../workflows/module";
 import { canExecuteWorkflow } from "./workflow-action-scope";
 import { authorizeWorkflowTarget } from "./workflow-authorization";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
@@ -332,8 +333,8 @@ const workerId = `grids:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
  * `src/workflows.ts` be a plain vocabulary rather than a factory — and what
  * lets one port serve every run this worker claims.
  */
-const declaredWorkflowActions = createWorkflowActionPort(GRIDS_WORKFLOW_ACTIONS);
-const declaredWorkflowDryRunActions = createWorkflowDryRunPort(GRIDS_WORKFLOW_ACTIONS);
+const declaredWorkflowActions = createWorkflowActionPort(gridsWorkflows);
+const declaredWorkflowDryRunActions = createWorkflowDryRunPort(gridsWorkflows);
 const builtinWorkflowActions = createWorkflowBuiltinActionPorts({
   authorize: async (context): Promise<WorkflowExecutionError | undefined> => {
     const scope = await getWorkflowRunScope(context.run.runId);

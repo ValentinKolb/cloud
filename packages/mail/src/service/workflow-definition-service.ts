@@ -1,3 +1,4 @@
+import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { audit } from "@valentinkolb/cloud/services";
 import type { WorkflowBoundPlan, WorkflowDiagnostic, WorkflowIr, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
@@ -7,7 +8,6 @@ import {
   renameWorkflow,
   type WorkflowActivationInput,
 } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type {
   ActivateWorkflowInput,
@@ -28,7 +28,7 @@ import type {
 import { buildMailWorkflowCompletions } from "../workflows/authoring";
 import { bindMailWorkflow } from "../workflows/binder";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
-import { mailWorkflowManifest } from "../workflows/manifest";
+import { mailWorkflows } from "../workflows/module";
 import { validateMailWorkflowTemplates } from "../workflows/template-validation";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
@@ -186,7 +186,7 @@ export const validateMailWorkflowSource = async (params: {
   source: string;
   db?: SqlClient;
 }): Promise<WorkflowValidation> => {
-  const compiled = await compileWorkflow(params.source, mailWorkflowManifest);
+  const compiled = await compileWorkflow(params.source, mailWorkflows);
   if (!compiled.ok) {
     return { valid: false, source: params.source, sourceHash: null, ir: null, boundPlan: null, diagnostics: compiled.diagnostics };
   }
@@ -238,7 +238,7 @@ export const autocompleteWorkflow = async (params: {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const catalog = await loadMailWorkflowCatalog(params);
-  const compiled = await compileWorkflow(params.input.source, mailWorkflowManifest);
+  const compiled = await compileWorkflow(params.input.source, mailWorkflows);
   const bound = compiled.ok ? await bindMailWorkflow(compiled.ir, catalog) : null;
   const diagnostics = !compiled.ok ? compiled.diagnostics : bound && !bound.ok ? bound.diagnostics : [];
   return ok({

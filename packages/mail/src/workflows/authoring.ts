@@ -5,7 +5,7 @@ import {
   workflowCompletionItem,
 } from "@valentinkolb/cloud/workflows";
 import type { MailWorkflowCatalog, MailWorkflowCatalogEntry, MailWorkflowCatalogIndex } from "./catalog";
-import { mailWorkflowManifest } from "./manifest";
+import { mailWorkflows } from "./module";
 
 const uniqueEntries = <T extends MailWorkflowCatalogEntry>(index: MailWorkflowCatalogIndex<T>): T[] =>
   [...new Map([...index.refs.values()].map((entry) => [entry.id, entry])).values()].sort(
@@ -34,5 +34,5 @@ export const buildMailWorkflowCompletions = (source: string, caret: number, cata
   if (entries) {
     return entries.map((entry) => workflowCompletionItem(context, "source", entry.name, JSON.stringify(entry.name), entry.id));
   }
-  return buildWorkflowManifestCompletions(source, caret, mailWorkflowManifest);
+  return buildWorkflowManifestCompletions(source, caret, mailWorkflows);
 };

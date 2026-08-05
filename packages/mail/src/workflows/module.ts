@@ -1,6 +1,6 @@
-import { type WorkflowFieldSchema, type WorkflowLanguageManifest, workflowBuiltinActionDescriptors } from "@valentinkolb/cloud/workflows";
-import { workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
+import { defineWorkflowModule, type WorkflowFieldSchema } from "@valentinkolb/cloud/workflows";
 import { MAIL_WORKFLOW_ACTIONS } from "./actions";
+import { mailWorkflowEvents } from "./events";
 
 const text = (description: string, optional = false, maxLength = 1_000): WorkflowFieldSchema => ({
   kind: "string",
@@ -16,7 +16,7 @@ const object = (properties: Record<string, WorkflowFieldSchema>): WorkflowFieldS
 const referenceInput = () =>
   object({ required: { kind: "boolean", optional: true, description: "Whether callers must provide this input." } });
 
-export const mailWorkflowManifest: WorkflowLanguageManifest = {
+export const mailWorkflows = defineWorkflowModule({
   id: "mail",
   version: 1,
   limits: {
@@ -67,5 +67,6 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       }),
     },
   ],
-  actions: [...workflowActionDescriptors(MAIL_WORKFLOW_ACTIONS), ...workflowBuiltinActionDescriptors],
-};
+  actions: MAIL_WORKFLOW_ACTIONS,
+  events: mailWorkflowEvents,
+});
