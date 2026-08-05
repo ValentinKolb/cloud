@@ -474,6 +474,13 @@ steps:
     then:
       - succeed:
           message: ends
+  - if:
+      includes:
+        - "\${{ inputs.message.flags }}"
+        - "\${{ inputs.message.hasAttachments }}"
+    then:
+      - succeed:
+          message: includes
 `;
     const result = await bindMailWorkflow(await compile(source), catalog());
     expect(result.ok).toBe(false);
@@ -493,6 +500,11 @@ steps:
         code: "condition.type",
         message: "endsWith operand 1 resolves to mail.message, expected core.text",
         path: ["steps", 2, "if", "endsWith", 0],
+      },
+      {
+        code: "condition.type",
+        message: "includes operand 2 resolves to core.boolean, expected core.text",
+        path: ["steps", 3, "if", "includes", 1],
       },
     ]);
     expect(result.diagnostics[0]?.location).toEqual({

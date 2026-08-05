@@ -235,7 +235,7 @@ describe("workflow runtime executor", () => {
             conditions: [
               { operator: "contains", operands: ["\uFF26\uFF4F\uFF4F B\u00C4R", "foo"] },
               { operator: "textEquals", operands: ["\uFF30ERSON@EXAMPLE.COM", "person@example.com"] },
-              { operator: "contains", operands: [["first", "second"], "second"] },
+              { operator: "includes", operands: [["first", "second"], "second"] },
               {
                 operator: "any",
                 conditions: [

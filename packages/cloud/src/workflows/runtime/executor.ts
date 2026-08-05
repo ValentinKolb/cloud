@@ -307,11 +307,12 @@ const evaluateCondition = async (
   const right = await evaluateValue(state, scope, condition.operands[1], [...path, condition.operator, 1]);
   if (condition.operator === "equals") return jsonEqual(left, right);
   if (condition.operator === "notEquals") return !jsonEqual(left, right);
-  if (condition.operator === "contains" && Array.isArray(left)) return left.some((item) => jsonEqual(item, right));
+  if (condition.operator === "includes") {
+    if (!Array.isArray(left)) throw new WorkflowValueError("includes requires an array as its first operand");
+    return left.some((item) => jsonEqual(item, right));
+  }
   if (typeof left !== "string" || typeof right !== "string") {
-    throw new WorkflowValueError(
-      `${condition.operator} requires two text operands${condition.operator === "contains" ? " or an array and a value" : ""}`,
-    );
+    throw new WorkflowValueError(`${condition.operator} requires two text operands`);
   }
   const normalizedLeft = normalizeWorkflowText(left);
   const normalizedRight = normalizeWorkflowText(right);

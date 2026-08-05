@@ -332,6 +332,9 @@ steps:
   item:
     type: record
     table: Items
+  items:
+    type: recordList
+    table: Items
   label:
     type: text
   count:
@@ -346,6 +349,7 @@ steps:
               - startsWith: ["\${{ inputs.count }}", "1"]
               - exists: inputs.item.Status
         - endsWith: [null, "suffix"]
+        - includes: ["\${{ inputs.items }}", "\${{ inputs.count }}"]
     then:
       - succeed:
           message: matched
@@ -363,6 +367,9 @@ steps:
     );
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: "condition.type", path: ["steps", 0, "if", "all", 3, "endsWith", 0] }),
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "condition.type", path: ["steps", 0, "if", "all", 4, "includes", 1] }),
     );
     expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "reference.unknown" }));
   });

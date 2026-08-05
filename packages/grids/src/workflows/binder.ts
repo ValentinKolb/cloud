@@ -36,6 +36,7 @@ const textValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.tex
 const dateTimeValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.dateTime" };
 const recordValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "grids.record" };
 const gridsValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
+  "core.textArray": { kind: "array", type: "core.textArray", items: textValue },
   "grids.record": recordValue,
   "grids.recordList": { kind: "array", type: "grids.recordList", items: recordValue },
   "grids.document": {
@@ -394,6 +395,20 @@ const bindCondition = (
   }
   const operands = condition.operands.map((operand, index) => bindValue(operand, [...path, condition.operator, index], scope, context));
   if (condition.operator === "equals" || condition.operator === "notEquals") return;
+  if (condition.operator === "includes") {
+    const left = operands[0]!;
+    const right = operands[1]!;
+    if (left.kind !== "array" && left.type !== "core.value") {
+      addDiagnostic(context, "condition.type", `includes operand 1 has type ${left.type}, expected an array`, [...path, "includes", 0]);
+    } else if (left.kind === "array" && left.items.type !== "core.value" && right.type !== "core.value" && left.items.type !== right.type) {
+      addDiagnostic(context, "condition.type", `includes operand 2 has type ${right.type}, expected ${left.items.type}`, [
+        ...path,
+        "includes",
+        1,
+      ]);
+    }
+    return;
+  }
   operands.forEach((operand, index) => {
     const value = condition.operands[index];
     if (operand.type !== "core.text" && !(operand.type === "core.value" && typeof value === "string")) {

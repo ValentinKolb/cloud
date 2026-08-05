@@ -46,6 +46,7 @@ type BindingContext = {
 const textValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.text" };
 const booleanValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.boolean" };
 const dateTimeValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.dateTime" };
+const textArrayValue: WorkflowValuePathDescriptor = { kind: "array", type: "core.textArray", items: textValue };
 const referenceResult: WorkflowValuePathDescriptor = {
   kind: "object",
   type: "mail.reference",
@@ -137,8 +138,12 @@ const mailValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
       occurredAt: dateTimeValue,
     },
   },
+  "core.textArray": textArrayValue,
+  "mail.reference": referenceResult,
   "mail.draft": draftResult,
 };
+
+const actionTypes = new Map(manifest.actions.map((action) => [action.kind, action.outputType]));
 
 const valueDescriptor = (type: string): WorkflowValuePathDescriptor => mailValueDescriptors[type] ?? { kind: "scalar", type };
 
@@ -366,9 +371,32 @@ const bindCondition = (
   } else if (condition.operator === "exists") {
     resolveReference(condition.reference, [...path, "exists"], scope, context);
   } else {
-    condition.operands.forEach((operand, index) => {
+    const operands = condition.operands.map((operand, index) => {
       const operandPath = [...path, condition.operator, index];
       const value = bindValue(operand, operandPath, scope, context);
+      return { path: operandPath, value };
+    });
+    if (condition.operator === "includes") {
+      const left = operands[0]!;
+      const right = operands[1]!;
+      if (left.value.kind !== "array" && left.value.type !== "core.value") {
+        addDiagnostic(context, "condition.type", `includes operand 1 resolves to ${left.value.type}, expected an array`, left.path);
+      } else if (
+        left.value.kind === "array" &&
+        left.value.items.type !== "core.value" &&
+        right.value.type !== "core.value" &&
+        left.value.items.type !== right.value.type
+      ) {
+        addDiagnostic(
+          context,
+          "condition.type",
+          `includes operand 2 resolves to ${right.value.type}, expected ${left.value.items.type}`,
+          right.path,
+        );
+      }
+      return;
+    }
+    operands.forEach(({ path: operandPath, value }, index) => {
       if (
         (condition.operator === "textEquals" ||
           condition.operator === "contains" ||
@@ -396,6 +424,8 @@ const bindAction = (
 ): void => {
   const path = [...step.sourcePath, step.action];
   const config = step.config;
+  const outputType = actionTypes.get(step.action);
+  const output = outputType ? valueDescriptor(outputType) : undefined;
   const bindProviderTarget = (field = "message"): ValueInfo | null => {
     const message = expectReference(config[field], "mail.message", field, [...path, field], scope, context);
     if (message?.providerTarget) {
@@ -432,7 +462,6 @@ const bindAction = (
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
   } else if (step.action === "ensureConversationReference") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
-    defineValue(config.saveAs, referenceResult, [...path, "saveAs"], scope, context);
   } else if (step.action === "addLocalTag" || step.action === "removeLocalTag") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
     bindCatalogValue(config.tag, context.catalog.localTags, "local tag", [...path, "tag"], scope, context);
@@ -446,7 +475,6 @@ const bindAction = (
     if (config.bcc !== undefined) bindValue(config.bcc, [...path, "bcc"], scope, context);
     bindMessage(config.subject, [...path, "subject"], scope, context);
     bindMessage(config.body, [...path, "body"], scope, context);
-    defineValue(config.saveAs, draftResult, [...path, "saveAs"], scope, context);
   } else if (step.action === "scheduleDraftSend") {
     expectReference(config.draft, "mail.draft", "draft", [...path, "draft"], scope, context);
     if (config.scheduledAt !== undefined) bindValue(config.scheduledAt, [...path, "scheduledAt"], scope, context);
@@ -480,6 +508,8 @@ const bindAction = (
   } else if (step.action === "succeed" || step.action === "fail") {
     bindMessage(config.message, [...path, "message"], scope, context);
   }
+
+  if (step.action !== "setVariable" && output) defineValue(config.saveAs, output, [...path, "saveAs"], scope, context);
 };
 
 const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, providerTargets: Set<string>, context: BindingContext): void => {

@@ -230,6 +230,7 @@ steps:
   - if:
       all:
         - contains: ["\${{ inputs.subject }}", "STRASSE"]
+        - includes: [[urgent, finance], finance]
         - textEquals: ["\${{ inputs.sender }}", "PERSON@EXAMPLE.COM"]
         - not:
             any:
@@ -245,6 +246,7 @@ steps:
         operator: "all",
         conditions: [
           { operator: "contains", operands: ["${{ inputs.subject }}", "STRASSE"] },
+          { operator: "includes", operands: [["urgent", "finance"], "finance"] },
           { operator: "textEquals", operands: ["${{ inputs.sender }}", "PERSON@EXAMPLE.COM"] },
           {
             operator: "not",
