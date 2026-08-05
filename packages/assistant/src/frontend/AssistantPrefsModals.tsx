@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, prompts, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
+import { Button, Placeholder, prompts, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
 import type { AiApprovalPreferenceView, AiUserPrefs } from "@valentinkolb/cloud/ai";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -56,12 +56,10 @@ function ApprovalPreferences() {
         </div>
       </Show>
       <Show when={approvals.loading}>
-        <p class="text-sm text-secondary">Loading remembered approvals…</p>
+        <Placeholder state="loading" title="Loading remembered approvals" />
       </Show>
       <Show when={!approvals.loading && !approvals.error && (approvals()?.length ?? 0) === 0}>
-        <div class="rounded-lg border border-dashed p-4 text-sm text-secondary">
-          No remembered approvals. Actions will ask before they run.
-        </div>
+        <Placeholder title="No remembered approvals" description="Actions will ask before they run." />
       </Show>
       <Show when={!approvals.error && (approvals()?.length ?? 0) > 0}>
         <ul class="divide-y overflow-hidden rounded-lg border">
