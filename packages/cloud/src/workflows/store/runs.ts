@@ -454,6 +454,98 @@ export const requestWorkflowRunCancel = async (runId: string, options: { db?: SQ
   return rows.some((row) => row.id === runId);
 };
 
+const canceledWithUncertainEffect = {
+  code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN",
+  message: "The workflow was canceled while an external effect was still unresolved.",
+  retryable: false,
+} as const;
+
+/**
+ * Settles a cancellation owned by one worker generation.
+ *
+ * A canceled run with no uncertain effect is terminal. An effect that may have
+ * escaped remains an operator decision instead: calling that run canceled would
+ * hide the exact duplicate-effect risk the journal exists to expose.
+ */
+export const finishWorkflowRunCancel = async (
+  claim: { runId: string; executionGeneration: number },
+  options: { db?: SQL } = {},
+): Promise<{ state: "finished"; result: Extract<WorkflowRunResult, { state: "canceled" | "needs_attention" }> } | { state: "stale" }> => {
+  const db = options.db ?? sql;
+  return withTransaction(db, async (tx) => {
+    const [run] = await tx<{ id: string }[]>`
+      SELECT id FROM workflows.run
+      WHERE id = ${claim.runId}::uuid
+        AND execution_generation = ${claim.executionGeneration}
+        AND state = 'running'
+        AND cancel_requested_at IS NOT NULL
+      FOR UPDATE
+    `;
+    if (!run) return { state: "stale" } as const;
+
+    const unsettled = await tx<{ step_key: string }[]>`
+      UPDATE workflows.step_outcome
+      SET state = 'needs_attention',
+          outcome = ${{ mode: "execute", outcome: { state: "needs_attention", error: canceledWithUncertainEffect } }},
+          dependency = NULL,
+          finished_at = now(),
+          updated_at = now()
+      WHERE run_id = ${claim.runId}::uuid
+        AND effect_state IN ('executing', 'ambiguous')
+      RETURNING step_key
+    `;
+    const result =
+      unsettled.length > 0
+        ? ({ state: "needs_attention", error: canceledWithUncertainEffect } as const)
+        : ({ state: "canceled" } as const);
+    await tx`
+      UPDATE workflows.run
+      SET state = ${result.state},
+          result = NULL,
+          result_message = NULL,
+          error = ${result.state === "needs_attention" ? result.error : null},
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          retry_after = NULL,
+          wake_at = NULL,
+          finished_at = now(),
+          updated_at = now()
+      WHERE id = ${claim.runId}::uuid
+        AND execution_generation = ${claim.executionGeneration}
+        AND state = 'running'
+    `;
+    return { state: "finished", result } as const;
+  });
+};
+
+/** Finalizes canceled runs whose worker disappeared before observing the request. */
+export const finishExpiredWorkflowRunCancels = async (
+  limit: number,
+  options: { appId?: string; db?: SQL },
+): Promise<number> => {
+  const db = options.db ?? sql;
+  return withTransaction(db, async (tx) => {
+    const rows = await tx<{ id: string; execution_generation: string }[]>`
+      SELECT id, execution_generation
+      FROM workflows.run
+      WHERE (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+        AND state = 'running'
+        AND cancel_requested_at IS NOT NULL
+        AND lease_expires_at < now()
+      ORDER BY lease_expires_at, id
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    `;
+    for (const row of rows) {
+      await finishWorkflowRunCancel(
+        { runId: row.id, executionGeneration: Number(row.execution_generation) },
+        { db: tx },
+      );
+    }
+    return rows.length;
+  });
+};
+
 /** The coordinator's view of the store, so `coordinateWorkflowExecution` drives it directly. */
 export const createWorkflowCoordinatorPort = (options: {
   worker: string;

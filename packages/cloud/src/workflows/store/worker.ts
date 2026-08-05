@@ -28,6 +28,8 @@ import {
   claimWorkflowRun,
   createWorkflowCoordinatorPort,
   createWorkflowRuntimeRepository,
+  finishExpiredWorkflowRunCancels,
+  finishWorkflowRunCancel,
   WORKFLOW_RUN_LEASE_MS,
   WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES,
   type WorkflowRunClaim,
@@ -227,8 +229,18 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
       await traceRun(options.trace, { type: "run.finished", run: runIdentity(outcome.claim, "execute"), state: "released" });
       return { state: "released", runId: outcome.claim.runId, error: outcome.error };
     case "stale":
-    case "canceled":
       return { state: "lost", runId: outcome.claim.runId };
+    case "canceled":
+      {
+        const finished = await finishWorkflowRunCancel(outcome.claim, { db });
+        if (finished.state === "stale") return { state: "lost", runId: outcome.claim.runId };
+        await traceRun(options.trace, {
+          type: "run.finished",
+          run: runIdentity(outcome.claim, "execute"),
+          state: finished.result.state,
+        });
+        return { state: "finished", runId: outcome.claim.runId, result: finished.result };
+      }
   }
 };
 
@@ -326,8 +338,13 @@ export const dryRunOneWorkflow = async (options: WorkflowDryRunWorkerOptions & {
       await traceRun(options.trace, { type: "run.finished", run: runIdentity(outcome.claim, "dryRun"), state: "released" });
       return { state: "released", runId: outcome.claim.runId, error: outcome.error };
     case "stale":
-    case "canceled":
       return { state: "lost", runId: outcome.claim.runId };
+    case "canceled":
+      {
+        const finished = await finishWorkflowRunCancel(outcome.claim, { db });
+        if (finished.state === "stale") return { state: "lost", runId: outcome.claim.runId };
+        return { state: "finished", runId: outcome.claim.runId, result: planned as unknown as WorkflowDryRunResult };
+      }
   }
 };
 
@@ -353,6 +370,7 @@ export type WorkflowTickResult = {
 export const tickWorkflows = async (options: WorkflowWorkerOptions & { maxRuns?: number }): Promise<WorkflowTickResult> => {
   const db = options.db ?? sql;
   const dispatch = await dispatchPendingWorkflowEvents(100, { appId: options.appId, db });
+  await finishExpiredWorkflowRunCancels(100, { appId: options.appId, db });
   const woken = await wakeExpiredWorkflowRuns(100, { appId: options.appId, db });
 
   let executed = 0;

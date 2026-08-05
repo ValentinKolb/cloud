@@ -17,7 +17,13 @@ import type { WorkflowExecuteActionHandler, WorkflowExecuteActionPort } from "..
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
 import { getWorkflowRun } from "./observability";
-import { claimWorkflowRun, createWorkflowRun } from "./runs";
+import {
+  beginWorkflowEffect,
+  claimWorkflowRun,
+  createWorkflowRun,
+  createWorkflowRuntimeRepository,
+  requestWorkflowRunCancel,
+} from "./runs";
 import { dryRunOneWorkflow, runOneWorkflow, tickWorkflows } from "./worker";
 
 let readiness: Promise<boolean> | null = null;
@@ -133,6 +139,79 @@ describe("workflow worker", () => {
     expect(detail?.state).toBe("failed");
     // The failure is on the run, readable without digging through logs.
     expect(JSON.stringify(detail?.error)).toContain("provider refused");
+  });
+
+  test("a running cancel is finalized by the worker that observes it", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.cancel")], ["probe.cancel"]);
+    const { appId, scopeId } = await workflowListening("probe.cancel", plan);
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.cancel" }, { dispatch: "now" });
+    const runId = emission.runIds[0]!;
+
+    const outcome = await runOneWorkflow({
+      worker: "w1",
+      appId,
+      runId,
+      actions: port({
+        "probe.cancel": async () => {
+          expect(await requestWorkflowRunCancel(runId)).toBe(true);
+          return { state: "completed", output: null };
+        },
+      }),
+    });
+
+    expect(outcome).toMatchObject({ state: "finished", runId, result: { state: "canceled" } });
+    expect((await getWorkflowRun(runId))?.state).toBe("canceled");
+  });
+
+  test("an expired canceled claim is finalized by the next app tick", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.never")], ["probe.never"]);
+    const { appId, scopeId } = await workflowListening("probe.cancel-crash", plan);
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.cancel-crash" }, { dispatch: "now" });
+    const runId = emission.runIds[0]!;
+    expect(await claimWorkflowRun({ worker: "dead", appId, runId })).not.toBeNull();
+    expect(await requestWorkflowRunCancel(runId)).toBe(true);
+    await sql`UPDATE workflows.run SET lease_expires_at = now() - interval '1 second' WHERE id = ${runId}::uuid`;
+
+    await tickWorkflows({ worker: "w2", appId, actions: port({}) });
+
+    expect((await getWorkflowRun(runId))?.state).toBe("canceled");
+  });
+
+  test("canceling an expired claim keeps an uncertain effect visible", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.uncertain")], ["probe.uncertain"]);
+    const { appId, scopeId } = await workflowListening("probe.cancel-uncertain", plan);
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.cancel-uncertain" }, { dispatch: "now" });
+    const runId = emission.runIds[0]!;
+    const claim = await claimWorkflowRun({ worker: "dead", appId, runId });
+    expect(claim).not.toBeNull();
+    const step = {
+      runId,
+      executionGeneration: claim!.executionGeneration,
+      workflowId: claim!.workflowId,
+      sourceHash: claim!.sourceHash,
+      idempotencyKey: claim!.idempotencyKey,
+      key: "probe.uncertain",
+      sourcePath: ["steps", 0],
+      iterationPath: [],
+      path: ["steps", 0],
+      kind: "action" as const,
+      action: "probe.uncertain",
+      mode: "execute" as const,
+    };
+    await createWorkflowRuntimeRepository().startStep(step);
+    await beginWorkflowEffect(step, "uncertain-effect");
+    expect(await requestWorkflowRunCancel(runId)).toBe(true);
+    await sql`UPDATE workflows.run SET lease_expires_at = now() - interval '1 second' WHERE id = ${runId}::uuid`;
+
+    await tickWorkflows({ worker: "w2", appId, actions: port({}) });
+
+    const detail = await getWorkflowRun(runId);
+    expect(detail?.state).toBe("needs_attention");
+    expect(detail?.steps[0]).toMatchObject({ state: "needs_attention", effectState: "executing" });
+    expect(JSON.stringify(detail?.error)).toContain("WORKFLOW_EFFECT_OUTCOME_UNKNOWN");
   });
 
   test("a lost lease mid-run does not repeat the step that already landed", async () => {
