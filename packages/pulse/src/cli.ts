@@ -33,6 +33,15 @@ type IngestResult = { metrics: number; events: number; states: number };
 const module = defineCliCommands({
   name: "pulse",
   summary: "Inspect Pulse data and manage Pulse bases, sources, queries, and dashboards.",
+  groupSummaries: {
+    access: "Manage direct access to Pulse bases",
+    dashboards: "Create, inspect, and publish Pulse dashboards",
+    fields: "Inspect observed telemetry fields",
+    query: "Compile, run, and manage Pulse queries",
+    resources: "Inspect Pulse resources, metrics, states, and events",
+    "source-tokens": "Manage HTTP ingest tokens for Pulse sources",
+    sources: "Create, inspect, and manage Pulse sources",
+  },
   commands: [
     command("capabilities", {
       summary: "Show Pulse deployment capabilities",

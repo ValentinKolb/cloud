@@ -341,6 +341,10 @@ const dateRangeFlags = {
 export default defineCliCommands({
   name: "spaces",
   summary: "Inspect and update Spaces through the Spaces REST API.",
+  groupSummaries: {
+    access: "Manage direct access to spaces",
+    invitation: "Prepare Mail invitations for Space events",
+  },
   commands: [
     command("list", {
       summary: "List spaces",

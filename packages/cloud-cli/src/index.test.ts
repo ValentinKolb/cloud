@@ -207,6 +207,27 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stdout).toContain("--permission <value>");
   });
 
+  test("app command groups use domain-specific help summaries", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    const [accounts, grids, mail, tools] = await Promise.all([
+      runCli(configPath, ["accounts", "help"]),
+      runCli(configPath, ["grids", "dashboards", "help"]),
+      runCli(configPath, ["mail", "admin", "security", "help"]),
+      runCli(configPath, ["tools", "help"]),
+    ]);
+
+    for (const result of [accounts, grids, mail, tools]) {
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).not.toMatch(/^\s+\S+\s+Commands$/m);
+    }
+    expect(accounts.stdout).toContain("groups         Create, inspect, and manage groups");
+    expect(grids.stdout).toContain("widgets        Resolve and run dashboard widgets");
+    expect(mail.stdout).toContain("identity       Manage protected sender identities");
+    expect(tools.stdout).toContain("password       Generate passwords and estimate password strength");
+  });
+
   test("Pulse access help uses the shared offline access command shape", async () => {
     const dir = await createTempDir();
     const configPath = join(dir, "config.json");

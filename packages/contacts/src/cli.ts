@@ -745,6 +745,9 @@ const contactTargetArgs = {
 export default defineCliCommands({
   name: "contacts",
   summary: "Manage contact books, contacts, notes, tags, and exports.",
+  groupSummaries: {
+    access: "Manage direct access to contact books",
+  },
   commands: [
     command("books", {
       summary: "List contact books",

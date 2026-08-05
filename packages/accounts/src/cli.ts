@@ -536,6 +536,16 @@ const relationEntities = async (
 export default defineCliCommands({
   name: "accounts",
   summary: "Manage accounts, groups, requests, audit events, and service-account credentials.",
+  groupSummaries: {
+    audit: "Inspect account administration audit events",
+    groups: "Create, inspect, and manage groups",
+    requests: "Review and resolve account requests",
+    "service-accounts": "Inspect and revoke service-account credentials",
+    users: "Create, inspect, and manage user accounts",
+    "groups managers": "Manage group managers",
+    "groups members": "Manage group membership",
+    "users avatar": "Download, replace, or remove account avatars",
+  },
   commands: [
     command("users list", {
       summary: "List accounts",

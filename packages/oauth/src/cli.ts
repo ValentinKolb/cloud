@@ -120,6 +120,9 @@ const updateInput = (flags: {
 export default defineCliCommands({
   name: "oauth",
   summary: "Manage OAuth clients.",
+  groupSummaries: {
+    clients: "Create, inspect, and manage OAuth clients",
+  },
   commands: [
     command("clients list", {
       summary: "List OAuth clients",

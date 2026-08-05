@@ -1329,6 +1329,9 @@ const editFlags = {
 export default defineCliCommands({
   name: "notebooks",
   summary: "Manage notebooks, notes, search, attachments, access, exports, and snapshots.",
+  groupSummaries: {
+    access: "Manage direct access to notebooks",
+  },
   commands: [
     command("list", {
       summary: "List notebooks",

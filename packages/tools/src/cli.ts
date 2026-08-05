@@ -482,6 +482,15 @@ export default defineCliCommands({
   name: "tools",
   summary: "Run local utilities such as passwords, encoding, hashes, QR codes, encryption, and speedtests.",
   requiresCloud: false,
+  groupSummaries: {
+    decode: "Decode base32, base64, or hexadecimal text",
+    decrypt: "Decrypt text with symmetric or asymmetric keys",
+    encode: "Encode text as base32, base64, or hexadecimal",
+    encrypt: "Encrypt text or generate an asymmetric keypair",
+    hash: "Hash text with supported digest algorithms",
+    password: "Generate passwords and estimate password strength",
+    qr: "Generate text and WiFi QR codes",
+  },
   commands: [
     command("password random", {
       summary: "Generate random passwords",

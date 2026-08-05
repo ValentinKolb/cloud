@@ -243,6 +243,13 @@ const printMutationResult = (ctx: CloudCliContext, result: unknown, fallback: st
 export default defineCliCommands({
   name: "venue",
   summary: "Manage venues.",
+  groupSummaries: {
+    access: "Manage direct access to venues",
+    "api-keys": "Create, inspect, and revoke venue API keys",
+    "opening-rules": "Manage recurring venue opening rules",
+    sections: "Manage public venue sections",
+    shifts: "Inspect and cancel venue shift assignments",
+  },
   commands: [
     command("list", {
       summary: "List accessible venues",
