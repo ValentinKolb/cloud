@@ -45,7 +45,6 @@ export default function PasskeyLoginButton(props: { redirectTo?: string }) {
         {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-key" />}
         Continue with passkey
       </Button>
-      <p class="text-center text-xs text-dimmed">You can add passkeys from your profile page.</p>
       {mutation.error() && (
         <div class="info-block-danger">
           <span>{mutation.error()?.message}</span>

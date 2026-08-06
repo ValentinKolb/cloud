@@ -98,8 +98,7 @@ export default ssr(async (c) => {
             </div>
 
             <div class="max-w-md">
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-400">Secure access</p>
-              <h1 class="mt-3 text-3xl font-semibold tracking-tight text-primary" style={{ "view-transition-name": "page-title" }}>
+              <h1 class="text-3xl font-semibold tracking-tight text-primary" style={{ "view-transition-name": "page-title" }}>
                 Welcome back
               </h1>
               <p class="mt-4 text-sm leading-6 text-dimmed">
@@ -110,16 +109,10 @@ export default ssr(async (c) => {
 
           <main class="flex items-center justify-center p-6 sm:p-10">
             <div class="w-full max-w-md" style={{ "view-transition-name": "login-card" }}>
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <h1 class="sr-only">Sign in</h1>
-                  <h2 class="text-3xl font-semibold tracking-tight text-primary">{formTitle}</h2>
-                  <p class="mt-1 text-sm text-dimmed">{formSubtitle}</p>
-                </div>
-                <span class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 shadow-sm dark:bg-emerald-950/45 dark:text-emerald-300">
-                  <i class="ti ti-shield-lock" />
-                  Secure
-                </span>
+              <div>
+                <h1 class="sr-only">Sign in</h1>
+                <h2 class="text-3xl font-semibold tracking-tight text-primary">{formTitle}</h2>
+                <p class="mt-1 text-sm text-dimmed">{formSubtitle}</p>
               </div>
 
               {showPasskey && (
