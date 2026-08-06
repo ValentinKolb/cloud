@@ -3994,6 +3994,7 @@ const migrations: readonly MailMigration[] = [
   { version: 108, name: "guided_ai_automations", run: addGuidedAiAutomations },
   { version: 109, name: "unified_incoming_automations", run: unifyIncomingAutomations },
   { version: 110, name: "compound_incoming_automation_steps", run: resetIncomingAutomationAuthoringModel },
+  { version: 111, name: "workflow_aligned_incoming_automation_steps", run: resetIncomingAutomationAuthoringModel },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

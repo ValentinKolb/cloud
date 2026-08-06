@@ -26,11 +26,13 @@ Mailbox admins create one guided flow under **Automations > Incoming mail** or s
 Add steps in the order they should run. A flow can freely mix:
 
 - **Mail action** to move, mark, label, tag, assign, or change conversation status.
-- **AI generate text** to write bounded text and create a reviewable reply draft from it in the same block.
-- **AI classify** to choose exactly one category and run the Mail or AI steps configured directly below that result.
-- **AI classify many** to choose up to the configured maximum of matching categories. Actions from multiple matching categories can run together.
+- **AI generate text** to produce bounded text for later steps.
+- **AI classify** to produce exactly one configured category.
+- **AI classify many** to produce up to the configured maximum of matching categories.
+- **Create reply draft** or **Add internal comment** to consume an earlier text output.
+- **If output matches** to run normal Mail or AI steps in a Then or Else branch.
 
-AI output wiring is automatic in this guided editor. Configure the reply-draft sender inside **AI generate text**, and configure classification routes directly with each choice. Nested routes can again contain Mail actions or AI blocks.
+AI results remain normal workflow outputs. A later compatible step explicitly selects its source, and a condition explicitly selects the output and value it compares. **Use output** and **Add condition** are shortcuts that add those ordinary following steps; they do not hide extra behavior inside the AI block. Then and Else branches can again contain Mail actions, AI steps, output consumers, or conditions.
 
 Mail generates canonical workflow YAML from the flow and shows it read-only in the editor. Steps run from top to bottom through the shared workflow runtime. If a later step fails, effects from earlier completed steps remain. Editing the flow publishes a new immutable workflow version; changing only the name or active state does not duplicate identical source. Destructive actions cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
@@ -38,9 +40,9 @@ Text conditions support exact, contains, starts-with, and ends-with matching. Re
 
 New incoming automations start inactive. A deterministic flow can preview and process existing matching messages with a resumable backfill. The durable cursor survives restarts, a failed message is retried without stopping unrelated workflow runs, and a repeated backfill skips messages already accepted for the same immutable version. The automation menu shows progress and lets you cancel or run it again.
 
-Any flow containing an AI step processes only future messages. Conditions run before AI. The Safety section shows the maximum number of AI calls per matching message. AI can classify or write incorrectly, so keep category descriptions precise and review the first runs under **Activity**. Reply automation only creates drafts for human review and never sends them.
+Any flow containing an AI step processes only future messages. Mail matching conditions run before AI. The Safety section shows the maximum number of AI calls per matching message. AI can classify or write incorrectly, so keep category descriptions precise and review the first runs under **Activity**. A generated text output has no effect until a later step uses it. Reply automation only creates drafts for human review and never sends them.
 
-For automation through `cld`, use `mail automation catalog` to discover valid IDs. `mail automation create` and `mail automation update` accept the complete guided definition as JSON or YAML through `--definition-file` or `--definition-stdin`, including `scope` and the ordered `steps` tree. This keeps CLI and UI behavior identical, including nested AI routes.
+For automation through `cld`, use `mail automation catalog` to discover valid IDs. `mail automation create` and `mail automation update` accept the complete guided definition as JSON or YAML through `--definition-file` or `--definition-stdin`, including `scope` and the ordered `steps` tree. This keeps CLI and UI behavior identical, including output references and nested conditions.
 
 The platform workflow model is used automatically; Mail does not expose a separate model choice. Use advanced **Workflows** only when the guided building blocks do not cover the task.
 

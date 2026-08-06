@@ -50,7 +50,7 @@ import { waitForMailPageTransition } from "./mail-page-transition";
 export type IncomingAutomationPreset = "blank" | "ai-route" | "ai-tag" | "ai-draft";
 
 const stepId = (): string => crypto.randomUUID();
-const choice = (name: string, description: string, steps: MailAutomationStep[] = []) => ({ id: stepId(), name, description, steps });
+const choice = (name: string, description: string) => ({ name, description });
 const mailActionStep = (action: MailAutomationAction): MailAutomationStep => ({ id: stepId(), kind: "mail_action", action });
 const directActionOrder: readonly AutomationActionKind[] = [
   "mark_read",
@@ -83,106 +83,145 @@ const nextMailAction = (
 };
 const activeBackfillStates = new Set<IncomingAutomationBackfill["state"]>(["queued", "running", "waiting"]);
 
-const classificationStep = (
+type AutomationOutput = {
+  id: string;
+  label: string;
+  type: "text" | "text_array";
+  choices: string[];
+};
+
+const outputForStep = (step: MailAutomationStep, index: number): AutomationOutput | null => {
+  if (step.kind === "ai_generate_text") return { id: step.id, label: `Generated text · step ${index + 1}`, type: "text", choices: [] };
+  if (step.kind === "ai_classify") {
+    return { id: step.id, label: `Classification · step ${index + 1}`, type: "text", choices: step.choices.map((item) => item.name) };
+  }
+  if (step.kind === "ai_classify_many") {
+    return {
+      id: step.id,
+      label: `Classifications · step ${index + 1}`,
+      type: "text_array",
+      choices: step.choices.map((item) => item.name),
+    };
+  }
+  return null;
+};
+
+const outputReferencesResolve = (steps: readonly MailAutomationStep[], inherited: ReadonlySet<string>): boolean => {
+  const available = new Set(inherited);
+  for (const step of steps) {
+    if ((step.kind === "create_reply_draft" || step.kind === "add_comment") && !available.has(step.body.sourceStepId)) return false;
+    if (step.kind === "if") {
+      if (!available.has(step.condition.sourceStepId)) return false;
+      if (!outputReferencesResolve(step.then, available) || !outputReferencesResolve(step.else, available)) return false;
+    }
+    if (step.kind === "ai_generate_text" || step.kind === "ai_classify" || step.kind === "ai_classify_many") available.add(step.id);
+  }
+  return true;
+};
+
+const ifStep = (
+  output: AutomationOutput,
+  value: string,
+  then: MailAutomationStep[] = [],
+  otherwise: MailAutomationStep[] = [],
+): MailAutomationStep => ({
+  id: stepId(),
+  kind: "if",
+  condition: { sourceStepId: output.id, operator: output.type === "text_array" ? "includes" : "equals", value },
+  then,
+  else: otherwise,
+});
+
+const classificationSteps = (
   many: boolean,
   catalog: MailWorkflowCatalogSnapshot,
   actions: MailAutomationAction[] = [],
-): MailAutomationStep => {
+): MailAutomationStep[] => {
   const available = mailAutomationActionKindsFor({ actions, catalog });
   const fallbackAction = nextMailAction(actions, catalog, branchActionOrder);
-  const caseSteps = (index: number): MailAutomationStep[] => {
-    if (many) {
-      if (index !== 0) return [];
-      if (available.includes("set_status")) return [mailActionStep({ kind: "set_status", status: "needs_action" })];
-      return fallbackAction ? [mailActionStep(fallbackAction)] : [];
-    }
-    if (available.includes("set_status")) {
-      return [mailActionStep({ kind: "set_status", status: index === 0 ? "needs_action" : "done" })];
-    }
-    return index === 0 && fallbackAction ? [mailActionStep(fallbackAction)] : [];
-  };
   const choices = [
-    choice("Important", "Needs personal attention or a timely response", caseSteps(0)),
-    choice("Routine", "Can be handled as routine mail", caseSteps(1)),
+    choice("Important", "Needs personal attention or a timely response"),
+    choice("Routine", "Can be handled as routine mail"),
   ];
-  return many
+  const classifier: MailAutomationStep = many
     ? {
         id: stepId(),
         kind: "ai_classify_many",
         instructions: "Choose the categories that best apply to this message.",
         choices,
         maxChoices: 2,
-        fallback: [],
       }
     : {
         id: stepId(),
         kind: "ai_classify",
         instructions: "Choose the single best category for this message.",
         choices,
-        fallback: [],
       };
+  const output = outputForStep(classifier, 0)!;
+  const primaryAction = available.includes("set_status")
+    ? mailActionStep({ kind: "set_status", status: "needs_action" })
+    : fallbackAction
+      ? mailActionStep(fallbackAction)
+      : null;
+  if (!primaryAction) return [classifier];
+  const otherwise = !many && available.includes("set_status") ? [mailActionStep({ kind: "set_status", status: "done" })] : [];
+  return [classifier, ifStep(output, choices[0]!.name, [primaryAction], otherwise)];
 };
 
-const draftStep = (catalog: MailWorkflowCatalogSnapshot): MailAutomationStep | null => {
+const generatedTextStep = (): Extract<MailAutomationStep, { kind: "ai_generate_text" }> => ({
+  id: stepId(),
+  kind: "ai_generate_text",
+  instructions: "Write concise, useful text based on the incoming message. Do not invent facts or commitments.",
+  maxOutputChars: 4_000,
+});
+
+const replyDraftStep = (
+  sourceStepId: string,
+  catalog: MailWorkflowCatalogSnapshot,
+): Extract<MailAutomationStep, { kind: "create_reply_draft" }> | null => {
   const identity = (catalog.senderIdentities ?? [])[0];
   if (!identity) return null;
-  return {
-    id: stepId(),
-    kind: "ai_generate_text",
-    instructions: "Write a concise, helpful reply in the language of the incoming message. Do not invent facts or commitments.",
-    maxOutputChars: 4_000,
-    replyDraft: { senderIdentityId: identity.id },
-  };
+  return { id: stepId(), kind: "create_reply_draft", body: { sourceStepId }, senderIdentityId: identity.id };
 };
 
 const presetSteps = (preset: IncomingAutomationPreset, catalog: MailWorkflowCatalogSnapshot): MailAutomationStep[] => {
-  if (preset === "ai-route") return [classificationStep(false, catalog)];
+  if (preset === "ai-route") return classificationSteps(false, catalog);
   if (preset === "ai-tag") {
     const tags = (catalog.localTags ?? []).slice(0, 4);
     if (tags.length >= 2) {
       const maxChoices = Math.min(3, tags.length);
-      return [
-        {
-          id: stepId(),
-          kind: "ai_classify_many",
-          instructions: "Choose the matching tags for this message.",
-          choices: tags.map((tag) =>
-            choice(tag.name, `The message belongs to the ${tag.name} category`, [mailActionStep({ kind: "add_local_tag", tagId: tag.id })]),
-          ),
-          maxChoices,
-          fallback: [],
-        },
-      ];
+      const classifier: MailAutomationStep = {
+        id: stepId(),
+        kind: "ai_classify_many",
+        instructions: "Choose the matching tags for this message.",
+        choices: tags.map((tag) => choice(tag.name, `The message belongs to the ${tag.name} category`)),
+        maxChoices,
+      };
+      const output = outputForStep(classifier, 0)!;
+      return [classifier, ...tags.map((tag) => ifStep(output, tag.name, [mailActionStep({ kind: "add_local_tag", tagId: tag.id })]))];
     }
     return [];
   }
   if (preset === "ai-draft") {
-    const step = draftStep(catalog);
-    return step ? [step] : [];
+    const generated: Extract<MailAutomationStep, { kind: "ai_generate_text" }> = {
+      ...generatedTextStep(),
+      instructions: "Write a concise, helpful reply in the language of the incoming message. Do not invent facts or commitments.",
+    };
+    const draft = replyDraftStep(generated.id, catalog);
+    return draft ? [generated, draft] : [];
   }
   return [mailActionStep(initialMailAutomationAction("mark_read", catalog))];
 };
 
 const flattenSteps = (steps: readonly MailAutomationStep[]): MailAutomationStep[] =>
-  steps.flatMap((step) =>
-    step.kind === "ai_classify" || step.kind === "ai_classify_many"
-      ? [step, ...step.choices.flatMap((candidate) => flattenSteps(candidate.steps)), ...flattenSteps(step.fallback)]
-      : [step],
-  );
+  steps.flatMap((step) => (step.kind === "if" ? [step, ...flattenSteps(step.then), ...flattenSteps(step.else)] : [step]));
 
 const hasAi = (steps: readonly MailAutomationStep[]): boolean => flattenSteps(steps).some((step) => step.kind.startsWith("ai_"));
 const maxAiCalls = (steps: readonly MailAutomationStep[]): number =>
   steps.reduce((total, step) => {
-    if (step.kind === "mail_action") return total;
-    if (step.kind === "ai_generate_text") return total + 1;
-    const routeCalls = step.choices.map((candidate) => maxAiCalls(candidate.steps));
-    const fallbackCalls = maxAiCalls(step.fallback);
-    if (step.kind === "ai_classify") return total + 1 + Math.max(fallbackCalls, 0, ...routeCalls);
-    const matchingCalls = routeCalls
-      .toSorted((left, right) => right - left)
-      .slice(0, step.maxChoices)
-      .reduce((sum, calls) => sum + calls, 0);
-    return total + 1 + Math.max(fallbackCalls, matchingCalls);
+    if (step.kind.startsWith("ai_")) return total + 1;
+    if (step.kind === "if") return total + Math.max(maxAiCalls(step.then), maxAiCalls(step.else));
+    return total;
   }, 0);
 const scopeLabel = (scope: MailAutomationScope): string => {
   if (scope.mode === "all") return "All incoming mail";
@@ -204,8 +243,6 @@ const flowLabel = (automation: IncomingAutomation, catalog: MailWorkflowCatalogS
 
 function ChoiceEditor(props: {
   step: Extract<MailAutomationStep, { kind: "ai_classify" | "ai_classify_many" }>;
-  availableActions: MailAutomationAction[];
-  catalog: MailWorkflowCatalogSnapshot;
   context?: string;
   onChange: (step: Extract<MailAutomationStep, { kind: "ai_classify" | "ai_classify_many" }>) => void;
 }) {
@@ -222,18 +259,11 @@ function ChoiceEditor(props: {
       ...props.step,
       choices: props.step.choices.map((candidate, candidateIndex) => (candidateIndex === index ? { ...candidate, ...patch } : candidate)),
     });
-  const siblingActions = (index: number): MailAutomationAction[] =>
-    props.step.kind === "ai_classify_many"
-      ? props.step.choices
-          .filter((_, choiceIndex) => choiceIndex !== index)
-          .flatMap((candidate) => flattenSteps(candidate.steps).flatMap((step) => (step.kind === "mail_action" ? [step.action] : [])))
-      : [];
-
   return (
-    <div class="flex flex-col gap-3">
+    <div class="flex flex-col gap-2">
       <Index each={props.step.choices}>
         {(candidate, index) => (
-          <div class="rounded-[var(--ui-radius-control)] border-l-2 border-[var(--ui-accent)] bg-[var(--ui-surface)] p-3">
+          <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
             <div class="grid gap-2 md:grid-cols-[minmax(8rem,0.6fr)_minmax(12rem,1fr)_auto]">
               <TextInput
                 label={`Choice ${index + 1}`}
@@ -261,23 +291,6 @@ function ChoiceEditor(props: {
                 </IconButton>
               </div>
             </div>
-            <div class="mt-3">
-              <strong class="text-xs text-primary">When “{candidate().name || `Choice ${index + 1}`}” matches</strong>
-              <p class="mb-2 text-[11px] text-dimmed">
-                {props.step.kind === "ai_classify_many"
-                  ? "These actions can run together with actions from other matching choices."
-                  : "These actions run for this classification result."}
-              </p>
-              <AutomationStepsEditor
-                steps={candidate().steps}
-                availableActions={[...props.availableActions, ...siblingActions(index)]}
-                catalog={props.catalog}
-                labelContext={[props.context, `When ${candidate().name || `choice ${index + 1}`} matches`].filter(Boolean).join(", ")}
-                allowEmpty
-                maxSteps={12}
-                onChange={(steps) => replace(index, { steps })}
-              />
-            </div>
           </div>
         )}
       </Index>
@@ -304,20 +317,35 @@ function ChoiceEditor(props: {
 function AutomationStepsEditor(props: {
   steps: MailAutomationStep[];
   availableActions: MailAutomationAction[];
+  availableOutputs?: AutomationOutput[];
   catalog: MailWorkflowCatalogSnapshot;
   allowEmpty?: boolean;
   maxSteps?: number;
   labelContext?: string;
   onChange: (steps: MailAutomationStep[]) => void;
 }) {
+  const [expandedStepIds, setExpandedStepIds] = createSignal(new Set(props.steps.slice(0, 1).map((step) => step.id)));
   const actionsBefore = (index: number): MailAutomationAction[] => [
     ...props.availableActions,
     ...flattenSteps(props.steps.slice(0, index)).flatMap((step) => (step.kind === "mail_action" ? [step.action] : [])),
   ];
+  const outputsBefore = (index: number): AutomationOutput[] => [
+    ...(props.availableOutputs ?? []),
+    ...props.steps.slice(0, index).flatMap((step, stepIndex) => {
+      const output = outputForStep(step, stepIndex);
+      return output ? [output] : [];
+    }),
+  ];
   const replace = (index: number, step: MailAutomationStep) =>
     props.onChange(props.steps.map((candidate, candidateIndex) => (candidateIndex === index ? step : candidate)));
   const remove = (index: number) => props.onChange(props.steps.filter((_, candidateIndex) => candidateIndex !== index));
-  const canMove = (index: number, offset: -1 | 1): boolean => index + offset >= 0 && index + offset < props.steps.length;
+  const canMove = (index: number, offset: -1 | 1): boolean => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= props.steps.length) return false;
+    const next = [...props.steps];
+    [next[index], next[destination]] = [next[destination]!, next[index]!];
+    return outputReferencesResolve(next, new Set((props.availableOutputs ?? []).map((output) => output.id)));
+  };
   const move = (index: number, offset: -1 | 1) => {
     const destination = index + offset;
     if (!canMove(index, offset)) return;
@@ -325,19 +353,61 @@ function AutomationStepsEditor(props: {
     [next[index], next[destination]] = [next[destination]!, next[index]!];
     props.onChange(next);
   };
-  const append = (step: MailAutomationStep) => props.onChange([...props.steps, step]);
+  const expand = (id: string) => setExpandedStepIds((current) => new Set(current).add(id));
+  const append = (step: MailAutomationStep) => {
+    expand(step.id);
+    props.onChange([...props.steps, step]);
+  };
+  const appendMany = (steps: MailAutomationStep[]) => {
+    steps.forEach((step) => expand(step.id));
+    props.onChange([...props.steps, ...steps]);
+  };
+  const insertAfterOutput = (index: number, sourceStepId: string, step: MailAutomationStep) => {
+    let destination = index + 1;
+    while (destination < props.steps.length) {
+      const candidate = props.steps[destination]!;
+      const reference =
+        candidate.kind === "create_reply_draft" || candidate.kind === "add_comment"
+          ? candidate.body.sourceStepId
+          : candidate.kind === "if"
+            ? candidate.condition.sourceStepId
+            : null;
+      if (reference !== sourceStepId) break;
+      destination += 1;
+    }
+    const next = [...props.steps];
+    next.splice(destination, 0, step);
+    expand(step.id);
+    props.onChange(next);
+  };
+  const setExpanded = (id: string, value: boolean) =>
+    setExpandedStepIds((current) => {
+      const next = new Set(current);
+      if (value) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const stepLabel = (step: MailAutomationStep): string => {
     if (step.kind === "mail_action") return "Mail action";
     if (step.kind === "ai_generate_text") return "AI generate text";
     if (step.kind === "ai_classify") return "AI classify";
-    return "AI classify many";
+    if (step.kind === "ai_classify_many") return "AI classify many";
+    if (step.kind === "create_reply_draft") return "Create reply draft";
+    if (step.kind === "add_comment") return "Add internal comment";
+    return "If";
   };
   const accessibleStepLabel = (step: MailAutomationStep, index: number): string =>
     `${stepLabel(step)} step ${index + 1}${props.labelContext ? ` in ${props.labelContext}` : ""}`;
   const addItems = () => {
     const actions = actionsBefore(props.steps.length);
+    const outputs = outputsBefore(props.steps.length);
+    const latestOutput = outputs.at(-1);
+    const latestText = outputs.filter((output) => output.type === "text").at(-1);
     const nextAction = nextMailAction(actions, props.catalog, directActionOrder);
-    const replyDraft = draftStep(props.catalog);
+    const replyDraft = latestText ? replyDraftStep(latestText.id, props.catalog) : null;
+    const remaining = (props.maxSteps ?? 20) - props.steps.length;
+    const classification = classificationSteps(false, props.catalog, actions);
+    const multiClassification = classificationSteps(true, props.catalog, actions);
     return [
       ...(nextAction
         ? [
@@ -351,22 +421,41 @@ function AutomationStepsEditor(props: {
       ...(replyDraft
         ? [
             {
-              label: "AI generate reply draft",
+              label: "Create reply draft",
               icon: "ti ti-message-reply",
               action: () => append(replyDraft),
             },
           ]
         : []),
+      ...(latestText
+        ? [
+            {
+              label: "Add internal comment",
+              icon: "ti ti-message-plus",
+              action: () => append({ id: stepId(), kind: "add_comment" as const, body: { sourceStepId: latestText.id } }),
+            },
+          ]
+        : []),
       {
-        label: "AI classify",
-        icon: "ti ti-list-check",
-        action: () => append(classificationStep(false, props.catalog, actions)),
+        label: "AI generate text",
+        icon: "ti ti-sparkles",
+        action: () => append(generatedTextStep()),
       },
-      {
-        label: "AI classify many",
-        icon: "ti ti-tags",
-        action: () => append(classificationStep(true, props.catalog, actions)),
-      },
+      ...(classification.length <= remaining
+        ? [{ label: "AI classify", icon: "ti ti-list-check", action: () => appendMany(classification) }]
+        : []),
+      ...(multiClassification.length <= remaining
+        ? [{ label: "AI classify many", icon: "ti ti-tags", action: () => appendMany(multiClassification) }]
+        : []),
+      ...(latestOutput
+        ? [
+            {
+              label: "If output matches",
+              icon: "ti ti-git-branch",
+              action: () => append(ifStep(latestOutput, latestOutput.choices[0] ?? "value")),
+            },
+          ]
+        : []),
     ];
   };
   const menuItems = createMemo(addItems);
@@ -377,8 +466,16 @@ function AutomationStepsEditor(props: {
         {(step, index) => {
           const actions = () => actionsBefore(index());
           return (
-            <div class="relative rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] p-3">
-              <div class="mb-3 flex items-center gap-2">
+            <div class="relative overflow-hidden rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)]">
+              <div class="flex items-center gap-2 p-3">
+                <IconButton
+                  type="button"
+                  size="sm"
+                  label={`${expandedStepIds().has(step.id) ? "Collapse" : "Expand"} ${accessibleStepLabel(step, index())}`}
+                  onClick={() => setExpanded(step.id, !expandedStepIds().has(step.id))}
+                >
+                  <i class={`ti ${expandedStepIds().has(step.id) ? "ti-chevron-down" : "ti-chevron-right"}`} aria-hidden="true" />
+                </IconButton>
                 <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--ui-surface)] text-[11px] font-semibold text-dimmed">
                   {index() + 1}
                 </span>
@@ -390,19 +487,32 @@ function AutomationStepsEditor(props: {
                         ? "ti-sparkles"
                         : step.kind === "ai_classify"
                           ? "ti-list-check"
-                          : "ti-tags"
+                          : step.kind === "ai_classify_many"
+                            ? "ti-tags"
+                            : step.kind === "create_reply_draft"
+                              ? "ti-message-reply"
+                              : step.kind === "add_comment"
+                                ? "ti-message-plus"
+                                : "ti-git-branch"
                   }`}
                   aria-hidden="true"
                 />
-                <strong class="min-w-0 flex-1 text-xs text-primary">
-                  {step.kind === "mail_action"
-                    ? "Mail action"
-                    : step.kind === "ai_generate_text"
-                      ? "AI generate text"
-                      : step.kind === "ai_classify"
-                        ? "AI classify"
-                        : "AI classify many"}
-                </strong>
+                <div class="min-w-0 flex-1">
+                  <strong class="block truncate text-xs text-primary">{stepLabel(step)}</strong>
+                  <span class="block truncate text-[11px] text-dimmed">
+                    {step.kind === "mail_action"
+                      ? mailAutomationActionLabel(step.action, props.catalog)
+                      : step.kind === "ai_generate_text"
+                        ? "Produces text"
+                        : step.kind === "ai_classify"
+                          ? `Produces one of ${step.choices.length} choices`
+                          : step.kind === "ai_classify_many"
+                            ? `Produces up to ${step.maxChoices} choices`
+                            : step.kind === "create_reply_draft" || step.kind === "add_comment"
+                              ? `Uses ${outputsBefore(index()).find((output) => output.id === step.body.sourceStepId)?.label ?? "missing output"}`
+                              : `Uses ${outputsBefore(index()).find((output) => output.id === step.condition.sourceStepId)?.label ?? "missing output"}`}
+                  </span>
+                </div>
                 <Show when={step.kind.startsWith("ai_")}>
                   <StatusBadge tone="neutral" label="AI call" />
                 </Show>
@@ -435,123 +545,259 @@ function AutomationStepsEditor(props: {
                 </IconButton>
               </div>
 
-              <Show when={step.kind === "mail_action"}>
-                <MailAutomationActionEditor
-                  action={(step as Extract<MailAutomationStep, { kind: "mail_action" }>).action}
-                  otherActions={actions()}
-                  catalog={props.catalog}
-                  onChange={(action) => replace(index(), { ...step, kind: "mail_action", action })}
-                />
-              </Show>
+              <Show when={expandedStepIds().has(step.id)}>
+                <div class="border-t border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] p-3">
+                  <Show when={step.kind === "mail_action"}>
+                    <MailAutomationActionEditor
+                      action={(step as Extract<MailAutomationStep, { kind: "mail_action" }>).action}
+                      otherActions={actions()}
+                      catalog={props.catalog}
+                      onChange={(action) => replace(index(), { ...step, kind: "mail_action", action })}
+                    />
+                  </Show>
 
-              <Show when={step.kind === "ai_generate_text"}>
-                <div class="flex flex-col gap-3">
-                  <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_10rem]">
-                    <TextInput
-                      label="Instructions"
-                      description="The incoming message is supplied as untrusted context. Say exactly what text should be created."
-                      value={() => (step.kind === "ai_generate_text" ? step.instructions : "")}
-                      onValueChange={(instructions) => step.kind === "ai_generate_text" && replace(index(), { ...step, instructions })}
-                      maxLength={4_000}
-                      multiline
-                      lines={3}
-                      required
-                    />
-                    <NumberInput
-                      label="Maximum characters"
-                      value={() => (step.kind === "ai_generate_text" ? step.maxOutputChars : 4_000)}
-                      onValueChange={(maxOutputChars) =>
-                        step.kind === "ai_generate_text" && replace(index(), { ...step, maxOutputChars: maxOutputChars ?? 4_000 })
-                      }
-                      min={200}
-                      max={10_000}
-                      step={100}
-                    />
-                  </div>
-                  <div class="rounded-[var(--ui-radius-control)] border-l-2 border-[var(--ui-accent)] bg-[var(--ui-surface)] p-3">
-                    <div class="mb-2 flex items-start gap-2">
-                      <i class="ti ti-message-reply mt-0.5 text-dimmed" aria-hidden="true" />
-                      <div>
-                        <strong class="text-xs text-primary">Use generated text</strong>
-                        <p class="text-[11px] text-dimmed">Create a reply draft in this conversation. The automation never sends it.</p>
-                      </div>
-                    </div>
-                    <Select
-                      label="From address"
-                      value={() => (step.kind === "ai_generate_text" ? step.replyDraft.senderIdentityId : "")}
-                      onValueChange={(senderIdentityId) =>
-                        step.kind === "ai_generate_text" &&
-                        replace(index(), { ...step, replyDraft: { senderIdentityId: senderIdentityId ?? "" } })
-                      }
-                      options={(props.catalog.senderIdentities ?? []).map((identity) => ({ id: identity.id, label: identity.name }))}
-                    />
-                  </div>
-                </div>
-              </Show>
-
-              <Show when={step.kind === "ai_classify" || step.kind === "ai_classify_many"}>
-                {(() => {
-                  const classifier = step as Extract<MailAutomationStep, { kind: "ai_classify" | "ai_classify_many" }>;
-                  return (
+                  <Show when={step.kind === "ai_generate_text"}>
                     <div class="flex flex-col gap-3">
                       <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_10rem]">
                         <TextInput
                           label="Instructions"
-                          description="Define the classification goal. Choice descriptions below define the decision boundary."
-                          value={() => classifier.instructions}
-                          onValueChange={(instructions) => replace(index(), { ...classifier, instructions })}
+                          description="The incoming message is supplied as untrusted context. Say exactly what text should be created."
+                          value={() => (step.kind === "ai_generate_text" ? step.instructions : "")}
+                          onValueChange={(instructions) => step.kind === "ai_generate_text" && replace(index(), { ...step, instructions })}
                           maxLength={4_000}
                           multiline
-                          lines={2}
+                          lines={3}
                           required
                         />
-                        <Show when={classifier.kind === "ai_classify_many"}>
-                          <NumberInput
-                            label="Maximum matches"
-                            value={() => (classifier.kind === "ai_classify_many" ? classifier.maxChoices : 1)}
-                            onValueChange={(maxChoices) =>
-                              classifier.kind === "ai_classify_many" && replace(index(), { ...classifier, maxChoices: maxChoices ?? 1 })
-                            }
-                            min={1}
-                            max={classifier.choices.length}
-                          />
-                        </Show>
-                      </div>
-                      <div>
-                        <strong class="text-xs text-primary">Classification routes</strong>
-                        <p class="mb-2 text-[11px] text-dimmed">Define each result and what should happen when it matches.</p>
-                        <ChoiceEditor
-                          step={classifier}
-                          availableActions={actions()}
-                          catalog={props.catalog}
-                          context={[props.labelContext, `${stepLabel(step)} step ${index() + 1}`].filter(Boolean).join(", ")}
-                          onChange={(next) => replace(index(), next)}
+                        <NumberInput
+                          label="Maximum characters"
+                          value={() => (step.kind === "ai_generate_text" ? step.maxOutputChars : 4_000)}
+                          onValueChange={(maxOutputChars) =>
+                            step.kind === "ai_generate_text" && replace(index(), { ...step, maxOutputChars: maxOutputChars ?? 4_000 })
+                          }
+                          min={200}
+                          max={10_000}
+                          step={100}
                         />
                       </div>
-                      <div class="rounded-[var(--ui-radius-control)] border-l-2 border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
-                        <strong class="text-xs text-primary">
-                          {classifier.kind === "ai_classify_many" ? "When no configured category matches" : "Otherwise"}
-                        </strong>
-                        <p class="mb-2 text-[11px] text-dimmed">
-                          {classifier.kind === "ai_classify_many"
-                            ? "Runs only when none of the categories with actions above are selected."
-                            : "Runs when the selected classification has no actions above."}
-                        </p>
-                        <AutomationStepsEditor
-                          steps={classifier.fallback}
-                          availableActions={actions()}
-                          catalog={props.catalog}
-                          labelContext={[props.labelContext, `${stepLabel(step)} step ${index() + 1}`, "Otherwise"]
-                            .filter(Boolean)
-                            .join(", ")}
-                          allowEmpty
-                          maxSteps={12}
-                          onChange={(fallback) => replace(index(), { ...classifier, fallback })}
-                        />
+                      <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
+                        <i class="ti ti-variable text-dimmed" aria-hidden="true" />
+                        <div class="min-w-0 flex-1">
+                          <strong class="block text-xs text-primary">Output · Text</strong>
+                          <span class="block text-[11px] text-dimmed">Later compatible steps can reference this workflow output.</span>
+                        </div>
+                        <Dropdown.Root
+                          position="bottom-right"
+                          width="16rem"
+                          items={[
+                            ...((props.catalog.senderIdentities ?? []).length > 0
+                              ? [
+                                  {
+                                    label: "Create reply draft",
+                                    icon: "ti ti-message-reply",
+                                    action: () => {
+                                      if (step.kind !== "ai_generate_text") return;
+                                      const draft = replyDraftStep(step.id, props.catalog);
+                                      if (draft) insertAfterOutput(index(), step.id, draft);
+                                    },
+                                  },
+                                ]
+                              : []),
+                            {
+                              label: "Add internal comment",
+                              icon: "ti ti-message-plus",
+                              action: () =>
+                                step.kind === "ai_generate_text" &&
+                                insertAfterOutput(index(), step.id, { id: stepId(), kind: "add_comment", body: { sourceStepId: step.id } }),
+                            },
+                          ]}
+                        >
+                          <Dropdown.Trigger type="button" variant="secondary" size="sm">
+                            <i class="ti ti-plus" aria-hidden="true" /> Use output
+                          </Dropdown.Trigger>
+                        </Dropdown.Root>
                       </div>
                     </div>
-                  );
-                })()}
+                  </Show>
+
+                  <Show when={step.kind === "ai_classify" || step.kind === "ai_classify_many"}>
+                    {(() => {
+                      const classifier = step as Extract<MailAutomationStep, { kind: "ai_classify" | "ai_classify_many" }>;
+                      return (
+                        <div class="flex flex-col gap-3">
+                          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_10rem]">
+                            <TextInput
+                              label="Instructions"
+                              description="Define the classification goal. Choice descriptions below define the decision boundary."
+                              value={() => classifier.instructions}
+                              onValueChange={(instructions) => replace(index(), { ...classifier, instructions })}
+                              maxLength={4_000}
+                              multiline
+                              lines={2}
+                              required
+                            />
+                            <Show when={classifier.kind === "ai_classify_many"}>
+                              <NumberInput
+                                label="Maximum matches"
+                                value={() => (classifier.kind === "ai_classify_many" ? classifier.maxChoices : 1)}
+                                onValueChange={(maxChoices) =>
+                                  classifier.kind === "ai_classify_many" && replace(index(), { ...classifier, maxChoices: maxChoices ?? 1 })
+                                }
+                                min={1}
+                                max={classifier.choices.length}
+                              />
+                            </Show>
+                          </div>
+                          <ChoiceEditor
+                            step={classifier}
+                            context={[props.labelContext, `${stepLabel(step)} step ${index() + 1}`].filter(Boolean).join(", ")}
+                            onChange={(next) => replace(index(), next)}
+                          />
+                          <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
+                            <i class="ti ti-variable text-dimmed" aria-hidden="true" />
+                            <div class="min-w-0 flex-1">
+                              <strong class="block text-xs text-primary">
+                                Output · {classifier.kind === "ai_classify_many" ? "Choice list" : "Choice"}
+                              </strong>
+                              <span class="block text-[11px] text-dimmed">Conditions reference this normal workflow output.</span>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                const output = outputForStep(classifier, index());
+                                if (output)
+                                  insertAfterOutput(index(), classifier.id, ifStep(output, classifier.choices[0]?.name ?? "value"));
+                              }}
+                            >
+                              <i class="ti ti-plus" aria-hidden="true" /> Add condition
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </Show>
+
+                  <Show when={step.kind === "create_reply_draft"}>
+                    <div class="grid gap-3 md:grid-cols-2">
+                      <Select
+                        label="Text source"
+                        value={() => (step.kind === "create_reply_draft" ? step.body.sourceStepId : "")}
+                        onValueChange={(sourceStepId) =>
+                          step.kind === "create_reply_draft" && replace(index(), { ...step, body: { sourceStepId: sourceStepId ?? "" } })
+                        }
+                        options={outputsBefore(index())
+                          .filter((output) => output.type === "text")
+                          .map((output) => ({ id: output.id, label: output.label }))}
+                      />
+                      <Select
+                        label="From address"
+                        value={() => (step.kind === "create_reply_draft" ? step.senderIdentityId : "")}
+                        onValueChange={(senderIdentityId) =>
+                          step.kind === "create_reply_draft" && replace(index(), { ...step, senderIdentityId: senderIdentityId ?? "" })
+                        }
+                        options={(props.catalog.senderIdentities ?? []).map((identity) => ({ id: identity.id, label: identity.name }))}
+                      />
+                      <p class="text-[11px] text-dimmed md:col-span-2">Creates a reply draft for human review and never sends it.</p>
+                    </div>
+                  </Show>
+
+                  <Show when={step.kind === "add_comment"}>
+                    <Select
+                      label="Text source"
+                      description="The selected output is stored as an internal conversation comment."
+                      value={() => (step.kind === "add_comment" ? step.body.sourceStepId : "")}
+                      onValueChange={(sourceStepId) =>
+                        step.kind === "add_comment" && replace(index(), { ...step, body: { sourceStepId: sourceStepId ?? "" } })
+                      }
+                      options={outputsBefore(index())
+                        .filter((output) => output.type === "text")
+                        .map((output) => ({ id: output.id, label: output.label }))}
+                    />
+                  </Show>
+
+                  <Show when={step.kind === "if"}>
+                    {(() => {
+                      const conditionStep = step as Extract<MailAutomationStep, { kind: "if" }>;
+                      const outputs = () => outputsBefore(index());
+                      const source = () => outputs().find((output) => output.id === conditionStep.condition.sourceStepId) ?? outputs()[0];
+                      const context = [props.labelContext, `If step ${index() + 1}`].filter(Boolean).join(", ");
+                      return (
+                        <div class="flex flex-col gap-3">
+                          <div class="grid gap-3 md:grid-cols-2">
+                            <Select
+                              label="Output"
+                              value={() => conditionStep.condition.sourceStepId}
+                              onValueChange={(sourceStepId) => {
+                                const nextSource = outputs().find((output) => output.id === sourceStepId);
+                                if (!nextSource) return;
+                                replace(index(), {
+                                  ...conditionStep,
+                                  condition: {
+                                    sourceStepId: nextSource.id,
+                                    operator: nextSource.type === "text_array" ? "includes" : "equals",
+                                    value: nextSource.choices[0] ?? conditionStep.condition.value,
+                                  },
+                                });
+                              }}
+                              options={outputs().map((output) => ({ id: output.id, label: output.label }))}
+                            />
+                            <Show
+                              when={(source()?.choices.length ?? 0) > 0}
+                              fallback={
+                                <TextInput
+                                  label="Equals"
+                                  value={() => conditionStep.condition.value}
+                                  onValueChange={(value) =>
+                                    replace(index(), { ...conditionStep, condition: { ...conditionStep.condition, value } })
+                                  }
+                                  maxLength={500}
+                                  required
+                                />
+                              }
+                            >
+                              <Select
+                                label={conditionStep.condition.operator === "includes" ? "Contains" : "Equals"}
+                                value={() => conditionStep.condition.value}
+                                onValueChange={(value) =>
+                                  value && replace(index(), { ...conditionStep, condition: { ...conditionStep.condition, value } })
+                                }
+                                options={(source()?.choices ?? []).map((value) => ({ id: value, label: value }))}
+                              />
+                            </Show>
+                          </div>
+                          <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
+                            <strong class="mb-2 block text-xs text-primary">Then</strong>
+                            <AutomationStepsEditor
+                              steps={conditionStep.then}
+                              availableActions={actions()}
+                              availableOutputs={outputs()}
+                              catalog={props.catalog}
+                              labelContext={`${context}, Then`}
+                              allowEmpty
+                              maxSteps={12}
+                              onChange={(then) => replace(index(), { ...conditionStep, then })}
+                            />
+                          </div>
+                          <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
+                            <strong class="mb-2 block text-xs text-primary">Else</strong>
+                            <AutomationStepsEditor
+                              steps={conditionStep.else}
+                              availableActions={actions()}
+                              availableOutputs={outputs()}
+                              catalog={props.catalog}
+                              labelContext={`${context}, Else`}
+                              allowEmpty
+                              maxSteps={12}
+                              onChange={(otherwise) => replace(index(), { ...conditionStep, else: otherwise })}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </Show>
+                </div>
               </Show>
             </div>
           );
@@ -701,7 +947,11 @@ function IncomingAutomationEditor(props: {
         index += 1;
         continue;
       }
-      if (issue.path[index] === "fallback") location.push("otherwise route");
+      if ((issue.path[index] === "then" || issue.path[index] === "else") && typeof issue.path[index + 1] === "number") {
+        location.push(`${issue.path[index] === "then" ? "Then" : "Else"} step ${(issue.path[index + 1] as number) + 1}`);
+        index += 1;
+        continue;
+      }
       if (issue.path[index] === "steps" && typeof issue.path[index + 1] === "number") {
         location.push(`step ${(issue.path[index + 1] as number) + 1}`);
         index += 1;
@@ -719,7 +969,11 @@ function IncomingAutomationEditor(props: {
               ? "Describe when this choice applies"
               : fieldName === "senderIdentityId"
                 ? "Select a from address"
-                : "Complete the required fields";
+                : fieldName === "sourceStepId"
+                  ? "Select an earlier compatible output"
+                  : fieldName === "value"
+                    ? "Enter a value to compare"
+                    : "Complete the required fields";
     return `${location.join(", ")}: ${message}.`;
   };
   const usesAi = () => hasAi(steps());
@@ -787,7 +1041,7 @@ function IncomingAutomationEditor(props: {
         </PanelDialog.Section>
         <PanelDialog.Section
           title="Flow"
-          subtitle="Steps run from top to bottom. Classification choices contain their own Mail or AI actions."
+          subtitle="Steps run from top to bottom. AI results are normal outputs that later steps and conditions can use."
           icon="ti ti-route"
         >
           <AutomationStepsEditor steps={steps()} availableActions={[]} catalog={props.catalog} onChange={setSteps} />

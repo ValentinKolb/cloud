@@ -285,10 +285,7 @@ describe("automatic reply configuration contracts", () => {
 describe("incoming automation contracts", () => {
   const textId = "00000000-0000-4000-8000-000000000001";
   const classifierId = "00000000-0000-4000-8000-000000000002";
-  const importantId = "00000000-0000-4000-8000-000000000003";
-  const routineId = "00000000-0000-4000-8000-000000000004";
-
-  test("accepts match-all flows that mix mail, AI routes, and drafts", () => {
+  test("accepts normal workflow outputs, references, conditions, and multiple consumers", () => {
     const result = createIncomingAutomationSchema.safeParse({
       name: "Triage and draft",
       scope: { mode: "all" },
@@ -303,49 +300,50 @@ describe("incoming automation contracts", () => {
           kind: "ai_classify",
           instructions: "Choose the best category",
           choices: [
-            {
-              id: importantId,
-              name: "Important",
-              description: "Needs attention",
-              steps: [
-                { id: "00000000-0000-4000-8000-000000000012", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
-              ],
-            },
-            {
-              id: routineId,
-              name: "Routine",
-              description: "Routine message",
-              steps: [
-                { id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "Routine" } },
-              ],
-            },
+            { name: "Important", description: "Needs attention" },
+            { name: "Routine", description: "Routine message" },
           ],
-          fallback: [],
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000011",
+          kind: "if",
+          condition: { sourceStepId: classifierId, operator: "equals", value: "Important" },
+          then: [
+            { id: "00000000-0000-4000-8000-000000000012", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
+          ],
+          else: [{ id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "Routine" } }],
         },
         {
           id: textId,
           kind: "ai_generate_text",
           instructions: "Write a concise reply",
           maxOutputChars: 2_000,
-          replyDraft: { senderIdentityId: "00000000-0000-4000-8000-000000000015" },
         },
+        {
+          id: "00000000-0000-4000-8000-000000000014",
+          kind: "create_reply_draft",
+          body: { sourceStepId: textId },
+          senderIdentityId: "00000000-0000-4000-8000-000000000015",
+        },
+        { id: "00000000-0000-4000-8000-000000000017", kind: "add_comment", body: { sourceStepId: textId } },
       ],
     });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.enabled).toBe(false);
   });
 
-  test("rejects incomplete compound AI blocks", () => {
+  test("rejects forward references and incompatible output types", () => {
     const result = createIncomingAutomationSchema.safeParse({
       name: "Invalid dependencies",
       scope: { mode: "all" },
       steps: [
         {
           id: "00000000-0000-4000-8000-000000000020",
-          kind: "ai_generate_text",
-          instructions: "Write a reply",
-          maxOutputChars: 2_000,
+          kind: "create_reply_draft",
+          body: { sourceStepId: textId },
+          senderIdentityId: "00000000-0000-4000-8000-000000000021",
         },
+        { id: textId, kind: "ai_generate_text", instructions: "Write a reply", maxOutputChars: 2_000 },
       ],
     });
     expect(result.success).toBe(false);
@@ -358,20 +356,16 @@ describe("incoming automation contracts", () => {
         kind: "ai_classify" as const,
         instructions: "Choose the destination",
         choices: [
-          {
-            id: importantId,
-            name: "Important",
-            description: "Needs attention",
-            steps: [{ id: "00000000-0000-4000-8000-000000000031", kind: "mail_action" as const, action: { kind: "junk" as const } }],
-          },
-          {
-            id: routineId,
-            name: "Routine",
-            description: "Routine message",
-            steps: [{ id: "00000000-0000-4000-8000-000000000032", kind: "mail_action" as const, action: { kind: "trash" as const } }],
-          },
+          { name: "Important", description: "Needs attention" },
+          { name: "Routine", description: "Routine message" },
         ],
-        fallback: [],
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000030",
+        kind: "if" as const,
+        condition: { sourceStepId: classifierId, operator: "equals" as const, value: "Important" },
+        then: [{ id: "00000000-0000-4000-8000-000000000031", kind: "mail_action" as const, action: { kind: "junk" as const } }],
+        else: [{ id: "00000000-0000-4000-8000-000000000032", kind: "mail_action" as const, action: { kind: "trash" as const } }],
       },
     ];
     expect(createIncomingAutomationSchema.safeParse({ name: "Alternative effects", scope: { mode: "all" }, steps }).success).toBe(true);
@@ -391,21 +385,22 @@ describe("incoming automation contracts", () => {
         kind: "ai_classify" as const,
         instructions: "Choose the destination",
         choices: [
-          {
-            id: importantId,
-            name: "Important",
-            description: "Needs attention",
-            steps: [
-              {
-                id: "00000000-0000-4000-8000-000000000043",
-                kind: "mail_action" as const,
-                action: { kind: "set_status" as const, status: "needs_action" as const },
-              },
-            ],
-          },
-          { id: routineId, name: "Routine", description: "Routine message", steps: [] },
+          { name: "Important", description: "Needs attention" },
+          { name: "Routine", description: "Routine message" },
         ],
-        fallback: [],
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000040",
+        kind: "if" as const,
+        condition: { sourceStepId: classifierId, operator: "equals" as const, value: "Important" },
+        then: [
+          {
+            id: "00000000-0000-4000-8000-000000000043",
+            kind: "mail_action" as const,
+            action: { kind: "set_status" as const, status: "needs_action" as const },
+          },
+        ],
+        else: [],
       },
     ];
     expect(createIncomingAutomationSchema.safeParse({ name: "Sparse routing", scope: { mode: "all" }, steps: sparse }).success).toBe(true);
@@ -415,24 +410,30 @@ describe("incoming automation contracts", () => {
       kind: "ai_classify_many" as const,
       maxChoices: 2,
       choices: [
-        {
-          id: importantId,
-          name: "Important",
-          description: "Needs attention",
-          steps: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action" as const, action: { kind: "junk" as const } }],
-        },
-        {
-          id: routineId,
-          name: "Routine",
-          description: "Routine message",
-          steps: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action" as const, action: { kind: "trash" as const } }],
-        },
+        { name: "Important", description: "Needs attention" },
+        { name: "Routine", description: "Routine message" },
       ],
     };
     const result = createIncomingAutomationSchema.safeParse({
       name: "Unsafe multi routing",
       scope: { mode: "all" },
-      steps: [multiClassifier],
+      steps: [
+        multiClassifier,
+        {
+          id: "00000000-0000-4000-8000-000000000044",
+          kind: "if",
+          condition: { sourceStepId: classifierId, operator: "includes", value: "Important" },
+          then: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action", action: { kind: "junk" } }],
+          else: [],
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000045",
+          kind: "if",
+          condition: { sourceStepId: classifierId, operator: "includes", value: "Routine" },
+          then: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action", action: { kind: "trash" } }],
+          else: [],
+        },
+      ],
     });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes("only one provider message action"))).toBe(true);
@@ -440,7 +441,23 @@ describe("incoming automation contracts", () => {
       createIncomingAutomationSchema.safeParse({
         name: "Single-result multi routing",
         scope: { mode: "all" },
-        steps: [{ ...multiClassifier, maxChoices: 1 }],
+        steps: [
+          { ...multiClassifier, maxChoices: 1 },
+          {
+            id: "00000000-0000-4000-8000-000000000046",
+            kind: "if",
+            condition: { sourceStepId: classifierId, operator: "includes", value: "Important" },
+            then: [{ id: "00000000-0000-4000-8000-000000000047", kind: "mail_action", action: { kind: "junk" } }],
+            else: [],
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000048",
+            kind: "if",
+            condition: { sourceStepId: classifierId, operator: "includes", value: "Routine" },
+            then: [{ id: "00000000-0000-4000-8000-000000000049", kind: "mail_action", action: { kind: "trash" } }],
+            else: [],
+          },
+        ],
       }).success,
     ).toBe(false);
   });

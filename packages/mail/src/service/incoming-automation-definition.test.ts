@@ -7,11 +7,9 @@ import { mailWorkflows } from "../workflows/module";
 import { buildIncomingAutomationWorkflowSource, incomingAutomationBudget, incomingAutomationHasAi } from "./incoming-automation-definition";
 
 const classifyId = "00000000-0000-4000-8000-000000000001";
-const importantId = "00000000-0000-4000-8000-000000000002";
-const routineId = "00000000-0000-4000-8000-000000000003";
-
 describe("incoming automation workflow compiler", () => {
-  test("compiles mixed compound blocks deterministically", async () => {
+  test("compiles normal output references and conditions deterministically", async () => {
+    const textId = "00000000-0000-4000-8000-000000000017";
     const steps: MailAutomationStep[] = [
       {
         id: "00000000-0000-4000-8000-000000000010",
@@ -23,31 +21,26 @@ describe("incoming automation workflow compiler", () => {
         kind: "ai_classify",
         instructions: "Choose the best category",
         choices: [
-          {
-            id: importantId,
-            name: "Important",
-            description: "Needs attention",
-            steps: [
-              { id: "00000000-0000-4000-8000-000000000012", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
-              {
-                id: "00000000-0000-4000-8000-000000000017",
-                kind: "ai_generate_text",
-                instructions: "Draft a concise reply",
-                maxOutputChars: 2_000,
-                replyDraft: { senderIdentityId: "00000000-0000-4000-8000-000000000018" },
-              },
-            ],
-          },
-          {
-            id: routineId,
-            name: "Routine",
-            description: "Routine mail",
-            steps: [
-              { id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "routine" } },
-            ],
-          },
+          { name: "Important", description: "Needs attention" },
+          { name: "Routine", description: "Routine mail" },
         ],
-        fallback: [],
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000011",
+        kind: "if",
+        condition: { sourceStepId: classifyId, operator: "equals", value: "Important" },
+        then: [
+          { id: "00000000-0000-4000-8000-000000000012", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
+          { id: textId, kind: "ai_generate_text", instructions: "Draft a concise reply", maxOutputChars: 2_000 },
+          {
+            id: "00000000-0000-4000-8000-000000000018",
+            kind: "create_reply_draft",
+            body: { sourceStepId: textId },
+            senderIdentityId: "00000000-0000-4000-8000-000000000019",
+          },
+          { id: "00000000-0000-4000-8000-000000000020", kind: "add_comment", body: { sourceStepId: textId } },
+        ],
+        else: [{ id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "routine" } }],
       },
     ];
     const input = { scope: { mode: "all" as const }, steps };
@@ -55,17 +48,17 @@ describe("incoming automation workflow compiler", () => {
     expect(source).toBe(buildIncomingAutomationWorkflowSource(input));
     expect(source).toContain("aiClassify:");
     expect(source).toContain("equals:\n");
-    expect(source).toContain("- Important");
     expect(source).toContain("setConversationStatus:");
     expect(source).toContain("addKeyword:");
     expect(source).toContain("createReplyDraft:");
+    expect(source).toContain("addComment:");
+    expect(source).toContain("{{ step_00000000000040008000000000000017 }}");
     expect(incomingAutomationHasAi(steps)).toBe(true);
-    expect(incomingAutomationBudget(steps)).toMatchObject({ maxTargets: 4, maxDrafts: 1, maxAiCalls: 2 });
-    const compiled = await compileWorkflow(source, mailWorkflows);
-    expect(compiled.ok).toBe(true);
+    expect(incomingAutomationBudget(steps)).toMatchObject({ maxTargets: 4, maxDrafts: 1, maxCollaborationChanges: 3, maxAiCalls: 2 });
+    expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
   });
 
-  test("compiles match conditions and compound AI draft creation", async () => {
+  test("compiles match conditions and multiple consumers of one text output", async () => {
     const textId = "00000000-0000-4000-8000-000000000020";
     const source = buildIncomingAutomationWorkflowSource({
       scope: {
@@ -73,86 +66,86 @@ describe("incoming automation workflow compiler", () => {
         conditions: { mode: "all", items: [{ field: "sender_domain", operator: "is", value: "example.com" }] },
       },
       steps: [
+        { id: textId, kind: "ai_generate_text", instructions: "Summarize this message", maxOutputChars: 2_000 },
         {
-          id: textId,
-          kind: "ai_generate_text",
-          instructions: "Write a reply",
-          maxOutputChars: 2_000,
-          replyDraft: { senderIdentityId: "00000000-0000-4000-8000-000000000022" },
+          id: "00000000-0000-4000-8000-000000000021",
+          kind: "create_reply_draft",
+          body: { sourceStepId: textId },
+          senderIdentityId: "00000000-0000-4000-8000-000000000022",
         },
+        { id: "00000000-0000-4000-8000-000000000023", kind: "add_comment", body: { sourceStepId: textId } },
       ],
     });
     expect(source).toContain("inputs.message.fromDomain");
     expect(source).toContain("aiGenerateText:");
     expect(source).toContain("createReplyDraft:");
-    expect(source).toContain("{{ step_00000000000040008000000000000020 }}");
+    expect(source).toContain("addComment:");
+    expect(source.match(/{{ step_00000000000040008000000000000020 }}/g)).toHaveLength(2);
     expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
   });
 
-  test("compiles sparse multi-classification routes", async () => {
+  test("compiles multi-classification as ordinary sequential conditions", async () => {
     const source = buildIncomingAutomationWorkflowSource({
       scope: { mode: "all" },
       steps: [
         {
           id: classifyId,
           kind: "ai_classify_many",
-          instructions: "Choose every matching category",
+          instructions: "Choose matching categories",
           choices: [
-            {
-              id: importantId,
-              name: "Important",
-              description: "Needs attention",
-              steps: [
-                {
-                  id: "00000000-0000-4000-8000-000000000031",
-                  kind: "mail_action",
-                  action: { kind: "set_status", status: "needs_action" },
-                },
-              ],
-            },
-            { id: routineId, name: "Routine", description: "Routine mail", steps: [] },
+            { name: "Important", description: "Needs attention" },
+            { name: "Routine", description: "Routine mail" },
           ],
           maxChoices: 2,
-          fallback: [{ id: "00000000-0000-4000-8000-000000000032", kind: "mail_action", action: { kind: "mark_read" } }],
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000030",
+          kind: "if",
+          condition: { sourceStepId: classifyId, operator: "includes", value: "Important" },
+          then: [
+            { id: "00000000-0000-4000-8000-000000000031", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
+          ],
+          else: [],
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000032",
+          kind: "if",
+          condition: { sourceStepId: classifyId, operator: "includes", value: "Routine" },
+          then: [
+            {
+              id: "00000000-0000-4000-8000-000000000033",
+              kind: "mail_action",
+              action: { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000034" },
+            },
+          ],
+          else: [],
         },
       ],
     });
     expect(source).toContain("aiClassifyMany:");
-    expect(source).toContain("includes:");
-    expect(source).toContain("not:");
-    const compiled = await compileWorkflow(source, mailWorkflows);
-    expect(compiled.ok).toBe(true);
-    if (compiled.ok) {
-      expect(
-        (
-          await bindMailWorkflow(
-            compiled.ir,
-            buildMailWorkflowCatalog({ folders: [], assignableUsers: [], senderIdentities: [], localTags: [] }),
-          )
-        ).ok,
-      ).toBe(true);
-    }
+    expect(source.match(/includes:/g)).toHaveLength(2);
+    expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
   });
 
-  test("binds mutually exclusive multi-classification fallback actions", async () => {
+  test("binds provider mutations in mutually exclusive if branches", async () => {
     const source = buildIncomingAutomationWorkflowSource({
       scope: { mode: "all" },
       steps: [
         {
           id: classifyId,
-          kind: "ai_classify_many",
-          instructions: "Choose up to two matching categories",
+          kind: "ai_classify",
+          instructions: "Choose one category",
           choices: [
-            {
-              id: importantId,
-              name: "Important",
-              description: "Needs attention",
-              steps: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action", action: { kind: "junk" } }],
-            },
-            { id: routineId, name: "Routine", description: "Routine mail", steps: [] },
+            { name: "Important", description: "Needs attention" },
+            { name: "Routine", description: "Routine mail" },
           ],
-          maxChoices: 2,
-          fallback: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action", action: { kind: "trash" } }],
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000040",
+          kind: "if",
+          condition: { sourceStepId: classifyId, operator: "equals", value: "Important" },
+          then: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action", action: { kind: "junk" } }],
+          else: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action", action: { kind: "trash" } }],
         },
       ],
     });

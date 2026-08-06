@@ -1987,10 +1987,16 @@ export type MailAutomationScope = z.infer<typeof mailAutomationScopeSchema>;
 const automationStepIdSchema = z.string().uuid();
 
 type MailAutomationChoice = {
-  id: string;
   name: string;
   description: string;
-  steps: MailAutomationStep[];
+};
+
+type MailAutomationOutputReference = { sourceStepId: string };
+
+type MailAutomationIfCondition = {
+  sourceStepId: string;
+  operator: "equals" | "includes";
+  value: string;
 };
 
 export type MailAutomationStep =
@@ -2000,28 +2006,37 @@ export type MailAutomationStep =
       kind: "ai_generate_text";
       instructions: string;
       maxOutputChars: number;
-      replyDraft: { senderIdentityId: string };
     }
-  | { id: string; kind: "ai_classify"; instructions: string; choices: MailAutomationChoice[]; fallback: MailAutomationStep[] }
+  | { id: string; kind: "ai_classify"; instructions: string; choices: MailAutomationChoice[] }
   | {
       id: string;
       kind: "ai_classify_many";
       instructions: string;
       choices: MailAutomationChoice[];
       maxChoices: number;
-      fallback: MailAutomationStep[];
-    };
+    }
+  | { id: string; kind: "create_reply_draft"; body: MailAutomationOutputReference; senderIdentityId: string }
+  | { id: string; kind: "add_comment"; body: MailAutomationOutputReference }
+  | { id: string; kind: "if"; condition: MailAutomationIfCondition; then: MailAutomationStep[]; else: MailAutomationStep[] };
 
 const mailAutomationChoiceSchema: z.ZodType<MailAutomationChoice> = z.lazy(() =>
   z
     .object({
-      id: automationStepIdSchema,
       name: z.string().trim().min(1).max(80),
       description: z.string().trim().min(1).max(500),
-      steps: z.array(mailAutomationStepSchema).max(12),
     })
     .strict(),
 );
+
+const mailAutomationOutputReferenceSchema = z.object({ sourceStepId: automationStepIdSchema }).strict();
+
+const mailAutomationIfConditionSchema = z
+  .object({
+    sourceStepId: automationStepIdSchema,
+    operator: z.enum(["equals", "includes"]),
+    value: z.string().trim().min(1).max(500),
+  })
+  .strict();
 
 export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(() =>
   z.discriminatedUnion("kind", [
@@ -2032,7 +2047,6 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
         kind: z.literal("ai_generate_text"),
         instructions: z.string().trim().min(1).max(4_000),
         maxOutputChars: z.number().int().min(200).max(10_000),
-        replyDraft: z.object({ senderIdentityId: z.string().uuid() }).strict(),
       })
       .strict(),
     z
@@ -2041,7 +2055,6 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
         kind: z.literal("ai_classify"),
         instructions: z.string().trim().min(1).max(4_000),
         choices: z.array(mailAutomationChoiceSchema).min(2).max(10),
-        fallback: z.array(mailAutomationStepSchema).max(12),
       })
       .strict(),
     z
@@ -2051,21 +2064,40 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
         instructions: z.string().trim().min(1).max(4_000),
         choices: z.array(mailAutomationChoiceSchema).min(2).max(10),
         maxChoices: z.number().int().min(1).max(10),
-        fallback: z.array(mailAutomationStepSchema).max(12),
+      })
+      .strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("create_reply_draft"),
+        body: mailAutomationOutputReferenceSchema,
+        senderIdentityId: z.string().uuid(),
+      })
+      .strict(),
+    z.object({ id: automationStepIdSchema, kind: z.literal("add_comment"), body: mailAutomationOutputReferenceSchema }).strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("if"),
+        condition: mailAutomationIfConditionSchema,
+        then: z.array(mailAutomationStepSchema).max(12),
+        else: z.array(mailAutomationStepSchema).max(12),
       })
       .strict(),
   ]),
 );
 
 const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.RefinementCtx): void => {
+  type OutputStep = Extract<MailAutomationStep, { kind: "ai_generate_text" | "ai_classify" | "ai_classify_many" }>;
   const ids = new Set<string>();
   let total = 0;
   let aiCalls = 0;
-  const visit = (sequence: MailAutomationStep[], path: (string | number)[], depth: number) => {
+  const visit = (sequence: MailAutomationStep[], available: ReadonlyMap<string, OutputStep>, path: (string | number)[], depth: number) => {
     if (depth > 4) {
       context.addIssue({ code: "custom", message: "Automation branches can be nested at most 4 levels", path });
       return;
     }
+    const current = new Map(available);
     sequence.forEach((step, index) => {
       const stepPath = [...path, index];
       total += 1;
@@ -2073,16 +2105,8 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
       ids.add(step.id);
       if (step.kind.startsWith("ai_")) aiCalls += 1;
       if (step.kind === "ai_classify" || step.kind === "ai_classify_many") {
-        const choiceIds = new Set<string>();
         const choiceNames = new Set<string>();
         step.choices.forEach((choice, choiceIndex) => {
-          if (choiceIds.has(choice.id)) {
-            context.addIssue({
-              code: "custom",
-              message: "AI choice IDs must be unique",
-              path: [...stepPath, "choices", choiceIndex, "id"],
-            });
-          }
           const name = choice.name.toLowerCase();
           if (choiceNames.has(name)) {
             context.addIssue({
@@ -2091,14 +2115,8 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
               path: [...stepPath, "choices", choiceIndex, "name"],
             });
           }
-          choiceIds.add(choice.id);
           choiceNames.add(name);
-          visit(choice.steps, [...stepPath, "choices", choiceIndex, "steps"], depth + 1);
         });
-        visit(step.fallback, [...stepPath, "fallback"], depth + 1);
-        if (step.choices.every((choice) => choice.steps.length === 0) && step.fallback.length === 0) {
-          context.addIssue({ code: "custom", message: "Add an action to at least one classification result", path: stepPath });
-        }
         if (step.kind === "ai_classify_many" && step.maxChoices > step.choices.length) {
           context.addIssue({
             code: "custom",
@@ -2107,9 +2125,50 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
           });
         }
       }
+      if (step.kind === "create_reply_draft" || step.kind === "add_comment") {
+        const source = current.get(step.body.sourceStepId);
+        if (!source || source.kind === "ai_classify_many") {
+          context.addIssue({
+            code: "custom",
+            message: "Select an earlier text-producing AI step",
+            path: [...stepPath, "body", "sourceStepId"],
+          });
+        }
+      }
+      if (step.kind === "if") {
+        const source = current.get(step.condition.sourceStepId);
+        const expectedOperator = source?.kind === "ai_classify_many" ? "includes" : "equals";
+        if (!source) {
+          context.addIssue({
+            code: "custom",
+            message: "Select an earlier AI output",
+            path: [...stepPath, "condition", "sourceStepId"],
+          });
+        } else if (step.condition.operator !== expectedOperator) {
+          context.addIssue({
+            code: "custom",
+            message: `${source.kind === "ai_classify_many" ? "Multi-choice" : "Text"} outputs require ${expectedOperator}`,
+            path: [...stepPath, "condition", "operator"],
+          });
+        }
+        if (
+          source &&
+          source.kind !== "ai_generate_text" &&
+          !source.choices.some((choice) => choice.name.toLowerCase() === step.condition.value.toLowerCase())
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Condition value must be one of the AI choices",
+            path: [...stepPath, "condition", "value"],
+          });
+        }
+        visit(step.then, current, [...stepPath, "then"], depth + 1);
+        visit(step.else, current, [...stepPath, "else"], depth + 1);
+      }
+      if (step.kind === "ai_generate_text" || step.kind === "ai_classify" || step.kind === "ai_classify_many") current.set(step.id, step);
     });
   };
-  visit(steps, ["steps"], 0);
+  visit(steps, new Map(), ["steps"], 0);
 
   type ActionState = { providerMutation: boolean; assigned: boolean; statusSet: boolean; tagIds: Set<string> };
   const actionStateKey = (state: ActionState): string =>
@@ -2154,30 +2213,11 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
           })),
         );
       }
-      if (step.kind === "ai_classify" || step.kind === "ai_classify_many") {
-        const activeChoices = step.choices.filter((choice) => choice.steps.length > 0);
-        if (step.kind === "ai_classify_many") {
-          const noMatchStates = states;
-          let matchedStates = states;
-          activeChoices.forEach((choice, choiceIndex) => {
-            matchedStates = uniqueStates([
-              ...matchedStates,
-              ...validateActionPaths(choice.steps, matchedStates, [...stepPath, "choices", choiceIndex, "steps"]),
-            ]);
-          });
-          states = uniqueStates([
-            ...matchedStates,
-            ...(step.fallback.length > 0 ? validateActionPaths(step.fallback, noMatchStates, [...stepPath, "fallback"]) : noMatchStates),
-          ]);
-        } else {
-          const alternatives = [
-            ...activeChoices.map((choice, choiceIndex) =>
-              validateActionPaths(choice.steps, states, [...stepPath, "choices", choiceIndex, "steps"]),
-            ),
-            step.fallback.length > 0 ? validateActionPaths(step.fallback, states, [...stepPath, "fallback"]) : states,
-          ];
-          states = uniqueStates(alternatives.flat());
-        }
+      if (step.kind === "if") {
+        states = uniqueStates([
+          ...validateActionPaths(step.then, states, [...stepPath, "then"]),
+          ...(step.else.length > 0 ? validateActionPaths(step.else, states, [...stepPath, "else"]) : states),
+        ]);
       }
     });
     return states;

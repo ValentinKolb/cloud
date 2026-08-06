@@ -66,6 +66,10 @@ const classificationPrompt = (step: Extract<MailAutomationStep, { kind: "ai_clas
     step.kind === "ai_classify" ? "Choose exactly one option:" : `Choose at most ${step.maxChoices} matching options:`
   }\n${step.choices.map((choice) => `- ${choice.name}: ${choice.description}`).join("\n")}`;
 
+const outputReference = (stepId: string): string => `\${{ ${outputName(stepId)} }}`;
+
+const outputTemplate = (stepId: string): string => `{{ ${outputName(stepId)} }}`;
+
 const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[] => {
   const compiled: Record<string, unknown>[] = [];
   for (const step of steps) {
@@ -82,16 +86,6 @@ const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[]
           saveAs: outputName(step.id),
         },
       });
-      compiled.push({
-        createReplyDraft: {
-          message: "${{ inputs.message }}",
-          conversation: "${{ inputs.conversation }}",
-          sender: step.replyDraft.senderIdentityId,
-          body: `{{ ${outputName(step.id)} }}`,
-          format: "markdown",
-          saveAs: `${outputName(step.id)}_draft`,
-        },
-      });
       continue;
     }
     if (step.kind === "ai_classify" || step.kind === "ai_classify_many") {
@@ -104,45 +98,36 @@ const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[]
           saveAs: outputName(step.id),
         },
       });
-      const activeChoices = step.choices.filter((choice) => choice.steps.length > 0);
-      if (step.kind === "ai_classify") {
-        let tail = compileSequence(step.fallback);
-        for (const choice of activeChoices.toReversed()) {
-          tail = [
-            {
-              if: { equals: [`\${{ ${outputName(step.id)} }}`, choice.name] },
-              then: compileSequence(choice.steps),
-              ...(tail.length > 0 ? { else: tail } : {}),
-            },
-          ];
-        }
-        compiled.push(...tail);
-        continue;
-      }
-      for (const choice of activeChoices) {
-        compiled.push({
-          if: { includes: [`\${{ ${outputName(step.id)} }}`, choice.name] },
-          then: compileSequence(choice.steps),
-        });
-      }
-      if (step.fallback.length > 0) {
-        if (activeChoices.length === 0) {
-          compiled.push(...compileSequence(step.fallback));
-          continue;
-        }
-        const choiceBranches = compiled.splice(compiled.length - activeChoices.length);
-        compiled.push({
-          if: {
-            not: {
-              any: activeChoices.map((choice) => ({
-                includes: [`\${{ ${outputName(step.id)} }}`, choice.name],
-              })),
-            },
-          },
-          then: compileSequence(step.fallback),
-          else: choiceBranches,
-        });
-      }
+      continue;
+    }
+    if (step.kind === "create_reply_draft") {
+      compiled.push({
+        createReplyDraft: {
+          message: "${{ inputs.message }}",
+          conversation: "${{ inputs.conversation }}",
+          sender: step.senderIdentityId,
+          body: outputTemplate(step.body.sourceStepId),
+          format: "markdown",
+          saveAs: outputName(step.id),
+        },
+      });
+      continue;
+    }
+    if (step.kind === "add_comment") {
+      compiled.push({
+        addComment: {
+          conversation: "${{ inputs.conversation }}",
+          body: outputTemplate(step.body.sourceStepId),
+        },
+      });
+      continue;
+    }
+    if (step.kind === "if") {
+      compiled.push({
+        if: { [step.condition.operator]: [outputReference(step.condition.sourceStepId), step.condition.value] },
+        then: compileSequence(step.then),
+        ...(step.else.length > 0 ? { else: compileSequence(step.else) } : {}),
+      });
     }
   }
   return compiled;
@@ -173,9 +158,9 @@ export const buildIncomingAutomationWorkflowSource = (params: { scope: MailAutom
 const visitSteps = (steps: MailAutomationStep[], visitor: (step: MailAutomationStep) => void): void => {
   for (const step of steps) {
     visitor(step);
-    if (step.kind !== "ai_classify" && step.kind !== "ai_classify_many") continue;
-    for (const choice of step.choices) visitSteps(choice.steps, visitor);
-    visitSteps(step.fallback, visitor);
+    if (step.kind !== "if") continue;
+    visitSteps(step.then, visitor);
+    visitSteps(step.else, visitor);
   }
 };
 
@@ -199,9 +184,11 @@ export const incomingAutomationBudget = (steps: MailAutomationStep[]): WorkflowE
   const actions = incomingAutomationActions(steps);
   let aiCalls = 0;
   let drafts = 0;
+  let comments = 0;
   visitSteps(steps, (step) => {
     if (step.kind.startsWith("ai_")) aiCalls += 1;
-    if (step.kind === "ai_generate_text") drafts += 1;
+    if (step.kind === "create_reply_draft") drafts += 1;
+    if (step.kind === "add_comment") comments += 1;
   });
   return {
     maxTargets: Math.max(1, actions.length + drafts),
@@ -212,9 +199,9 @@ export const incomingAutomationBudget = (steps: MailAutomationStep[]): WorkflowE
     maxFlagChanges: actions.filter((action) => action.kind === "mark_read").length,
     maxNotifications: 0,
     maxKeywordChanges: actions.filter((action) => action.kind === "add_keyword").length,
-    maxCollaborationChanges: actions.filter(
-      (action) => action.kind === "add_local_tag" || action.kind === "assign_user" || action.kind === "set_status",
-    ).length,
+    maxCollaborationChanges:
+      comments +
+      actions.filter((action) => action.kind === "add_local_tag" || action.kind === "assign_user" || action.kind === "set_status").length,
     maxAiCalls: aiCalls,
   };
 };

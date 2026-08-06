@@ -127,8 +127,6 @@ suite("incoming automations", () => {
     if (!enabledResult.ok) return;
 
     const classifierId = crypto.randomUUID();
-    const firstChoice = crypto.randomUUID();
-    const secondChoice = crypto.randomUUID();
     const updated = await updateIncomingAutomation({
       context: ownerContext,
       mailboxId,
@@ -144,20 +142,16 @@ suite("incoming automations", () => {
             kind: "ai_classify",
             instructions: "Choose a category",
             choices: [
-              {
-                id: firstChoice,
-                name: "Important",
-                description: "Needs attention",
-                steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "set_status", status: "needs_action" } }],
-              },
-              {
-                id: secondChoice,
-                name: "Routine",
-                description: "Routine mail",
-                steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }],
-              },
+              { name: "Important", description: "Needs attention" },
+              { name: "Routine", description: "Routine mail" },
             ],
-            fallback: [],
+          },
+          {
+            id: crypto.randomUUID(),
+            kind: "if",
+            condition: { sourceStepId: classifierId, operator: "equals", value: "Important" },
+            then: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "set_status", status: "needs_action" } }],
+            else: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }],
           },
         ],
       },
