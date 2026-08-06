@@ -252,6 +252,8 @@ const StatsDemo = () => (
 
 const OperationalDemo = () => {
   const notices = [
+    { tone: "neutral" as const, title: "Release deployed", detail: "Version 2.4 is serving all regions." },
+    { tone: "info" as const, title: "Maintenance scheduled", detail: "Telemetry pauses briefly at 02:00 UTC." },
     { tone: "warning" as const, title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
     { tone: "danger" as const, title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
   ];
@@ -277,6 +279,8 @@ const OperationalDemo = () => {
 } from "@k2b/ui";
 
 const notices = [
+  { tone: "neutral", title: "Release deployed", detail: "Version 2.4 is serving all regions." },
+  { tone: "info", title: "Maintenance scheduled", detail: "Telemetry pauses briefly at 02:00 UTC." },
   { tone: "warning", title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
   { tone: "danger", title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
 ] as const;

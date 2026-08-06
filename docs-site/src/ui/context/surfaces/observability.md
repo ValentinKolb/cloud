@@ -84,9 +84,9 @@ Long labels truncate visually without losing their text in the DOM. Add
 
 ### NoticeCard
 
-`NoticeCard` keeps one diagnostic finding visible. `tone` accepts `info`,
-`warning`, or `danger`; the default is `warning`. `title` names the finding and
-`detail` provides the evidence.
+`NoticeCard` keeps one diagnostic finding visible. `tone` accepts `neutral`,
+`info`, `warning`, or `danger`; the default is `warning`. `title` names the
+finding and `detail` provides the evidence.
 
 `NoticeCard.Grid` receives an `items` array and a render function. It renders
 nothing for an empty array. One item stays in one column; two items become two

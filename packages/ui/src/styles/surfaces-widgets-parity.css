@@ -180,6 +180,7 @@
   color: var(--k2b-text-secondary);
   background: var(--k2b-surface-muted);
 }
+.k2b-ui .k2b-notice-card[data-tone="info"] { border-color: color-mix(in srgb, var(--k2b-accent-500) 42%, var(--k2b-border)); color: var(--k2b-info-text); background: var(--k2b-info-surface); }
 .k2b-ui .k2b-notice-card[data-tone="warning"] { border-color: #fde68a; color: #78350f; background: #fffbeb; }
 .k2b-ui .k2b-notice-card[data-tone="danger"] { border-color: #fecaca; color: #7f1d1d; background: #fef2f2; }
 .k2b-ui[data-theme="dark"] .k2b-notice-card[data-tone="warning"],

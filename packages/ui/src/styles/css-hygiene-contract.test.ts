@@ -55,6 +55,9 @@ describe("@k2b/ui stylesheet hygiene", () => {
     expect(surfaces).toMatch(
       /\.k2b-status-badge\[data-tone="degraded"\] \.k2b-status-badge__dot\s*\{\s*background:\s*var\(--k2b-warning-500\);/,
     );
+    expect(surfaces).toContain(
+      '.k2b-ui .k2b-notice-card[data-tone="info"] { border-color: color-mix(in srgb, var(--k2b-accent-500) 42%, var(--k2b-border)); color: var(--k2b-info-text); background: var(--k2b-info-surface); }',
+    );
     expect(plex).not.toContain("ibm-plex-sans-condensed");
   });
 

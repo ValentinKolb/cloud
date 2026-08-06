@@ -10,12 +10,20 @@ const BlocksDemo = () => (
       { kind: "component", name: "NoticeCard.Grid", from: "@k2b/ui" },
     ]}
     description="Persistent findings that sit between ephemeral toasts and full empty states."
-    code={`<NoticeCard.Grid items={notices}>
+    code={`const notices = [
+  { tone: "neutral", title: "Release note", detail: "Version 2.4 is available." },
+  { tone: "info", title: "Import ready", detail: "12 rows validated." },
+  { tone: "warning", title: "Review needed", detail: "2 rows have no owner." },
+  { tone: "danger", title: "Source unavailable", detail: "Retrying in the background." },
+] as const;
+
+<NoticeCard.Grid items={notices}>
   {(notice) => <NoticeCard {...notice} />}
 </NoticeCard.Grid>`}
   >
     <NoticeCard.Grid
       items={[
+        { tone: "neutral" as const, title: "Release note", detail: "Version 2.4 is available." },
         { tone: "info" as const, title: "Import ready", detail: "12 rows validated." },
         { tone: "warning" as const, title: "Review needed", detail: "2 rows have no owner." },
         { tone: "danger" as const, title: "Source unavailable", detail: "Retrying in the background." },

@@ -104,6 +104,8 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
   });
 
   test("renders persistent notices and an empty-safe responsive compound grid", () => {
+    const info = renderToString(() => createComponent(NoticeCard, { title: "Scheduled maintenance", tone: "info" }));
+    const neutral = renderToString(() => createComponent(NoticeCard, { title: "Release note", tone: "neutral" }));
     const notice = renderToString(() =>
       createComponent(NoticeCard, {
         title: "Database unavailable",
@@ -124,6 +126,10 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
       }),
     );
 
+    expect(info).toContain('data-tone="info"');
+    expect(info).toContain("ti ti-info-circle");
+    expect(neutral).toContain('data-tone="neutral"');
+    expect(neutral).toContain("ti ti-note");
     expect(notice).toContain('data-tone="danger"');
     expect(notice).toContain("ti ti-alert-circle");
     expect(notice).toContain("Retrying in the background.");

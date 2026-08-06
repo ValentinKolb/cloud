@@ -1,7 +1,7 @@
 import { For, type JSX, Show } from "solid-js";
 import type { IntentTone } from "../semantics";
 
-export type NoticeTone = Extract<IntentTone, "info" | "warning" | "danger">;
+export type NoticeTone = Extract<IntentTone, "neutral" | "info" | "warning" | "danger">;
 
 export type NoticeCardProps = {
   tone?: NoticeTone;
@@ -12,6 +12,7 @@ export type NoticeCardProps = {
 };
 
 const DEFAULT_ICONS: Record<NoticeTone, string> = {
+  neutral: "ti ti-note",
   info: "ti ti-info-circle",
   warning: "ti ti-alert-triangle",
   danger: "ti ti-alert-circle",
