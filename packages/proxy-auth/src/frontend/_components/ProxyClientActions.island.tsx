@@ -1,7 +1,7 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { clipboard } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, Dropdown, IconButton, prompts, Tag, TextInput, toast } from "@k2b/ui";
+import { NoticeCard, Button, Dropdown, IconButton, prompts, Tag, TextInput, toast } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -76,9 +76,9 @@ const ProxyClientActions = (props: Props) => {
 
         return (
           <div class="flex flex-col gap-4">
-            <div class="text-xs text-dimmed info-block-info p-2 rounded">
+            <NoticeCard tone="info" icon={false}>
               Client ID: <code class="bg-zinc-50 dark:bg-zinc-800 px-1 rounded">{client.clientId}</code>
-            </div>
+            </NoticeCard>
 
             <TextInput
               label="Description"

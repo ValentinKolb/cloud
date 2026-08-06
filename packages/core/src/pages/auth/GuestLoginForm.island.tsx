@@ -1,6 +1,6 @@
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, Checkbox, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, Checkbox, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal, onMount, Show } from "solid-js";
 
@@ -57,7 +57,9 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           }}
           class="flex flex-col gap-4"
         >
-          <div class="info-block-success">Check your email for the login code. The code expires after a few minutes.</div>
+          <NoticeCard tone="success" icon={false}>
+            Check your email for the login code. The code expires after a few minutes.
+          </NoticeCard>
 
           <TextInput
             label="Login code"
@@ -70,9 +72,9 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           />
 
           {error() && (
-            <div class="info-block-danger">
+            <NoticeCard tone="danger" icon={false}>
               <span>{error()?.message}</span>
-            </div>
+            </NoticeCard>
           )}
 
           <Checkbox
@@ -121,9 +123,9 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
         />
 
         {error() && (
-          <div class="info-block-danger">
+          <NoticeCard tone="danger" icon={false}>
             <span>{error()?.message}</span>
-          </div>
+          </NoticeCard>
         )}
 
         <Checkbox

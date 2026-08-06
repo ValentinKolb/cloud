@@ -1,4 +1,4 @@
-import { CopyButton, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button, ButtonLink } from "@k2b/ui";
+import { NoticeCard, CopyButton, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button, ButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -129,19 +129,19 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
                 icon="ti ti-message"
                 placeholder="Why this link exists"
               />
-              <div class="info-block-info text-xs">
+              <NoticeCard tone="info" icon={false}>
                 <i class="ti ti-shield-lock" />
                 The URL works without login until it expires or is revoked. It downloads this stored document snapshot only.
-              </div>
+              </NoticeCard>
             </section>
           }
         >
           {(url) => (
             <section class="flex flex-col gap-3">
-              <div class="info-block-success text-xs">
+              <NoticeCard tone="success" icon={false}>
                 <i class="ti ti-check" />
                 {copiedOnCreate() ? "Link created and copied to clipboard." : "Link created. Use Copy link to copy the URL."}
-              </div>
+              </NoticeCard>
               <code class="block break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-2 font-mono text-xs text-secondary">
                 {url()}
               </code>

@@ -1,4 +1,4 @@
-import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, TextInput, Button } from "@k2b/ui";
+import { NoticeCard, Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, TextInput, Button } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
@@ -105,7 +105,9 @@ function FormFieldSettings(props: {
       <Show when={props.valueEntry()}>
         {(entry) => (
           <>
-            <div class="info-block-info text-xs">This field is hidden from visitors. Every submission stores the fixed value below.</div>
+            <NoticeCard tone="info" icon={false}>
+              This field is hidden from visitors. Every submission stores the fixed value below.
+            </NoticeCard>
             <FieldInput
               field={props.field()!}
               entry={{ kind: "user_input", fieldId: props.field()!.id, required: false }}

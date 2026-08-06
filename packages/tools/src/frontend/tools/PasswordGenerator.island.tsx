@@ -1,6 +1,6 @@
 import { password as pwdGen } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/browser";
-import { Button, SegmentedControl, Slider, Switch } from "@k2b/ui";
+import { NoticeCard, Button, SegmentedControl, Slider, Switch } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, type JSX } from "solid-js";
 
 type PasswordMode = "random" | "memorable" | "pin";
@@ -154,12 +154,12 @@ export default function PasswordGenerator() {
         ]}
       />
 
-      <div class="info-block-info flex items-start gap-2">
+      <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
         <i class="ti ti-info-circle shrink-0 mt-0.5" />
         <div class="text-sm">
           <strong>{MODE_INFO[mode()].title}</strong> {MODE_INFO[mode()].body}
         </div>
-      </div>
+      </NoticeCard>
 
       <section class="paper p-4">
         <div class="flex flex-col gap-5">

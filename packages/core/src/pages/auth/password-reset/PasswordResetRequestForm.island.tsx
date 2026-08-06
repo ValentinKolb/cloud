@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal } from "solid-js";
 
@@ -39,9 +39,9 @@ export default function PasswordResetRequestForm(props: PasswordResetRequestForm
       class="flex flex-col gap-4"
     >
       {sent() && (
-        <div class="info-block-success">
+        <NoticeCard tone="success" icon={false}>
           If this account can reset a password, a reset link has been sent. The link expires after 15 minutes.
-        </div>
+        </NoticeCard>
       )}
 
       <TextInput
@@ -56,9 +56,9 @@ export default function PasswordResetRequestForm(props: PasswordResetRequestForm
       />
 
       {mutation.error() && (
-        <div class="info-block-danger">
+        <NoticeCard tone="danger" icon={false}>
           <span>{mutation.error()?.message}</span>
-        </div>
+        </NoticeCard>
       )}
 
       <Button type="submit" class="w-full justify-center py-2" loading={mutation.loading()} loadingLabel="Sending reset link">

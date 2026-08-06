@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, Checkbox, CopyButton, prompts, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, Checkbox, CopyButton, prompts, TextInput } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { type BaseGroup, BaseGroupSchema, ErrorResponseSchema } from "@/contracts";
@@ -114,7 +114,7 @@ function CreateGroupDialog(props: { provider: ProviderChoice; close: (payload?: 
       </div>
 
       <Show when={props.provider === "ipa"}>
-        <div class="info-block-info text-sm">
+        <NoticeCard tone="info" icon={false}>
           <div class="flex items-start gap-3">
             <i class="ti ti-info-circle mt-0.5 text-base" />
             <div class="flex flex-col gap-1">
@@ -124,7 +124,7 @@ function CreateGroupDialog(props: { provider: ProviderChoice; close: (payload?: 
               </span>
             </div>
           </div>
-        </div>
+        </NoticeCard>
       </Show>
 
       <div class="grid gap-4">
@@ -245,10 +245,10 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
       await prompts.dialog<void>(
         (close) => (
           <div class="flex flex-col gap-4">
-            <div class="info-block-success text-sm">
+            <NoticeCard tone="success" icon={false}>
               FreeIPA group <code class="font-mono font-semibold">{result.group.name}</code> created successfully.
-            </div>
-            <div class="info-block-info flex flex-col gap-3">
+            </NoticeCard>
+            <NoticeCard tone="info" icon={false} bodyClass="flex flex-col gap-3">
               <div class="flex items-center justify-between gap-3">
                 <div class="flex flex-col">
                   <span class="text-sm font-medium text-primary">NFS follow-up</span>
@@ -259,7 +259,7 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
               <pre class="overflow-x-auto whitespace-pre rounded-xl bg-white/80 px-3 py-3 text-xs font-mono text-secondary dark:bg-zinc-950/80">
                 {command}
               </pre>
-            </div>
+            </NoticeCard>
             <div class="flex justify-end">
               <Button
                 size="sm"

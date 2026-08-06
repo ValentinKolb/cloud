@@ -1,5 +1,5 @@
 import { clipboard, hotkeys } from "@k2b/stdlib/solid";
-import { Button, IconButton, IconButtonLink, MarkdownView, Placeholder, prompts } from "@k2b/ui";
+import { NoticeCard, Button, IconButton, IconButtonLink, MarkdownView, Placeholder, prompts } from "@k2b/ui";
 import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { appAccentStyle } from "./app-appearance";
@@ -741,13 +741,13 @@ const HelpShell = (props: {
                 </Show>
                 <Show when={loadError()}>
                   {(message) => (
-                    <div class="info-block-danger">
+                    <NoticeCard tone="danger" icon={false}>
                       <p class="font-medium">Could not load this topic</p>
                       <p class="mt-1 text-sm">{message()}</p>
                       <Button size="sm" variant="secondary" class="mt-3" onClick={() => setLoadAttempt((value) => value + 1)}>
                         Try again
                       </Button>
-                    </div>
+                    </NoticeCard>
                   )}
                 </Show>
                 <Show when={payload()}>

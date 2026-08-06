@@ -1,5 +1,5 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { Button, Checkbox, prompts } from "@k2b/ui";
+import { NoticeCard, Button, Checkbox, prompts } from "@k2b/ui";
 import { formatNumber } from "@valentinkolb/cloud/shared";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -57,13 +57,13 @@ function FinalizeDialog(props: {
 
   return (
     <div class="flex min-w-0 flex-col gap-4">
-      <div class="info-block-warning flex min-w-0 items-start gap-2 text-sm">
+      <NoticeCard tone="warning" icon={false} bodyClass="flex min-w-0 items-start gap-2">
         <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
         <span class="min-w-0 break-words">
           This will send the email to {formatNumber(props.deliverableCount)} recipients. {formatNumber(props.skippedNoEmailCount)} selected
           accounts have no email address and will be skipped.
         </span>
-      </div>
+      </NoticeCard>
       <Checkbox
         label="I confirmed the recipient count and message."
         value={confirmed}

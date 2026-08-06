@@ -1,4 +1,4 @@
-import { MultiSelectInput, Select } from "@k2b/ui";
+import { NoticeCard, MultiSelectInput, Select } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { RecordDisplayConfig, RecordDisplayMode } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -139,7 +139,9 @@ export function RecordDisplayConfigEditor(props: {
           disabled={dateFieldOptions().length === 0}
         />
         <Show when={dateFieldOptions().length === 0}>
-          <div class="info-block-warning text-xs">Add a date field before using calendar display.</div>
+          <NoticeCard tone="warning" icon={false}>
+            Add a date field before using calendar display.
+          </NoticeCard>
         </Show>
       </Show>
     </div>

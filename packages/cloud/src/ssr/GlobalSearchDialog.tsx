@@ -1,5 +1,5 @@
 import { mutation, timed } from "@k2b/stdlib/solid";
-import { dialogCore } from "@k2b/ui";
+import { NoticeCard, dialogCore } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
@@ -603,7 +603,13 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
           </Show>
 
           <div class="min-h-0 flex-1 overflow-hidden">
-            <Show when={requestError()}>{(message) => <div class="info-block-danger mb-2 text-xs">{message()}</div>}</Show>
+            <Show when={requestError()}>
+              {(message) => (
+                <NoticeCard tone="danger" icon={false} class="mb-2">
+                  {message()}
+                </NoticeCard>
+              )}
+            </Show>
 
             {/* Suggestions: empty input, show available tags as clickable chips. */}
             <Show when={bodyMode() === "suggestions"}>

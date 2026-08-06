@@ -1,4 +1,4 @@
-import { CopyButton, dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
+import { NoticeCard, CopyButton, dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -123,10 +123,10 @@ function FormSubmitBody(props: {
         </For>
 
         <Show when={error()}>
-          <div class="info-block-error flex items-start gap-2 text-xs">
+          <NoticeCard tone="danger" icon={false} bodyClass="flex items-start gap-2">
             <i class="ti ti-alert-circle mt-0.5 shrink-0" />
             <span>{error()}</span>
-          </div>
+          </NoticeCard>
         </Show>
 
         <div class="mt-2 flex items-center gap-2">

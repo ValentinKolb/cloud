@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, prompts, TextInput, toast } from "@k2b/ui";
+import { NoticeCard, Button, prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
@@ -32,7 +32,9 @@ function FeedbackForm(props: { slug: string; accentColor: string; onSubmitted: (
 
   return (
     <div class="grid gap-4">
-      <p class="info-block-note">Your feedback is completely anonymous. We only store the rating, optional comment, and submission time.</p>
+      <NoticeCard tone="neutral" icon={false}>
+        Your feedback is completely anonymous. We only store the rating, optional comment, and submission time.
+      </NoticeCard>
       <div class="grid grid-cols-5 gap-2" role="group" aria-label="Rating" onMouseLeave={() => setHoverRating(null)}>
         <For each={[1, 2, 3, 4, 5]}>
           {(value) => {

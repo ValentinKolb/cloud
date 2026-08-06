@@ -1,4 +1,4 @@
-import { ColorInput, CopyButton, TextInput } from "@k2b/ui";
+import { NoticeCard, ColorInput, CopyButton, TextInput } from "@k2b/ui";
 import { batch, createSignal } from "solid-js";
 
 // Conversion helpers
@@ -156,10 +156,10 @@ export default function ColorConverter() {
 
   return (
     <div class="flex flex-col gap-4">
-      <div class="info-block-info flex items-start gap-2">
+      <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
         <i class="ti ti-info-circle shrink-0 mt-0.5" />
         <span>Edit any field and the other formats update automatically.</span>
-      </div>
+      </NoticeCard>
 
       <div class="paper p-4 flex flex-col gap-4">
         {/* Color preview */}

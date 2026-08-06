@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal } from "solid-js";
 
@@ -41,9 +41,9 @@ export default function AdminLoginForm(props: { redirectTo?: string }) {
       />
 
       {mutation.error() && (
-        <div class="info-block-danger">
+        <NoticeCard tone="danger" icon={false}>
           <span>{mutation.error()?.message}</span>
-        </div>
+        </NoticeCard>
       )}
 
       <Button type="submit" class="w-full justify-center py-2" loading={mutation.loading()} loadingLabel="Signing in">

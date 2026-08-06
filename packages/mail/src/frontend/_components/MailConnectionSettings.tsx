@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   CheckboxCard,
   confirmDiscardIfDirty,
   Dropdown,
@@ -418,9 +419,9 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                 </div>
                 <Show when={discoverySource()}>
                   {(source) => (
-                    <div class="info-block-success text-xs" role="status">
+                    <NoticeCard tone="success" icon={false} role="status">
                       Server settings were filled from {source()}. Review them, then enter the account secret.
-                    </div>
+                    </NoticeCard>
                   )}
                 </Show>
                 <TextInput

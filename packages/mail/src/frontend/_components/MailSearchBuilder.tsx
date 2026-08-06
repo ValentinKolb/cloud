@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   DateTimePicker,
   dialogCore,
   NumberInput,
@@ -704,9 +705,9 @@ function MailSearchBuilderDialog(props: {
         </PanelDialog.Section>
         <Show when={error()}>
           {(message) => (
-            <div class="info-block-danger text-sm" role="alert">
+            <NoticeCard tone="danger" icon={false} role="alert">
               <i class="ti ti-alert-circle" aria-hidden="true" /> {message()}
-            </div>
+            </NoticeCard>
           )}
         </Show>
       </PanelDialog.Body>

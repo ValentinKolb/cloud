@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button } from "@k2b/ui";
+import { NoticeCard, Button } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
@@ -115,10 +115,10 @@ export default function FormSubmit(props: Props) {
       <Show
         when={!done()}
         fallback={
-          <div class="info-block-success flex items-center gap-2 text-sm">
+          <NoticeCard tone="success" icon={false} bodyClass="flex items-center gap-2">
             <i class="ti ti-circle-check shrink-0" />
             <span>{props.form.config.successMessage ?? "Saved"}</span>
-          </div>
+          </NoticeCard>
         }
       >
         <form
@@ -128,10 +128,10 @@ export default function FormSubmit(props: Props) {
           onSubmit={handleSubmit}
         >
           <Show when={hasInlineCreate()}>
-            <div class="info-block-warning flex items-start gap-2 text-xs">
+            <NoticeCard tone="warning" icon={false} bodyClass="flex items-start gap-2">
               <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
               <span>This form can create linked records too. Everything is saved together when you submit.</span>
-            </div>
+            </NoticeCard>
           </Show>
           <For each={entries}>
             {(entry) => {
@@ -153,10 +153,10 @@ export default function FormSubmit(props: Props) {
           </For>
 
           <Show when={error()}>
-            <div class="info-block-error flex items-start gap-2 text-sm">
+            <NoticeCard tone="danger" icon={false} bodyClass="flex items-start gap-2">
               <i class="ti ti-alert-circle mt-0.5 shrink-0" />
               <span>{error()}</span>
-            </div>
+            </NoticeCard>
           </Show>
 
           {/* Wrap the button so it sizes to its content rather than

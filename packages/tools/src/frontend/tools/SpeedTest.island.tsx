@@ -1,4 +1,4 @@
-import { Button, Chart, CopyButton } from "@k2b/ui";
+import { NoticeCard, Button, Chart, CopyButton } from "@k2b/ui";
 import { batch, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { ToolCodeBlock } from "./ToolOutput";
@@ -286,13 +286,13 @@ export default function SpeedTest(props: SpeedTestProps) {
 
   return (
     <div class="flex flex-col gap-4">
-      <div class="info-block-warning flex items-center gap-2">
+      <NoticeCard tone="warning" icon={false} bodyClass="flex items-center gap-2">
         <i class="ti ti-cloud-upload shrink-0" />
         <span>
           This tool sends random test data to the cloud server to measure your connection. The data is generated in your browser and
           discarded server-side — nothing is stored.
         </span>
-      </div>
+      </NoticeCard>
 
       <div class="paper p-4 flex flex-col gap-4">
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -347,7 +347,9 @@ export default function SpeedTest(props: SpeedTestProps) {
         </div>
 
         <Show when={error()}>
-          <div class="info-block-danger">{error()}</div>
+          <NoticeCard tone="danger" icon={false}>
+            {error()}
+          </NoticeCard>
         </Show>
       </div>
 

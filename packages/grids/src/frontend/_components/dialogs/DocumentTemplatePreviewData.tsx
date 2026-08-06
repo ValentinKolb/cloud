@@ -1,4 +1,4 @@
-import { CopyButton, Placeholder, type TemplateVariable } from "@k2b/ui";
+import { NoticeCard, CopyButton, Placeholder, type TemplateVariable } from "@k2b/ui";
 import { createMemo, For, Show } from "solid-js";
 
 type DocumentDataTreeRow = {
@@ -114,7 +114,11 @@ export function DocumentDataTree(props: {
             </Show>
           }
         >
-          {(message) => <div class="info-block-danger m-3 text-sm">{message()}</div>}
+          {(message) => (
+            <NoticeCard tone="danger" icon={false} class="m-3">
+              {message()}
+            </NoticeCard>
+          )}
         </Show>
       </Show>
     </section>
@@ -142,7 +146,11 @@ export function RenderedDocumentSource(props: { source: () => string | null; loa
             </Show>
           }
         >
-          {(message) => <div class="info-block-danger m-3 text-sm">{message()}</div>}
+          {(message) => (
+            <NoticeCard tone="danger" icon={false} class="m-3">
+              {message()}
+            </NoticeCard>
+          )}
         </Show>
       </Show>
     </section>

@@ -8,7 +8,7 @@ import { parseLastGridsPath } from "./_components/sidebar/GridsSettingsStore";
 
 /**
  * Bases list page — shows every base the user has access to.
- * Layout matches the spaces / notebooks index pages: hero + info-block
+ * Layout matches the spaces / notebooks index pages: hero + notice card
  * with the create button + paper-card grid.
  */
 export default ssr<AuthContext>(async (c) => {

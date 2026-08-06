@@ -2,6 +2,7 @@ import { documentNavigate, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   Button,
   CheckboxCard,
   Dropdown,
@@ -846,9 +847,9 @@ export default function MailConversationReader(props: {
         }}
       </Show>
       <Show when={!props.error && props.totalMessageCount > props.messages.length}>
-        <div class="info-block-warning mx-3 mt-3 text-xs" role="status">
+        <NoticeCard tone="warning" icon={false} class="mx-3 mt-3" role="status">
           Showing the latest {props.messages.length} of {props.totalMessageCount} messages in this unusually long conversation.
-        </div>
+        </NoticeCard>
       </Show>
       <Show
         when={props.messages.length > 0}

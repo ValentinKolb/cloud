@@ -1,4 +1,4 @@
-import { Placeholder, prompts, Select, Button, ButtonLink } from "@k2b/ui";
+import { NoticeCard, Placeholder, prompts, Select, Button, ButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -186,7 +186,14 @@ export default function MailComposeIntentPage(props: {
             />
           }
         >
-          <Show when={parsedIntent.ok} fallback={<div class="info-block-error text-sm">{!parsedIntent.ok && parsedIntent.message}</div>}>
+          <Show
+            when={parsedIntent.ok}
+            fallback={
+              <NoticeCard tone="danger" icon={false}>
+                {!parsedIntent.ok && parsedIntent.message}
+              </NoticeCard>
+            }
+          >
             <div class="flex flex-col gap-3">
               <Select
                 label="Mailbox"
@@ -214,18 +221,18 @@ export default function MailComposeIntentPage(props: {
               />
               <Show when={identityError()}>
                 {(message) => (
-                  <div class="info-block-error flex items-center justify-between gap-3 text-sm" role="alert">
+                  <NoticeCard tone="danger" icon={false} bodyClass="flex items-center justify-between gap-3" role="alert">
                     <span>{message()}</span>
                     <Button variant="secondary" size="sm" type="button" onClick={() => setIdentityReload((current) => current + 1)}>
                       Retry
                     </Button>
-                  </div>
+                  </NoticeCard>
                 )}
               </Show>
               <Show when={mailboxId() && !identityLoading() && !identityError() && identities().length === 0}>
-                <div class="info-block-note text-sm">
+                <NoticeCard tone="neutral" icon={false}>
                   This mailbox has no verified sender. Add and verify an identity in mailbox Settings before composing.
-                </div>
+                </NoticeCard>
               </Show>
             </div>
             <Show when={props.mailto}>

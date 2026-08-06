@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, prompts } from "@k2b/ui";
+import { NoticeCard, Button, prompts } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 type RequestFreeIpaAccountProps = {
@@ -69,9 +69,9 @@ export default function RequestFreeIpaAccount(props: RequestFreeIpaAccountProps)
         info: {
           type: "info",
           content: () => (
-            <div class="info-block-info text-xs">
+            <NoticeCard tone="info" icon={false}>
               Please verify your details and explain why you need a centrally managed FreeIPA account.
-            </div>
+            </NoticeCard>
           ),
         },
         firstName: {

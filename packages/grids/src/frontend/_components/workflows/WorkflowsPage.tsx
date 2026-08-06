@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   Button,
   DataTable,
   type DataTableColumn,
@@ -630,12 +631,12 @@ export default function WorkflowsPage(props: Props) {
               <div class="flex min-h-[24rem] flex-1 flex-col gap-2">
                 <Show when={emailLoadError()}>
                   {(message) => (
-                    <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
+                    <NoticeCard tone="danger" icon={false} bodyClass="flex items-center justify-between gap-3" role="alert">
                       <span>{message()}</span>
                       <Button variant="ghost" size="sm" type="button" class="shrink-0" onClick={() => emailDeliveriesMut.mutate()}>
                         <i class="ti ti-refresh" aria-hidden="true" /> Retry
                       </Button>
-                    </div>
+                    </NoticeCard>
                   )}
                 </Show>
                 <EmailDeliveryTable
@@ -740,12 +741,12 @@ export default function WorkflowsPage(props: Props) {
 
           <Show when={loadError()}>
             {(message) => (
-              <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
+              <NoticeCard tone="danger" icon={false} bodyClass="flex items-center justify-between gap-3" role="alert">
                 <span>{message()}</span>
                 <Button variant="ghost" size="sm" type="button" class="shrink-0" onClick={reloadAll}>
                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
                 </Button>
-              </div>
+              </NoticeCard>
             )}
           </Show>
 

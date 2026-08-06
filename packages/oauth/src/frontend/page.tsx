@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
+import { NoticeCard, DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { formatDate } from "@valentinkolb/cloud/shared";
@@ -136,7 +136,7 @@ export default ssr<AuthContext>(async (c) => {
           />
         )}
 
-        <section class="info-block-info p-4" style="view-transition-name: admin-oauth-reference">
+        <NoticeCard tone="info" icon={false} style="view-transition-name: admin-oauth-reference">
           <h2 class="mb-3 text-sm font-medium">Discovery Endpoints</h2>
           <div class="space-y-1 text-xs font-mono mb-4">
             <div class="flex flex-col gap-0.5">
@@ -215,7 +215,7 @@ export default ssr<AuthContext>(async (c) => {
               <span class="opacity-70">Groups Claim:</span> <code>groups</code>
             </div>
           </div>
-        </section>
+        </NoticeCard>
       </div>
     </AdminLayout>
   );

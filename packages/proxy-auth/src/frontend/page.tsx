@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
+import { NoticeCard, DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { formatDate } from "@valentinkolb/cloud/shared";
@@ -94,7 +94,7 @@ export default ssr<AuthContext>(async (c) => {
           />
         )}
 
-        <section class="info-block-info p-4" style="view-transition-name: admin-proxy-auth-reference">
+        <NoticeCard tone="info" icon={false} style="view-transition-name: admin-proxy-auth-reference">
           <h2 class="mb-3 text-sm font-medium">Traefik ForwardAuth Setup</h2>
           <p class="text-xs mb-3 opacity-80">
             Use these settings in your Traefik configuration to protect external services. Each client has a unique verify URL.
@@ -136,7 +136,7 @@ export default ssr<AuthContext>(async (c) => {
               <span class="opacity-70">— Comma-separated direct and nested group list</span>
             </div>
           </div>
-        </section>
+        </NoticeCard>
       </div>
     </AdminLayout>
   );

@@ -1,4 +1,4 @@
-import { Button, CheckboxCard, PanelDialog, Select, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, CheckboxCard, PanelDialog, Select, TextInput } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { CreateOAuthClient, OAuthClient, OAuthScope, UpdateOAuthClient } from "@/contracts";
@@ -214,9 +214,9 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
             <Show
               when={props.mode === "create"}
               fallback={
-                <div class="info-block-info text-xs">
+                <NoticeCard tone="info" icon={false}>
                   Client ID: <code>{props.mode === "edit" ? props.client.clientId : ""}</code>
-                </div>
+                </NoticeCard>
               }
             >
               <TextInput label="Name" placeholder="My Application" icon="ti ti-tag" value={name} onValueChange={setName} required />
@@ -271,10 +271,10 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
               />
 
               <Show when={accessChoice() === "specific"}>
-                <div class="info-block-info flex items-start gap-2 text-xs">
+                <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
                   <i class="ti ti-info-circle mt-0.5 shrink-0" />
                   <span>Selected groups include users from nested child groups recursively.</span>
-                </div>
+                </NoticeCard>
                 <EntitySearch
                   includeUsers
                   includeGroups

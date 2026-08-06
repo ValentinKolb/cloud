@@ -347,7 +347,7 @@ export const slashCommandsExtension = (ctx: SlashCommandContext): Extension =>
     //
     //   1. slash commands     — only at line-start, `/<…>`
     //   2. code-fence picker  — only at line-start, `\`\`\`<…>` (markdown ctx)
-    //   3. info-block picker  — only at line-start, `:::<…>` (markdown ctx)
+    //   3. notice-card picker — only at line-start, `:::<…>` (markdown ctx)
     //   4. table formulas     — only in `|...|` rows, cell starts with `=`
     //   5. tag completion     — `#<word>` mid-text (notebook-wide tags, async)
     //   6. TS intelligence    — only inside `script` fences, lazy TS LS
@@ -368,7 +368,7 @@ export const slashCommandsExtension = (ctx: SlashCommandContext): Extension =>
     override: [
       safe("slash", buildSlashSource(ctx)),
       safe("code-fence", codeFenceCompletionSource),
-      safe("info-block", infoBlockCompletionSource),
+      safe("notice-card", infoBlockCompletionSource),
       // table-formulas fires when typing `=NAME` in a cell;
       // table-columns fires when typing INSIDE the parens of a
       // formula call. They never both match the same position so

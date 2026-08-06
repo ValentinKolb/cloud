@@ -1,4 +1,4 @@
-import { Button, IconButton, Placeholder, StatusBadge, Tooltip } from "@k2b/ui";
+import { NoticeCard, Button, IconButton, Placeholder, StatusBadge, Tooltip } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import type { DocumentRunSummary } from "../../../contracts";
 import type { WorkflowRunProvenance } from "../../../service/workflow-runs";
@@ -70,8 +70,20 @@ export function WorkflowRunExecutionSection(props: {
           )}
         </Show>
       </dl>
-      <Show when={props.run.error}>{(error) => <p class="info-block-danger mt-3 text-xs">{error().message}</p>}</Show>
-      <Show when={props.run.resultMessage}>{(message) => <p class="info-block-success mt-3 text-xs">{message()}</p>}</Show>
+      <Show when={props.run.error}>
+        {(error) => (
+          <NoticeCard tone="danger" icon={false} class="mt-3">
+            {error().message}
+          </NoticeCard>
+        )}
+      </Show>
+      <Show when={props.run.resultMessage}>
+        {(message) => (
+          <NoticeCard tone="success" icon={false} class="mt-3">
+            {message()}
+          </NoticeCard>
+        )}
+      </Show>
     </section>
   );
 }

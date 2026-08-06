@@ -74,7 +74,7 @@ const getEntry = (context: CompletionContext): CacheEntry => {
 /**
  * True when the cursor is inside any FencedCode / CodeBlock node.
  *
- * Used by info-block + tag sources — they're literal-text inside a
+ * Used by notice-card + tag sources — they're literal-text inside a
  * code fence and shouldn't surface suggestions there.
  */
 export const isInsideFencedCode = (context: CompletionContext): boolean => getEntry(context).insideFence;

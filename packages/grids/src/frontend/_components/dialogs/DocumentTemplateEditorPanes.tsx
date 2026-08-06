@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Panes, type PanesValue, PdfPreview, Placeholder, TemplateEditor, type TemplateVariable, Button } from "@k2b/ui";
+import { NoticeCard, Panes, type PanesValue, PdfPreview, Placeholder, TemplateEditor, type TemplateVariable, Button } from "@k2b/ui";
 import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
@@ -168,12 +168,12 @@ export function DocumentTemplateEditorPanes(props: Props) {
                 <Show
                   when={!props.accessError() && props.accessEntries()}
                   fallback={
-                    <div class="info-block-danger flex items-center justify-between gap-3 text-sm">
+                    <NoticeCard tone="danger" icon={false} bodyClass="flex items-center justify-between gap-3">
                       <span>{props.accessError() ?? "Could not load document template access."}</span>
                       <Button variant="secondary" size="sm" type="button" onClick={props.retryAccess}>
                         <i class="ti ti-refresh" /> Retry
                       </Button>
-                    </div>
+                    </NoticeCard>
                   }
                 >
                   {(entries) => (

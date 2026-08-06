@@ -1,6 +1,6 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, CopyButton, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
+import { NoticeCard, Button, CopyButton, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { ErrorResponseSchema } from "@/contracts";
 
@@ -41,9 +41,9 @@ export default function GroupActions(props: GroupActionsProps) {
       prompts.dialog(
         (close) => (
           <div class="flex flex-col gap-4">
-            <div class="info-block-success">
+            <NoticeCard tone="success" icon={false}>
               Group <code class="font-mono font-semibold">{g}</code> deleted from {providerLabel}.
-            </div>
+            </NoticeCard>
 
             <div class="flex flex-col gap-1">
               <div class="flex items-center justify-between">

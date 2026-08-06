@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button } from "@k2b/ui";
+import { NoticeCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import type { ColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -56,10 +56,10 @@ export const openComputedColumnDialog = (args: {
           close={() => close(null)}
         />
         <PanelDialog.Body>
-          <div class="info-block-info text-xs">
+          <NoticeCard tone="info" icon={false}>
             Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view
             setup.
-          </div>
+          </NoticeCard>
           <TextInput
             label="Name"
             value={label}

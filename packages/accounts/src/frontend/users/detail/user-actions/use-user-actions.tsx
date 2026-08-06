@@ -1,6 +1,6 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, CopyButton, DatePicker, prompts } from "@k2b/ui";
+import { NoticeCard, Button, CopyButton, DatePicker, prompts } from "@k2b/ui";
 import { openAvatarUploadDialog } from "@valentinkolb/cloud/account/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -315,10 +315,10 @@ export function createUserActions(props: UserActionsProps) {
               mailInfo: {
                 type: "info" as const,
                 content: () => (
-                  <div class="info-block-warning text-xs">
+                  <NoticeCard tone="warning" icon={false}>
                     The email address is the primary sync key between FreeIPA and the local database. Changing it may affect account
                     linking.
-                  </div>
+                  </NoticeCard>
                 ),
               },
             }
@@ -578,7 +578,9 @@ export function createUserActions(props: UserActionsProps) {
     prompts.dialog<void>(
       (close) => (
         <div class="flex flex-col gap-4">
-          <div class="info-block-success">User permanently deleted.</div>
+          <NoticeCard tone="success" icon={false}>
+            User permanently deleted.
+          </NoticeCard>
 
           {isIpaUser && (
             <div class="flex flex-col gap-1">

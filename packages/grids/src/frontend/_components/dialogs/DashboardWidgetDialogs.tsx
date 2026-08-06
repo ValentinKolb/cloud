@@ -1,5 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import {
+  NoticeCard,
   Button,
   confirmDiscardIfDirty,
   dialogCore,
@@ -223,9 +224,9 @@ export const openCellEditDialog = (
         <PanelDialog.Body>
           <Show when={validationError()}>
             {(message) => (
-              <div ref={validationErrorElement} class="info-block-danger text-sm" role="alert" tabIndex={-1}>
+              <NoticeCard ref={validationErrorElement} tone="danger" icon={false} role="alert" tabIndex={-1}>
                 {message()}
-              </div>
+              </NoticeCard>
             )}
           </Show>
           <CellEditorBody

@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   dialogCore,
   NumberInput,
   PanelDialog,
@@ -532,10 +533,10 @@ function AutomaticReplyEditor(props: {
               <Show
                 when={props.canConfigureReference}
                 fallback={
-                  <div class="info-block-warning mt-2 flex items-start gap-2">
+                  <NoticeCard tone="warning" icon={false} class="mt-2" bodyClass="flex items-start gap-2">
                     <i class="ti ti-alert-triangle mt-0.5 shrink-0" aria-hidden="true" />
                     <span>A mailbox admin must configure reference numbers before this reply can be saved.</span>
-                  </div>
+                  </NoticeCard>
                 }
               >
                 <div class="mt-2 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] p-3">

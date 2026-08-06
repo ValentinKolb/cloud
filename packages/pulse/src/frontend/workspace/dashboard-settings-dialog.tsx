@@ -1,4 +1,4 @@
-import { Button, prompts, Select, SettingsModal, TextInput } from "@k2b/ui";
+import { Button, NoticeCard, prompts, Select, SettingsModal, TextInput } from "@k2b/ui";
 import { createSignal, Show, type Accessor } from "solid-js";
 import type { PulseDashboard } from "../../contracts";
 import { DASHBOARD_REFRESH_OPTIONS, refreshOptionFromConfig } from "./helpers";
@@ -67,11 +67,11 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
               description="Anyone with the UUID link can view this dashboard's included data."
             >
               <div class="flex flex-col gap-3">
-                <div class={options.currentDashboard().publicEnabled ? "info-block-success" : "info-block-info"}>
+                <NoticeCard tone={options.currentDashboard().publicEnabled ? "success" : "info"} icon={false}>
                   {options.currentDashboard().publicEnabled
                     ? "Public display is enabled. Copy the link whenever you need it, or disable public access."
                     : "Public display is disabled. Create a link when you want to share this dashboard without auth."}
-                </div>
+                </NoticeCard>
                 <div class="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"

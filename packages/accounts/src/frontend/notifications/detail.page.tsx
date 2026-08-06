@@ -1,5 +1,5 @@
 import { dates } from "@k2b/stdlib";
-import { DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
+import { NoticeCard, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
@@ -226,9 +226,9 @@ export default ssr<AuthContext>(async (c) => {
                     : "This batch targets explicitly selected users and recursive group members."}
                 </p>
                 {isLegacyRuleAudience && batch.status === "draft" ? (
-                  <div class="info-block-warning mt-2 text-xs">
+                  <NoticeCard tone="warning" icon={false} class="mt-2">
                     Legacy rule-based drafts can no longer be finalized. Create a new notification batch with users and groups.
-                  </div>
+                  </NoticeCard>
                 ) : null}
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button } from "@k2b/ui";
+import { NoticeCard, Button } from "@k2b/ui";
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
@@ -46,9 +46,9 @@ export default function PasskeyLoginButton(props: { redirectTo?: string }) {
         Continue with passkey
       </Button>
       {mutation.error() && (
-        <div class="info-block-danger">
+        <NoticeCard tone="danger" icon={false}>
           <span>{mutation.error()?.message}</span>
-        </div>
+        </NoticeCard>
       )}
     </div>
   );

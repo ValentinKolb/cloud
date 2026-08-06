@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   dialogCore,
   formatFileViewSize,
   PanelDialog,
@@ -158,9 +159,9 @@ function MailMessageInspectorDialog(props: {
             {(current) => (
               <>
                 <Show when={current().warnings.length > 0}>
-                  <div class="info-block-warning flex flex-col gap-1 text-xs" role="status">
+                  <NoticeCard tone="warning" icon={false} bodyClass="flex flex-col gap-1" role="status">
                     <For each={current().warnings}>{(warning) => <p>{warning}</p>}</For>
-                  </div>
+                  </NoticeCard>
                 </Show>
 
                 <Show when={tab() === "overview"}>
@@ -429,9 +430,9 @@ function MailMessageInspectorDialog(props: {
                             </ButtonLink>
                           </div>
                           <Show when={preview().truncated}>
-                            <div class="info-block mb-3 text-xs">
+                            <NoticeCard tone="neutral" icon={false} class="mb-3">
                               The on-screen preview is limited. The downloaded .eml contains the complete exact message.
-                            </div>
+                            </NoticeCard>
                           </Show>
                           <pre class="max-h-[32rem] overflow-auto whitespace-pre-wrap break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3 font-mono text-xs text-secondary">
                             {preview().text}

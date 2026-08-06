@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppOverview, Button, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
+import { NoticeCard, AppOverview, Button, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
@@ -97,7 +97,9 @@ function CreateSpaceForm(props: { starter: SpaceStarter; close: (result: SpaceDr
 
   return (
     <form onSubmit={submit} class="flex flex-col gap-4">
-      <div class="info-block-info">You are automatically the admin of this space. Access can be changed later in settings.</div>
+      <NoticeCard tone="info" icon={false}>
+        You are automatically the admin of this space. Access can be changed later in settings.
+      </NoticeCard>
       <TextInput
         label="Name"
         description="A short name for this workspace"

@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, prompts, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, prompts, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { createSignal, Show } from "solid-js";
@@ -89,7 +89,11 @@ function ChangePasswordDialog(props: { close: (value: ChangePasswordPayload | nu
         onConfirmPasswordChange={setConfirmPassword}
       />
 
-      {error() && <div class="info-block-danger">{error()}</div>}
+      {error() && (
+        <NoticeCard tone="danger" icon={false}>
+          {error()}
+        </NoticeCard>
+      )}
 
       <div class="flex justify-end gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={() => props.close(null)}>

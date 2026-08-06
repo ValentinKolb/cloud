@@ -1,5 +1,5 @@
 import { timed } from "@k2b/stdlib/solid";
-import { AutocompleteEditor, Button, DataTable, type DataTableColumn } from "@k2b/ui";
+import { AutocompleteEditor, Button, DataTable, type DataTableColumn, NoticeCard } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Field } from "../../../service";
@@ -67,9 +67,9 @@ function FormulaPreview(props: { preview: FormulaPreviewResponse | null; loading
           {(preview) => (
             <div class="flex flex-col gap-2">
               <Show when={preview().diagnostics.length > 0}>
-                <div class={preview().ok ? "info-block-info py-1.5 text-[11px]" : "info-block-danger py-1.5 text-[11px]"}>
+                <NoticeCard tone={preview().ok ? "info" : "danger"} icon={false}>
                   <For each={preview().diagnostics}>{(diagnostic) => <div>{diagnostic.message}</div>}</For>
-                </div>
+                </NoticeCard>
               </Show>
 
               <Show

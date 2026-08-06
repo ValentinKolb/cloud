@@ -1,4 +1,4 @@
-import { Button } from "@k2b/ui";
+import { NoticeCard, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -168,10 +168,10 @@ function FormBody(props: {
 
         <div class="shrink-0 bg-[var(--ui-surface-subtle)] px-3 py-2">
           <Show when={error()}>
-            <div class="info-block-error mb-2 flex items-start gap-2 text-xs">
+            <NoticeCard tone="danger" icon={false} class="mb-2" bodyClass="flex items-start gap-2">
               <i class="ti ti-alert-circle mt-0.5 shrink-0" />
               <span>{error()}</span>
-            </div>
+            </NoticeCard>
           </Show>
           <div class="flex justify-end">
             <Button variant="primary" size="sm" type="submit" disabled={submitting()}>

@@ -1,4 +1,4 @@
-import { Button, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@k2b/ui";
 import { createSignal, Show, type Accessor } from "solid-js";
 import { SOURCE_TYPE_OPTIONS } from "./helpers";
 import type { CreateSourceInput, SourceCreateKind } from "./types";
@@ -100,12 +100,12 @@ export const openSourceCreateDialog = (options: SourceCreateDialogOptions) =>
                 />
               </Show>
               <Show when={kind() !== "metrics"}>
-                <div class="info-block-info">
+                <NoticeCard tone="info" icon={false}>
                   <div class="flex items-start gap-2">
                     <i class="ti ti-info-circle mt-0.5 shrink-0 text-blue-500" />
                     <p>{sourceInfo}</p>
                   </div>
-                </div>
+                </NoticeCard>
               </Show>
             </PanelDialog.Section>
           </PanelDialog.Body>

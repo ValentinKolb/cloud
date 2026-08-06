@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   CheckboxCard,
   dialogCore,
   PanelDialog,
@@ -276,10 +277,10 @@ function LauncherEditor(props: {
               onValueChange={setInput}
             />
             <Show when={missingRequiredInputs().length > 0}>
-              <div class="info-block-danger text-sm" role="alert">
+              <NoticeCard tone="danger" icon={false} role="alert">
                 This surface cannot supply the required {missingRequiredInputs().length === 1 ? "input" : "inputs"}:{" "}
                 {missingRequiredInputs().join(", ")}. Use a dashboard run option or make the inputs optional.
-              </div>
+              </NoticeCard>
             </Show>
           </Show>
           <Show when={kind() === "scanner"}>
@@ -309,15 +310,15 @@ function LauncherEditor(props: {
                 )}
               </For>
               <Show when={scannerScanCount() !== 1}>
-                <div class="info-block-danger text-sm" role="alert">
+                <NoticeCard tone="danger" icon={false} role="alert">
                   Choose exactly one workflow input as the scanned value.
-                </div>
+                </NoticeCard>
               </Show>
               <Show when={missingScannerInputs().length > 0}>
-                <div class="info-block-danger text-sm" role="alert">
+                <NoticeCard tone="danger" icon={false} role="alert">
                   Choose a source for the required {missingScannerInputs().length === 1 ? "input" : "inputs"}:{" "}
                   {missingScannerInputs().join(", ")}.
-                </div>
+                </NoticeCard>
               </Show>
               <Show when={fixedScannerInputs().length > 0}>
                 <WorkflowInputFields
@@ -357,9 +358,9 @@ function LauncherEditor(props: {
                 emptyText="This workflow does not need input."
               />
               <Show when={!dashboardValidation().ok}>
-                <div class="info-block-danger text-sm" role="alert">
+                <NoticeCard tone="danger" icon={false} role="alert">
                   Provide valid fixed values for every required workflow input.
-                </div>
+                </NoticeCard>
               </Show>
             </Show>
           </Show>

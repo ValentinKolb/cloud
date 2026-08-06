@@ -1,4 +1,4 @@
-import { Button, IconButton, Placeholder, ProgressBar, prompts, StatusBadge, type StatusTone, toast } from "@k2b/ui";
+import { NoticeCard, Button, IconButton, Placeholder, ProgressBar, prompts, StatusBadge, type StatusTone, toast } from "@k2b/ui";
 import { type DateContext, dates, text } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
@@ -582,13 +582,13 @@ export default function MailOperationalSettings(props: {
                 <Show when={status().folders.length > 0}>
                   <div class="flex flex-col gap-2">
                     <p class="text-xs font-semibold text-primary">Folder maintenance</p>
-                    <div class="info-block-note flex items-start gap-2">
+                    <NoticeCard tone="neutral" icon={false} bodyClass="flex items-start gap-2">
                       <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
                       <p>
                         <strong>Sync folder</strong> fetches new and changed messages. <strong>Rebuild folder</strong> downloads the folder
                         again from your mail provider. Try Sync first; use Rebuild when messages stay missing or outdated.
                       </p>
-                    </div>
+                    </NoticeCard>
                     <For each={status().folders}>
                       {(folder) => (
                         <div class="flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2">

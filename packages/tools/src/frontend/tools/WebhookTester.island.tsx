@@ -1,6 +1,7 @@
 import { navigate } from "@k2b/ssr/nav";
 import { timed } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   AppWorkspace,
   Button,
   CopyButton,
@@ -505,12 +506,12 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                 </Show>
               </div>
 
-              <div class="info-block-warning flex items-start gap-2">
+              <NoticeCard tone="warning" icon={false} bodyClass="flex items-start gap-2">
                 <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
                 <span>
                   Webhook tester data is stored on the server. Endpoint names, requests, headers, and bodies are logged for inspection.
                 </span>
-              </div>
+              </NoticeCard>
 
               <Show
                 when={routeState().mode === "receive"}

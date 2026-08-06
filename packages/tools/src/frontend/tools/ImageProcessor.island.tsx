@@ -1,6 +1,7 @@
 import { files as fileTools, images as imageTools } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   AppWorkspace,
   Button,
   ColorInput,
@@ -750,9 +751,9 @@ export default function ImageProcessor() {
             <p class="text-xs text-dimmed">Leave empty to keep original size</p>
 
             <Show when={exportError()}>
-              <div class="info-block-danger flex items-center gap-2">
+              <NoticeCard tone="danger" icon={false} bodyClass="flex items-center gap-2">
                 <i class="ti ti-alert-circle" /> {exportError()}
-              </div>
+              </NoticeCard>
             </Show>
 
             <Show when={progress() !== null}>

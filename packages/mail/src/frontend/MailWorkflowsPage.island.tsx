@@ -1,3 +1,4 @@
+import { NoticeCard } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import type { MailWorkflowsWorkspaceData } from "../service/automation-workspace";
 import MailAutomationShell from "./_components/MailAutomationShell";
@@ -19,10 +20,10 @@ export default function MailWorkflowsPage(props: { data: MailWorkflowsWorkspaceD
         <h1 class="text-base font-semibold text-primary">Workflows</h1>
         <p class="mt-0.5 text-xs text-dimmed">Use canonical YAML for mailbox behavior that guided replies and rules cannot express.</p>
       </header>
-      <div class="info-block-info flex items-start gap-2">
+      <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
         <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
         <span>Saving creates an immutable version. Activation stays explicit, and every run appears under Activity.</span>
-      </div>
+      </NoticeCard>
       <MailReferenceConfigurationCard
         mailboxId={props.data.mailbox.id}
         configuration={referenceConfiguration()}

@@ -1,4 +1,4 @@
-import { Button, IconButton, Placeholder, prompts, Select, Tag, Tooltip } from "@k2b/ui";
+import { NoticeCard, Button, IconButton, Placeholder, prompts, Select, Tag, Tooltip } from "@k2b/ui";
 import { createMemo, createSignal, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
@@ -222,13 +222,13 @@ const chooseFormFieldEntryKind = (field: Field) =>
   prompts.dialog<"user_input" | "form_value">(
     (close) => (
       <div class="flex flex-col gap-4">
-        <div class="info-block-info text-xs">
+        <NoticeCard tone="info" icon={false}>
           <p class="font-semibold">How should "{field.name}" be used?</p>
           <p class="mt-1">
             Form field means the visitor fills it in. Fixed value means the visitor never sees it; every submission stores the value you
             configure next.
           </p>
-        </div>
+        </NoticeCard>
         <div class="flex flex-wrap justify-end gap-2">
           <Button variant="secondary" size="sm" type="button" onClick={() => close("form_value")}>
             <i class="ti ti-lock" /> Add fixed value

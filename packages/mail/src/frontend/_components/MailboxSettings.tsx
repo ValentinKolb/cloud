@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, confirmDiscardIfDirty, NumberInput, prompts, Select, SettingsModal, TextInput, toast } from "@k2b/ui";
+import { Button, confirmDiscardIfDirty, NoticeCard, NumberInput, prompts, Select, SettingsModal, TextInput, toast } from "@k2b/ui";
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -553,7 +553,7 @@ export default function MailboxSettings(props: {
             <div class="flex flex-col gap-8">
               <Show when={healthPresentation()}>
                 {(health) => (
-                  <div class={`info-block-${health().tone} flex items-start gap-2 text-xs`} role="status">
+                  <NoticeCard tone={health().tone} icon={false} bodyClass="flex items-start gap-2" role="status">
                     <i
                       class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
                       aria-hidden="true"
@@ -561,7 +561,7 @@ export default function MailboxSettings(props: {
                     <span>
                       <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
                     </span>
-                  </div>
+                  </NoticeCard>
                 )}
               </Show>
               <section class="flex flex-col gap-2">

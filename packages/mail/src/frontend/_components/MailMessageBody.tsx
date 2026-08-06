@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, prompts } from "@k2b/ui";
+import { NoticeCard, Button, prompts } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MessageRemoteContent, RemoteContentRule } from "../../service/remote-content";
@@ -253,7 +253,7 @@ export default function MailMessageBody(props: {
     >
       <div class="flex min-w-0 flex-col gap-2">
         <Show when={remoteImagesRemaining() > 0}>
-          <div class="info-block-note flex flex-wrap items-center gap-2 text-xs">
+          <NoticeCard tone="neutral" icon={false} bodyClass="flex flex-wrap items-center gap-2">
             <i class="ti ti-photo-shield shrink-0" aria-hidden="true" />
             <span class="min-w-48 flex-1">Remote images are blocked to protect your privacy.</span>
             <Button variant="secondary" size="xs" type="button" disabled={remoteLoading()} onClick={() => void loadRemoteImages()}>
@@ -286,7 +286,7 @@ export default function MailMessageBody(props: {
                 </Button>
               )}
             </Show>
-          </div>
+          </NoticeCard>
         </Show>
         <iframe
           ref={frame}

@@ -1,6 +1,6 @@
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal } from "solid-js";
 
@@ -49,7 +49,9 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
       class="flex flex-col gap-4"
     >
       {props.showBanner && (
-        <div class="info-block-info">Use your FreeIPA username and password to sign in to {props.appName || "the app"}.</div>
+        <NoticeCard tone="info" icon={false}>
+          Use your FreeIPA username and password to sign in to {props.appName || "the app"}.
+        </NoticeCard>
       )}
 
       <TextInput
@@ -78,9 +80,9 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
       </div>
 
       {mutation.error() && (
-        <div class="info-block-danger">
+        <NoticeCard tone="danger" icon={false}>
           <span>{mutation.error()?.message}</span>
-        </div>
+        </NoticeCard>
       )}
 
       <Button type="submit" class="w-full justify-center py-2" loading={mutation.loading()} loadingLabel="Signing in">

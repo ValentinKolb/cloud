@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   Button,
   CheckboxCard,
   confirmDiscardIfDirty,
@@ -411,7 +412,7 @@ function DocumentTemplateEditorDialog(props: {
                 aria-label="GQL source"
               />
               <Show when={gqlDiagnosticError() || previewSourceError() || gqlDiagnostics().length > 0}>
-                <div class="info-block-danger mt-2 text-xs">
+                <NoticeCard tone="danger" icon={false} class="mt-2">
                   <Show
                     when={gqlDiagnosticError() || previewSourceError()}
                     fallback={
@@ -422,7 +423,7 @@ function DocumentTemplateEditorDialog(props: {
                   >
                     {(message) => message()}
                   </Show>
-                </div>
+                </NoticeCard>
               </Show>
             </div>
           </div>

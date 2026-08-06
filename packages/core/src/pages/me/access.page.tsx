@@ -1,5 +1,5 @@
 import { dates } from "@k2b/stdlib";
-import { ButtonLink } from "@k2b/ui";
+import { NoticeCard, ButtonLink } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, coreSettings } from "@valentinkolb/cloud/services";
 import { canManageAnyGroups } from "@valentinkolb/cloud/shared";
@@ -71,9 +71,9 @@ export default ssr<AuthContext>(async (c) => {
               </div>
               {pendingRequest ? (
                 <div class="flex flex-col gap-3">
-                  <div class="info-block-info text-xs">
+                  <NoticeCard tone="info" icon={false}>
                     Request pending since {dates.formatDate(pendingRequest.createdAt.toISOString())}.
-                  </div>
+                  </NoticeCard>
                   <div class="flex justify-end">
                     <WithdrawAccountRequest />
                   </div>

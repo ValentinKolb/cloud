@@ -58,6 +58,9 @@ describe("@k2b/ui stylesheet hygiene", () => {
     expect(surfaces).toContain(
       '.k2b-ui .k2b-notice-card[data-tone="info"] { border-color: color-mix(in srgb, var(--k2b-accent-500) 42%, var(--k2b-border)); color: var(--k2b-info-text); background: var(--k2b-info-surface); }',
     );
+    expect(surfaces).toContain(
+      '.k2b-ui .k2b-notice-card[data-tone="success"] { border-color: color-mix(in srgb, var(--k2b-success-500) 42%, var(--k2b-border)); color: var(--k2b-success-text); background: var(--k2b-success-surface); }',
+    );
     expect(plex).not.toContain("ibm-plex-sans-condensed");
   });
 

@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, prompts, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, prompts, TextInput } from "@k2b/ui";
 import { openAvatarUploadDialog } from "@valentinkolb/cloud/account/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
@@ -89,9 +89,9 @@ export default function ProfileActions(props: Props) {
         notice: {
           type: "info" as const,
           content: () => (
-            <div class="info-block-warning text-xs">
+            <NoticeCard tone="warning" icon={false}>
               By accepting the terms of service you agreed to use your real name. Misuse will be penalized.
-            </div>
+            </NoticeCard>
           ),
         },
         visibility: {
@@ -235,7 +235,7 @@ export default function ProfileActions(props: Props) {
 
               <div class="flex flex-col gap-3">
                 <span class="text-[11px] uppercase tracking-[0.14em] text-dimmed">SSH Keys</span>
-                <div class="info-block-info text-xs flex flex-col gap-1">
+                <NoticeCard tone="info" icon={false} bodyClass="flex flex-col gap-1">
                   <p>
                     Connect via <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">ssh {props.uid}@host-ip</code>
                   </p>
@@ -243,7 +243,7 @@ export default function ProfileActions(props: Props) {
                     Generate: <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">ssh-keygen -t ed25519</code>, then paste{" "}
                     <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">~/.ssh/id_ed25519.pub</code>
                   </p>
-                </div>
+                </NoticeCard>
                 <Show when={keys().length > 0}>
                   <div class="flex flex-col gap-1.5">
                     <For each={keys()}>

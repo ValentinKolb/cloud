@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   dialogCore,
   PanelDialog,
   Placeholder,
@@ -89,9 +90,9 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
       />
       <PanelDialog.Body>
         <div class="flex flex-col gap-5">
-          <div class="info-block-note text-sm">
+          <NoticeCard tone="neutral" icon={false}>
             Remote images can tell a sender when you opened a message. Mail blocks them unless you load them or allow a sender here.
-          </div>
+          </NoticeCard>
 
           <form
             class="flex flex-col gap-2"

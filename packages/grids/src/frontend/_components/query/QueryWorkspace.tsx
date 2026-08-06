@@ -1,5 +1,5 @@
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { Button, Panes, type PanesValue, prompts, TextInput, Tooltip } from "@k2b/ui";
+import { NoticeCard, Button, Panes, type PanesValue, prompts, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
@@ -525,9 +525,9 @@ export default function QueryWorkspace(props: Props) {
               />
             </div>
             <Show when={queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
-              <div class="info-block-warning mx-3 mt-3 text-xs">
+              <NoticeCard tone="warning" icon={false} class="mx-3 mt-3">
                 This query is too long for the URL. Results still work, but reload will start with an empty query.
-              </div>
+              </NoticeCard>
             </Show>
 
             <div class="flex shrink-0 flex-wrap items-center gap-2 pt-2">

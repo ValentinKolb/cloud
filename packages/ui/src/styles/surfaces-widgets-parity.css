@@ -181,6 +181,7 @@
   background: var(--k2b-surface-muted);
 }
 .k2b-ui .k2b-notice-card[data-tone="info"] { border-color: color-mix(in srgb, var(--k2b-accent-500) 42%, var(--k2b-border)); color: var(--k2b-info-text); background: var(--k2b-info-surface); }
+.k2b-ui .k2b-notice-card[data-tone="success"] { border-color: color-mix(in srgb, var(--k2b-success-500) 42%, var(--k2b-border)); color: var(--k2b-success-text); background: var(--k2b-success-surface); }
 .k2b-ui .k2b-notice-card[data-tone="warning"] { border-color: #fde68a; color: #78350f; background: #fffbeb; }
 .k2b-ui .k2b-notice-card[data-tone="danger"] { border-color: #fecaca; color: #7f1d1d; background: #fef2f2; }
 .k2b-ui[data-theme="dark"] .k2b-notice-card[data-tone="warning"],
@@ -195,6 +196,7 @@
 .k2b-ui .k2b-notice-card__content { min-width: 0; }
 .k2b-ui .k2b-notice-card__title { margin: 0; color: inherit; font-size: 0.75rem; font-weight: 600; }
 .k2b-ui .k2b-notice-card__description { margin: 0.125rem 0 0; color: inherit; font-size: 0.6875rem; line-height: 1rem; opacity: 0.9; }
+.k2b-ui .k2b-notice-card__body { min-width: 0; color: inherit; font-size: 0.75rem; line-height: 1.25rem; }
 .k2b-ui .k2b-notice-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
 @media (min-width: 48rem) {
   .k2b-ui .k2b-notice-grid[data-columns="two"],

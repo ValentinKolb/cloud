@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, ButtonLink, CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, ButtonLink, CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@k2b/ui";
 import { type Accessor, createEffect, createResource, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
@@ -69,10 +69,10 @@ function SnapshotConfigFields(props: {
         disabled={props.saving}
       />
 
-      <div class="info-block-info text-xs">
+      <NoticeCard tone="info" icon={false}>
         Automatic schedule: <span class="font-mono text-primary">{props.status?.scheduleCron ?? "0 3 * * *"}</span>
         <span class="ml-2 text-dimmed">Cloud admins edit it in /admin/notebooks.</span>
-      </div>
+      </NoticeCard>
 
       <Show when={props.enabled()}>
         <div class="grid gap-2">
@@ -84,7 +84,7 @@ function SnapshotConfigFields(props: {
             icon="ti ti-link"
             type="url"
           />
-          <div class="info-block-info flex items-start gap-2 text-xs">
+          <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
             <i class="ti ti-info-circle mt-0.5 shrink-0" />
             <div>
               <p class="font-medium text-primary">S3-compatible endpoint</p>
@@ -95,7 +95,7 @@ function SnapshotConfigFields(props: {
                 below <code>notebooks/{props.notebookShortId}/</code>.
               </p>
             </div>
-          </div>
+          </NoticeCard>
           <div class="grid gap-2 md:grid-cols-2">
             <TextInput label="Region" value={props.region} onValueChange={props.setRegion} placeholder="eu-central-1" icon="ti ti-map" />
             <TextInput
@@ -123,12 +123,12 @@ function SnapshotConfigFields(props: {
               password
             />
           </div>
-          <div class="info-block-info text-xs">
+          <NoticeCard tone="info" icon={false}>
             Target: <span class="font-medium text-primary">{props.status?.target ?? "not configured"}</span>
             <Show when={props.missing !== "none"}>
               <span class="ml-2 text-amber-600 dark:text-amber-300">Missing: {props.missing}</span>
             </Show>
-          </div>
+          </NoticeCard>
         </div>
       </Show>
 
@@ -152,10 +152,10 @@ function SnapshotLogsSection(props: { show: boolean; entries: LogTableEntry[]; l
         <Show
           when={!props.error}
           fallback={
-            <div class="info-block-error flex items-start gap-2 text-xs">
+            <NoticeCard tone="danger" icon={false} bodyClass="flex items-start gap-2">
               <i class="ti ti-alert-circle mt-0.5 shrink-0" />
               <span>{props.error}</span>
-            </div>
+            </NoticeCard>
           }
         >
           <LogEntriesTable
@@ -282,10 +282,10 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
 
   return (
     <div class="flex flex-col gap-2">
-      <div class="info-block-info text-sm">
+      <NoticeCard tone="info" icon={false}>
         Export this notebook as plain Markdown, raw attachments, and small JSON metadata files. Admin permission is required because the
         archive contains the full notebook.
-      </div>
+      </NoticeCard>
       <Show when={props.isAdmin} fallback={<p class="text-xs text-dimmed">Only notebook admins can download full exports.</p>}>
         <ButtonLink href={href()} download="" class="self-start">
           <i class="ti ti-download" />

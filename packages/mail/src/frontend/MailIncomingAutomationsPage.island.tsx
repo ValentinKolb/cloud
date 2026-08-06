@@ -1,3 +1,4 @@
+import { NoticeCard } from "@k2b/ui";
 import type { MailIncomingAutomationsWorkspaceData } from "../service/automation-workspace";
 import MailAutomationShell from "./_components/MailAutomationShell";
 import MailIncomingAutomationSettings, { type IncomingAutomationPreset } from "./_components/MailIncomingAutomationSettings";
@@ -19,13 +20,13 @@ export default function MailIncomingAutomationsPage(props: {
         <h1 class="text-base font-semibold text-primary">Incoming mail</h1>
         <p class="mt-0.5 text-xs text-dimmed">Build one clear flow from Mail actions, AI outputs, and conditions.</p>
       </header>
-      <div class="info-block-info flex items-start gap-2">
+      <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
         <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
         <span>
           Deterministic flows can also process existing mail. A flow containing AI starts with future mail and creates drafts only for human
           review; it never sends them.
         </span>
-      </div>
+      </NoticeCard>
       <MailIncomingAutomationSettings
         mailboxId={props.data.mailbox.id}
         catalog={props.data.catalog}

@@ -254,6 +254,7 @@ const OperationalDemo = () => {
   const notices = [
     { tone: "neutral" as const, title: "Release deployed", detail: "Version 2.4 is serving all regions." },
     { tone: "info" as const, title: "Maintenance scheduled", detail: "Telemetry pauses briefly at 02:00 UTC." },
+    { tone: "success" as const, title: "Backfill complete", detail: "All historical samples are available." },
     { tone: "warning" as const, title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
     { tone: "danger" as const, title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
   ];
@@ -281,6 +282,7 @@ const OperationalDemo = () => {
 const notices = [
   { tone: "neutral", title: "Release deployed", detail: "Version 2.4 is serving all regions." },
   { tone: "info", title: "Maintenance scheduled", detail: "Telemetry pauses briefly at 02:00 UTC." },
+  { tone: "success", title: "Backfill complete", detail: "All historical samples are available." },
   { tone: "warning", title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
   { tone: "danger", title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
 ] as const;
@@ -402,14 +404,16 @@ export const CalendarDemo = () => {
             start: next.start.toISOString(),
             end: next.end.toISOString(),
             allDay: next.allDay,
-          } : item))}
+          } : item))
+        }
         onEventResize={(event, next) =>
           setEvents((current) => current.map((item) => item.id === event.id ? {
             ...item,
             start: next.start.toISOString(),
             end: next.end.toISOString(),
             allDay: next.allDay,
-          } : item))}
+          } : item))
+        }
       />
     </DemoCard>
   );

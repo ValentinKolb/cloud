@@ -1,5 +1,5 @@
 import { crypto } from "@k2b/stdlib";
-import { Button, CopyButton, SegmentedControl, Switch, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, CopyButton, SegmentedControl, Switch, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 
@@ -113,7 +113,7 @@ export default function EncryptionTool() {
       {tab() === "symmetric" && (
         <div class="flex flex-col gap-4">
           {" "}
-          <div class="info-block-info flex items-start gap-2">
+          <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
             {" "}
             <i class="ti ti-info-circle shrink-0 mt-0.5" />{" "}
             <div class="text-sm">
@@ -122,7 +122,7 @@ export default function EncryptionTool() {
               <strong>Stretched (PBKDF2)</strong> when your key is a password &mdash; it adds deliberate slowness to resist brute-force
               attacks. Use <strong>Fast (HKDF)</strong> for already high-entropy keys like API tokens.{" "}
             </div>{" "}
-          </div>{" "}
+          </NoticeCard>{" "}
           <div class="paper p-4 flex flex-col gap-3">
             {" "}
             <TextInput
@@ -160,10 +160,10 @@ export default function EncryptionTool() {
             </div>{" "}
           </div>{" "}
           {symError() && (
-            <div class="info-block-danger flex items-center gap-2">
+            <NoticeCard tone="danger" icon={false} bodyClass="flex items-center gap-2">
               {" "}
               <i class="ti ti-alert-circle" /> {symError()}{" "}
-            </div>
+            </NoticeCard>
           )}{" "}
           {symOutput() && (
             <div class="paper p-4">
@@ -177,7 +177,7 @@ export default function EncryptionTool() {
       {tab() === "asymmetric" && (
         <div class="flex flex-col gap-4">
           {" "}
-          <div class="info-block-info flex items-start gap-2">
+          <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
             {" "}
             <i class="ti ti-info-circle shrink-0 mt-0.5" />{" "}
             <div class="text-sm flex flex-col gap-2">
@@ -194,7 +194,7 @@ export default function EncryptionTool() {
                 publicly. Only Bob can decrypt it with his <em>private key</em>. Nobody else, not even Alice, can read it once encrypted.{" "}
               </div>{" "}
             </div>{" "}
-          </div>{" "}
+          </NoticeCard>{" "}
           <div class="paper p-4 flex flex-col gap-3">
             {" "}
             <div class="flex items-center justify-between">
@@ -247,10 +247,10 @@ export default function EncryptionTool() {
             </div>{" "}
           </div>{" "}
           {asymError() && (
-            <div class="info-block-danger flex items-center gap-2">
+            <NoticeCard tone="danger" icon={false} bodyClass="flex items-center gap-2">
               {" "}
               <i class="ti ti-alert-circle" /> {asymError()}{" "}
-            </div>
+            </NoticeCard>
           )}{" "}
           {asymOutput() && (
             <div class="paper p-4">

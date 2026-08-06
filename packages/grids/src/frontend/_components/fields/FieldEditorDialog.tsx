@@ -1,6 +1,7 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   Button,
   CheckboxCard,
   confirmDiscardIfDirty,
@@ -235,10 +236,10 @@ function FieldEditor(props: {
           inputs further down ("precision", "decimal places", "regex" etc.) make
           immediate sense to non-power users. */}
         <Show when={typeDescription}>
-          <div class="info-block-info text-xs flex items-start gap-2">
+          <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
             <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
             <span>{typeDescription}</span>
-          </div>
+          </NoticeCard>
         </Show>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

@@ -1,4 +1,4 @@
-import { AppWorkspace, Avatar, appWorkspaceLayoutStyle } from "@k2b/ui";
+import { AppWorkspace, Avatar, NoticeCard, appWorkspaceLayoutStyle } from "@k2b/ui";
 import type { JSX } from "solid-js/jsx-runtime";
 import { readAppWorkspaceLayoutCookie, resolveAppWorkspaceLayoutForSidebar } from "../_internal/app-workspace-state";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
@@ -96,8 +96,10 @@ function ProfileWarnings({ user }: { user: User }) {
   if (!user.sn) missing.push("last name");
   if (missing.length === 0) return null;
   return (
-    <a href="/me" class="info-block-warning flex shrink-0 items-center gap-2 text-xs no-underline">
-      <i class="ti ti-user-exclamation" /> <span>Your profile is incomplete: {missing.join(",")} not set.</span>
+    <a href="/me" class="block shrink-0 no-underline">
+      <NoticeCard tone="warning" icon={false} bodyClass="flex items-center gap-2">
+        <i class="ti ti-user-exclamation" /> <span>Your profile is incomplete: {missing.join(",")} not set.</span>
+      </NoticeCard>
     </a>
   );
 }
@@ -128,10 +130,10 @@ function ExpiryWarnings({ user }: { user: User }) {
     <div class="flex shrink-0 flex-col gap-1">
       {" "}
       {warnings.map((w) => (
-        <div class={`flex items-center gap-2 text-xs ${w.expired ? "info-block-danger" : "info-block-warning"}`}>
+        <NoticeCard tone={w.expired ? "danger" : "warning"} icon={false} bodyClass="flex items-center gap-2">
           {" "}
           <i class={`ti ${w.icon}`} /> <span>{w.message}</span>{" "}
-        </div>
+        </NoticeCard>
       ))}{" "}
     </div>
   );

@@ -1,4 +1,4 @@
-import { ButtonLink, CopyButton, TagsInput, TextInput } from "@k2b/ui";
+import { NoticeCard, ButtonLink, CopyButton, TagsInput, TextInput } from "@k2b/ui";
 import { createMemo, createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 
@@ -36,12 +36,12 @@ export default function MailtoGenerator() {
 
   return (
     <div class="flex flex-col gap-4">
-      <div class="info-block-warning flex items-start gap-2">
+      <NoticeCard tone="warning" icon={false} bodyClass="flex items-start gap-2">
         <i class="ti ti-alert-triangle shrink-0 mt-0.5" />
         <span>
           <code>mailto:</code> does not support a Reply-To field. The recipient will always reply to the sender address.
         </span>
-      </div>
+      </NoticeCard>
 
       <div class="paper p-4 flex flex-col gap-3">
         <TextInput

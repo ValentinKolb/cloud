@@ -1,5 +1,5 @@
 import { dates } from "@k2b/stdlib";
-import { ButtonLink, Placeholder } from "@k2b/ui";
+import { NoticeCard, ButtonLink, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, audit, coreSettings, notifications, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
@@ -48,9 +48,9 @@ export default ssr<AuthContext>(async (c) => {
           <AccountPageHeader title="Account overview" description="Your identity, access, security, and personal Cloud setup." />
 
           {action === "extend" && (
-            <div class="info-block-info text-sm">
+            <NoticeCard tone="info" icon={false}>
               Use <strong>Extend Account</strong> above to renew your account expiry.
-            </div>
+            </NoticeCard>
           )}
 
           {user.accountExpires && (
@@ -87,9 +87,9 @@ export default ssr<AuthContext>(async (c) => {
           )}
 
           {user.provider === "ipa" && user.profile === "guest" && (
-            <div class="info-block-info text-sm">
+            <NoticeCard tone="info" icon={false}>
               Your account has limited access. Ask a group manager to add you to a group to unlock full features.
-            </div>
+            </NoticeCard>
           )}
 
           <section class="grid gap-2 sm:grid-cols-2">

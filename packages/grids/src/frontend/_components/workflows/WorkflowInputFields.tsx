@@ -1,4 +1,4 @@
-import { DatePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
+import { NoticeCard, DatePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { For, Match, Show, Switch } from "solid-js";
 import type { Table } from "../../../service";
@@ -79,7 +79,9 @@ export function WorkflowInputFields(props: Props) {
                 />
               </Match>
               <Match when={(input.type === "record" || input.type === "recordList") && !table}>
-                <div class="info-block-danger text-sm">The table for {label} is unavailable.</div>
+                <NoticeCard tone="danger" icon={false}>
+                  The table for {label} is unavailable.
+                </NoticeCard>
               </Match>
               <Match when={input.type === "number"}>
                 <NumberInput

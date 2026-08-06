@@ -1,7 +1,7 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { dates } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, Checkbox, CopyButton, prompts, SegmentedControl, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, Checkbox, CopyButton, prompts, SegmentedControl, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { type CreateUserResponse, CreateUserResponseSchema, ErrorResponseSchema } from "@/contracts";
@@ -130,7 +130,9 @@ function ProviderSelectionDialog(props: { close: (provider?: ProviderChoice) => 
             </div>
             <p class="text-sm leading-6 text-secondary">{provider.description}</p>
             <Show when={props.requestPrefill && provider.value === "ipa"}>
-              <div class="info-block-success mt-auto text-xs">Recommended for this request.</div>
+              <NoticeCard tone="success" icon={false} class="mt-auto">
+                Recommended for this request.
+              </NoticeCard>
             </Show>
           </button>
         ))}
@@ -212,16 +214,16 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
       </div>
 
       <Show when={props.prefill}>
-        <div class="info-block-success text-sm">
+        <NoticeCard tone="success" icon={false}>
           <div class="flex items-center gap-2">
             <i class="ti ti-sparkles text-base" />
             <span class="font-medium">Prefilled from a pending FreeIPA access request.</span>
           </div>
-        </div>
+        </NoticeCard>
       </Show>
 
       <Show when={props.provider === "ipa"}>
-        <div class="info-block-info text-sm">
+        <NoticeCard tone="info" icon={false}>
           <div class="flex items-start gap-3">
             <i class="ti ti-info-circle mt-0.5 text-base" />
             <div class="flex flex-col gap-1">
@@ -232,7 +234,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
               </span>
             </div>
           </div>
-        </div>
+        </NoticeCard>
       </Show>
 
       <Show when={props.provider === "local"}>
@@ -341,7 +343,7 @@ const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResponse
   return prompts.dialog<void>(
     (close) => (
       <div class="flex flex-col gap-4">
-        <div class="info-block-success text-sm">
+        <NoticeCard tone="success" icon={false}>
           <div class="flex items-start gap-3">
             <i class="ti ti-check text-base" />
             <div class="flex flex-col gap-1">
@@ -351,7 +353,7 @@ const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResponse
               <span class="text-xs">{notificationMessage}</span>
             </div>
           </div>
-        </div>
+        </NoticeCard>
 
         <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
           <dt class="text-dimmed">UID</dt>
@@ -376,7 +378,7 @@ const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResponse
         </dl>
 
         <Show when={isIpa}>
-          <div class="info-block-info flex flex-col gap-3">
+          <NoticeCard tone="info" icon={false} bodyClass="flex flex-col gap-3">
             <div class="flex items-center justify-between gap-3">
               <div class="flex flex-col">
                 <span class="text-sm font-medium text-primary">NFS follow-up</span>
@@ -387,7 +389,7 @@ const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResponse
             <pre class="overflow-x-auto whitespace-pre rounded-xl bg-white/80 px-3 py-3 text-xs font-mono text-secondary dark:bg-zinc-950/80">
               {nfsCommands}
             </pre>
-          </div>
+          </NoticeCard>
         </Show>
 
         <div class="flex justify-end gap-3">
@@ -451,7 +453,9 @@ export default function CreateUserForm(props: Props) {
             ))}
           </dl>
           <Show when={payload.provider === "ipa"}>
-            <div class="info-block-info text-xs">Effective FreeIPA access will still depend on the group assignments made afterwards.</div>
+            <NoticeCard tone="info" icon={false}>
+              Effective FreeIPA access will still depend on the group assignments made afterwards.
+            </NoticeCard>
           </Show>
         </div>,
         {

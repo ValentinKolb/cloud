@@ -55,6 +55,7 @@ const sanitizeRenderedHtml = (html: string): string =>
     allowedTags: [
       ...sanitizeHtml.defaults.allowedTags,
       "annotation",
+      "aside",
       "br",
       "div",
       "figcaption",
@@ -87,7 +88,7 @@ const sanitizeRenderedHtml = (html: string): string =>
       "tr",
     ],
     allowedAttributes: {
-      "*": ["aria-hidden", "aria-label", "class", "data-help-icon", "id", "title"],
+      "*": ["aria-hidden", "aria-label", "class", "data-help-icon", "data-tone", "id", "title"],
       a: ["href", "name", "rel", "target", "title"],
       annotation: ["encoding"],
       code: ["class"],
@@ -124,7 +125,7 @@ const sanitizeRenderedHtml = (html: string): string =>
  *
  * Supported features:
  * - GFM (GitHub Flavored Markdown)
- * - Info blocks (:::note, :::info, :::success, :::warning, :::danger)
+ * - Notice cards (:::note, :::info, :::success, :::warning, :::danger)
  * - Task lists with checkboxes
  * - Tables with cell formatting
  * - Styled links and images

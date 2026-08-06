@@ -1,4 +1,4 @@
-import { PanelDialog, Placeholder, prompts, toast, Button } from "@k2b/ui";
+import { NoticeCard, PanelDialog, Placeholder, prompts, toast, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -163,12 +163,12 @@ export function WorkflowRevisionHistory(props: {
           </nav>
           <Show when={loadMut.error()}>
             {(error) => (
-              <div class="info-block-danger text-sm md:col-span-2" role="alert">
+              <NoticeCard tone="danger" icon={false} class="md:col-span-2" role="alert">
                 <span>{error().message}</span>
                 <Button variant="ghost" size="sm" type="button" onClick={() => loadMut.mutate({ append: false })}>
                   <i class="ti ti-refresh" /> Retry history
                 </Button>
-              </div>
+              </NoticeCard>
             )}
           </Show>
           <Show

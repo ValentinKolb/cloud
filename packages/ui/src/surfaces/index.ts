@@ -7,7 +7,7 @@ export { LinkCard } from "./LinkCard";
 export type { NotFoundStateAction, NotFoundStateProps } from "./NotFoundState";
 export { NotFoundState } from "./NotFoundState";
 export type { NoticeCardProps, NoticeGridProps, NoticeTone } from "./NoticeCard";
-export { NoticeCard } from "./NoticeCard";
+export { NOTICE_CARD_CLASSES, NOTICE_CARD_ICONS, NoticeCard } from "./NoticeCard";
 export type {
   PlaceholderAlign,
   PlaceholderProps,

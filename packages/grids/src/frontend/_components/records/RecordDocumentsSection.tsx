@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   Button,
   Dropdown,
   dialogCore,
@@ -81,10 +82,10 @@ function DocumentGenerationReviewDialog(props: {
               </Show>
             </div>
 
-            <div class="info-block-info text-xs leading-relaxed">
+            <NoticeCard tone="info" icon={false}>
               Generating creates a recursive record snapshot and stores a document run. The PDF can be redownloaded later from the generated
               document history.
-            </div>
+            </NoticeCard>
 
             <StructuredDataPreview
               title="Selected record"

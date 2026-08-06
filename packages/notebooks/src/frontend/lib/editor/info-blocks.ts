@@ -1,6 +1,7 @@
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { NOTICE_CARD_CLASSES, NOTICE_CARD_ICONS, type NoticeTone } from "@k2b/ui";
 import {
   blockWidgetLineNavigationExtension,
   type CursorZoneState,
@@ -17,31 +18,26 @@ type InfoBlockData = {
 
 const blockConfig = {
   note: {
-    icon: "ti-chevron-right",
     label: "Note",
-    blockClass: "info-block-note",
+    tone: "neutral",
   },
   info: {
-    icon: "ti-info-circle",
     label: "Info",
-    blockClass: "info-block-info",
+    tone: "info",
   },
   success: {
-    icon: "ti-check",
     label: "Success",
-    blockClass: "info-block-success",
+    tone: "success",
   },
   warning: {
-    icon: "ti-alert-circle",
     label: "Warning",
-    blockClass: "info-block-warning",
+    tone: "warning",
   },
   danger: {
-    icon: "ti-alert-hexagon",
     label: "Danger",
-    blockClass: "info-block-danger",
+    tone: "danger",
   },
-} as const;
+} as const satisfies Record<BlockType, { label: string; tone: NoticeTone }>;
 
 const parseInfoBlock = (text: string): InfoBlockData | null => {
   const match = text.match(/^:::(\w+)\s*\n([\s\S]*?)\n:::$/);
@@ -81,7 +77,7 @@ class InfoBlockWidget extends WidgetType {
 
   override toDOM(view: EditorView) {
     const container = document.createElement("div");
-    container.className = "cm-info-block-widget cursor-pointer";
+    container.className = "cm-notice-card-widget cursor-pointer";
     container.setAttribute("contenteditable", "false");
     container.setAttribute("tabindex", "0");
     container.onmousedown = (event) => {
@@ -97,25 +93,32 @@ class InfoBlockWidget extends WidgetType {
     const config = blockConfig[this.blockData.type];
 
     const block = document.createElement("div");
-    block.className = config.blockClass;
+    block.className = NOTICE_CARD_CLASSES.root;
+    block.dataset.tone = config.tone;
 
-    const header = document.createElement("div");
-    header.className = "flex items-center gap-1.5 font-semibold mb-1";
+    const inner = document.createElement("div");
+    inner.className = NOTICE_CARD_CLASSES.inner;
 
     const icon = document.createElement("i");
-    icon.className = `ti ${config.icon} shrink-0`;
+    icon.className = `${NOTICE_CARD_ICONS[config.tone]} ${NOTICE_CARD_CLASSES.icon}`;
+    icon.setAttribute("aria-hidden", "true");
 
-    const label = document.createElement("span");
+    const content = document.createElement("div");
+    content.className = NOTICE_CARD_CLASSES.content;
+
+    const label = document.createElement("p");
+    label.className = NOTICE_CARD_CLASSES.title;
     label.textContent = config.label;
 
-    header.appendChild(icon);
-    header.appendChild(label);
-
     const contentDiv = document.createElement("div");
+    contentDiv.className = NOTICE_CARD_CLASSES.body;
     contentDiv.innerHTML = renderContent(this.blockData.content);
 
-    block.appendChild(header);
-    block.appendChild(contentDiv);
+    content.appendChild(label);
+    content.appendChild(contentDiv);
+    inner.appendChild(icon);
+    inner.appendChild(content);
+    block.appendChild(inner);
     container.appendChild(block);
     return container;
   }
@@ -219,7 +222,7 @@ export const infoBlocksExtension = (): Extension => {
   });
 
   const theme = EditorView.theme({
-    ".cm-info-block-widget": {
+    ".cm-notice-card-widget": {
       display: "block",
       margin: "0 !important",
       lineHeight: "1",

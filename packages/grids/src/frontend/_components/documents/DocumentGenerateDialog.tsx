@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, TagsInput, TextInput, Button } from "@k2b/ui";
+import { NoticeCard, dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, TagsInput, TextInput, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
 import type { DocumentTemplateSummary } from "../../../contracts";
@@ -94,10 +94,10 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
             placeholder="Use template default"
           />
           <TagsInput label="Tags" placeholder="customer, signed, 2026" value={tags} onValueChange={setTags} />
-          <div class="info-block-info text-xs">
+          <NoticeCard tone="info" icon={false}>
             <i class="ti ti-camera" />
             Generating stores a recursive snapshot. Redownloads use the stored snapshot and filename.
-          </div>
+          </NoticeCard>
         </section>
         <PdfPreview
           title="PDF preview"

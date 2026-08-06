@@ -1,3 +1,4 @@
+import { NoticeCard } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
@@ -88,13 +89,13 @@ export default ssr<AuthContext>(async (c) => {
               </dl>
 
               {accountRequest.comment && (
-                <div class="info-block-warning">
+                <NoticeCard tone="warning" icon={false}>
                   <p class="text-[10px] font-semibold mb-1 flex items-center gap-1">
                     <i class="ti ti-message text-xs" />
                     Requester's Note
                   </p>
                   <p class="text-sm">{accountRequest.comment}</p>
-                </div>
+                </NoticeCard>
               )}
 
               <p class="text-xs text-dimmed">The request will be marked as completed when the FreeIPA-backed account is created.</p>

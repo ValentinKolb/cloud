@@ -1,5 +1,5 @@
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
-import { Button, NumberInput, prompts, SettingsModal, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, NumberInput, prompts, SettingsModal, TextInput } from "@k2b/ui";
 import { createSignal, type Accessor } from "solid-js";
 import type { AccessEntry, Principal } from "@valentinkolb/cloud/contracts";
 import type { PulseBase } from "../../contracts";
@@ -178,10 +178,10 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
               tone="danger"
               description="Destructive actions for this Pulse base."
             >
-              <div class="info-block-warning mb-3">
+              <NoticeCard tone="warning" icon={false} class="mb-3">
                 Clearing data removes observed metrics, events, states, resources, and scrape history. Sources, API keys, dashboards, saved
                 queries, access, and settings are kept.
-              </div>
+              </NoticeCard>
               <Button
                 type="button"
                 variant="danger"
@@ -193,9 +193,9 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                 <i class="ti ti-eraser text-sm" />
                 Clear all telemetry data
               </Button>
-              <div class="info-block-warning mb-3">
+              <NoticeCard tone="warning" icon={false} class="mb-3">
                 Deleting this Pulse base removes its sources, dashboards, saved queries, metrics, events, states, and ingest keys.
-              </div>
+              </NoticeCard>
               <Button
                 type="button"
                 variant="danger"

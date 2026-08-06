@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   AutocompleteEditor,
   CodeDisplay,
   dialogCore,
@@ -303,13 +304,13 @@ function WorkflowEditor(props: {
               />
             }
           >
-            <div class="info-block-success flex items-start gap-2">
+            <NoticeCard tone="success" icon={false} bodyClass="flex items-start gap-2">
               <i class="ti ti-check mt-0.5 shrink-0" aria-hidden="true" />
               <span>
                 Reference numbers are ready with pattern <code>{referenceConfiguration()!.pattern}</code>. Use{" "}
                 <code>ensureConversationReference</code> and render the result through <code>{"{{ reference.value }}"}</code>.
               </span>
-            </div>
+            </NoticeCard>
           </Show>
         </PanelDialog.Section>
         <PanelDialog.Section
@@ -341,7 +342,7 @@ function WorkflowEditor(props: {
           </div>
           <Show when={validation()}>
             {(result) => (
-              <div class={result().valid ? "info-block-success" : "info-block-danger"} role="status">
+              <NoticeCard tone={result().valid ? "success" : "danger"} icon={false} role="status">
                 <p class="text-sm font-medium">
                   {validating() ? "Validating…" : result().valid ? "YAML is valid" : "Fix validation errors before saving"}
                 </p>
@@ -353,7 +354,7 @@ function WorkflowEditor(props: {
                     </p>
                   )}
                 </For>
-              </div>
+              </NoticeCard>
             )}
           </Show>
         </PanelDialog.Section>

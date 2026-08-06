@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, Placeholder, panelDialogFixedOptions, Button } from "@k2b/ui";
+import { NoticeCard, dialogCore, PanelDialog, Placeholder, panelDialogFixedOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
@@ -81,7 +81,7 @@ function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext
             <div class="flex flex-col gap-2">
               <Show when={load.error()}>
                 {(error) => (
-                  <div class="info-block-danger flex items-start justify-between gap-3 text-xs" role="alert">
+                  <NoticeCard tone="danger" icon={false} bodyClass="flex items-start justify-between gap-3" role="alert">
                     <span>{error().message}</span>
                     <Button
                       variant="secondary"
@@ -93,7 +93,7 @@ function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext
                     >
                       Retry
                     </Button>
-                  </div>
+                  </NoticeCard>
                 )}
               </Show>
               <MailOperationalSettings

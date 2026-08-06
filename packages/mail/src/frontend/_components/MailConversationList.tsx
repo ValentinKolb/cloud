@@ -1,5 +1,5 @@
 import type { LinkNavigateEvent } from "@k2b/ssr/nav";
-import { Button, ButtonLink, Dropdown, FilterChip, IconButton, Placeholder, TextInput, Tooltip } from "@k2b/ui";
+import { Button, ButtonLink, Dropdown, FilterChip, IconButton, NoticeCard, Placeholder, TextInput, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -361,7 +361,7 @@ export default function MailConversationList(props: {
         </Show>
         <Show when={healthPresentation()}>
           {(health) => (
-            <div class={`info-block-${health().tone} text-xs`} role="status" data-mailbox-health={props.mailbox.health}>
+            <NoticeCard tone={health().tone} icon={false} role="status" data-mailbox-health={props.mailbox.health}>
               <div class="flex min-w-0 items-start gap-2">
                 <i
                   class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
@@ -387,7 +387,7 @@ export default function MailConversationList(props: {
                   </Show>
                 </div>
               </div>
-            </div>
+            </NoticeCard>
           )}
         </Show>
       </header>

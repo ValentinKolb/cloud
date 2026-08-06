@@ -565,39 +565,8 @@
   color: var(--color-zinc-400);
 }
 
-.help-document :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger) {
-  background: color-mix(in srgb, var(--info-block-accent) 6%, var(--info-block-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info-block-accent) 24%, var(--ui-border));
+.help-document .k2b-notice-card {
   margin: 1.375rem 0;
-  padding: 0.875rem 1rem;
-  white-space: normal;
-}
-
-.dark .help-document :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger) {
-  background: color-mix(in srgb, var(--info-block-accent) 9%, var(--info-block-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info-block-accent) 26%, var(--ui-border));
-}
-
-.help-document
-  :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger)
-  > :first-child {
-  margin-bottom: 0.3rem;
-  font-size: 0.8125rem;
-}
-
-.help-document
-  :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger)
-  > :last-child {
-  color: var(--color-zinc-600);
-  font-size: 0.8125rem;
-  line-height: 1.55;
-}
-
-.dark
-  .help-document
-  :where(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger)
-  > :last-child {
-  color: var(--color-zinc-400);
 }
 
 /* API docs express return values as a short strong label followed by inline

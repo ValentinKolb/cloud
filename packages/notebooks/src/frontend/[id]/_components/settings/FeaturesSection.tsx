@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { CheckboxCard, prompts } from "@k2b/ui";
+import { NoticeCard, CheckboxCard, prompts } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
@@ -122,13 +122,13 @@ export function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; o
           onValueChange={setScriptsEnabled}
           disabled={!props.isAdmin || mutation.loading()}
         />
-        <div class="info-block-warning flex items-start gap-2 text-xs">
+        <NoticeCard tone="warning" icon={false} bodyClass="flex items-start gap-2">
           <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
           <span>
             Scripts run in each viewer's browser. They are not sandboxed and can use browser APIs, read notebook content visible to that
             viewer, and perform notebook actions with that viewer's permissions.
           </span>
-        </div>
+        </NoticeCard>
         <SaveStatus loading={mutation.loading()} saved={saved()} error={error()} />
       </div>
     </div>

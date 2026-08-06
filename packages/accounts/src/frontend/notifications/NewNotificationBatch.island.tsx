@@ -1,5 +1,5 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import { Button, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
+import { Button, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -321,14 +321,10 @@ function BatchDialog(props: { close: () => void }) {
               subtitle="Updated automatically from the current audience selection."
               icon="ti ti-eye"
             >
-              <div
-                class={
-                  previewLoading() ? "info-block-info flex items-start gap-2 text-xs" : "info-block-note flex items-start gap-2 text-xs"
-                }
-              >
+              <NoticeCard tone={previewLoading() ? "info" : "neutral"} icon={false} bodyClass="flex items-start gap-2">
                 <i class={previewLoading() ? "ti ti-loader-2 mt-0.5 shrink-0 animate-spin" : "ti ti-users mt-0.5 shrink-0"} />
                 <span>{previewLabel()}</span>
-              </div>
+              </NoticeCard>
             </PanelDialog.Section>
           </aside>
         </div>

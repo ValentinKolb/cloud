@@ -14,35 +14,31 @@
  */
 
 import type { MarkedExtension, Tokens } from "marked";
+import { NOTICE_CARD_CLASSES, NOTICE_CARD_ICONS, type NoticeTone } from "@k2b/ui";
 import { escapeHtml } from "../shared";
 
 type BlockType = "note" | "info" | "success" | "warning" | "danger";
 
-const blockConfig: Record<BlockType, { icon: string; label: string; classes: string }> = {
+const blockConfig: Record<BlockType, { label: string; tone: NoticeTone }> = {
   note: {
-    icon: "ti-chevron-right",
     label: "Note",
-    classes: "info-block-note",
+    tone: "neutral",
   },
   info: {
-    icon: "ti-info-circle",
     label: "Info",
-    classes: "info-block-info",
+    tone: "info",
   },
   success: {
-    icon: "ti-check",
     label: "Success",
-    classes: "info-block-success",
+    tone: "success",
   },
   warning: {
-    icon: "ti-alert-circle",
     label: "Warning",
-    classes: "info-block-warning",
+    tone: "warning",
   },
   danger: {
-    icon: "ti-alert-hexagon",
     label: "Danger",
-    classes: "info-block-danger",
+    tone: "danger",
   },
 };
 
@@ -85,13 +81,15 @@ export function infoBlocksExtension(): MarkedExtension {
           const title = escapeHtml((token.title as string | undefined) ?? config.label);
           const renderedContent = renderInlineContent(content);
 
-          return `<div class="info-block ${config.classes} p-4 rounded my-2">
-  <div class="flex items-center gap-1.5 font-semibold mb-1">
-    <i class="ti ${config.icon} shrink-0"></i>
-    <span>${title}</span>
+          return `<aside class="${NOTICE_CARD_CLASSES.root}" data-tone="${config.tone}">
+  <div class="${NOTICE_CARD_CLASSES.inner}">
+    <i class="${NOTICE_CARD_ICONS[config.tone]} ${NOTICE_CARD_CLASSES.icon}" aria-hidden="true"></i>
+    <div class="${NOTICE_CARD_CLASSES.content}">
+      <p class="${NOTICE_CARD_CLASSES.title}">${title}</p>
+      <div class="${NOTICE_CARD_CLASSES.body}">${renderedContent}</div>
+    </div>
   </div>
-  <div>${renderedContent}</div>
-</div>`;
+</aside>`;
         },
       },
     ],

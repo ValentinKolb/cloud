@@ -1,4 +1,4 @@
-import { AppOverview, Button, prompts, TextInput, toast } from "@k2b/ui";
+import { NoticeCard, AppOverview, Button, prompts, TextInput, toast } from "@k2b/ui";
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
@@ -158,9 +158,9 @@ export default function PulseOverview(props: Props) {
           </Button>
 
           <Show when={props.capabilities && !props.capabilities.timescaleEnabled}>
-            <div class="info-block-warning mt-2">
+            <NoticeCard tone="warning" icon={false} class="mt-2">
               TimescaleDB is not enabled here. Pulse still works in dev, but long historical dashboards can fall back to raw samples.
-            </div>
+            </NoticeCard>
           </Show>
         </div>
       </AppOverview.Aside>

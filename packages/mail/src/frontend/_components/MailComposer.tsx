@@ -2,6 +2,7 @@ import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { dropzone, mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   Button,
   CheckboxCard,
   type Completion,
@@ -601,10 +602,10 @@ export default function MailComposer(props: {
               value={nextReadReceipt}
               onValueChange={setNextReadReceipt}
             />
-            <div class="info-block-note flex items-start gap-2 text-xs">
+            <NoticeCard tone="neutral" icon={false} bodyClass="flex items-start gap-2">
               <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
               <p>Receipt requests are optional signals, not proof that a message was delivered or read.</p>
-            </div>
+            </NoticeCard>
             <div class="flex items-center justify-end gap-2">
               <Button variant="secondary" size="sm" type="button" onClick={() => close(false)}>
                 Cancel

@@ -1,6 +1,6 @@
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@k2b/ui";
+import { NoticeCard, Button, CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
 import { createSignal, For, Show } from "solid-js";
@@ -22,7 +22,9 @@ const toInstant = (value: string | null): string | null => {
 function TokenDialog(props: { token: string }) {
   return (
     <div class="flex flex-col gap-4">
-      <div class="info-block-warning text-xs">Copy this API key now. It is shown once and cannot be recovered later.</div>
+      <NoticeCard tone="warning" icon={false}>
+        Copy this API key now. It is shown once and cannot be recovered later.
+      </NoticeCard>
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
         <code class="block break-all font-mono text-xs text-primary">{props.token}</code>
       </div>

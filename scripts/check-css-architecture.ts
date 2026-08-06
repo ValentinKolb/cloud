@@ -138,6 +138,8 @@ for (const file of [...sharedStylesheets, ...appStylesheets]) {
 
 for (const file of readSourceFiles(packagesRoot)) {
   const source = withoutCssComments(readFileSync(file, "utf8"));
+  const legacyNoticeClass = source.match(/\binfo-block(?:-(?:note|info|success|warning|danger|error))?(?![a-z-])/);
+  if (legacyNoticeClass) report(file, `${legacyNoticeClass[0]} must use the shared NoticeCard contract`);
   const allowed = transitionalThemeReferences.get(relative(workspaceRoot, file)) ?? new Set<string>();
   for (const match of source.matchAll(/var\(\s*(--theme-[A-Za-z0-9_-]+)/g)) {
     if (!allowed.has(match[1]!)) report(file, `${match[1]} must use a semantic --ui-* role`);

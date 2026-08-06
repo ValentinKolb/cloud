@@ -1,5 +1,6 @@
 import { mutation } from "@k2b/stdlib/solid";
 import {
+  NoticeCard,
   Button,
   CodeDisplay,
   confirmDiscardIfDirty,
@@ -1124,13 +1125,13 @@ function IncomingAutomationEditor(props: {
               />
             }
           >
-            <div class="info-block-info flex items-start gap-2">
+            <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
               <i class="ti ti-sparkles mt-0.5 shrink-0" aria-hidden="true" />
               <span>
                 This flow makes up to {maxAiCalls(steps())} AI call{maxAiCalls(steps()) === 1 ? "" : "s"} per matching message. AI flows
                 only process future mail. AI can be wrong; reply drafts always remain drafts for human review.
               </span>
-            </div>
+            </NoticeCard>
           </Show>
           <Switch
             label="Automation active"

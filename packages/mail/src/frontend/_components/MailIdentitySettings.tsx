@@ -1,4 +1,5 @@
 import {
+  NoticeCard,
   CheckboxCard,
   confirmDiscardIfDirty,
   FileDropzone,
@@ -484,13 +485,13 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                   description={`Confirm that the provider accepts messages sent with ${(currentEditor() as Extract<IdentityEditor, { kind: "verify" }>).identity.label}.`}
                   onBack={closeEditor}
                 />
-                <div class="info-block-info flex items-start gap-2 text-xs">
+                <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
                   <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
                   <p>
                     Mail sends a real test message through this provider. The identity is ready to use only after the provider accepts its
                     From address and delivery settings.
                   </p>
-                </div>
+                </NoticeCard>
                 <Select
                   label="Connected account"
                   value={bindingId}
@@ -527,7 +528,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                 <Show
                   when={identity().status === "verified"}
                   fallback={
-                    <div class="info-block-warning flex items-center justify-between gap-3 text-xs" role="status">
+                    <NoticeCard tone="warning" icon={false} bodyClass="flex items-center justify-between gap-3" role="status">
                       <span class="flex min-w-0 items-start gap-2">
                         <i class="ti ti-alert-circle mt-0.5 shrink-0" aria-hidden="true" />
                         <span>
@@ -544,13 +545,13 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                       >
                         Verify identity
                       </Button>
-                    </div>
+                    </NoticeCard>
                   }
                 >
-                  <div class="info-block-success flex items-start gap-2 text-xs" role="status">
+                  <NoticeCard tone="success" icon={false} bodyClass="flex items-start gap-2" role="status">
                     <i class="ti ti-circle-check mt-0.5 shrink-0" aria-hidden="true" />
                     <p>Ready to send. The provider accepted a test message with this identity.</p>
-                  </div>
+                  </NoticeCard>
                 </Show>
               )}
             </Show>

@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, prompts } from "@k2b/ui";
+import { NoticeCard, Button, prompts } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 type DenyRequestProps = {
@@ -36,9 +36,9 @@ export default function DenyRequest(props: DenyRequestProps) {
         info: {
           type: "info",
           content: () => (
-            <div class="info-block-warning text-xs">
+            <NoticeCard tone="warning" icon={false}>
               Are you sure you want to deny the request from <strong>{props.firstName}</strong> ({props.email})?
-            </div>
+            </NoticeCard>
           ),
         },
         reason: {

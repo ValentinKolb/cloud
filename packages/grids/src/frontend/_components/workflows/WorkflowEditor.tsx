@@ -1,4 +1,14 @@
-import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast, Button } from "@k2b/ui";
+import {
+  AutocompleteEditor,
+  Button,
+  CheckboxCard,
+  confirmDiscardIfDirty,
+  NoticeCard,
+  PanelDialog,
+  prompts,
+  TextInput,
+  toast,
+} from "@k2b/ui";
 import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/workflows/editor";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
@@ -87,12 +97,7 @@ const defaultSource = (
 function DiagnosticsPanel(props: { diagnostics: WorkflowDiagnostic[]; validating: boolean }) {
   const hasDiagnostics = () => props.diagnostics.length > 0;
   return (
-    <div
-      class={`text-xs ${hasDiagnostics() ? "info-block-danger" : "info-block-success"}`}
-      role="status"
-      aria-live="polite"
-      aria-busy={props.validating}
-    >
+    <NoticeCard tone={hasDiagnostics() ? "danger" : "success"} icon={false} role="status" aria-live="polite" aria-busy={props.validating}>
       <div class="flex items-center gap-2 font-medium">
         <i class={`ti ${props.validating ? "ti-loader-2 animate-spin" : hasDiagnostics() ? "ti-alert-triangle" : "ti-circle-check"}`} />
         <span>{props.validating ? "Validating..." : hasDiagnostics() ? "Workflow YAML has diagnostics" : "Workflow YAML is valid"}</span>
@@ -115,7 +120,7 @@ function DiagnosticsPanel(props: { diagnostics: WorkflowDiagnostic[]; validating
           </For>
         </ul>
       </Show>
-    </div>
+    </NoticeCard>
   );
 }
 
