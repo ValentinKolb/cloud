@@ -48,6 +48,13 @@
   transform: translate(-50%, -50%);
 }
 
+/* PanelDialog owns scrolling in its body. Chrome otherwise includes the
+ * body's overflowing descendants in the native dialog's scroll range and
+ * renders a second scrollbar even though the panel itself already clips. */
+.k2b-ui .k2b-dialog.k2b-panel-dialog-frame {
+  overflow: hidden;
+}
+
 /* Default size sits in `:where()` so a consumer frame class of equal class
  * count (`.k2b-panel-dialog-frame`) keeps its own width no matter which
  * stylesheet is imported last. Explicit size modifiers stay at normal

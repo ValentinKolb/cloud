@@ -207,6 +207,9 @@ describe("@k2b/ui Cloud feedback parity", () => {
   });
 
   test("scrolls panel dialog bodies instead of shrinking their content", () => {
+    const frameRule = feedbackCss.match(/\.k2b-ui \.k2b-dialog\.k2b-panel-dialog-frame \{([^}]*)\}/)?.[1] ?? "";
+    expect(frameRule).toContain("overflow: hidden");
+
     const bodyChildrenRule = indexCss.match(/\.k2b-ui \.k2b-panel-dialog__body > \* \{([^}]*)\}/)?.[1] ?? "";
     expect(bodyChildrenRule).toContain("flex-shrink: 0");
   });
