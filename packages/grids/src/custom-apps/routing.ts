@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CustomAppDefinition, CustomAppFormBlock, CustomAppPage, CustomAppRowNavigation } from "./contracts";
+import type { CustomAppAction, CustomAppDefinition, CustomAppFormBlock, CustomAppPage, CustomAppRowNavigation } from "./contracts";
 
 const RecordIdSchema = z.string().uuid();
 
@@ -46,6 +46,33 @@ export const customAppCommentsUrl = (shortId: string, pageId: string, blockId: s
   const pageHref = customAppPageHref(shortId, pageId, params);
   const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
   return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/comments${query}`;
+};
+
+export const customAppRecordUpdateUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
+  const pageHref = customAppPageHref(shortId, pageId, params);
+  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
+  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/record${query}`;
+};
+
+export const customAppActionUrl = (shortId: string, pageId: string, blockId: string, actionId: string, params: Record<string, string>): string => {
+  const pageHref = customAppPageHref(shortId, pageId, params);
+  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
+  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/actions/${encodeURIComponent(actionId)}${query}`;
+};
+
+export const customAppActionHref = (
+  shortId: string,
+  action: Extract<CustomAppAction, { kind: "navigate" }>,
+  pageParams: Record<string, string>,
+  recordId?: string,
+): string | null => {
+  const params: Record<string, string> = {};
+  for (const [parameterId, value] of Object.entries(action.params)) {
+    const resolved = value.source === "PARAMS" ? pageParams[value.path] : recordId;
+    if (!resolved) return null;
+    params[parameterId] = resolved;
+  }
+  return customAppPageHref(shortId, action.pageId, params);
 };
 
 export const customAppRowHref = (shortId: string, navigation: CustomAppRowNavigation, recordId: string): string =>

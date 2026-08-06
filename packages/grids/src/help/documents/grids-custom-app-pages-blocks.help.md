@@ -38,6 +38,7 @@ path: request_id
 | Source | Available in | Example path |
 | --- | --- | --- |
 | `PARAMS` | Current page | `request_id` |
+| `RECORD` | Current page record | `id` |
 | `ROW` | One Records row link or row action | `id` or `fields.<outputId>` |
 | `RESULT` | Form success navigation | `recordId` |
 
@@ -88,9 +89,9 @@ One app may publish up to 24 Form blocks. Each referenced Form may expose up to 
 
 ### Record
 
-Record requires a page record. It renders an explicit field list and may allow direct editing for an explicit subset of those fields. Fields not listed as editable remain read-only even when the account has broader table access.
+Record requires a page record. It renders the explicit `fieldIds` list and may allow direct editing through an explicit `editableFieldIds` subset. Every editable field must also be displayed and must be a writable stored field; computed and system fields fail publication.
 
-The block may also expose generated document runs from an explicit template allowlist. Document generation and file delivery remain owned by the template and document run.
+The Edit action appears only when the account can write the current record under its table permission and row scope. Submission rechecks that access, the immutable published field allowlist, the live field type, table audit questions, and the current record version. Fields outside the block's editable subset remain read-only even when the account has broader table access.
 
 ### Comments
 
@@ -100,10 +101,12 @@ Comments inherit record visibility. They do not introduce a separate audience or
 
 ### Actions
 
-Actions contains buttons that either navigate or invoke an existing enabled workflow launcher. A workflow action declares typed input bindings and may navigate after its documented synchronous result returns.
+Actions contains buttons that either navigate inside the same Custom App or start an existing enabled Dashboard workflow launcher. A workflow action may bind JSON `LITERAL` values, declared Record `PARAMS`, or the current page `RECORD.id` to compatible workflow inputs. Fixed launchers use their stored bindings and do not accept action inputs.
 
 The block cannot call arbitrary URLs, update records directly, or invoke a workflow that was not included in the published capability set.
-An action that the current account cannot use is omitted without revealing its label, launcher, or required inputs.
+Starting a workflow is asynchronous: the button reports whether the run was accepted, while the workflow owns its effects and their observable run state. Navigation after a workflow belongs in the workflow or a later page-state transition; Actions does not bind arbitrary workflow results.
+
+The runtime revalidates the published app grant, exact page, block, action, launcher, workflow revision, page records, and workflow effect permissions. An action missing from the immutable publication capability set is omitted.
 
 ## Keep navigation explicit {icon="arrow-right"}
 

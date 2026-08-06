@@ -108,7 +108,7 @@ Bindings are discriminated values:
 { source: PARAMS, path: list_id }
 
 # The authorized page record
-{ source: RECORD, path: fields.10000000-0000-4000-8000-000000000301 }
+{ source: RECORD, path: id }
 
 # The current Records result row
 { source: ROW, path: id }
@@ -169,16 +169,13 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
     params:
       request_id: { source: RESULT, path: recordId }
 
-# Current page record, documents, and permitted direct edits
+# Current page record with a permitted direct-edit subset
 - id: request
   type: record
   fieldIds:
     - 10000000-0000-4000-8000-000000000301
-  editableFieldIds: []
-  documents:
-    templateIds:
-      - 10000000-0000-4000-8000-000000000601
-    emptyText: Your certificate will appear here after approval.
+  editableFieldIds:
+    - 10000000-0000-4000-8000-000000000301
 
 # Comments on the current page record
 - id: discussion
@@ -201,7 +198,7 @@ Metrics and Chart share the Records source contract. Chart additionally declares
 
 An inline GQL source may declare typed `inputs`. Its query reads them through `param('name')`; every referenced parameter must have exactly one binding and unused inputs fail validation. Parameter values are passed separately from query text and are never interpolated into it.
 
-A Records block may also declare `rowActions`. These use the same navigate and workflow contracts as an Actions block, with `ROW` scoped to the selected result. A form may override its visible submit label with `submitLabel`; validation and submission behavior remain owned by the referenced Form.
+Use a standalone Actions block for navigation and workflow launchers. Records row links remain the compact per-row interaction in the first release. Form validation and submission behavior remain owned by the referenced Form.
 
 Simple presentation conditions are lists of ANDed comparisons:
 

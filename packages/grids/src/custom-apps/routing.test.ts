@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomAppDefinition } from "./contracts";
 import {
+  customAppActionHref,
+  customAppActionUrl,
   customAppCommentsUrl,
   customAppFormSubmitUrl,
   customAppFormSuccessHref,
   customAppPageHref,
+  customAppRecordUpdateUrl,
   customAppRowHref,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
@@ -34,7 +37,12 @@ const definition: CustomAppDefinition = {
       navigation: { visible: false, order: 10 },
       parameters: { request_id: { type: "record", tableId: uuid(3), required: true } },
       record: { tableId: uuid(3), id: { source: "PARAMS", path: "request_id" } },
-      rows: [{ id: "main", columns: [{ id: "content", span: 12, blocks: [{ id: "record", type: "record", fieldIds: [uuid(4)] }] }] }],
+      rows: [
+        {
+          id: "main",
+          columns: [{ id: "content", span: 12, blocks: [{ id: "record", type: "record", fieldIds: [uuid(4)], editableFieldIds: [] }] }],
+        },
+      ],
     },
   ],
 };
@@ -85,5 +93,46 @@ describe("Custom App routing", () => {
     expect(customAppCommentsUrl("abc12", "detail", "discussion", { request_id: uuid(9) })).toBe(
       `/api/grids/apps/runtime/abc12/detail/discussion/comments?request_id=${uuid(9)}`,
     );
+  });
+
+  test("builds an internal Record update endpoint with the declared page parameters", () => {
+    expect(customAppRecordUpdateUrl("abc12", "detail", "record", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/record/record?request_id=${uuid(9)}`,
+    );
+  });
+
+  test("builds exact internal action targets", () => {
+    expect(customAppActionUrl("abc12", "detail", "actions", "approve", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/actions/actions/approve?request_id=${uuid(9)}`,
+    );
+    expect(
+      customAppActionHref(
+        "abc12",
+        {
+          id: "open",
+          label: "Open",
+          kind: "navigate",
+          pageId: "detail",
+          history: "replace",
+          params: { request_id: { source: "RECORD", path: "id" } },
+        },
+        {},
+        uuid(9),
+      ),
+    ).toBe(`/apps/abc12/detail?request_id=${uuid(9)}`);
+    expect(
+      customAppActionHref(
+        "abc12",
+        {
+          id: "open",
+          label: "Open",
+          kind: "navigate",
+          pageId: "detail",
+          history: "push",
+          params: { request_id: { source: "PARAMS", path: "request_id" } },
+        },
+        {},
+      ),
+    ).toBeNull();
   });
 });

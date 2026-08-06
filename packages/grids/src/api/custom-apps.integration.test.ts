@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect } from "bun:test";
+import { ok } from "@k2b/stdlib";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
@@ -8,6 +9,7 @@ import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "../service/access";
 import { apply, publish } from "../service/custom-apps";
+import type { DashboardLauncherInvocation } from "../service/workflow-launcher-invocations";
 import { createCustomAppsApi } from "./custom-apps";
 
 const authenticateAs =
@@ -50,6 +52,8 @@ describe("Custom App Form runtime", () => {
     const fieldId = testUuid();
     const formId = testUuid();
     const appId = testUuid();
+    const launcherId = testUuid();
+    const workflowId = testUuid();
     const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
     if (!authUser) throw new Error("Custom App API integration test needs one auth user");
     const accessIds: string[] = [];
@@ -128,7 +132,7 @@ describe("Custom App Form runtime", () => {
                     id: "content",
                     span: 12,
                     blocks: [
-                      { id: "record", type: "record", fieldIds: [fieldId] },
+                      { id: "record", type: "record", fieldIds: [fieldId], editableFieldIds: [fieldId] },
                       { id: "discussion", type: "comments" },
                     ],
                   },
@@ -155,9 +159,24 @@ describe("Custom App Form runtime", () => {
         accessIds.push(result.data.accessId);
       }
 
+      let actionInvocation: DashboardLauncherInvocation | null = null;
       const api = new Hono<AuthContext>().route(
         "/apps",
-        createCustomAppsApi({ requireAuthenticated: authenticateAs(userFor(authUser.id)) }),
+        createCustomAppsApi({
+          requireAuthenticated: authenticateAs(userFor(authUser.id)),
+          invokeDashboardLauncher: async (input) => {
+            actionInvocation = input as DashboardLauncherInvocation;
+            return ok({
+              runId: testUuid(),
+              workflowId,
+              revision: "1",
+              mode: "execute",
+              channel: "dashboard",
+              created: true,
+              status: "queued",
+            });
+          },
+        }),
       );
       const response = await api.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
         method: "POST",
@@ -173,6 +192,29 @@ describe("Custom App Form runtime", () => {
       `;
       expect(record?.value).toBe("Certificate request");
 
+      const recordUrl = `/apps/runtime/${applied.data.shortId}/request/record/record?request_id=${body.recordId}`;
+      const updatedRecord = await api.request(recordUrl, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "If-Match": "1" },
+        body: JSON.stringify({ values: { [fieldId]: "Certificate request updated" } }),
+      });
+      expect(updatedRecord.status).toBe(200);
+      expect(await updatedRecord.json()).toMatchObject({ id: body.recordId, version: 2, data: { [fieldId]: "Certificate request updated" } });
+
+      const rejectedField = await api.request(recordUrl, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "If-Match": "2" },
+        body: JSON.stringify({ values: { [testUuid()]: "not published" } }),
+      });
+      expect(rejectedField.status).toBe(400);
+
+      const staleRecord = await api.request(recordUrl, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "If-Match": "1" },
+        body: JSON.stringify({ values: { [fieldId]: "stale update" } }),
+      });
+      expect(staleRecord.status).toBe(409);
+
       const commentsUrl = `/apps/runtime/${applied.data.shortId}/request/discussion/comments?request_id=${body.recordId}`;
       const createdComment = await api.request(commentsUrl, {
         method: "POST",
@@ -187,6 +229,58 @@ describe("Custom App Form runtime", () => {
       expect(listedComments.status).toBe(200);
       const page = (await listedComments.json()) as { items: Array<{ id: string; body: string }>; nextCursor: string | null };
       expect(page).toMatchObject({ items: [{ id: comment.id, body: "Ready for review" }], nextCursor: null });
+
+      const actionDefinition = structuredClone(definition);
+      actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
+        id: "actions",
+        type: "actions",
+        actions: [
+          {
+            id: "approve",
+            label: "Approve",
+            kind: "workflow",
+            launcherId,
+            inputs: { request: { source: "RECORD", path: "id" } },
+          },
+        ],
+      });
+      const [stored] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
+        SELECT published_capabilities FROM grids.custom_apps WHERE id = ${appId}::uuid
+      `;
+      if (!stored) throw new Error("Published Custom App is missing");
+      await sql`
+        UPDATE grids.custom_apps
+        SET published_definition = ${JSON.stringify(actionDefinition)}::jsonb,
+            published_capabilities = ${JSON.stringify({
+              ...stored.published_capabilities,
+              workflowLaunchers: [
+                { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
+              ],
+            })}::jsonb
+        WHERE id = ${appId}::uuid
+      `;
+      const actionResponse = await api.request(
+        `/apps/runtime/${applied.data.shortId}/request/actions/actions/approve?request_id=${body.recordId}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operationId: testUuid() }),
+        },
+      );
+      expect(actionResponse.status).toBe(202);
+      expect(actionInvocation).toMatchObject({
+        launcherId,
+        expectedRevision: 1,
+        inputs: { request: body.recordId },
+        authorization: {
+          kind: "custom-app-action",
+          customAppId: appId,
+          pageId: "request",
+          blockId: "actions",
+          actionId: "approve",
+          revision: 1,
+        },
+      });
     } finally {
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.record_event_outbox WHERE base_id = ${baseId}::uuid`;

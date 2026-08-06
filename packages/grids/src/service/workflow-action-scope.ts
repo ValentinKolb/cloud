@@ -18,7 +18,10 @@ import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import { get as getDashboard } from "./dashboards";
+import { get as getCustomApp } from "./custom-apps";
+import { hasAtLeast, hasGrantsForResource, loadGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 import type { AuthorizedRecordAccess } from "./record-access";
+import { getLauncher } from "./workflow-launchers";
 import {
   authorizeWorkflowTarget,
   resolveWorkflowTargetRecordAccess,
@@ -93,11 +96,10 @@ export type GridsWorkflowExecutionClaim = {
 /**
  * Whether this actor may still execute this workflow.
  *
- * A dashboard-launched run is authorized by the widget that launched it, not by
- * a grant on the workflow: whoever can see the dashboard may press its button.
- * That means the dashboard, the widget and the launcher all still have to agree
- * at the moment of the effect, because any of the three can be edited away
- * while the run is queued.
+ * An indirectly launched run is authorized by the published surface that
+ * launched it, not by a grant on the workflow. The surface, action and launcher
+ * must still agree at effect time because any of them can change while a run is
+ * queued.
  */
 export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, client?: SqlClient): Promise<boolean> => {
   const { authorization } = claim;
@@ -109,6 +111,51 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     : await revalidateWorkflowPrincipal(claim.principal, claim.baseId);
   if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, "write")) return false;
   if (!claim.launcherId) return false;
+  if (authorization.kind === "custom-app-action") {
+    const [app, launcher] = await Promise.all([
+      getCustomApp(authorization.customAppId, client),
+      getLauncher(claim.launcherId, client),
+    ]);
+    if (
+      !app?.publishedDefinition ||
+      !app.publishedCapabilities ||
+      app.baseId !== claim.baseId ||
+      !launcher ||
+      launcher.baseId !== claim.baseId ||
+      launcher.workflowId !== claim.workflowId ||
+      launcher.config.kind !== "dashboard" ||
+      !launcher.enabled ||
+      launcher.validatedRevision !== authorization.revision ||
+      launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error")
+    ) {
+      return false;
+    }
+    const grants = await loadGrantsForSubject(
+      { subject: revalidated.subject, baseId: claim.baseId, customAppId: app.id },
+      client,
+    );
+    if (
+      !hasGrantsForResource(grants, "customApp", app.id) ||
+      !hasAtLeast(resolveEffectivePermission(grants, { baseId: claim.baseId, customAppId: app.id }), "read")
+    ) {
+      return false;
+    }
+    const page = app.publishedDefinition.pages.find((candidate) => candidate.id === authorization.pageId);
+    const block = page?.rows
+      .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+      .find((candidate) => candidate.id === authorization.blockId && candidate.type === "actions");
+    const action = block?.type === "actions" ? block.actions.find((candidate) => candidate.id === authorization.actionId) : null;
+    if (!action || action.kind !== "workflow" || action.launcherId !== claim.launcherId) return false;
+    return app.publishedCapabilities.workflowLaunchers.some(
+      (capability) =>
+        capability.pageId === page!.id &&
+        capability.blockId === block!.id &&
+        capability.actionId === action.id &&
+        capability.launcherId === claim.launcherId &&
+        capability.workflowId === claim.workflowId &&
+        capability.revision === authorization.revision,
+    );
+  }
   const dashboard = await getDashboard(authorization.dashboardId, {}, client);
   if (!dashboard || dashboard.baseId !== claim.baseId) return false;
   const readable = await canReadDashboardIncludedData(

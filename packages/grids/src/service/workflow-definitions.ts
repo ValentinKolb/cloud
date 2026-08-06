@@ -42,7 +42,7 @@ import type {
 import { GridsWorkflowRevisionSchema, GridsWorkflowSchema } from "../workflows/contracts";
 import { GRIDS_EVENT } from "../workflows/events";
 import { gridsWorkflows } from "../workflows/module";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { loadWorkflowCatalog } from "./workflow-catalog";
@@ -169,8 +169,8 @@ const metadataEvent = async (
 
 // ─── Reads ───────────────────────────────────────────────────────────────────
 
-export const getWorkflow = async (id: string, includeDeleted = false): Promise<GridsWorkflow | null> => {
-  const [row] = await sql<DbRow[]>`
+export const getWorkflow = async (id: string, includeDeleted = false, client: SqlClient = sql): Promise<GridsWorkflow | null> => {
+  const [row] = await client<DbRow[]>`
     SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
     WHERE p.id = ${id}::uuid AND (${includeDeleted} = TRUE OR p.deleted_at IS NULL)
   `;

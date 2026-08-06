@@ -20,10 +20,11 @@ A column may contain:
 - **Records**, for up to 100 rows from one saved view and an explicit field allowlist;
 - **Record**, for an explicit field allowlist from the current detail record;
 - **Comments**, for a permission-inheriting discussion on the current detail record.
+- **Actions**, for internal navigation or an exact published workflow launcher.
 
 Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
 
-Scripts, custom HTML and CSS, actions, arbitrary URLs, and direct GQL sources are not supported in this release.
+Scripts, custom HTML and CSS, arbitrary URLs, and direct record mutations are not supported. Actions compose internal navigation and existing validated workflow launchers instead.
 
 ## Build a list and detail app {icon="terminal-2"}
 
@@ -107,6 +108,8 @@ pages:
                 type: record
                 title: Request
                 fieldIds:
+                  - 00000000-0000-4000-8000-000000000004
+                editableFieldIds:
                   - 00000000-0000-4000-8000-000000000004
 ```
 

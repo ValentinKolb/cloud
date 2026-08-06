@@ -72,10 +72,11 @@ const pageSize = (limit: number | null | undefined): number => Math.min(Math.max
 
 // ─── Authorization snapshot ──────────────────────────────────────────────────
 
-/** How a run was accepted: on the workflow's own grant, or by a dashboard widget. */
+/** How a run was accepted: directly, by a dashboard widget, or by a published Custom App action. */
 export type GridsWorkflowAuthorization =
   | { kind: "workflow" }
-  | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+  | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string }
+  | { kind: "custom-app-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number };
 
 /**
  * Everything about *who* a run acts as, frozen when it was accepted.

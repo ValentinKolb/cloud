@@ -10,8 +10,12 @@ import {
 } from "../custom-apps/contracts";
 import { logAudit, type SqlClient } from "./audit";
 import { normalizeFormConfig } from "./forms";
+import { getWorkflow } from "./workflow-definitions";
+import { getLauncher } from "./workflow-launchers";
+import { workflowInputShapeError } from "./workflow-values";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
+import { isRecordWritableFieldType } from "../field-types";
 
 type DbRow = Record<string, unknown>;
 
@@ -47,7 +51,7 @@ const mapRow = (row: DbRow): CustomApp => ({
   icon: (row.icon as string | null) ?? null,
   draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
   draftCapabilities: CustomAppCapabilitiesSchema.parse(
-    parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [], comments: [] }),
+    parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [], comments: [], workflowLaunchers: [] }),
   ),
   publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
   publishedCapabilities: row.published_capabilities
@@ -78,7 +82,7 @@ const zodDiagnostics = (error: { issues: Array<{ path: PropertyKey[]; message: s
     message: issue.message,
   }));
 
-const blocksByType = <T extends "comments" | "form" | "record" | "records">(definition: CustomAppDefinition, type: T) =>
+const blocksByType = <T extends "actions" | "comments" | "form" | "record" | "records">(definition: CustomAppDefinition, type: T) =>
   definition.pages.flatMap((page) =>
     page.rows.flatMap((row) =>
       row.columns.flatMap((column) =>
@@ -96,6 +100,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const recordsBlocks = blocksByType(definition, "records");
   const formBlocks = blocksByType(definition, "form");
   const commentBlocks = blocksByType(definition, "comments");
+  const actionBlocks = blocksByType(definition, "actions");
   if (recordsBlocks.length > 4) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 4 Records blocks" }] };
   }
@@ -113,6 +118,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const pageRecords: CustomAppCapabilities["records"] = [];
   const forms: CustomAppCapabilities["forms"] = [];
   const comments: CustomAppCapabilities["comments"] = [];
+  const workflowLaunchers: CustomAppCapabilities["workflowLaunchers"] = [];
   const tableBaseIds = new Map<string, string | null>();
   const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
     const cached = tableBaseIds.get(tableId);
@@ -139,6 +145,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       row.columns.flatMap((column) => column.blocks.filter((block) => block.type === "record")),
     );
     const fieldIds = [...new Set(recordBlocks.flatMap((block) => block.fieldIds))].sort();
+    const editableFieldIds = [...new Set(recordBlocks.flatMap((block) => block.editableFieldIds))].sort();
     if ((await resolveTableBaseId(page.record.tableId)) !== definition.baseId) {
       diagnostics.push({
         path: ["pages", pageIndex, "record", "tableId"],
@@ -147,12 +154,13 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       continue;
     }
     if (fieldIds.length > 0) {
-      const fields = await client<Array<{ id: string }>>`
-        SELECT id FROM grids.fields
+      const fields = await client<Array<{ id: string; type: string }>>`
+        SELECT id, type FROM grids.fields
         WHERE table_id = ${page.record.tableId}::uuid AND deleted_at IS NULL
           AND id = ANY(${toPgUuidArray(fieldIds)}::uuid[])
       `;
       const found = new Set(fields.map((field) => field.id));
+      const fieldsById = new Map(fields.map((field) => [field.id, field]));
       for (const fieldId of fieldIds) {
         if (!found.has(fieldId)) {
           diagnostics.push({
@@ -161,8 +169,17 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           });
         }
       }
+      for (const fieldId of editableFieldIds) {
+        const field = fieldsById.get(fieldId);
+        if (field && !isRecordWritableFieldType(field.type)) {
+          diagnostics.push({
+            path: ["pages", pageIndex, "record", "editableFieldIds"],
+            message: `Field ${fieldId} is not a writable record field`,
+          });
+        }
+      }
     }
-    pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds });
+    pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds, editableFieldIds });
     for (const { block } of commentBlocks.filter((candidate) => candidate.page.id === page.id)) {
       comments.push({ pageId: page.id, blockId: block.id, tableId: page.record.tableId });
     }
@@ -299,6 +316,99 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
 
     forms.push({ pageId: page.id, blockId: block.id, formId: block.formId, tableId: formRow.table_id, userInputFieldIds, fixedFieldIds });
   }
+
+  for (const { page, block } of actionBlocks) {
+    for (const action of block.actions) {
+      if (action.kind !== "workflow") continue;
+      const launcher = await getLauncher(action.launcherId, client);
+      if (
+        !launcher ||
+        launcher.baseId !== definition.baseId ||
+        launcher.deletedAt !== null ||
+        !launcher.enabled ||
+        launcher.diagnostics.some((item) => item.severity === "error") ||
+        launcher.config.kind !== "dashboard"
+      ) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "actions", action.id, "launcherId"],
+          message: "Workflow launcher is missing, disabled, invalid, unsupported, or belongs to another base",
+        });
+        continue;
+      }
+      const workflow = await getWorkflow(launcher.workflowId, false, client);
+      if (
+        !workflow ||
+        workflow.baseId !== definition.baseId ||
+        workflow.deletedAt !== null ||
+        !workflow.enabled ||
+        workflow.revision !== launcher.validatedRevision ||
+        workflow.diagnostics.some((item) => item.severity === "error")
+      ) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "actions", action.id, "launcherId"],
+          message: "Workflow launcher does not reference a ready workflow revision",
+        });
+        continue;
+      }
+      if (launcher.config.inputMode === "fixed" && Object.keys(action.inputs).length > 0) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs"],
+          message: "Fixed workflow launchers do not accept Custom App inputs",
+        });
+        continue;
+      }
+      if (launcher.config.inputMode === "prompt") {
+        const inputsByName = new Map(workflow.plan.inputs.map((input) => [input.name, input]));
+        for (const inputName of Object.keys(action.inputs)) {
+          if (!inputsByName.has(inputName)) {
+            diagnostics.push({
+              path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", inputName],
+              message: `Unknown workflow input "${inputName}"`,
+            });
+          }
+        }
+        for (const input of workflow.plan.inputs) {
+          const value = action.inputs[input.name];
+          if (!value) {
+            const message = workflowInputShapeError(input, undefined);
+            if (message) {
+              diagnostics.push({
+                path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", input.name],
+                message: `Workflow input "${input.name}" ${message}`,
+              });
+            }
+            continue;
+          }
+          if (value.source === "LITERAL") {
+            const message = workflowInputShapeError(input, value.value);
+            if (message) {
+              diagnostics.push({
+                path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", input.name],
+                message: `Workflow input "${input.name}" ${message}`,
+              });
+            }
+            continue;
+          }
+          const sourceTableId = value.source === "PARAMS" ? page.parameters[value.path]?.tableId : page.record?.tableId;
+          const boundTableId = workflow.plan.bindings[`inputs.${input.name}.table`];
+          if (input.type !== "record" || typeof boundTableId !== "string" || sourceTableId !== boundTableId) {
+            diagnostics.push({
+              path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", input.name],
+              message: `Workflow input "${input.name}" must be a record input bound to the referenced table`,
+            });
+          }
+        }
+      }
+      workflowLaunchers.push({
+        pageId: page.id,
+        blockId: block.id,
+        actionId: action.id,
+        launcherId: launcher.id,
+        workflowId: workflow.id,
+        revision: workflow.revision,
+      });
+    }
+  }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
   const capabilities = CustomAppCapabilitiesSchema.parse({
@@ -306,6 +416,10 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
     forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     comments: comments.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
+    workflowLaunchers: workflowLaunchers.sort(
+      (left, right) =>
+        left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId) || left.actionId.localeCompare(right.actionId),
+    ),
   });
   return { ok: true, compiled: { definition, capabilities } };
 };

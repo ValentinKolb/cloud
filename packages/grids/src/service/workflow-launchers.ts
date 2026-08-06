@@ -9,7 +9,7 @@ import type {
   UpdateGridsWorkflowLauncherInput,
 } from "../workflows/contracts";
 import { GridsWorkflowLauncherConfigSchema, scannerLauncherInputSources } from "../workflows/contracts";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import { workflowInputShapeError } from "./workflow-values";
@@ -130,8 +130,8 @@ export const validateLauncherConfig = (workflow: GridsWorkflow, config: GridsWor
   return diagnostics;
 };
 
-export const getLauncher = async (id: string): Promise<GridsWorkflowLauncher | null> => {
-  const [row] = await sql<DbRow[]>`
+export const getLauncher = async (id: string, client: SqlClient = sql): Promise<GridsWorkflowLauncher | null> => {
+  const [row] = await client<DbRow[]>`
     SELECT ${selectColumns}
     FROM grids.workflow_launchers
     WHERE id = ${id}::uuid AND deleted_at IS NULL

@@ -44,6 +44,16 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
       dashboardWidgetId: z.string().min(1),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("custom-app-action"),
+      customAppId: z.string().uuid(),
+      pageId: z.string().min(1),
+      blockId: z.string().min(1),
+      actionId: z.string().min(1),
+      revision: z.number().int().positive(),
+    })
+    .strict(),
 ]);
 
 const invocationFields = {
@@ -166,6 +176,7 @@ const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ workflow
   }
   if (
     authorization?.kind !== "dashboard-widget" &&
+    authorization?.kind !== "custom-app-action" &&
     !(await authorizeWorkflowTarget(principal, { baseId: workflow.baseId, workflowId: workflow.id }, "write"))
   ) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));

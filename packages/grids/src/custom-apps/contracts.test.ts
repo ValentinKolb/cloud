@@ -77,6 +77,19 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), icon: "app-window text-danger" }).success).toBe(false);
   });
 
+  test("requires editable Record fields to be part of the displayed allowlist", () => {
+    const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    const detail = example.pages.find((page) => page.record)!;
+    const record = detail.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)).find((block) => block.type === "record")!;
+    if (record.type !== "record") throw new Error("Expected Record block");
+    record.editableFieldIds = [record.fieldIds[0]!];
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+    record.editableFieldIds = [record.fieldIds[0]!, record.fieldIds[0]!];
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(false);
+    record.editableFieldIds = [uuid(99)];
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(false);
+  });
+
   test("rejects unbound, visible, or mismatched record pages and incomplete row navigation", () => {
     const example = CUSTOM_APP_REFERENCE.example;
     const detail = example.pages[1];
@@ -171,5 +184,46 @@ describe("Custom App definition contract", () => {
       true,
     );
     expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+  });
+
+  test("accepts typed navigation and workflow actions and rejects ambiguous bindings", () => {
+    const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    const detail = example.pages[1]!;
+    detail.rows[0]!.columns[0]!.blocks.push({
+      id: "actions",
+      type: "actions",
+      actions: [
+        {
+          id: "reload-detail",
+          label: "Open request",
+          kind: "navigate",
+          pageId: "request",
+          history: "replace",
+          params: { request_id: { source: "RECORD", path: "id" } },
+        },
+        {
+          id: "approve",
+          label: "Approve",
+          kind: "workflow",
+          launcherId: uuid(90),
+          inputs: {
+            request: { source: "RECORD", path: "id" },
+            reason: { source: "LITERAL", value: "approved" },
+          },
+          confirm: "Approve this request?",
+        },
+      ],
+    });
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+
+    const duplicateAction = structuredClone(example);
+    const duplicateBlock = duplicateAction.pages[1]!.rows[0]!.columns[0]!.blocks.at(-1)!;
+    if (duplicateBlock.type !== "actions") throw new Error("Expected Actions block");
+    duplicateBlock.actions[1]!.id = duplicateBlock.actions[0]!.id;
+    expect(CustomAppDefinitionSchema.safeParse(duplicateAction).success).toBe(false);
+
+    const missingRecord = structuredClone(example);
+    delete missingRecord.pages[1]!.record;
+    expect(CustomAppDefinitionSchema.safeParse(missingRecord).success).toBe(false);
   });
 });

@@ -2,6 +2,8 @@ import { type AuthContext, auth, getDateConfig, respond, v } from "@valentinkolb
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { CUSTOM_APP_REFERENCE, CustomAppDefinitionInputSchema } from "../custom-apps/contracts";
+import { RecordUpdateBodySchema } from "../contracts";
+import { isRecordWritableFieldType } from "../field-types";
 import { customAppFormMatchesPublishedCapability } from "../custom-apps/form-runtime";
 import { customAppFormSuccessHref, resolveCustomAppPage, resolveCustomAppPageParams } from "../custom-apps/routing";
 import { gridsService } from "../service";
@@ -9,6 +11,7 @@ import { FormSubmitSchema, parseFormSubmission } from "./form-api-shared";
 import {
   actorViewerFor,
   currentActorUserId,
+  currentWorkflowPrincipal,
   gateAt,
   gridsAccessContext,
   hasExplicitGrant,
@@ -19,6 +22,7 @@ import { requireUuidParam } from "./route-params";
 
 const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
 const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
+const CustomAppActionInvocationSchema = z.object({ operationId: z.string().uuid() }).strict();
 const RecordCommentListQuerySchema = z
   .object({
     cursor: z.string().max(2_000).optional(),
@@ -67,8 +71,60 @@ const resolveRuntimeComments = async (c: Context<AuthContext>, required: "read" 
   return { app, page, block, recordId, recordAccess, accessContext } as const;
 };
 
-export const createCustomAppsApi = (deps: { requireAuthenticated?: MiddlewareHandler<AuthContext> } = {}) =>
-  new Hono<AuthContext>()
+const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
+  const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
+  if (!app?.publishedDefinition || !app.publishedCapabilities) return null;
+  const accessContext = gridsAccessContext(c);
+  const appAccess = await resolveWithGrantsForAccess(accessContext, { baseId: app.baseId, customAppId: app.id });
+  if (!hasExplicitGrant(appAccess.grants, "customApp", app.id) || !gridsService.permission.hasAtLeast(appAccess.level, "read")) return null;
+
+  const page = resolveCustomAppPage(app.publishedDefinition, c.req.param("pageId"));
+  const pageParams = page ? resolveCustomAppPageParams(page, c.req.query()) : null;
+  const block = page?.rows
+    .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+    .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "record");
+  if (!page?.record || !pageParams || !block || block.type !== "record" || block.editableFieldIds.length === 0) return null;
+
+  const capability = app.publishedCapabilities.records.find(
+    (candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId,
+  );
+  const recordBlocks = page.rows.flatMap((row) =>
+    row.columns.flatMap((column) => column.blocks.filter((candidate) => candidate.type === "record")),
+  );
+  const expectedFieldIds = [...new Set(recordBlocks.flatMap((candidate) => candidate.fieldIds))].sort();
+  const expectedEditableFieldIds = [...new Set(recordBlocks.flatMap((candidate) => candidate.editableFieldIds))].sort();
+  if (
+    !capability ||
+    capability.fieldIds.join("\0") !== expectedFieldIds.join("\0") ||
+    capability.editableFieldIds.join("\0") !== expectedEditableFieldIds.join("\0")
+  ) {
+    return null;
+  }
+
+  const recordAccess = await resolveRecordAccessForAccess(
+    accessContext,
+    { baseId: app.baseId, tableId: page.record.tableId },
+    "write",
+  );
+  if (!recordAccess.ok) return { denied: recordAccess } as const;
+  const recordId = pageParams[page.record.id.path];
+  if (!recordId) return null;
+  const record = await gridsService.record.get(page.record.tableId, recordId, {
+    viewer: actorViewerFor(accessContext),
+    recordAccess: recordAccess.data.recordAccess,
+  });
+  if (!record) return null;
+  return { app, page, block, capability, record, recordAccess, accessContext } as const;
+};
+
+export const createCustomAppsApi = (
+  deps: {
+    requireAuthenticated?: MiddlewareHandler<AuthContext>;
+    invokeDashboardLauncher?: typeof gridsService.workflow.launcher.invokeDashboard;
+  } = {},
+) => {
+  const invokeDashboardLauncher = deps.invokeDashboardLauncher ?? gridsService.workflow.launcher.invokeDashboard;
+  return new Hono<AuthContext>()
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
     .get("/reference", (c) => c.json(CUSTOM_APP_REFERENCE))
     .get("/runtime/:shortId/:pageId/:blockId/comments", v("query", RecordCommentListQuerySchema), async (c) => {
@@ -145,6 +201,120 @@ export const createCustomAppsApi = (deps: { requireAuthenticated?: MiddlewareHan
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.body(null, 204);
     })
+    .patch("/runtime/:shortId/:pageId/:blockId/record", v("json", RecordUpdateBodySchema), async (c) => {
+      const resolved = await resolveRuntimeRecordEdit(c);
+      if (!resolved) return c.json({ message: "Record editor not found" }, 404);
+      if ("denied" in resolved && resolved.denied) return respond(c, () => Promise.resolve(resolved.denied));
+
+      const ifMatch = Number(c.req.header("If-Match"));
+      if (!Number.isInteger(ifMatch) || ifMatch < 1) return c.json({ message: "If-Match must contain the current record version" }, 400);
+      const body = c.req.valid("json");
+      const allowed = new Set(resolved.block.editableFieldIds);
+      const submittedFieldIds = Object.keys(body.values);
+      if (submittedFieldIds.some((fieldId) => !allowed.has(fieldId))) {
+        return c.json({ message: "Record update contains a field outside this published editor" }, 400);
+      }
+
+      const fields = await gridsService.field.listByTable(resolved.page.record!.tableId);
+      const fieldsById = new Map(fields.map((field) => [field.id, field]));
+      if (
+        resolved.block.editableFieldIds.some((fieldId) => {
+          const field = fieldsById.get(fieldId);
+          return !field || field.deletedAt !== null || !isRecordWritableFieldType(field.type);
+        })
+      ) {
+        return c.json({ message: "This record editor changed after the app was published" }, 409);
+      }
+
+      return respond(c, () =>
+        gridsService.record.update(
+          resolved.page.record!.tableId,
+          resolved.record.id,
+          body.values,
+          currentActorUserId(c),
+          ifMatch,
+          {
+            dateConfig: getDateConfig(c),
+            viewer: actorViewerFor(resolved.accessContext),
+            audit: body.audit,
+            recordAccess: resolved.recordAccess.data.recordAccess,
+          },
+        ),
+      );
+    })
+    .post(
+      "/runtime/:shortId/:pageId/:blockId/actions/:actionId",
+      v("json", CustomAppActionInvocationSchema),
+      async (c) => {
+        const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
+        if (!app?.publishedDefinition || !app.publishedCapabilities) return c.json({ message: "Action not found" }, 404);
+
+        const accessContext = gridsAccessContext(c);
+        const appAccess = await resolveWithGrantsForAccess(accessContext, { baseId: app.baseId, customAppId: app.id });
+        if (!hasExplicitGrant(appAccess.grants, "customApp", app.id) || !gridsService.permission.hasAtLeast(appAccess.level, "read")) {
+          return c.json({ message: "Action not found" }, 404);
+        }
+
+        const page = resolveCustomAppPage(app.publishedDefinition, c.req.param("pageId"));
+        const pageParams = page ? resolveCustomAppPageParams(page, c.req.query()) : null;
+        const block = page?.rows
+          .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+          .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "actions");
+        const action = block?.type === "actions" ? block.actions.find((candidate) => candidate.id === c.req.param("actionId")) : null;
+        if (!page || !pageParams || !block || block.type !== "actions" || !action || action.kind !== "workflow") {
+          return c.json({ message: "Action not found" }, 404);
+        }
+
+        const capability = app.publishedCapabilities.workflowLaunchers.find(
+          (candidate) =>
+            candidate.pageId === page.id &&
+            candidate.blockId === block.id &&
+            candidate.actionId === action.id &&
+            candidate.launcherId === action.launcherId,
+        );
+        if (!capability) return c.json({ message: "Action not found" }, 404);
+
+        const records = new Map<string, string>();
+        const viewer = actorViewerFor(accessContext);
+        for (const [parameterId, parameter] of Object.entries(page.parameters)) {
+          const sourceAccess = await resolveRecordAccessForAccess(accessContext, { baseId: app.baseId, tableId: parameter.tableId }, "read");
+          if (!sourceAccess.ok) return c.json({ message: "Action not found" }, 404);
+          const recordId = pageParams[parameterId]!;
+          const record = await gridsService.record.get(parameter.tableId, recordId, {
+            viewer,
+            recordAccess: sourceAccess.data.recordAccess,
+          });
+          if (!record) return c.json({ message: "Action not found" }, 404);
+          records.set(parameterId, record.id);
+        }
+        const pageRecordId = page.record ? records.get(page.record.id.path) : undefined;
+        if (page.record && !pageRecordId) return c.json({ message: "Action not found" }, 404);
+        const inputs: Record<string, unknown> = {};
+        for (const [name, value] of Object.entries(action.inputs)) {
+          const resolved = value.source === "LITERAL" ? value.value : value.source === "PARAMS" ? records.get(value.path) : pageRecordId;
+          if (resolved === undefined) return c.json({ message: "Action not found" }, 404);
+          inputs[name] = resolved;
+        }
+        const result = await invokeDashboardLauncher({
+          launcherId: action.launcherId,
+          operationId: c.req.valid("json").operationId,
+          mode: "execute",
+          expectedRevision: capability.revision,
+          principal: currentWorkflowPrincipal(c),
+          inputs,
+          authorization: {
+            kind: "custom-app-action",
+            customAppId: app.id,
+            pageId: page.id,
+            blockId: block.id,
+            actionId: action.id,
+            revision: capability.revision,
+          },
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.json({ runId: result.data.runId, workflowId: result.data.workflowId, status: result.data.status }, 202);
+      },
+    )
     .post("/runtime/:shortId/:pageId/:blockId/submit", v("json", FormSubmitSchema), async (c) => {
       const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
       if (!app?.publishedDefinition || !app.publishedCapabilities) return c.json({ message: "Form not found" }, 404);
@@ -261,5 +431,6 @@ export const createCustomAppsApi = (deps: { requireAuthenticated?: MiddlewareHan
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.customApp.publish(app.id, currentActorUserId(c)));
     });
+};
 
 export default createCustomAppsApi();

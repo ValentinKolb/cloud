@@ -41,6 +41,39 @@ const CustomAppRowNavigationSchema = z
 
 const CustomAppParamValueSchema = z.object({ source: z.literal("PARAMS"), path: CustomAppParameterIdSchema }).strict();
 
+const CustomAppRecordIdValueSchema = z.object({ source: z.literal("RECORD"), path: z.literal("id") }).strict();
+
+export const CustomAppActionValueSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
+  CustomAppParamValueSchema,
+  CustomAppRecordIdValueSchema,
+]);
+
+const CustomAppActionSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      id: CustomAppLocalIdSchema,
+      label: z.string().trim().min(1).max(120),
+      icon: z.string().trim().min(1).max(120).regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug").optional(),
+      kind: z.literal("navigate"),
+      pageId: CustomAppLocalIdSchema,
+      history: z.enum(["push", "replace"]).default("push"),
+      params: z.record(CustomAppParameterIdSchema, z.union([CustomAppParamValueSchema, CustomAppRecordIdValueSchema])),
+    })
+    .strict(),
+  z
+    .object({
+      id: CustomAppLocalIdSchema,
+      label: z.string().trim().min(1).max(120),
+      icon: z.string().trim().min(1).max(120).regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug").optional(),
+      kind: z.literal("workflow"),
+      launcherId: z.string().uuid(),
+      inputs: z.record(z.string().trim().min(1).max(120), CustomAppActionValueSchema).default({}),
+      confirm: z.string().trim().min(1).max(240).optional(),
+    })
+    .strict(),
+]);
+
 const CustomAppFormSuccessValueSchema = z.discriminatedUnion("source", [
   CustomAppParamValueSchema,
   z.object({ source: z.literal("RESULT"), path: z.literal("recordId") }).strict(),
@@ -87,8 +120,30 @@ export const CustomAppRecordBlockSchema = z
     title: z.string().trim().min(1).max(160).optional(),
     emptyText: z.string().trim().min(1).max(240).optional(),
     fieldIds: z.array(z.string().uuid()).min(1).max(30),
+    editableFieldIds: z.array(z.string().uuid()).max(30).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((block, ctx) => {
+    const displayed = new Set(block.fieldIds);
+    const editable = new Set<string>();
+    for (const [index, fieldId] of block.editableFieldIds.entries()) {
+      if (editable.has(fieldId)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate editable field id "${fieldId}"`,
+          path: ["editableFieldIds", index],
+        });
+      }
+      editable.add(fieldId);
+      if (!displayed.has(fieldId)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Editable fields must also be displayed by the Record block",
+          path: ["editableFieldIds", index],
+        });
+      }
+    }
+  });
 
 export const CustomAppCommentsBlockSchema = z
   .object({
@@ -110,12 +165,29 @@ export const CustomAppFormBlockSchema = z
   })
   .strict();
 
+export const CustomAppActionsBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("actions"),
+    title: z.string().trim().min(1).max(160).optional(),
+    actions: z.array(CustomAppActionSchema).min(1).max(12),
+  })
+  .strict()
+  .superRefine((block, ctx) => {
+    const ids = new Set<string>();
+    for (const [index, action] of block.actions.entries()) {
+      if (ids.has(action.id)) ctx.addIssue({ code: "custom", message: `Duplicate action id "${action.id}"`, path: ["actions", index, "id"] });
+      ids.add(action.id);
+    }
+  });
+
 export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMarkdownBlockSchema,
   CustomAppRecordsBlockSchema,
   CustomAppRecordBlockSchema,
   CustomAppCommentsBlockSchema,
   CustomAppFormBlockSchema,
+  CustomAppActionsBlockSchema,
 ]);
 
 const CustomAppPageSchema = z
@@ -237,6 +309,27 @@ export const CustomAppDefinitionSchema = z
                 }
               }
             }
+            if (block.type === "actions") {
+              for (const [actionIndex, action] of block.actions.entries()) {
+                if (action.kind !== "workflow") continue;
+                for (const [inputName, value] of Object.entries(action.inputs)) {
+                  if (value.source === "PARAMS" && !page.parameters[value.path]) {
+                    ctx.addIssue({
+                      code: "custom",
+                      message: "Workflow inputs must reference a parameter declared by the current page",
+                      path: [...blockPath, "actions", actionIndex, "inputs", inputName, "path"],
+                    });
+                  }
+                  if (value.source === "RECORD" && !page.record) {
+                    ctx.addIssue({
+                      code: "custom",
+                      message: "RECORD workflow inputs require a page record",
+                      path: [...blockPath, "actions", actionIndex, "inputs", inputName],
+                    });
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -299,41 +392,59 @@ export const CustomAppDefinitionSchema = z
       for (const [rowIndex, row] of page.rows.entries()) {
         for (const [columnIndex, column] of row.columns.entries()) {
           for (const [blockIndex, block] of column.blocks.entries()) {
-            const navigation = block.type === "records" ? block.rowNavigate : block.type === "form" ? block.onSuccessNavigate : undefined;
-            if (!navigation) continue;
-            const navigationKey = block.type === "records" ? "rowNavigate" : "onSuccessNavigate";
-            const path = ["pages", pageIndex, "rows", rowIndex, "columns", columnIndex, "blocks", blockIndex, navigationKey] as const;
-            const targetPage = definition.pages.find((candidate) => candidate.id === navigation.pageId);
-            if (!targetPage) {
-              ctx.addIssue({ code: "custom", message: `${navigationKey}.pageId must reference a page`, path: [...path, "pageId"] });
-              continue;
-            }
-            const expectedParams = Object.keys(targetPage.parameters).sort();
-            const suppliedParams = Object.keys(navigation.params).sort();
-            if (expectedParams.join("\0") !== suppliedParams.join("\0")) {
-              ctx.addIssue({
-                code: "custom",
-                message: `${navigationKey}.params must provide every target page parameter exactly once`,
-                path: [...path, "params"],
-              });
-            }
-            if (block.type === "form") {
-              for (const [parameterId, value] of Object.entries(navigation.params)) {
-                if (value.source !== "PARAMS") continue;
-                const sourceParameter = page.parameters[value.path];
-                const targetParameter = targetPage.parameters[parameterId];
-                if (!sourceParameter) {
-                  ctx.addIssue({
-                    code: "custom",
-                    message: "Success navigation must reference a parameter declared by the current page",
-                    path: [...path, "params", parameterId, "path"],
-                  });
-                } else if (targetParameter?.tableId !== sourceParameter.tableId) {
-                  ctx.addIssue({
-                    code: "custom",
-                    message: "Success navigation parameter tables must match",
-                    path: [...path, "params", parameterId],
-                  });
+            const navigations = [
+              ...(block.type === "records" && block.rowNavigate ? [{ navigation: block.rowNavigate, key: "rowNavigate" }] : []),
+              ...(block.type === "form" && block.onSuccessNavigate
+                ? [{ navigation: block.onSuccessNavigate, key: "onSuccessNavigate" }]
+                : []),
+              ...(block.type === "actions"
+                ? block.actions.flatMap((action, actionIndex) =>
+                    action.kind === "navigate" ? [{ navigation: action, key: `actions.${actionIndex}` }] : [],
+                  )
+                : []),
+            ];
+            for (const { navigation, key } of navigations) {
+              const path = ["pages", pageIndex, "rows", rowIndex, "columns", columnIndex, "blocks", blockIndex, ...key.split(".")] as const;
+              const targetPage = definition.pages.find((candidate) => candidate.id === navigation.pageId);
+              if (!targetPage) {
+                ctx.addIssue({ code: "custom", message: `${key}.pageId must reference a page`, path: [...path, "pageId"] });
+                continue;
+              }
+              const expectedParams = Object.keys(targetPage.parameters).sort();
+              const suppliedParams = Object.keys(navigation.params).sort();
+              if (expectedParams.join("\0") !== suppliedParams.join("\0")) {
+                ctx.addIssue({
+                  code: "custom",
+                  message: `${key}.params must provide every target page parameter exactly once`,
+                  path: [...path, "params"],
+                });
+              }
+              if (block.type !== "records") {
+                for (const [parameterId, value] of Object.entries(navigation.params)) {
+                  const targetParameter = targetPage.parameters[parameterId];
+                  if (value.source === "PARAMS") {
+                    const sourceParameter = page.parameters[value.path];
+                    if (!sourceParameter) {
+                      ctx.addIssue({
+                        code: "custom",
+                        message: "Navigation must reference a parameter declared by the current page",
+                        path: [...path, "params", parameterId, "path"],
+                      });
+                    } else if (targetParameter?.tableId !== sourceParameter.tableId) {
+                      ctx.addIssue({
+                        code: "custom",
+                        message: "Navigation parameter tables must match",
+                        path: [...path, "params", parameterId],
+                      });
+                    }
+                  }
+                  if (value.source === "RECORD" && (!page.record || targetParameter?.tableId !== page.record.tableId)) {
+                    ctx.addIssue({
+                      code: "custom",
+                      message: "RECORD navigation must target a parameter for the current record table",
+                      path: [...path, "params", parameterId],
+                    });
+                  }
                 }
               }
             }
@@ -353,6 +464,7 @@ export const CustomAppCapabilitiesSchema = z
             pageId: CustomAppLocalIdSchema,
             tableId: z.string().uuid(),
             fieldIds: z.array(z.string().uuid()).min(1).max(30),
+            editableFieldIds: z.array(z.string().uuid()).max(30).default([]),
           })
           .strict(),
       )
@@ -385,6 +497,21 @@ export const CustomAppCapabilitiesSchema = z
       )
       .max(24)
       .default([]),
+    workflowLaunchers: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            actionId: CustomAppLocalIdSchema,
+            launcherId: z.string().uuid(),
+            workflowId: z.string().uuid(),
+            revision: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .max(288)
+      .default([]),
   })
   .strict();
 
@@ -397,6 +524,9 @@ export type CustomAppPage = CustomAppDefinition["pages"][number];
 export type CustomAppRowNavigation = NonNullable<Extract<CustomAppBlock, { type: "records" }>["rowNavigate"]>;
 export type CustomAppFormBlock = Extract<CustomAppBlock, { type: "form" }>;
 export type CustomAppCommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
+export type CustomAppActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
+export type CustomAppAction = CustomAppActionsBlock["actions"][number];
+export type CustomAppActionValue = z.infer<typeof CustomAppActionValueSchema>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
 
@@ -423,12 +553,20 @@ export const CUSTOM_APP_REFERENCE = {
       display: { kind: "table", columnIds: ["field UUID"] },
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
     },
-    record: { required: ["id", "type", "fieldIds"], note: "Displays allowlisted fields from the current page record" },
+    record: {
+      required: ["id", "type", "fieldIds"],
+      editableFieldIds: "Optional writable subset of fieldIds",
+      note: "Displays allowlisted fields from the current page record and may edit an explicit writable subset",
+    },
     comments: { required: ["id", "type"], note: "Shows the bounded comment thread for the current page record" },
     form: {
       required: ["id", "type", "formId"],
       fixedValues: "Optionally bind compatible relation fields from declared PARAMS",
       onSuccessNavigate: "Optionally replace-navigate using PARAMS and RESULT.recordId",
+    },
+    actions: {
+      required: ["id", "type", "actions"],
+      note: "Navigate inside the app or invoke an exact published workflow launcher",
     },
   },
   example: {

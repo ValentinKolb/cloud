@@ -385,6 +385,24 @@ describe("workflow kernel dashboard launchers", () => {
     expect(item.invokeWorkflow).toHaveBeenCalledWith(expect.objectContaining({ launcherId, authorization }));
   });
 
+  test("passes server-trusted Custom App action authorization to the runtime", async () => {
+    const item = setup(launcher({ kind: "dashboard", inputMode: "prompt" }), workflow("message", "text"));
+    const authorization = {
+      kind: "custom-app-action" as const,
+      customAppId: "90000000-0000-4000-8000-000000000009",
+      pageId: "request",
+      blockId: "actions",
+      actionId: "approve",
+      revision: 3,
+    };
+
+    const result = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "Approve" }, authorization }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.authorize).toHaveBeenCalledWith(expect.objectContaining({ authorization }));
+    expect(item.invokeWorkflow).toHaveBeenCalledWith(expect.objectContaining({ launcherId, authorization }));
+  });
+
   test("rejects unknown bindings and runtime inputs for fixed launchers", async () => {
     const unknown = setup(
       launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { missing: true } }),

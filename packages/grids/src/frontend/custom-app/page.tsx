@@ -15,8 +15,11 @@ import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../c
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
 import {
   customAppCommentsUrl,
+  customAppActionHref,
+  customAppActionUrl,
   customAppFormSubmitUrl,
   customAppPageHref,
+  customAppRecordUpdateUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
@@ -24,16 +27,24 @@ import { gridsService } from "../../service";
 import type { PublicRenderableForm } from "../../service/forms";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import RecordComments from "../_components/records/RecordComments.island";
-import { formatFieldValueText } from "../_components/table/field-value-format";
 import RecordsTable from "./RecordsTable.island";
+import Actions, { type CustomAppRenderedAction } from "./Actions.island";
+import RecordDetails from "./RecordDetails.island";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
 type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
 type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
 type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
+type ActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
-type PageRecord = { record: GridRecord; fields: Field[] };
+type PageRecord = {
+  record: GridRecord;
+  fields: Field[];
+  relationLabels: Record<string, string>;
+  tableName: string;
+  auditPolicy: NonNullable<Awaited<ReturnType<typeof gridsService.table.get>>>["auditPolicy"];
+};
 type FormBlockData =
   | {
       ok: true;
@@ -60,28 +71,28 @@ const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: strin
   );
 };
 
-const RecordDetails = (props: { block: RecordBlock; pageRecord: PageRecord | null; dateConfig: ReturnType<typeof getDateConfig> }) => {
+const Record = (props: {
+  block: RecordBlock;
+  pageRecord: PageRecord | null;
+  baseId: string;
+  updateEndpoint?: string;
+  dateConfig: ReturnType<typeof getDateConfig>;
+}) => {
   if (!props.pageRecord) {
     return <div class="rounded-xl border p-4 text-sm text-secondary">{props.block.emptyText ?? "Record not found."}</div>;
   }
-  const fieldsById = new Map(props.pageRecord.fields.map((field) => [field.id, field]));
-  const fields = props.block.fieldIds.map((fieldId) => fieldsById.get(fieldId)).filter((field): field is Field => Boolean(field));
   return (
-    <dl class="divide-y rounded-xl border">
-      {fields.map((field) => (
-        <div class="grid gap-1 px-4 py-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:gap-4">
-          <dt class="text-sm font-medium text-secondary">{field.name}</dt>
-          <dd class="min-w-0 whitespace-pre-wrap break-words text-sm text-primary">
-            {formatFieldValueText({
-              field,
-              value: props.pageRecord!.record.data[field.id],
-              record: props.pageRecord!.record,
-              dateConfig: props.dateConfig,
-            }) || "—"}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <RecordDetails
+      block={props.block}
+      baseId={props.baseId}
+      tableName={props.pageRecord.tableName}
+      auditPolicy={props.pageRecord.auditPolicy}
+      record={props.pageRecord.record}
+      fields={props.pageRecord.fields}
+      relationLabels={props.pageRecord.relationLabels}
+      updateEndpoint={props.updateEndpoint}
+      dateConfig={props.dateConfig}
+    />
   );
 };
 
@@ -108,6 +119,8 @@ const CustomAppPage = (props: {
   results: Map<string, BlockResult>;
   forms: Map<string, FormBlockData>;
   commentEndpoints: Map<string, string>;
+  actions: Map<string, CustomAppRenderedAction[]>;
+  recordUpdateEndpoints: Map<string, string>;
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
@@ -156,7 +169,13 @@ const CustomAppPage = (props: {
                         shortId={props.shortId}
                       />
                     ) : block.type === "record" ? (
-                      <RecordDetails block={block} pageRecord={props.pageRecord} dateConfig={props.dateConfig} />
+                      <Record
+                        block={block}
+                        pageRecord={props.pageRecord}
+                        baseId={props.definition.baseId}
+                        updateEndpoint={props.recordUpdateEndpoints.get(block.id)}
+                        dateConfig={props.dateConfig}
+                      />
                     ) : block.type === "comments" ? (
                       <RecordComments
                         endpoint={props.commentEndpoints.get(block.id) ?? ""}
@@ -164,6 +183,8 @@ const CustomAppPage = (props: {
                         emptyText={block.emptyText}
                         dateConfig={props.dateConfig}
                       />
+                    ) : block.type === "actions" ? (
+                      <Actions actions={props.actions.get(block.id) ?? []} />
                     ) : (
                       <Form
                         block={block}
@@ -213,6 +234,7 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   let pageRecord: PageRecord | null = null;
+  const recordUpdateEndpoints = new Map<string, string>();
   if (page.record) {
     const capability = app.publishedCapabilities.records.find(
       (candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId,
@@ -224,13 +246,51 @@ export default ssr<AuthContext>(async (c) => {
         ),
       ),
     ].sort();
-    if (!capability || capability.fieldIds.join("\0") !== expectedFieldIds.join("\0")) return c.notFound();
+    const expectedEditableFieldIds = [
+      ...new Set(
+        page.rows.flatMap((row) =>
+          row.columns.flatMap((column) =>
+            column.blocks.flatMap((block) => (block.type === "record" ? block.editableFieldIds : [])),
+          ),
+        ),
+      ),
+    ].sort();
+    if (
+      !capability ||
+      capability.fieldIds.join("\0") !== expectedFieldIds.join("\0") ||
+      capability.editableFieldIds.join("\0") !== expectedEditableFieldIds.join("\0")
+    ) {
+      return c.notFound();
+    }
     const record = parameterRecords.get(page.record.id.path);
     if (!record) return c.notFound();
     const allowed = new Set(capability.fieldIds);
     const fields = (await gridsService.field.listByTable(page.record.tableId)).filter((field) => allowed.has(field.id));
     if (fields.length !== allowed.size) return c.notFound();
-    pageRecord = { record, fields };
+    const table = await gridsService.table.get(page.record.tableId);
+    if (!table) return c.notFound();
+    const relationLabels = await gridsService.relations.buildLabelCache([record], fields, viewer);
+    pageRecord = { record, fields, relationLabels, tableName: table.name, auditPolicy: table.auditPolicy };
+
+    if (expectedEditableFieldIds.length > 0) {
+      const writeAccess = await resolveRecordAccessForAccess(requestAccess, { baseId: app.baseId, tableId: page.record.tableId }, "write");
+      const writableRecord = writeAccess.ok
+        ? await gridsService.record.get(page.record.tableId, record.id, {
+            viewer,
+            recordAccess: writeAccess.data.recordAccess,
+            dateConfig,
+          })
+        : null;
+      if (writableRecord) {
+        for (const block of page.rows.flatMap((row) =>
+          row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
+        )) {
+          if (block.editableFieldIds.length > 0) {
+            recordUpdateEndpoints.set(block.id, customAppRecordUpdateUrl(app.shortId, page.id, block.id, pageParams));
+          }
+        }
+      }
+    }
   }
 
   const allowedViews = new Set(app.publishedCapabilities.views.map((view) => view.viewId));
@@ -322,6 +382,38 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const forms = new Map(formEntries);
+  const actionBlocks = page.rows.flatMap((row) =>
+    row.columns.flatMap((column) => column.blocks.filter((block): block is ActionsBlock => block.type === "actions")),
+  );
+  const actions = new Map<string, CustomAppRenderedAction[]>();
+  for (const block of actionBlocks) {
+    const rendered = block.actions.flatMap((action): CustomAppRenderedAction[] => {
+      if (action.kind === "navigate") {
+        const href = customAppActionHref(app.shortId, action, pageParams, pageRecord?.record.id);
+        return href ? [{ id: action.id, kind: "navigate", label: action.label, icon: action.icon, href, history: action.history }] : [];
+      }
+      const capability = app.publishedCapabilities!.workflowLaunchers.find(
+        (candidate) =>
+          candidate.pageId === page.id &&
+          candidate.blockId === block.id &&
+          candidate.actionId === action.id &&
+          candidate.launcherId === action.launcherId,
+      );
+      return capability
+        ? [
+            {
+              id: action.id,
+              kind: "workflow",
+              label: action.label,
+              icon: action.icon,
+              endpoint: customAppActionUrl(app.shortId, page.id, block.id, action.id, pageParams),
+              confirm: action.confirm,
+            },
+          ]
+        : [];
+    });
+    actions.set(block.id, rendered);
+  }
   return () => (
     <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
@@ -331,6 +423,8 @@ export default ssr<AuthContext>(async (c) => {
         results={results}
         forms={forms}
         commentEndpoints={commentEndpoints}
+        actions={actions}
+        recordUpdateEndpoints={recordUpdateEndpoints}
         pageRecord={pageRecord}
         dateConfig={dateConfig}
       />
