@@ -21,7 +21,7 @@ import {
 import { hasCurrentMailboxUserPermission } from "../service/collaborators";
 import { createWorkflowCommand, createWorkflowCommandInTransaction, enqueueCreatedWorkflowCommand } from "../service/commands";
 import { ensureConversationReferenceInTransaction } from "../service/conversation-reference";
-import { createWorkflowDraftInTransaction } from "../service/drafts";
+import { createWorkflowDraftInTransaction, createWorkflowReviewReplyDraftInTransaction } from "../service/drafts";
 import { updateWorkflowConversationLocalTagInTransaction } from "../service/local-tags";
 import { parseMessageProtocolFacts } from "../service/message-protocol";
 import { renderMailWorkflowTemplate } from "../service/template-rendering";
@@ -690,6 +690,45 @@ export const MAIL_WORKFLOW_ACTIONS = {
           cc: addresses(values.cc, "cc"),
           bcc: addresses(values.bcc, "bcc"),
           subject: renderMailWorkflowTemplate(ctx, asText(values.subject, "subject"), "text"),
+          body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "plain" ? "text" : "markdown"),
+          format: values.format === "plain" ? "plain" : "markdown",
+        });
+        return draft.ok ? { state: "succeeded", output: draft.data } : resultFailure(draft.error);
+      }),
+  }),
+  createReplyDraft: workflowAction.transactional({
+    label: "Create reply draft",
+    description: "Creates a normal-delivery reply draft in the source conversation without sending it.",
+    outputType: "mail.draft",
+    config: object({
+      message: messageReference,
+      conversation: conversationReference,
+      sender: text("Automation-enabled identity label or ID.", false, 500),
+      body: text("Draft body.", false, 2 * 1024 * 1024),
+      format: { kind: "string", enum: ["plain", "markdown"], optional: true, description: "Draft body format." },
+      saveAs: identifier("Variable name for the created draft.", false),
+    }),
+    authorize: authorized,
+    plan: async (ctx) =>
+      planned(
+        "Create a reviewable reply draft.",
+        { maxDrafts: 1 },
+        { id: `planned:${ctx.stepKey}`, revision: 1, senderIdentityId: "planned", deliveryClass: "normal" },
+      ),
+    run: (ctx, values) =>
+      attempt(async () => {
+        const tx = ctx.tx as SqlClient;
+        const scope = await loadScope(ctx, tx);
+        const message = await resolveObject(ctx, values.message, "message");
+        const conversation = await resolveObject(ctx, values.conversation, "conversation");
+        const draft = await createWorkflowReviewReplyDraftInTransaction({
+          db: tx,
+          mailboxId: scope.mailboxId,
+          workflowVersionId: scope.workflowVersionId,
+          draftId: crypto.randomUUID(),
+          conversationId: asText(conversation.id, "conversation.id"),
+          sourceMessageId: asText(message.id, "message.id"),
+          senderIdentityId: asText(ctx.binding("sender"), "sender identity"),
           body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "plain" ? "text" : "markdown"),
           format: values.format === "plain" ? "plain" : "markdown",
         });

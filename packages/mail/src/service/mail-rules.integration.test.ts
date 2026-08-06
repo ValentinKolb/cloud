@@ -72,6 +72,7 @@ suite("mail rules", () => {
   let mailboxId = "";
   let folderId = "";
   let localTagId = "";
+  let senderIdentityId = "";
   let ownerContext: MailRequestContext;
   let writerContext: MailRequestContext;
   let readerContext: MailRequestContext;
@@ -204,13 +205,16 @@ suite("mail rules", () => {
       }}::jsonb
       WHERE id = ${mailboxId}::uuid
     `;
-    await sql`
+    const [senderIdentity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
         mailbox_id, label, display_name, from_address, automation_policy, is_default, status
       ) VALUES (
         ${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', 'disabled', true, 'verified'
       )
+      RETURNING id
     `;
+    if (!senderIdentity) throw new Error("Mail rules sender identity insert returned no row");
+    senderIdentityId = senderIdentity.id;
     const localTag = await createLocalTag({
       context: ownerContext,
       mailboxId,
@@ -940,5 +944,73 @@ suite("mail rules", () => {
     const remaining = await listMailAiAutomations(ownerContext, mailboxId);
     if (!remaining.ok) throw new Error(remaining.error.message);
     expect(remaining.data.some((automation) => automation.id === created.data.id)).toBe(false);
+  });
+
+  test("rejects activation when guided AI setup became unavailable", async () => {
+    await sql`
+      UPDATE mail.sender_identities
+      SET automation_policy = 'mailbox'
+      WHERE id = ${senderIdentityId}::uuid
+    `;
+    const created = await createMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Draft replies",
+        enabled: false,
+        scope: { mode: "all" },
+        definition: {
+          kind: "draft",
+          senderIdentityId,
+          instructions: "Answer briefly.",
+          maxOutputChars: 2_000,
+        },
+      },
+    });
+    if (!created.ok) throw new Error(created.error.message);
+
+    await sql`
+      UPDATE mail.sender_identities
+      SET automation_policy = 'disabled'
+      WHERE id = ${senderIdentityId}::uuid
+    `;
+    const activated = await setMailAiAutomationEnabled({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: { expectedRevision: created.data.revision, enabled: true },
+    });
+    expect(activated.ok).toBe(false);
+    if (!activated.ok) expect(activated.error.code).toBe("BAD_INPUT");
+
+    const updatedAndActivated = await updateMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: {
+        expectedRevision: created.data.revision,
+        name: created.data.name,
+        enabled: true,
+        scope: created.data.scope,
+        definition: created.data.definition,
+      },
+    });
+    expect(updatedAndActivated.ok).toBe(false);
+    if (!updatedAndActivated.ok) expect(updatedAndActivated.error.code).toBe("BAD_INPUT");
+
+    const unchanged = await listMailAiAutomations(ownerContext, mailboxId);
+    if (!unchanged.ok) throw new Error(unchanged.error.message);
+    expect(unchanged.data.find((automation) => automation.id === created.data.id)).toMatchObject({
+      enabled: false,
+      revision: created.data.revision,
+    });
+
+    const deleted = await deleteMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: { expectedRevision: created.data.revision },
+    });
+    expect(deleted.ok).toBe(true);
   });
 });

@@ -1,11 +1,12 @@
-import { logger } from "@valentinkolb/cloud/services";
-import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
+import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { convert } from "html-to-text";
 import {
   type ActorRef,
   type ConversationDraftSummary,
+  type DeriveDraftFromMessageInput,
   type DraftAttachment,
   type DraftContentInput,
   type DraftDeliveryClass,
@@ -14,19 +15,18 @@ import {
   type DraftIntent,
   type DraftRecoveryCopy,
   type DraftSeedOrigin,
-  type DeriveDraftFromMessageInput,
-  draftContentInputSchema,
-  draftSeedOriginSchema,
   deriveDraftFromMessageInputSchema,
+  draftContentInputSchema,
   draftEditableContentInputSchema,
-  type MailDraftSeed,
-  materializeDraftSeedInputSchema,
+  draftSeedOriginSchema,
   MAX_DRAFT_ATTACHMENT_BYTES,
-  type MaterializeDraftSeedInput,
   type MailAddress,
   type MailComposeFormat,
   type MailDraft,
+  type MailDraftSeed,
   type MailPriority,
+  type MaterializeDraftSeedInput,
+  materializeDraftSeedInputSchema,
 } from "../contracts";
 import { deriveReplyAddressObjects } from "../reply-recipients";
 import { requireMailboxPermission } from "./access";
@@ -1207,7 +1207,14 @@ export const deriveDraftFromMessage = async (params: {
   }
 };
 
-export const createWorkflowReplyDraftInTransaction = async (params: {
+type WorkflowDraftResult = {
+  id: string;
+  revision: number;
+  senderIdentityId: string;
+  deliveryClass: DraftDeliveryClass;
+};
+
+const insertWorkflowReplyDraftInTransaction = async (params: {
   db: typeof sql;
   mailboxId: string;
   workflowVersionId: string;
@@ -1215,24 +1222,27 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
   conversationId: string;
   sourceMessageId: string;
   senderIdentityId: string;
-  recipient: { name: string | null; address: string };
+  to: MailAddress[];
+  cc: MailAddress[];
+  bcc: MailAddress[];
   subject: string;
   body: string;
   format: "plain" | "markdown";
-}): Promise<Result<{ id: string; revision: number }>> => {
+  deliveryClass: DraftDeliveryClass;
+}): Promise<Result<WorkflowDraftResult>> => {
   const content = draftContentInputSchema.safeParse({
     conversationId: params.conversationId,
     intent: "reply",
     sourceMessageId: params.sourceMessageId,
     senderIdentityId: params.senderIdentityId,
-    to: [params.recipient],
-    cc: [],
-    bcc: [],
+    to: params.to,
+    cc: params.cc,
+    bcc: params.bcc,
     subject: params.subject,
     body: params.body,
     format: params.format,
   });
-  if (!content.success) return fail(err.badInput(content.error.issues[0]?.message ?? "Invalid automatic reply draft"));
+  if (!content.success) return fail(err.badInput(content.error.issues[0]?.message ?? "Invalid workflow reply draft"));
   const [source] = await params.db<{ id: string }[]>`
     SELECT message.id
     FROM mail.message_contents message
@@ -1243,7 +1253,7 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
     FOR SHARE OF message, conversation
   `;
-  if (!source) return fail(err.badInput("Automatic reply source is no longer part of the conversation"));
+  if (!source) return fail(err.badInput("Workflow reply source is no longer part of the conversation"));
   const [identity] = await params.db<{ id: string }[]>`
     SELECT id
     FROM mail.sender_identities
@@ -1268,24 +1278,96 @@ export const createWorkflowReplyDraftInTransaction = async (params: {
     ) VALUES (
       ${params.draftId}::uuid, ${params.mailboxId}::uuid, ${params.conversationId}::uuid, 'reply', ${params.sourceMessageId}::uuid,
       ${params.senderIdentityId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
-      'workflow', 'automatic_reply', ${content.data.to}::jsonb, '[]'::jsonb, '[]'::jsonb, ${subject}, ${content.data.body}, ${content.data.format}
+      'workflow', ${params.deliveryClass}, ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
+      ${subject}, ${content.data.body}, ${content.data.format}
     )
     ON CONFLICT (id) DO NOTHING
     RETURNING id, revision
   `;
-  if (draft) return ok({ id: draft.id, revision: Number(draft.revision) });
-  const [existing] = await params.db<{ id: string; revision: string | number }[]>`
-    SELECT id, revision
+  if (draft) {
+    return ok({
+      id: draft.id,
+      revision: Number(draft.revision),
+      senderIdentityId: params.senderIdentityId,
+      deliveryClass: params.deliveryClass,
+    });
+  }
+  const [existing] = await params.db<{ id: string; revision: string | number; sender_identity_id: string }[]>`
+    SELECT id, revision, sender_identity_id
     FROM mail.drafts
     WHERE id = ${params.draftId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
       AND origin = 'workflow'
-      AND delivery_class = 'automatic_reply'
+      AND delivery_class = ${params.deliveryClass}
       AND author_kind = 'workflow'
       AND author_id = ${params.workflowVersionId}::uuid
     FOR UPDATE
   `;
-  return existing ? ok({ id: existing.id, revision: Number(existing.revision) }) : fail(err.conflict("Automatic reply draft id is in use"));
+  return existing
+    ? ok({
+        id: existing.id,
+        revision: Number(existing.revision),
+        senderIdentityId: existing.sender_identity_id,
+        deliveryClass: params.deliveryClass,
+      })
+    : fail(err.conflict("Workflow reply draft id is in use"));
+};
+
+export const createWorkflowReplyDraftInTransaction = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  workflowVersionId: string;
+  draftId: string;
+  conversationId: string;
+  sourceMessageId: string;
+  senderIdentityId: string;
+  recipient: { name: string | null; address: string };
+  subject: string;
+  body: string;
+  format: "plain" | "markdown";
+}): Promise<Result<{ id: string; revision: number }>> =>
+  insertWorkflowReplyDraftInTransaction({
+    ...params,
+    to: [params.recipient],
+    cc: [],
+    bcc: [],
+    deliveryClass: "automatic_reply",
+  });
+
+export const createWorkflowReviewReplyDraftInTransaction = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  workflowVersionId: string;
+  draftId: string;
+  conversationId: string;
+  sourceMessageId: string;
+  senderIdentityId: string;
+  body: string;
+  format: "plain" | "markdown";
+}): Promise<Result<WorkflowDraftResult>> => {
+  const [source] = await params.db<{ subject: string }[]>`
+    SELECT subject
+    FROM mail.message_contents
+    WHERE id = ${params.sourceMessageId}::uuid
+      AND mailbox_id = ${params.mailboxId}::uuid
+    FOR SHARE
+  `;
+  if (!source) return fail(err.badInput("Workflow reply source is unavailable"));
+  const recipients = await resolveInitialReplyRecipients({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    sourceMessageId: params.sourceMessageId,
+    intent: "reply",
+  });
+  if (!recipients.ok) return recipients;
+  const subject = /^\s*re\s*:/iu.test(source.subject) ? source.subject : `Re: ${source.subject}`;
+  return insertWorkflowReplyDraftInTransaction({
+    ...params,
+    ...recipients.data,
+    bcc: [],
+    subject,
+    deliveryClass: "normal",
+  });
 };
 
 export const createWorkflowDraftInTransaction = async (params: {

@@ -27,7 +27,10 @@ export default function MailRulesPage(props: {
       </header>
       <div class="info-block-info flex items-start gap-2">
         <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
-        <span>Rules can process existing mail through a resumable backfill. AI automations only run for future incoming messages.</span>
+        <span>
+          Rules can process existing mail through a resumable backfill. AI automations only run for future incoming messages, and each
+          active matching automation makes its own AI call.
+        </span>
       </div>
       <MailRuleSettings
         mailboxId={props.data.mailbox.id}

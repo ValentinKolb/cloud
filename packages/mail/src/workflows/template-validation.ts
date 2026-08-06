@@ -6,6 +6,7 @@ const TEMPLATE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   addComment: ["body"],
   automaticReply: ["subject", "body"],
   createDraft: ["subject", "body"],
+  createReplyDraft: ["body"],
   fail: ["message"],
   notifyUser: ["title", "body"],
   succeed: ["message"],
@@ -44,7 +45,9 @@ const validateSteps = (ir: WorkflowIr, steps: readonly WorkflowIrStep[], diagnos
       }
       const valid = validateMailLiquidTemplate(value, {
         output:
-          field === "body" && (step.action === "automaticReply" || step.action === "createDraft") && step.config.format !== "plain"
+          field === "body" &&
+          (step.action === "automaticReply" || step.action === "createDraft" || step.action === "createReplyDraft") &&
+          step.config.format !== "plain"
             ? "markdown"
             : "text",
       });

@@ -168,6 +168,7 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `addLocalTag` / `removeLocalTag` | `conversation`, `tag` | Changes a mailbox-local conversation tag |
 | `addComment` | `conversation`, `body` | Adds an internal comment attributed to the workflow version |
 | `createDraft` | `sender`, `to`, `subject`, `body`, `saveAs` | Creates a normal-delivery workflow draft for a later step |
+| `createReplyDraft` | `message`, `conversation`, `sender`, `body`, `saveAs` | Creates a reviewable reply draft in the source conversation |
 | `scheduleDraftSend` | `draft`, `scheduledAt` | Schedules a created normal-delivery draft through the durable outbox |
 | `notifyUser` | `user`, `title`, `body` | Sends an internal notification to a current mailbox reader |
 | `automaticReply` | `message`, `conversation`, `sender`, `subject`, `body` | Queues one guarded automatic response |
@@ -182,7 +183,7 @@ Folder, local-tag, user, and sender fields accept an unambiguous accessible name
 
 One reachable path cannot apply several provider mutations to the same message. For example, adding a keyword and then moving that same message in one branch is rejected. Split those operations into separate workflows when both are required.
 
-`createDraft` always produces `deliveryClass: normal`. Only `automaticReply` can create `deliveryClass: automatic_reply`; normal workflow sends therefore do not receive automatic-reply headers or a null envelope sender. `scheduleDraftSend` accepts only a `mail.draft` result created earlier in the same reachable scope.
+`createDraft` and `createReplyDraft` always produce `deliveryClass: normal`. `createReplyDraft` derives the recipient and subject from the source message, preserves reply threading, and stays attached to its conversation. Only `automaticReply` can create `deliveryClass: automatic_reply`; normal workflow sends therefore do not receive automatic-reply headers or a null envelope sender. `scheduleDraftSend` accepts only a `mail.draft` result created earlier in the same reachable scope.
 
 `forEach` is part of the shared workflow grammar but is deliberately unsupported by the Mail vocabulary. Mail workflows operate on one materialized message target at a time.
 
@@ -240,11 +241,10 @@ steps:
         body: "${{ inputs.message.bodyText }}"
       maxOutputChars: 4000
       saveAs: reply
-  - createDraft:
+  - createReplyDraft:
+      message: inputs.message
+      conversation: inputs.conversation
       sender: Support
-      to:
-        - address: "${{ inputs.message.fromAddress }}"
-      subject: "Re: {{ inputs.message.subject }}"
       body: "{{ reply }}"
       format: plain
       saveAs: draft

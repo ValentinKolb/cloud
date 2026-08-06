@@ -2098,7 +2098,7 @@ export const mailAiRouteDefinitionSchema = z
   .superRefine((definition, context) => {
     const seen = new Set<string>();
     definition.categories.forEach((category, index) => {
-      const normalized = category.name.toLocaleLowerCase();
+      const normalized = category.name.toLowerCase();
       if (!seen.has(normalized)) {
         seen.add(normalized);
         return;
@@ -2150,7 +2150,6 @@ export type MailAiAutomationDefinition = z.infer<typeof mailAiAutomationDefiniti
 
 const mailAiAutomationFields = {
   name: z.string().trim().min(1).max(120),
-  enabled: z.boolean(),
   scope: mailAiAutomationScopeSchema,
   definition: mailAiAutomationDefinitionSchema,
 } as const;
@@ -2158,7 +2157,9 @@ const mailAiAutomationFields = {
 export const createMailAiAutomationSchema = z.object({ ...mailAiAutomationFields, enabled: z.boolean().default(false) }).strict();
 export type CreateMailAiAutomation = z.infer<typeof createMailAiAutomationSchema>;
 
-export const updateMailAiAutomationSchema = z.object({ expectedRevision: z.number().int().positive(), ...mailAiAutomationFields }).strict();
+export const updateMailAiAutomationSchema = z
+  .object({ expectedRevision: z.number().int().positive(), ...mailAiAutomationFields, enabled: z.boolean() })
+  .strict();
 export type UpdateMailAiAutomation = z.infer<typeof updateMailAiAutomationSchema>;
 
 export const setMailAiAutomationEnabledSchema = z.object({ expectedRevision: z.number().int().positive(), enabled: z.boolean() }).strict();

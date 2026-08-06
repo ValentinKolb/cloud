@@ -475,6 +475,11 @@ const bindAction = (
     if (config.bcc !== undefined) bindValue(config.bcc, [...path, "bcc"], scope, context);
     bindMessage(config.subject, [...path, "subject"], scope, context);
     bindMessage(config.body, [...path, "body"], scope, context);
+  } else if (step.action === "createReplyDraft") {
+    expectReference(config.message, "mail.message", "message", [...path, "message"], scope, context);
+    expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
+    bindCatalogValue(config.sender, context.catalog.senderIdentities, "sender identity", [...path, "sender"], scope, context);
+    bindMessage(config.body, [...path, "body"], scope, context);
   } else if (step.action === "scheduleDraftSend") {
     expectReference(config.draft, "mail.draft", "draft", [...path, "draft"], scope, context);
     if (config.scheduledAt !== undefined) bindValue(config.scheduledAt, [...path, "scheduledAt"], scope, context);

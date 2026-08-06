@@ -2,6 +2,7 @@ import { mutation } from "@k2b/stdlib/solid";
 import {
   Button,
   CodeDisplay,
+  confirmDiscardIfDirty,
   DataTable,
   type DataTableColumn,
   Dropdown,
@@ -30,6 +31,15 @@ import type { MailAiAutomation } from "../../service/ai-automations";
 import type { MailWorkflowCatalogSnapshot } from "../../workflows/catalog";
 import { readApiError } from "./api-response";
 import { MailRuleActionsEditor, MailRuleConditionsEditor } from "./MailRuleSettings";
+import {
+  initialMailAiAutomationDefinition,
+  mailAiAutomationCatalogIssue,
+  mailAiAutomationKindMeta,
+  mailAiAutomationResultLabel,
+  mailAiAutomationScopeLabel,
+  nextMailAiAutomationName,
+  sortMailAiAutomations,
+} from "./mail-ai-automation-presentation";
 import { waitForMailPageTransition } from "./mail-page-transition";
 import type { RuleActionKind } from "./mail-rule-actions";
 
@@ -38,63 +48,11 @@ type TagDefinition = Extract<MailAiAutomationDefinition, { kind: "tag" }>;
 type DraftDefinition = Extract<MailAiAutomationDefinition, { kind: "draft" }>;
 
 const routeActionKinds: RuleActionKind[] = ["move_to_folder", "add_local_tag", "assign_user", "set_status"];
-const kindMeta: Record<MailAiAutomationKind, { label: string; description: string; icon: string }> = {
-  route: {
-    label: "Route with AI",
-    description: "Choose exactly one category, then run its folder or collaboration actions.",
-    icon: "ti ti-route-alt-left",
-  },
-  tag: {
-    label: "Add tags with AI",
-    description: "Select every relevant local tag without moving or sending mail.",
-    icon: "ti ti-tags",
-  },
-  draft: {
-    label: "Draft replies with AI",
-    description: "Create a reviewable reply draft without sending it.",
-    icon: "ti ti-pencil-bolt",
-  },
-};
 
 const initialConditions = (): MailRuleConditions => ({
   mode: "all",
   items: [{ field: "sender_domain", operator: "is", value: "" }],
 });
-
-const initialDefinition = (kind: MailAiAutomationKind, catalog: MailWorkflowCatalogSnapshot): MailAiAutomationDefinition => {
-  if (kind === "route") {
-    return {
-      kind,
-      prompt: "Choose the category that best describes the incoming message.",
-      categories: [
-        {
-          name: "Needs attention",
-          description: "Messages that require a person to act.",
-          actions: [{ kind: "set_status", status: "needs_action" }],
-        },
-        {
-          name: "Other",
-          description: "Messages that do not match another category.",
-          actions: [{ kind: "set_status", status: "done" }],
-        },
-      ],
-    };
-  }
-  if (kind === "tag") {
-    return {
-      kind,
-      prompt: "Select every local tag that clearly applies to the incoming message.",
-      tags: (catalog.localTags ?? []).slice(0, 2).map((tag) => ({ tagId: tag.id, description: `Use for ${tag.name}.` })),
-      maxTags: Math.min(2, catalog.localTags?.length ?? 0),
-    };
-  }
-  return {
-    kind,
-    senderIdentityId: catalog.senderIdentities?.[0]?.id ?? "",
-    instructions: "Write a concise, helpful response and ask for any information required to continue.",
-    maxOutputChars: 4_000,
-  };
-};
 
 function RouteDefinitionEditor(props: {
   definition: RouteDefinition;
@@ -116,6 +74,7 @@ function RouteDefinitionEditor(props: {
         maxLength={4_000}
         required
       />
+      <p class="text-xs text-dimmed">AI must choose one category. Include a clear catch-all category for messages that fit nowhere else.</p>
       <Index each={props.definition.categories}>
         {(category, index) => (
           <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
@@ -300,7 +259,11 @@ function DraftDefinitionEditor(props: {
     <div class="flex flex-col gap-3">
       <Show
         when={identities().length > 0}
-        fallback={<p class="text-xs text-amber-700 dark:text-amber-300">Verify an automation-enabled sender identity first.</p>}
+        fallback={
+          <p class="text-xs text-amber-700 dark:text-amber-300">
+            Add a verified sender under Mailbox settings → Delivery and allow mailbox automation, then reopen this editor.
+          </p>
+        }
       >
         <Select
           label="Draft sender"
@@ -337,15 +300,21 @@ function MailAiAutomationEditor(props: {
   catalog: MailWorkflowCatalogSnapshot;
   automation: MailAiAutomation | null;
   kind: MailAiAutomationKind;
+  initialName: string;
   close: () => void;
   onSaved: (automation: MailAiAutomation) => void;
 }) {
-  const [name, setName] = createSignal(props.automation?.name ?? kindMeta[props.kind].label);
-  const [enabled, setEnabled] = createSignal(props.automation?.enabled ?? false);
-  const [scope, setScope] = createSignal<MailAiAutomationScope>(props.automation?.scope ?? { mode: "all" });
-  const [definition, setDefinition] = createSignal<MailAiAutomationDefinition>(
-    props.automation?.definition ?? initialDefinition(props.kind, props.catalog),
-  );
+  const initial = {
+    name: props.automation?.name ?? props.initialName,
+    enabled: props.automation?.enabled ?? false,
+    scope: props.automation?.scope ?? ({ mode: "all" } satisfies MailAiAutomationScope),
+    definition: props.automation?.definition ?? initialMailAiAutomationDefinition(props.kind, props.catalog),
+  };
+  const baseline = JSON.stringify(initial);
+  const [name, setName] = createSignal(initial.name);
+  const [enabled, setEnabled] = createSignal(initial.enabled);
+  const [scope, setScope] = createSignal<MailAiAutomationScope>(initial.scope);
+  const [definition, setDefinition] = createSignal<MailAiAutomationDefinition>(initial.definition);
 
   const save = mutation.create<MailAiAutomation, void>({
     mutation: async (_, { abortSignal }) => {
@@ -367,7 +336,13 @@ function MailAiAutomationEditor(props: {
     },
     onSuccess: (automation) => {
       props.onSaved(automation);
-      toast.success(props.automation ? "AI automation updated" : "AI automation created inactive");
+      toast.success(
+        props.automation
+          ? "AI automation updated"
+          : automation.enabled
+            ? "AI automation created and activated"
+            : "AI automation created inactive",
+      );
       props.close();
     },
     onError: (error) => prompts.error(error.message),
@@ -378,16 +353,23 @@ function MailAiAutomationEditor(props: {
     const current = scope();
     return current.mode === "all" || mailRuleConditionsSchema.safeParse(current.conditions).success;
   };
-  const valid = () => name().trim().length > 0 && definitionValid() && scopeValid();
+  const catalogIssue = () => mailAiAutomationCatalogIssue(definition(), props.catalog);
+  const valid = () => name().trim().length > 0 && definitionValid() && scopeValid() && !catalogIssue();
+  const dirty = () => JSON.stringify({ name: name(), enabled: enabled(), scope: scope(), definition: definition() }) !== baseline;
+  const closeSafely = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
   onCleanup(() => save.abort());
 
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={props.automation ? `Edit ${kindMeta[props.kind].label.toLocaleLowerCase()}` : kindMeta[props.kind].label}
-        subtitle={kindMeta[props.kind].description}
-        icon={kindMeta[props.kind].icon}
-        close={props.close}
+        title={
+          props.automation ? `Edit ${mailAiAutomationKindMeta[props.kind].label.toLowerCase()}` : mailAiAutomationKindMeta[props.kind].label
+        }
+        subtitle={mailAiAutomationKindMeta[props.kind].description}
+        icon={mailAiAutomationKindMeta[props.kind].icon}
+        close={() => void closeSafely()}
         closeDisabled={save.loading()}
       />
       <PanelDialog.Body>
@@ -400,7 +382,7 @@ function MailAiAutomationEditor(props: {
               setScope(mode === "matching" ? { mode: "matching", conditions: initialConditions() } : { mode: "all" })
             }
             options={[
-              { id: "all", label: "All incoming messages", description: "Every received message uses one AI call." },
+              { id: "all", label: "All incoming messages", description: "This automation uses one AI call for every received message." },
               { id: "matching", label: "Only matching messages", description: "Check normal conditions before AI runs." },
             ]}
           />
@@ -433,18 +415,25 @@ function MailAiAutomationEditor(props: {
               Complete the AI task before saving.
             </p>
           </Show>
+          <Show when={catalogIssue()}>
+            {(message) => (
+              <p class="text-xs text-red-600 dark:text-red-400" role="alert">
+                {message()}
+              </p>
+            )}
+          </Show>
         </PanelDialog.Section>
 
         <PanelDialog.Section
           title="Safety"
-          subtitle="One AI call per matching message. Existing mail is never backfilled."
+          subtitle="This automation uses one AI call per matching message. Existing mail is never backfilled."
           icon="ti ti-shield-check"
         >
           <div class="info-block-info flex items-start gap-2">
             <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
             <span>
-              AI can be wrong. Routing uses only the actions shown above. Draft automation creates a draft for human review and can never
-              send it.
+              AI can be wrong. Routing uses only the actions shown above. Draft automation adds a reply draft to the conversation for human
+              review and can never send it.
             </span>
           </div>
           <Switch label="Automation active" value={enabled} onValueChange={setEnabled} />
@@ -452,8 +441,8 @@ function MailAiAutomationEditor(props: {
 
         <Show when={props.automation?.workflowSource}>
           <PanelDialog.Section
-            title="Generated workflow"
-            subtitle="This canonical source is managed by the guided editor. Saving creates a new immutable version."
+            title="Current workflow version"
+            subtitle="This read-only source is currently published. Saving changed fields publishes a new immutable version."
             icon="ti ti-code"
           >
             <CodeDisplay code={props.automation!.workflowSource} title="Canonical YAML" language="text" lineNumbers={false} />
@@ -465,7 +454,7 @@ function MailAiAutomationEditor(props: {
           {enabled() ? "The automation starts with future incoming messages after saving." : "Save inactive, review it, then enable it."}
         </span>
         <div class="flex items-center gap-2">
-          <Button variant="secondary" size="sm" type="button" disabled={save.loading()} onClick={props.close}>
+          <Button variant="secondary" size="sm" type="button" disabled={save.loading()} onClick={() => void closeSafely()}>
             Cancel
           </Button>
           <Button size="sm" type="button" disabled={!valid() || save.loading()} onClick={() => save.mutate()}>
@@ -478,11 +467,12 @@ function MailAiAutomationEditor(props: {
   );
 }
 
-export const openMailAiAutomationEditor = (params: {
+const openMailAiAutomationEditor = (params: {
   mailboxId: string;
   catalog: MailWorkflowCatalogSnapshot;
   automation?: MailAiAutomation | null;
   kind: MailAiAutomationKind;
+  initialName: string;
   onSaved: (automation: MailAiAutomation) => void;
 }) =>
   dialogCore.open<void>(
@@ -492,27 +482,13 @@ export const openMailAiAutomationEditor = (params: {
         catalog={params.catalog}
         automation={params.automation ?? null}
         kind={params.kind}
+        initialName={params.initialName}
         close={() => close()}
         onSaved={params.onSaved}
       />
     ),
-    panelDialogFixedOptions,
+    { ...panelDialogFixedOptions, cancelBehavior: "ignore" },
   );
-
-const scopeLabel = (automation: MailAiAutomation): string =>
-  automation.scope.mode === "all"
-    ? "All incoming mail"
-    : `${automation.scope.conditions.mode === "all" ? "All" : "Any"} of ${automation.scope.conditions.items.length} conditions`;
-
-const resultLabel = (automation: MailAiAutomation, catalog: MailWorkflowCatalogSnapshot): string => {
-  const definition = automation.definition;
-  if (definition.kind === "route") return `${definition.categories.length} routes`;
-  if (definition.kind === "tag") {
-    const names = new Map((catalog.localTags ?? []).map((tag) => [tag.id, tag.name]));
-    return definition.tags.map((tag) => names.get(tag.tagId) ?? "Unavailable tag").join(" · ");
-  }
-  return "Reviewable reply draft";
-};
 
 export default function MailAiAutomationSettings(props: {
   mailboxId: string;
@@ -522,17 +498,14 @@ export default function MailAiAutomationSettings(props: {
   onOpenNewHandled?: () => void;
   onAutomationsChange?: (automations: MailAiAutomation[]) => void;
 }) {
-  const [automations, setAutomations] = createSignal(props.initialAutomations);
+  const [automations, setAutomations] = createSignal(sortMailAiAutomations(props.initialAutomations));
   const publish = (next: MailAiAutomation[]) => {
-    setAutomations(next);
-    props.onAutomationsChange?.(next);
+    const sorted = sortMailAiAutomations(next);
+    setAutomations(sorted);
+    props.onAutomationsChange?.(sorted);
   };
   const upsert = (automation: MailAiAutomation) =>
-    publish(
-      [...automations().filter((candidate) => candidate.id !== automation.id), automation].sort((left, right) =>
-        left.name.localeCompare(right.name),
-      ),
-    );
+    publish([...automations().filter((candidate) => candidate.id !== automation.id), automation]);
 
   const toggle = mutation.create<MailAiAutomation, { automation: MailAiAutomation; enabled: boolean }>({
     mutation: async ({ automation, enabled }, { abortSignal }) => {
@@ -546,7 +519,10 @@ export default function MailAiAutomationSettings(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Could not change AI automation"));
       return response.json();
     },
-    onSuccess: upsert,
+    onSuccess: (automation) => {
+      upsert(automation);
+      toast.success(automation.enabled ? "AI automation activated" : "AI automation paused");
+    },
     onError: (error) => prompts.error(error.message),
   });
 
@@ -576,16 +552,24 @@ export default function MailAiAutomationSettings(props: {
   });
 
   const open = (kind: MailAiAutomationKind, automation?: MailAiAutomation) =>
-    openMailAiAutomationEditor({ mailboxId: props.mailboxId, catalog: props.catalog, automation, kind, onSaved: upsert });
+    openMailAiAutomationEditor({
+      mailboxId: props.mailboxId,
+      catalog: props.catalog,
+      automation,
+      kind,
+      initialName: nextMailAiAutomationName(kind, automations()),
+      onSaved: upsert,
+    });
 
   let disposed = false;
   onMount(() => {
-    if (!props.openNewKind) return;
+    const kind = props.openNewKind;
+    if (!kind) return;
     void (async () => {
       await waitForMailPageTransition();
       if (disposed) return;
       props.onOpenNewHandled?.();
-      await open(props.openNewKind!);
+      await open(kind);
     })();
   });
   onCleanup(() => {
@@ -596,9 +580,9 @@ export default function MailAiAutomationSettings(props: {
 
   const columns: DataTableColumn<MailAiAutomation>[] = [
     { id: "name", header: "Automation", value: (automation) => automation.name },
-    { id: "kind", header: "Task", value: (automation) => kindMeta[automation.definition.kind].label },
-    { id: "scope", header: "Runs for", value: scopeLabel },
-    { id: "result", header: "Result", value: (automation) => resultLabel(automation, props.catalog) },
+    { id: "kind", header: "Task", value: (automation) => mailAiAutomationKindMeta[automation.definition.kind].label },
+    { id: "scope", header: "Runs for", value: (automation) => mailAiAutomationScopeLabel(automation.scope) },
+    { id: "result", header: "Result", value: (automation) => mailAiAutomationResultLabel(automation.definition, props.catalog) },
     { id: "enabled", header: "Active", value: (automation) => automation.enabled, cellClass: "w-32" },
     { id: "menu", header: "", value: (automation) => automation.id, cellClass: "w-12", headerClass: "w-12" },
   ];
@@ -609,18 +593,20 @@ export default function MailAiAutomationSettings(props: {
         <div>
           <div class="flex items-center gap-2">
             <h2 class="text-xs font-semibold text-primary">AI-assisted processing</h2>
-            <StatusBadge tone="neutral" label="Human review for drafts" icon={null} />
+            <StatusBadge tone="neutral" label="No automatic sending" icon={null} />
           </div>
           <p class="mt-0.5 text-[11px] text-dimmed">
-            {automations().length} guided automation{automations().length === 1 ? "" : "s"} · one AI call per matching message
+            {automations().length} guided automation{automations().length === 1 ? "" : "s"} · one AI call per active automation and match
           </p>
         </div>
         <Dropdown.Root
           position="bottom-left"
           width="17rem"
-          items={(Object.entries(kindMeta) as Array<[MailAiAutomationKind, (typeof kindMeta)[MailAiAutomationKind]]>).map(
-            ([kind, meta]) => ({ label: meta.label, description: meta.description, icon: meta.icon, action: () => void open(kind) }),
-          )}
+          items={(
+            Object.entries(mailAiAutomationKindMeta) as Array<
+              [MailAiAutomationKind, (typeof mailAiAutomationKindMeta)[MailAiAutomationKind]]
+            >
+          ).map(([kind, meta]) => ({ label: meta.label, description: meta.description, icon: meta.icon, action: () => void open(kind) }))}
         >
           <Dropdown.Trigger size="sm" type="button">
             <i class="ti ti-sparkles" aria-hidden="true" /> Create AI automation
@@ -637,15 +623,27 @@ export default function MailAiAutomationSettings(props: {
         empty="No AI automations. Add guided routing, tagging, or reply drafts without writing YAML."
         renderCell={({ row, col, render }) => {
           if (col.id === "kind") {
-            const meta = kindMeta[row.definition.kind];
+            const meta = mailAiAutomationKindMeta[row.definition.kind];
             return <StatusBadge tone="neutral" label={meta.label} icon={meta.icon} />;
           }
+          if (col.id === "result") {
+            const issue = mailAiAutomationCatalogIssue(row.definition, props.catalog);
+            return issue ? (
+              <div class="flex flex-col items-start gap-1">
+                <StatusBadge tone="error" label="Needs setup" icon="ti ti-alert-triangle" />
+                <span class="whitespace-normal text-[11px] text-dimmed">{issue}</span>
+              </div>
+            ) : (
+              render(mailAiAutomationResultLabel(row.definition, props.catalog))
+            );
+          }
           if (col.id === "enabled") {
+            const issue = mailAiAutomationCatalogIssue(row.definition, props.catalog);
             return (
               <Switch
                 label={row.enabled ? "Enabled" : "Disabled"}
                 value={() => row.enabled}
-                disabled={toggle.loading()}
+                disabled={toggle.loading() || (!row.enabled && Boolean(issue))}
                 onValueChange={(enabled) => toggle.mutate({ automation: row, enabled })}
               />
             );

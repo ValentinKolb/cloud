@@ -108,7 +108,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
               <span>
                 <span class="block text-sm font-semibold text-primary">Sort incoming mail</span>
                 <span class="mt-1 block text-xs leading-relaxed text-dimmed">
-                  Classify each message and route it to a bounded Mail action.
+                  Classify each message, then move, tag, assign, or set its status.
                 </span>
               </span>
             </a>
@@ -128,7 +128,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
               <span>
                 <span class="block text-sm font-semibold text-primary">Draft replies</span>
                 <span class="mt-1 block text-xs leading-relaxed text-dimmed">
-                  Create reviewable reply drafts without ever sending them automatically.
+                  Add a reviewable reply draft to the conversation without sending it.
                 </span>
               </span>
             </a>

@@ -14,7 +14,7 @@ Open **Automations** from **Mailbox tools**. The full-width overview shows what 
 | --- | --- |
 | Send an out-of-office or receipt acknowledgement | **Automatic replies** |
 | Route, mark, or label matching mail with exact conditions | A standard rule under **Incoming mail** |
-| Classify, apply several local tags, or prepare reply drafts with AI | A guided AI automation under **Incoming mail** |
+| Classify, apply several local tags, or prepare conversation-attached reply drafts with AI | A guided AI automation under **Incoming mail** |
 | Give conversations permanent human-facing IDs | A reference acknowledgement or custom **Workflow** |
 | Combine tasks beyond the guided editors or intentionally automate delivery | An advanced **Workflow** |
 
@@ -38,11 +38,11 @@ Open **Automations > Incoming mail** and select one task:
 
 - **Route with AI** chooses exactly one named category. Each category may move the message, add local tags, assign the conversation, or set its work status.
 - **Add tags with AI** chooses zero or more existing local tags. Describe what each tag means and set the maximum number that may be applied to one message.
-- **Draft replies with AI** writes through one verified automation-enabled sender identity and creates a normal draft for review. It cannot send the draft.
+- **Draft replies with AI** writes through one verified automation-enabled sender identity and creates a normal reply draft inside the source conversation. It cannot send the draft.
 
-Each editor can run for every future incoming message or behind the same deterministic conditions used by standard rules. Conditions are checked before AI runs. Every matching message consumes at most one AI call, and the generated workflow has tight budgets for only the effects shown in the editor. The platform workflow model is used automatically; Mail does not expose a separate model choice.
+Each editor can run for every future incoming message or behind the same deterministic conditions used by standard rules. Conditions are checked before AI runs. Each active automation consumes at most one AI call for each message it matches, so two matching AI automations make two calls. The generated workflow has tight budgets for only the effects shown in the editor. The platform workflow model is used automatically; Mail does not expose a separate model choice.
 
-New AI automations start inactive unless you explicitly enable them. AI can classify or write incorrectly, so review category descriptions, actions, and the first runs under **Activity**. Guided AI automations never backfill existing mail and never schedule or send a message. Open the generated workflow section when you need to review the canonical YAML; continue editing through the guided fields rather than changing that source directly.
+New AI automations start inactive unless you explicitly enable them. AI can classify or write incorrectly, so review category descriptions, actions, and the first runs under **Activity**. Guided AI automations never backfill existing mail and never schedule or send a message. For an existing automation, **Current workflow version** shows the read-only YAML that is published now; saving changed fields publishes another immutable version. Continue editing through the guided fields rather than changing that source directly.
 
 ## Configure an automatic reply {icon="send"}
 

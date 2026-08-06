@@ -17,7 +17,7 @@ const referenceInput = () =>
 
 export const mailWorkflows = defineWorkflowModule({
   id: "mail",
-  version: 1,
+  version: 2,
   limits: {
     maxInputs: 20,
     maxSteps: 500,

@@ -71,6 +71,7 @@ describe("Mail workflow manifest", () => {
       "removeLocalTag",
       "addComment",
       "createDraft",
+      "createReplyDraft",
       "scheduleDraftSend",
       "notifyUser",
       "automaticReply",
@@ -91,7 +92,7 @@ describe("Mail workflow manifest", () => {
   });
 
   test("preserves the published manifest hash", async () => {
-    expect(await hashWorkflowJson(mailWorkflowManifest)).toBe("c81673fdbb8c71f7f660ed4421037e376adaaf381b98a40d6c1e336cb026ec86");
+    expect(await hashWorkflowJson(mailWorkflowManifest)).toBe("fe0fe6443368706bda785544c5a13a7a44a426ef8cc13ee514b5ddac30f86e26");
   });
 
   test("classifies provider, collaboration, and terminal effects", () => {
@@ -112,6 +113,7 @@ describe("Mail workflow manifest", () => {
       removeLocalTag: "transactional",
       addComment: "transactional",
       createDraft: "transactional",
+      createReplyDraft: "transactional",
       scheduleDraftSend: "durable-intent",
       notifyUser: "durable-intent",
       automaticReply: "durable-intent",
@@ -205,11 +207,10 @@ steps:
         subject: "\${{ inputs.message.subject }}"
         body: "\${{ inputs.message.bodyText }}"
       saveAs: reply
-  - createDraft:
+  - createReplyDraft:
+      message: inputs.message
+      conversation: inputs.conversation
       sender: Support
-      to:
-        - address: customer@example.com
-      subject: "Re: {{ inputs.message.subject }}"
       body: "{{ reply }}"
       format: plain
       saveAs: draft
@@ -221,7 +222,7 @@ steps:
     expect(result.plan.bindings).toMatchObject({
       "steps.1.then.0.addLocalTag.tag": ids.financeTag,
       "steps.2.then.0.addLocalTag.tag": ids.urgentTag,
-      "steps.4.createDraft.sender": ids.supportSender,
+      "steps.4.createReplyDraft.sender": ids.supportSender,
     });
   });
 

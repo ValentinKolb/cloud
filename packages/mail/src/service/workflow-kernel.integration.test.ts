@@ -13,7 +13,7 @@ import { cancelPendingAutomaticRepliesInTransaction, prepareAutomaticReplyInTran
 import { createMailbox } from "./mailboxes";
 import { EMPTY_MESSAGE_PROTOCOL_FACTS } from "./message-protocol";
 import { ingestEnvelope } from "./sync-runtime";
-import { type MailWorkflowTargetSnapshot, mailWorkflowEventContext } from "./workflow-data";
+import { getWorkflowSnapshot, type MailWorkflowTargetSnapshot, mailWorkflowEventContext } from "./workflow-data";
 import {
   activateWorkflow,
   createWorkflow,
@@ -653,6 +653,117 @@ steps:
       }
     }
   }, 15_000);
+
+  test("creates reviewable workflow reply drafts in the source conversation", async () => {
+    const incomingBase = envelope({ uid: 7091, providerMessageId: `workflow-reply-draft-${suffix}` });
+    const incoming = {
+      ...incomingBase,
+      addresses: {
+        ...incomingBase.addresses,
+        replyTo: [{ name: "Reply desk", address: "reply-desk@example.test" }],
+      },
+    };
+    await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId: inboxFolderId,
+      message: incoming,
+      captureWorkflowTriggers: false,
+    });
+    const [reference] = await sql<{ id: string }[]>`
+      SELECT ref.id
+      FROM mail.remote_message_refs ref
+      JOIN mail.message_contents message ON message.id = ref.message_id
+      WHERE message.mailbox_id = ${mailboxId}::uuid
+        AND message.message_id = ${incoming.messageId}
+      LIMIT 1
+    `;
+    if (!reference) throw new Error("Failed to load workflow reply source");
+    const snapshot = await getWorkflowSnapshot({ mailboxId, remoteMessageRefId: reference.id });
+    if (!snapshot?.source.conversation) throw new Error("Workflow reply source has no conversation");
+
+    const created = await createWorkflow({
+      context,
+      mailboxId,
+      input: {
+        name: `Reply draft ${suffix}`,
+        priority: 100,
+        source: `inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "\${{ trigger.message }}"
+      conversation: "\${{ trigger.conversation }}"
+steps:
+  - createReplyDraft:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: ${senderIdentityId}
+      body: A reviewable response
+      format: plain
+      saveAs: draft
+`,
+        effectBudget: { ...noEffectBudget, maxDrafts: 1 },
+      },
+    });
+    if (!created.ok) throw new Error(created.error.message);
+    const activated = await activateWorkflow({
+      context,
+      mailboxId,
+      workflowId: created.data.id,
+      input: { expectedVersionId: created.data.currentVersion.id },
+    });
+    if (!activated.ok) throw new Error(activated.error.message);
+    const emission = await emitWorkflowEvent(
+      {
+        appId: "mail",
+        scopeId: mailboxId,
+        type: "mail.messageReceived",
+        targetWorkflowId: created.data.id,
+        data: { message: snapshot.source.message, conversation: snapshot.source.conversation },
+        context: mailWorkflowEventContext(mailboxId, snapshot),
+        dedupeKey: `mail-workflow-reply-draft-${suffix}`,
+        occurredAt: new Date(snapshot.internalDate),
+      },
+      { dispatch: "now" },
+    );
+    const outcome = await runMailWorkflow(emission.runIds[0]!);
+    expect(outcome.state).toBe("finished");
+    const [draft] = await sql<
+      {
+        conversation_id: string;
+        intent: string;
+        source_message_id: string;
+        to_addresses: Array<{ name: string | null; address: string }> | string;
+        subject: string;
+        body_markdown: string;
+        delivery_class: string;
+      }[]
+    >`
+      SELECT conversation_id, intent, source_message_id, to_addresses, subject, body_markdown, delivery_class
+      FROM mail.drafts
+      WHERE author_kind = 'workflow'
+        AND author_id = ${created.data.currentVersion.id}::uuid
+    `;
+    expect(draft).toMatchObject({
+      conversation_id: snapshot.source.conversation.id,
+      intent: "reply",
+      source_message_id: snapshot.source.message.id,
+      subject: `Re: ${incoming.subject}`,
+      body_markdown: "A reviewable response",
+      delivery_class: "normal",
+    });
+    expect(typeof draft?.to_addresses === "string" ? JSON.parse(draft.to_addresses) : draft?.to_addresses).toEqual([
+      { name: "Reply desk", address: "reply-desk@example.test" },
+    ]);
+  });
 
   test("guards automatic replies across delivery, repeat, policy-loss, and cancellation boundaries", async () => {
     const created = await createWorkflow({
