@@ -62,10 +62,9 @@ pages:
                 type: form
                 formId: 30000000-0000-4000-8000-000000000501
                 fixedValues: {}
-                onSuccess:
+                onSuccessNavigate:
                   kind: navigate
                   pageId: loan
-                  history: replace
                   params:
                     loan_id: { source: RESULT, path: recordId }
 

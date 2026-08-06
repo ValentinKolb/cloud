@@ -15,6 +15,8 @@ describe("Custom App lifecycle", () => {
     const tableId = testUuid();
     const viewId = testUuid();
     const fieldId = testUuid();
+    const relationFieldId = testUuid();
+    const formId = testUuid();
     const otherTableId = testUuid();
     const otherFieldId = testUuid();
     const appId = testUuid();
@@ -27,6 +29,36 @@ describe("Custom App lifecycle", () => {
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
         VALUES (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Title', 'text', '{}'::jsonb, 0)
+      `;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES (
+          ${relationFieldId}::uuid,
+          ${testShortId("F")},
+          ${tableId}::uuid,
+          'Parent request',
+          'relation',
+          ${JSON.stringify({ targetTableId: tableId, cardinality: "single" })}::jsonb,
+          1
+        )
+      `;
+      await sql`
+        INSERT INTO grids.forms (id, short_id, table_id, name, config, is_active, position)
+        VALUES (
+          ${formId}::uuid,
+          ${testShortId("M")},
+          ${tableId}::uuid,
+          'Request form',
+          ${JSON.stringify({
+            title: "Apply",
+            fields: [
+              { kind: "user_input", fieldId },
+              { kind: "user_input", fieldId: relationFieldId },
+            ],
+          })}::jsonb,
+          true,
+          0
+        )
       `;
       await sql`
         INSERT INTO grids.tables (id, short_id, base_id, name)
@@ -75,6 +107,17 @@ describe("Custom App lifecycle", () => {
                           params: { request_id: { source: "ROW", path: "id" } },
                         },
                       },
+                      {
+                        id: "apply",
+                        type: "form",
+                        formId,
+                        fixedValues: {},
+                        onSuccessNavigate: {
+                          kind: "navigate",
+                          pageId: "request",
+                          params: { request_id: { source: "RESULT", path: "recordId" } },
+                        },
+                      },
                     ],
                   },
                 ],
@@ -94,7 +137,15 @@ describe("Custom App lifecycle", () => {
                   {
                     id: "main",
                     span: 12,
-                    blocks: [{ id: "request-details", type: "record", fieldIds: [fieldId] }],
+                    blocks: [
+                      { id: "request-details", type: "record", fieldIds: [fieldId] },
+                      {
+                        id: "follow-up",
+                        type: "form",
+                        formId,
+                        fixedValues: { [relationFieldId]: { source: "PARAMS", path: "request_id" } },
+                      },
+                    ],
                   },
                 ],
               },
@@ -111,6 +162,24 @@ describe("Custom App lifecycle", () => {
       expect(created.data.draftCapabilities).toEqual({
         views: [{ viewId, tableId }],
         records: [{ pageId: "request", tableId, fieldIds: [fieldId] }],
+        forms: [
+          {
+            pageId: "home",
+            blockId: "apply",
+            formId,
+            tableId,
+            userInputFieldIds: [fieldId, relationFieldId].sort(),
+            fixedFieldIds: [],
+          },
+          {
+            pageId: "request",
+            blockId: "follow-up",
+            formId,
+            tableId,
+            userInputFieldIds: [fieldId, relationFieldId].sort(),
+            fixedFieldIds: [relationFieldId],
+          },
+        ],
       });
       expect((await plan(definition)).action).toBe("noop");
 
@@ -183,6 +252,51 @@ describe("Custom App lifecycle", () => {
       expect(wrongRowTarget.ok).toBe(false);
       if (!wrongRowTarget.ok) {
         expect(wrongRowTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("source view table"))).toBe(true);
+      }
+
+      const wrongFixedTarget = await compile({
+        ...definition,
+        id: testUuid(),
+        pages: [
+          {
+            ...definition.pages[0],
+            rows: [
+              {
+                id: "home",
+                columns: [{ id: "main", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "Welcome" }] }],
+              },
+            ],
+          },
+          {
+            ...definition.pages[1],
+            parameters: { request_id: { type: "record", tableId: otherTableId, required: true } },
+            record: { tableId: otherTableId, id: { source: "PARAMS", path: "request_id" } },
+            rows: [
+              {
+                id: "detail",
+                columns: [
+                  {
+                    id: "main",
+                    span: 12,
+                    blocks: [
+                      { id: "request-details", type: "record", fieldIds: [otherFieldId] },
+                      {
+                        id: "follow-up",
+                        type: "form",
+                        formId,
+                        fixedValues: { [relationFieldId]: { source: "PARAMS", path: "request_id" } },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(wrongFixedTarget.ok).toBe(false);
+      if (!wrongFixedTarget.ok) {
+        expect(wrongFixedTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("same table"))).toBe(true);
       }
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;

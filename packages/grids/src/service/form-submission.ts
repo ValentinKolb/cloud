@@ -39,6 +39,8 @@ export const submitForm = async (params: {
   submission: FormSubmission;
   actorId: string | null;
   dateConfig: DateContext;
+  /** Request-scoped values resolved by a trusted server surface. */
+  fixedValues?: Record<string, unknown>;
   recordAccess?: AuthorizedRecordAccess;
   viewer?: ExpansionViewer;
 }): Promise<Result<{ recordId: string }>> => {
@@ -61,11 +63,18 @@ export const submitForm = async (params: {
     else formValueIds.add(entry.fieldId);
   }
   for (const key of Object.keys(params.submission.data)) {
+    if (Object.prototype.hasOwnProperty.call(params.fixedValues ?? {}, key)) {
+      return fail(err.badInput(`Field "${fieldName(key)}" is fixed by this form context and cannot be submitted`));
+    }
     if (formValueIds.has(key)) return fail(err.badInput(`Field "${fieldName(key)}" is server-managed and cannot be set via the form`));
     if (!userInputIds.has(key)) return fail(err.badInput(`Field "${fieldName(key)}" is not part of this form`));
   }
 
-  const payload: Record<string, unknown> = { ...params.submission.data };
+  for (const key of Object.keys(params.fixedValues ?? {})) {
+    if (!userInputIds.has(key)) return fail(err.badInput(`Field "${fieldName(key)}" cannot be fixed by this form context`));
+  }
+
+  const payload: Record<string, unknown> = { ...params.submission.data, ...params.fixedValues };
   for (const entry of formFields) {
     if (entry.kind !== "user_input") continue;
     if (payload[entry.fieldId] === undefined && entry.defaultValue !== undefined && entry.defaultValue !== null) {

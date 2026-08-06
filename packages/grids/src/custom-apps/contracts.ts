@@ -39,6 +39,21 @@ const CustomAppRowNavigationSchema = z
   })
   .strict();
 
+const CustomAppParamValueSchema = z.object({ source: z.literal("PARAMS"), path: CustomAppParameterIdSchema }).strict();
+
+const CustomAppFormSuccessValueSchema = z.discriminatedUnion("source", [
+  CustomAppParamValueSchema,
+  z.object({ source: z.literal("RESULT"), path: z.literal("recordId") }).strict(),
+]);
+
+const CustomAppFormSuccessNavigationSchema = z
+  .object({
+    kind: z.literal("navigate"),
+    pageId: CustomAppLocalIdSchema,
+    params: z.record(CustomAppParameterIdSchema, CustomAppFormSuccessValueSchema),
+  })
+  .strict();
+
 export const CustomAppMarkdownBlockSchema = z
   .object({
     id: CustomAppLocalIdSchema,
@@ -75,10 +90,22 @@ export const CustomAppRecordBlockSchema = z
   })
   .strict();
 
+export const CustomAppFormBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("form"),
+    title: z.string().trim().min(1).max(160).optional(),
+    formId: z.string().uuid(),
+    fixedValues: z.record(z.string().uuid(), CustomAppParamValueSchema).default({}),
+    onSuccessNavigate: CustomAppFormSuccessNavigationSchema.optional(),
+  })
+  .strict();
+
 export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMarkdownBlockSchema,
   CustomAppRecordsBlockSchema,
   CustomAppRecordBlockSchema,
+  CustomAppFormBlockSchema,
 ]);
 
 const CustomAppPageSchema = z
@@ -186,6 +213,17 @@ export const CustomAppDefinitionSchema = z
             if (block.type === "record" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Record block requires a page record", path: [...blockPath, "type"] });
             }
+            if (block.type === "form") {
+              for (const [fieldId, value] of Object.entries(block.fixedValues)) {
+                if (!page.parameters[value.path]) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "Form fixed values must reference a parameter declared by the current page",
+                    path: [...blockPath, "fixedValues", fieldId, "path"],
+                  });
+                }
+              }
+            }
           }
         }
       }
@@ -248,21 +286,43 @@ export const CustomAppDefinitionSchema = z
       for (const [rowIndex, row] of page.rows.entries()) {
         for (const [columnIndex, column] of row.columns.entries()) {
           for (const [blockIndex, block] of column.blocks.entries()) {
-            if (block.type !== "records" || !block.rowNavigate) continue;
-            const path = ["pages", pageIndex, "rows", rowIndex, "columns", columnIndex, "blocks", blockIndex, "rowNavigate"] as const;
-            const targetPage = definition.pages.find((candidate) => candidate.id === block.rowNavigate!.pageId);
+            const navigation = block.type === "records" ? block.rowNavigate : block.type === "form" ? block.onSuccessNavigate : undefined;
+            if (!navigation) continue;
+            const navigationKey = block.type === "records" ? "rowNavigate" : "onSuccessNavigate";
+            const path = ["pages", pageIndex, "rows", rowIndex, "columns", columnIndex, "blocks", blockIndex, navigationKey] as const;
+            const targetPage = definition.pages.find((candidate) => candidate.id === navigation.pageId);
             if (!targetPage) {
-              ctx.addIssue({ code: "custom", message: "rowNavigate.pageId must reference a page", path: [...path, "pageId"] });
+              ctx.addIssue({ code: "custom", message: `${navigationKey}.pageId must reference a page`, path: [...path, "pageId"] });
               continue;
             }
             const expectedParams = Object.keys(targetPage.parameters).sort();
-            const suppliedParams = Object.keys(block.rowNavigate.params).sort();
+            const suppliedParams = Object.keys(navigation.params).sort();
             if (expectedParams.join("\0") !== suppliedParams.join("\0")) {
               ctx.addIssue({
                 code: "custom",
-                message: "rowNavigate.params must provide every target page parameter exactly once",
+                message: `${navigationKey}.params must provide every target page parameter exactly once`,
                 path: [...path, "params"],
               });
+            }
+            if (block.type === "form") {
+              for (const [parameterId, value] of Object.entries(navigation.params)) {
+                if (value.source !== "PARAMS") continue;
+                const sourceParameter = page.parameters[value.path];
+                const targetParameter = targetPage.parameters[parameterId];
+                if (!sourceParameter) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "Success navigation must reference a parameter declared by the current page",
+                    path: [...path, "params", parameterId, "path"],
+                  });
+                } else if (targetParameter?.tableId !== sourceParameter.tableId) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "Success navigation parameter tables must match",
+                    path: [...path, "params", parameterId],
+                  });
+                }
+              }
             }
           }
         }
@@ -285,6 +345,21 @@ export const CustomAppCapabilitiesSchema = z
       )
       .max(12)
       .default([]),
+    forms: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            formId: z.string().uuid(),
+            tableId: z.string().uuid(),
+            userInputFieldIds: z.array(z.string().uuid()).max(100),
+            fixedFieldIds: z.array(z.string().uuid()).max(30),
+          })
+          .strict(),
+      )
+      .max(24)
+      .default([]),
   })
   .strict();
 
@@ -295,6 +370,7 @@ export type CustomAppCapabilities = z.infer<typeof CustomAppCapabilitiesSchema>;
 export type CustomAppBlock = z.infer<typeof CustomAppBlockSchema>;
 export type CustomAppPage = CustomAppDefinition["pages"][number];
 export type CustomAppRowNavigation = NonNullable<Extract<CustomAppBlock, { type: "records" }>["rowNavigate"]>;
+export type CustomAppFormBlock = Extract<CustomAppBlock, { type: "form" }>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
 
@@ -322,6 +398,11 @@ export const CUSTOM_APP_REFERENCE = {
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
     },
     record: { required: ["id", "type", "fieldIds"], note: "Displays allowlisted fields from the current page record" },
+    form: {
+      required: ["id", "type", "formId"],
+      fixedValues: "Optionally bind compatible relation fields from declared PARAMS",
+      onSuccessNavigate: "Optionally replace-navigate using PARAMS and RESULT.recordId",
+    },
   },
   example: {
     schemaVersion: 1,
@@ -345,6 +426,17 @@ export const CUSTOM_APP_REFERENCE = {
                 span: 12,
                 blocks: [
                   { id: "intro", type: "markdown", markdown: "# My requests" },
+                  {
+                    id: "apply",
+                    type: "form",
+                    formId: "00000000-0000-4000-8000-000000000006",
+                    fixedValues: {},
+                    onSuccessNavigate: {
+                      kind: "navigate",
+                      pageId: "request",
+                      params: { request_id: { source: "RESULT", path: "recordId" } },
+                    },
+                  },
                   {
                     id: "requests",
                     type: "records",

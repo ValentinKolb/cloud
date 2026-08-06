@@ -28,7 +28,7 @@ A page declares every URL parameter before a block can use it. Supported paramet
 
 A page may load one **page record** from a Record parameter. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
-Blocks bind values through a typed reference:
+Implemented blocks bind contextual record values through a typed reference:
 
 ```yaml
 source: PARAMS
@@ -37,11 +37,9 @@ path: request_id
 
 | Source | Available in | Example path |
 | --- | --- | --- |
-| `LITERAL` | Any supported binding | Uses `value` instead of `path` |
 | `PARAMS` | Current page | `request_id` |
-| `RECORD` | Page with an authorized page record | `id` or `fields.<fieldId>` |
 | `ROW` | One Records row link or row action | `id` or `fields.<outputId>` |
-| `RESULT` | The success handler of the operation that produced it | `recordId` or a declared workflow output |
+| `RESULT` | Form success navigation | `recordId` |
 
 The builder shows only references valid in the current location. YAML validation applies the same scope and type rules. References cannot read arbitrary URL values, another block's internal state, or undeclared data.
 
@@ -82,9 +80,11 @@ Metrics and Chart use the same bounded source contract as Records. Metrics rende
 
 Form references one existing Grids form. The form owns visible fields, validation, required inputs, defaults, and record creation.
 
-The block may supply **fixed values** from `LITERAL`, `PARAMS`, or `RECORD`. A fixed value is set by the server and is not rendered as an editable input. This supports flows such as “add another article to this list” without asking for the same relation again.
+The block may supply **fixed values** from a declared Record `PARAMS` value. The target must be a user-input relation field for the same table. A fixed value is resolved by the server, omitted from the rendered inputs, and cannot be overridden by the browser. This supports flows such as “add another article to this list” without asking for the same relation again.
 
-After success, the block may stay on the page or navigate. Navigation parameters may use `RESULT.recordId`.
+After success, the block may stay on the page or replace-navigate inside the same app. Navigation parameters may preserve declared `PARAMS` values or use the created Form record's `RESULT.recordId`.
+
+One app may publish up to 24 Form blocks. Each referenced Form may expose up to 100 inputs, of which up to 30 may be fixed by page parameters.
 
 ### Record
 

@@ -91,6 +91,56 @@ beforeAll(async () => {
 });
 
 describe("form submission integration", () => {
+  postgresTest("applies trusted request-scoped fixed values and rejects browser overrides", async () => {
+    const item = fixture();
+    try {
+      await insertFixture(item);
+      const contact = await submitForm({
+        form: {
+          ...formFor(item),
+          tableId: item.targetTableId,
+          config: { fields: [{ kind: "user_input", fieldId: item.targetNameFieldId, required: true }] },
+        },
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        submission: { data: { [item.targetNameFieldId]: "Ada" }, inlineCreates: {} },
+      });
+      expect(contact.ok).toBe(true);
+      if (!contact.ok) throw new Error(contact.error.message);
+
+      const tampered = await submitForm({
+        form: formFor(item),
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        fixedValues: { [item.relationFieldId]: contact.data.recordId },
+        submission: {
+          data: { [item.sourceNameFieldId]: "ORDER-TAMPER", [item.relationFieldId]: uuid() },
+          inlineCreates: {},
+        },
+      });
+      expect(tampered.ok).toBe(false);
+      if (!tampered.ok) expect(tampered.error.message).toContain("is fixed by this form context");
+
+      const created = await submitForm({
+        form: formFor(item),
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        fixedValues: { [item.relationFieldId]: contact.data.recordId },
+        submission: { data: { [item.sourceNameFieldId]: "ORDER-1" }, inlineCreates: {} },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw new Error(created.error.message);
+      const [link] = await sql<Array<{ to_record_id: string }>>`
+        SELECT to_record_id::text
+        FROM grids.record_links
+        WHERE from_record_id = ${created.data.recordId}::uuid AND from_field_id = ${item.relationFieldId}::uuid
+      `;
+      expect(link?.to_record_id).toBe(contact.data.recordId);
+    } finally {
+      await cleanup(item);
+    }
+  });
+
   postgresTest("creates inline records, relation links, and durable events atomically", async () => {
     const item = fixture();
     try {

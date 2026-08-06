@@ -62,7 +62,7 @@ const SubmitEnvelopeSchema = z.object({
   inlineCreates: InlineCreatesSchema.optional(),
 });
 
-const parseSubmission = (submitted: Record<string, unknown>): FormSubmission | null => {
+export const parseFormSubmission = (submitted: Record<string, unknown>): FormSubmission | null => {
   const envelopeLike =
     Object.prototype.hasOwnProperty.call(submitted, "data") || Object.prototype.hasOwnProperty.call(submitted, "inlineCreates");
   if (!envelopeLike) return { data: submitted, inlineCreates: {} };
@@ -108,7 +108,7 @@ export const submitFormResponse = async (
   deps: SubmitFormDeps = {},
   access?: { recordAccess: AuthorizedRecordAccess; viewer: ExpansionViewer },
 ) => {
-  const submission = parseSubmission(submitted);
+  const submission = parseFormSubmission(submitted);
   if (!submission) return context.json({ message: "Invalid form submission" }, 400);
   const dateConfig = await (deps.dateConfig ?? getDateConfig)(context);
   const submit = deps.submit ?? gridsService.form.submit;

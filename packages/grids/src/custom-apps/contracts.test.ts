@@ -116,7 +116,7 @@ describe("Custom App definition contract", () => {
 
     const home = example.pages[0];
     const column = home.rows[0].columns[0];
-    const requests = column.blocks[1];
+    const requests = column.blocks.find((block) => block.type === "records")!;
     const missingParam = {
       ...example,
       pages: [
@@ -128,7 +128,9 @@ describe("Custom App definition contract", () => {
               columns: [
                 {
                   ...column,
-                  blocks: [column.blocks[0], { ...requests, rowNavigate: { ...requests.rowNavigate, params: {} } }],
+                  blocks: column.blocks.map((block) =>
+                    block.id === requests.id ? { ...requests, rowNavigate: { ...requests.rowNavigate, params: {} } } : block,
+                  ),
                 },
               ],
             },
@@ -139,5 +141,16 @@ describe("Custom App definition contract", () => {
     };
     expect(CustomAppDefinitionSchema.safeParse(missingParam).success).toBe(false);
     expect(detail.parameters.request_id.type).toBe("record");
+  });
+
+  test("accepts Form create-to-detail navigation and rejects undeclared parameter bindings", () => {
+    const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+
+    const invalid = CustomAppDefinitionSchema.parse(structuredClone(example));
+    const form = invalid.pages[0]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "form")!;
+    if (form.type !== "form") throw new Error("Expected Form block");
+    form.fixedValues[uuid(21)] = { source: "PARAMS", path: "missing" };
+    expect(CustomAppDefinitionSchema.safeParse(invalid).success).toBe(false);
   });
 });

@@ -12,16 +12,29 @@ import {
 import { ssr } from "../../config";
 import type { DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
-import { customAppPageHref, resolveCustomAppPage, resolvePageRecordId } from "../../custom-apps/routing";
+import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
+import { customAppFormSubmitUrl, customAppPageHref, resolveCustomAppPage, resolveCustomAppPageParams } from "../../custom-apps/routing";
 import { gridsService } from "../../service";
+import type { PublicRenderableForm } from "../../service/forms";
+import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import { formatFieldValueText } from "../_components/table/field-value-format";
 import RecordsTable from "./RecordsTable.island";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
 type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
+type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
 type PageRecord = { record: GridRecord; fields: Field[] };
+type FormBlockData =
+  | {
+      ok: true;
+      form: PublicRenderableForm;
+      fields: Field[];
+      inlineTargetFields: Record<string, Field[]>;
+      submitUrl: string;
+    }
+  | { ok: false; message: string };
 
 const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: string }) => {
   if (!props.data.ok) {
@@ -64,11 +77,28 @@ const RecordDetails = (props: { block: RecordBlock; pageRecord: PageRecord | nul
   );
 };
 
+const Form = (props: { block: FormBlock; data: FormBlockData; dateConfig: ReturnType<typeof getDateConfig> }) => {
+  if (!props.data.ok) {
+    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+  }
+  return (
+    <FormSubmit
+      submitUrl={props.data.submitUrl}
+      form={props.data.form}
+      fields={props.data.fields}
+      inlineTargetFields={props.data.inlineTargetFields}
+      dateConfig={props.dateConfig}
+      surface="bare"
+    />
+  );
+};
+
 const CustomAppPage = (props: {
   definition: CustomAppDefinition;
   page: CustomAppPage;
   shortId: string;
   results: Map<string, BlockResult>;
+  forms: Map<string, FormBlockData>;
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
@@ -116,8 +146,14 @@ const CustomAppPage = (props: {
                         data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
                         shortId={props.shortId}
                       />
-                    ) : (
+                    ) : block.type === "record" ? (
                       <RecordDetails block={block} pageRecord={props.pageRecord} dateConfig={props.dateConfig} />
+                    ) : (
+                      <Form
+                        block={block}
+                        data={props.forms.get(block.id) ?? { ok: false, message: "This form is unavailable." }}
+                        dateConfig={props.dateConfig}
+                      />
                     )}
                   </article>
                 ))}
@@ -144,11 +180,24 @@ export default ssr<AuthContext>(async (c) => {
   const page = resolveCustomAppPage(definition, c.req.param("pageId"));
   if (!page) return c.notFound();
   const dateConfig = getDateConfig(c);
+  const pageParams = resolveCustomAppPageParams(page, c.req.query());
+  if (!pageParams) return c.notFound();
+  const viewer = actorViewerFor(requestAccess);
+  const parameterRecords = new Map<string, GridRecord>();
+  for (const [parameterId, parameter] of Object.entries(page.parameters)) {
+    const parameterAccess = await resolveRecordAccessForAccess(requestAccess, { baseId: app.baseId, tableId: parameter.tableId }, "read");
+    if (!parameterAccess.ok) return c.notFound();
+    const record = await gridsService.record.get(parameter.tableId, pageParams[parameterId]!, {
+      viewer,
+      recordAccess: parameterAccess.data.recordAccess,
+      dateConfig,
+    });
+    if (!record) return c.notFound();
+    parameterRecords.set(parameterId, record);
+  }
 
   let pageRecord: PageRecord | null = null;
-  const recordId = resolvePageRecordId(page, c.req.query());
-  if (recordId === null) return c.notFound();
-  if (page.record && recordId) {
+  if (page.record) {
     const capability = app.publishedCapabilities.records.find(
       (candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId,
     );
@@ -160,13 +209,7 @@ export default ssr<AuthContext>(async (c) => {
       ),
     ].sort();
     if (!capability || capability.fieldIds.join("\0") !== expectedFieldIds.join("\0")) return c.notFound();
-    const recordAccess = await resolveRecordAccessForAccess(requestAccess, { baseId: app.baseId, tableId: page.record.tableId }, "read");
-    if (!recordAccess.ok) return c.notFound();
-    const record = await gridsService.record.get(page.record.tableId, recordId, {
-      viewer: actorViewerFor(requestAccess),
-      recordAccess: recordAccess.data.recordAccess,
-      dateConfig,
-    });
+    const record = parameterRecords.get(page.record.id.path);
     if (!record) return c.notFound();
     const allowed = new Set(capability.fieldIds);
     const fields = (await gridsService.field.listByTable(page.record.tableId)).filter((field) => allowed.has(field.id));
@@ -193,6 +236,65 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const results = new Map(entries);
+  const formBlocks = page.rows.flatMap((row) =>
+    row.columns.flatMap((column) => column.blocks.filter((block): block is FormBlock => block.type === "form")),
+  );
+  const formEntries = await Promise.all(
+    formBlocks.map(async (block): Promise<[string, FormBlockData]> => {
+      const capability = app.publishedCapabilities!.forms.find(
+        (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
+      );
+      const form = capability ? await gridsService.form.get(block.formId) : null;
+      const liveFields = form ? await gridsService.field.listByTable(form.tableId) : [];
+      if (!capability || !form || !customAppFormMatchesPublishedCapability({ block, page, form, fields: liveFields, capability })) {
+        return [block.id, { ok: false, message: "This form is unavailable." }];
+      }
+      const fixedFieldIds = Object.keys(block.fixedValues).sort();
+      const formAccess = await resolveRecordAccessForAccess(
+        requestAccess,
+        { baseId: app.baseId, tableId: form.tableId, formId: form.id },
+        "write",
+      );
+      if (!formAccess.ok) return [block.id, { ok: false, message: "You cannot submit this form." }];
+
+      const fixed = new Set(fixedFieldIds);
+      const renderable = gridsService.form.toPublicRenderableForm(form);
+      renderable.config = {
+        ...renderable.config,
+        redirectUrl: null,
+        fields: renderable.config.fields.filter((entry) => !fixed.has(entry.fieldId)),
+      };
+      const visibleFieldIds = new Set(renderable.config.fields.map((entry) => entry.fieldId));
+      const fields = liveFields.filter((field) => visibleFieldIds.has(field.id));
+      if (fields.length !== visibleFieldIds.size) {
+        return [block.id, { ok: false, message: "This form changed after the app was published." }];
+      }
+      const fieldsById = new Map(liveFields.map((field) => [field.id, field]));
+      const inlineTargetFields: Record<string, Field[]> = {};
+      for (const entry of renderable.config.fields) {
+        if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
+        const relationField = fieldsById.get(entry.fieldId);
+        if (relationField?.type !== "relation") continue;
+        const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
+        if (typeof targetTableId !== "string") continue;
+        const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((inlineField) => inlineField.fieldId));
+        inlineTargetFields[targetTableId] = (await gridsService.field.listByTable(targetTableId)).filter((field) =>
+          allowedIds.has(field.id),
+        );
+      }
+      return [
+        block.id,
+        {
+          ok: true,
+          form: renderable,
+          fields,
+          inlineTargetFields,
+          submitUrl: customAppFormSubmitUrl(app.shortId, page.id, block.id, pageParams),
+        },
+      ];
+    }),
+  );
+  const forms = new Map(formEntries);
   return () => (
     <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
@@ -200,6 +302,7 @@ export default ssr<AuthContext>(async (c) => {
         page={page}
         shortId={app.shortId}
         results={results}
+        forms={forms}
         pageRecord={pageRecord}
         dateConfig={dateConfig}
       />

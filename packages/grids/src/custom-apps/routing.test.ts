@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomAppDefinition } from "./contracts";
-import { customAppPageHref, customAppRowHref, resolveCustomAppPage, resolvePageRecordId } from "./routing";
+import {
+  customAppFormSubmitUrl,
+  customAppFormSuccessHref,
+  customAppPageHref,
+  customAppRowHref,
+  resolveCustomAppPage,
+  resolveCustomAppPageParams,
+  resolvePageRecordId,
+} from "./routing";
 
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
@@ -43,6 +51,8 @@ describe("Custom App routing", () => {
     expect(resolvePageRecordId(page, { request_id: "not-a-record" })).toBeNull();
     expect(resolvePageRecordId(page, {})).toBeNull();
     expect(resolvePageRecordId(definition.pages[0]!, {})).toBeUndefined();
+    expect(resolveCustomAppPageParams(page, { request_id: uuid(9) })).toEqual({ request_id: uuid(9) });
+    expect(resolveCustomAppPageParams(page, { request_id: "bad" })).toBeNull();
   });
 
   test("builds stable page and row navigation URLs", () => {
@@ -54,5 +64,19 @@ describe("Custom App routing", () => {
         uuid(9),
       ),
     ).toBe(`/apps/abc12/detail?request_id=${uuid(9)}`);
+  });
+
+  test("builds internal Form submit and replace-navigation targets", () => {
+    expect(customAppFormSubmitUrl("abc12", "detail", "edit", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/edit/submit?request_id=${uuid(9)}`,
+    );
+    expect(
+      customAppFormSuccessHref(
+        "abc12",
+        { kind: "navigate", pageId: "detail", params: { request_id: { source: "RESULT", path: "recordId" } } },
+        {},
+        uuid(10),
+      ),
+    ).toBe(`/apps/abc12/detail?request_id=${uuid(10)}`);
   });
 });

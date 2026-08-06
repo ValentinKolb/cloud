@@ -1,5 +1,5 @@
-import { Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
@@ -8,28 +8,25 @@ import { errorMessage } from "../utils/api-helpers";
 import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "./form-fields";
 
 type Props = {
-  /** Public token from the URL — submitted to the public endpoint. */
-  publicToken: string;
   /** Form config (fields, labels, defaults) — server-trusted. */
   form: PublicRenderableForm;
   /** Resolved table fields so we know each entry's type + options. */
   fields: Field[];
   inlineTargetFields?: Record<string, Field[]>;
   dateConfig?: DateContext;
-};
+  surface?: "bare" | "paper";
+} & ({ publicToken: string; submitUrl?: never } | { publicToken?: never; submitUrl: string });
 
 /**
- * Public-form submit page. Renders one input per form-field-entry via
- * the shared {@link FieldInput} (same component used by the in-app
- * `FormSubmitModal`), posts to the public submit endpoint anonymously,
- * and shows a success message — or redirects when `redirectUrl` is
- * configured.
+ * Shared Form submit surface. It renders the same field contract for a
+ * public token or an authenticated internal endpoint and shows the
+ * configured success message on completion.
  *
  * All field rendering lives in `form-fields.tsx` and uses platform
  * inputs only (TextInput / NumberInput / DatePicker / DateTimePicker /
  * Checkbox / Select / CheckboxCards for select).
  */
-export default function PublicFormSubmit(props: Props) {
+export default function FormSubmit(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
   let formRef: HTMLFormElement | undefined;
@@ -65,15 +62,28 @@ export default function PublicFormSubmit(props: Props) {
         .map((entry) => fieldsById.get(entry.fieldId))
         .filter((field): field is Field => Boolean(field && !field.deletedAt));
       const submitPayload = buildFormSubmitPayload(submitFields, payload, inlineCreates(), { omitEmpty: true });
-      const res = await apiClient.forms.public[":token"].submit.$post({
-        param: { token: props.publicToken },
-        json: submitPayload,
-      });
+      const res = props.submitUrl
+        ? await fetch(props.submitUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(submitPayload),
+          })
+        : await apiClient.forms.public[":token"].submit.$post({
+            param: { token: props.publicToken! },
+            json: submitPayload,
+          });
       if (!res.ok) {
         setError(await errorMessage(res, "Submit failed"));
         return;
       }
-      const redirect = props.form.config.redirectUrl;
+      if (props.submitUrl) {
+        const result = (await res.json()) as { navigateTo?: unknown };
+        if (typeof result.navigateTo === "string") {
+          window.location.replace(result.navigateTo);
+          return;
+        }
+      }
+      const redirect = props.publicToken ? props.form.config.redirectUrl : null;
       if (redirect) {
         window.location.href = redirect;
         return;
@@ -87,7 +97,7 @@ export default function PublicFormSubmit(props: Props) {
   };
 
   return (
-    <div class="paper p-6 max-w-xl mx-auto flex flex-col gap-4">
+    <div class={`${props.surface === "bare" ? "" : "paper p-6"} mx-auto flex max-w-xl flex-col gap-4`}>
       {/* Optional title image — banner above the form. Compact
           max-h (96 px) + object-contain matches FormSubmitModal so
           the public page and the in-app preview render the same

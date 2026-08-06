@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CustomAppDefinition, CustomAppPage, CustomAppRowNavigation } from "./contracts";
+import type { CustomAppDefinition, CustomAppFormBlock, CustomAppPage, CustomAppRowNavigation } from "./contracts";
 
 const RecordIdSchema = z.string().uuid();
 
@@ -16,6 +16,18 @@ export const resolvePageRecordId = (page: CustomAppPage, query: Record<string, s
   return parsed.success ? parsed.data : null;
 };
 
+export const resolveCustomAppPageParams = (page: CustomAppPage, query: Record<string, string>): Record<string, string> | null => {
+  const params: Record<string, string> = {};
+  for (const parameterId of Object.keys(page.parameters)) {
+    const value = query[parameterId];
+    if (!value) return null;
+    const parsed = RecordIdSchema.safeParse(value);
+    if (!parsed.success) return null;
+    params[parameterId] = parsed.data;
+  }
+  return params;
+};
+
 export const customAppPageHref = (shortId: string, pageId: string, params: Record<string, string> = {}): string => {
   const search = new URLSearchParams();
   for (const key of Object.keys(params).sort()) search.set(key, params[key]!);
@@ -24,9 +36,32 @@ export const customAppPageHref = (shortId: string, pageId: string, params: Recor
   return query ? `${path}?${query}` : path;
 };
 
+export const customAppFormSubmitUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
+  const pageHref = customAppPageHref(shortId, pageId, params);
+  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
+  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/submit${query}`;
+};
+
 export const customAppRowHref = (shortId: string, navigation: CustomAppRowNavigation, recordId: string): string =>
   customAppPageHref(
     shortId,
     navigation.pageId,
     Object.fromEntries(Object.keys(navigation.params).map((parameterId) => [parameterId, recordId])),
+  );
+
+export const customAppFormSuccessHref = (
+  shortId: string,
+  navigation: NonNullable<CustomAppFormBlock["onSuccessNavigate"]>,
+  pageParams: Record<string, string>,
+  recordId: string,
+): string =>
+  customAppPageHref(
+    shortId,
+    navigation.pageId,
+    Object.fromEntries(
+      Object.entries(navigation.params).map(([parameterId, value]) => [
+        parameterId,
+        value.source === "RESULT" ? recordId : pageParams[value.path]!,
+      ]),
+    ),
   );

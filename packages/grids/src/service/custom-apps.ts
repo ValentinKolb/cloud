@@ -9,6 +9,7 @@ import {
   type CustomAppDiagnostic,
 } from "../custom-apps/contracts";
 import { logAudit, type SqlClient } from "./audit";
+import { normalizeFormConfig } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 
@@ -45,7 +46,7 @@ const mapRow = (row: DbRow): CustomApp => ({
   name: row.name as string,
   icon: (row.icon as string | null) ?? null,
   draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
-  draftCapabilities: CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, { views: [], records: [] })),
+  draftCapabilities: CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [] })),
   publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
   publishedCapabilities: row.published_capabilities
     ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.published_capabilities, {}))
@@ -75,7 +76,7 @@ const zodDiagnostics = (error: { issues: Array<{ path: PropertyKey[]; message: s
     message: issue.message,
   }));
 
-const blocksByType = <T extends "record" | "records">(definition: CustomAppDefinition, type: T) =>
+const blocksByType = <T extends "form" | "record" | "records">(definition: CustomAppDefinition, type: T) =>
   definition.pages.flatMap((page) =>
     page.rows.flatMap((row) =>
       row.columns.flatMap((column) =>
@@ -91,8 +92,12 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
   const definition = parsed.data;
   const recordsBlocks = blocksByType(definition, "records");
+  const formBlocks = blocksByType(definition, "form");
   if (recordsBlocks.length > 4) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 4 Records blocks" }] };
+  }
+  if (formBlocks.length > 24) {
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 24 Form blocks" }] };
   }
 
   const [base] = await client<Array<{ id: string }>>`
@@ -103,6 +108,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const diagnostics: CustomAppDiagnostic[] = [];
   const views: CustomAppCapabilities["views"] = [];
   const pageRecords: CustomAppCapabilities["records"] = [];
+  const forms: CustomAppCapabilities["forms"] = [];
   const tableBaseIds = new Map<string, string | null>();
   const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
     const cached = tableBaseIds.get(tableId);
@@ -192,11 +198,106 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     }
     views.push({ viewId: view.view_id, tableId: view.table_id });
   }
+
+  for (const { page, block } of formBlocks) {
+    const [formRow] = await client<Array<{ table_id: string; base_id: string; config: unknown; is_active: boolean }>>`
+      SELECT f.table_id, t.base_id, f.config, f.is_active
+      FROM grids.forms f
+      JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+      WHERE f.id = ${block.formId}::uuid AND f.deleted_at IS NULL
+    `;
+    if (!formRow || formRow.base_id !== definition.baseId || !formRow.is_active) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "formId"],
+        message: "Form is missing, inactive, or belongs to another base",
+      });
+      continue;
+    }
+
+    const config = normalizeFormConfig(formRow.config);
+    const userInputFieldIds = config.fields
+      .filter((entry) => entry.kind === "user_input")
+      .map((entry) => entry.fieldId)
+      .sort();
+    const userInputFieldIdSet = new Set(userInputFieldIds);
+    const fixedFieldIds = Object.keys(block.fixedValues).sort();
+    if (userInputFieldIds.length > 100) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "formId"],
+        message: "A Custom App Form may expose at most 100 input fields",
+      });
+      continue;
+    }
+    if (fixedFieldIds.length > 30) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "fixedValues"],
+        message: "A Custom App Form may bind at most 30 fixed fields",
+      });
+      continue;
+    }
+    const fieldIds = [...new Set([...userInputFieldIds, ...fixedFieldIds])];
+    const fields =
+      fieldIds.length === 0
+        ? []
+        : await client<Array<{ id: string; type: string; config: unknown }>>`
+            SELECT id, type, config
+            FROM grids.fields
+            WHERE table_id = ${formRow.table_id}::uuid AND deleted_at IS NULL
+              AND id = ANY(${toPgUuidArray(fieldIds)}::uuid[])
+          `;
+    const fieldsById = new Map(fields.map((field) => [field.id, field]));
+    for (const fieldId of userInputFieldIds) {
+      if (!fieldsById.has(fieldId)) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "formId"],
+          message: `Form field ${fieldId} is missing or belongs to another table`,
+        });
+      }
+    }
+    for (const [fieldId, value] of Object.entries(block.fixedValues)) {
+      const field = fieldsById.get(fieldId);
+      const parameter = page.parameters[value.path];
+      if (!userInputFieldIdSet.has(fieldId)) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
+          message: "A dynamic fixed value must target a user-input field in the referenced Form",
+        });
+        continue;
+      }
+      const fieldConfig = parseJsonbRow<{ targetTableId?: unknown }>(field?.config, {});
+      if (field?.type !== "relation" || typeof fieldConfig.targetTableId !== "string") {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
+          message: "Record parameters may only bind compatible relation fields",
+        });
+      } else if (!parameter || fieldConfig.targetTableId !== parameter.tableId) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
+          message: "Fixed relation field and page parameter must reference the same table",
+        });
+      }
+    }
+
+    if (block.onSuccessNavigate) {
+      const targetPage = definition.pages.find((candidate) => candidate.id === block.onSuccessNavigate!.pageId)!;
+      for (const [parameterId, value] of Object.entries(block.onSuccessNavigate.params)) {
+        if (value.source === "RESULT" && targetPage.parameters[parameterId]?.tableId !== formRow.table_id) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "onSuccessNavigate", "params", parameterId],
+            message: "RESULT.recordId may only populate a record parameter for the Form table",
+          });
+        }
+      }
+    }
+
+    forms.push({ pageId: page.id, blockId: block.id, formId: block.formId, tableId: formRow.table_id, userInputFieldIds, fixedFieldIds });
+  }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
   const capabilities = CustomAppCapabilitiesSchema.parse({
     views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
+    forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
   });
   return { ok: true, compiled: { definition, capabilities } };
 };

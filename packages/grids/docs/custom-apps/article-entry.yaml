@@ -116,10 +116,9 @@ pages:
                 submitLabel: Add another
                 fixedValues:
                   20000000-0000-4000-8000-000000000302: { source: PARAMS, path: list_id }
-                onSuccess:
+                onSuccessNavigate:
                   kind: navigate
                   pageId: add-article
-                  history: replace
                   params:
                     list_id: { source: PARAMS, path: list_id }
               - id: done

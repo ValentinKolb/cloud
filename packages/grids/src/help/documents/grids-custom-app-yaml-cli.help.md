@@ -163,10 +163,9 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
   type: form
   formId: 10000000-0000-4000-8000-000000000501
   fixedValues: {}
-  onSuccess:
+  onSuccessNavigate:
     kind: navigate
     pageId: request
-    history: replace
     params:
       request_id: { source: RESULT, path: recordId }
 
