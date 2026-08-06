@@ -2,26 +2,27 @@
 id: mail-automation
 title: Automate responses and mailbox work
 icon: ti ti-automation
-description: Configure automatic replies, conversation references, and safe workflow activation.
+description: Configure automatic replies, incoming-mail processing, and safe workflow activation.
 order: 60
 ---
 
-Open **Automations** from **Mailbox tools**. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Mail rules** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
+Open **Automations** from **Mailbox tools**. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Incoming mail** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
 
 ## Choose the right automation tool {icon="route"}
 
 | Need | Use |
 | --- | --- |
 | Send an out-of-office or receipt acknowledgement | **Automatic replies** |
-| Route, mark, or label matching mail | **Mail rules** |
+| Route, mark, or label matching mail with exact conditions | A standard rule under **Incoming mail** |
+| Classify, apply several local tags, or prepare reply drafts with AI | A guided AI automation under **Incoming mail** |
 | Give conversations permanent human-facing IDs | A reference acknowledgement or custom **Workflow** |
-| Tag, move, assign, classify, draft, allocate references, or send guarded replies from conditions | **Workflows** |
+| Combine tasks beyond the guided editors or intentionally automate delivery | An advanced **Workflow** |
 
 The tools can work together, but creating one does not activate another. Reference-number settings define the format; a workflow still decides when to allocate a number. Saving a workflow does not activate it.
 
 ## Create a mail rule {icon="filter-cog"}
 
-Mailbox admins can create a guided rule under **Automations > Rules** or directly from a message's organization menu. Combine up to eight sender, domain, subject, body-text, or attachment-presence conditions and choose whether all or any condition must match. Then add up to eight ordered actions. A rule can perform one provider message action—move to junk, trash, or another folder; mark as read; or add a provider keyword—and combine it with Cloud-local tags, one assignee, and one conversation status.
+Mailbox admins can create a guided rule under **Automations > Incoming mail** or directly from a message's organization menu. Combine up to eight sender, domain, subject, body-text, or attachment-presence conditions and choose whether all or any condition must match. Then add up to eight ordered actions. A rule can perform one provider message action—move to junk, trash, or another folder; mark as read; or add a provider keyword—and combine it with Cloud-local tags, one assignee, and one conversation status.
 
 Mail generates canonical workflow YAML from these fields and shows it in the editor. Actions run from top to bottom through the same workflow runtime used by advanced automations. Keep using the guided editor for managed rules. Changing the match or action plan creates a new immutable workflow version; changing only the name or active state updates the managed rule without duplicating identical workflow source. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
@@ -30,6 +31,18 @@ For automation through `cld`, run `mail rule catalog` to discover valid folder, 
 Text conditions support exact, contains, starts-with, and ends-with matching. Regular expressions are intentionally unavailable until Mail can enforce a bounded RE2-compatible matcher.
 
 Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the work and start a resumable background backfill through the same workflow runtime. Sender-only conditions have an exact preview; content and attachment conditions show the number of candidate messages that will be scanned by the workflow. The durable cursor survives restarts, a failed message is retried without stopping unrelated workflow runs, and a repeated backfill skips messages already accepted for the same immutable workflow version. The rule menu shows progress and lets you cancel or run it again. Disabling or deleting a rule stops future matches and never reverses already completed effects.
+
+## Add a guided AI automation {icon="sparkles"}
+
+Open **Automations > Incoming mail** and select one task:
+
+- **Route with AI** chooses exactly one named category. Each category may move the message, add local tags, assign the conversation, or set its work status.
+- **Add tags with AI** chooses zero or more existing local tags. Describe what each tag means and set the maximum number that may be applied to one message.
+- **Draft replies with AI** writes through one verified automation-enabled sender identity and creates a normal draft for review. It cannot send the draft.
+
+Each editor can run for every future incoming message or behind the same deterministic conditions used by standard rules. Conditions are checked before AI runs. Every matching message consumes at most one AI call, and the generated workflow has tight budgets for only the effects shown in the editor. The platform workflow model is used automatically; Mail does not expose a separate model choice.
+
+New AI automations start inactive unless you explicitly enable them. AI can classify or write incorrectly, so review category descriptions, actions, and the first runs under **Activity**. Guided AI automations never backfill existing mail and never schedule or send a message. Open the generated workflow section when you need to review the canonical YAML; continue editing through the guided fields rather than changing that source directly.
 
 ## Configure an automatic reply {icon="send"}
 
@@ -119,7 +132,7 @@ Effect budgets are hard upper bounds for moves, sends, keyword changes, collabor
 
 ## Observe and stop workflow runs {icon="activity"}
 
-Mailbox administrators use **Automations > Activity** for mailbox-scoped automatic replies, mail-rule matches, custom workflows, and resumable backfills. The table shows the automation type, state, duration, time, and a bounded failure or result message. Platform administrators retain the cross-application detail view under **Admin > Observability > Workflows**.
+Mailbox administrators use **Automations > Activity** for mailbox-scoped automatic replies, mail-rule matches, guided AI automations, custom workflows, and resumable backfills. The table shows the automation type, state, duration, time, and a bounded failure or result message. Platform administrators retain the cross-application detail view under **Admin > Observability > Workflows**.
 
 Select **Cancel** when no further effects should start. Cancellation does not reverse mail moves, sends, or collaboration changes that already completed. A run that needs attention waits for an administrator to record whether an uncertain external effect completed. Disabling a Mail workflow prevents new trigger matches; it does not rewrite completed history.
 

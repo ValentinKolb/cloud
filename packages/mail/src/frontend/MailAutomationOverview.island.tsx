@@ -1,4 +1,4 @@
-import { StatCell, StatGrid, ButtonLink } from "@k2b/ui";
+import { ButtonLink, StatCell, StatGrid } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { MailAutomationOverviewData } from "../service/automation-workspace";
 import MailAutomationActivityTable from "./_components/MailAutomationActivityTable";
@@ -7,6 +7,7 @@ import MailAutomationShell from "./_components/MailAutomationShell";
 export default function MailAutomationOverview(props: { data: MailAutomationOverviewData; currentUserEmail: string | null }) {
   const activeReply = () => props.data.automaticReplies.find((configuration) => configuration.enabled) ?? null;
   const activeRules = () => props.data.mailRules?.filter((rule) => rule.enabled).length ?? 0;
+  const activeAiAutomations = () => props.data.aiAutomations?.filter((automation) => automation.enabled).length ?? 0;
   const activeWorkflows = () => props.data.customWorkflows?.filter((workflow) => workflow.activeVersionId).length ?? 0;
   const failures = () =>
     props.data.recentActivity?.filter((item) => item.status === "failed" || item.status === "needs_attention").length ?? 0;
@@ -34,11 +35,11 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
         />
         <Show when={props.data.permission === "admin"}>
           <StatCell
-            label="Rules"
-            value={activeRules()}
-            sub={`${props.data.mailRules?.length ?? 0} configured`}
+            label="Incoming mail"
+            value={activeRules() + activeAiAutomations()}
+            sub={`${(props.data.mailRules?.length ?? 0) + (props.data.aiAutomations?.length ?? 0)} configured`}
             href={`${base}/rules`}
-            accent={{ tone: "blue", icon: "ti ti-filter-cog" }}
+            accent={{ tone: "blue", icon: "ti ti-inbox-cog" }}
           />
           <StatCell
             label="Custom workflows"
@@ -91,13 +92,44 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
             </span>
           </a>
           <Show when={props.data.permission === "admin"}>
-            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=1`}>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=rule`}>
               <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
                 <i class="ti ti-filter-plus" aria-hidden="true" />
               </span>
               <span>
                 <span class="block text-sm font-semibold text-primary">Create a mail rule</span>
                 <span class="mt-1 block text-xs leading-relaxed text-dimmed">Route, tag, assign, or update matching messages.</span>
+              </span>
+            </a>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=ai-route`}>
+              <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
+                <i class="ti ti-route-alt-left" aria-hidden="true" />
+              </span>
+              <span>
+                <span class="block text-sm font-semibold text-primary">Sort incoming mail</span>
+                <span class="mt-1 block text-xs leading-relaxed text-dimmed">
+                  Classify each message and route it to a bounded Mail action.
+                </span>
+              </span>
+            </a>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=ai-tag`}>
+              <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
+                <i class="ti ti-tags" aria-hidden="true" />
+              </span>
+              <span>
+                <span class="block text-sm font-semibold text-primary">Add relevant tags</span>
+                <span class="mt-1 block text-xs leading-relaxed text-dimmed">Let AI select one or more existing local tags.</span>
+              </span>
+            </a>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=ai-draft`}>
+              <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
+                <i class="ti ti-pencil-bolt" aria-hidden="true" />
+              </span>
+              <span>
+                <span class="block text-sm font-semibold text-primary">Draft replies</span>
+                <span class="mt-1 block text-xs leading-relaxed text-dimmed">
+                  Create reviewable reply drafts without ever sending them automatically.
+                </span>
               </span>
             </a>
             <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/workflows?new=1`}>

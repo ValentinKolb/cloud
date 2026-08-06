@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
+import { mailAiAutomationKindSchema } from "../../../../contracts";
 import type { MailRequestContext } from "../../../../service";
 import { loadMailRulesWorkspace } from "../../../../service/automation-workspace";
 import MailRulesPage from "../../../MailRulesPage.island";
@@ -17,6 +18,8 @@ export default ssr<AuthContext>(async (c) => {
   };
   const result = await loadMailRulesWorkspace(context, mailboxId);
   if (!result.ok) return c.redirect(`/app/mail/${mailboxId}/automations`);
+  const requestedAutomation = c.req.query("new") ?? "";
+  const requestedAiKind = mailAiAutomationKindSchema.safeParse(requestedAutomation.replace(/^ai-/u, ""));
   return () => (
     <Layout
       c={c}
@@ -27,10 +30,15 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Mail", href: "/app/mail" },
         { title: result.data.mailbox.name, href: `/app/mail/${mailboxId}` },
         { title: "Automations", href: `/app/mail/${mailboxId}/automations` },
-        { title: "Mail rules" },
+        { title: "Incoming mail" },
       ]}
     >
-      <MailRulesPage data={result.data} currentUserEmail={user.mail} openNew={c.req.query("new") === "1"} />
+      <MailRulesPage
+        data={result.data}
+        currentUserEmail={user.mail}
+        openNewRule={requestedAutomation === "rule" || requestedAutomation === "1"}
+        openNewAiKind={requestedAiKind.success ? requestedAiKind.data : null}
+      />
     </Layout>
   );
 });

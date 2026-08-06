@@ -138,13 +138,15 @@ describe("mailHelp", () => {
     const automation = mailHelp.getMarkdown("mail-automation");
     const work = mailHelp.getMarkdown("mail-work");
 
-    expect(automation).toContain("Automations > Rules");
+    expect(automation).toContain("Automations > Incoming mail");
     expect(automation).toContain("up to eight ordered actions");
     expect(automation).toContain("mail rule catalog");
     expect(automation).toContain("shows it in the editor");
     expect(automation).toContain("resumable background backfill");
     expect(automation).toContain("skips messages already accepted");
     expect(automation).toContain("same workflow runtime");
+    expect(automation).toContain("Route with AI");
+    expect(automation).toContain("never schedule or send a message");
     expect(work).toContain("Find all from this sender");
     expect(work).toContain("Mark all as read");
     expect(work).toContain("at most 100 unread matching messages");
@@ -158,6 +160,10 @@ describe("mailHelp", () => {
       folders: [{ id: "10000000-0000-4000-8000-000000000001", name: "Invoices" }],
       assignableUsers: [{ id: "20000000-0000-4000-8000-000000000001", name: "Alice Example" }],
       senderIdentities: [{ id: "40000000-0000-4000-8000-000000000001", name: "Support" }],
+      localTags: [
+        { id: "50000000-0000-4000-8000-000000000001", name: "Finance" },
+        { id: "50000000-0000-4000-8000-000000000002", name: "Urgent" },
+      ],
     });
 
     expect(examples.length).toBeGreaterThanOrEqual(7);

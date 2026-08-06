@@ -1,9 +1,12 @@
+import { mutation } from "@k2b/stdlib/solid";
 import {
+  Button,
   CodeDisplay,
   DataTable,
   type DataTableColumn,
   Dropdown,
   dialogCore,
+  IconButton,
   PanelDialog,
   Placeholder,
   panelDialogFixedOptions,
@@ -13,10 +16,7 @@ import {
   Switch,
   TextInput,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {
@@ -83,7 +83,7 @@ const matchLabel = (rule: MailRule): string =>
     : `${rule.conditions.mode === "all" ? "All" : "Any"} of ${rule.conditions.items.length} conditions`;
 const activeBackfillStates = new Set<MailRuleBackfill["state"]>(["queued", "running", "waiting"]);
 
-function MailRuleConditionsEditor(props: {
+export function MailRuleConditionsEditor(props: {
   conditions: MailRuleConditions;
   validationMessage: string | null;
   onChange: (conditions: MailRuleConditions) => void;
@@ -318,15 +318,20 @@ function MailRuleActionFields(props: {
   return null;
 }
 
-function MailRuleActionsEditor(props: {
+export function MailRuleActionsEditor(props: {
   actions: MailRuleAction[];
   catalog: MailWorkflowCatalogSnapshot | null;
   catalogError: Error | null;
   validationMessage: string | null;
+  allowedKinds?: RuleActionKind[];
   onChange: (actions: MailRuleAction[]) => void;
   onRetry: () => void;
 }) {
-  const actionKindsFor = (index?: number) => mailRuleActionKindsFor({ actions: props.actions, catalog: props.catalog, index });
+  const actionKindsFor = (index?: number) => {
+    const kinds = mailRuleActionKindsFor({ actions: props.actions, catalog: props.catalog, index });
+    const allowedKinds = props.allowedKinds;
+    return allowedKinds ? kinds.filter((kind) => allowedKinds.includes(kind)) : kinds;
+  };
   const replaceAction = (index: number, action: MailRuleAction) =>
     props.onChange(props.actions.map((candidate, candidateIndex) => (candidateIndex === index ? action : candidate)));
   const createAction = (kind: RuleActionKind, index?: number) =>
