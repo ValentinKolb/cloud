@@ -113,7 +113,6 @@ pages:
               - id: article-form
                 type: form
                 formId: 20000000-0000-4000-8000-000000000501
-                submitLabel: Add another
                 fixedValues:
                   20000000-0000-4000-8000-000000000302: { source: PARAMS, path: list_id }
                 onSuccessNavigate:

@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, DslQueryPreviewResponse, DslQuerySurface, RecordQuery } from "../contracts";
 import { canonicalizeDslQuery } from "../query-dsl/canonical";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
+import { bindDslQueryParameters, type DslQueryParameters } from "../query-dsl/parameters";
 import { dslPreviewDiagnosticForCompilerError, previewDslQuery } from "../query-dsl/preview";
 import {
   type DslResolvedSqlQueryPlan,
@@ -322,6 +323,7 @@ type ExecuteGqlSourceOptions = {
   tracer?: GqlRuntimeTracer;
   labelRelationValues?: boolean;
   expectedFederatedRevisionScope?: FederatedRevisionScope;
+  parameters?: DslQueryParameters;
 };
 
 const executeGqlSourceUnadmitted = async (
@@ -360,6 +362,12 @@ const executeGqlSourceUnadmitted = async (
       await endTrace({ stage: "parse", outcome: "diagnostic", response });
       return { ok: true as const, response };
     }
+    const bound = bindDslQueryParameters(parsed.ast, options.parameters ?? {});
+    if (!bound.ok) {
+      const response = { ok: false as const, diagnostics: [{ line: 1, message: bound.error }] };
+      await endTrace({ stage: "parse", outcome: "diagnostic", response });
+      return { ok: true as const, response };
+    }
 
     const contextStartedAt = performance.now();
     const ctx = await buildPermissionedGqlResolverContextForAccess(
@@ -367,11 +375,11 @@ const executeGqlSourceUnadmitted = async (
       baseId,
       body.currentTableId,
       body.currentSource,
-      parsed.ast,
+      bound.ast,
     );
     timings.contextMs = performance.now() - contextStartedAt;
     const resolveStartedAt = performance.now();
-    const ast = sourceAst(parsed.ast, body.currentSource, ctx);
+    const ast = sourceAst(bound.ast, body.currentSource, ctx);
     const canonical = canonicalizeDslQuery(ast, ctx);
     if (!canonical.ok) {
       const response = { ok: false as const, diagnostics: canonical.diagnostics };

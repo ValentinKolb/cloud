@@ -59,6 +59,7 @@ const mapRow = (row: DbRow): CustomApp => ({
     parseJsonbRow(row.draft_capabilities, {
       views: [],
       insights: [],
+      recordQueries: [],
       records: [],
       forms: [],
       comments: [],
@@ -133,6 +134,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const diagnostics: CustomAppDiagnostic[] = [];
   const views: CustomAppCapabilities["views"] = [];
   const insights: CustomAppCapabilities["insights"] = [];
+  const recordQueries: CustomAppCapabilities["recordQueries"] = [];
   const pageRecords: CustomAppCapabilities["records"] = [];
   const forms: CustomAppCapabilities["forms"] = [];
   const comments: CustomAppCapabilities["comments"] = [];
@@ -229,33 +231,68 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   }
 
   for (const { page, block } of recordsBlocks) {
-    const [view] = await client<Array<{ view_id: string; table_id: string; base_id: string }>>`
-      SELECT v.id AS view_id, v.table_id, t.base_id
-      FROM grids.views v
-      JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
-      WHERE v.id = ${block.source.viewId}::uuid AND v.deleted_at IS NULL
-    `;
-    if (!view || view.base_id !== definition.baseId) {
+    const source =
+      block.source.kind === "view"
+        ? await client<Array<{ view_id: string; table_id: string; base_id: string; source: string }>>`
+            SELECT v.id AS view_id, v.table_id, t.base_id, v.source
+            FROM grids.views v
+            JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+            WHERE v.id = ${block.source.viewId}::uuid AND v.deleted_at IS NULL
+          `.then(([view]) =>
+            !view || view.base_id !== definition.baseId
+              ? null
+              : { kind: "view" as const, query: view.source, currentTableId: view.table_id, viewId: view.view_id },
+          )
+        : { kind: "gql" as const, query: block.source.query };
+    if (!source) {
       diagnostics.push({ path: ["blocks", block.id, "source", "viewId"], message: "View is missing or belongs to another base" });
       continue;
     }
+    const compiled = await compileDashboardWidgetQuery({
+      baseId: definition.baseId,
+      source: source.query,
+      ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
+      ...(block.source.kind === "gql"
+        ? {
+            parameters: Object.fromEntries(
+              Object.keys(block.source.inputs ?? {}).map((name) => [name, "00000000-0000-4000-8000-000000000000"]),
+            ),
+          }
+        : {}),
+    });
+    if (!compiled.ok) {
+      diagnostics.push({ path: ["pages", page.id, "blocks", block.id, "source"], message: compiled.error });
+      continue;
+    }
+    const plan = compiled.data.plan;
+    const aggregationCount =
+      (plan.query.aggregations?.length ?? 0) + (plan.sqlAggregations?.length ?? 0) + (plan.formulaAggregations?.length ?? 0);
+    const groupCount = (plan.query.groupBy?.length ?? 0) + (plan.sqlGroupBy?.length ?? 0);
+    if (aggregationCount > 0 || groupCount > 0) {
+      diagnostics.push({ path: ["pages", page.id, "blocks", block.id, "source"], message: "Records source must return ordinary records" });
+      continue;
+    }
+    const tableIds = collectDslPlanTableIds(plan, compiled.data.fieldsByTableId).sort();
+    if (tableIds.length > 24) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "source"],
+        message: "Records source may reference at most 24 tables",
+      });
+      continue;
+    }
+    const primaryTableId = plan.tableId;
     if (block.rowNavigate) {
       const targetPage = definition.pages.find((candidate) => candidate.id === block.rowNavigate!.pageId)!;
       for (const parameterId of Object.keys(block.rowNavigate.params)) {
-        if (targetPage.parameters[parameterId]?.tableId !== view.table_id) {
+        if (targetPage.parameters[parameterId]?.tableId !== primaryTableId) {
           diagnostics.push({
             path: ["pages", page.id, "blocks", block.id, "rowNavigate", "params", parameterId],
-            message: "Row record ids may only populate parameters for the source view table",
+            message: "Row record ids may only populate parameters for the source table",
           });
         }
       }
     }
-    const fields = await client<Array<{ id: string }>>`
-      SELECT id FROM grids.fields
-      WHERE table_id = ${view.table_id}::uuid AND deleted_at IS NULL
-        AND id = ANY(${toPgUuidArray(block.display.columnIds)}::uuid[])
-    `;
-    const found = new Set(fields.map((field) => field.id));
+    const found = new Set(tableIds.flatMap((tableId) => (compiled.data.fieldsByTableId[tableId] ?? []).map((field) => field.id)));
     for (const fieldId of block.display.columnIds) {
       if (!found.has(fieldId))
         diagnostics.push({
@@ -263,7 +300,8 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           message: `Field ${fieldId} is missing or belongs to another table`,
         });
     }
-    views.push({ viewId: view.view_id, tableId: view.table_id });
+    if (source.kind === "view") views.push({ viewId: source.viewId, tableId: primaryTableId });
+    else recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, tableIds });
   }
 
   for (const { page, block } of insightBlocks) {
@@ -291,6 +329,13 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       baseId: definition.baseId,
       source: source.query,
       ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
+      ...(block.source.kind === "gql"
+        ? {
+            parameters: Object.fromEntries(
+              Object.keys(block.source.inputs ?? {}).map((name) => [name, "00000000-0000-4000-8000-000000000000"]),
+            ),
+          }
+        : {}),
     });
     if (!compiled.ok) {
       diagnostics.push({
@@ -546,6 +591,9 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const capabilities = CustomAppCapabilitiesSchema.parse({
     views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
     insights: insights.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
+    recordQueries: recordQueries.sort(
+      (left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId),
+    ),
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
     forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     comments: comments.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),

@@ -2,7 +2,7 @@
 id: grids-custom-apps
 title: Custom Apps
 icon: ti ti-app-window
-description: Publish focused apps from Forms, saved views, and record details.
+description: Publish focused apps from Forms, bounded records, and record details.
 order: 137
 ---
 Custom Apps give signed-in Cloud accounts a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one base and reuses that base's records and saved views. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
@@ -17,7 +17,7 @@ A column may contain:
 
 - **Markdown**, for headings, instructions, and links;
 - **Form**, for creating a record with one existing active Grids Form;
-- **Records**, for up to 100 rows from one saved view and an explicit field allowlist;
+- **Records**, for up to 100 rows from a saved view or bounded GQL and an explicit field allowlist;
 - **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
@@ -25,6 +25,8 @@ A column may contain:
 - **Actions**, for internal navigation or an exact published workflow launcher.
 
 Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
+
+A route-only page may also declare a Record parameter without loading it as the page record. This is useful when bounded Records GQL or a Form needs parent context, such as one description list while several related articles are entered.
 
 Scripts, custom HTML and CSS, arbitrary URLs, and direct record mutations are not supported. Actions compose internal navigation and existing validated workflow launchers instead.
 

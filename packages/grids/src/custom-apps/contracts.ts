@@ -42,6 +42,15 @@ const CustomAppRowNavigationSchema = z
 
 const CustomAppParamValueSchema = z.object({ source: z.literal("PARAMS"), path: CustomAppParameterIdSchema }).strict();
 
+const CustomAppGqlSourceSchema = z
+  .object({
+    kind: z.literal("gql"),
+    query: z.string().trim().min(1).max(20_000),
+    maxRows: z.number().int().min(1).max(100),
+    inputs: z.record(CustomAppParameterIdSchema, CustomAppParamValueSchema).optional(),
+  })
+  .strict();
+
 const CustomAppRecordIdValueSchema = z.object({ source: z.literal("RECORD"), path: z.literal("id") }).strict();
 
 export const CustomAppActionValueSchema = z.discriminatedUnion("source", [
@@ -115,7 +124,10 @@ export const CustomAppRecordsBlockSchema = z
     type: z.literal("records"),
     title: z.string().trim().min(1).max(160).optional(),
     emptyText: z.string().trim().min(1).max(240).optional(),
-    source: z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
+    source: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
+      CustomAppGqlSourceSchema,
+    ]),
     display: z
       .object({
         kind: z.literal("table"),
@@ -128,13 +140,7 @@ export const CustomAppRecordsBlockSchema = z
 
 export const CustomAppInsightSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
-  z
-    .object({
-      kind: z.literal("gql"),
-      query: z.string().trim().min(1).max(20_000),
-      maxRows: z.number().int().min(1).max(100),
-    })
-    .strict(),
+  CustomAppGqlSourceSchema,
 ]);
 
 export const CustomAppMetricsBlockSchema = z
@@ -366,6 +372,17 @@ export const CustomAppDefinitionSchema = z
             if (block.type === "comments" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Comments block requires a page record", path: [...blockPath, "type"] });
             }
+            if ((block.type === "records" || block.type === "metrics" || block.type === "chart") && block.source.kind === "gql") {
+              for (const [inputName, value] of Object.entries(block.source.inputs ?? {})) {
+                if (!page.parameters[value.path]) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "GQL inputs must reference a parameter declared by the current page",
+                    path: [...blockPath, "source", "inputs", inputName, "path"],
+                  });
+                }
+              }
+            }
             if (block.type === "form") {
               for (const [fieldId, value] of Object.entries(block.fixedValues)) {
                 if (!page.parameters[value.path]) {
@@ -441,18 +458,18 @@ export const CustomAppDefinitionSchema = z
             path: ["pages", pageIndex, "navigation", "visible"],
           });
         }
-      } else if (Object.keys(page.parameters).length > 0) {
+      } else if (Object.keys(page.parameters).length > 0 && page.navigation.visible) {
         ctx.addIssue({
           code: "custom",
-          message: "Page parameters require a page record in this release",
-          path: ["pages", pageIndex, "parameters"],
+          message: "Pages with required parameters must be route-only navigation targets",
+          path: ["pages", pageIndex, "navigation", "visible"],
         });
       }
     }
 
     if (!pageIds.has(definition.startPageId)) {
       ctx.addIssue({ code: "custom", message: "startPageId must reference a page", path: ["startPageId"] });
-    } else if (definition.pages.find((page) => page.id === definition.startPageId)?.record) {
+    } else if (Object.keys(definition.pages.find((page) => page.id === definition.startPageId)?.parameters ?? {}).length > 0) {
       ctx.addIssue({ code: "custom", message: "startPageId must reference a page without required parameters", path: ["startPageId"] });
     }
 
@@ -552,6 +569,19 @@ export const CustomAppCapabilitiesSchema = z
           .strict(),
       )
       .max(24)
+      .default([]),
+    recordQueries: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            primaryTableId: z.string().uuid(),
+            tableIds: z.array(z.string().uuid()).min(1).max(24),
+          })
+          .strict(),
+      )
+      .max(4)
       .default([]),
     records: z
       .array(
@@ -660,7 +690,7 @@ export const CUSTOM_APP_REFERENCE = {
     chartGroupsPerBlock: 100,
   },
   pages: {
-    navigation: "Set visible to false for route-only detail pages",
+    navigation: "Set visible to false for route-only parameterized pages",
     parameters: "This release supports required same-base record parameters",
     record: "Bind one authorized page record from PARAMS",
   },
@@ -668,7 +698,7 @@ export const CUSTOM_APP_REFERENCE = {
     markdown: { required: ["id", "type", "markdown"] },
     records: {
       required: ["id", "type", "source", "display"],
-      source: { kind: "view", viewId: "view UUID" },
+      source: "Saved view or bounded inline GQL with optional typed PARAMS inputs",
       display: { kind: "table", columnIds: ["field UUID"] },
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
     },

@@ -20,16 +20,17 @@ The fixtures cover the three acceptance journeys:
 
 - `certificate-requests.yaml`: executable Golden App proof for create, personal
   list, record detail, comments, and generated document download.
-- `article-entry.yaml`: carry a parent relation through the URL and submit many
-  child records without re-entering it.
+- `article-entry.yaml`: executable Golden App proof for carrying a parent
+  relation through the URL, listing its children with bounded GQL, and
+  submitting many child records without re-entering it.
 - `inventory-borrower.yaml`: discover available items, build a draft loan,
   discuss it, finalize it, and download generated documents.
 - `inventory-loan-desk.yaml`: review and update all loans through an ordinary
   group-restricted app.
 
-`certificate-requests.yaml` already runs through this loop in the Grids DB
-integration suite. The remaining fixtures still need matching base resources
-and access bindings before they become executable Golden App tests:
+`certificate-requests.yaml` and `article-entry.yaml` run through this loop in
+the Grids DB integration suite. The inventory fixtures still need matching base
+resources and access bindings before they become executable Golden App tests:
 
 1. `apps validate` succeeds.
 2. `apps plan` and `apps apply --dry-run` return the same deterministic plan.

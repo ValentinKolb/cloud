@@ -28,6 +28,8 @@ A page declares every URL parameter before a block can use it. Supported paramet
 
 A page may load one **page record** from a Record parameter. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
+A route-only page may instead keep the declared Record parameter as context without rendering that record. Records GQL and Form fixed values can then reuse the same authorized parent ID. Pages with required parameters never appear in navigation and cannot be the app's start page.
+
 Implemented blocks bind contextual record values through a typed reference:
 
 ```yaml

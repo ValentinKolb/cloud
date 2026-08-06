@@ -271,6 +271,7 @@ describe("Custom App lifecycle", () => {
             source: { kind: "gql", tableIds: [tableId] },
           },
         ],
+        recordQueries: [],
         records: [{ pageId: "request", tableId, fieldIds: [fieldId], editableFieldIds: [fieldId] }],
         comments: [{ pageId: "request", blockId: "discussion", tableId }],
         documents: [{ pageId: "request", blockId: "request-details", tableId, templateIds: [documentTemplateId] }],
@@ -453,7 +454,7 @@ describe("Custom App lifecycle", () => {
       });
       expect(wrongRowTarget.ok).toBe(false);
       if (!wrongRowTarget.ok) {
-        expect(wrongRowTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("source view table"))).toBe(true);
+        expect(wrongRowTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("source table"))).toBe(true);
       }
 
       const wrongFixedTarget = await compile({

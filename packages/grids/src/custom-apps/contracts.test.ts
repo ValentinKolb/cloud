@@ -51,6 +51,12 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(Bun.YAML.parse(source!)).success).toBe(true);
   });
 
+  test("accepts the parameter-only article entry fixture", async () => {
+    const source = await Bun.file(new URL("../../docs/custom-apps/article-entry.yaml", import.meta.url)).text();
+    const parsed = CustomAppDefinitionSchema.safeParse(Bun.YAML.parse(source));
+    expect(parsed.success).toBe(true);
+  });
+
   test("rejects unknown keys instead of silently accepting future behavior", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), script: "alert(1)" }).success).toBe(false);
   });
@@ -262,6 +268,22 @@ describe("Custom App definition contract", () => {
       const chart = parsed.data.pages[0]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "chart");
       expect(chart?.limit).toBe(20);
     }
+  });
+
+  test("requires inline GQL inputs to use parameters declared by the current page", () => {
+    const source = definition();
+    source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
+      id: "children",
+      type: "records",
+      source: {
+        kind: "gql",
+        query: "from table Children\nwhere Parent = param('parent_id')",
+        maxRows: 100,
+        inputs: { parent_id: { source: "PARAMS", path: "missing" } },
+      },
+      display: { kind: "table", columnIds: [uuid(20)] },
+    } as never);
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
   });
 
   test("rejects unbounded or oversized insight sources", () => {

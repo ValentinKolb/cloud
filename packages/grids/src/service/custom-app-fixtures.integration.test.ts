@@ -3,14 +3,7 @@ import { sql } from "bun";
 import { CustomAppDefinitionSchema } from "../custom-apps/contracts";
 import { postgresTest, testShortId } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import {
-  grantAccess,
-  listCustomAppAccess,
-  listDocumentTemplateAccess,
-  listFormAccess,
-  listTableAccess,
-  listViewAccess,
-} from "./access";
+import { grantAccess, listCustomAppAccess, listDocumentTemplateAccess, listFormAccess, listTableAccess, listViewAccess } from "./access";
 import { apply, compile, get, plan, publish } from "./custom-apps";
 
 const CERTIFICATE = {
@@ -130,6 +123,7 @@ describe("Custom App Golden fixtures", () => {
       expect(validation.compiled.capabilities).toEqual({
         views: [{ viewId: CERTIFICATE.viewId, tableId: CERTIFICATE.tableId }],
         insights: [],
+        recordQueries: [],
         records: [
           {
             pageId: "request",

@@ -386,16 +386,54 @@ export default ssr<AuthContext>(async (c) => {
   );
   const entries = await Promise.all(
     blocks.map(async (block): Promise<[string, BlockResult]> => {
-      if (!allowedViews.has(block.source.viewId)) return [block.id, { ok: false, message: "This view is not part of the published app." }];
-      const result = await executeSavedViewSourceForContext(
-        { access: requestAccess, dateConfig, signal: c.req.raw.signal },
-        app.baseId,
-        block.source.viewId,
-        { maxRows: 100, operation: "execute" },
-      );
-      return result.ok
-        ? [block.id, { ok: true, result }]
-        : [block.id, { ok: false, message: result.diagnostics[0]?.message ?? "This view is unavailable." }];
+      const maxRows = block.source.kind === "gql" ? block.source.maxRows : 100;
+      const queryCapability =
+        block.source.kind === "gql"
+          ? app.publishedCapabilities!.recordQueries.find((candidate) => candidate.pageId === page.id && candidate.blockId === block.id)
+          : undefined;
+      if (block.source.kind === "gql" && !queryCapability) {
+        return [block.id, { ok: false, message: "This data source is not part of the published app." }];
+      }
+      try {
+        const result =
+          block.source.kind === "view"
+            ? allowedViews.has(block.source.viewId)
+              ? await executeSavedViewSourceForContext(
+                  { access: requestAccess, dateConfig, signal: c.req.raw.signal },
+                  app.baseId,
+                  block.source.viewId,
+                  { maxRows, pageSize: maxRows, maxResultBytes: 512_000, operation: "execute", surface: "ssr" },
+                )
+              : null
+            : (
+                await executeGqlSourceForContext(
+                  { access: requestAccess, dateConfig, signal: c.req.raw.signal },
+                  app.baseId,
+                  { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
+                  {
+                    maxRows,
+                    maxResultBytes: 512_000,
+                    operation: "execute",
+                    labelRelationValues: true,
+                    parameters: Object.fromEntries(
+                      Object.entries(block.source.inputs ?? {}).map(([name, value]) => [name, pageParams[value.path]!]),
+                    ),
+                  },
+                )
+              ).response;
+        if (!result) return [block.id, { ok: false, message: "This view is not part of the published app." }];
+        if (!result.ok) return [block.id, { ok: false, message: result.diagnostics[0]?.message ?? "This data source is unavailable." }];
+        if (block.source.kind === "gql") {
+          const allowedTableIds = new Set(queryCapability!.tableIds);
+          const outputTableIds = [...new Set(result.columns.flatMap((column) => (column.tableId ? [column.tableId] : [])))];
+          if (outputTableIds.some((tableId) => !allowedTableIds.has(tableId))) {
+            return [block.id, { ok: false, message: "This data source changed after the app was published." }];
+          }
+        }
+        return [block.id, { ok: true, result }];
+      } catch {
+        return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
+      }
     }),
   );
   const results = new Map(entries);
@@ -440,7 +478,15 @@ export default ssr<AuthContext>(async (c) => {
                   { access: requestAccess, dateConfig, signal: c.req.raw.signal },
                   app.baseId,
                   { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
-                  { maxRows, maxResultBytes: 512_000, operation: "execute", labelRelationValues: true },
+                  {
+                    maxRows,
+                    maxResultBytes: 512_000,
+                    operation: "execute",
+                    labelRelationValues: true,
+                    parameters: Object.fromEntries(
+                      Object.entries(block.source.inputs ?? {}).map(([name, value]) => [name, pageParams[value.path]!]),
+                    ),
+                  },
                 )
               ).response;
         if (!response.ok) {
