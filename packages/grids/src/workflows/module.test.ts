@@ -13,7 +13,7 @@ describe("Grids workflow manifest", () => {
   });
 
   test("preserves the published manifest hash", async () => {
-    expect(await hashWorkflowJson(gridsWorkflowManifest)).toBe("b89dbb07ae090eeb2c52c7483044a4319eabf498b7c653f2534ad4fe4f5910ac");
+    expect(await hashWorkflowJson(gridsWorkflowManifest)).toBe("dd299becf96c110d6ee1915d881edc85dab250d7a8bbe30eee269550d4c3d71f");
   });
 
   test("classifies every effectful action explicitly", () => {

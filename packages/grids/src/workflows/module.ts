@@ -94,7 +94,7 @@ export const gridsWorkflows = defineWorkflowModule({
     {
       kind: "recordEvent",
       label: "Record event",
-      description: "Starts when a record is created, updated, or deleted.",
+      description: "Starts when a record is created, updated, deleted, or commented on.",
       snippet: "recordEvent:\n  event: updated\n  table: Items\n  with:\n    item: ${{ trigger.record }}",
       eventValues: {
         record: "grids.record",
@@ -102,7 +102,7 @@ export const gridsWorkflows = defineWorkflowModule({
         occurredAt: "core.dateTime",
       },
       config: object({
-        event: { kind: "string", enum: ["created", "updated", "deleted"], description: "Record event to observe." },
+        event: { kind: "string", enum: ["created", "updated", "deleted", "commented"], description: "Record event to observe." },
         table: text("Optional table restriction.", true, 200),
         filter: value("Optional server-side Grids filter tree.", true),
       }),

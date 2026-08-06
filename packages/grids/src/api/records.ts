@@ -19,6 +19,34 @@ const RecordImportResponseSchema = z.object({
   items: z.array(GridRecordSchema),
 });
 
+const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
+const RecordCommentSchema = z.object({
+  id: z.string().uuid(),
+  authorUserId: z.string().uuid().nullable(),
+  authorDisplayName: z.string(),
+  authorAvatarHash: z.string().nullable(),
+  body: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+const RecordCommentPermissionsSchema = z.object({
+  actorUserId: z.string().uuid().nullable(),
+  canWrite: z.boolean(),
+  canModerate: z.boolean(),
+});
+const RecordCommentPageSchema = z.object({
+  items: z.array(RecordCommentSchema),
+  nextCursor: z.string().nullable(),
+  permissions: RecordCommentPermissionsSchema,
+});
+const RecordCommentListQuerySchema = z
+  .object({
+    cursor: z.string().max(2_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
 const CombinedAuditQuerySchema = z.object({
   recordId: z.string().uuid().optional(),
   sourceRef: z.string().max(20).optional(),
@@ -515,6 +543,159 @@ const app = new Hono<AuthContext>()
         gate.data.recordAccess,
       );
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+      return c.body(null, 204);
+    },
+  )
+
+  .get(
+    "/:tableId/:recordId/comments",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "List comments for a record",
+      responses: {
+        200: jsonResponse(RecordCommentPageSchema, "Comments"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid cursor"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("query", RecordCommentListQuerySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.record.comments.list({
+        baseId: table.baseId,
+        tableId,
+        recordId,
+        recordAccess: gate.data.recordAccess,
+        ...c.req.valid("query"),
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json({
+        ...result.data,
+        permissions: {
+          actorUserId: currentActorUserId(c),
+          canWrite: gridsService.permission.hasAtLeast(gate.data.level, "write"),
+          canModerate: gate.data.level === "admin",
+        },
+      });
+    },
+  )
+
+  .post(
+    "/:tableId/:recordId/comments",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Add a comment to a record",
+      responses: {
+        201: jsonResponse(RecordCommentSchema, "Created comment"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid comment"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("json", RecordCommentBodySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.record.comments.create({
+        baseId: table.baseId,
+        tableId,
+        recordId,
+        actorUserId: currentActorUserId(c),
+        body: c.req.valid("json").body,
+        recordAccess: gate.data.recordAccess,
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(result.data, 201);
+    },
+  )
+
+  .patch(
+    "/:tableId/:recordId/comments/:commentId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    requireUuidParam("commentId", "Comment"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Edit a record comment",
+      responses: {
+        200: jsonResponse(RecordCommentSchema, "Updated comment"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid comment"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("json", RecordCommentBodySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const record = await gridsService.record.get(tableId, recordId, { recordAccess: gate.data.recordAccess });
+      if (!record) return c.json({ message: "Record not found" }, 404);
+      return respond(c, () =>
+        gridsService.record.comments.update({
+          baseId: table.baseId,
+          tableId,
+          recordId,
+          commentId: c.req.param("commentId")!,
+          actorUserId: currentActorUserId(c),
+          canModerate: gate.data.level === "admin",
+          body: c.req.valid("json").body,
+          recordAccess: gate.data.recordAccess,
+        }),
+      );
+    },
+  )
+
+  .delete(
+    "/:tableId/:recordId/comments/:commentId",
+    requireUuidParam("tableId", "Table"),
+    requireUuidParam("recordId", "Record"),
+    requireUuidParam("commentId", "Comment"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Delete a record comment",
+      responses: {
+        204: { description: "Deleted" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const record = await gridsService.record.get(tableId, recordId, { recordAccess: gate.data.recordAccess });
+      if (!record) return c.json({ message: "Record not found" }, 404);
+      const result = await gridsService.record.comments.remove({
+        baseId: table.baseId,
+        tableId,
+        recordId,
+        commentId: c.req.param("commentId")!,
+        actorUserId: currentActorUserId(c),
+        canModerate: gate.data.level === "admin",
+        recordAccess: gate.data.recordAccess,
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.body(null, 204);
     },
   )

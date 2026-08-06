@@ -13,6 +13,7 @@ import { openRecordAuditDialog } from "./RecordAuditDialog";
 import RecordDocumentsSection from "./RecordDocumentsSection";
 import RecordFileField from "./RecordFileField";
 import RecordHistorySection from "./RecordHistorySection";
+import RecordComments from "./RecordComments.island";
 import RecordReadView from "./RecordReadView";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
 import { recordDisplayTitle } from "./record-display";
@@ -320,6 +321,9 @@ export default function RecordDetailPanel(props: Props) {
             initialRuns={props.detail()?.documentRuns ?? []}
             initialSnapshots={props.detail()?.snapshots ?? []}
           />
+          <Show when={mode() === "live"}>
+            <RecordComments endpoint={`/api/grids/records/${encodeURIComponent(props.tableId)}/${encodeURIComponent(rec.id)}/comments`} dateConfig={props.dateConfig} />
+          </Show>
           <RecordHistorySection entries={props.detail()?.auditEntries ?? []} fields={props.fields} dateConfig={props.dateConfig} />
         </RecordReadView>
       )}

@@ -16,7 +16,7 @@ export const RECORD_EVENT_WORK_MAX_DELIVERIES = 10_000;
 export const GridsRecordEventSchema = z
   .object({
     v: z.literal(1),
-    type: z.enum(["record.created", "record.updated", "record.deleted", "record.restored"]),
+    type: z.enum(["record.created", "record.updated", "record.deleted", "record.restored", "comment.created"]),
     baseId: z.string().uuid(),
     tableId: z.string().uuid(),
     recordId: z.string().uuid(),
@@ -91,6 +91,7 @@ export const publishRecordEvent = async (event: GridsRecordEvent, options: { rep
 export const resolveFederatedTargetsForRecordEvent = async (
   event: GridsRecordEvent,
 ): Promise<Array<{ baseId: string; tableId: string; changedFieldIds: string[] }>> => {
+  if (event.type === "comment.created") return [];
   const mappingCondition =
     event.changedFieldIds.length === 0
       ? sql`TRUE`

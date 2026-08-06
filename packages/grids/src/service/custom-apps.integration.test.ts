@@ -139,6 +139,7 @@ describe("Custom App lifecycle", () => {
                     span: 12,
                     blocks: [
                       { id: "request-details", type: "record", fieldIds: [fieldId] },
+                      { id: "discussion", type: "comments", title: "Updates" },
                       {
                         id: "follow-up",
                         type: "form",
@@ -162,6 +163,7 @@ describe("Custom App lifecycle", () => {
       expect(created.data.draftCapabilities).toEqual({
         views: [{ viewId, tableId }],
         records: [{ pageId: "request", tableId, fieldIds: [fieldId] }],
+        comments: [{ pageId: "request", blockId: "discussion", tableId }],
         forms: [
           {
             pageId: "home",

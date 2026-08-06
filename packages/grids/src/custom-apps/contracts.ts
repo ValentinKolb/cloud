@@ -90,6 +90,15 @@ export const CustomAppRecordBlockSchema = z
   })
   .strict();
 
+export const CustomAppCommentsBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("comments"),
+    title: z.string().trim().min(1).max(160).optional(),
+    emptyText: z.string().trim().min(1).max(240).optional(),
+  })
+  .strict();
+
 export const CustomAppFormBlockSchema = z
   .object({
     id: CustomAppLocalIdSchema,
@@ -105,6 +114,7 @@ export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMarkdownBlockSchema,
   CustomAppRecordsBlockSchema,
   CustomAppRecordBlockSchema,
+  CustomAppCommentsBlockSchema,
   CustomAppFormBlockSchema,
 ]);
 
@@ -212,6 +222,9 @@ export const CustomAppDefinitionSchema = z
             }
             if (block.type === "record" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Record block requires a page record", path: [...blockPath, "type"] });
+            }
+            if (block.type === "comments" && !page.record) {
+              ctx.addIssue({ code: "custom", message: "A Comments block requires a page record", path: [...blockPath, "type"] });
             }
             if (block.type === "form") {
               for (const [fieldId, value] of Object.entries(block.fixedValues)) {
@@ -360,6 +373,18 @@ export const CustomAppCapabilitiesSchema = z
       )
       .max(24)
       .default([]),
+    comments: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            tableId: z.string().uuid(),
+          })
+          .strict(),
+      )
+      .max(24)
+      .default([]),
   })
   .strict();
 
@@ -371,6 +396,7 @@ export type CustomAppBlock = z.infer<typeof CustomAppBlockSchema>;
 export type CustomAppPage = CustomAppDefinition["pages"][number];
 export type CustomAppRowNavigation = NonNullable<Extract<CustomAppBlock, { type: "records" }>["rowNavigate"]>;
 export type CustomAppFormBlock = Extract<CustomAppBlock, { type: "form" }>;
+export type CustomAppCommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
 
@@ -398,6 +424,7 @@ export const CUSTOM_APP_REFERENCE = {
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
     },
     record: { required: ["id", "type", "fieldIds"], note: "Displays allowlisted fields from the current page record" },
+    comments: { required: ["id", "type"], note: "Shows the bounded comment thread for the current page record" },
     form: {
       required: ["id", "type", "formId"],
       fixedValues: "Optionally bind compatible relation fields from declared PARAMS",
@@ -479,6 +506,7 @@ export const CUSTOM_APP_REFERENCE = {
                     type: "record",
                     fieldIds: ["00000000-0000-4000-8000-000000000004"],
                   },
+                  { id: "request-comments", type: "comments", emptyText: "No messages yet." },
                 ],
               },
             ],

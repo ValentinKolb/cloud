@@ -157,7 +157,7 @@ Only `schedule` and `recordEvent` belong under `triggers` in YAML. A workflow do
 
 :::reference
 - **schedule:** Starts future runs from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC. The same scheduled time creates at most one run. If a scheduled time passes while Grids is unavailable, that missed run is not created later.
-- **recordEvent:** Runs when a record is created, updated, or deleted. Add an optional table restriction and a filter that must match before the workflow starts.
+- **recordEvent:** Runs when a record is created, updated, deleted, or commented on. Add an optional table restriction and a filter that must match before the workflow starts.
 - **Activation window:** A record event only starts a run if it happened after the trigger became active. Enabling a workflow, or publishing a changed record-event trigger, restarts that window — earlier changes are not replayed into it.
 - **with bindings:** Map trigger values into declared workflow inputs. Every required input must receive a compatible value before the automatic run can start.
 - **Trigger values:** Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.

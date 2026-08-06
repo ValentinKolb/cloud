@@ -18,11 +18,12 @@ A column may contain:
 - **Markdown**, for headings, instructions, and links;
 - **Form**, for creating a record with one existing active Grids Form;
 - **Records**, for up to 100 rows from one saved view and an explicit field allowlist;
-- **Record**, for an explicit field allowlist from the current detail record.
+- **Record**, for an explicit field allowlist from the current detail record;
+- **Comments**, for a permission-inheriting discussion on the current detail record.
 
 Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
 
-Scripts, custom HTML and CSS, comments, actions, arbitrary URLs, and direct GQL sources are not supported in this release.
+Scripts, custom HTML and CSS, actions, arbitrary URLs, and direct GQL sources are not supported in this release.
 
 ## Build a list and detail app {icon="terminal-2"}
 

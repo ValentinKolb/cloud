@@ -123,7 +123,16 @@ describe("Custom App Form runtime", () => {
             rows: [
               {
                 id: "main",
-                columns: [{ id: "content", span: 12, blocks: [{ id: "record", type: "record", fieldIds: [fieldId] }] }],
+                columns: [
+                  {
+                    id: "content",
+                    span: 12,
+                    blocks: [
+                      { id: "record", type: "record", fieldIds: [fieldId] },
+                      { id: "discussion", type: "comments" },
+                    ],
+                  },
+                ],
               },
             ],
           },
@@ -138,6 +147,7 @@ describe("Custom App Form runtime", () => {
       for (const grant of [
         { resourceType: "customApp" as const, resourceId: appId, permission: "read" as const },
         { resourceType: "form" as const, resourceId: formId, permission: "write" as const },
+        { resourceType: "table" as const, resourceId: tableId, permission: "write" as const },
       ]) {
         const result = await grantAccess({ ...grant, principal: { type: "user", userId: authUser.id } });
         expect(result.ok).toBe(true);
@@ -162,6 +172,21 @@ describe("Custom App Form runtime", () => {
         SELECT data ->> ${fieldId} AS value FROM grids.records WHERE id = ${body.recordId}::uuid
       `;
       expect(record?.value).toBe("Certificate request");
+
+      const commentsUrl = `/apps/runtime/${applied.data.shortId}/request/discussion/comments?request_id=${body.recordId}`;
+      const createdComment = await api.request(commentsUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body: "Ready for review" }),
+      });
+      expect(createdComment.status).toBe(201);
+      const comment = (await createdComment.json()) as { id: string; body: string };
+      expect(comment.body).toBe("Ready for review");
+
+      const listedComments = await api.request(commentsUrl);
+      expect(listedComments.status).toBe(200);
+      const page = (await listedComments.json()) as { items: Array<{ id: string; body: string }>; nextCursor: string | null };
+      expect(page).toMatchObject({ items: [{ id: comment.id, body: "Ready for review" }], nextCursor: null });
     } finally {
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.record_event_outbox WHERE base_id = ${baseId}::uuid`;

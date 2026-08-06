@@ -27,7 +27,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
 - A **dashboard** contains configured widgets that reference resources by UUID.
-- A **Custom App** is one independently shared read-only page compiled from Markdown and saved-view Records blocks.
+- A **Custom App** is an independently shared, base-owned page collection compiled from Markdown, saved-view records, forms, record details, and record comments.
 - A **document template** renders GQL data through Liquid HTML and Gotenberg. A generated document keeps a recursive record snapshot.
 - A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and dashboard
   interactions. Grids contributes the actions and the events; the runs themselves live in Cloud's shared workflow kernel, so
@@ -587,9 +587,10 @@ current validated revision without requiring direct workflow access from the das
 ## Publish a Custom App
 
 Custom Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
-columns, Markdown blocks, up to four saved-view Records blocks, and route-only record detail pages. A Records block can navigate its row
-id into one required record parameter on a detail page; a Record block then renders only its explicit field allowlist. Run the live
-reference before authoring a definition:
+columns plus Markdown, saved-view Records, Record, Form, and Comments blocks. A Records block can navigate its row id into one required
+record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist and
+Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted fixed values from declared
+page parameters. Run the live reference before authoring a definition:
 
 ```bash
 cld grids apps reference
@@ -726,7 +727,7 @@ Every input may set `label`, `description`, and `required`. Type-specific declar
 Ranges are minute 0–59, hour 0–23, day 1–31, month 1–12, and weekday 0–7 with 0 and 7 as Sunday. `timezone` is an IANA name. Schedule
 bindings can read `${{ trigger.occurredAt }}` and `${{ trigger.slot }}`.
 
-`triggers.recordEvent` requires `event: created|updated|deleted`, and may set `table`, `filter`, and `with`. Bindings can read
+`triggers.recordEvent` requires `event: created|updated|deleted|commented`, and may set `table`, `filter`, and `with`. Bindings can read
 `${{ trigger.record }}`, `${{ trigger.event }}`, and `${{ trigger.occurredAt }}`. Every required workflow input must be bound. A filter leaf
 uses `fieldId`, `op`, `value`, and optional `caseInsensitive`; combine leaves with `{ op: AND|OR, filters: [...] }`. Operators are:
 

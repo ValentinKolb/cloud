@@ -94,7 +94,7 @@ The block may also expose generated document runs from an explicit template allo
 
 ### Comments
 
-Comments requires a page record. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. Creating a comment requires comment access to that record. Editing and deleting comments are not part of the first release.
+Comments requires a page record. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. Creating or changing a comment requires Write access to that record. Authors may edit and delete their own comments; record admins may moderate any comment. Deleted comments remain as a timestamped placeholder so the conversation order stays understandable.
 
 Comments inherit record visibility. They do not introduce a separate audience or permission store.
 

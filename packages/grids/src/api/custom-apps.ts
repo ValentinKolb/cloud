@@ -1,5 +1,5 @@
 import { type AuthContext, auth, getDateConfig, respond, v } from "@valentinkolb/cloud/server";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { CUSTOM_APP_REFERENCE, CustomAppDefinitionInputSchema } from "../custom-apps/contracts";
 import { customAppFormMatchesPublishedCapability } from "../custom-apps/form-runtime";
@@ -18,6 +18,13 @@ import {
 import { requireUuidParam } from "./route-params";
 
 const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
+const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
+const RecordCommentListQuerySchema = z
+  .object({
+    cursor: z.string().max(2_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .passthrough();
 
 const gateDefinitionAdmin = async (c: Parameters<typeof gateAt>[0], input: unknown) => {
   const parsed = DefinitionBaseSchema.safeParse(input);
@@ -26,10 +33,118 @@ const gateDefinitionAdmin = async (c: Parameters<typeof gateAt>[0], input: unkno
   return gate.ok ? null : respond(c, () => Promise.resolve(gate));
 };
 
+const resolveRuntimeComments = async (c: Context<AuthContext>, required: "read" | "write") => {
+  const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
+  if (!app?.publishedDefinition || !app.publishedCapabilities) return null;
+  const accessContext = gridsAccessContext(c);
+  const appAccess = await resolveWithGrantsForAccess(accessContext, { baseId: app.baseId, customAppId: app.id });
+  if (!hasExplicitGrant(appAccess.grants, "customApp", app.id) || !gridsService.permission.hasAtLeast(appAccess.level, "read")) return null;
+
+  const page = resolveCustomAppPage(app.publishedDefinition, c.req.param("pageId"));
+  const pageParams = page ? resolveCustomAppPageParams(page, c.req.query()) : null;
+  const block = page?.rows
+    .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+    .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "comments");
+  if (!page?.record || !pageParams || !block || block.type !== "comments") return null;
+  const capability = app.publishedCapabilities.comments.find(
+    (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record!.tableId,
+  );
+  if (!capability) return null;
+
+  const recordId = pageParams[page.record.id.path];
+  if (!recordId) return null;
+  const recordAccess = await resolveRecordAccessForAccess(
+    accessContext,
+    { baseId: app.baseId, tableId: page.record.tableId },
+    required,
+  );
+  if (!recordAccess.ok) return { denied: recordAccess } as const;
+  const record = await gridsService.record.get(page.record.tableId, recordId, {
+    viewer: actorViewerFor(accessContext),
+    recordAccess: recordAccess.data.recordAccess,
+  });
+  if (!record) return null;
+  return { app, page, block, recordId, recordAccess, accessContext } as const;
+};
+
 export const createCustomAppsApi = (deps: { requireAuthenticated?: MiddlewareHandler<AuthContext> } = {}) =>
   new Hono<AuthContext>()
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
     .get("/reference", (c) => c.json(CUSTOM_APP_REFERENCE))
+    .get("/runtime/:shortId/:pageId/:blockId/comments", v("query", RecordCommentListQuerySchema), async (c) => {
+      const resolved = await resolveRuntimeComments(c, "read");
+      if (!resolved) return c.json({ message: "Comments not found" }, 404);
+      if ("denied" in resolved && resolved.denied) return respond(c, () => Promise.resolve(resolved.denied));
+      const result = await gridsService.record.comments.list({
+        baseId: resolved.app.baseId,
+        tableId: resolved.page.record!.tableId,
+        recordId: resolved.recordId,
+        recordAccess: resolved.recordAccess.data.recordAccess,
+        ...c.req.valid("query"),
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json({
+        ...result.data,
+        permissions: {
+          actorUserId: currentActorUserId(c),
+          canWrite: gridsService.permission.hasAtLeast(resolved.recordAccess.data.level, "write"),
+          canModerate: resolved.recordAccess.data.level === "admin",
+        },
+      });
+    })
+    .post("/runtime/:shortId/:pageId/:blockId/comments", v("json", RecordCommentBodySchema), async (c) => {
+      const resolved = await resolveRuntimeComments(c, "write");
+      if (!resolved) return c.json({ message: "Comments not found" }, 404);
+      if ("denied" in resolved && resolved.denied) return respond(c, () => Promise.resolve(resolved.denied));
+      const result = await gridsService.record.comments.create({
+        baseId: resolved.app.baseId,
+        tableId: resolved.page.record!.tableId,
+        recordId: resolved.recordId,
+        actorUserId: currentActorUserId(c),
+        body: c.req.valid("json").body,
+        recordAccess: resolved.recordAccess.data.recordAccess,
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(result.data, 201);
+    })
+    .patch(
+      "/runtime/:shortId/:pageId/:blockId/comments/:commentId",
+      requireUuidParam("commentId", "Comment"),
+      v("json", RecordCommentBodySchema),
+      async (c) => {
+        const resolved = await resolveRuntimeComments(c, "write");
+        if (!resolved) return c.json({ message: "Comments not found" }, 404);
+        if ("denied" in resolved && resolved.denied) return respond(c, () => Promise.resolve(resolved.denied));
+        return respond(c, () =>
+          gridsService.record.comments.update({
+            baseId: resolved.app.baseId,
+            tableId: resolved.page.record!.tableId,
+            recordId: resolved.recordId,
+            commentId: c.req.param("commentId")!,
+            actorUserId: currentActorUserId(c),
+            canModerate: resolved.recordAccess.data.level === "admin",
+            body: c.req.valid("json").body,
+            recordAccess: resolved.recordAccess.data.recordAccess,
+          }),
+        );
+      },
+    )
+    .delete("/runtime/:shortId/:pageId/:blockId/comments/:commentId", requireUuidParam("commentId", "Comment"), async (c) => {
+      const resolved = await resolveRuntimeComments(c, "write");
+      if (!resolved) return c.json({ message: "Comments not found" }, 404);
+      if ("denied" in resolved && resolved.denied) return respond(c, () => Promise.resolve(resolved.denied));
+      const result = await gridsService.record.comments.remove({
+        baseId: resolved.app.baseId,
+        tableId: resolved.page.record!.tableId,
+        recordId: resolved.recordId,
+        commentId: c.req.param("commentId")!,
+        actorUserId: currentActorUserId(c),
+        canModerate: resolved.recordAccess.data.level === "admin",
+        recordAccess: resolved.recordAccess.data.recordAccess,
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.body(null, 204);
+    })
     .post("/runtime/:shortId/:pageId/:blockId/submit", v("json", FormSubmitSchema), async (c) => {
       const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
       if (!app?.publishedDefinition || !app.publishedCapabilities) return c.json({ message: "Form not found" }, 404);

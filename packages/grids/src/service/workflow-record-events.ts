@@ -200,10 +200,11 @@ type InvokeWorkflow = (input: {
 
 type Snapshot = { data: Record<string, WorkflowJsonValue>; matched: boolean };
 
-const eventName = (event: GridsRecordEvent): "created" | "updated" | "deleted" | null => {
+const eventName = (event: GridsRecordEvent): "created" | "updated" | "deleted" | "commented" | null => {
   if (event.type === "record.created") return "created";
   if (event.type === "record.updated") return "updated";
   if (event.type === "record.deleted") return "deleted";
+  if (event.type === "comment.created") return "commented";
   return null;
 };
 

@@ -46,7 +46,9 @@ const mapRow = (row: DbRow): CustomApp => ({
   name: row.name as string,
   icon: (row.icon as string | null) ?? null,
   draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
-  draftCapabilities: CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [] })),
+  draftCapabilities: CustomAppCapabilitiesSchema.parse(
+    parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [], comments: [] }),
+  ),
   publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
   publishedCapabilities: row.published_capabilities
     ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.published_capabilities, {}))
@@ -76,7 +78,7 @@ const zodDiagnostics = (error: { issues: Array<{ path: PropertyKey[]; message: s
     message: issue.message,
   }));
 
-const blocksByType = <T extends "form" | "record" | "records">(definition: CustomAppDefinition, type: T) =>
+const blocksByType = <T extends "comments" | "form" | "record" | "records">(definition: CustomAppDefinition, type: T) =>
   definition.pages.flatMap((page) =>
     page.rows.flatMap((row) =>
       row.columns.flatMap((column) =>
@@ -93,6 +95,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const definition = parsed.data;
   const recordsBlocks = blocksByType(definition, "records");
   const formBlocks = blocksByType(definition, "form");
+  const commentBlocks = blocksByType(definition, "comments");
   if (recordsBlocks.length > 4) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 4 Records blocks" }] };
   }
@@ -109,6 +112,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const views: CustomAppCapabilities["views"] = [];
   const pageRecords: CustomAppCapabilities["records"] = [];
   const forms: CustomAppCapabilities["forms"] = [];
+  const comments: CustomAppCapabilities["comments"] = [];
   const tableBaseIds = new Map<string, string | null>();
   const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
     const cached = tableBaseIds.get(tableId);
@@ -159,6 +163,9 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       }
     }
     pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds });
+    for (const { block } of commentBlocks.filter((candidate) => candidate.page.id === page.id)) {
+      comments.push({ pageId: page.id, blockId: block.id, tableId: page.record.tableId });
+    }
   }
 
   for (const { page, block } of recordsBlocks) {
@@ -298,6 +305,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
     forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
+    comments: comments.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
   });
   return { ok: true, compiled: { definition, capabilities } };
 };

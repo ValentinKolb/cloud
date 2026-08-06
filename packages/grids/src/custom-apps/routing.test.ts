@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomAppDefinition } from "./contracts";
 import {
+  customAppCommentsUrl,
   customAppFormSubmitUrl,
   customAppFormSuccessHref,
   customAppPageHref,
@@ -78,5 +79,11 @@ describe("Custom App routing", () => {
         uuid(10),
       ),
     ).toBe(`/apps/abc12/detail?request_id=${uuid(10)}`);
+  });
+
+  test("builds an internal Comments endpoint with the declared page parameters", () => {
+    expect(customAppCommentsUrl("abc12", "detail", "discussion", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/discussion/comments?request_id=${uuid(9)}`,
+    );
   });
 });

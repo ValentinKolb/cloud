@@ -29,6 +29,7 @@ import {
 } from "./permission-resolver";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
 import * as recordHistory from "./record-history";
+import * as recordComments from "./record-comments";
 import * as records from "./records";
 import * as relationsModule from "./relations";
 import * as tables from "./tables";
@@ -126,6 +127,12 @@ export const gridsService = {
     listActors: records.listActors,
     aggregate: records.aggregate,
     group: records.group,
+    comments: {
+      list: recordComments.list,
+      create: recordComments.create,
+      update: recordComments.update,
+      remove: recordComments.remove,
+    },
   },
   audit: {
     log: audit.logAudit,

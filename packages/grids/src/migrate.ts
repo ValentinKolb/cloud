@@ -540,6 +540,28 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_records_table_trash ON grids.records(table_id, deleted_at) WHERE deleted_at IS NOT NULL`.simple();
   console.log("  ✓ grids.records");
 
+  // Record comments inherit the record's live access policy. The repeated
+  // base/table keys keep bounded thread reads indexed without copying ACLs.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_comments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
+      author_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 10000),
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_comments_thread
+    ON grids.record_comments(base_id, table_id, record_id, created_at DESC, id DESC)
+    INCLUDE (author_user_id, updated_at, deleted_at)
+  `.simple();
+  console.log("  ✓ grids.record_comments");
+
   // ──────────────────────────────────────────────────────────────────
   // files — small per-record blobs stored directly in Postgres
   // ──────────────────────────────────────────────────────────────────
@@ -1178,12 +1200,35 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       record_id UUID NOT NULL,
-      event_type TEXT NOT NULL CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored')),
+      event_type TEXT NOT NULL CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored', 'comment.created')),
       record_version INT NOT NULL CHECK (record_version > 0),
       data JSONB NOT NULL,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `.simple();
+  await sql`
+    DO $$
+    DECLARE constraint_name text;
+    BEGIN
+      SELECT conname INTO constraint_name
+      FROM pg_constraint
+      WHERE conrelid = 'grids.record_event_snapshots'::regclass
+        AND contype = 'c'
+        AND pg_get_constraintdef(oid) LIKE '%event_type%';
+      IF constraint_name IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_constraint
+           WHERE conrelid = 'grids.record_event_snapshots'::regclass
+             AND conname = constraint_name
+             AND pg_get_constraintdef(oid) LIKE '%comment.created%'
+         ) THEN
+        EXECUTE format('ALTER TABLE grids.record_event_snapshots DROP CONSTRAINT %I', constraint_name);
+        ALTER TABLE grids.record_event_snapshots
+          ADD CONSTRAINT record_event_snapshots_event_type_check
+          CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored', 'comment.created'));
+      END IF;
+    END $$
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_record_event_snapshots_record

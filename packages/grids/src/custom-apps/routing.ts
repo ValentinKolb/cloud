@@ -42,6 +42,12 @@ export const customAppFormSubmitUrl = (shortId: string, pageId: string, blockId:
   return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/submit${query}`;
 };
 
+export const customAppCommentsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
+  const pageHref = customAppPageHref(shortId, pageId, params);
+  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
+  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/comments${query}`;
+};
+
 export const customAppRowHref = (shortId: string, navigation: CustomAppRowNavigation, recordId: string): string =>
   customAppPageHref(
     shortId,

@@ -42,6 +42,26 @@ const compile = async (source: string) => {
 };
 
 describe("Grids workflow binder", () => {
+  test("accepts the commented record-event trigger", async () => {
+    const ir = await compile(`inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+triggers:
+  recordEvent:
+    event: commented
+    table: Items
+    with:
+      item: "\${{ trigger.record }}"
+steps:
+  - succeed:
+      message: Comment received
+`);
+    const result = await bindGridsWorkflow(ir, catalog());
+    expect(result.ok).toBe(true);
+  });
+
   test("binds human-readable resources and fields to stable path-keyed IDs", async () => {
     const source = `inputs:
   item:

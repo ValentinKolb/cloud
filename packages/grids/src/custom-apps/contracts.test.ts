@@ -153,4 +153,23 @@ describe("Custom App definition contract", () => {
     form.fixedValues[uuid(21)] = { source: "PARAMS", path: "missing" };
     expect(CustomAppDefinitionSchema.safeParse(invalid).success).toBe(false);
   });
+
+  test("requires Comments blocks to inherit one declared page record", () => {
+    const source = definition();
+    const page = source.pages[0]!;
+    const row = page.rows[0]!;
+    const column = row.columns[0]!;
+    const withoutRecord = {
+      ...source,
+      pages: [{ ...page, rows: [{ ...row, columns: [{ ...column, blocks: [...column.blocks, { id: "discussion", type: "comments" }] }] }] }],
+    };
+    expect(CustomAppDefinitionSchema.safeParse(withoutRecord).success).toBe(false);
+
+    const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    const detail = example.pages.find((page) => page.record);
+    expect(detail?.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)).some((block) => block.type === "comments")).toBe(
+      true,
+    );
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+  });
 });

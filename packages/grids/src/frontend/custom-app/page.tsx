@@ -13,16 +13,24 @@ import { ssr } from "../../config";
 import type { DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
-import { customAppFormSubmitUrl, customAppPageHref, resolveCustomAppPage, resolveCustomAppPageParams } from "../../custom-apps/routing";
+import {
+  customAppCommentsUrl,
+  customAppFormSubmitUrl,
+  customAppPageHref,
+  resolveCustomAppPage,
+  resolveCustomAppPageParams,
+} from "../../custom-apps/routing";
 import { gridsService } from "../../service";
 import type { PublicRenderableForm } from "../../service/forms";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
+import RecordComments from "../_components/records/RecordComments.island";
 import { formatFieldValueText } from "../_components/table/field-value-format";
 import RecordsTable from "./RecordsTable.island";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
 type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
 type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
+type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
 type PageRecord = { record: GridRecord; fields: Field[] };
@@ -99,6 +107,7 @@ const CustomAppPage = (props: {
   shortId: string;
   results: Map<string, BlockResult>;
   forms: Map<string, FormBlockData>;
+  commentEndpoints: Map<string, string>;
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
@@ -137,7 +146,7 @@ const CustomAppPage = (props: {
               <div class="flex flex-col gap-4">
                 {column.blocks.map((block) => (
                   <article class="paper p-4 sm:p-5">
-                    {block.title ? <h2 class="mb-3 text-base font-semibold">{block.title}</h2> : null}
+                    {block.title && block.type !== "comments" ? <h2 class="mb-3 text-base font-semibold">{block.title}</h2> : null}
                     {block.type === "markdown" ? (
                       <MarkdownView markdown={block.markdown} smallHeadings />
                     ) : block.type === "records" ? (
@@ -148,6 +157,13 @@ const CustomAppPage = (props: {
                       />
                     ) : block.type === "record" ? (
                       <RecordDetails block={block} pageRecord={props.pageRecord} dateConfig={props.dateConfig} />
+                    ) : block.type === "comments" ? (
+                      <RecordComments
+                        endpoint={props.commentEndpoints.get(block.id) ?? ""}
+                        title={block.title}
+                        emptyText={block.emptyText}
+                        dateConfig={props.dateConfig}
+                      />
                     ) : (
                       <Form
                         block={block}
@@ -236,6 +252,17 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const results = new Map(entries);
+  const commentBlocks = page.rows.flatMap((row) =>
+    row.columns.flatMap((column) => column.blocks.filter((block): block is CommentsBlock => block.type === "comments")),
+  );
+  const commentEndpoints = new Map<string, string>();
+  for (const block of commentBlocks) {
+    const capability = app.publishedCapabilities.comments.find(
+      (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record?.tableId,
+    );
+    if (!capability || !page.record || !pageRecord) return c.notFound();
+    commentEndpoints.set(block.id, customAppCommentsUrl(app.shortId, page.id, block.id, pageParams));
+  }
   const formBlocks = page.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is FormBlock => block.type === "form")),
   );
@@ -303,6 +330,7 @@ export default ssr<AuthContext>(async (c) => {
         shortId={app.shortId}
         results={results}
         forms={forms}
+        commentEndpoints={commentEndpoints}
         pageRecord={pageRecord}
         dateConfig={dateConfig}
       />
