@@ -1004,24 +1004,6 @@ export default function MailConversationReader(props: {
                   </Button>
                 </Show>
               </div>
-              <Show when={props.conversationSummary?.summary}>
-                {(summary) => (
-                  <div class="mt-2 max-w-3xl text-sm leading-5 text-secondary">
-                    <p class="whitespace-pre-line" classList={{ "line-clamp-3": !summaryExpanded() }}>
-                      {summary()}
-                    </p>
-                    <Show when={summary().length > 280}>
-                      <button
-                        type="button"
-                        class="mt-1 text-xs font-medium text-dimmed hover:text-primary"
-                        onClick={() => setSummaryExpanded((expanded) => !expanded)}
-                      >
-                        {summaryExpanded() ? "Show less" : "More"}
-                      </button>
-                    </Show>
-                  </div>
-                )}
-              </Show>
             </div>
             <div class="flex shrink-0 items-center gap-1">
               <div class="hidden max-w-[min(40vw,28rem)] items-center gap-2 overflow-x-auto sm:flex">
@@ -1076,7 +1058,34 @@ export default function MailConversationReader(props: {
             data-scroll-preserve={`mail-reader-${props.selectionKey}`}
             onScroll={handleReaderScroll}
           >
-            <div class="mx-auto flex w-full max-w-4xl flex-col gap-2">
+            <Show when={props.conversationSummary?.summary}>
+              {(summary) => (
+                <section
+                  class="mx-auto w-full max-w-4xl py-3"
+                  aria-label="Conversation summary"
+                  data-mail-conversation-summary
+                >
+                  <p class="mb-1 text-[11px] font-medium leading-4 text-secondary">Summary</p>
+                  <p
+                    class="whitespace-pre-line text-sm leading-5 text-dimmed"
+                    classList={{ "line-clamp-3": !summaryExpanded() }}
+                    data-mail-conversation-summary-body
+                  >
+                    {summary()}
+                  </p>
+                  <Show when={summary().length > 280}>
+                    <button
+                      type="button"
+                      class="mt-1 text-xs font-medium text-dimmed hover:text-primary"
+                      onClick={() => setSummaryExpanded((expanded) => !expanded)}
+                    >
+                      {summaryExpanded() ? "Show less" : "More"}
+                    </button>
+                  </Show>
+                </section>
+              )}
+            </Show>
+            <div class="mx-auto flex w-full max-w-4xl flex-col gap-2" data-mail-conversation-messages>
               <For each={orderedMessages()}>
                 {(message) => (
                   <MailMessageCard

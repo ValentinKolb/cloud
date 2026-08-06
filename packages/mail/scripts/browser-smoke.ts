@@ -240,6 +240,20 @@ const createFixture = async (): Promise<Fixture> => {
     WHERE message_id = ${messageId}::uuid
   `;
   if (!conversation) fail("fixture message has no conversation");
+  const summary = [
+    "Customer needs confirmation that the reply composer remains stable during the operational review.",
+    "",
+    "The conversation contains a long message with 24 operational notes and quoted context that can be revealed on demand.",
+    "",
+    "Next step: review the full message, keep the conversation on one scrolling surface, and prepare a reply without losing context.",
+    "",
+    "The summary intentionally spans several paragraphs so its expanded state exercises the reader's height and overflow behavior.",
+  ].join("\n");
+  await sql`
+    UPDATE mail.conversations
+    SET summary = ${summary}, summary_revision = 2, revision = revision + 1, updated_at = now()
+    WHERE id = ${conversation.id}::uuid
+  `;
   ok("fixture created");
   return {
     sessionToken,
@@ -504,18 +518,63 @@ const runSmoke = async (fixture: Fixture) => {
     await messageCard.getByText("Please confirm that the reply composer stays focused.", { exact: false }).waitFor();
     if ((await messageCard.getAttribute("data-mail-direction")) !== "incoming") fail("incoming message direction is not exposed");
     const readerScroll = page.locator(`[data-scroll-preserve="mail-reader-${fixture.conversationId}"]`);
+    const summary = readerScroll.locator("[data-mail-conversation-summary]");
+    await summary.getByText("Summary", { exact: true }).waitFor();
+    const summaryLayout = await summary.evaluate((element) => {
+      const messages = element.parentElement?.querySelector<HTMLElement>("[data-mail-conversation-messages]");
+      const style = getComputedStyle(element);
+      return {
+        messagesWidth: messages?.getBoundingClientRect().width ?? 0,
+        width: element.getBoundingClientRect().width,
+        paddingTop: Number.parseFloat(style.paddingTop),
+        paddingBottom: Number.parseFloat(style.paddingBottom),
+      };
+    });
+    if (Math.abs(summaryLayout.width - summaryLayout.messagesWidth) > 1) {
+      fail(`conversation summary is not full width: ${JSON.stringify(summaryLayout)}`);
+    }
+    if (Math.abs(summaryLayout.paddingTop - summaryLayout.paddingBottom) > 0.5) {
+      fail(`conversation summary spacing is unbalanced: ${JSON.stringify(summaryLayout)}`);
+    }
     const readerState = await readerScroll.evaluate((element) => {
       const message = element.querySelector<HTMLElement>("[data-mail-message-id]");
       const body = element.querySelector<HTMLElement>(".mail-message-body");
-      if (!message || !body) return null;
+      const summary = element.querySelector<HTMLElement>("[data-mail-conversation-summary]");
+      if (!message || !body || !summary) return null;
+      const scrollTop = element.getBoundingClientRect().top;
       return {
-        messageOffset: Math.round(message.getBoundingClientRect().top - element.getBoundingClientRect().top),
+        messageOffset: Math.round(message.getBoundingClientRect().top - scrollTop),
         nestedVerticalScroll: body.scrollHeight > body.clientHeight + 1,
+        summaryBottom: Math.round(summary.getBoundingClientRect().bottom - scrollTop),
       };
     });
-    if (!readerState || readerState.messageOffset < -1 || readerState.messageOffset > 24)
-      fail(`long message did not open at its header: ${JSON.stringify(readerState)}`);
+    if (
+      !readerState ||
+      readerState.messageOffset < readerState.summaryBottom - 1 ||
+      readerState.messageOffset > readerState.summaryBottom + 24
+    )
+      fail(`long message did not follow its conversation summary: ${JSON.stringify(readerState)}`);
     if (readerState.nestedVerticalScroll) fail("long message body introduced a nested vertical scrollbar");
+    await summary.getByRole("button", { name: "More", exact: true }).click();
+    await summary.getByText("The summary intentionally spans several paragraphs", { exact: false }).waitFor();
+    const expandedReaderState = await readerScroll.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event("scroll"));
+      return {
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+      };
+    });
+    if (expandedReaderState.scrollHeight <= expandedReaderState.clientHeight || expandedReaderState.scrollTop <= 0) {
+      fail(`expanded conversation summary did not remain scrollable: ${JSON.stringify(expandedReaderState)}`);
+    }
+    await summary.getByRole("button", { name: "Show less", exact: true }).click();
+    await readerScroll.evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event("scroll"));
+    });
+    ok("conversation summary is full width, balanced, and part of the reader scroll surface");
     await page.getByText("Show quoted text", { exact: true }).click();
     await page.getByText("Previous message content remains available on demand.", { exact: false }).waitFor();
     ok("long messages open at the header and reveal quoted text without nested scrolling");
