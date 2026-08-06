@@ -64,7 +64,7 @@ describe("mailHelp", () => {
       "../frontend/[mailboxId]/page.tsx",
       "../frontend/[mailboxId]/automations/page.tsx",
       "../frontend/[mailboxId]/automations/replies/page.tsx",
-      "../frontend/[mailboxId]/automations/rules/page.tsx",
+      "../frontend/[mailboxId]/automations/incoming/page.tsx",
       "../frontend/[mailboxId]/automations/activity/page.tsx",
       "../frontend/[mailboxId]/automations/workflows/page.tsx",
       "../frontend/[mailboxId]/compose/[draftId]/page.tsx",
@@ -134,19 +134,19 @@ describe("mailHelp", () => {
     expect(security).toContain("does not move messages at the provider or start, cancel, or duplicate automation runs");
   });
 
-  test("documents guided mail rules and resumable existing-message backfills", () => {
+  test("documents unified incoming automations and resumable deterministic backfills", () => {
     const automation = mailHelp.getMarkdown("mail-automation");
     const work = mailHelp.getMarkdown("mail-work");
 
     expect(automation).toContain("Automations > Incoming mail");
-    expect(automation).toContain("up to eight ordered actions");
-    expect(automation).toContain("mail rule catalog");
-    expect(automation).toContain("shows it in the editor");
-    expect(automation).toContain("resumable background backfill");
+    expect(automation).toContain("All incoming mail");
+    expect(automation).toContain("mail automation catalog");
+    expect(automation).toContain("shows it read-only in the editor");
+    expect(automation).toContain("resumable backfill");
     expect(automation).toContain("skips messages already accepted");
-    expect(automation).toContain("same workflow runtime");
-    expect(automation).toContain("Route with AI");
-    expect(automation).toContain("never schedule or send a message");
+    expect(automation).toContain("shared workflow runtime");
+    expect(automation).toContain("AI classify many");
+    expect(automation).toContain("never sends them");
     expect(work).toContain("Find all from this sender");
     expect(work).toContain("Mark all as read");
     expect(work).toContain("at most 100 unread matching messages");

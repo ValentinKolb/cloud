@@ -1,6 +1,5 @@
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import * as mailboxAccess from "./access";
-import * as aiAutomations from "./ai-automations";
 import * as attachmentLinks from "./attachment-links";
 import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
@@ -22,9 +21,9 @@ import * as execution from "./execution";
 import * as folders from "./folders";
 import * as health from "./health";
 import { imapPushRuntime } from "./imap-push-runtime";
+import * as incomingAutomations from "./incoming-automations";
 import * as listSubscriptions from "./list-subscriptions";
 import * as localTags from "./local-tags";
-import * as mailRules from "./mail-rules";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
 import * as messageInspector from "./message-inspector";
@@ -56,10 +55,14 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await scheduledMailRuntime.start();
     await imapPushRuntime.start();
-    mailRules.startMailRuleBackfillRuntime();
+    incomingAutomations.startIncomingAutomationBackfillRuntime();
   },
   stop: () =>
-    stopRuntimeResources([mailRules.stopMailRuleBackfillRuntime, () => imapPushRuntime.stop(), () => scheduledMailRuntime.stop()]),
+    stopRuntimeResources([
+      incomingAutomations.stopIncomingAutomationBackfillRuntime,
+      () => imapPushRuntime.stop(),
+      () => scheduledMailRuntime.stop(),
+    ]),
 });
 
 export const mailRuntime = {
@@ -69,7 +72,6 @@ export const mailRuntime = {
 
 export type { MailRequestContext } from "./auth";
 export {
-  aiAutomations,
   attachmentLinks,
   automaticReplyConfigurations,
   bindings,
@@ -91,11 +93,11 @@ export {
   events,
   folders,
   health,
+  incomingAutomations,
   listSubscriptions,
   localTags,
   mailboxAccess,
   mailboxes,
-  mailRules,
   messageInspector,
   messages,
   notificationTargets,
@@ -138,6 +140,7 @@ export const mailService = {
   execution,
   events,
   health,
+  incomingAutomations,
   localTags,
   listSubscriptions,
   subscriptionWorkspace,
@@ -160,7 +163,6 @@ export const mailService = {
   security,
   senderIdentities,
   senderIdentityTransports,
-  mailRules,
   settingsContext,
   storageObservability,
   triage,

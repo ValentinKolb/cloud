@@ -1,6 +1,6 @@
+import { err, fail, ok, type Result, tryCatch, unwrap } from "@k2b/stdlib";
 import { createAccess, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { audit } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result, tryCatch, unwrap } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import {
@@ -28,7 +28,7 @@ import {
   userBackedActor,
 } from "./auth";
 import { publishMailMailboxEvent } from "./events";
-import { validateDestructiveMailRulesForMailbox } from "./mail-rules";
+import { validateDestructiveIncomingAutomationsForMailbox } from "./incoming-automations";
 import { pauseDeletedMailboxExecution, pauseMailboxTransport } from "./mailbox-lifecycle";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
 
@@ -386,7 +386,7 @@ export const updateMailbox = async (params: {
         unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
         if (composeSafety) {
           unwrap(
-            await validateDestructiveMailRulesForMailbox({
+            await validateDestructiveIncomingAutomationsForMailbox({
               mailboxId: params.mailboxId,
               internalDomains: composeSafety.data.internalDomains,
               db: tx,

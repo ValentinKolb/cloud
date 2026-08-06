@@ -1,0 +1,270 @@
+import { IconButton, Select, TextInput } from "@k2b/ui";
+import { Index, Show } from "solid-js";
+import type { MailAutomationAction, MailAutomationCondition, MailAutomationConditions } from "../../contracts";
+import type { MailWorkflowCatalogSnapshot } from "../../workflows/catalog";
+import {
+  type AutomationActionKind,
+  createMailAutomationAction,
+  mailAutomationActionKindLabels,
+  mailAutomationActionKindsFor,
+  mailAutomationDestinationFolders,
+  mailAutomationStatusLabels,
+} from "./mail-automation-actions";
+
+type ConditionField = MailAutomationCondition["field"];
+type TextCondition = Extract<MailAutomationCondition, { field: "subject" | "body_text" }>;
+type TextOperator = TextCondition["operator"];
+
+const conditionFieldLabels: Record<ConditionField, string> = {
+  sender_address: "Sender address",
+  sender_domain: "Sender domain",
+  subject: "Subject",
+  body_text: "Message body",
+  attachment_presence: "Attachments",
+};
+
+const textOperatorLabels: Record<TextOperator, string> = {
+  is: "is",
+  contains: "contains",
+  starts_with: "starts with",
+  ends_with: "ends with",
+};
+
+export const initialMailAutomationCondition = (field: ConditionField = "sender_address"): MailAutomationCondition => {
+  if (field === "attachment_presence") return { field, operator: "is", value: true };
+  if (field === "sender_address" || field === "sender_domain") return { field, operator: "is", value: "" };
+  return { field, operator: "contains", value: "" };
+};
+
+export const mailAutomationConditionLabel = (condition: MailAutomationCondition): string => {
+  if (condition.field === "attachment_presence") return condition.value ? "Has attachments" : "Has no attachments";
+  if (condition.field === "sender_address") return condition.value;
+  if (condition.field === "sender_domain") return `*@${condition.value}`;
+  return `${conditionFieldLabels[condition.field]} ${textOperatorLabels[condition.operator]} “${condition.value}”`;
+};
+
+export function MailAutomationConditionsEditor(props: {
+  conditions: MailAutomationConditions;
+  onChange: (conditions: MailAutomationConditions) => void;
+}) {
+  const replace = (index: number, condition: MailAutomationCondition) =>
+    props.onChange({
+      ...props.conditions,
+      items: props.conditions.items.map((candidate, candidateIndex) => (candidateIndex === index ? condition : candidate)),
+    });
+  const move = (index: number, offset: -1 | 1) => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= props.conditions.items.length) return;
+    const items = [...props.conditions.items];
+    [items[index], items[destination]] = [items[destination]!, items[index]!];
+    props.onChange({ ...props.conditions, items });
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <Index each={props.conditions.items}>
+        {(condition, index) => (
+          <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-2">
+            <div class="flex flex-wrap items-end gap-2 md:flex-nowrap">
+              <div class="min-w-40 flex-[1_1_11rem]">
+                <Select
+                  label="Field"
+                  value={() => condition().field}
+                  onValueChange={(field) => replace(index, initialMailAutomationCondition(field as ConditionField))}
+                  options={Object.entries(conditionFieldLabels).map(([id, label]) => ({ id, label }))}
+                />
+              </div>
+              <Show when={condition().field === "subject" || condition().field === "body_text"}>
+                <div class="min-w-32 flex-[0.75_1_9rem]">
+                  <Select
+                    label="Operator"
+                    value={() => {
+                      const current = condition();
+                      return current.field === "subject" || current.field === "body_text" ? current.operator : "is";
+                    }}
+                    onValueChange={(operator) => {
+                      const current = condition();
+                      if (current.field === "subject" || current.field === "body_text") {
+                        replace(index, { ...current, operator: operator as TextOperator });
+                      }
+                    }}
+                    options={Object.entries(textOperatorLabels).map(([id, label]) => ({ id, label }))}
+                  />
+                </div>
+              </Show>
+              <div class="min-w-48 flex-[1.5_1_16rem]">
+                <Show
+                  when={condition().field === "attachment_presence"}
+                  fallback={
+                    <TextInput
+                      label="Value"
+                      type={condition().field === "sender_address" ? "email" : "text"}
+                      value={() => {
+                        const current = condition();
+                        return current.field === "attachment_presence" ? "" : current.value;
+                      }}
+                      onValueChange={(value) => {
+                        const current = condition();
+                        if (current.field !== "attachment_presence") replace(index, { ...current, value });
+                      }}
+                      placeholder={
+                        condition().field === "sender_address"
+                          ? "sender@example.com"
+                          : condition().field === "sender_domain"
+                            ? "example.com"
+                            : "Text to match"
+                      }
+                      maxLength={condition().field === "sender_address" || condition().field === "sender_domain" ? 320 : 1_000}
+                      required
+                    />
+                  }
+                >
+                  <Select
+                    label="Value"
+                    value={() => (condition().field === "attachment_presence" && condition().value ? "yes" : "no")}
+                    onValueChange={(value) => replace(index, { field: "attachment_presence", operator: "is", value: value === "yes" })}
+                    options={[
+                      { id: "yes", label: "Has attachments" },
+                      { id: "no", label: "Has no attachments" },
+                    ]}
+                  />
+                </Show>
+              </div>
+              <div class="flex h-9 shrink-0 items-center gap-1">
+                <IconButton size="sm" type="button" label="Move condition up" disabled={index === 0} onClick={() => move(index, -1)}>
+                  <i class="ti ti-arrow-up" aria-hidden="true" />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  type="button"
+                  label="Move condition down"
+                  disabled={index === props.conditions.items.length - 1}
+                  onClick={() => move(index, 1)}
+                >
+                  <i class="ti ti-arrow-down" aria-hidden="true" />
+                </IconButton>
+                <IconButton
+                  size="sm"
+                  type="button"
+                  label="Remove condition"
+                  disabled={props.conditions.items.length === 1}
+                  onClick={() =>
+                    props.onChange({
+                      ...props.conditions,
+                      items: props.conditions.items.filter((_, candidateIndex) => candidateIndex !== index),
+                    })
+                  }
+                >
+                  <i class="ti ti-x" aria-hidden="true" />
+                </IconButton>
+              </div>
+            </div>
+          </div>
+        )}
+      </Index>
+      <div class="flex flex-wrap items-center gap-2">
+        <Show when={props.conditions.items.length < 8}>
+          <button
+            class="ui-button ui-button-secondary ui-button-sm"
+            type="button"
+            onClick={() =>
+              props.onChange({ ...props.conditions, items: [...props.conditions.items, initialMailAutomationCondition("subject")] })
+            }
+          >
+            <i class="ti ti-plus" aria-hidden="true" /> Add condition
+          </button>
+        </Show>
+        <Show when={props.conditions.items.length > 1}>
+          <div class="w-56">
+            <Select
+              aria-label="Match conditions"
+              value={() => props.conditions.mode}
+              onValueChange={(mode) => props.onChange({ ...props.conditions, mode: mode as MailAutomationConditions["mode"] })}
+              options={[
+                { id: "all", label: "Match all", icon: "ti ti-list-check" },
+                { id: "any", label: "Match any", icon: "ti ti-list-details" },
+              ]}
+            />
+          </div>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+export function MailAutomationActionEditor(props: {
+  action: MailAutomationAction;
+  otherActions: MailAutomationAction[];
+  catalog: MailWorkflowCatalogSnapshot;
+  onChange: (action: MailAutomationAction) => void;
+}) {
+  const kinds = () =>
+    mailAutomationActionKindsFor({
+      actions: [...props.otherActions, props.action],
+      catalog: props.catalog,
+      index: props.otherActions.length,
+    });
+  const setKind = (kind: AutomationActionKind) => {
+    const action = createMailAutomationAction({
+      kind,
+      actions: [...props.otherActions, props.action],
+      catalog: props.catalog,
+      index: props.otherActions.length,
+    });
+    if (action) props.onChange(action);
+  };
+
+  return (
+    <div class="grid gap-2 md:grid-cols-2">
+      <Select
+        label="Mail action"
+        value={() => props.action.kind}
+        onValueChange={(kind) => setKind(kind as AutomationActionKind)}
+        options={kinds().map((kind) => ({ id: kind, label: mailAutomationActionKindLabels[kind] }))}
+      />
+      <Show when={props.action.kind === "add_keyword"}>
+        <TextInput
+          label="Provider keyword"
+          value={() => (props.action.kind === "add_keyword" ? props.action.keyword : "")}
+          onValueChange={(keyword) => props.onChange({ kind: "add_keyword", keyword })}
+          maxLength={100}
+          required
+        />
+      </Show>
+      <Show when={props.action.kind === "move_to_folder"}>
+        <Select
+          label="Destination folder"
+          value={() => (props.action.kind === "move_to_folder" ? props.action.folderId : "")}
+          onValueChange={(folderId) => props.onChange({ kind: "move_to_folder", folderId: folderId ?? "" })}
+          options={mailAutomationDestinationFolders(props.catalog).map((folder) => ({ id: folder.id, label: folder.name }))}
+        />
+      </Show>
+      <Show when={props.action.kind === "add_local_tag"}>
+        <Select
+          label="Tag"
+          value={() => (props.action.kind === "add_local_tag" ? props.action.tagId : "")}
+          onValueChange={(tagId) => props.onChange({ kind: "add_local_tag", tagId: tagId ?? "" })}
+          options={(props.catalog.localTags ?? []).map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
+        />
+      </Show>
+      <Show when={props.action.kind === "assign_user"}>
+        <Select
+          label="Assignee"
+          value={() => (props.action.kind === "assign_user" ? props.action.userId : "")}
+          onValueChange={(userId) => props.onChange({ kind: "assign_user", userId: userId ?? "" })}
+          options={props.catalog.assignableUsers.map((user) => ({ id: user.id, label: user.name }))}
+        />
+      </Show>
+      <Show when={props.action.kind === "set_status"}>
+        <Select
+          label="Conversation status"
+          value={() => (props.action.kind === "set_status" ? props.action.status : "")}
+          onValueChange={(status) =>
+            props.onChange({ kind: "set_status", status: status as Extract<MailAutomationAction, { kind: "set_status" }>["status"] })
+          }
+          options={Object.entries(mailAutomationStatusLabels).map(([id, label]) => ({ id, label }))}
+        />
+      </Show>
+    </div>
+  );
+}

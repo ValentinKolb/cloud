@@ -32,7 +32,9 @@ import {
   type ComposeTemplate,
   type ConversationDraftSummary,
   type CreatedAttachmentLink,
+  type CreateIncomingAutomation,
   createAutomaticReplyConfigurationSchema,
+  createIncomingAutomationSchema,
   DEFAULT_CONVERSATION_REFERENCE_PATTERN,
   type DeletedMailbox,
   type DeletedMailboxPage,
@@ -42,6 +44,8 @@ import {
   type DraftLease,
   type DraftRecoveryCopy,
   draftEditableContentInputSchema,
+  type IncomingAutomationBackfill,
+  type IncomingAutomationMatchPreview,
   type Mailbox,
   type MailboxComposeStyle,
   type MailboxHealth,
@@ -52,11 +56,6 @@ import {
   type MailDraft,
   type MailingListDispositionResult,
   type MailPriority,
-  type MailRuleAction,
-  type MailRuleBackfill,
-  type MailRuleCondition,
-  type MailRuleConditions,
-  type MailRuleMatchPreview,
   type MailSearchExpression,
   type MailStorageSummary,
   type MailSubscriptionPage,
@@ -66,8 +65,6 @@ import {
   type MailWorkflowVersion,
   type MarkSenderMessagesReadResult,
   type MessageInspector,
-  mailRuleActionsSchema,
-  mailRuleConditionsSchema,
   mailSearchExpressionSchema,
   type PlatformMailboxOperationSummary,
   type PlatformMailOperations,
@@ -92,8 +89,8 @@ import type {
   EnsureConversationReferenceResult,
 } from "./service/conversation-reference";
 import type { MergeConversationsResult, ReassignConversationMessageResult, SplitConversationResult } from "./service/conversations";
+import type { IncomingAutomation } from "./service/incoming-automations";
 import type { AddConversationLocalTagsResult, ConversationLocalTags, LocalTag } from "./service/local-tags";
-import type { MailRule } from "./service/mail-rules";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
@@ -350,6 +347,12 @@ const automaticReplyConfigurationInput = flag.input({
   stdinName: "configuration-stdin",
   description: "Automatic reply configuration as JSON or YAML",
 });
+const incomingAutomationDefinitionInput = flag.input({
+  required: true,
+  fileName: "definition-file",
+  stdinName: "definition-stdin",
+  description: "Complete incoming automation definition as JSON or YAML",
+});
 const attachmentLinkPasswordInput = flag.input({
   fileName: "password-file",
   stdinName: "password-stdin",
@@ -416,6 +419,14 @@ const readAutomaticReplyConfiguration = async (input: Parameters<typeof readCliI
   if (!raw?.trim()) throw new Error("Automatic reply configuration cannot be empty.");
   const parsed = createAutomaticReplyConfigurationSchema.safeParse(parseStructuredDocument(raw, "Automatic reply configuration"));
   if (!parsed.success) throw new Error(`Invalid automatic reply configuration: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
+  return parsed.data;
+};
+
+const readIncomingAutomationDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<CreateIncomingAutomation> => {
+  const raw = await readCliInput(input, { label: "incoming automation definition", required: true });
+  if (!raw?.trim()) throw new Error("Incoming automation definition cannot be empty.");
+  const parsed = createIncomingAutomationSchema.safeParse(parseStructuredDocument(raw, "Incoming automation definition"));
+  if (!parsed.success) throw new Error(`Invalid incoming automation definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
 
@@ -1182,73 +1193,6 @@ const conversationKeywordCommand = (path: string, summary: string, operation: "a
     },
   });
 
-const mailRuleActions = (values: string[]): MailRuleAction[] => {
-  const actions = values.map((value): MailRuleAction => {
-    const separator = value.indexOf(":");
-    const kind = separator === -1 ? value : value.slice(0, separator);
-    const argument = separator === -1 ? "" : value.slice(separator + 1).trim();
-    if (kind === "junk" || kind === "trash" || kind === "mark_read") {
-      if (argument) throw new Error(`${kind} does not accept an action value.`);
-      return { kind };
-    }
-    if (kind === "add_keyword" && argument) return { kind, keyword: argument };
-    if (kind === "move_to_folder" && argument) return { kind, folderId: argument };
-    if (kind === "add_local_tag" && argument) return { kind, tagId: argument };
-    if (kind === "assign_user" && argument) return { kind, userId: argument };
-    if (kind === "set_status" && (argument === "needs_action" || argument === "waiting" || argument === "done")) {
-      return { kind, status: argument };
-    }
-    throw new Error(
-      `Invalid mail-rule action “${value}”. Use junk, trash, mark_read, add_keyword:<keyword>, move_to_folder:<folder-id>, add_local_tag:<tag-id>, assign_user:<user-id>, or set_status:<needs_action|waiting|done>.`,
-    );
-  });
-  const parsed = mailRuleActionsSchema.safeParse(actions);
-  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid mail-rule actions.");
-  return parsed.data;
-};
-
-const mailRuleConditions = (mode: MailRuleConditions["mode"], values: string[]): MailRuleConditions => {
-  const conditions = values.map((value): MailRuleCondition => {
-    const [field = "", operator = "", ...valueParts] = value.split(":");
-    const argument = valueParts.join(":").trim();
-    if ((field === "sender" || field === "domain") && operator === "is" && argument) {
-      return field === "sender"
-        ? { field: "sender_address", operator, value: argument }
-        : { field: "sender_domain", operator, value: argument };
-    }
-    if ((field === "subject" || field === "body") && ["is", "contains", "starts_with", "ends_with"].includes(operator) && argument) {
-      return {
-        field: field === "subject" ? "subject" : "body_text",
-        operator: operator as Extract<MailRuleCondition, { field: "subject" }>["operator"],
-        value: argument,
-      };
-    }
-    if (field === "attachment" && operator === "is" && (argument === "true" || argument === "false")) {
-      return { field: "attachment_presence", operator, value: argument === "true" };
-    }
-    throw new Error(
-      `Invalid mail-rule condition “${value}”. Use sender:is:<address>, domain:is:<domain>, subject:<is|contains|starts_with|ends_with>:<text>, body:<is|contains|starts_with|ends_with>:<text>, or attachment:is:<true|false>.`,
-    );
-  });
-  const parsed = mailRuleConditionsSchema.safeParse({ mode, items: conditions });
-  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid mail-rule conditions.");
-  return parsed.data;
-};
-
-const mailRuleConditionLabel = (condition: MailRuleCondition): string => {
-  if (condition.field === "attachment_presence") return condition.value ? "has attachments" : "has no attachments";
-  return `${condition.field} ${condition.operator} ${condition.value}`;
-};
-
-const mailRuleActionLabel = (action: MailRuleAction): string => {
-  if (action.kind === "add_keyword") return `add keyword ${action.keyword}`;
-  if (action.kind === "move_to_folder") return `move to folder ${action.folderId}`;
-  if (action.kind === "add_local_tag") return `add local tag ${action.tagId}`;
-  if (action.kind === "assign_user") return `assign user ${action.userId}`;
-  if (action.kind === "set_status") return `set status ${action.status}`;
-  return action.kind.replaceAll("_", " ");
-};
-
 const conversationMoveCommand = command("conversation move", {
   summary: "Move a conversation from one provider folder to another",
   args: {
@@ -1380,7 +1324,7 @@ export default defineCliCommands({
     reminder: "Manage personal conversation reminders",
     "remote-content": "Manage personal remote image preferences",
     repair: "Repair mailbox folder and message hydration state",
-    rule: "Create, inspect, and run guided mail rules",
+    automation: "Create, inspect, and run guided incoming automations",
     "saved-view": "Create and manage saved conversation views",
     scheduled: "Inspect and cancel scheduled message delivery",
     sender: "Preview and update messages from one sender or domain",
@@ -1405,7 +1349,7 @@ export default defineCliCommands({
     "mailbox deleted": "Inspect recoverable deleted mailboxes",
     "message keyword": "Add or remove provider keywords on messages",
     "reference config": "Inspect and manage mailbox reference settings",
-    "rule backfill": "Run and inspect mail-rule backfills",
+    "automation backfill": "Run and inspect incoming-automation backfills",
     "workflow version": "Create, inspect, and restore workflow versions",
     "admin mailbox access": "Manage direct access to a mailbox",
     "admin security authentication": "Manage trusted authentication result servers",
@@ -1745,7 +1689,7 @@ export default defineCliCommands({
     }),
     command("remote-content remove", {
       summary: "Remove a personal remote image preference",
-      args: { ruleId: arg.required({ description: "Rule id shown by remote-content list" }) },
+      args: { automationId: arg.required({ description: "Rule id shown by remote-content list" }) },
       flags: {
         ...mailboxFlag,
         yes: confirmFlag("Confirm remote image preference removal"),
@@ -1753,7 +1697,7 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to remove the remote image preference.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const removed = await readApi<{ id: string }>(ctx, `/mailboxes/${mailbox.id}/remote-content-rules/${args.ruleId}`, {
+        const removed = await readApi<{ id: string }>(ctx, `/mailboxes/${mailbox.id}/remote-content-rules/${args.automationId}`, {
           method: "DELETE",
         });
         if (printStructured(ctx, removed)) return;
@@ -5835,64 +5779,63 @@ export default defineCliCommands({
         ctx.print(`Updated automatic reply ${configuration.name} to revision ${configuration.revision}.`);
       },
     }),
-    command("rule catalog", {
-      summary: "List folders, Cloud tags, and users available to guided mail rules",
+    command("automation catalog", {
+      summary: "List folders, Cloud tags, and users available to guided incoming automations",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const catalog = await readApi<MailWorkflowCatalogSnapshot>(ctx, `/mailboxes/${mailbox.id}/mail-rules/catalog`);
+        const catalog = await readApi<MailWorkflowCatalogSnapshot>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/catalog`);
         if (printStructured(ctx, catalog)) return;
         ctx.print(`Folders: ${catalog.folders.map((folder) => `${folder.name} (${folder.id})`).join(", ") || "none"}`);
         ctx.print(`Cloud tags: ${(catalog.localTags ?? []).map((tag) => `${tag.name} (${tag.id})`).join(", ") || "none"}`);
         ctx.print(`Assignable users: ${catalog.assignableUsers.map((user) => `${user.name} (${user.id})`).join(", ") || "none"}`);
       },
     }),
-    command("rule list", {
-      summary: "List guided mail rules",
+    command("automation list", {
+      summary: "List guided incoming automations",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rules = await readApi<MailRule[]>(ctx, `/mailboxes/${mailbox.id}/mail-rules`);
+        const automations = await readApi<IncomingAutomation[]>(ctx, `/mailboxes/${mailbox.id}/incoming-automations`);
         printTable(
           ctx,
-          rules,
-          rules.map((rule) => ({
-            name: rule.name,
-            match:
-              rule.conditions.items.length === 1
-                ? mailRuleConditionLabel(rule.conditions.items[0]!)
-                : `${rule.conditions.mode} (${rule.conditions.items.length})`,
-            actions: rule.actions.map(mailRuleActionLabel).join(", "),
-            enabled: rule.enabled ? "yes" : "no",
-            revision: rule.revision,
-            id: rule.id,
+          automations,
+          automations.map((automation) => ({
+            name: automation.name,
+            scope:
+              automation.scope.mode === "all"
+                ? "all incoming mail"
+                : `${automation.scope.conditions.mode} (${automation.scope.conditions.items.length} conditions)`,
+            steps: automation.steps.length,
+            enabled: automation.enabled ? "yes" : "no",
+            revision: automation.revision,
+            id: automation.id,
           })),
           [
             { key: "name", label: "NAME" },
-            { key: "match", label: "MATCH" },
-            { key: "actions", label: "ACTIONS" },
+            { key: "scope", label: "SCOPE" },
+            { key: "steps", label: "STEPS" },
             { key: "enabled", label: "ENABLED" },
             { key: "revision", label: "REV" },
-            { key: "id", label: "RULE ID" },
+            { key: "id", label: "AUTOMATION ID" },
           ],
         );
       },
     }),
-    command("rule get", {
-      summary: "Show one guided mail rule and its generated workflow source",
-      args: { ruleId: arg.required({ description: "Mail rule id" }) },
+    command("automation get", {
+      summary: "Show one guided incoming automation and its generated workflow source",
+      args: { automationId: arg.required({ description: "Incoming automation id" }) },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rule = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
-        if (printStructured(ctx, rule)) return;
-        ctx.print(`${rule.name} (${rule.id})`);
-        ctx.print(`Match: ${rule.conditions.mode}`);
-        rule.conditions.items.forEach((condition, index) => ctx.print(`Condition ${index + 1}: ${mailRuleConditionLabel(condition)}`));
-        rule.actions.forEach((action, index) => ctx.print(`Action ${index + 1}: ${mailRuleActionLabel(action)}`));
-        ctx.print(`Enabled: ${rule.enabled ? "yes" : "no"}; revision: ${rule.revision}`);
+        const automation = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        if (printStructured(ctx, automation)) return;
+        ctx.print(`${automation.name} (${automation.id})`);
+        ctx.print(`Scope: ${automation.scope.mode}`);
+        automation.steps.forEach((step, index) => ctx.print(`Step ${index + 1}: ${step.kind.replaceAll("_", " ")}`));
+        ctx.print(`Enabled: ${automation.enabled ? "yes" : "no"}; revision: ${automation.revision}`);
         ctx.print("");
-        ctx.print(rule.workflowSource);
+        ctx.print(automation.workflowSource);
       },
     }),
     command("sender preview", {
@@ -5905,17 +5848,20 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         if (!flags.match || !flags.value) throw new Error("Missing required sender match flags.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const preview = await readApi<MailRuleMatchPreview>(
+        const preview = await readApi<IncomingAutomationMatchPreview>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/preview`,
+          `/mailboxes/${mailbox.id}/incoming-automations/preview`,
           jsonRequest("POST", {
-            conditions: {
-              mode: "all",
-              items: [
-                flags.match === "sender"
-                  ? { field: "sender_address", operator: "is", value: flags.value }
-                  : { field: "sender_domain", operator: "is", value: flags.value },
-              ],
+            scope: {
+              mode: "matching",
+              conditions: {
+                mode: "all",
+                items: [
+                  flags.match === "sender"
+                    ? { field: "sender_address", operator: "is", value: flags.value }
+                    : { field: "sender_domain", operator: "is", value: flags.value },
+                ],
+              },
             },
           }),
         );
@@ -5942,7 +5888,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<MarkSenderMessagesReadResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/mark-read`,
+          `/mailboxes/${mailbox.id}/incoming-automations/mark-read`,
           jsonRequest("POST", {
             matchKind: flags.match,
             matchValue: flags.value,
@@ -5957,130 +5903,91 @@ export default defineCliCommands({
         );
       },
     }),
-    command("rule create", {
-      summary: "Create a guided mail rule backed by a managed workflow",
+    command("automation create", {
+      summary: "Create a guided incoming automation from a JSON or YAML definition",
       flags: {
         ...mailboxFlag,
-        name: flag.string({ required: true, description: "Rule name" }),
-        matchMode: flag.enum(["all", "any"] as const, { description: "Require all or any conditions", default: "all" }),
-        condition: flag.stringList({
-          separator: "\0",
-          description:
-            "Condition; repeat. sender:is:<address>, domain:is:<domain>, subject:<operator>:<text>, body:<operator>:<text>, attachment:is:<true|false>",
-        }),
-        action: flag.stringList({
-          description:
-            "Ordered action; repeat. Values: junk, trash, mark_read, add_keyword:<value>, move_to_folder:<id>, add_local_tag:<id>, assign_user:<id>, set_status:<value>",
-          separator: "\0",
-        }),
-        disabled: flag.boolean({ description: "Create the rule disabled" }),
+        definition: incomingAutomationDefinitionInput,
       },
       run: async ({ ctx, flags }) => {
-        if (!flags.name || flags.condition.length === 0 || flags.action.length === 0) throw new Error("Missing required mail-rule flags.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rule = await readApi<MailRule>(
+        const automation = await readApi<IncomingAutomation>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules`,
-          jsonRequest("POST", {
-            name: flags.name,
-            enabled: !flags.disabled,
-            conditions: mailRuleConditions(flags.matchMode ?? "all", flags.condition),
-            actions: mailRuleActions(flags.action),
-          }),
+          `/mailboxes/${mailbox.id}/incoming-automations`,
+          jsonRequest("POST", await readIncomingAutomationDefinition(flags.definition)),
         );
-        if (printStructured(ctx, rule)) return;
-        ctx.print(`Created mail rule ${rule.name} (${rule.id}) at revision ${rule.revision}.`);
+        if (printStructured(ctx, automation)) return;
+        ctx.print(`Created incoming automation ${automation.name} (${automation.id}) at revision ${automation.revision}.`);
       },
     }),
-    command("rule update", {
-      summary: "Update a guided mail rule at its current revision",
-      args: { ruleId: arg.required({ description: "Mail rule id" }) },
+    command("automation update", {
+      summary: "Replace an incoming automation from a JSON or YAML definition",
+      args: { automationId: arg.required({ description: "Incoming automation id" }) },
       flags: {
         ...mailboxFlag,
-        name: flag.string({ description: "Rule name" }),
-        matchMode: flag.enum(["all", "any"] as const, { description: "Require all or any replacement conditions" }),
-        condition: flag.stringList({
-          separator: "\0",
-          description:
-            "Replacement condition set; repeat. sender:is:<address>, domain:is:<domain>, subject:<operator>:<text>, body:<operator>:<text>, attachment:is:<true|false>",
-        }),
-        action: flag.stringList({
-          description:
-            "Replacement ordered action plan; repeat. Values: junk, trash, mark_read, add_keyword:<value>, move_to_folder:<id>, add_local_tag:<id>, assign_user:<id>, set_status:<value>",
-          separator: "\0",
-        }),
+        definition: incomingAutomationDefinitionInput,
         revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        enable: flag.boolean({ description: "Enable the rule" }),
-        disable: flag.boolean({ description: "Disable the rule" }),
       },
       run: async ({ ctx, args, flags }) => {
-        if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
-        if (flags.revision === undefined) throw new Error("Missing expected mail-rule revision.");
+        if (flags.revision === undefined) throw new Error("Missing expected incoming-automation revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
-        if (current.revision !== flags.revision) throw new Error(`Mail rule is at revision ${current.revision}, not ${flags.revision}.`);
-        const nextActions = flags.action.length > 0 ? mailRuleActions(flags.action) : current.actions;
-        const nextConditions =
-          flags.condition.length > 0
-            ? mailRuleConditions(flags.matchMode ?? current.conditions.mode, flags.condition)
-            : flags.matchMode
-              ? { ...current.conditions, mode: flags.matchMode }
-              : current.conditions;
-        const rule = await readApi<MailRule>(
+        const current = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        if (current.revision !== flags.revision)
+          throw new Error(`Incoming automation is at revision ${current.revision}, not ${flags.revision}.`);
+        const automation = await readApi<IncomingAutomation>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/${current.id}`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${current.id}`,
           jsonRequest("PUT", {
             expectedRevision: flags.revision,
-            name: flags.name ?? current.name,
-            enabled: flags.enable || flags.disable ? flags.enable : current.enabled,
-            conditions: nextConditions,
-            actions: nextActions,
+            ...(await readIncomingAutomationDefinition(flags.definition)),
           }),
         );
-        if (printStructured(ctx, rule)) return;
-        ctx.print(`Updated mail rule ${rule.name} to revision ${rule.revision}.`);
+        if (printStructured(ctx, automation)) return;
+        ctx.print(`Updated incoming automation ${automation.name} to revision ${automation.revision}.`);
       },
     }),
-    command("rule delete", {
-      summary: "Delete a guided mail rule and disable its managed workflow",
-      args: { ruleId: arg.required({ description: "Mail rule id" }) },
+    command("automation delete", {
+      summary: "Delete a guided incoming automation and disable its managed workflow",
+      args: { automationId: arg.required({ description: "Incoming automation id" }) },
       flags: {
         ...mailboxFlag,
         revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        yes: confirmFlag("Confirm mail-rule deletion"),
+        yes: confirmFlag("Confirm incoming-automation deletion"),
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to delete the mail rule.");
-        if (flags.revision === undefined) throw new Error("Missing expected mail-rule revision.");
+        if (!flags.yes) throw new Error("Pass --yes to delete the incoming automation.");
+        if (flags.revision === undefined) throw new Error("Missing expected incoming-automation revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
-        if (current.revision !== flags.revision) throw new Error(`Mail rule is at revision ${current.revision}, not ${flags.revision}.`);
-        const deleted = await readApi<MailRule>(
+        const current = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        if (current.revision !== flags.revision)
+          throw new Error(`Incoming automation is at revision ${current.revision}, not ${flags.revision}.`);
+        const deleted = await readApi<IncomingAutomation>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/${current.id}`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${current.id}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, deleted)) return;
-        ctx.print(`Deleted mail rule ${deleted.name}.`);
+        ctx.print(`Deleted incoming automation ${deleted.name}.`);
       },
     }),
-    command("rule backfill start", {
-      summary: "Apply one enabled mail rule to all existing matching messages",
-      args: { ruleId: arg.required({ description: "Mail rule id" }) },
+    command("automation backfill start", {
+      summary: "Apply one enabled incoming automation to all existing matching messages",
+      args: { automationId: arg.required({ description: "Incoming automation id" }) },
       flags: {
         ...mailboxFlag,
         revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        yes: confirmFlag("Confirm starting the mail-rule backfill"),
+        yes: confirmFlag("Confirm starting the incoming-automation backfill"),
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to start the mail-rule backfill.");
-        if (flags.revision === undefined) throw new Error("Missing expected mail-rule revision.");
+        if (!flags.yes) throw new Error("Pass --yes to start the incoming-automation backfill.");
+        if (flags.revision === undefined) throw new Error("Missing expected incoming-automation revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
-        if (current.revision !== flags.revision) throw new Error(`Mail rule is at revision ${current.revision}, not ${flags.revision}.`);
-        const result = await readApi<MailRuleBackfill>(
+        const current = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        if (current.revision !== flags.revision)
+          throw new Error(`Incoming automation is at revision ${current.revision}, not ${flags.revision}.`);
+        const result = await readApi<IncomingAutomationBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/${current.id}/backfills`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${current.id}/backfills`,
           jsonRequest("POST", {
             operationId: crypto.randomUUID(),
             expectedRevision: flags.revision,
@@ -6092,18 +5999,18 @@ export default defineCliCommands({
         );
       },
     }),
-    command("rule backfill status", {
-      summary: "Show one mail-rule backfill",
+    command("automation backfill status", {
+      summary: "Show one incoming-automation backfill",
       args: {
-        ruleId: arg.required({ description: "Mail rule id" }),
+        automationId: arg.required({ description: "Incoming automation id" }),
         operationId: arg.required({ description: "Backfill operation id" }),
       },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<MailRuleBackfill>(
+        const result = await readApi<IncomingAutomationBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}/backfills/${args.operationId}`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}/backfills/${args.operationId}`,
         );
         if (printStructured(ctx, result)) return;
         ctx.print(
@@ -6113,10 +6020,10 @@ export default defineCliCommands({
         );
       },
     }),
-    command("rule backfill cancel", {
-      summary: "Cancel one active mail-rule backfill",
+    command("automation backfill cancel", {
+      summary: "Cancel one active incoming-automation backfill",
       args: {
-        ruleId: arg.required({ description: "Mail rule id" }),
+        automationId: arg.required({ description: "Incoming automation id" }),
         operationId: arg.required({ description: "Backfill operation id" }),
       },
       flags: {
@@ -6124,11 +6031,11 @@ export default defineCliCommands({
         yes: confirmFlag("Confirm canceling the backfill"),
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to cancel the mail-rule backfill.");
+        if (!flags.yes) throw new Error("Pass --yes to cancel the incoming-automation backfill.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<MailRuleBackfill>(
+        const result = await readApi<IncomingAutomationBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}/backfills/${args.operationId}`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}/backfills/${args.operationId}`,
           { method: "DELETE" },
         );
         if (printStructured(ctx, result)) return;

@@ -4,31 +4,31 @@ import { audit, toPgTextArray, toPgUuidArray, trace } from "@valentinkolb/cloud/
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
-import { stringify } from "yaml";
 import {
-  type CreateMailRule,
-  createMailRuleSchema,
-  type DeleteMailRule,
-  deleteMailRuleSchema,
+  type CreateIncomingAutomation,
+  createIncomingAutomationSchema,
+  type DeleteIncomingAutomation,
+  deleteIncomingAutomationSchema,
+  type IncomingAutomationBackfill,
+  type IncomingAutomationMatchPreview,
+  type MailAutomationAction,
+  type MailAutomationCondition,
+  type MailAutomationConditions,
+  type MailAutomationScope,
+  type MailAutomationStep,
   type MailCommand,
-  type MailRuleAction,
-  type MailRuleBackfill,
-  type MailRuleCondition,
-  type MailRuleConditions,
-  type MailRuleMatchPreview,
   type MarkSenderMessagesReadInput,
   type MarkSenderMessagesReadResult,
   markSenderMessagesReadInputSchema,
-  type PreviewMailRuleMatchesInput,
-  previewMailRuleMatchesInputSchema,
+  type PreviewIncomingAutomationMatchesInput,
+  previewIncomingAutomationMatchesInputSchema,
   type SenderMatchKind,
-  type SetMailRuleEnabled,
-  type StartMailRuleBackfillInput,
-  setMailRuleEnabledSchema,
-  startMailRuleBackfillInputSchema,
-  type UpdateMailRule,
-  updateMailRuleSchema,
-  type WorkflowEffectBudget,
+  type SetIncomingAutomationEnabled,
+  type StartIncomingAutomationBackfillInput,
+  setIncomingAutomationEnabledSchema,
+  startIncomingAutomationBackfillInputSchema,
+  type UpdateIncomingAutomation,
+  updateIncomingAutomationSchema,
 } from "../contracts";
 import { type MailWorkflowCatalogSnapshot, snapshotMailWorkflowCatalog } from "../workflows/catalog";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
@@ -39,20 +39,30 @@ import { sha256Json } from "./canonical";
 import { createActorCommandsInTransaction, enqueueCreatedActorCommands } from "./commands";
 import { databaseErrorCode } from "./database-errors";
 import { publishMailMailboxEvent } from "./events";
+import {
+  buildIncomingAutomationWorkflowSource,
+  incomingAutomationActions,
+  incomingAutomationBudget,
+  incomingAutomationHasAi,
+} from "./incoming-automation-definition";
 import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
 import type { SqlClient } from "./workflow-data";
 import { getWorkflowSnapshot, mailWorkflowEventContext } from "./workflow-data";
-import { replaceManagedWorkflowInTransaction, setManagedWorkflowEnabledInTransaction } from "./workflow-definition-service";
+import {
+  replaceManagedWorkflowInTransaction,
+  setManagedWorkflowEnabledInTransaction,
+  validateMailWorkflowSource,
+} from "./workflow-definition-service";
 
-export type MailRule = {
+export type IncomingAutomation = {
   id: string;
   mailboxId: string;
   workflowId: string;
   workflowVersionId: string;
   name: string;
   enabled: boolean;
-  conditions: MailRuleConditions;
-  actions: MailRuleAction[];
+  scope: MailAutomationScope;
+  steps: MailAutomationStep[];
   latestBackfillOperationId: string | null;
   workflowSource: string;
   revision: number;
@@ -60,15 +70,15 @@ export type MailRule = {
   updatedAt: string;
 };
 
-type MailRuleRow = {
+type IncomingAutomationRow = {
   id: string;
   mailbox_id: string;
   workflow_id: string;
   workflow_version_id: string;
   name: string;
   enabled: boolean;
-  conditions: MailRuleConditions | string;
-  actions: MailRuleAction[] | string;
+  scope: MailAutomationScope | string;
+  steps: MailAutomationStep[] | string;
   latest_backfill_operation_id: string | null;
   workflow_source: string;
   revision: string | number;
@@ -76,188 +86,93 @@ type MailRuleRow = {
   updated_at: Date | string;
 };
 
-type RuleActor = { kind: "user" | "service_account"; id: string };
+type AutomationActor = { kind: "user" | "service_account"; id: string };
+type AutomationConditionSet = { mode: MailAutomationConditions["mode"]; items: MailAutomationCondition[] };
 
-const mailRuleColumns = sql`
-  rule.id,
-  rule.mailbox_id,
-  rule.workflow_id,
+const incomingAutomationColumns = sql`
+  automation.id,
+  automation.mailbox_id,
+  automation.workflow_id,
   (
     SELECT workflow.active_version_id
     FROM workflows.workflow workflow
-    WHERE workflow.id = rule.workflow_id
+    WHERE workflow.id = automation.workflow_id
   ) AS workflow_version_id,
-  rule.name,
-  rule.enabled,
-  rule.conditions,
-  rule.actions,
-  rule.latest_backfill_operation_id,
+  automation.name,
+  automation.enabled,
+  automation.scope,
+  automation.steps,
+  automation.latest_backfill_operation_id,
   (
     SELECT version.source
     FROM workflows.workflow workflow
     JOIN workflows.version version ON version.id = workflow.active_version_id
-    WHERE workflow.id = rule.workflow_id
+    WHERE workflow.id = automation.workflow_id
   ) AS workflow_source,
-  rule.revision,
-  rule.created_at,
-  rule.updated_at
+  automation.revision,
+  automation.created_at,
+  automation.updated_at
 `;
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const normalizeName = (value: string): string => value.trim().replace(/\s+/gu, " ");
 const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
-const internalWorkflowName = (id: string): string => `Mail rule ${id}`;
+const internalWorkflowName = (id: string): string => `Mail incoming automation ${id}`;
 const EXISTING_MESSAGE_APPLICATION_LIMIT = 100;
-const MAX_MAIL_RULES = 500;
+const MAX_INCOMING_AUTOMATIONS = 500;
 const isSameOrSubdomain = (candidate: string, domain: string): boolean => candidate === domain || candidate.endsWith(`.${domain}`);
-const mailRuleExistingDedupePrefix = (ruleId: string, workflowVersionId: string): string =>
-  `mail-rule-existing:${ruleId}:v${workflowVersionId}:`;
-export const mailRuleExistingDedupeKey = (ruleId: string, workflowVersionId: string, targetKey: string): string =>
-  `${mailRuleExistingDedupePrefix(ruleId, workflowVersionId)}${targetKey}`;
+const incomingAutomationExistingDedupePrefix = (automationId: string, workflowVersionId: string): string =>
+  `incoming-automation-existing:${automationId}:v${workflowVersionId}:`;
+export const incomingAutomationExistingDedupeKey = (automationId: string, workflowVersionId: string, targetKey: string): string =>
+  `${incomingAutomationExistingDedupePrefix(automationId, workflowVersionId)}${targetKey}`;
 
-type MailRuleBackfillInput = {
+type IncomingAutomationBackfillInput = {
   operationId: string;
   mailboxId: string;
-  ruleId: string;
+  automationId: string;
   workflowId: string;
   workflowVersionId: string;
-  conditions: MailRuleConditions;
+  scope: MailAutomationScope;
   cutoffAt: string;
 };
 
-type MailRuleBackfillCursor = {
+type IncomingAutomationBackfillCursor = {
   internalDate: string;
   remoteMessageRefId: string;
 };
 
-type MailRuleBackfillItem = {
+type IncomingAutomationBackfillItem = {
   key: string;
   remoteMessageRefId: string;
 };
 
-type MailRuleBackfillPump = PumpHandle<MailRuleBackfillInput, MailRuleBackfillCursor>;
+type IncomingAutomationBackfillPump = PumpHandle<IncomingAutomationBackfillInput, IncomingAutomationBackfillCursor>;
 
-const mailRuleBackfillKey = (ruleId: string, operationId: string): string => `mail-rule:${ruleId}:backfill:${operationId}`;
+const incomingAutomationBackfillKey = (automationId: string, operationId: string): string =>
+  `incoming-automation:${automationId}:backfill:${operationId}`;
 
-const requestActor = (context: MailRequestContext): RuleActor => {
+const requestActor = (context: MailRequestContext): AutomationActor => {
   const actor = actorRefFromRequest(context);
   if (actor.kind === "user") return { kind: actor.kind, id: actor.userId };
   if (actor.kind === "service_account") return { kind: actor.kind, id: actor.serviceAccountId };
-  throw new TypeError("Request actor cannot configure mail rules");
+  throw new TypeError("Request actor cannot configure incoming automations");
 };
 
-const mapMailRule = (row: MailRuleRow): MailRule => ({
+const mapIncomingAutomation = (row: IncomingAutomationRow): IncomingAutomation => ({
   id: row.id,
   mailboxId: row.mailbox_id,
   workflowId: row.workflow_id,
   workflowVersionId: row.workflow_version_id,
   name: row.name,
   enabled: row.enabled,
-  conditions: parseJson(row.conditions),
-  actions: parseJson(row.actions),
+  scope: parseJson(row.scope),
+  steps: parseJson(row.steps),
   latestBackfillOperationId: row.latest_backfill_operation_id,
   workflowSource: row.workflow_source,
   revision: Number(row.revision),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
-
-const workflowBudget = (actions: MailRuleAction[]): WorkflowEffectBudget => ({
-  maxTargets: 50_000,
-  maxMoves: actions.some((action) => action.kind === "junk" || action.kind === "trash" || action.kind === "move_to_folder") ? 50_000 : 0,
-  maxCopies: 0,
-  maxSends: 0,
-  maxDrafts: 0,
-  maxFlagChanges: actions.some((action) => action.kind === "mark_read") ? 50_000 : 0,
-  maxNotifications: 0,
-  maxKeywordChanges: actions.some((action) => action.kind === "add_keyword") ? 50_000 : 0,
-  maxCollaborationChanges: actions.some(
-    (action) => action.kind === "add_local_tag" || action.kind === "assign_user" || action.kind === "set_status",
-  )
-    ? 100_000
-    : 0,
-  maxAiCalls: 0,
-});
-
-export const buildMailRuleActionStep = (action: MailRuleAction): Record<string, unknown> => {
-  if (action.kind === "junk") return { junkMessage: { message: "${{ inputs.message }}" } };
-  if (action.kind === "trash") return { trashMessage: { message: "${{ inputs.message }}" } };
-  if (action.kind === "mark_read") {
-    return { addFlag: { message: "${{ inputs.message }}", flag: "seen" } };
-  }
-  if (action.kind === "add_keyword") return { addKeyword: { message: "${{ inputs.message }}", keyword: action.keyword } };
-  if (action.kind === "move_to_folder") {
-    return { moveMessage: { message: "${{ inputs.message }}", folder: action.folderId } };
-  }
-  if (action.kind === "add_local_tag") {
-    return { addLocalTag: { conversation: "${{ inputs.conversation }}", tag: action.tagId } };
-  }
-  if (action.kind === "assign_user") {
-    return { assignConversation: { conversation: "${{ inputs.conversation }}", user: action.userId } };
-  }
-  return { setConversationStatus: { conversation: "${{ inputs.conversation }}", status: action.status } };
-};
-
-const workflowCondition = (condition: MailRuleCondition): Record<string, unknown> => {
-  if (condition.field === "attachment_presence") {
-    const exists = { exists: "inputs.message.attachments.0" };
-    return condition.value ? exists : { not: exists };
-  }
-  const reference =
-    condition.field === "sender_address"
-      ? "${{ inputs.message.fromAddress }}"
-      : condition.field === "sender_domain"
-        ? "${{ inputs.message.fromDomain }}"
-        : condition.field === "subject"
-          ? "${{ inputs.message.subject }}"
-          : "${{ inputs.message.bodyText }}";
-  const operator =
-    condition.field === "sender_address" || condition.field === "sender_domain"
-      ? "equals"
-      : condition.operator === "is"
-        ? "textEquals"
-        : condition.operator === "starts_with"
-          ? "startsWith"
-          : condition.operator === "ends_with"
-            ? "endsWith"
-            : "contains";
-  return { [operator]: [reference, condition.value] };
-};
-
-export const buildMailRuleConditionExpression = (conditions: MailRuleConditions): Record<string, unknown> => {
-  const items = conditions.items.map(workflowCondition);
-  return items.length === 1 ? items[0]! : { [conditions.mode]: items };
-};
-
-export const buildMailRuleWorkflowSource = (params: { conditions: MailRuleConditions; actions: MailRuleAction[] }): string =>
-  stringify(
-    {
-      inputs: {
-        message: { type: "mailMessage", required: true },
-        conversation: {
-          type: "mailConversation",
-          required: params.actions.some(
-            (action) => action.kind === "add_local_tag" || action.kind === "assign_user" || action.kind === "set_status",
-          ),
-        },
-      },
-      triggers: {
-        messageReceived: {
-          with: {
-            message: "${{ trigger.message }}",
-            conversation: "${{ trigger.conversation }}",
-          },
-        },
-      },
-      steps: [
-        {
-          if: buildMailRuleConditionExpression(params.conditions),
-          then: params.actions.map(buildMailRuleActionStep),
-        },
-      ],
-    },
-    { lineWidth: 0 },
-  );
 
 const normalizeSenderMatch = (kind: SenderMatchKind, value: string): Result<string> => {
   const normalized = kind === "sender" ? normalizeEmailAddress(value) : normalizeEmailDomain(value);
@@ -272,8 +187,8 @@ const senderMatchSql = (kind: SenderMatchKind, value: string) =>
   kind === "sender" ? sql`sender.normalized_email = ${value}` : sql`split_part(sender.normalized_email, '@', 2) = ${value}`;
 type SqlFragment = ReturnType<typeof senderMatchSql>;
 
-export const normalizeMailRuleConditions = (conditions: MailRuleConditions): Result<MailRuleConditions> => {
-  const items: MailRuleCondition[] = [];
+export const normalizeMailAutomationConditions = (conditions: MailAutomationConditions): Result<MailAutomationConditions> => {
+  const items: MailAutomationCondition[] = [];
   for (const condition of conditions.items) {
     if (condition.field !== "sender_address" && condition.field !== "sender_domain") {
       items.push(condition);
@@ -287,7 +202,7 @@ export const normalizeMailRuleConditions = (conditions: MailRuleConditions): Res
   return ok({ mode: conditions.mode, items });
 };
 
-const senderCondition = (condition: MailRuleCondition): { kind: SenderMatchKind; value: string } | null =>
+const senderCondition = (condition: MailAutomationCondition): { kind: SenderMatchKind; value: string } | null =>
   condition.field === "sender_address"
     ? { kind: "sender", value: condition.value }
     : condition.field === "sender_domain"
@@ -302,7 +217,17 @@ const combineSql = (parts: SqlFragment[], operator: "AND" | "OR"): SqlFragment =
     .reduce((combined, part) => (operator === "AND" ? sql`(${combined} AND ${part})` : sql`(${combined} OR ${part})`), first);
 };
 
-const mailRuleCandidateSql = (conditions: MailRuleConditions) => {
+const scopeConditions = (scope: MailAutomationScope): AutomationConditionSet =>
+  scope.mode === "matching" ? scope.conditions : { mode: "all", items: [] };
+
+const normalizeAutomationScope = (scope: MailAutomationScope): Result<MailAutomationScope> => {
+  if (scope.mode === "all") return ok(scope);
+  const conditions = normalizeMailAutomationConditions(scope.conditions);
+  return conditions.ok ? ok({ mode: "matching", conditions: conditions.data }) : conditions;
+};
+
+const incomingAutomationCandidateSql = (scope: MailAutomationScope) => {
+  const conditions = scopeConditions(scope);
   const senderConditions = conditions.items.flatMap((condition) => {
     const sender = senderCondition(condition);
     return sender ? [senderMatchSql(sender.kind, sender.value)] : [];
@@ -311,10 +236,11 @@ const mailRuleCandidateSql = (conditions: MailRuleConditions) => {
   return senderConditions.length === conditions.items.length ? combineSql(senderConditions, "OR") : sql`TRUE`;
 };
 
-const mailRulePreviewIsExact = (conditions: MailRuleConditions): boolean =>
-  conditions.items.every((condition) => condition.field === "sender_address" || condition.field === "sender_domain");
+const incomingAutomationPreviewIsExact = (scope: MailAutomationScope): boolean =>
+  scope.mode === "all" ||
+  scope.conditions.items.every((condition) => condition.field === "sender_address" || condition.field === "sender_domain");
 
-const mailRuleTargetFrom = sql`
+const incomingAutomationTargetFrom = sql`
   FROM mail.remote_message_refs remote_ref
   JOIN mail.message_placements placement
     ON placement.remote_message_ref_id = remote_ref.id
@@ -333,7 +259,7 @@ const mailRuleTargetFrom = sql`
     ON conversation_message.message_id = message.id
 `;
 
-const inboundMailRuleTarget = sql`
+const inboundIncomingAutomationTarget = sql`
   NOT EXISTS (
     SELECT 1
     FROM mail.sender_identities identity
@@ -343,15 +269,15 @@ const inboundMailRuleTarget = sql`
   )
 `;
 
-const normalizePreviewConditions = (input: PreviewMailRuleMatchesInput): Result<MailRuleConditions> => {
-  const parsed = previewMailRuleMatchesInputSchema.safeParse(input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail rule conditions"));
-  return normalizeMailRuleConditions(parsed.data.conditions);
+const normalizePreviewScope = (input: PreviewIncomingAutomationMatchesInput): Result<MailAutomationScope> => {
+  const parsed = previewIncomingAutomationMatchesInputSchema.safeParse(input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automation scope"));
+  return normalizeAutomationScope(parsed.data.scope);
 };
 
 const rejectOwnSenderTargets = async (params: {
   mailboxId: string;
-  conditions: MailRuleConditions;
+  conditions: AutomationConditionSet;
   db: SqlClient;
 }): Promise<Result<void>> => {
   const addresses = params.conditions.items.flatMap((condition) => (condition.field === "sender_address" ? [condition.value] : []));
@@ -364,17 +290,17 @@ const rejectOwnSenderTargets = async (params: {
       AND status <> 'disabled'
     LIMIT 1
   `;
-  return identity ? fail(err.badInput("Mail rules apply only to incoming mail; remove the mailbox's own sender address")) : ok();
+  return identity ? fail(err.badInput("Incoming automations apply only to incoming mail; remove the mailbox's own sender address")) : ok();
 };
 
 const protectMailboxSenders = async (params: {
   mailboxId: string;
-  conditions: MailRuleConditions;
-  actions: MailRuleAction[];
+  conditions: AutomationConditionSet;
+  actions: MailAutomationAction[];
   db: SqlClient;
 }): Promise<Result<void>> => {
   const genericMove = params.actions.find(
-    (action): action is Extract<MailRuleAction, { kind: "move_to_folder" }> => action.kind === "move_to_folder",
+    (action): action is Extract<MailAutomationAction, { kind: "move_to_folder" }> => action.kind === "move_to_folder",
   );
   if (genericMove) {
     const [folder] = await params.db<{ role: string | null }[]>`
@@ -436,23 +362,29 @@ const protectMailboxSenders = async (params: {
       : scopes.length === params.conditions.items.length && scopes.every((scope) => !protectedScope(scope));
   return safelyScoped
     ? ok()
-    : fail(err.badInput("Rules that move mail to junk or trash must restrict every possible match to an external sender or domain"));
+    : fail(err.badInput("Automations that move mail to junk or trash must restrict every possible match to an external sender or domain"));
 };
 
-const destructiveAction = (action: MailRuleAction): action is Extract<MailRuleAction, { kind: "junk" | "trash" }> =>
+const destructiveAction = (action: MailAutomationAction): action is Extract<MailAutomationAction, { kind: "junk" | "trash" }> =>
   action.kind === "junk" || action.kind === "trash";
 
-const destructiveActionFrom = (actions: MailRuleAction[]): Extract<MailRuleAction, { kind: "junk" | "trash" }> | undefined =>
+const destructiveActionFrom = (actions: MailAutomationAction[]): Extract<MailAutomationAction, { kind: "junk" | "trash" }> | undefined =>
   actions.find(destructiveAction);
 
+const destructiveKindsFrom = (actions: MailAutomationAction[]): Set<"junk" | "trash"> =>
+  new Set(actions.flatMap((action) => (destructiveAction(action) ? [action.kind] : [])));
+
 const senderScopesOverlap = (left: { kind: SenderMatchKind; value: string }, right: { kind: SenderMatchKind; value: string }): boolean => {
-  if (left.kind === right.kind) return left.value === right.value;
+  if (left.kind === "sender" && right.kind === "sender") return left.value === right.value;
+  if (left.kind === "domain" && right.kind === "domain") {
+    return isSameOrSubdomain(left.value, right.value) || isSameOrSubdomain(right.value, left.value);
+  }
   const sender = left.kind === "sender" ? left.value : right.value;
   const domain = left.kind === "domain" ? left.value : right.value;
-  return sender.slice(sender.lastIndexOf("@") + 1) === domain;
+  return isSameOrSubdomain(sender.slice(sender.lastIndexOf("@") + 1), domain);
 };
 
-const mandatorySenderScope = (conditions: MailRuleConditions): { kind: SenderMatchKind; value: string } | null => {
+const mandatorySenderScope = (conditions: AutomationConditionSet): { kind: SenderMatchKind; value: string } | null => {
   if (conditions.mode === "any" && conditions.items.some((condition) => !senderCondition(condition))) return null;
   for (const condition of conditions.items) {
     const scope = senderCondition(condition);
@@ -461,52 +393,48 @@ const mandatorySenderScope = (conditions: MailRuleConditions): { kind: SenderMat
   return null;
 };
 
-const conditionsPotentiallyOverlap = (left: MailRuleConditions, right: MailRuleConditions): boolean => {
+const conditionsPotentiallyOverlap = (left: AutomationConditionSet, right: AutomationConditionSet): boolean => {
   if (JSON.stringify(left) === JSON.stringify(right)) return true;
   const leftScope = mandatorySenderScope(left);
   const rightScope = mandatorySenderScope(right);
   return !leftScope || !rightScope || senderScopesOverlap(leftScope, rightScope);
 };
 
-const protectAgainstConflictingRules = async (params: {
+const protectAgainstConflictingAutomations = async (params: {
   mailboxId: string;
-  ruleId?: string;
+  automationId?: string;
   enabled: boolean;
-  conditions: MailRuleConditions;
-  actions: MailRuleAction[];
+  conditions: AutomationConditionSet;
+  actions: MailAutomationAction[];
   db: SqlClient;
 }): Promise<Result<void>> => {
-  const destructive = destructiveActionFrom(params.actions);
-  if (!params.enabled || !destructive) return ok();
+  const destructiveKinds = destructiveKindsFrom(params.actions);
+  if (!params.enabled || destructiveKinds.size === 0) return ok();
   const rows = await params.db<
     Array<{
       id: string;
       name: string;
-      conditions: MailRuleConditions | string;
-      actions: MailRuleAction[] | string;
+      scope: MailAutomationScope | string;
+      steps: MailAutomationStep[] | string;
     }>
   >`
-    SELECT rule.id, rule.name, rule.conditions, rule.actions
-    FROM mail.mail_rules rule
-    WHERE rule.mailbox_id = ${params.mailboxId}::uuid
-      AND rule.deleted_at IS NULL
-      AND rule.enabled = true
-      AND EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(rule.actions) AS action
-        WHERE action->>'kind' IN ('junk', 'trash')
-      )
-      AND (${params.ruleId ?? null}::uuid IS NULL OR rule.id <> ${params.ruleId ?? null}::uuid)
+    SELECT automation.id, automation.name, automation.scope, automation.steps
+    FROM mail.incoming_automations automation
+    WHERE automation.mailbox_id = ${params.mailboxId}::uuid
+      AND automation.deleted_at IS NULL
+      AND automation.enabled = true
+      AND (${params.automationId ?? null}::uuid IS NULL OR automation.id <> ${params.automationId ?? null}::uuid)
     FOR UPDATE
   `;
   const conflict = rows.find((row) => {
-    const action = destructiveActionFrom(parseJson<MailRuleAction[]>(row.actions));
-    return action && action.kind !== destructive.kind && conditionsPotentiallyOverlap(params.conditions, parseJson(row.conditions));
+    const existingKinds = destructiveKindsFrom(incomingAutomationActions(parseJson<MailAutomationStep[]>(row.steps)));
+    const incompatible = [...existingKinds].some((existing) => [...destructiveKinds].some((candidate) => existing !== candidate));
+    return incompatible && conditionsPotentiallyOverlap(params.conditions, scopeConditions(parseJson(row.scope)));
   });
-  return conflict ? fail(err.conflict(`Mail rule conflicts with “${conflict.name}”`)) : ok();
+  return conflict ? fail(err.conflict(`Incoming automation conflicts with “${conflict.name}”`)) : ok();
 };
 
-export const validateDestructiveMailRulesForMailbox = async (params: {
+export const validateDestructiveIncomingAutomationsForMailbox = async (params: {
   mailboxId: string;
   internalDomains?: readonly string[];
   identityAddresses?: readonly string[];
@@ -537,23 +465,20 @@ export const validateDestructiveMailRulesForMailbox = async (params: {
       .map((address) => normalizeEmailDomain(address.slice(address.lastIndexOf("@") + 1)))
       .filter((value): value is string => Boolean(value)),
   );
-  const rules = await params.db<
-    Array<{ id: string; name: string; conditions: MailRuleConditions | string; actions: MailRuleAction[] | string }>
+  const automations = await params.db<
+    Array<{ id: string; name: string; scope: MailAutomationScope | string; steps: MailAutomationStep[] | string }>
   >`
-    SELECT rule.id, rule.name, rule.conditions, rule.actions
-    FROM mail.mail_rules rule
-    WHERE rule.mailbox_id = ${params.mailboxId}::uuid
-      AND rule.deleted_at IS NULL
-      AND rule.enabled = true
-      AND EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(rule.actions) AS action
-        WHERE action->>'kind' IN ('junk', 'trash')
-      )
+    SELECT automation.id, automation.name, automation.scope, automation.steps
+    FROM mail.incoming_automations automation
+    WHERE automation.mailbox_id = ${params.mailboxId}::uuid
+      AND automation.deleted_at IS NULL
+      AND automation.enabled = true
     FOR UPDATE
   `;
-  const unsafe = rules.find((rule) => {
-    const conditions = parseJson<MailRuleConditions>(rule.conditions);
+  const unsafe = automations.find((automation) => {
+    const actions = incomingAutomationActions(parseJson<MailAutomationStep[]>(automation.steps));
+    if (!actions.some((action) => action.kind === "junk" || action.kind === "trash")) return false;
+    const conditions = scopeConditions(parseJson<MailAutomationScope>(automation.scope));
     const protectedScope = (scope: { kind: SenderMatchKind; value: string }): boolean =>
       scope.kind === "sender"
         ? identityAddresses.has(scope.value) ||
@@ -569,7 +494,7 @@ export const validateDestructiveMailRulesForMailbox = async (params: {
       ? !scopes.some((scope) => !protectedScope(scope))
       : scopes.length !== conditions.items.length || scopes.some(protectedScope);
   });
-  return unsafe ? fail(err.conflict(`Mail rule “${unsafe.name}” must be changed before updating mailbox sender safety`)) : ok();
+  return unsafe ? fail(err.conflict(`Incoming automation “${unsafe.name}” must be changed before updating mailbox sender safety`)) : ok();
 };
 
 const lockMailbox = async (context: MailRequestContext, mailboxId: string, db: SqlClient): Promise<Result<void>> => {
@@ -584,19 +509,28 @@ const lockMailbox = async (context: MailRequestContext, mailboxId: string, db: S
   return allowed.ok ? ok() : allowed;
 };
 
-const loadMailRule = async (mailboxId: string, ruleId: string, db: SqlClient, lock = false): Promise<Result<MailRule>> => {
-  const [row] = await db<MailRuleRow[]>`
-    SELECT ${mailRuleColumns}
-    FROM mail.mail_rules rule
-    WHERE rule.id = ${ruleId}::uuid
-      AND rule.mailbox_id = ${mailboxId}::uuid
-      AND rule.deleted_at IS NULL
-    ${lock ? sql`FOR UPDATE OF rule` : sql``}
+const loadIncomingAutomation = async (
+  mailboxId: string,
+  automationId: string,
+  db: SqlClient,
+  lock = false,
+  includeDeleted = false,
+): Promise<Result<IncomingAutomation>> => {
+  const [row] = await db<IncomingAutomationRow[]>`
+    SELECT ${incomingAutomationColumns}
+    FROM mail.incoming_automations automation
+    WHERE automation.id = ${automationId}::uuid
+      AND automation.mailbox_id = ${mailboxId}::uuid
+      AND ${includeDeleted ? sql`TRUE` : sql`automation.deleted_at IS NULL`}
+    ${lock ? sql`FOR UPDATE OF automation` : sql``}
   `;
-  return row ? ok(mapMailRule(row)) : fail(err.notFound("Mail rule"));
+  return row ? ok(mapIncomingAutomation(row)) : fail(err.notFound("Incoming automation"));
 };
 
-export const getMailRuleCatalog = async (context: MailRequestContext, mailboxId: string): Promise<Result<MailWorkflowCatalogSnapshot>> => {
+export const getIncomingAutomationCatalog = async (
+  context: MailRequestContext,
+  mailboxId: string,
+): Promise<Result<MailWorkflowCatalogSnapshot>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "admin");
   if (!allowed.ok) return allowed;
   return ok(snapshotMailWorkflowCatalog(await loadMailWorkflowCatalog({ context, mailboxId })));
@@ -605,41 +539,41 @@ export const getMailRuleCatalog = async (context: MailRequestContext, mailboxId:
 const recordActivity = async (params: {
   db: SqlClient;
   context: MailRequestContext;
-  rule: MailRule;
-  action: "mail_rule.created" | "mail_rule.updated" | "mail_rule.deleted";
+  automation: IncomingAutomation;
+  action: "incoming_automation.created" | "incoming_automation.updated" | "incoming_automation.deleted";
 }): Promise<string> => {
   const actor = requestActor(params.context);
   const [activity] = await params.db<{ id: string | number }[]>`
     INSERT INTO mail.activity_events (
       mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
     ) VALUES (
-      ${params.rule.mailboxId}::uuid,
+      ${params.automation.mailboxId}::uuid,
       ${actor.kind},
       ${actor.id}::uuid,
       ${params.action},
       'confirmed',
-      'mail_rule',
-      ${params.rule.id}::uuid,
+      'incoming_automation',
+      ${params.automation.id}::uuid,
       ${{
-        workflowId: params.rule.workflowId,
-        enabled: params.rule.enabled,
-        conditions: params.rule.conditions,
-        actions: params.rule.actions,
-        revision: params.rule.revision,
+        workflowId: params.automation.workflowId,
+        enabled: params.automation.enabled,
+        scope: params.automation.scope,
+        ai: incomingAutomationHasAi(params.automation.steps),
+        revision: params.automation.revision,
       }}::jsonb
     )
     RETURNING id
   `;
-  if (!activity) throw new Error("Mail rule activity insert returned no row");
+  if (!activity) throw new Error("Incoming automation activity insert returned no row");
   return String(activity.id);
 };
 
-const publishRuleChange = async (rule: MailRule, activityId: string): Promise<void> =>
+const publishAutomationChange = async (automation: IncomingAutomation, activityId: string): Promise<void> =>
   publishMailMailboxEvent({
-    mailboxId: rule.mailboxId,
+    mailboxId: automation.mailboxId,
     conversationId: null,
-    reason: "mail_rule",
-    targetId: rule.id,
+    reason: "incoming_automation",
+    targetId: automation.id,
     activityId,
   });
 
@@ -649,42 +583,46 @@ const mutationFailure = (error: unknown, fallback: string): Result<never> => {
     if (isServiceError(current)) return fail(current);
     current = (current as { cause?: unknown }).cause;
   }
-  if (databaseErrorCode(error) === "23505") return fail(err.conflict("Mail rule name already exists"));
+  if (databaseErrorCode(error) === "23505") return fail(err.conflict("Incoming automation name already exists"));
   return fail(err.internal(fallback));
 };
 
-export const listMailRules = async (context: MailRequestContext, mailboxId: string): Promise<Result<MailRule[]>> => {
+export const listIncomingAutomations = async (context: MailRequestContext, mailboxId: string): Promise<Result<IncomingAutomation[]>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const rows = await sql<MailRuleRow[]>`
-    SELECT ${mailRuleColumns}
-    FROM mail.mail_rules rule
-    WHERE rule.mailbox_id = ${mailboxId}::uuid
-      AND rule.deleted_at IS NULL
-    ORDER BY rule.enabled DESC, rule.normalized_name, rule.id
+  const rows = await sql<IncomingAutomationRow[]>`
+    SELECT ${incomingAutomationColumns}
+    FROM mail.incoming_automations automation
+    WHERE automation.mailbox_id = ${mailboxId}::uuid
+      AND automation.deleted_at IS NULL
+    ORDER BY automation.enabled DESC, automation.normalized_name, automation.id
     LIMIT 500
   `;
-  return ok(rows.map(mapMailRule));
+  return ok(rows.map(mapIncomingAutomation));
 };
 
-export const getMailRule = async (context: MailRequestContext, mailboxId: string, ruleId: string): Promise<Result<MailRule>> => {
+export const getIncomingAutomation = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  automationId: string,
+): Promise<Result<IncomingAutomation>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
-  return loadMailRule(mailboxId, ruleId, sql);
+  return loadIncomingAutomation(mailboxId, automationId, sql);
 };
 
-export const previewMailRuleMatches = async (params: {
+export const previewIncomingAutomationMatches = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  input: PreviewMailRuleMatchesInput;
-}): Promise<Result<MailRuleMatchPreview>> => {
+  input: PreviewIncomingAutomationMatchesInput;
+}): Promise<Result<IncomingAutomationMatchPreview>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const conditions = normalizePreviewConditions(params.input);
-  if (!conditions.ok) return conditions;
+  const scope = normalizePreviewScope(params.input);
+  if (!scope.ok) return scope;
   const incoming = await rejectOwnSenderTargets({
     mailboxId: params.mailboxId,
-    conditions: conditions.data,
+    conditions: scopeConditions(scope.data),
     db: sql,
   });
   if (!incoming.ok) return incoming;
@@ -692,11 +630,11 @@ export const previewMailRuleMatches = async (params: {
     SELECT
       COUNT(DISTINCT remote_ref.id)::int AS message_count,
       COUNT(DISTINCT conversation_message.conversation_id)::int AS conversation_count
-    ${mailRuleTargetFrom}
+    ${incomingAutomationTargetFrom}
     WHERE resource.mailbox_id = ${params.mailboxId}::uuid
       AND remote_ref.stale_at IS NULL
-      AND ${inboundMailRuleTarget}
-      AND ${mailRuleCandidateSql(conditions.data)}
+      AND ${inboundIncomingAutomationTarget}
+      AND ${incomingAutomationCandidateSql(scope.data)}
   `;
   const messageCount = Number(counts?.message_count ?? 0);
   return ok({
@@ -704,7 +642,7 @@ export const previewMailRuleMatches = async (params: {
     conversationCount: Number(counts?.conversation_count ?? 0),
     applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT,
     capped: messageCount > EXISTING_MESSAGE_APPLICATION_LIMIT,
-    exact: mailRulePreviewIsExact(conditions.data),
+    exact: incomingAutomationPreviewIsExact(scope.data),
   });
 };
 
@@ -793,10 +731,10 @@ export const markSenderMessagesRead = async (params: {
           placement.flags,
           placement.keywords,
           message.internal_date
-        ${mailRuleTargetFrom}
+        ${incomingAutomationTargetFrom}
         WHERE resource.mailbox_id = ${params.mailboxId}::uuid
           AND remote_ref.stale_at IS NULL
-          AND ${inboundMailRuleTarget}
+          AND ${inboundIncomingAutomationTarget}
           AND NOT ('\\Seen' = ANY(placement.flags))
           AND ${senderMatchSql(match.kind, match.value)}
         ORDER BY message.internal_date DESC, remote_ref.id, placement.folder_id
@@ -898,32 +836,36 @@ export const markSenderMessagesRead = async (params: {
   }
 };
 
-const loadCurrentBackfillRule = async (input: MailRuleBackfillInput, db: SqlClient, lock = false): Promise<MailRule> => {
-  const rule = unwrap(await loadMailRule(input.mailboxId, input.ruleId, db, lock));
-  if (!rule.enabled) throw new Error("Mail rule is disabled");
-  if (rule.workflowId !== input.workflowId || rule.workflowVersionId !== input.workflowVersionId) {
-    throw new Error("Mail rule workflow version changed");
+const loadCurrentBackfillAutomation = async (
+  input: IncomingAutomationBackfillInput,
+  db: SqlClient,
+  lock = false,
+): Promise<IncomingAutomation> => {
+  const automation = unwrap(await loadIncomingAutomation(input.mailboxId, input.automationId, db, lock));
+  if (!automation.enabled) throw new Error("Mail automation is disabled");
+  if (automation.workflowId !== input.workflowId || automation.workflowVersionId !== input.workflowVersionId) {
+    throw new Error("Mail automation workflow version changed");
   }
-  return rule;
+  return automation;
 };
 
-let mailRuleBackfillPump: MailRuleBackfillPump | null = null;
+let incomingAutomationBackfillPump: IncomingAutomationBackfillPump | null = null;
 
-const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
-  if (mailRuleBackfillPump) return mailRuleBackfillPump;
-  mailRuleBackfillPump = pump<MailRuleBackfillInput, MailRuleBackfillCursor, MailRuleBackfillItem>({
-    id: "mail.mail-rule-backfill",
+const getIncomingAutomationBackfillPump = (): IncomingAutomationBackfillPump => {
+  if (incomingAutomationBackfillPump) return incomingAutomationBackfillPump;
+  incomingAutomationBackfillPump = pump<IncomingAutomationBackfillInput, IncomingAutomationBackfillCursor, IncomingAutomationBackfillItem>({
+    id: "mail.mail-automation-backfill",
     batchSize: 100,
     retry: { maxAttempts: 3, baseMs: 1_000, maxMs: 10_000, jitter: 0.2 },
-    trace: trace.fromSyncPump<MailRuleBackfillInput, MailRuleBackfillCursor>({
-      name: "Mail rule backfill",
-      source: "mail:mail-rule-backfill",
+    trace: trace.fromSyncPump<IncomingAutomationBackfillInput, IncomingAutomationBackfillCursor>({
+      name: "Mail automation backfill",
+      source: "mail:incoming-automation-backfill",
       appId: "mail",
       attributes: (event) =>
         event.type === "submitted"
           ? {
               "mail.mailbox.id": event.input.mailboxId,
-              "mail.mail_rule.id": event.input.ruleId,
+              "mail.incoming_automation.id": event.input.automationId,
               "mail.workflow.id": event.input.workflowId,
               "mail.workflow.version_id": event.input.workflowVersionId,
               "mail.backfill.operation_id": event.input.operationId,
@@ -931,7 +873,7 @@ const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
           : undefined,
     }),
     pull: async ({ input, cursor, limit }) => {
-      await loadCurrentBackfillRule(input, sql);
+      await loadCurrentBackfillAutomation(input, sql);
       const afterCursor = cursor
         ? sql`
             AND (
@@ -942,12 +884,12 @@ const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
         : sql``;
       const rows = await sql<{ remote_message_ref_id: string; internal_date: Date | string }[]>`
         SELECT DISTINCT remote_ref.id AS remote_message_ref_id, message.internal_date
-        ${mailRuleTargetFrom}
+        ${incomingAutomationTargetFrom}
         WHERE resource.mailbox_id = ${input.mailboxId}::uuid
           AND remote_ref.stale_at IS NULL
           AND remote_ref.first_seen_at <= ${input.cutoffAt}
-          AND ${inboundMailRuleTarget}
-          AND ${mailRuleCandidateSql(input.conditions)}
+          AND ${inboundIncomingAutomationTarget}
+          AND ${incomingAutomationCandidateSql(input.scope)}
           AND NOT EXISTS (
             SELECT 1
             FROM workflows.event existing_event
@@ -955,7 +897,7 @@ const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
               AND existing_event.scope_id = ${input.mailboxId}
               AND existing_event.type = ${MAIL_WORKFLOW_EVENT.messageReceived}
               AND existing_event.dedupe_key =
-                ${mailRuleExistingDedupePrefix(input.ruleId, input.workflowVersionId)} || remote_ref.id::text
+                ${incomingAutomationExistingDedupePrefix(input.automationId, input.workflowVersionId)} || remote_ref.id::text
           )
           ${afterCursor}
         ORDER BY message.internal_date DESC, remote_ref.id DESC
@@ -975,7 +917,7 @@ const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
     },
     dispatch: async ({ input, item }) => {
       await sql.begin(async (tx) => {
-        const rule = await loadCurrentBackfillRule(input, tx, true);
+        const automation = await loadCurrentBackfillAutomation(input, tx, true);
         const snapshot = await getWorkflowSnapshot({
           mailboxId: input.mailboxId,
           remoteMessageRefId: item.remoteMessageRefId,
@@ -987,13 +929,13 @@ const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
             appId: MAIL_WORKFLOW_APP_ID,
             scopeId: input.mailboxId,
             type: MAIL_WORKFLOW_EVENT.messageReceived,
-            targetWorkflowId: rule.workflowId,
+            targetWorkflowId: automation.workflowId,
             data: {
               message: snapshot.source.message as unknown as WorkflowJsonValue,
               conversation: snapshot.source.conversation as unknown as WorkflowJsonValue,
             },
             context: mailWorkflowEventContext(input.mailboxId, snapshot),
-            dedupeKey: mailRuleExistingDedupeKey(rule.id, rule.workflowVersionId, snapshot.targetKey),
+            dedupeKey: incomingAutomationExistingDedupeKey(automation.id, automation.workflowVersionId, snapshot.targetKey),
             occurredAt: new Date(snapshot.internalDate),
           },
           { db: tx },
@@ -1001,19 +943,21 @@ const getMailRuleBackfillPump = (): MailRuleBackfillPump => {
       });
     },
   });
-  return mailRuleBackfillPump;
+  return incomingAutomationBackfillPump;
 };
 
-export const startMailRuleBackfillRuntime = (): void => {
-  getMailRuleBackfillPump();
+export const startIncomingAutomationBackfillRuntime = (): void => {
+  getIncomingAutomationBackfillPump();
 };
 
-export const stopMailRuleBackfillRuntime = (): void => {
-  mailRuleBackfillPump?.stop();
-  mailRuleBackfillPump = null;
+export const stopIncomingAutomationBackfillRuntime = (): void => {
+  incomingAutomationBackfillPump?.stop();
+  incomingAutomationBackfillPump = null;
 };
 
-const loadMailRuleBackfillCounts = async (input: MailRuleBackfillInput): Promise<{ candidates: number; accepted: number }> => {
+const loadIncomingAutomationBackfillCounts = async (
+  input: IncomingAutomationBackfillInput,
+): Promise<{ candidates: number; accepted: number }> => {
   const [row] = await sql<{ candidates: string | number; accepted: string | number }[]>`
     SELECT
       COUNT(DISTINCT remote_ref.id)::bigint AS candidates,
@@ -1025,25 +969,27 @@ const loadMailRuleBackfillCounts = async (input: MailRuleBackfillInput): Promise
             AND existing_event.scope_id = ${input.mailboxId}
             AND existing_event.type = ${MAIL_WORKFLOW_EVENT.messageReceived}
             AND existing_event.dedupe_key =
-              ${mailRuleExistingDedupePrefix(input.ruleId, input.workflowVersionId)} || remote_ref.id::text
+              ${incomingAutomationExistingDedupePrefix(input.automationId, input.workflowVersionId)} || remote_ref.id::text
         )
       )::bigint AS accepted
-    ${mailRuleTargetFrom}
+    ${incomingAutomationTargetFrom}
     WHERE resource.mailbox_id = ${input.mailboxId}::uuid
       AND remote_ref.stale_at IS NULL
       AND remote_ref.first_seen_at <= ${input.cutoffAt}
-      AND ${inboundMailRuleTarget}
-      AND ${mailRuleCandidateSql(input.conditions)}
+      AND ${inboundIncomingAutomationTarget}
+      AND ${incomingAutomationCandidateSql(input.scope)}
   `;
   return { candidates: Number(row?.candidates ?? 0), accepted: Number(row?.accepted ?? 0) };
 };
 
-const mapMailRuleBackfill = async (state: PumpState<MailRuleBackfillInput, MailRuleBackfillCursor>): Promise<MailRuleBackfill> => {
-  const counts = await loadMailRuleBackfillCounts(state.input);
+const mapIncomingAutomationBackfill = async (
+  state: PumpState<IncomingAutomationBackfillInput, IncomingAutomationBackfillCursor>,
+): Promise<IncomingAutomationBackfill> => {
+  const counts = await loadIncomingAutomationBackfillCounts(state.input);
   const newlyAcceptedCount = Math.min(state.dispatched, counts.accepted);
   return {
     operationId: state.input.operationId,
-    ruleId: state.input.ruleId,
+    automationId: state.input.automationId,
     workflowVersionId: state.input.workflowVersionId,
     state: state.state,
     candidateCount: counts.candidates,
@@ -1057,153 +1003,157 @@ const mapMailRuleBackfill = async (state: PumpState<MailRuleBackfillInput, MailR
   };
 };
 
-const loadMailRuleBackfill = async (params: {
+const loadIncomingAutomationBackfill = async (params: {
   mailboxId: string;
-  ruleId: string;
+  automationId: string;
   operationId: string;
-}): Promise<Result<MailRuleBackfill>> => {
-  const state = await getMailRuleBackfillPump().get({
-    key: mailRuleBackfillKey(params.ruleId, params.operationId),
+}): Promise<Result<IncomingAutomationBackfill>> => {
+  const state = await getIncomingAutomationBackfillPump().get({
+    key: incomingAutomationBackfillKey(params.automationId, params.operationId),
   });
   if (
     !state ||
     state.input.mailboxId !== params.mailboxId ||
-    state.input.ruleId !== params.ruleId ||
+    state.input.automationId !== params.automationId ||
     state.input.operationId !== params.operationId
   ) {
-    return fail(err.notFound("Mail rule backfill"));
+    return fail(err.notFound("Mail automation backfill"));
   }
-  return ok(await mapMailRuleBackfill(state));
+  return ok(await mapIncomingAutomationBackfill(state));
 };
 
-export const startMailRuleBackfill = async (params: {
+export const startIncomingAutomationBackfill = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  ruleId: string;
-  input: StartMailRuleBackfillInput;
-}): Promise<Result<MailRuleBackfill>> => {
-  const parsed = startMailRuleBackfillInputSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail rule backfill"));
+  automationId: string;
+  input: StartIncomingAutomationBackfillInput;
+}): Promise<Result<IncomingAutomationBackfill>> => {
+  const parsed = startIncomingAutomationBackfillInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail automation backfill"));
   try {
-    const rule = await sql.begin(async (tx) => {
+    const automation = await sql.begin(async (tx) => {
       unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
-      const current = unwrap(await loadMailRule(params.mailboxId, params.ruleId, tx, true));
-      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Mail rule was changed")));
-      if (!current.enabled) unwrap(fail(err.badInput("Enable the mail rule before applying it to existing messages")));
+      const current = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx, true));
+      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Mail automation was changed")));
+      if (!current.enabled) unwrap(fail(err.badInput("Enable the mail automation before applying it to existing messages")));
+      if (incomingAutomationHasAi(current.steps)) {
+        unwrap(fail(err.badInput("Flows with AI run only for future incoming mail")));
+      }
       unwrap(
         await protectMailboxSenders({
           mailboxId: params.mailboxId,
-          conditions: current.conditions,
-          actions: current.actions,
+          conditions: scopeConditions(current.scope),
+          actions: incomingAutomationActions(current.steps),
           db: tx,
         }),
       );
       return current;
     });
-    const state = await getMailRuleBackfillPump().start({
-      key: mailRuleBackfillKey(rule.id, parsed.data.operationId),
+    const state = await getIncomingAutomationBackfillPump().start({
+      key: incomingAutomationBackfillKey(automation.id, parsed.data.operationId),
       input: {
         operationId: parsed.data.operationId,
         mailboxId: params.mailboxId,
-        ruleId: rule.id,
-        workflowId: rule.workflowId,
-        workflowVersionId: rule.workflowVersionId,
-        conditions: rule.conditions,
+        automationId: automation.id,
+        workflowId: automation.workflowId,
+        workflowVersionId: automation.workflowVersionId,
+        scope: automation.scope,
         cutoffAt: new Date().toISOString(),
       },
     });
     if (
       state.input.mailboxId !== params.mailboxId ||
-      state.input.ruleId !== rule.id ||
+      state.input.automationId !== automation.id ||
       state.input.operationId !== parsed.data.operationId ||
-      state.input.workflowVersionId !== rule.workflowVersionId
+      state.input.workflowVersionId !== automation.workflowVersionId
     ) {
       return fail(err.conflict("Backfill operation id is already in use"));
     }
     await sql`
-      UPDATE mail.mail_rules
+      UPDATE mail.incoming_automations
       SET latest_backfill_operation_id = ${parsed.data.operationId}::uuid
       WHERE mailbox_id = ${params.mailboxId}::uuid
-        AND id = ${rule.id}::uuid
+        AND id = ${automation.id}::uuid
         AND deleted_at IS NULL
     `;
-    const result = ok(await mapMailRuleBackfill(state));
+    const result = ok(await mapIncomingAutomationBackfill(state));
     return audit.recordResultAfterSideEffect({
-      action: "mail.mail_rule.backfill.start",
+      action: "mail.incoming_automation.backfill.start",
       actor: auditActorFromRequest(params.context),
-      target: { type: "mail_rule", id: rule.id, label: rule.name },
+      target: { type: "incoming_automation", id: automation.id, label: automation.name },
       requestId: params.context.requestId,
       metadata: {
         mailboxId: params.mailboxId,
-        workflowId: rule.workflowId,
-        workflowVersionId: rule.workflowVersionId,
+        workflowId: automation.workflowId,
+        workflowVersionId: automation.workflowVersionId,
         operationId: parsed.data.operationId,
       },
       result,
     });
   } catch (error) {
-    return mutationFailure(error, "Failed to start mail rule backfill");
+    return mutationFailure(error, "Failed to start mail automation backfill");
   }
 };
 
-export const getMailRuleBackfill = async (params: {
+export const getIncomingAutomationBackfill = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  ruleId: string;
+  automationId: string;
   operationId: string;
-}): Promise<Result<MailRuleBackfill>> => {
+}): Promise<Result<IncomingAutomationBackfill>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
   try {
-    return await loadMailRuleBackfill(params);
+    return await loadIncomingAutomationBackfill(params);
   } catch {
-    return fail(err.internal("Failed to load mail rule backfill"));
+    return fail(err.internal("Failed to load mail automation backfill"));
   }
 };
 
-export const cancelMailRuleBackfill = async (params: {
+export const cancelIncomingAutomationBackfill = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  ruleId: string;
+  automationId: string;
   operationId: string;
-}): Promise<Result<MailRuleBackfill>> => {
+}): Promise<Result<IncomingAutomationBackfill>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
   try {
-    const current = await loadMailRuleBackfill(params);
+    const current = await loadIncomingAutomationBackfill(params);
     if (!current.ok) return current;
     if (!["queued", "running", "waiting"].includes(current.data.state)) return current;
-    const canceled = await getMailRuleBackfillPump().cancel({
-      key: mailRuleBackfillKey(params.ruleId, params.operationId),
+    const canceled = await getIncomingAutomationBackfillPump().cancel({
+      key: incomingAutomationBackfillKey(params.automationId, params.operationId),
     });
-    const result = await loadMailRuleBackfill(params);
+    const result = await loadIncomingAutomationBackfill(params);
     if (!result.ok) return result;
     if (!canceled) return result;
     return audit.recordResultAfterSideEffect({
-      action: "mail.mail_rule.backfill.cancel",
+      action: "mail.incoming_automation.backfill.cancel",
       actor: auditActorFromRequest(params.context),
-      target: { type: "mail_rule", id: params.ruleId },
+      target: { type: "incoming_automation", id: params.automationId },
       requestId: params.context.requestId,
       metadata: { mailboxId: params.mailboxId, operationId: params.operationId },
       result,
     });
   } catch {
-    return fail(err.internal("Failed to cancel mail rule backfill"));
+    return fail(err.internal("Failed to cancel mail automation backfill"));
   }
 };
 
-export const createMailRule = async (params: {
+export const createIncomingAutomation = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  input: CreateMailRule;
-}): Promise<Result<MailRule>> => {
-  const parsed = createMailRuleSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail rule"));
-  const ruleId = crypto.randomUUID();
+  input: CreateIncomingAutomation;
+}): Promise<Result<IncomingAutomation>> => {
+  const parsed = createIncomingAutomationSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid incoming automation"));
+  const automationId = crypto.randomUUID();
   const name = normalizeName(parsed.data.name);
-  const normalizedConditions = normalizeMailRuleConditions(parsed.data.conditions);
-  if (!normalizedConditions.ok) return normalizedConditions;
-  const conditions = normalizedConditions.data;
+  const scope = normalizeAutomationScope(parsed.data.scope);
+  if (!scope.ok) return scope;
+  const actions = incomingAutomationActions(parsed.data.steps);
+  const conditions = scopeConditions(scope.data);
   try {
     const result = await sql.begin(async (tx) => {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
@@ -1216,26 +1166,26 @@ export const createMailRule = async (params: {
       );
       const [count] = await tx<{ count: number }[]>`
         SELECT COUNT(*)::int AS count
-        FROM mail.mail_rules
+        FROM mail.incoming_automations
         WHERE mailbox_id = ${params.mailboxId}::uuid AND deleted_at IS NULL
       `;
-      if ((count?.count ?? 0) >= MAX_MAIL_RULES) {
-        unwrap(fail(err.conflict(`A mailbox can have at most ${MAX_MAIL_RULES} mail rules`)));
+      if ((count?.count ?? 0) >= MAX_INCOMING_AUTOMATIONS) {
+        unwrap(fail(err.conflict(`A mailbox can have at most ${MAX_INCOMING_AUTOMATIONS} incoming automations`)));
       }
       unwrap(
         await protectMailboxSenders({
           mailboxId: params.mailboxId,
           conditions,
-          actions: parsed.data.actions,
+          actions,
           db: tx,
         }),
       );
       unwrap(
-        await protectAgainstConflictingRules({
+        await protectAgainstConflictingAutomations({
           mailboxId: params.mailboxId,
           enabled: parsed.data.enabled,
           conditions,
-          actions: parsed.data.actions,
+          actions,
           db: tx,
         }),
       );
@@ -1246,73 +1196,74 @@ export const createMailRule = async (params: {
           context: params.context,
           mailboxId: params.mailboxId,
           workflowId: null,
-          name: internalWorkflowName(ruleId),
-          description: "Managed by Mail mail rules.",
+          name: internalWorkflowName(automationId),
+          description: "Managed by Mail incoming automations.",
           priority: 50,
-          managedBy: "mail_rule",
-          source: buildMailRuleWorkflowSource({ conditions, actions: parsed.data.actions }),
-          effectBudget: workflowBudget(parsed.data.actions),
+          managedBy: "incoming_automation",
+          source: buildIncomingAutomationWorkflowSource({ scope: scope.data, steps: parsed.data.steps }),
+          effectBudget: incomingAutomationBudget(parsed.data.steps),
           enabled: parsed.data.enabled,
         }),
       );
-      const [row] = await tx<MailRuleRow[]>`
-        INSERT INTO mail.mail_rules AS rule (
-          id, mailbox_id, workflow_id, name, normalized_name, conditions,
-          actions, enabled, created_by_actor_kind, created_by_actor_id
+      const [row] = await tx<IncomingAutomationRow[]>`
+        INSERT INTO mail.incoming_automations AS automation (
+          id, mailbox_id, workflow_id, name, normalized_name, scope,
+          steps, enabled, created_by_actor_kind, created_by_actor_id
         ) VALUES (
-          ${ruleId}::uuid,
+          ${automationId}::uuid,
           ${params.mailboxId}::uuid,
           ${workflow.id}::uuid,
           ${name},
           lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
-          ${conditions}::jsonb,
-          ${parsed.data.actions}::jsonb,
+          ${scope.data}::jsonb,
+          ${parsed.data.steps}::jsonb,
           ${parsed.data.enabled},
           ${actor.kind},
           ${actor.id}::uuid
         )
-        RETURNING ${mailRuleColumns}
+        RETURNING ${incomingAutomationColumns}
       `;
-      if (!row) throw new Error("Mail rule insert returned no row");
-      const rule = mapMailRule(row);
-      const activityId = await recordActivity({ db: tx, context: params.context, rule, action: "mail_rule.created" });
+      if (!row) throw new Error("Incoming automation insert returned no row");
+      const automation = mapIncomingAutomation(row);
+      const activityId = await recordActivity({ db: tx, context: params.context, automation, action: "incoming_automation.created" });
       await audit.record(
         {
-          action: "mail.mail_rule.create",
+          action: "mail.incoming_automation.create",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "mail_rule", id: rule.id, label: rule.name },
+          target: { type: "incoming_automation", id: automation.id, label: automation.name },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, workflowId: rule.workflowId, enabled: rule.enabled },
+          metadata: { mailboxId: params.mailboxId, workflowId: automation.workflowId, enabled: automation.enabled },
         },
         tx,
       );
-      return { rule, activityId };
+      return { automation, activityId };
     });
-    await publishRuleChange(result.rule, result.activityId);
-    return ok(result.rule);
+    await publishAutomationChange(result.automation, result.activityId);
+    return ok(result.automation);
   } catch (error) {
-    return mutationFailure(error, "Failed to create mail rule");
+    return mutationFailure(error, "Failed to create incoming automation");
   }
 };
 
-export const updateMailRule = async (params: {
+export const updateIncomingAutomation = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  ruleId: string;
-  input: UpdateMailRule;
-}): Promise<Result<MailRule>> => {
-  const parsed = updateMailRuleSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail rule"));
+  automationId: string;
+  input: UpdateIncomingAutomation;
+}): Promise<Result<IncomingAutomation>> => {
+  const parsed = updateIncomingAutomationSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid incoming automation"));
   const name = normalizeName(parsed.data.name);
-  const normalizedConditions = normalizeMailRuleConditions(parsed.data.conditions);
-  if (!normalizedConditions.ok) return normalizedConditions;
-  const conditions = normalizedConditions.data;
+  const scope = normalizeAutomationScope(parsed.data.scope);
+  if (!scope.ok) return scope;
+  const actions = incomingAutomationActions(parsed.data.steps);
+  const conditions = scopeConditions(scope.data);
   try {
     const result = await sql.begin(async (tx) => {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
-      const current = unwrap(await loadMailRule(params.mailboxId, params.ruleId, tx, true));
-      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Mail rule was changed")));
+      const current = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx, true));
+      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Incoming automation was changed")));
       unwrap(
         await rejectOwnSenderTargets({
           mailboxId: params.mailboxId,
@@ -1324,26 +1275,25 @@ export const updateMailRule = async (params: {
         await protectMailboxSenders({
           mailboxId: params.mailboxId,
           conditions,
-          actions: parsed.data.actions,
+          actions,
           db: tx,
         }),
       );
       unwrap(
-        await protectAgainstConflictingRules({
+        await protectAgainstConflictingAutomations({
           mailboxId: params.mailboxId,
-          ruleId: params.ruleId,
+          automationId: params.automationId,
           enabled: parsed.data.enabled,
           conditions,
-          actions: parsed.data.actions,
+          actions,
           db: tx,
         }),
       );
       const definitionChanged =
-        sha256Json(current.conditions) !== sha256Json(conditions) ||
-        JSON.stringify(current.actions) !== JSON.stringify(parsed.data.actions);
+        sha256Json(current.scope) !== sha256Json(scope.data) || sha256Json(current.steps) !== sha256Json(parsed.data.steps);
       const enabledChanged = current.enabled !== parsed.data.enabled;
       const changed = current.name !== name || definitionChanged || enabledChanged;
-      if (!changed) return { rule: current, activityId: null as string | null };
+      if (!changed) return { automation: current, activityId: null as string | null };
       if (definitionChanged) {
         unwrap(
           await replaceManagedWorkflowInTransaction({
@@ -1351,12 +1301,12 @@ export const updateMailRule = async (params: {
             context: params.context,
             mailboxId: params.mailboxId,
             workflowId: current.workflowId,
-            name: internalWorkflowName(params.ruleId),
-            description: "Managed by Mail mail rules.",
+            name: internalWorkflowName(params.automationId),
+            description: "Managed by Mail incoming automations.",
             priority: 50,
-            managedBy: "mail_rule",
-            source: buildMailRuleWorkflowSource({ conditions, actions: parsed.data.actions }),
-            effectBudget: workflowBudget(parsed.data.actions),
+            managedBy: "incoming_automation",
+            source: buildIncomingAutomationWorkflowSource({ scope: scope.data, steps: parsed.data.steps }),
+            effectBudget: incomingAutomationBudget(parsed.data.steps),
             enabled: parsed.data.enabled,
           }),
         );
@@ -1372,69 +1322,83 @@ export const updateMailRule = async (params: {
         );
       }
       await tx`
-        UPDATE mail.mail_rules
+        UPDATE mail.incoming_automations
         SET
           name = ${name},
           normalized_name = lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
-          conditions = ${conditions}::jsonb,
-          actions = ${parsed.data.actions}::jsonb,
+          scope = ${scope.data}::jsonb,
+          steps = ${parsed.data.steps}::jsonb,
           enabled = ${parsed.data.enabled},
           latest_backfill_operation_id = CASE WHEN ${definitionChanged} THEN NULL ELSE latest_backfill_operation_id END,
           revision = revision + 1
-        WHERE id = ${params.ruleId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        WHERE id = ${params.automationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
       `;
-      const rule = unwrap(await loadMailRule(params.mailboxId, params.ruleId, tx));
-      const activityId = await recordActivity({ db: tx, context: params.context, rule, action: "mail_rule.updated" });
+      const automation = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx));
+      const activityId = await recordActivity({ db: tx, context: params.context, automation, action: "incoming_automation.updated" });
       await audit.record(
         {
-          action: "mail.mail_rule.update",
+          action: "mail.incoming_automation.update",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "mail_rule", id: rule.id, label: rule.name },
+          target: { type: "incoming_automation", id: automation.id, label: automation.name },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, workflowId: rule.workflowId, enabled: rule.enabled, revision: rule.revision },
+          metadata: {
+            mailboxId: params.mailboxId,
+            workflowId: automation.workflowId,
+            enabled: automation.enabled,
+            revision: automation.revision,
+          },
         },
         tx,
       );
-      return { rule, activityId };
+      return { automation, activityId };
     });
-    if (result.activityId) await publishRuleChange(result.rule, result.activityId);
-    return ok(result.rule);
+    if (result.activityId) await publishAutomationChange(result.automation, result.activityId);
+    return ok(result.automation);
   } catch (error) {
-    return mutationFailure(error, "Failed to update mail rule");
+    return mutationFailure(error, "Failed to update incoming automation");
   }
 };
 
-export const setMailRuleEnabled = async (params: {
+export const setIncomingAutomationEnabled = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  ruleId: string;
-  input: SetMailRuleEnabled;
-}): Promise<Result<MailRule>> => {
-  const parsed = setMailRuleEnabledSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail rule state"));
+  automationId: string;
+  input: SetIncomingAutomationEnabled;
+}): Promise<Result<IncomingAutomation>> => {
+  const parsed = setIncomingAutomationEnabledSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid incoming automation state"));
   try {
     const result = await sql.begin(async (tx) => {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
-      const current = unwrap(await loadMailRule(params.mailboxId, params.ruleId, tx, true));
-      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Mail rule was changed")));
-      if (current.enabled === parsed.data.enabled) return { rule: current, activityId: null as string | null };
+      const current = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx, true));
+      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Incoming automation was changed")));
+      if (current.enabled === parsed.data.enabled) return { automation: current, activityId: null as string | null };
       if (parsed.data.enabled) {
+        const validation = await validateMailWorkflowSource({
+          context: params.context,
+          mailboxId: params.mailboxId,
+          source: current.workflowSource,
+          db: tx,
+        });
+        if (!validation.valid) {
+          unwrap(fail(err.badInput(validation.diagnostics[0]?.message ?? "Automation setup is no longer available")));
+        }
         unwrap(
           await protectMailboxSenders({
             mailboxId: params.mailboxId,
-            conditions: current.conditions,
-            actions: current.actions,
+            conditions: scopeConditions(current.scope),
+            actions: incomingAutomationActions(current.steps),
             db: tx,
           }),
         );
         unwrap(
-          await protectAgainstConflictingRules({
+          await protectAgainstConflictingAutomations({
             mailboxId: params.mailboxId,
-            ruleId: params.ruleId,
+            automationId: params.automationId,
             enabled: true,
-            conditions: current.conditions,
-            actions: current.actions,
+            conditions: scopeConditions(current.scope),
+            actions: incomingAutomationActions(current.steps),
             db: tx,
           }),
         );
@@ -1449,50 +1413,50 @@ export const setMailRuleEnabled = async (params: {
         }),
       );
       await tx`
-        UPDATE mail.mail_rules
+        UPDATE mail.incoming_automations
         SET enabled = ${parsed.data.enabled}, revision = revision + 1
-        WHERE id = ${params.ruleId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        WHERE id = ${params.automationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
       `;
-      const rule = unwrap(await loadMailRule(params.mailboxId, params.ruleId, tx));
-      const activityId = await recordActivity({ db: tx, context: params.context, rule, action: "mail_rule.updated" });
+      const automation = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx));
+      const activityId = await recordActivity({ db: tx, context: params.context, automation, action: "incoming_automation.updated" });
       await audit.record(
         {
-          action: "mail.mail_rule.update",
+          action: "mail.incoming_automation.update",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "mail_rule", id: rule.id, label: rule.name },
+          target: { type: "incoming_automation", id: automation.id, label: automation.name },
           requestId: params.context.requestId,
           metadata: {
             mailboxId: params.mailboxId,
-            workflowId: rule.workflowId,
-            enabled: rule.enabled,
-            revision: rule.revision,
+            workflowId: automation.workflowId,
+            enabled: automation.enabled,
+            revision: automation.revision,
           },
         },
         tx,
       );
-      return { rule, activityId };
+      return { automation, activityId };
     });
-    if (result.activityId) await publishRuleChange(result.rule, result.activityId);
-    return ok(result.rule);
+    if (result.activityId) await publishAutomationChange(result.automation, result.activityId);
+    return ok(result.automation);
   } catch (error) {
-    return mutationFailure(error, "Failed to change mail rule");
+    return mutationFailure(error, "Failed to change incoming automation");
   }
 };
 
-export const deleteMailRule = async (params: {
+export const deleteIncomingAutomation = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  ruleId: string;
-  input: DeleteMailRule;
-}): Promise<Result<MailRule>> => {
-  const parsed = deleteMailRuleSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail rule deletion"));
+  automationId: string;
+  input: DeleteIncomingAutomation;
+}): Promise<Result<IncomingAutomation>> => {
+  const parsed = deleteIncomingAutomationSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid incoming automation deletion"));
   try {
     const result = await sql.begin(async (tx) => {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
-      const current = unwrap(await loadMailRule(params.mailboxId, params.ruleId, tx, true));
-      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Mail rule was changed")));
+      const current = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx, true));
+      if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Incoming automation was changed")));
       unwrap(
         await setManagedWorkflowEnabledInTransaction({
           db: tx,
@@ -1502,31 +1466,31 @@ export const deleteMailRule = async (params: {
           enabled: false,
         }),
       );
-      const [row] = await tx<MailRuleRow[]>`
-        UPDATE mail.mail_rules AS rule
+      const [row] = await tx<IncomingAutomationRow[]>`
+        UPDATE mail.incoming_automations AS automation
         SET enabled = false, revision = revision + 1, deleted_at = now()
-        WHERE rule.id = ${params.ruleId}::uuid AND rule.mailbox_id = ${params.mailboxId}::uuid
-        RETURNING ${mailRuleColumns}
+        WHERE automation.id = ${params.automationId}::uuid AND automation.mailbox_id = ${params.mailboxId}::uuid
+        RETURNING ${incomingAutomationColumns}
       `;
-      if (!row) throw new Error("Deleted mail rule could not be reloaded");
-      const rule = mapMailRule(row);
-      const activityId = await recordActivity({ db: tx, context: params.context, rule, action: "mail_rule.deleted" });
+      if (!row) throw new Error("Deleted incoming automation could not be reloaded");
+      const automation = mapIncomingAutomation(row);
+      const activityId = await recordActivity({ db: tx, context: params.context, automation, action: "incoming_automation.deleted" });
       await audit.record(
         {
-          action: "mail.mail_rule.delete",
+          action: "mail.incoming_automation.delete",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "mail_rule", id: rule.id, label: rule.name },
+          target: { type: "incoming_automation", id: automation.id, label: automation.name },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, workflowId: rule.workflowId, revision: rule.revision },
+          metadata: { mailboxId: params.mailboxId, workflowId: automation.workflowId, revision: automation.revision },
         },
         tx,
       );
-      return { rule, activityId };
+      return { automation, activityId };
     });
-    await publishRuleChange(result.rule, result.activityId);
-    return ok(result.rule);
+    await publishAutomationChange(result.automation, result.activityId);
+    return ok(result.automation);
   } catch (error) {
-    return mutationFailure(error, "Failed to delete mail rule");
+    return mutationFailure(error, "Failed to delete incoming automation");
   }
 };

@@ -29,7 +29,7 @@ const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
 const REMOTE_CONTENT_RULE_ID = "00000000-0000-4000-8000-000000000027";
-const MAIL_RULE_ID = "00000000-0000-4000-8000-000000000028";
+const INCOMING_AUTOMATION_ID = "00000000-0000-4000-8000-000000000028";
 const SECURITY_REPORT_ID = "00000000-0000-4000-8000-000000000029";
 const SECURITY_POLICY_ID = "00000000-0000-4000-8000-000000000030";
 
@@ -4039,18 +4039,19 @@ test("automatic reply commands cover list, create, and revision-checked update",
 
 test("sender commands cover preview, bounded read updates, and durable existing-message backfills", async () => {
   const operationId = crypto.randomUUID();
-  const rule = {
-    id: MAIL_RULE_ID,
+  const automation = {
+    id: INCOMING_AUTOMATION_ID,
     mailboxId: MAILBOX_ID,
     workflowId: WORKFLOW_ID,
     workflowVersionId: crypto.randomUUID(),
     name: "Example sender",
     enabled: true,
-    conditions: {
-      mode: "all",
-      items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
+    scope: {
+      mode: "matching",
+      conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }] },
     },
-    actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
+    steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }],
+    latestBackfillOperationId: null,
     workflowSource: "name: Example sender",
     revision: 3,
     createdAt: "2026-07-26T00:00:00.000Z",
@@ -4059,9 +4060,9 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    const base = `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules`;
-    if (request.method === "GET" && url.pathname === base) return api([rule]);
-    if (request.method === "GET" && url.pathname === `${base}/${MAIL_RULE_ID}`) return api(rule);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations`;
+    if (request.method === "GET" && url.pathname === base) return api([automation]);
+    if (request.method === "GET" && url.pathname === `${base}/${INCOMING_AUTOMATION_ID}`) return api(automation);
     if (request.method === "POST" && url.pathname === `${base}/preview`) {
       requests.push({ method: request.method, path: url.pathname, body: (await request.json()) as Record<string, unknown> });
       return api({ messageCount: 6, conversationCount: 4 });
@@ -4070,13 +4071,13 @@ test("sender commands cover preview, bounded read updates, and durable existing-
       requests.push({ method: request.method, path: url.pathname, body: (await request.json()) as Record<string, unknown> });
       return api({ commandIds: [COMMAND_ID], messageCount: 1, applicationLimit: 100, capped: false });
     }
-    if (request.method === "POST" && url.pathname === `${base}/${MAIL_RULE_ID}/backfills`) {
+    if (request.method === "POST" && url.pathname === `${base}/${INCOMING_AUTOMATION_ID}/backfills`) {
       const body = (await request.json()) as Record<string, unknown>;
       requests.push({ method: request.method, path: url.pathname, body });
       return api({
         operationId: body.operationId,
-        ruleId: MAIL_RULE_ID,
-        workflowVersionId: rule.workflowVersionId,
+        automationId: INCOMING_AUTOMATION_ID,
+        workflowVersionId: automation.workflowVersionId,
         state: "queued",
         candidateCount: 6,
         alreadyAcceptedCount: 0,
@@ -4088,12 +4089,12 @@ test("sender commands cover preview, bounded read updates, and durable existing-
         updatedAt: "2026-07-28T00:00:00.000Z",
       });
     }
-    if (request.method === "GET" && url.pathname === `${base}/${MAIL_RULE_ID}/backfills/${operationId}`) {
+    if (request.method === "GET" && url.pathname === `${base}/${INCOMING_AUTOMATION_ID}/backfills/${operationId}`) {
       requests.push({ method: request.method, path: url.pathname });
       return api({
         operationId,
-        ruleId: MAIL_RULE_ID,
-        workflowVersionId: rule.workflowVersionId,
+        automationId: INCOMING_AUTOMATION_ID,
+        workflowVersionId: automation.workflowVersionId,
         state: "running",
         candidateCount: 6,
         alreadyAcceptedCount: 2,
@@ -4105,12 +4106,12 @@ test("sender commands cover preview, bounded read updates, and durable existing-
         updatedAt: "2026-07-28T00:00:01.000Z",
       });
     }
-    if (request.method === "DELETE" && url.pathname === `${base}/${MAIL_RULE_ID}/backfills/${operationId}`) {
+    if (request.method === "DELETE" && url.pathname === `${base}/${INCOMING_AUTOMATION_ID}/backfills/${operationId}`) {
       requests.push({ method: request.method, path: url.pathname });
       return api({
         operationId,
-        ruleId: MAIL_RULE_ID,
-        workflowVersionId: rule.workflowVersionId,
+        automationId: INCOMING_AUTOMATION_ID,
+        workflowVersionId: automation.workflowVersionId,
         state: "canceled",
         candidateCount: 6,
         alreadyAcceptedCount: 2,
@@ -4157,10 +4158,10 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   const started = await runCli(origin, [
     "--json",
     "mail",
-    "rule",
+    "automation",
     "backfill",
     "start",
-    MAIL_RULE_ID,
+    INCOMING_AUTOMATION_ID,
     "--mailbox",
     MAILBOX_ID,
     "--revision",
@@ -4168,14 +4169,24 @@ test("sender commands cover preview, bounded read updates, and durable existing-
     "--yes",
   ]);
   const startedResult = JSON.parse(started.stdout);
-  const status = await runCli(origin, ["--json", "mail", "rule", "backfill", "status", MAIL_RULE_ID, operationId, "--mailbox", MAILBOX_ID]);
+  const status = await runCli(origin, [
+    "--json",
+    "mail",
+    "automation",
+    "backfill",
+    "status",
+    INCOMING_AUTOMATION_ID,
+    operationId,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
   const canceled = await runCli(origin, [
     "--json",
     "mail",
-    "rule",
+    "automation",
     "backfill",
     "cancel",
-    MAIL_RULE_ID,
+    INCOMING_AUTOMATION_ID,
     operationId,
     "--mailbox",
     MAILBOX_ID,
@@ -4186,7 +4197,7 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   expect(JSON.parse(previewed.stdout)).toMatchObject({ messageCount: 6, conversationCount: 4 });
   expect(JSON.parse(markedRead.stdout)).toMatchObject({ messageCount: 1 });
   expect(startedResult).toMatchObject({
-    ruleId: MAIL_RULE_ID,
+    automationId: INCOMING_AUTOMATION_ID,
     state: "queued",
     candidateCount: 6,
   });
@@ -4195,11 +4206,14 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   expect(requests).toHaveLength(5);
   expect(requests[0]).toEqual({
     method: "POST",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/preview`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/preview`,
     body: {
-      conditions: {
-        mode: "all",
-        items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
+      scope: {
+        mode: "matching",
+        conditions: {
+          mode: "all",
+          items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
+        },
       },
     },
   });
@@ -4210,32 +4224,47 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   });
   expect(requests[2]).toMatchObject({
     method: "POST",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}/backfills`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}/backfills`,
     body: { expectedRevision: 3, operationId: expect.any(String) },
   });
   expect(requests[3]).toEqual({
     method: "GET",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}/backfills/${operationId}`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}/backfills/${operationId}`,
   });
   expect(requests[4]).toEqual({
     method: "DELETE",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}/backfills/${operationId}`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}/backfills/${operationId}`,
   });
 }, 20_000);
 
-test("mail rule CRUD preserves grouped conditions, revision fences, and JSONL output", async () => {
-  const rule = {
-    id: MAIL_RULE_ID,
+test("incoming automation CRUD accepts complete mixed-flow definitions and preserves revision fences", async () => {
+  const definition = {
+    name: "Example sender",
+    enabled: true,
+    scope: {
+      mode: "matching",
+      conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }] },
+    },
+    steps: [
+      { id: "00000000-0000-4000-8000-000000000040", kind: "mail_action", action: { kind: "mark_read" } },
+      {
+        id: "00000000-0000-4000-8000-000000000041",
+        kind: "ai_generate_text",
+        instructions: "Summarize this message",
+        maxOutputChars: 2_000,
+      },
+    ],
+  };
+  const automation = {
+    id: INCOMING_AUTOMATION_ID,
     mailboxId: MAILBOX_ID,
     workflowId: WORKFLOW_ID,
     workflowVersionId: crypto.randomUUID(),
     name: "Example sender",
     enabled: true,
-    conditions: {
-      mode: "all",
-      items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
-    },
-    actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
+    scope: definition.scope,
+    steps: definition.steps,
+    latestBackfillOperationId: null,
     workflowSource: "name: Example sender",
     revision: 3,
     createdAt: "2026-07-26T00:00:00.000Z",
@@ -4244,7 +4273,7 @@ test("mail rule CRUD preserves grouped conditions, revision fences, and JSONL ou
   const mutations: Array<{ method: string; path: string; body: unknown }> = [];
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    const base = `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules`;
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations`;
     if (request.method === "GET" && url.pathname === `${base}/catalog`) {
       return api({
         folders: [{ id: FOLDER_ID, name: "Inbox", role: "inbox" }],
@@ -4252,74 +4281,45 @@ test("mail rule CRUD preserves grouped conditions, revision fences, and JSONL ou
         localTags: [],
       });
     }
-    if (request.method === "GET" && url.pathname === base) return api([rule]);
-    if (request.method === "GET" && url.pathname === `${base}/${MAIL_RULE_ID}`) return api(rule);
+    if (request.method === "GET" && url.pathname === base) return api([automation]);
+    if (request.method === "GET" && url.pathname === `${base}/${INCOMING_AUTOMATION_ID}`) return api(automation);
     if (url.pathname === base && request.method === "POST") {
       mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
-      return api(rule);
+      return api(automation);
     }
-    if (url.pathname === `${base}/${MAIL_RULE_ID}` && (request.method === "PUT" || request.method === "DELETE")) {
+    if (url.pathname === `${base}/${INCOMING_AUTOMATION_ID}` && (request.method === "PUT" || request.method === "DELETE")) {
       mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
-      return api(request.method === "PUT" ? { ...rule, name: "Updated sender", enabled: false, revision: 4 } : rule);
+      return api(request.method === "PUT" ? { ...automation, name: "Updated sender", enabled: false, revision: 4 } : automation);
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
   servers.push(server);
   const origin = `http://127.0.0.1:${server.port}`;
 
-  const listed = await runCli(origin, ["--jsonl", "mail", "rule", "list", "--mailbox", MAILBOX_ID]);
-  const catalog = await runCli(origin, ["--json", "mail", "rule", "catalog", "--mailbox", MAILBOX_ID]);
-  const created = await runCli(origin, [
-    "--json",
-    "mail",
-    "rule",
-    "create",
-    "--mailbox",
-    MAILBOX_ID,
-    "--name",
-    "Example sender",
-    "--condition",
-    "sender:is:sender@example.test",
-    "--condition",
-    "subject:contains:invoice:urgent",
-    "--action",
-    "mark_read",
-    "--action",
-    "set_status:needs_action",
-  ]);
-  const updated = await runCli(origin, [
-    "--json",
-    "mail",
-    "rule",
-    "update",
-    MAIL_RULE_ID,
-    "--mailbox",
-    MAILBOX_ID,
-    "--revision",
-    "3",
-    "--name",
-    "Updated sender",
-    "--disable",
-  ]);
-  const stale = await runCli(origin, [
-    "--json",
-    "mail",
-    "rule",
-    "update",
-    MAIL_RULE_ID,
-    "--mailbox",
-    MAILBOX_ID,
-    "--revision",
-    "2",
-    "--name",
-    "Stale sender",
-  ]);
+  const listed = await runCli(origin, ["--jsonl", "mail", "automation", "list", "--mailbox", MAILBOX_ID]);
+  const catalog = await runCli(origin, ["--json", "mail", "automation", "catalog", "--mailbox", MAILBOX_ID]);
+  const created = await runCli(
+    origin,
+    ["--json", "mail", "automation", "create", "--mailbox", MAILBOX_ID, "--definition-stdin"],
+    JSON.stringify(definition),
+  );
+  const updatedDefinition = { ...definition, name: "Updated sender", enabled: false };
+  const updated = await runCli(
+    origin,
+    ["--json", "mail", "automation", "update", INCOMING_AUTOMATION_ID, "--mailbox", MAILBOX_ID, "--revision", "3", "--definition-stdin"],
+    JSON.stringify(updatedDefinition),
+  );
+  const stale = await runCli(
+    origin,
+    ["--json", "mail", "automation", "update", INCOMING_AUTOMATION_ID, "--mailbox", MAILBOX_ID, "--revision", "2", "--definition-stdin"],
+    JSON.stringify(definition),
+  );
   const deleted = await runCli(origin, [
     "--json",
     "mail",
-    "rule",
+    "automation",
     "delete",
-    MAIL_RULE_ID,
+    INCOMING_AUTOMATION_ID,
     "--mailbox",
     MAILBOX_ID,
     "--revision",
@@ -4328,44 +4328,27 @@ test("mail rule CRUD preserves grouped conditions, revision fences, and JSONL ou
   ]);
 
   expect([listed.exitCode, catalog.exitCode, created.exitCode, updated.exitCode, deleted.exitCode]).toEqual([0, 0, 0, 0, 0]);
-  expect(JSON.parse(listed.stdout)).toEqual(rule);
+  expect(JSON.parse(listed.stdout)).toEqual(automation);
   expect(JSON.parse(catalog.stdout)).toMatchObject({ folders: [{ id: FOLDER_ID, name: "Inbox" }] });
-  expect(JSON.parse(created.stdout)).toMatchObject({ id: MAIL_RULE_ID, revision: 3 });
+  expect(JSON.parse(created.stdout)).toMatchObject({ id: INCOMING_AUTOMATION_ID, revision: 3 });
   expect(JSON.parse(updated.stdout)).toMatchObject({ name: "Updated sender", enabled: false, revision: 4 });
   expect(stale.exitCode).toBe(1);
-  expect(stale.stderr).toContain("Mail rule is at revision 3, not 2");
-  expect(JSON.parse(deleted.stdout)).toMatchObject({ id: MAIL_RULE_ID, revision: 3 });
+  expect(stale.stderr).toContain("Incoming automation is at revision 3, not 2");
+  expect(JSON.parse(deleted.stdout)).toMatchObject({ id: INCOMING_AUTOMATION_ID, revision: 3 });
   expect(mutations).toEqual([
     {
       method: "POST",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules`,
-      body: {
-        name: "Example sender",
-        enabled: true,
-        conditions: {
-          mode: "all",
-          items: [
-            { field: "sender_address", operator: "is", value: "sender@example.test" },
-            { field: "subject", operator: "contains", value: "invoice:urgent" },
-          ],
-        },
-        actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
-      },
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations`,
+      body: definition,
     },
     {
       method: "PUT",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}`,
-      body: {
-        expectedRevision: 3,
-        name: "Updated sender",
-        enabled: false,
-        conditions: rule.conditions,
-        actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
-      },
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}`,
+      body: { expectedRevision: 3, ...updatedDefinition },
     },
     {
       method: "DELETE",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}`,
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}`,
       body: { expectedRevision: 3 },
     },
   ]);

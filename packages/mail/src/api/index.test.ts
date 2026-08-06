@@ -32,20 +32,25 @@ describe("Mail API composition", () => {
     );
   });
 
-  test("exposes sender preview and durable existing-message backfill routes", () => {
-    expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/mail-rules/:ruleId")).toBe(true);
-    expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/mail-rules/catalog")).toBe(true);
+  test("exposes unified incoming automation and durable deterministic backfill routes", () => {
+    expect(
+      api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/incoming-automations/:automationId"),
+    ).toBe(true);
+    expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/incoming-automations/catalog")).toBe(
+      true,
+    );
     for (const path of [
-      "/mailboxes/:mailboxId/mail-rules/preview",
-      "/mailboxes/:mailboxId/mail-rules/mark-read",
-      "/mailboxes/:mailboxId/mail-rules/:ruleId/backfills",
+      "/mailboxes/:mailboxId/incoming-automations/preview",
+      "/mailboxes/:mailboxId/incoming-automations/mark-read",
+      "/mailboxes/:mailboxId/incoming-automations/:automationId/backfills",
     ]) {
       expect(api.routes.some((route) => route.method === "POST" && route.path === path)).toBe(true);
     }
     for (const method of ["GET", "DELETE"]) {
       expect(
         api.routes.some(
-          (route) => route.method === method && route.path === "/mailboxes/:mailboxId/mail-rules/:ruleId/backfills/:operationId",
+          (route) =>
+            route.method === method && route.path === "/mailboxes/:mailboxId/incoming-automations/:automationId/backfills/:operationId",
         ),
       ).toBe(true);
     }

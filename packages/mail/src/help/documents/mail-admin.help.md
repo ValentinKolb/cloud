@@ -170,12 +170,12 @@ Open **Automations** near the bottom of the mailbox navigation:
 :::steps
 1. **Overview** shows what is active and opens the exact setup task.
 2. **Automatic replies** offers Out of office, Office-hours acknowledgement, Reference acknowledgement, and Custom presets. Writers can use this section when the Access policy permits it.
-3. **Mail rules** provides guided matching and ordered actions.
-4. **Activity** shows mailbox-scoped workflow runs and mail-rule backfills.
+3. **Incoming mail** provides guided matching and a mixed Mail/AI step flow.
+4. **Activity** shows mailbox-scoped workflow runs and incoming-automation backfills.
 5. **Workflows** contains versioned YAML definitions, reference-number configuration, and explicit activation controls.
 :::
 
-Mail rules, Activity, and Workflows require mailbox-admin access. Automatic-reply timing is stored directly in the guided reply or in the immutable YAML workflow version; there is no separate schedule resource to keep in sync.
+Incoming mail, Activity, and Workflows require mailbox-admin access. Automatic-reply timing is stored directly in the guided reply or in the immutable YAML workflow version; there is no separate schedule resource to keep in sync.
 
 An automatic reply has an enabled state, verified automation sender, subject, body, Markdown or plain-text format, repeat interval per recipient, time zone, active dates, weekly windows, exceptions, and behavior outside the active window:
 

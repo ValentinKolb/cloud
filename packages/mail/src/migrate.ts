@@ -1,7 +1,6 @@
 import { migrateWorkflowAi } from "@valentinkolb/cloud/workflows/ai";
 import { sql } from "bun";
 import { canonicalizeSavedViewFilter } from "./saved-view-search-migration";
-import { validateComposeTemplateSource } from "./service/compose-renderer";
 import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./service/search-chunks";
 
 type SqlClient = typeof sql;
@@ -3829,6 +3828,66 @@ const addGuidedAiAutomations = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const unifyIncomingAutomations = async (db: SqlClient): Promise<void> => {
+  await db`
+    DELETE FROM workflows.workflow
+    WHERE id IN (
+      SELECT id
+      FROM mail.workflow_profile
+      WHERE managed_by IN ('mail_rule', 'ai_automation')
+    )
+  `;
+  await db`DROP TABLE mail.ai_automations`;
+  await db`DROP TABLE mail.mail_rules`;
+  await db`ALTER TABLE mail.workflow_profile DROP CONSTRAINT workflow_profile_managed_by_check`;
+  await db`
+    ALTER TABLE mail.workflow_profile
+    ADD CONSTRAINT workflow_profile_managed_by_check
+    CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'incoming_automation'))
+  `;
+  await db`
+    CREATE TABLE mail.incoming_automations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL,
+      name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 120),
+      normalized_name TEXT NOT NULL CHECK (
+        normalized_name = lower(regexp_replace(btrim(name), '\\s+', ' ', 'g'))
+        AND char_length(normalized_name) BETWEEN 1 AND 120
+      ),
+      enabled BOOLEAN NOT NULL DEFAULT false,
+      scope JSONB NOT NULL CHECK (jsonb_typeof(scope) = 'object' AND scope ? 'mode'),
+      steps JSONB NOT NULL CHECK (jsonb_typeof(steps) = 'array' AND jsonb_array_length(steps) BETWEEN 1 AND 20),
+      latest_backfill_operation_id UUID,
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (id, mailbox_id),
+      UNIQUE (workflow_id, mailbox_id),
+      FOREIGN KEY (workflow_id, mailbox_id)
+        REFERENCES mail.workflow_profile(id, mailbox_id) ON DELETE CASCADE
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX incoming_automations_mailbox_name_idx
+    ON mail.incoming_automations (mailbox_id, normalized_name)
+    WHERE deleted_at IS NULL
+  `;
+  await db`
+    CREATE INDEX incoming_automations_mailbox_idx
+    ON mail.incoming_automations (mailbox_id, enabled DESC, normalized_name, id)
+    WHERE deleted_at IS NULL
+  `;
+  await db`
+    CREATE TRIGGER incoming_automations_touch_updated_at
+    BEFORE UPDATE ON mail.incoming_automations
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -3922,6 +3981,7 @@ const migrations: readonly MailMigration[] = [
   { version: 106, name: "mail_security_operations", run: addMailSecurityOperations },
   { version: 107, name: "mail_security_operations_hardening", run: hardenMailSecurityOperations },
   { version: 108, name: "guided_ai_automations", run: addGuidedAiAutomations },
+  { version: 109, name: "unified_incoming_automations", run: unifyIncomingAutomations },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

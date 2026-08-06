@@ -29,16 +29,16 @@ const backfillSpan = (overrides: Partial<TraceSpan> = {}): TraceSpan => ({
   traceId: "trace-1",
   spanId: "span-1",
   traceparent: "00-trace-1-span-1-01",
-  spanKey: "sync:pump:mail:mail-rule-backfill:one",
+  spanKey: "sync:pump:mail:incoming-automation-backfill:one",
   parentSpanId: null,
-  name: "Mail rule backfill",
-  source: "mail:mail-rule-backfill",
+  name: "Incoming automation backfill",
+  source: "mail:incoming-automation-backfill",
   appId: "mail",
   category: "backfill",
   kind: "internal",
   status: "ok",
   statusMessage: null,
-  attributes: { "mail.mailbox.id": "mailbox-1", "mail.mail_rule.id": "rule-1" },
+  attributes: { "mail.mailbox.id": "mailbox-1", "mail.incoming_automation.id": "automation-1" },
   summary: { status: "completed", dispatched: 3 },
   eventCount: 4,
   startedAt: "2026-07-28T10:00:00.000Z",
@@ -49,27 +49,22 @@ const backfillSpan = (overrides: Partial<TraceSpan> = {}): TraceSpan => ({
 });
 
 describe("Mail automation activity projection", () => {
-  test("distinguishes guided replies, mail rules, AI automations, and custom workflows", () => {
+  test("distinguishes guided replies, incoming automations, and custom workflows", () => {
     const common = {
       mailboxId: "mailbox-1",
       replyWorkflowIds: new Set(["reply"]),
-      mailRuleWorkflowIds: new Set(["rule"]),
-      aiAutomationWorkflowIds: new Set(["ai"]),
-      workflowNames: new Map([["rule", "Invoices"]]),
+      incomingAutomationWorkflowIds: new Set(["automation"]),
+      workflowNames: new Map([["automation", "Invoices"]]),
     };
     expect(projectMailWorkflowActivity({ ...common, run: run("reply") })).toMatchObject({
       kind: "automatic_reply",
       detail: "Received",
       href: "/app/mail/mailbox-1/automations/replies",
     });
-    expect(projectMailWorkflowActivity({ ...common, run: run("rule") })).toMatchObject({
-      kind: "mail_rule",
+    expect(projectMailWorkflowActivity({ ...common, run: run("automation") })).toMatchObject({
+      kind: "incoming_automation",
       name: "Invoices",
-      href: "/app/mail/mailbox-1/automations/rules",
-    });
-    expect(projectMailWorkflowActivity({ ...common, run: run("ai") })).toMatchObject({
-      kind: "ai_automation",
-      href: "/app/mail/mailbox-1/automations/rules",
+      href: "/app/mail/mailbox-1/automations/incoming",
     });
     expect(projectMailWorkflowActivity({ ...common, run: run("custom") })).toMatchObject({
       kind: "workflow",
@@ -82,7 +77,7 @@ describe("Mail automation activity projection", () => {
       projectMailBackfillActivity({
         mailboxId: "mailbox-1",
         span: backfillSpan(),
-        ruleNames: new Map([["rule-1", "Invoices"]]),
+        automationNames: new Map([["automation-1", "Invoices"]]),
       }),
     ).toMatchObject({
       kind: "backfill",
@@ -94,7 +89,7 @@ describe("Mail automation activity projection", () => {
       projectMailBackfillActivity({
         mailboxId: "mailbox-1",
         span: backfillSpan({ status: "error", statusMessage: "Provider unavailable" }),
-        ruleNames: new Map(),
+        automationNames: new Map(),
       }),
     ).toMatchObject({ status: "failed", detail: "Provider unavailable" });
   });
@@ -107,7 +102,7 @@ describe("Mail automation activity projection", () => {
         mailboxId: "mailbox-1",
         run: failed,
         replyWorkflowIds: new Set(),
-        mailRuleWorkflowIds: new Set(["rule"]),
+        incomingAutomationWorkflowIds: new Set(["rule"]),
       }),
     ).toMatchObject({ detail: "The message changed before the action could be applied" });
 
@@ -117,7 +112,7 @@ describe("Mail automation activity projection", () => {
         mailboxId: "mailbox-1",
         run: failed,
         replyWorkflowIds: new Set(),
-        mailRuleWorkflowIds: new Set(["rule"]),
+        incomingAutomationWorkflowIds: new Set(["rule"]),
       }),
     ).toMatchObject({ detail: "Another change prevented this automation from applying its action." });
   });
@@ -126,12 +121,12 @@ describe("Mail automation activity projection", () => {
     const common = {
       mailboxId: "mailbox-1",
       replyWorkflowIds: new Set<string>(),
-      mailRuleWorkflowIds: new Set<string>(),
+      incomingAutomationWorkflowIds: new Set<string>(),
     };
     const items = [
       projectMailWorkflowActivity({ ...common, run: run("one", "running") }),
       projectMailWorkflowActivity({ ...common, run: run("two", "failed") }),
-      projectMailBackfillActivity({ mailboxId: "mailbox-1", span: backfillSpan(), ruleNames: new Map() }),
+      projectMailBackfillActivity({ mailboxId: "mailbox-1", span: backfillSpan(), automationNames: new Map() }),
     ];
     expect(summarizeMailAutomationActivity(items)).toEqual({ total: 3, active: 1, failed: 1, backfills: 1 });
   });

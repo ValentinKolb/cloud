@@ -1,0 +1,187 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
+import { sql } from "bun";
+import { migrate } from "../migrate";
+import { grantMailboxAccess } from "./access";
+import type { MailRequestContext } from "./auth";
+import {
+  createIncomingAutomation,
+  deleteIncomingAutomation,
+  listIncomingAutomations,
+  setIncomingAutomationEnabled,
+  startIncomingAutomationBackfill,
+  updateIncomingAutomation,
+} from "./incoming-automations";
+import { createMailbox } from "./mailboxes";
+
+const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
+const suite = enabled ? describe : describe.skip;
+type TestUser = { id: string; uid: string; displayName: string };
+
+const contextFor = (user: TestUser): MailRequestContext => ({
+  actor: {
+    kind: "user",
+    user: {
+      id: user.id,
+      uid: user.uid,
+      provider: "local",
+      profile: "user",
+      displayName: user.displayName,
+      givenName: user.displayName,
+      sn: "Test",
+      mail: `${user.uid}@example.test`,
+      roles: ["user"],
+      memberofGroupIds: [],
+      memberofGroups: [],
+    } as never,
+  },
+  accessSubject: { type: "user", userId: user.id },
+  requestId: `incoming-automations-${user.uid}`,
+});
+
+suite("incoming automations", () => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const userIds: string[] = [];
+  let mailboxId = "";
+  let ownerContext: MailRequestContext;
+  let writerContext: MailRequestContext;
+
+  beforeAll(async () => {
+    await migrate();
+    const createUser = async (role: string): Promise<TestUser> => {
+      const uid = `incoming-automation-${role}-${suffix}`;
+      const displayName = `${role} incoming automation test`;
+      const [row] = await sql<{ id: string }[]>`
+        INSERT INTO auth.users (uid, provider, profile, display_name, admin)
+        VALUES (${uid}, 'local', 'user', ${displayName}, false)
+        RETURNING id
+      `;
+      if (!row) throw new Error(`Failed to create ${role} user`);
+      userIds.push(row.id);
+      return { id: row.id, uid, displayName };
+    };
+    const owner = await createUser("owner");
+    const writer = await createUser("writer");
+    ownerContext = contextFor(owner);
+    writerContext = contextFor(writer);
+    const mailbox = await createMailbox(ownerContext, { name: `Incoming automations ${suffix}` });
+    if (!mailbox.ok) throw new Error(mailbox.error.message);
+    mailboxId = mailbox.data.id;
+    const access = await grantMailboxAccess({
+      context: ownerContext,
+      mailboxId,
+      principal: { type: "user", userId: writer.id },
+      permission: "write",
+    });
+    if (!access.ok) throw new Error(access.error.message);
+  });
+
+  afterAll(async () => {
+    if (mailboxId) {
+      await deleteWorkflowScope({ appId: "mail", scopeId: mailboxId });
+      await sql`DELETE FROM mail.mailboxes WHERE id = ${mailboxId}::uuid`;
+    }
+    if (userIds.length > 0) await sql`DELETE FROM auth.users WHERE id = ANY(${toPgUuidArray(userIds)}::uuid[])`;
+  });
+
+  test("requires admin and persists one unified managed workflow", async () => {
+    const denied = await createIncomingAutomation({
+      context: writerContext,
+      mailboxId,
+      input: {
+        name: "Writer attempt",
+        enabled: false,
+        scope: { mode: "all" },
+        steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }],
+      },
+    });
+    expect(denied.ok).toBe(false);
+
+    const created = await createIncomingAutomation({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Unified flow",
+        enabled: false,
+        scope: { mode: "all" },
+        steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }],
+      },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.data.enabled).toBe(false);
+    expect(created.data.workflowSource).toContain("addFlag:");
+
+    const listed = await listIncomingAutomations(ownerContext, mailboxId);
+    expect(listed.ok && listed.data.map((item) => item.id)).toContain(created.data.id);
+
+    const enabledResult = await setIncomingAutomationEnabled({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: { expectedRevision: created.data.revision, enabled: true },
+    });
+    expect(enabledResult.ok && enabledResult.data.enabled).toBe(true);
+    if (!enabledResult.ok) return;
+
+    const classifierId = crypto.randomUUID();
+    const firstChoice = crypto.randomUUID();
+    const secondChoice = crypto.randomUUID();
+    const updated = await updateIncomingAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: {
+        expectedRevision: enabledResult.data.revision,
+        name: "Unified AI flow",
+        enabled: true,
+        scope: { mode: "all" },
+        steps: [
+          {
+            id: classifierId,
+            kind: "ai_classify",
+            instructions: "Choose a category",
+            choices: [
+              { id: firstChoice, name: "Important", description: "Needs attention" },
+              { id: secondChoice, name: "Routine", description: "Routine mail" },
+            ],
+          },
+          {
+            id: crypto.randomUUID(),
+            kind: "branch",
+            sourceStepId: classifierId,
+            cases: [
+              {
+                choiceId: firstChoice,
+                steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "set_status", status: "needs_action" } }],
+              },
+              { choiceId: secondChoice, steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }] },
+            ],
+            fallback: [],
+          },
+        ],
+      },
+    });
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.data.workflowSource).toContain("aiClassify:");
+
+    const backfill = await startIncomingAutomationBackfill({
+      context: ownerContext,
+      mailboxId,
+      automationId: updated.data.id,
+      input: { operationId: crypto.randomUUID(), expectedRevision: updated.data.revision },
+    });
+    expect(backfill.ok).toBe(false);
+    if (!backfill.ok) expect(backfill.error.message).toContain("AI");
+
+    const deleted = await deleteIncomingAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: updated.data.id,
+      input: { expectedRevision: updated.data.revision },
+    });
+    expect(deleted.ok).toBe(true);
+  });
+});

@@ -9,8 +9,8 @@ import {
   createAutomaticReplySetupSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
+  createIncomingAutomationSchema,
   createLocalTagSchema,
-  createMailRuleSchema,
   createSenderIdentityInputSchema,
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
@@ -24,12 +24,12 @@ import {
   mergeConversationsInputSchema,
   messageStateChangeSchema,
   parseConnectorCapabilities,
-  previewMailRuleMatchesInputSchema,
+  previewIncomingAutomationMatchesInputSchema,
   reassignConversationMessageInputSchema,
   restoreWorkflowVersionInputSchema,
   scheduledSendPageSchema,
   splitConversationInputSchema,
-  startMailRuleBackfillInputSchema,
+  startIncomingAutomationBackfillInputSchema,
   updateAutomaticReplyConfigurationSchema,
   updateAutomaticReplySetupSchema,
   updateConversationCollaborationSchema,
@@ -282,92 +282,121 @@ describe("automatic reply configuration contracts", () => {
   });
 });
 
-describe("mail rule contracts", () => {
-  test("accepts grouped message conditions with composable supported actions", () => {
-    expect(
-      createMailRuleSchema.safeParse({
-        name: "Block noisy sender",
-        conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "News@Example.COM" }] },
-        actions: [{ kind: "junk" }],
-      }).success,
-    ).toBe(true);
-    expect(
-      createMailRuleSchema.safeParse({
-        name: "Route and assign domain",
-        conditions: {
-          mode: "all",
-          items: [
-            { field: "sender_domain", operator: "is", value: "sub.example.com" },
-            { field: "subject", operator: "contains", value: "invoice" },
-            { field: "body_text", operator: "starts_with", value: "Hello" },
-            { field: "attachment_presence", operator: "is", value: true },
+describe("incoming automation contracts", () => {
+  const textId = "00000000-0000-4000-8000-000000000001";
+  const classifierId = "00000000-0000-4000-8000-000000000002";
+  const importantId = "00000000-0000-4000-8000-000000000003";
+  const routineId = "00000000-0000-4000-8000-000000000004";
+
+  test("accepts match-all flows that mix mail, AI, branches, and drafts", () => {
+    const result = createIncomingAutomationSchema.safeParse({
+      name: "Triage and draft",
+      scope: { mode: "all" },
+      steps: [
+        {
+          id: "00000000-0000-4000-8000-000000000010",
+          kind: "mail_action",
+          action: { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000016" },
+        },
+        {
+          id: classifierId,
+          kind: "ai_classify",
+          instructions: "Choose the best category",
+          choices: [
+            { id: importantId, name: "Important", description: "Needs attention" },
+            { id: routineId, name: "Routine", description: "Routine message" },
           ],
         },
-        actions: [
-          { kind: "move_to_folder", folderId: "00000000-0000-4000-8000-000000000001" },
-          { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000002" },
-          { kind: "assign_user", userId: "00000000-0000-4000-8000-000000000003" },
-          { kind: "set_status", status: "needs_action" },
+        {
+          id: "00000000-0000-4000-8000-000000000011",
+          kind: "branch",
+          sourceStepId: classifierId,
+          cases: [
+            {
+              choiceId: importantId,
+              steps: [
+                { id: "00000000-0000-4000-8000-000000000012", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
+              ],
+            },
+            {
+              choiceId: routineId,
+              steps: [
+                { id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "Routine" } },
+              ],
+            },
+          ],
+          fallback: [],
+        },
+        { id: textId, kind: "ai_generate_text", instructions: "Write a concise reply", maxOutputChars: 2_000 },
+        {
+          id: "00000000-0000-4000-8000-000000000014",
+          kind: "create_reply_draft",
+          sourceStepId: textId,
+          senderIdentityId: "00000000-0000-4000-8000-000000000015",
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.enabled).toBe(false);
+  });
+
+  test("rejects forward references and incomplete branches", () => {
+    const result = createIncomingAutomationSchema.safeParse({
+      name: "Invalid dependencies",
+      scope: { mode: "all" },
+      steps: [
+        {
+          id: "00000000-0000-4000-8000-000000000020",
+          kind: "create_reply_draft",
+          sourceStepId: textId,
+          senderIdentityId: "00000000-0000-4000-8000-000000000021",
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("keeps alternative branch effects independent and rejects conflicting effects after the branch", () => {
+    const branchId = "00000000-0000-4000-8000-000000000030";
+    const steps = [
+      {
+        id: classifierId,
+        kind: "ai_classify" as const,
+        instructions: "Choose the destination",
+        choices: [
+          { id: importantId, name: "Important", description: "Needs attention" },
+          { id: routineId, name: "Routine", description: "Routine message" },
         ],
-      }).success,
-    ).toBe(true);
-  });
-
-  test("rejects malformed or duplicate conditions and unsupported action payloads", () => {
-    expect(
-      createMailRuleSchema.safeParse({
-        name: "Bad sender",
-        conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "example.com" }] },
-        actions: [{ kind: "junk" }],
-      }).success,
-    ).toBe(false);
-    expect(
-      createMailRuleSchema.safeParse({
-        name: "Bad domain",
-        conditions: { mode: "all", items: [{ field: "sender_domain", operator: "is", value: "person@example.com" }] },
-        actions: [{ kind: "junk" }],
-      }).success,
-    ).toBe(false);
-    expect(
-      createMailRuleSchema.safeParse({
-        name: "Unsafe action",
-        conditions: { mode: "all", items: [{ field: "subject", operator: "regex", value: ".*" }] },
-        actions: [{ kind: "execute", command: "rm -rf /" }],
-      }).success,
-    ).toBe(false);
-  });
-
-  test("rejects multiple provider mutations and duplicate collaboration actions", () => {
-    const base = {
-      name: "Invalid action plan",
-      conditions: {
-        mode: "all" as const,
-        items: [{ field: "sender_address" as const, operator: "is" as const, value: "person@example.com" }],
       },
-    };
-    expect(
-      createMailRuleSchema.safeParse({
-        ...base,
-        actions: [{ kind: "junk" }, { kind: "mark_read" }],
-      }).success,
-    ).toBe(false);
-    expect(
-      createMailRuleSchema.safeParse({
-        ...base,
-        actions: [
-          { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000001" },
-          { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000001" },
+      {
+        id: branchId,
+        kind: "branch" as const,
+        sourceStepId: classifierId,
+        cases: [
+          {
+            choiceId: importantId,
+            steps: [{ id: "00000000-0000-4000-8000-000000000031", kind: "mail_action" as const, action: { kind: "junk" as const } }],
+          },
+          {
+            choiceId: routineId,
+            steps: [{ id: "00000000-0000-4000-8000-000000000032", kind: "mail_action" as const, action: { kind: "trash" as const } }],
+          },
         ],
+        fallback: [],
+      },
+    ];
+    expect(createIncomingAutomationSchema.safeParse({ name: "Alternative effects", scope: { mode: "all" }, steps }).success).toBe(true);
+    expect(
+      createIncomingAutomationSchema.safeParse({
+        name: "Conflicting effect",
+        scope: { mode: "all" },
+        steps: [...steps, { id: "00000000-0000-4000-8000-000000000033", kind: "mail_action", action: { kind: "mark_read" } }],
       }).success,
     ).toBe(false);
   });
 
   test("requires bounded, explicit inputs for previews and existing-message actions", () => {
-    expect(
-      previewMailRuleMatchesInputSchema.safeParse({
-        conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "person@example.com" }] },
-      }).success,
-    ).toBe(true);
+    expect(previewIncomingAutomationMatchesInputSchema.safeParse({ scope: { mode: "all" } }).success).toBe(true);
     expect(
       markSenderMessagesReadInputSchema.safeParse({
         matchKind: "domain",
@@ -376,13 +405,13 @@ describe("mail rule contracts", () => {
       }).success,
     ).toBe(true);
     expect(
-      startMailRuleBackfillInputSchema.safeParse({
+      startIncomingAutomationBackfillInputSchema.safeParse({
         operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",
         expectedRevision: 2,
       }).success,
     ).toBe(true);
     expect(
-      startMailRuleBackfillInputSchema.safeParse({
+      startIncomingAutomationBackfillInputSchema.safeParse({
         operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",
         expectedRevision: 0,
       }).success,

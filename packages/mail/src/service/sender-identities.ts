@@ -1,5 +1,5 @@
-import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
+import { audit } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import {
   type CreateSenderIdentityInput,
@@ -21,7 +21,7 @@ import { normalizeEmailAddress } from "./address-normalization";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import { resolveRoleFolder } from "./folders";
-import { validateDestructiveMailRulesForMailbox } from "./mail-rules";
+import { validateDestructiveIncomingAutomationsForMailbox } from "./incoming-automations";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
 
@@ -338,7 +338,7 @@ export const createSenderIdentity = async (params: {
         FROM mail.sender_identities
         WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
       `;
-      const safe = await validateDestructiveMailRulesForMailbox({
+      const safe = await validateDestructiveIncomingAutomationsForMailbox({
         mailboxId: params.mailboxId,
         identityAddresses: [...existingIdentities.map((identity) => identity.from_address), fromAddress],
         db: tx,
@@ -517,7 +517,7 @@ export const updateSenderIdentity = async (params: {
           FROM mail.sender_identities
           WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
         `;
-        const safe = await validateDestructiveMailRulesForMailbox({
+        const safe = await validateDestructiveIncomingAutomationsForMailbox({
           mailboxId: params.mailboxId,
           identityAddresses: identities.map((identity) => (identity.id === current.id ? fromAddress : identity.from_address)),
           db: tx,

@@ -7,176 +7,33 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
-  test("installs managed mail rules once with soft-delete invariants", async () => {
+  test("installs unified incoming automations and removes split alpha tables", async () => {
     await migrate();
     await migrate();
     const [shape] = await sql<
       {
         applied_count: number;
         table_present: boolean;
-        deleted_at_present: boolean;
         active_name_index_present: boolean;
         touch_trigger_present: boolean;
         workflow_profile_fk_present: boolean;
-        composable_actions_applied_count: number;
-        actions_present: boolean;
-        legacy_action_removed: boolean;
-        actions_constraint_present: boolean;
-        backfill_pointer_applied_count: number;
-        backfill_pointer_present: boolean;
-        generalized_rules_applied_count: number;
-        canonical_rule_names_applied_count: number;
-        calendar_destination_applied_count: number;
-        calendar_destination_present: boolean;
-        conditions_present: boolean;
-        legacy_match_removed: boolean;
+        managed_owner_present: boolean;
+        split_tables_absent: boolean;
       }[]
     >`
       SELECT
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
-          WHERE version = 92 AND name = 'managed_sender_rules_hardening'
-        ) AS applied_count,
-        to_regclass('mail.mail_rules') IS NOT NULL AS table_present,
+        (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 109 AND name = 'unified_incoming_automations') AS applied_count,
+        to_regclass('mail.incoming_automations') IS NOT NULL AS table_present,
+        to_regclass('mail.incoming_automations_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
         EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mail_rules'
-            AND column_name = 'deleted_at'
-        ) AS deleted_at_present,
-        to_regclass('mail.mail_rules_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
-        EXISTS (
-          SELECT 1
-          FROM pg_trigger
-          WHERE tgrelid = 'mail.mail_rules'::regclass
-            AND tgname = 'mail_rules_touch_updated_at'
+          SELECT 1 FROM pg_trigger
+          WHERE tgrelid = 'mail.incoming_automations'::regclass
+            AND tgname = 'incoming_automations_touch_updated_at'
             AND NOT tgisinternal
         ) AS touch_trigger_present,
         EXISTS (
-          SELECT 1
-          FROM pg_constraint
-          WHERE conrelid = 'mail.mail_rules'::regclass
-            AND contype = 'f'
-            AND confrelid = 'mail.workflow_profile'::regclass
-            AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (workflow_id)%'
-        ) AS workflow_profile_fk_present,
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
-          WHERE version = 99 AND name = 'composable_sender_rule_actions'
-        ) AS composable_actions_applied_count,
-        EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mail_rules'
-            AND column_name = 'actions'
-        ) AS actions_present,
-        NOT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mail_rules'
-            AND column_name = 'action'
-        ) AS legacy_action_removed,
-        EXISTS (
-          SELECT 1
-          FROM pg_constraint
-          WHERE conrelid = 'mail.mail_rules'::regclass
-            AND conname = 'mail_rules_actions_check'
-        ) AS actions_constraint_present,
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
-          WHERE version = 100 AND name = 'sender_rule_backfill_pointer'
-        ) AS backfill_pointer_applied_count,
-        EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mail_rules'
-            AND column_name = 'latest_backfill_operation_id'
-        ) AS backfill_pointer_present,
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
-          WHERE version = 103 AND name = 'generalized_mail_rules'
-        ) AS generalized_rules_applied_count,
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
-          WHERE version = 104 AND name = 'canonical_mail_rule_object_names'
-        ) AS canonical_rule_names_applied_count,
-        (
-          SELECT count(*)::int
-          FROM mail.schema_migrations
-          WHERE version = 105 AND name = 'mailbox_calendar_destination'
-        ) AS calendar_destination_applied_count,
-        EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mailboxes'
-            AND column_name = 'calendar_space_id'
-        ) AS calendar_destination_present,
-        EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mail_rules'
-            AND column_name = 'conditions'
-        ) AS conditions_present,
-        NOT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'mail'
-            AND table_name = 'mail_rules'
-            AND column_name IN ('match_kind', 'match_value')
-        ) AS legacy_match_removed
-    `;
-    expect(shape).toEqual({
-      applied_count: 1,
-      table_present: true,
-      deleted_at_present: true,
-      active_name_index_present: true,
-      touch_trigger_present: true,
-      workflow_profile_fk_present: true,
-      composable_actions_applied_count: 1,
-      actions_present: true,
-      legacy_action_removed: true,
-      actions_constraint_present: true,
-      backfill_pointer_applied_count: 1,
-      backfill_pointer_present: true,
-      generalized_rules_applied_count: 1,
-      canonical_rule_names_applied_count: 1,
-      calendar_destination_applied_count: 1,
-      calendar_destination_present: true,
-      conditions_present: true,
-      legacy_match_removed: true,
-    });
-  });
-
-  test("installs guided AI automations with managed workflow ownership", async () => {
-    await migrate();
-    await migrate();
-    const [shape] = await sql<
-      {
-        applied_count: number;
-        table_present: boolean;
-        active_name_index_present: boolean;
-        workflow_profile_fk_present: boolean;
-        managed_owner_present: boolean;
-      }[]
-    >`
-      SELECT
-        (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 108 AND name = 'guided_ai_automations') AS applied_count,
-        to_regclass('mail.ai_automations') IS NOT NULL AS table_present,
-        to_regclass('mail.ai_automations_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
-        EXISTS (
           SELECT 1 FROM pg_constraint
-          WHERE conrelid = 'mail.ai_automations'::regclass
+          WHERE conrelid = 'mail.incoming_automations'::regclass
             AND contype = 'f'
             AND confrelid = 'mail.workflow_profile'::regclass
         ) AS workflow_profile_fk_present,
@@ -184,15 +41,20 @@ suite("mail migrations", () => {
           SELECT 1 FROM pg_constraint
           WHERE conrelid = 'mail.workflow_profile'::regclass
             AND conname = 'workflow_profile_managed_by_check'
-            AND pg_get_constraintdef(oid) LIKE '%ai_automation%'
-        ) AS managed_owner_present
+            AND pg_get_constraintdef(oid) LIKE '%incoming_automation%'
+            AND pg_get_constraintdef(oid) NOT LIKE '%mail_rule%'
+            AND pg_get_constraintdef(oid) NOT LIKE '%ai_automation%'
+        ) AS managed_owner_present,
+        to_regclass('mail.mail_rules') IS NULL AND to_regclass('mail.ai_automations') IS NULL AS split_tables_absent
     `;
     expect(shape).toEqual({
       applied_count: 1,
       table_present: true,
       active_name_index_present: true,
+      touch_trigger_present: true,
       workflow_profile_fk_present: true,
       managed_owner_present: true,
+      split_tables_absent: true,
     });
   });
 
@@ -1170,7 +1032,7 @@ suite("mail migrations", () => {
             ('mail.workflow_profile', 'workflows.workflow'),
             ('mail.workflow_run_state', 'workflows.run'),
             ('mail.automatic_reply_configurations', 'mail.workflow_profile'),
-            ('mail.mail_rules', 'mail.workflow_profile'),
+            ('mail.incoming_automations', 'mail.workflow_profile'),
             ('mail.automatic_reply_effects', 'workflows.version'),
             ('mail.automatic_reply_effects', 'workflows.run')
           ) expected(source_table, target_table)

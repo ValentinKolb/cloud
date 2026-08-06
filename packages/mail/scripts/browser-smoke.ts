@@ -443,15 +443,18 @@ const runSmoke = async (fixture: Fixture) => {
     }
     await page.goForward({ waitUntil: "domcontentloaded" });
     await expectUrl(page, (url) => url.pathname === `/app/mail/${fixture.mailboxId}/automations`, "browser forward returns to automations");
-    await page.goto(`${mailboxPath}/automations/rules?new=1`, { waitUntil: "domcontentloaded" });
-    const ruleDialog = page.getByRole("dialog").filter({ hasText: "Create mail rule" });
-    const ruleValue = ruleDialog.getByRole("textbox", { name: "Value", exact: true });
-    await ruleValue.pressSequentially("focus-stays");
-    if ((await ruleValue.inputValue()) !== "focus-stays") fail("mail rule condition input lost keystrokes");
-    if (!(await ruleValue.evaluate((input) => document.activeElement === input))) {
-      fail("mail rule condition input lost focus while typing");
+    await page.goto(`${mailboxPath}/automations/incoming?new=blank`, { waitUntil: "domcontentloaded" });
+    const automationDialog = page.getByRole("dialog").filter({ hasText: "Create incoming automation" });
+    const incomingMessages = automationDialog.getByRole("combobox", { name: "Incoming messages", exact: true });
+    await incomingMessages.press("ArrowDown");
+    await incomingMessages.press("Enter");
+    const automationValue = automationDialog.getByRole("textbox", { name: "Value", exact: true });
+    await automationValue.pressSequentially("focus-stays");
+    if ((await automationValue.inputValue()) !== "focus-stays") fail("incoming automation condition input lost keystrokes");
+    if (!(await automationValue.evaluate((input) => document.activeElement === input))) {
+      fail("incoming automation condition input lost focus while typing");
     }
-    ok("mail rule condition input preserves focus while updating immutable state");
+    ok("incoming automation condition input preserves focus while updating immutable state");
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
 
     await page.setViewportSize({ width: 390, height: 812 });

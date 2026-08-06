@@ -50,7 +50,7 @@ type DbWorkflow = {
   updated_at: Date | string;
 };
 
-type ManagedWorkflowOwner = "automatic_reply" | "mail_rule" | "ai_automation";
+type ManagedWorkflowOwner = "automatic_reply" | "incoming_automation";
 
 export type DbWorkflowVersion = {
   id: string;

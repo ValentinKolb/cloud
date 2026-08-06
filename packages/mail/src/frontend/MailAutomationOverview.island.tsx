@@ -6,8 +6,7 @@ import MailAutomationShell from "./_components/MailAutomationShell";
 
 export default function MailAutomationOverview(props: { data: MailAutomationOverviewData; currentUserEmail: string | null }) {
   const activeReply = () => props.data.automaticReplies.find((configuration) => configuration.enabled) ?? null;
-  const activeRules = () => props.data.mailRules?.filter((rule) => rule.enabled).length ?? 0;
-  const activeAiAutomations = () => props.data.aiAutomations?.filter((automation) => automation.enabled).length ?? 0;
+  const activeIncomingAutomations = () => props.data.incomingAutomations?.filter((automation) => automation.enabled).length ?? 0;
   const activeWorkflows = () => props.data.customWorkflows?.filter((workflow) => workflow.activeVersionId).length ?? 0;
   const failures = () =>
     props.data.recentActivity?.filter((item) => item.status === "failed" || item.status === "needs_attention").length ?? 0;
@@ -36,9 +35,9 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
         <Show when={props.data.permission === "admin"}>
           <StatCell
             label="Incoming mail"
-            value={activeRules() + activeAiAutomations()}
-            sub={`${(props.data.mailRules?.length ?? 0) + (props.data.aiAutomations?.length ?? 0)} configured`}
-            href={`${base}/rules`}
+            value={activeIncomingAutomations()}
+            sub={`${props.data.incomingAutomations?.length ?? 0} configured`}
+            href={`${base}/incoming`}
             accent={{ tone: "blue", icon: "ti ti-inbox-cog" }}
           />
           <StatCell
@@ -92,16 +91,16 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
             </span>
           </a>
           <Show when={props.data.permission === "admin"}>
-            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=rule`}>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/incoming?new=blank`}>
               <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
                 <i class="ti ti-filter-plus" aria-hidden="true" />
               </span>
               <span>
-                <span class="block text-sm font-semibold text-primary">Create a mail rule</span>
-                <span class="mt-1 block text-xs leading-relaxed text-dimmed">Route, tag, assign, or update matching messages.</span>
+                <span class="block text-sm font-semibold text-primary">Create an incoming automation</span>
+                <span class="mt-1 block text-xs leading-relaxed text-dimmed">Mix direct mail actions and AI in one guided flow.</span>
               </span>
             </a>
-            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=ai-route`}>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/incoming?new=ai-route`}>
               <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
                 <i class="ti ti-route-alt-left" aria-hidden="true" />
               </span>
@@ -112,7 +111,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
                 </span>
               </span>
             </a>
-            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=ai-tag`}>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/incoming?new=ai-tag`}>
               <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
                 <i class="ti ti-tags" aria-hidden="true" />
               </span>
@@ -121,7 +120,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
                 <span class="mt-1 block text-xs leading-relaxed text-dimmed">Let AI select one or more existing local tags.</span>
               </span>
             </a>
-            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/rules?new=ai-draft`}>
+            <a class="paper flex min-h-32 items-start gap-3 p-4" href={`${base}/incoming?new=ai-draft`}>
               <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
                 <i class="ti ti-pencil-bolt" aria-hidden="true" />
               </span>
@@ -153,7 +152,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
             <div class="flex items-start justify-between gap-3 px-3 py-3">
               <div>
                 <h2 class="text-sm font-semibold text-primary">Recent activity</h2>
-                <p class="mt-0.5 text-xs text-dimmed">Workflow runs and mail-rule backfills for this mailbox.</p>
+                <p class="mt-0.5 text-xs text-dimmed">Workflow runs and incoming-automation backfills for this mailbox.</p>
               </div>
               <ButtonLink variant="ghost" size="sm" href={`${base}/activity`}>
                 View all <i class="ti ti-arrow-right" aria-hidden="true" />

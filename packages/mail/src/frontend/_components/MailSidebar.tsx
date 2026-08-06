@@ -217,7 +217,7 @@ export default function MailSidebar(props: {
               action: () => documentNavigate(`/app/mail/${props.mailboxId}/automations`),
             },
             ...(props.canAdmin
-              ? [{ label: "Rules", icon: "ti ti-filter-cog", href: `/app/mail/${props.mailboxId}/automations/rules` }]
+              ? [{ label: "Incoming mail", icon: "ti ti-mailbox", href: `/app/mail/${props.mailboxId}/automations/incoming` }]
               : []),
           ],
         },

@@ -3,7 +3,7 @@ import { createSignal, type JSX, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import { openMailboxSettingsDialog } from "./MailboxSettingsDialog";
 
-export type MailAutomationPageId = "overview" | "replies" | "rules" | "activity" | "workflows";
+export type MailAutomationPageId = "overview" | "replies" | "incoming" | "activity" | "workflows";
 
 const pageHref = (mailboxId: string, page: MailAutomationPageId): string =>
   page === "overview" ? `/app/mail/${mailboxId}/automations` : `/app/mail/${mailboxId}/automations/${page}`;
@@ -25,7 +25,7 @@ function NavigationItems(props: { mailboxId: string; activePage: MailAutomationP
       <AppWorkspace.SidebarSection title="Automation">
         {item("overview", "Overview", "ti ti-layout-dashboard")}
         {item("replies", "Automatic replies", "ti ti-message-cog")}
-        <Show when={props.admin}>{item("rules", "Incoming mail", "ti ti-mailbox")}</Show>
+        <Show when={props.admin}>{item("incoming", "Incoming mail", "ti ti-mailbox")}</Show>
       </AppWorkspace.SidebarSection>
       <Show when={props.admin}>
         <AppWorkspace.SidebarSection title="Advanced">

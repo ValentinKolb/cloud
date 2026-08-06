@@ -1,10 +1,12 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
-import { mailAiAutomationKindSchema } from "../../../../contracts";
 import type { MailRequestContext } from "../../../../service";
-import { loadMailRulesWorkspace } from "../../../../service/automation-workspace";
-import MailRulesPage from "../../../MailRulesPage.island";
+import { loadMailIncomingAutomationsWorkspace } from "../../../../service/automation-workspace";
+import type { IncomingAutomationPreset } from "../../../_components/MailIncomingAutomationSettings";
+import MailIncomingAutomationsPage from "../../../MailIncomingAutomationsPage.island";
+
+const presets = new Set<IncomingAutomationPreset>(["blank", "ai-route", "ai-tag", "ai-draft"]);
 
 export default ssr<AuthContext>(async (c) => {
   const mailboxId = c.req.param("mailboxId") ?? "";
@@ -16,10 +18,14 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const result = await loadMailRulesWorkspace(context, mailboxId);
+  const result = await loadMailIncomingAutomationsWorkspace(context, mailboxId);
   if (!result.ok) return c.redirect(`/app/mail/${mailboxId}/automations`);
-  const requestedAutomation = c.req.query("new") ?? "";
-  const requestedAiKind = mailAiAutomationKindSchema.safeParse(requestedAutomation.replace(/^ai-/u, ""));
+  const requested = c.req.query("new") ?? "";
+  const openPreset = presets.has(requested as IncomingAutomationPreset)
+    ? (requested as IncomingAutomationPreset)
+    : requested === "1"
+      ? "blank"
+      : null;
   return () => (
     <Layout
       c={c}
@@ -33,12 +39,7 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Incoming mail" },
       ]}
     >
-      <MailRulesPage
-        data={result.data}
-        currentUserEmail={user.mail}
-        openNewRule={requestedAutomation === "rule" || requestedAutomation === "1"}
-        openNewAiKind={requestedAiKind.success ? requestedAiKind.data : null}
-      />
+      <MailIncomingAutomationsPage data={result.data} currentUserEmail={user.mail} openPreset={openPreset} />
     </Layout>
   );
 });

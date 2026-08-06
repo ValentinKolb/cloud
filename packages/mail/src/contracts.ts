@@ -1927,27 +1927,30 @@ export type UpdateAutomaticReplySetup = z.infer<typeof updateAutomaticReplySetup
 export const senderMatchKindSchema = z.enum(["sender", "domain"]);
 export type SenderMatchKind = z.infer<typeof senderMatchKindSchema>;
 
-export const mailRuleMatchModeSchema = z.enum(["all", "any"]);
-export type MailRuleMatchMode = z.infer<typeof mailRuleMatchModeSchema>;
+export const mailAutomationMatchModeSchema = z.enum(["all", "any"]);
+export type MailAutomationMatchMode = z.infer<typeof mailAutomationMatchModeSchema>;
 
-export const mailRuleTextOperatorSchema = z.enum(["is", "contains", "starts_with", "ends_with"]);
-export type MailRuleTextOperator = z.infer<typeof mailRuleTextOperatorSchema>;
+export const mailAutomationTextOperatorSchema = z.enum(["is", "contains", "starts_with", "ends_with"]);
+export type MailAutomationTextOperator = z.infer<typeof mailAutomationTextOperatorSchema>;
 
-const mailRuleTextValueSchema = z.string().trim().min(1).max(1_000);
+const mailAutomationTextValueSchema = z.string().trim().min(1).max(1_000);
 
-export const mailRuleConditionSchema = z.discriminatedUnion("field", [
+export const mailAutomationConditionSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("sender_address"), operator: z.literal("is"), value: z.string().trim().min(1).max(320) }).strict(),
   z.object({ field: z.literal("sender_domain"), operator: z.literal("is"), value: z.string().trim().min(1).max(253) }).strict(),
-  z.object({ field: z.literal("subject"), operator: mailRuleTextOperatorSchema, value: mailRuleTextValueSchema }).strict(),
-  z.object({ field: z.literal("body_text"), operator: mailRuleTextOperatorSchema, value: mailRuleTextValueSchema }).strict(),
+  z.object({ field: z.literal("subject"), operator: mailAutomationTextOperatorSchema, value: mailAutomationTextValueSchema }).strict(),
+  z.object({ field: z.literal("body_text"), operator: mailAutomationTextOperatorSchema, value: mailAutomationTextValueSchema }).strict(),
   z.object({ field: z.literal("attachment_presence"), operator: z.literal("is"), value: z.boolean() }).strict(),
 ]);
-export type MailRuleCondition = z.infer<typeof mailRuleConditionSchema>;
+export type MailAutomationCondition = z.infer<typeof mailAutomationConditionSchema>;
 
-export const mailRuleConditionsSchema = z
+export const mailAutomationConditionsSchema = z
   .object({
-    mode: mailRuleMatchModeSchema,
-    items: z.array(mailRuleConditionSchema).min(1, "Add at least one condition").max(8, "A mail rule can have at most 8 conditions"),
+    mode: mailAutomationMatchModeSchema,
+    items: z
+      .array(mailAutomationConditionSchema)
+      .min(1, "Add at least one condition")
+      .max(8, "An automation can have at most 8 conditions"),
   })
   .strict()
   .superRefine((conditions, context) => {
@@ -1958,12 +1961,12 @@ export const mailRuleConditionsSchema = z
         seen.add(key);
         return;
       }
-      context.addIssue({ code: "custom", message: "Remove duplicate mail rule conditions", path: ["items", index] });
+      context.addIssue({ code: "custom", message: "Remove duplicate automation conditions", path: ["items", index] });
     });
   });
-export type MailRuleConditions = z.infer<typeof mailRuleConditionsSchema>;
+export type MailAutomationConditions = z.infer<typeof mailAutomationConditionsSchema>;
 
-export const mailRuleActionSchema = z.discriminatedUnion("kind", [
+export const mailAutomationActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("junk") }).strict(),
   z.object({ kind: z.literal("trash") }).strict(),
   z.object({ kind: z.literal("mark_read") }).strict(),
@@ -1973,210 +1976,314 @@ export const mailRuleActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("assign_user"), userId: z.string().uuid() }).strict(),
   z.object({ kind: z.literal("set_status"), status: conversationWorkStatusSchema }).strict(),
 ]);
-export type MailRuleAction = z.infer<typeof mailRuleActionSchema>;
+export type MailAutomationAction = z.infer<typeof mailAutomationActionSchema>;
 
-const mailRuleProviderActionKinds = new Set<MailRuleAction["kind"]>(["junk", "trash", "mark_read", "add_keyword", "move_to_folder"]);
+export const mailAutomationScopeSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("all") }).strict(),
+  z.object({ mode: z.literal("matching"), conditions: mailAutomationConditionsSchema }).strict(),
+]);
+export type MailAutomationScope = z.infer<typeof mailAutomationScopeSchema>;
 
-export const mailRuleActionsSchema = z
-  .array(mailRuleActionSchema)
-  .min(1, "Add at least one action")
-  .max(8, "A mail rule can have at most 8 actions")
-  .superRefine((actions, context) => {
-    const providerActions = actions.filter((action) => mailRuleProviderActionKinds.has(action.kind));
-    if (providerActions.length > 1) {
-      context.addIssue({
-        code: "custom",
-        message: "A mail rule can have at most one provider message action",
-      });
+const automationStepIdSchema = z.string().uuid();
+const automationChoiceSchema = z
+  .object({ id: z.string().uuid(), name: z.string().trim().min(1).max(80), description: z.string().trim().min(1).max(500) })
+  .strict();
+
+export type MailAutomationStep =
+  | { id: string; kind: "mail_action"; action: MailAutomationAction }
+  | { id: string; kind: "ai_generate_text"; instructions: string; maxOutputChars: number }
+  | { id: string; kind: "ai_classify"; instructions: string; choices: Array<{ id: string; name: string; description: string }> }
+  | {
+      id: string;
+      kind: "ai_classify_many";
+      instructions: string;
+      choices: Array<{ id: string; name: string; description: string }>;
+      maxChoices: number;
     }
-    for (const uniqueKind of ["assign_user", "set_status"] as const) {
-      if (actions.filter((action) => action.kind === uniqueKind).length > 1) {
+  | {
+      id: string;
+      kind: "branch";
+      sourceStepId: string;
+      cases: Array<{ choiceId: string; steps: MailAutomationStep[] }>;
+      fallback: MailAutomationStep[];
+    }
+  | { id: string; kind: "create_reply_draft"; sourceStepId: string; senderIdentityId: string };
+
+export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    z.object({ id: automationStepIdSchema, kind: z.literal("mail_action"), action: mailAutomationActionSchema }).strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("ai_generate_text"),
+        instructions: z.string().trim().min(1).max(4_000),
+        maxOutputChars: z.number().int().min(200).max(10_000),
+      })
+      .strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("ai_classify"),
+        instructions: z.string().trim().min(1).max(4_000),
+        choices: z.array(automationChoiceSchema).min(2).max(10),
+      })
+      .strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("ai_classify_many"),
+        instructions: z.string().trim().min(1).max(4_000),
+        choices: z.array(automationChoiceSchema).min(2).max(10),
+        maxChoices: z.number().int().min(1).max(10),
+      })
+      .strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("branch"),
+        sourceStepId: automationStepIdSchema,
+        cases: z
+          .array(
+            z
+              .object({
+                choiceId: automationStepIdSchema,
+                steps: z.array(mailAutomationStepSchema).min(1).max(12),
+              })
+              .strict(),
+          )
+          .min(2)
+          .max(10),
+        fallback: z.array(mailAutomationStepSchema).max(12),
+      })
+      .strict(),
+    z
+      .object({
+        id: automationStepIdSchema,
+        kind: z.literal("create_reply_draft"),
+        sourceStepId: automationStepIdSchema,
+        senderIdentityId: z.string().uuid(),
+      })
+      .strict(),
+  ]),
+);
+
+const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.RefinementCtx): void => {
+  type AutomationOutputStep = Extract<MailAutomationStep, { kind: "ai_generate_text" | "ai_classify" | "ai_classify_many" }>;
+  const ids = new Set<string>();
+  let total = 0;
+  let aiCalls = 0;
+  const visit = (
+    sequence: MailAutomationStep[],
+    available: Map<string, AutomationOutputStep>,
+    path: (string | number)[],
+    depth: number,
+  ) => {
+    if (depth > 4) {
+      context.addIssue({ code: "custom", message: "Automation branches can be nested at most 4 levels", path });
+      return;
+    }
+    const current = new Map(available);
+    sequence.forEach((step, index) => {
+      const stepPath = [...path, index];
+      total += 1;
+      if (ids.has(step.id)) context.addIssue({ code: "custom", message: "Automation step IDs must be unique", path: [...stepPath, "id"] });
+      ids.add(step.id);
+      if (step.kind.startsWith("ai_")) aiCalls += 1;
+      if (step.kind === "ai_classify" || step.kind === "ai_classify_many") {
+        const choiceIds = new Set<string>();
+        const choiceNames = new Set<string>();
+        step.choices.forEach((choice, choiceIndex) => {
+          if (choiceIds.has(choice.id)) {
+            context.addIssue({
+              code: "custom",
+              message: "AI choice IDs must be unique",
+              path: [...stepPath, "choices", choiceIndex, "id"],
+            });
+          }
+          const name = choice.name.toLocaleLowerCase();
+          if (choiceNames.has(name)) {
+            context.addIssue({
+              code: "custom",
+              message: "AI choice names must be unique",
+              path: [...stepPath, "choices", choiceIndex, "name"],
+            });
+          }
+          choiceIds.add(choice.id);
+          choiceNames.add(name);
+        });
+        if (step.kind === "ai_classify_many" && step.maxChoices > step.choices.length) {
+          context.addIssue({
+            code: "custom",
+            message: "Maximum choices cannot exceed the available choices",
+            path: [...stepPath, "maxChoices"],
+          });
+        }
+      }
+      if (step.kind === "branch") {
+        const source = current.get(step.sourceStepId);
+        if (source?.kind !== "ai_classify" && source?.kind !== "ai_classify_many") {
+          context.addIssue({
+            code: "custom",
+            message: "A branch must use an earlier AI classification step",
+            path: [...stepPath, "sourceStepId"],
+          });
+        }
+        const choices = source?.kind === "ai_classify" || source?.kind === "ai_classify_many" ? source.choices : [];
+        const expected = new Set(choices.map((choice) => choice.id));
+        const cases = new Set<string>();
+        step.cases.forEach((branchCase, caseIndex) => {
+          if (!expected.has(branchCase.choiceId) || cases.has(branchCase.choiceId)) {
+            context.addIssue({
+              code: "custom",
+              message: cases.has(branchCase.choiceId) ? "Branch choices must be unique" : "Branch choice must belong to its AI step",
+              path: [...stepPath, "cases", caseIndex, "choiceId"],
+            });
+          }
+          cases.add(branchCase.choiceId);
+          visit(branchCase.steps, current, [...stepPath, "cases", caseIndex, "steps"], depth + 1);
+        });
+        if (expected.size > 0 && cases.size !== expected.size) {
+          context.addIssue({ code: "custom", message: "Add one branch for every AI choice", path: [...stepPath, "cases"] });
+        }
+        visit(step.fallback, current, [...stepPath, "fallback"], depth + 1);
+      }
+      if (step.kind === "create_reply_draft" && current.get(step.sourceStepId)?.kind !== "ai_generate_text") {
         context.addIssue({
           code: "custom",
-          message: uniqueKind === "assign_user" ? "A mail rule can assign only one user" : "A mail rule can set only one status",
+          message: "A reply draft must use an earlier AI text step",
+          path: [...stepPath, "sourceStepId"],
         });
       }
-    }
-    const seen = new Set<string>();
-    actions.forEach((action, index) => {
-      const key = JSON.stringify(action);
-      if (!seen.has(key)) {
-        seen.add(key);
-        return;
+      if (step.kind === "ai_generate_text" || step.kind === "ai_classify" || step.kind === "ai_classify_many") {
+        current.set(step.id, step);
       }
-      context.addIssue({
-        code: "custom",
-        message: "Remove duplicate mail rule actions",
-        path: [index],
-      });
     });
-  });
-export type MailRuleActions = z.infer<typeof mailRuleActionsSchema>;
+  };
+  visit(steps, new Map(), ["steps"], 0);
 
-const mailRuleFields = {
-  name: z.string().trim().min(1).max(120),
-  enabled: z.boolean(),
-  conditions: mailRuleConditionsSchema,
-  actions: mailRuleActionsSchema,
-} as const;
+  type ActionState = { providerMutation: boolean; assigned: boolean; statusSet: boolean; tagIds: Set<string> };
+  const actionStateKey = (state: ActionState): string =>
+    `${state.providerMutation}:${state.assigned}:${state.statusSet}:${[...state.tagIds].sort().join(",")}`;
+  const uniqueStates = (states: ActionState[]): ActionState[] => [
+    ...new Map(states.map((state) => [actionStateKey(state), state])).values(),
+  ];
+  const validateActionPaths = (sequence: MailAutomationStep[], initial: ActionState[], path: (string | number)[]): ActionState[] => {
+    let states = initial;
+    sequence.forEach((step, index) => {
+      const stepPath = [...path, index];
+      if (step.kind === "mail_action") {
+        const providerMutation = ["junk", "trash", "mark_read", "add_keyword", "move_to_folder"].includes(step.action.kind);
+        for (const state of states) {
+          if (providerMutation && state.providerMutation) {
+            context.addIssue({
+              code: "custom",
+              message: "One reachable path can contain only one provider message action",
+              path: [...stepPath, "action"],
+            });
+          }
+          if (step.action.kind === "assign_user" && state.assigned) {
+            context.addIssue({ code: "custom", message: "One reachable path can assign only once", path: [...stepPath, "action"] });
+          }
+          if (step.action.kind === "set_status" && state.statusSet) {
+            context.addIssue({ code: "custom", message: "One reachable path can set status only once", path: [...stepPath, "action"] });
+          }
+          if (step.action.kind === "add_local_tag" && state.tagIds.has(step.action.tagId)) {
+            context.addIssue({
+              code: "custom",
+              message: "One reachable path cannot add the same tag twice",
+              path: [...stepPath, "action"],
+            });
+          }
+        }
+        states = uniqueStates(
+          states.map((state) => ({
+            providerMutation: state.providerMutation || providerMutation,
+            assigned: state.assigned || step.action.kind === "assign_user",
+            statusSet: state.statusSet || step.action.kind === "set_status",
+            tagIds: step.action.kind === "add_local_tag" ? new Set([...state.tagIds, step.action.tagId]) : new Set(state.tagIds),
+          })),
+        );
+      }
+      if (step.kind === "branch") {
+        const alternatives = [
+          ...step.cases.map((branchCase, caseIndex) =>
+            validateActionPaths(branchCase.steps, states, [...stepPath, "cases", caseIndex, "steps"]),
+          ),
+          step.fallback.length > 0 ? validateActionPaths(step.fallback, states, [...stepPath, "fallback"]) : states,
+        ];
+        states = uniqueStates(alternatives.flat());
+      }
+    });
+    return states;
+  };
+  validateActionPaths(steps, [{ providerMutation: false, assigned: false, statusSet: false, tagIds: new Set() }], ["steps"]);
 
-const validateMailRuleConditions = (value: { conditions: MailRuleConditions }, context: z.RefinementCtx): void => {
-  value.conditions.items.forEach((condition, index) => {
+  if (total > 40) context.addIssue({ code: "custom", message: "An automation can have at most 40 steps", path: ["steps"] });
+  if (aiCalls > 10) context.addIssue({ code: "custom", message: "An automation can make at most 10 AI calls", path: ["steps"] });
+};
+
+const validateAutomationScope = (value: { scope: MailAutomationScope }, context: z.RefinementCtx): void => {
+  if (value.scope.mode === "all") return;
+  value.scope.conditions.items.forEach((condition, index) => {
     if (condition.field !== "sender_address" && condition.field !== "sender_domain") return;
     const valid = condition.field === "sender_address" ? /^[^\s@]+@[^\s@]+$/u.test(condition.value) : !/[\s@/:]/u.test(condition.value);
     if (valid) return;
     context.addIssue({
       code: "custom",
       message: condition.field === "sender_address" ? "Enter a valid sender email address" : "Enter a valid sender domain",
-      path: ["conditions", "items", index, "value"],
+      path: ["scope", "conditions", "items", index, "value"],
     });
   });
 };
 
-export const createMailRuleSchema = z
+const incomingAutomationFields = {
+  name: z.string().trim().min(1).max(120),
+  enabled: z.boolean(),
+  scope: mailAutomationScopeSchema,
+  steps: z.array(mailAutomationStepSchema).min(1).max(20),
+} as const;
+
+const validateIncomingAutomation = (value: { scope: MailAutomationScope; steps: MailAutomationStep[] }, context: z.RefinementCtx) => {
+  validateAutomationScope(value, context);
+  addAutomationStepIssues(value.steps, context);
+};
+
+export const createIncomingAutomationSchema = z
   .object({
-    ...mailRuleFields,
-    enabled: z.boolean().default(true),
+    ...incomingAutomationFields,
+    enabled: z.boolean().default(false),
   })
   .strict()
-  .superRefine(validateMailRuleConditions);
-export type CreateMailRule = z.infer<typeof createMailRuleSchema>;
+  .superRefine(validateIncomingAutomation);
+export type CreateIncomingAutomation = z.infer<typeof createIncomingAutomationSchema>;
 
-export const updateMailRuleSchema = z
+export const updateIncomingAutomationSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
-    ...mailRuleFields,
+    ...incomingAutomationFields,
   })
   .strict()
-  .superRefine(validateMailRuleConditions);
-export type UpdateMailRule = z.infer<typeof updateMailRuleSchema>;
+  .superRefine(validateIncomingAutomation);
+export type UpdateIncomingAutomation = z.infer<typeof updateIncomingAutomationSchema>;
 
-export const setMailRuleEnabledSchema = z
+export const setIncomingAutomationEnabledSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
     enabled: z.boolean(),
   })
   .strict();
-export type SetMailRuleEnabled = z.infer<typeof setMailRuleEnabledSchema>;
+export type SetIncomingAutomationEnabled = z.infer<typeof setIncomingAutomationEnabledSchema>;
 
-export const deleteMailRuleSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
-export type DeleteMailRule = z.infer<typeof deleteMailRuleSchema>;
+export const deleteIncomingAutomationSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
+export type DeleteIncomingAutomation = z.infer<typeof deleteIncomingAutomationSchema>;
 
-export const mailAiAutomationKindSchema = z.enum(["route", "tag", "draft"]);
-export type MailAiAutomationKind = z.infer<typeof mailAiAutomationKindSchema>;
-
-export const mailAiAutomationScopeSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("all") }).strict(),
-  z.object({ mode: z.literal("matching"), conditions: mailRuleConditionsSchema }).strict(),
-]);
-export type MailAiAutomationScope = z.infer<typeof mailAiAutomationScopeSchema>;
-
-const mailAiRouteActionKinds = new Set<MailRuleAction["kind"]>(["move_to_folder", "add_local_tag", "assign_user", "set_status"]);
-export const mailAiRouteActionsSchema = mailRuleActionsSchema.refine(
-  (actions) => actions.every((action) => mailAiRouteActionKinds.has(action.kind)),
-  "AI routing supports folders, local tags, assignees, and conversation status",
-);
-
-export const mailAiRouteDefinitionSchema = z
-  .object({
-    kind: z.literal("route"),
-    prompt: z.string().trim().min(1).max(4_000),
-    categories: z
-      .array(
-        z
-          .object({
-            name: z.string().trim().min(1).max(80),
-            description: z.string().trim().min(1).max(500),
-            actions: mailAiRouteActionsSchema,
-          })
-          .strict(),
-      )
-      .min(2, "Add at least two routing categories")
-      .max(10, "AI routing can have at most 10 categories"),
-  })
+export const previewIncomingAutomationMatchesInputSchema = z
+  .object({ scope: mailAutomationScopeSchema })
   .strict()
-  .superRefine((definition, context) => {
-    const seen = new Set<string>();
-    definition.categories.forEach((category, index) => {
-      const normalized = category.name.toLowerCase();
-      if (!seen.has(normalized)) {
-        seen.add(normalized);
-        return;
-      }
-      context.addIssue({ code: "custom", message: "Category names must be unique", path: ["categories", index, "name"] });
-    });
-  });
+  .superRefine(validateAutomationScope);
+export type PreviewIncomingAutomationMatchesInput = z.infer<typeof previewIncomingAutomationMatchesInputSchema>;
 
-export const mailAiTagDefinitionSchema = z
-  .object({
-    kind: z.literal("tag"),
-    prompt: z.string().trim().min(1).max(4_000),
-    tags: z
-      .array(z.object({ tagId: z.string().uuid(), description: z.string().trim().min(1).max(500) }).strict())
-      .min(2, "Select at least two tags")
-      .max(10, "AI tagging can use at most 10 tags"),
-    maxTags: z.number().int().min(1).max(10),
-  })
-  .strict()
-  .superRefine((definition, context) => {
-    if (definition.maxTags > definition.tags.length) {
-      context.addIssue({ code: "custom", message: "Maximum tags cannot exceed the selected tags", path: ["maxTags"] });
-    }
-    const seen = new Set<string>();
-    definition.tags.forEach((tag, index) => {
-      if (!seen.has(tag.tagId)) {
-        seen.add(tag.tagId);
-        return;
-      }
-      context.addIssue({ code: "custom", message: "Select each tag once", path: ["tags", index, "tagId"] });
-    });
-  });
-
-export const mailAiDraftDefinitionSchema = z
-  .object({
-    kind: z.literal("draft"),
-    senderIdentityId: z.string().uuid(),
-    instructions: z.string().trim().min(1).max(4_000),
-    maxOutputChars: z.number().int().min(200).max(10_000),
-  })
-  .strict();
-
-export const mailAiAutomationDefinitionSchema = z.discriminatedUnion("kind", [
-  mailAiRouteDefinitionSchema,
-  mailAiTagDefinitionSchema,
-  mailAiDraftDefinitionSchema,
-]);
-export type MailAiAutomationDefinition = z.infer<typeof mailAiAutomationDefinitionSchema>;
-
-const mailAiAutomationFields = {
-  name: z.string().trim().min(1).max(120),
-  scope: mailAiAutomationScopeSchema,
-  definition: mailAiAutomationDefinitionSchema,
-} as const;
-
-export const createMailAiAutomationSchema = z.object({ ...mailAiAutomationFields, enabled: z.boolean().default(false) }).strict();
-export type CreateMailAiAutomation = z.infer<typeof createMailAiAutomationSchema>;
-
-export const updateMailAiAutomationSchema = z
-  .object({ expectedRevision: z.number().int().positive(), ...mailAiAutomationFields, enabled: z.boolean() })
-  .strict();
-export type UpdateMailAiAutomation = z.infer<typeof updateMailAiAutomationSchema>;
-
-export const setMailAiAutomationEnabledSchema = z.object({ expectedRevision: z.number().int().positive(), enabled: z.boolean() }).strict();
-export type SetMailAiAutomationEnabled = z.infer<typeof setMailAiAutomationEnabledSchema>;
-
-export const deleteMailAiAutomationSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
-export type DeleteMailAiAutomation = z.infer<typeof deleteMailAiAutomationSchema>;
-
-export const previewMailRuleMatchesInputSchema = z
-  .object({
-    conditions: mailRuleConditionsSchema,
-  })
-  .strict()
-  .superRefine(validateMailRuleConditions);
-export type PreviewMailRuleMatchesInput = z.infer<typeof previewMailRuleMatchesInputSchema>;
-
-export const mailRuleMatchPreviewSchema = z
+export const incomingAutomationMatchPreviewSchema = z
   .object({
     messageCount: z.number().int().nonnegative(),
     conversationCount: z.number().int().nonnegative(),
@@ -2185,20 +2292,20 @@ export const mailRuleMatchPreviewSchema = z
     capped: z.boolean(),
   })
   .strict();
-export type MailRuleMatchPreview = z.infer<typeof mailRuleMatchPreviewSchema>;
+export type IncomingAutomationMatchPreview = z.infer<typeof incomingAutomationMatchPreviewSchema>;
 
-export const startMailRuleBackfillInputSchema = z
+export const startIncomingAutomationBackfillInputSchema = z
   .object({
     operationId: z.string().uuid(),
     expectedRevision: z.number().int().positive(),
   })
   .strict();
-export type StartMailRuleBackfillInput = z.infer<typeof startMailRuleBackfillInputSchema>;
+export type StartIncomingAutomationBackfillInput = z.infer<typeof startIncomingAutomationBackfillInputSchema>;
 
-export const mailRuleBackfillSchema = z
+export const incomingAutomationBackfillSchema = z
   .object({
     operationId: z.string().uuid(),
-    ruleId: z.string().uuid(),
+    automationId: z.string().uuid(),
     workflowVersionId: z.string().uuid(),
     state: z.enum(["queued", "running", "waiting", "completed", "failed", "canceled"]),
     candidateCount: z.number().int().nonnegative(),
@@ -2211,7 +2318,7 @@ export const mailRuleBackfillSchema = z
     updatedAt: z.string().datetime(),
   })
   .strict();
-export type MailRuleBackfill = z.infer<typeof mailRuleBackfillSchema>;
+export type IncomingAutomationBackfill = z.infer<typeof incomingAutomationBackfillSchema>;
 
 export const markSenderMessagesReadInputSchema = z
   .object({
@@ -2221,17 +2328,20 @@ export const markSenderMessagesReadInputSchema = z
   })
   .strict()
   .superRefine((value, context) =>
-    validateMailRuleConditions(
+    validateAutomationScope(
       {
-        conditions: {
-          mode: "all",
-          items: [
-            {
-              field: value.matchKind === "sender" ? "sender_address" : "sender_domain",
-              operator: "is",
-              value: value.matchValue,
-            },
-          ],
+        scope: {
+          mode: "matching",
+          conditions: {
+            mode: "all",
+            items: [
+              {
+                field: value.matchKind === "sender" ? "sender_address" : "sender_domain",
+                operator: "is",
+                value: value.matchValue,
+              },
+            ],
+          },
         },
       },
       context,
