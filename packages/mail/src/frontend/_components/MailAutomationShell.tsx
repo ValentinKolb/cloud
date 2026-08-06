@@ -25,7 +25,7 @@ function NavigationItems(props: { mailboxId: string; activePage: MailAutomationP
       <AppWorkspace.SidebarSection title="Automation">
         {item("overview", "Overview", "ti ti-layout-dashboard")}
         {item("replies", "Automatic replies", "ti ti-message-cog")}
-        <Show when={props.admin}>{item("rules", "Incoming mail", "ti ti-inbox-cog")}</Show>
+        <Show when={props.admin}>{item("rules", "Incoming mail", "ti ti-mailbox")}</Show>
       </AppWorkspace.SidebarSection>
       <Show when={props.admin}>
         <AppWorkspace.SidebarSection title="Advanced">
