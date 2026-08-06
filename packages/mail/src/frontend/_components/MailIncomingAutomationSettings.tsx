@@ -1099,20 +1099,14 @@ function IncomingAutomationEditor(props: {
             )}
           </Show>
         </PanelDialog.Section>
-        <PanelDialog.Section
-          title="Flow"
-          subtitle="Steps run from top to bottom. AI results are normal outputs that later steps and conditions can use."
-          icon="ti ti-route"
-        >
-          <AutomationStepsEditor steps={steps()} availableActions={[]} catalog={props.catalog} onChange={setSteps} />
-          <Show when={validationMessage("steps")}>
-            {(message) => (
-              <p class="text-xs text-red-600 dark:text-red-400" role="alert">
-                {message()}
-              </p>
-            )}
-          </Show>
-        </PanelDialog.Section>
+        <AutomationStepsEditor steps={steps()} availableActions={[]} catalog={props.catalog} onChange={setSteps} />
+        <Show when={validationMessage("steps")}>
+          {(message) => (
+            <p class="text-xs text-red-600 dark:text-red-400" role="alert">
+              {message()}
+            </p>
+          )}
+        </Show>
         <PanelDialog.Section
           title="Safety"
           subtitle="Review execution scope and enable the automation when it is ready."
