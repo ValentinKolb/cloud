@@ -536,6 +536,9 @@ const runSmoke = async (fixture: Fixture) => {
     if (Math.abs(summaryLayout.paddingTop - summaryLayout.paddingBottom) > 0.5) {
       fail(`conversation summary spacing is unbalanced: ${JSON.stringify(summaryLayout)}`);
     }
+    const summaryToggle = summary.getByRole("button", { name: "More", exact: true });
+    if ((await summaryToggle.getAttribute("data-size")) !== "xs") fail("conversation summary toggle is not compact");
+    if ((await summaryToggle.getAttribute("data-variant")) !== "ghost") fail("conversation summary toggle is not visually quiet");
     const readerState = await readerScroll.evaluate((element) => {
       const message = element.querySelector<HTMLElement>("[data-mail-message-id]");
       const body = element.querySelector<HTMLElement>(".mail-message-body");
@@ -555,7 +558,7 @@ const runSmoke = async (fixture: Fixture) => {
     )
       fail(`long message did not follow its conversation summary: ${JSON.stringify(readerState)}`);
     if (readerState.nestedVerticalScroll) fail("long message body introduced a nested vertical scrollbar");
-    await summary.getByRole("button", { name: "More", exact: true }).click();
+    await summaryToggle.click();
     await summary.getByText("The summary intentionally spans several paragraphs", { exact: false }).waitFor();
     const expandedReaderState = await readerScroll.evaluate((element) => {
       element.scrollTop = element.scrollHeight;

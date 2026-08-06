@@ -1074,13 +1074,15 @@ export default function MailConversationReader(props: {
                     {summary()}
                   </p>
                   <Show when={summary().length > 280}>
-                    <button
+                    <Button
                       type="button"
-                      class="mt-1 text-xs font-medium text-dimmed hover:text-primary"
+                      variant="ghost"
+                      size="xs"
+                      class="mt-1"
                       onClick={() => setSummaryExpanded((expanded) => !expanded)}
                     >
                       {summaryExpanded() ? "Show less" : "More"}
-                    </button>
+                    </Button>
                   </Show>
                 </section>
               )}
