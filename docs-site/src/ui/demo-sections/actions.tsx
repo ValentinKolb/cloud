@@ -31,10 +31,11 @@ const ButtonsDemo = () => (
       { kind: "component", name: "IconButtonLink", from: "@k2b/ui" },
       { kind: "component", name: "SplitButton", from: "@k2b/ui" },
     ]}
-    description="Package-native buttons share one variant and size contract. Button defaults to primary, IconButton defaults to ghost, and subtle xs actions suit dense contextual surfaces without masquerading as status badges."
+    description="Package-native buttons share one variant and size contract. Button defaults to primary, IconButton defaults to ghost, text actions stay surface-free and flush with nearby copy, and subtle xs actions suit dense contextual surfaces without masquerading as status badges."
     code={`<Button variant="primary">Save</Button>
 <Button variant="secondary">Preview</Button>
 <Button variant="ghost">Later</Button>
+<Button variant="text" size="xs">More</Button>
 <Button variant="danger" size="sm">Delete</Button>
 <Button variant="subtle" size="xs">
   <i class="ti ti-activity" aria-hidden="true" /> Status
@@ -74,6 +75,9 @@ const ButtonsDemo = () => (
       <Button variant="primary">Save</Button>
       <Button variant="secondary">Preview</Button>
       <Button variant="ghost">Later</Button>
+      <Button variant="text" size="xs">
+        More
+      </Button>
       <Button variant="subtle" size="xs">
         <i class="ti ti-activity" aria-hidden="true" /> Status
       </Button>

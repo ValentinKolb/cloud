@@ -162,6 +162,22 @@ describe("@k2b/ui complete action migrations", () => {
     expect(aiRule).toContain("background: var(--k2b-ai-solid)");
   });
 
+  test("renders surface-free text actions through the shared button contract", () => {
+    const button = renderToString(() => createComponent(Button, { size: "xs", variant: "text", children: "More" }));
+    const link = renderToString(() => createComponent(ButtonLink, { href: "/more", size: "sm", variant: "text", children: "More" }));
+
+    expect(button).toContain('data-size="xs"');
+    expect(button).toContain('data-variant="text"');
+    expect(link).toContain('data-size="sm" data-variant="text"');
+    const textRule = rule('.k2b-ui .k2b-button[data-variant="text"]');
+    expect(textRule).toContain("padding-inline: 0");
+    expect(textRule).toContain("border-inline-width: 0");
+    expect(textRule).toContain("background: transparent");
+    const hoverRule = rule('.k2b-ui .k2b-button[data-variant="text"]:not(:disabled):hover');
+    expect(hoverRule).toContain("color: var(--k2b-text)");
+    expect(hoverRule).toContain("background: transparent");
+  });
+
   test("renders a split button as separate primary and menu actions", () => {
     const html = renderToString(() =>
       createComponent(SplitButton, {

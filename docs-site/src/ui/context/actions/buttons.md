@@ -4,7 +4,7 @@
 
 ## Use Buttons
 
-Use `primary` for the main forward action, `secondary` for supporting actions, `ghost` for quiet toolbar actions, `subtle` for compact contextual actions, `danger` for destructive work, and `success` only when success is the action's meaning.
+Use `primary` for the main forward action, `secondary` for supporting actions, `ghost` for quiet toolbar actions, `text` for inline disclosures without a surface or horizontal inset, `subtle` for compact contextual actions, `danger` for destructive work, and `success` only when success is the action's meaning.
 
 ## Import
 
@@ -22,6 +22,8 @@ import { Button, ButtonLink, IconButton, IconButtonLink, SplitButton } from "@k2
 <Button variant="subtle" size="xs">
   <i class="ti ti-activity" aria-hidden="true" /> Status
 </Button>
+
+<Button variant="text" size="xs">More</Button>
 
 <IconButton label="Project settings">
   <i class="ti ti-settings" aria-hidden="true" />
