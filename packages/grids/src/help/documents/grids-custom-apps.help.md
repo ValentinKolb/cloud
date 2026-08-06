@@ -2,27 +2,30 @@
 id: grids-custom-apps
 title: Custom Apps
 icon: ti ti-app-window
-description: Publish a focused read-only app from Markdown and saved views.
+description: Publish focused read-only apps from Markdown, saved views, and record details.
 order: 137
 ---
-Custom Apps give signed-in people a focused page at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one base and reads the base's existing saved views. The first release is intended for read-only status pages, directories, and small internal portals built from YAML with the Cloud CLI.
+Custom Apps give signed-in Cloud accounts a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one base and reuses that base's records and saved views. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
 
-Custom Apps do not copy records. A published app stores its layout and the exact saved views it may execute. Opening the app checks its own access and the access of every included view.
+Custom Apps do not copy data. A publication stores an immutable definition and the exact resources it may read. Every request checks the app grant, the current saved-view access, and any table and row-level record access.
 
-## What you can publish {icon="layout-dashboard"}
+## Pages and blocks {icon="layout-dashboard"}
 
-One app currently contains one page with responsive rows and columns. A column may contain:
+An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in the app navigation.
+
+A column may contain:
 
 - **Markdown**, for headings, instructions, and links;
-- **Records**, for a table backed by one saved view and an explicit list of fields.
+- **Records**, for up to 100 rows from one saved view and an explicit field allowlist;
+- **Record**, for an explicit field allowlist from the current detail record.
 
-An app may contain up to 4 Records blocks. Each block returns at most 100 records and may display up to 30 fields. Scripts, custom HTML and CSS, forms, comments, actions, and direct GQL sources are not supported in this release.
+Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
 
-## Build and publish an app {icon="terminal-2"}
+Scripts, custom HTML and CSS, forms, comments, actions, arbitrary URLs, and direct GQL sources are not supported in this release.
 
-You need **Admin** access to the app's base. Start with UUIDs for the base, saved view, and fields you want to display.
+## Build a list and detail app {icon="terminal-2"}
 
-1. Save a definition such as this as `requests.yaml`:
+You need **Admin** access to the app's base. Start with UUIDs for the base, saved view, table, and fields you want to display.
 
 ```yaml
 schemaVersion: 1
@@ -35,6 +38,9 @@ startPageId: home
 pages:
   - id: home
     title: My requests
+    navigation:
+      visible: true
+      order: 10
     rows:
       - id: content
         columns:
@@ -54,9 +60,45 @@ pages:
                   kind: table
                   columnIds:
                     - 00000000-0000-4000-8000-000000000004
+                rowNavigate:
+                  kind: navigate
+                  pageId: request
+                  history: push
+                  params:
+                    request_id:
+                      source: ROW
+                      path: id
+  - id: request
+    title: Request detail
+    navigation:
+      visible: false
+      order: 20
+    parameters:
+      request_id:
+        type: record
+        tableId: 00000000-0000-4000-8000-000000000005
+        required: true
+    record:
+      tableId: 00000000-0000-4000-8000-000000000005
+      id:
+        source: PARAMS
+        path: request_id
+    rows:
+      - id: detail
+        columns:
+          - id: main
+            span: 12
+            blocks:
+              - id: request-details
+                type: record
+                title: Request
+                fieldIds:
+                  - 00000000-0000-4000-8000-000000000004
 ```
 
-2. Inspect the current contract, then validate and plan the file:
+The saved view used by `requests` must read the same table declared by `request_id`. Clicking a row supplies its record id. Other parameter sources and value expressions are deliberately unsupported.
+
+Inspect the current contract, then validate and plan the file:
 
 ```bash
 cld grids apps reference
@@ -64,36 +106,37 @@ cld grids apps validate MyBase --source-file requests.yaml
 cld grids apps plan MyBase --source-file requests.yaml
 ```
 
-3. Apply the definition. This updates only the draft:
+Apply the definition. This updates only the draft:
 
 ```bash
 cld grids apps apply MyBase --source-file requests.yaml
 ```
 
-On first apply, Grids assigns the app's stable five-character `shortId`. You may keep `shortId` out of the source file; later applies preserve the assigned value. Use `apps export` when you want a complete normalized definition that includes it.
+On first apply, Grids assigns the app's stable five-character `shortId`. You may keep `shortId` out of the source file; later applies preserve the assigned value. Use `apps export` for a normalized definition that includes it.
 
-4. Grant the intended Cloud user or group access to the app and to every saved view it displays:
+## Grant access and publish {icon="lock"}
+
+Grant the intended Cloud user or group access to the app and its data. The same normal Grids permissions apply; Custom Apps do not create another account or role model.
 
 ```bash
 cld grids access grant custom-app MyBase "Request overview" --group "Request team" --permission read
 cld grids access grant view MyBase Requests "My requests" --group "Request team" --permission read
+cld grids access grant table MyBase Requests --group "Request team" --permission read --record-scope all
 ```
 
-Custom Apps accept signed-in Cloud accounts only. Public grants are rejected.
+Custom Apps accept signed-in Cloud accounts only. Table grants may include Grids record scopes such as `created-by`. The detail page returns **Not Found** for a missing, deleted, invalid, or unauthorized record id. Public grants are rejected; normal Cloud accounts, including Cloud guest accounts, use the same permission checks.
 
-5. Publish the validated draft:
+Publish the validated draft:
 
 ```bash
 cld grids apps publish MyBase "Request overview" --yes
 ```
 
-The app is now available at the path printed by the command. Applying another draft does not change that page until you publish again.
+Applying another draft does not change the live app until you publish again.
 
 ## Keep publication predictable {icon="versions"}
 
-`validate` checks the strict definition and every referenced base, view, and field. Unknown properties are rejected. `plan` reports `create`, `update`, `noop`, or `invalid` without saving. `apply` writes the draft, and `publish` atomically replaces the published snapshot with the current valid draft.
-
-Use these commands for review or recovery:
+`validate` checks the strict definition and every referenced base, table, view, and field. It also verifies that row navigation connects records from the source view to a parameter for the same table. Unknown properties are rejected. `plan` reports `create`, `update`, `noop`, or `invalid` without saving. `apply` writes the draft, and `publish` atomically replaces the published snapshot with the current valid draft.
 
 ```bash
 cld grids apps list MyBase
@@ -101,6 +144,6 @@ cld grids apps get MyBase "Request overview"
 cld grids apps export MyBase "Request overview" --out requests.yaml
 ```
 
-:::note Access is checked when the app opens
-Publishing does not grant access. A reader needs an explicit **Read** grant on the Custom App. Every Records block also checks the current permission of its saved view, so removing view access immediately removes that data from the app.
+:::note Only the active page is resolved
+Opening one page executes only the Records blocks on that page and loads only its optional page record. Hidden detail pages are not prefetched. This keeps large apps predictable without weakening current access checks.
 :::

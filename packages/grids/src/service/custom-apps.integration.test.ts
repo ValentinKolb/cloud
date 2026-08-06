@@ -15,6 +15,8 @@ describe("Custom App lifecycle", () => {
     const tableId = testUuid();
     const viewId = testUuid();
     const fieldId = testUuid();
+    const otherTableId = testUuid();
+    const otherFieldId = testUuid();
     const appId = testUuid();
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Custom Apps')`;
@@ -25,6 +27,14 @@ describe("Custom App lifecycle", () => {
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
         VALUES (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Title', 'text', '{}'::jsonb, 0)
+      `;
+      await sql`
+        INSERT INTO grids.tables (id, short_id, base_id, name)
+        VALUES (${otherTableId}::uuid, ${testShortId("T")}, ${baseId}::uuid, 'Other records')
+      `;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES (${otherFieldId}::uuid, ${testShortId("F")}, ${otherTableId}::uuid, 'Title', 'text', '{}'::jsonb, 0)
       `;
       await sql`
         INSERT INTO grids.views (id, short_id, table_id, name, source)
@@ -42,6 +52,8 @@ describe("Custom App lifecycle", () => {
           {
             id: "home",
             title: "My requests",
+            navigation: { visible: true, order: 0 },
+            parameters: {},
             rows: [
               {
                 id: "content",
@@ -56,8 +68,33 @@ describe("Custom App lifecycle", () => {
                         type: "records",
                         source: { kind: "view", viewId },
                         display: { kind: "table", columnIds: [fieldId] },
+                        rowNavigate: {
+                          kind: "navigate",
+                          pageId: "request",
+                          history: "push",
+                          params: { request_id: { source: "ROW", path: "id" } },
+                        },
                       },
                     ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "request",
+            title: "Request detail",
+            navigation: { visible: false, order: 10 },
+            parameters: { request_id: { type: "record", tableId, required: true } },
+            record: { tableId, id: { source: "PARAMS", path: "request_id" } },
+            rows: [
+              {
+                id: "detail",
+                columns: [
+                  {
+                    id: "main",
+                    span: 12,
+                    blocks: [{ id: "request-details", type: "record", fieldIds: [fieldId] }],
                   },
                 ],
               },
@@ -71,7 +108,10 @@ describe("Custom App lifecycle", () => {
       if (!created.ok) return;
       expect(created.data.shortId).toHaveLength(5);
       expect(created.data.publishedDefinition).toBeNull();
-      expect(created.data.draftCapabilities).toEqual({ views: [{ viewId, tableId }] });
+      expect(created.data.draftCapabilities).toEqual({
+        views: [{ viewId, tableId }],
+        records: [{ pageId: "request", tableId, fieldIds: [fieldId] }],
+      });
       expect((await plan(definition)).action).toBe("noop");
 
       const firstPublish = await publish(appId);
@@ -115,6 +155,35 @@ describe("Custom App lifecycle", () => {
         ],
       });
       expect(invalid.ok).toBe(false);
+
+      const wrongRowTarget = await compile({
+        ...definition,
+        id: testUuid(),
+        pages: [
+          definition.pages[0],
+          {
+            ...definition.pages[1],
+            parameters: { request_id: { type: "record", tableId: otherTableId, required: true } },
+            record: { tableId: otherTableId, id: { source: "PARAMS", path: "request_id" } },
+            rows: [
+              {
+                id: "detail",
+                columns: [
+                  {
+                    id: "main",
+                    span: 12,
+                    blocks: [{ id: "request-details", type: "record", fieldIds: [otherFieldId] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(wrongRowTarget.ok).toBe(false);
+      if (!wrongRowTarget.ok) {
+        expect(wrongRowTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("source view table"))).toBe(true);
+      }
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }

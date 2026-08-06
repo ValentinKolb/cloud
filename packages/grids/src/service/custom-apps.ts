@@ -45,7 +45,7 @@ const mapRow = (row: DbRow): CustomApp => ({
   name: row.name as string,
   icon: (row.icon as string | null) ?? null,
   draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
-  draftCapabilities: CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, { views: [] })),
+  draftCapabilities: CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, { views: [], records: [] })),
   publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
   publishedCapabilities: row.published_capabilities
     ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.published_capabilities, {}))
@@ -75,16 +75,24 @@ const zodDiagnostics = (error: { issues: Array<{ path: PropertyKey[]; message: s
     message: issue.message,
   }));
 
-const recordsBlocks = (definition: CustomAppDefinition) =>
-  definition.pages[0]!.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks.filter((block) => block.type === "records")));
+const blocksByType = <T extends "record" | "records">(definition: CustomAppDefinition, type: T) =>
+  definition.pages.flatMap((page) =>
+    page.rows.flatMap((row) =>
+      row.columns.flatMap((column) =>
+        column.blocks
+          .filter((block): block is Extract<(typeof column.blocks)[number], { type: T }> => block.type === type)
+          .map((block) => ({ page, block })),
+      ),
+    ),
+  );
 
 export const compile = async (input: unknown, client: SqlClient = sql): Promise<CustomAppCompilation> => {
   const parsed = CustomAppDefinitionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
   const definition = parsed.data;
-  const blocks = recordsBlocks(definition);
-  if (blocks.length > 4) {
-    return { ok: false, diagnostics: [{ path: ["pages", 0, "rows"], message: "A Custom App may contain at most 4 Records blocks" }] };
+  const recordsBlocks = blocksByType(definition, "records");
+  if (recordsBlocks.length > 4) {
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 4 Records blocks" }] };
   }
 
   const [base] = await client<Array<{ id: string }>>`
@@ -94,7 +102,60 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
 
   const diagnostics: CustomAppDiagnostic[] = [];
   const views: CustomAppCapabilities["views"] = [];
-  for (const block of blocks) {
+  const pageRecords: CustomAppCapabilities["records"] = [];
+  const tableBaseIds = new Map<string, string | null>();
+  const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
+    const cached = tableBaseIds.get(tableId);
+    if (cached !== undefined) return cached;
+    const [table] = await client<Array<{ base_id: string }>>`
+      SELECT base_id FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
+    `;
+    const resolved = table?.base_id ?? null;
+    tableBaseIds.set(tableId, resolved);
+    return resolved;
+  };
+
+  for (const [pageIndex, page] of definition.pages.entries()) {
+    for (const [parameterId, parameter] of Object.entries(page.parameters)) {
+      if ((await resolveTableBaseId(parameter.tableId)) !== definition.baseId) {
+        diagnostics.push({
+          path: ["pages", pageIndex, "parameters", parameterId, "tableId"],
+          message: "Record parameter table is missing or belongs to another base",
+        });
+      }
+    }
+    if (!page.record) continue;
+    const recordBlocks = page.rows.flatMap((row) =>
+      row.columns.flatMap((column) => column.blocks.filter((block) => block.type === "record")),
+    );
+    const fieldIds = [...new Set(recordBlocks.flatMap((block) => block.fieldIds))].sort();
+    if ((await resolveTableBaseId(page.record.tableId)) !== definition.baseId) {
+      diagnostics.push({
+        path: ["pages", pageIndex, "record", "tableId"],
+        message: "Page record table is missing or belongs to another base",
+      });
+      continue;
+    }
+    if (fieldIds.length > 0) {
+      const fields = await client<Array<{ id: string }>>`
+        SELECT id FROM grids.fields
+        WHERE table_id = ${page.record.tableId}::uuid AND deleted_at IS NULL
+          AND id = ANY(${toPgUuidArray(fieldIds)}::uuid[])
+      `;
+      const found = new Set(fields.map((field) => field.id));
+      for (const fieldId of fieldIds) {
+        if (!found.has(fieldId)) {
+          diagnostics.push({
+            path: ["pages", pageIndex, "record", "fieldIds"],
+            message: `Field ${fieldId} is missing or belongs to another table`,
+          });
+        }
+      }
+    }
+    pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds });
+  }
+
+  for (const { page, block } of recordsBlocks) {
     const [view] = await client<Array<{ view_id: string; table_id: string; base_id: string }>>`
       SELECT v.id AS view_id, v.table_id, t.base_id
       FROM grids.views v
@@ -104,6 +165,17 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     if (!view || view.base_id !== definition.baseId) {
       diagnostics.push({ path: ["blocks", block.id, "source", "viewId"], message: "View is missing or belongs to another base" });
       continue;
+    }
+    if (block.rowNavigate) {
+      const targetPage = definition.pages.find((candidate) => candidate.id === block.rowNavigate!.pageId)!;
+      for (const parameterId of Object.keys(block.rowNavigate.params)) {
+        if (targetPage.parameters[parameterId]?.tableId !== view.table_id) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "rowNavigate", "params", parameterId],
+            message: "Row record ids may only populate parameters for the source view table",
+          });
+        }
+      }
     }
     const fields = await client<Array<{ id: string }>>`
       SELECT id FROM grids.fields
@@ -124,6 +196,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
 
   const capabilities = CustomAppCapabilitiesSchema.parse({
     views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
+    records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
   });
   return { ok: true, compiled: { definition, capabilities } };
 };

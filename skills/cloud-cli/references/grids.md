@@ -586,8 +586,10 @@ current validated revision without requiring direct workflow access from the das
 
 ## Publish a Custom App
 
-Custom Apps are strict YAML definitions owned by one base. The current contract supports one page containing responsive rows and columns,
-with Markdown blocks and up to four saved-view Records blocks. Run the live reference before authoring a definition:
+Custom Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
+columns, Markdown blocks, up to four saved-view Records blocks, and route-only record detail pages. A Records block can navigate its row
+id into one required record parameter on a detail page; a Record block then renders only its explicit field allowlist. Run the live
+reference before authoring a definition:
 
 ```bash
 cld grids apps reference
@@ -606,8 +608,9 @@ cld grids access grant view Bookshop Requests "My requests" --group "Request tea
 cld grids apps publish Bookshop "Request overview" --yes
 ```
 
-The standalone app is available to signed-in readers at `/apps/<shortId>`. Public Custom App grants are rejected. Applying a later draft
-does not affect the published snapshot until the next publish. Commands are
+The standalone app is available to signed-in readers at `/apps/<shortId>`; named pages use `/apps/<shortId>/<pageId>` and record parameters
+stay in the query string. Public Custom App grants are rejected. Readers need the explicit Custom App grant plus the existing view and
+record access required by the active page. Applying a later draft does not affect the published snapshot until the next publish. Commands are
 `apps reference|list|get|validate|plan|apply|export|publish`; `export --out <path>` writes normalized deterministic YAML.
 
 ## Generate documents
