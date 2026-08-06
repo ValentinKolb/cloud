@@ -102,7 +102,18 @@ describe("grids help", () => {
     }
 
     const customApps = gridsHelp.getMarkdown("grids-custom-apps")!;
-    for (const capability of ["Markdown", "Records", "Comments", "saved view", "apps validate", "apps plan", "apps apply", "apps publish"]) {
+    for (const capability of [
+      "Markdown",
+      "Records",
+      "Metrics",
+      "Chart",
+      "Comments",
+      "saved view",
+      "apps validate",
+      "apps plan",
+      "apps apply",
+      "apps publish",
+    ]) {
       expect(customApps, `missing Custom App capability ${capability}`).toContain(capability);
     }
     expect(customApps).toContain("signed-in Cloud accounts only");

@@ -156,7 +156,21 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
     query: |
       from table "Certificate requests"
       aggregate count(*) as requests
-    maxRows: 10
+    maxRows: 1
+
+# Grouped and bounded chart
+- id: requests-by-state
+  type: chart
+  title: Requests by state
+  chartType: bar
+  source:
+    kind: gql
+    query: |
+      from table "Certificate requests"
+      group by "State"
+      aggregate count(*) as requests
+    maxRows: 20
+  limit: 20
 
 # Existing form with server-fixed context
 - id: request-form
@@ -199,7 +213,7 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
 
 `documents.templateIds` is an exact publication allowlist for existing generated PDFs. It does not generate a document; point an Actions block at a Workflow launcher when generation is part of the flow.
 
-Metrics and Chart share the Records source contract. Chart additionally declares its chart kind and category/value output IDs. Refer to `apps reference --json` for the exact installed variants.
+Metrics and Chart read a saved view or bounded inline GQL. Metrics requires ungrouped aggregates. Chart derives its categories and values from grouped aggregate output and declares one of `donut`, `bar`, `line`, `sparkline`, or `scatter`. Refer to `apps reference --json` for the exact installed contract.
 
 An inline GQL source may declare typed `inputs`. Its query reads them through `param('name')`; every referenced parameter must have exactly one binding and unused inputs fail validation. Parameter values are passed separately from query text and are never interpolated into it.
 

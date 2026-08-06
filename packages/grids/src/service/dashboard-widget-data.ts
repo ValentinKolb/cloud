@@ -76,7 +76,7 @@ export type WidgetData =
   | {
       kind: "view-stats";
       title: string;
-      cells: ViewStatsCell[];
+      cells: MetricCell[];
       notice: string | null;
       fullViewLink: { tableShortId: string; viewShortId: string } | null;
       sourceAccess?: "open" | "dashboard";
@@ -130,7 +130,7 @@ export type WidgetData =
 /** Cells produced by the view-stats resolver — one entry per derived
  *  stat. Format is inferred from the source field type or the agg
  *  kind, so the user does no per-cell configuration. */
-type ViewStatsCell = {
+export type MetricCell = {
   label: string;
   value: unknown;
   valueFormat?: WidgetValueFormat;
@@ -613,6 +613,20 @@ const previewChartShape = (
   };
 };
 
+export const chartDataFromPreview = (preview: PreviewSuccess, sourceFields: Field[]): Extract<WidgetData, { kind: "chart" | "error" }> => {
+  const shape = previewChartShape(preview);
+  if (shape.groupBy.length === 0 || shape.aggregations.length === 0) {
+    return { kind: "error", reason: "chart source must group rows and include at least one aggregation" };
+  }
+  return {
+    kind: "chart",
+    buckets: shape.buckets,
+    fields: sourceFields,
+    viewQuery: { groupBy: shape.groupBy, aggregations: shape.aggregations },
+    relationLabels: {},
+  };
+};
+
 const resolveChart = async (
   widget: Extract<Widget, { kind: "chart" }>,
   viewer: ViewerContext,
@@ -622,21 +636,8 @@ const resolveChart = async (
     ? await previewWidgetTailSource(widget.source, viewer, options, widget.limit)
     : await previewWidgetSource(widget.source, viewer, options);
   if ("error" in result) return { kind: "error", reason: result.error };
-  const shape = previewChartShape(result.preview);
-  if (shape.groupBy.length === 0 || shape.aggregations.length === 0) {
-    return {
-      kind: "error",
-      reason: "chart source must group rows and include at least one aggregation",
-    };
-  }
   const sourceFields = result.fieldsByTableId[result.tableId] ?? [];
-  return {
-    kind: "chart",
-    buckets: shape.buckets,
-    fields: sourceFields,
-    viewQuery: { groupBy: shape.groupBy, aggregations: shape.aggregations },
-    relationLabels: {},
-  };
+  return chartDataFromPreview(result.preview, sourceFields);
 };
 
 // =============================================================================
@@ -706,8 +707,15 @@ const resolveViewStats = async (
       sourceAccess,
     };
   }
-  const fieldsById = new Map((preview.fieldsByTableId[preview.tableId] ?? []).map((field) => [field.id, field]));
-  const cells: ViewStatsCell[] = preview.preview.columns.map((column) => {
+  const cells = metricCellsFromPreview(preview.preview, preview.fieldsByTableId[preview.tableId] ?? []);
+  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
+};
+
+export const metricCellsFromPreview = (preview: PreviewSuccess, sourceFields: Field[]): MetricCell[] => {
+  const row = preview.rows[0];
+  if (!row) return [];
+  const fieldsById = new Map(sourceFields.map((field) => [field.id, field]));
+  return preview.columns.map((column) => {
     const field = column.fieldId ? (fieldsById.get(column.fieldId) ?? null) : null;
     return {
       label: column.label,
@@ -720,7 +728,6 @@ const resolveViewStats = async (
             : undefined,
     };
   });
-  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
 };
 
 export const valueFormatForField = (field: Field): WidgetValueFormat | undefined => {

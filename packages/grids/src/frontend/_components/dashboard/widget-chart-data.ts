@@ -255,7 +255,7 @@ type ChartRenderData =
  * itself but now come from the GQL source that the widget points at.
  */
 type ChartRenderInput = {
-  widget: ChartWidget;
+  widget: Pick<ChartWidget, "chartType">;
   /** The source's groupBy specs (parallel to bucket.keys positions). */
   groupBy: GroupBySpec[];
   /** The source's aggregations (parallel to bucket.values keys). */

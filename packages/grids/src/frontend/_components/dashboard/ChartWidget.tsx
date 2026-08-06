@@ -1,5 +1,5 @@
-import { Chart } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Chart } from "@k2b/ui";
 import { Show } from "solid-js";
 import type { Field, Widget } from "../../../service";
 import DashboardWidgetState from "./DashboardWidgetState";
@@ -12,6 +12,8 @@ type Props = {
   data: WidgetData;
   dateConfig?: DateContext;
 };
+
+export type ChartPresentation = Pick<Extract<Widget, { kind: "chart" }>, "chartType" | "valueFormat" | "xAxisLabel" | "yAxisLabel">;
 
 /**
  * Renders a chart widget — pairs `<Chart>` from @k2b/ui with the
@@ -63,11 +65,7 @@ export default function ChartWidget(props: Props) {
  * narrowing cleanly. Picks the chartType-specific options bundle
  * from `buildChartRenderData` and passes it through to `<Chart>`.
  */
-function ChartBody(props: {
-  widget: Extract<Widget, { kind: "chart" }>;
-  data: Extract<WidgetData, { kind: "chart" }>;
-  dateConfig?: DateContext;
-}) {
+export function ChartBody(props: { widget: ChartPresentation; data: Extract<WidgetData, { kind: "chart" }>; dateConfig?: DateContext }) {
   const fieldsById = () => new Map<string, Field>(props.data.fields.map((f) => [f.id, f]));
   const renderData = () =>
     buildChartRenderData({

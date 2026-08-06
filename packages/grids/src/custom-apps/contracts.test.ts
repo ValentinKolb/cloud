@@ -184,7 +184,9 @@ describe("Custom App definition contract", () => {
     const column = row.columns[0]!;
     const withoutRecord = {
       ...source,
-      pages: [{ ...page, rows: [{ ...row, columns: [{ ...column, blocks: [...column.blocks, { id: "discussion", type: "comments" }] }] }] }],
+      pages: [
+        { ...page, rows: [{ ...row, columns: [{ ...column, blocks: [...column.blocks, { id: "discussion", type: "comments" }] }] }] },
+      ],
     };
     expect(CustomAppDefinitionSchema.safeParse(withoutRecord).success).toBe(false);
 
@@ -235,5 +237,49 @@ describe("Custom App definition contract", () => {
     const missingRecord = structuredClone(example);
     delete missingRecord.pages[1]!.record;
     expect(CustomAppDefinitionSchema.safeParse(missingRecord).success).toBe(false);
+  });
+
+  test("accepts bounded Metrics and Chart sources", () => {
+    const source = definition();
+    source.pages[0]!.rows[0]!.columns[0]!.blocks.push(
+      {
+        id: "totals",
+        type: "metrics",
+        source: { kind: "gql", query: 'from table "Requests"\naggregate count(*) as requests', maxRows: 1 },
+      } as never,
+      {
+        id: "requests-by-state",
+        type: "chart",
+        chartType: "bar",
+        source: { kind: "view", viewId: uuid(5) },
+        limit: 20,
+      } as never,
+    );
+
+    const parsed = CustomAppDefinitionSchema.safeParse(source);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      const chart = parsed.data.pages[0]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "chart");
+      expect(chart?.limit).toBe(20);
+    }
+  });
+
+  test("rejects unbounded or oversized insight sources", () => {
+    const source = definition();
+    source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
+      id: "totals",
+      type: "metrics",
+      source: { kind: "gql", query: 'from table "Requests"\naggregate count(*) as requests' },
+    } as never);
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
+
+    const oversized = definition();
+    oversized.pages[0]!.rows[0]!.columns[0]!.blocks.push({
+      id: "requests-by-state",
+      type: "chart",
+      chartType: "line",
+      source: { kind: "gql", query: 'from table "Requests"\ngroup by Status\naggregate count(*) as requests', maxRows: 101 },
+    } as never);
+    expect(CustomAppDefinitionSchema.safeParse(oversized).success).toBe(false);
   });
 });

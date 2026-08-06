@@ -2,12 +2,13 @@ import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { migrate as migrateCoreWorkflows } from "../../../core/src/migrate/core/workflows";
 import type { CustomAppDefinition } from "../custom-apps/contracts";
+import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "./access";
 import { apply, compile, get, plan, publish } from "./custom-apps";
-import { getWorkflow } from "./workflow-definitions";
 import { canExecuteWorkflow } from "./workflow-action-scope";
+import { getWorkflow } from "./workflow-definitions";
 import { createLauncher } from "./workflow-launchers";
 import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fixture";
 
@@ -23,6 +24,7 @@ describe("Custom App lifecycle", () => {
     const baseId = testUuid();
     const tableId = testUuid();
     const viewId = testUuid();
+    const metricViewId = testUuid();
     const fieldId = testUuid();
     const computedFieldId = testUuid();
     const relationFieldId = testUuid();
@@ -94,7 +96,9 @@ describe("Custom App lifecycle", () => {
       `;
       await sql`
         INSERT INTO grids.views (id, short_id, table_id, name, source)
-        VALUES (${viewId}::uuid, ${testShortId("V")}, ${tableId}::uuid, 'My requests', ${`from table {${tableId}}`})
+        VALUES
+          (${viewId}::uuid, ${testShortId("V")}, ${tableId}::uuid, 'My requests', ${`from table {${tableId}}`}),
+          (${metricViewId}::uuid, ${testShortId("V")}, ${tableId}::uuid, 'Request count', ${`from table {${tableId}}\naggregate count(*) as requests`})
       `;
       await insertTestWorkflow({
         baseId,
@@ -146,6 +150,22 @@ describe("Custom App lifecycle", () => {
                     span: 12,
                     blocks: [
                       { id: "intro", type: "markdown", markdown: "Welcome" },
+                      {
+                        id: "request-count",
+                        type: "metrics",
+                        source: { kind: "view", viewId: metricViewId },
+                      },
+                      {
+                        id: "requests-by-title",
+                        type: "chart",
+                        chartType: "bar",
+                        source: {
+                          kind: "gql",
+                          query: `from table {${tableId}}\ngroup by {${fieldId}}\naggregate count(*) as requests`,
+                          maxRows: 10,
+                        },
+                        limit: 10,
+                      },
                       {
                         id: "requests",
                         type: "records",
@@ -232,6 +252,25 @@ describe("Custom App lifecycle", () => {
       expect(created.data.publishedDefinition).toBeNull();
       expect(created.data.draftCapabilities).toEqual({
         views: [{ viewId, tableId }],
+        insights: [
+          {
+            pageId: "home",
+            blockId: "request-count",
+            blockType: "metrics",
+            source: {
+              kind: "view",
+              viewId: metricViewId,
+              sourceHash: customAppViewSourceHash(tableId, `from table {${tableId}}\naggregate count(*) as requests`),
+              tableIds: [tableId],
+            },
+          },
+          {
+            pageId: "home",
+            blockId: "requests-by-title",
+            blockType: "chart",
+            source: { kind: "gql", tableIds: [tableId] },
+          },
+        ],
         records: [{ pageId: "request", tableId, fieldIds: [fieldId], editableFieldIds: [fieldId] }],
         comments: [{ pageId: "request", blockId: "discussion", tableId }],
         documents: [{ pageId: "request", blockId: "request-details", tableId, templateIds: [documentTemplateId] }],
@@ -253,9 +292,7 @@ describe("Custom App lifecycle", () => {
             fixedFieldIds: [relationFieldId],
           },
         ],
-        workflowLaunchers: [
-          { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
-        ],
+        workflowLaunchers: [{ pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 }],
       });
       expect((await plan(definition)).action).toBe("noop");
 
@@ -340,6 +377,30 @@ describe("Custom App lifecycle", () => {
       expect(computedEditResult.ok).toBe(false);
       if (!computedEditResult.ok) {
         expect(computedEditResult.diagnostics.some((diagnostic) => diagnostic.message.includes("not a writable record field"))).toBe(true);
+      }
+
+      const rawMetric = structuredClone(definition);
+      const metricBlock = rawMetric.pages[0]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "metrics")!;
+      if (metricBlock.type !== "metrics") throw new Error("Expected Metrics block");
+      metricBlock.source = { kind: "gql", query: `from table {${tableId}}`, maxRows: 1 };
+      const rawMetricResult = await compile({ ...rawMetric, id: testUuid() });
+      expect(rawMetricResult.ok).toBe(false);
+      if (!rawMetricResult.ok) {
+        expect(rawMetricResult.diagnostics.some((diagnostic) => diagnostic.message.includes("ungrouped scalar aggregations"))).toBe(true);
+      }
+
+      const ungroupedChart = structuredClone(definition);
+      const chartBlock = ungroupedChart.pages[0]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "chart")!;
+      if (chartBlock.type !== "chart") throw new Error("Expected Chart block");
+      chartBlock.source = {
+        kind: "gql",
+        query: `from table {${tableId}}\naggregate count(*) as requests`,
+        maxRows: 10,
+      };
+      const ungroupedChartResult = await compile({ ...ungroupedChart, id: testUuid() });
+      expect(ungroupedChartResult.ok).toBe(false);
+      if (!ungroupedChartResult.ok) {
+        expect(ungroupedChartResult.diagnostics.some((diagnostic) => diagnostic.message.includes("must group rows"))).toBe(true);
       }
 
       const wrongDocumentTemplate = structuredClone(definition);

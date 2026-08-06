@@ -75,7 +75,11 @@ Use `ROW` only while defining that block's row link or row action. Row actions u
 
 ### Metrics and Chart
 
-Metrics and Chart use the same bounded source contract as Records. Metrics renders named scalar results. Chart renders a supported chart from explicit category and value outputs. Neither block may fetch an unbounded dataset or define a second query language.
+Metrics and Chart read either an existing saved view or an inline GQL query. Inline GQL requires `maxRows` between 1 and 100; the runtime also applies shared query budgets.
+
+Metrics accepts an ungrouped aggregate query and renders up to 12 named scalar results. Chart accepts a grouped aggregate query and renders a donut, bar, line, sparkline, or scatter chart. Scatter requires two aggregate value series; the other chart types require one. A Chart block may render at most 100 groups through its `limit`.
+
+The block never grants access to its source. Publication records the referenced tables, and every request still passes through ordinary Grids query and record permissions. Republish the app after changing a saved view's source.
 
 ### Form
 

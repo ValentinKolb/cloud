@@ -18,6 +18,8 @@ A column may contain:
 - **Markdown**, for headings, instructions, and links;
 - **Form**, for creating a record with one existing active Grids Form;
 - **Records**, for up to 100 rows from one saved view and an explicit field allowlist;
+- **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
+- **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
 - **Comments**, for a permission-inheriting discussion on the current detail record.
 - **Actions**, for internal navigation or an exact published workflow launcher.

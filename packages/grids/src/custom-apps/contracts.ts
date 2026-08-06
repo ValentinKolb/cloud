@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WidgetValueFormatSchema } from "../contracts";
 import { SHORT_ID_REGEX } from "../service/short-id";
 
 export const CustomAppLocalIdSchema = z
@@ -54,7 +55,13 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
     .object({
       id: CustomAppLocalIdSchema,
       label: z.string().trim().min(1).max(120),
-      icon: z.string().trim().min(1).max(120).regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug").optional(),
+      icon: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
+        .optional(),
       kind: z.literal("navigate"),
       pageId: CustomAppLocalIdSchema,
       history: z.enum(["push", "replace"]).default("push"),
@@ -65,7 +72,13 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
     .object({
       id: CustomAppLocalIdSchema,
       label: z.string().trim().min(1).max(120),
-      icon: z.string().trim().min(1).max(120).regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug").optional(),
+      icon: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
+        .optional(),
       kind: z.literal("workflow"),
       launcherId: z.string().uuid(),
       inputs: z.record(z.string().trim().min(1).max(120), CustomAppActionValueSchema).default({}),
@@ -110,6 +123,41 @@ export const CustomAppRecordsBlockSchema = z
       })
       .strict(),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
+  })
+  .strict();
+
+export const CustomAppInsightSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
+  z
+    .object({
+      kind: z.literal("gql"),
+      query: z.string().trim().min(1).max(20_000),
+      maxRows: z.number().int().min(1).max(100),
+    })
+    .strict(),
+]);
+
+export const CustomAppMetricsBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("metrics"),
+    title: z.string().trim().min(1).max(160).optional(),
+    source: CustomAppInsightSourceSchema,
+  })
+  .strict();
+
+export const CustomAppChartBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("chart"),
+    title: z.string().trim().min(1).max(160).optional(),
+    subtitle: z.string().trim().min(1).max(200).optional(),
+    chartType: z.enum(["donut", "bar", "line", "sparkline", "scatter"]),
+    source: CustomAppInsightSourceSchema,
+    limit: z.number().int().min(1).max(100).default(100),
+    valueFormat: WidgetValueFormatSchema.optional(),
+    xAxisLabel: z.string().trim().min(1).max(60).optional(),
+    yAxisLabel: z.string().trim().min(1).max(60).optional(),
   })
   .strict();
 
@@ -193,7 +241,8 @@ export const CustomAppActionsBlockSchema = z
   .superRefine((block, ctx) => {
     const ids = new Set<string>();
     for (const [index, action] of block.actions.entries()) {
-      if (ids.has(action.id)) ctx.addIssue({ code: "custom", message: `Duplicate action id "${action.id}"`, path: ["actions", index, "id"] });
+      if (ids.has(action.id))
+        ctx.addIssue({ code: "custom", message: `Duplicate action id "${action.id}"`, path: ["actions", index, "id"] });
       ids.add(action.id);
     }
   });
@@ -201,6 +250,8 @@ export const CustomAppActionsBlockSchema = z
 export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMarkdownBlockSchema,
   CustomAppRecordsBlockSchema,
+  CustomAppMetricsBlockSchema,
+  CustomAppChartBlockSchema,
   CustomAppRecordBlockSchema,
   CustomAppCommentsBlockSchema,
   CustomAppFormBlockSchema,
@@ -474,6 +525,34 @@ export const CustomAppDefinitionSchema = z
 export const CustomAppCapabilitiesSchema = z
   .object({
     views: z.array(z.object({ viewId: z.string().uuid(), tableId: z.string().uuid() }).strict()).max(4),
+    insights: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            blockType: z.enum(["metrics", "chart"]),
+            source: z.discriminatedUnion("kind", [
+              z
+                .object({
+                  kind: z.literal("view"),
+                  viewId: z.string().uuid(),
+                  sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+                  tableIds: z.array(z.string().uuid()).min(1).max(24),
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal("gql"),
+                  tableIds: z.array(z.string().uuid()).min(1).max(24),
+                })
+                .strict(),
+            ]),
+          })
+          .strict(),
+      )
+      .max(24)
+      .default([]),
     records: z
       .array(
         z
@@ -569,7 +648,17 @@ export const CUSTOM_APP_REFERENCE = {
     shortId: "Omit on create; Grids assigns and preserves it",
     icon: "Optional Tabler icon slug, for example app-window",
   },
-  limits: { pages: 12, rowsPerPage: 24, columnsPerRow: 12, blocksPerColumn: 24, recordsBlocks: 4, recordsPerBlock: 100 },
+  limits: {
+    pages: 12,
+    rowsPerPage: 24,
+    columnsPerRow: 12,
+    blocksPerColumn: 24,
+    recordsBlocks: 4,
+    recordsPerBlock: 100,
+    insightBlocks: 24,
+    metricsPerBlock: 12,
+    chartGroupsPerBlock: 100,
+  },
   pages: {
     navigation: "Set visible to false for route-only detail pages",
     parameters: "This release supports required same-base record parameters",
@@ -582,6 +671,17 @@ export const CUSTOM_APP_REFERENCE = {
       source: { kind: "view", viewId: "view UUID" },
       display: { kind: "table", columnIds: ["field UUID"] },
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
+    },
+    metrics: {
+      required: ["id", "type", "source"],
+      source: "Saved view or inline GQL with maxRows from 1 to 100",
+      note: "Renders up to 12 named scalar aggregations from one bounded source row",
+    },
+    chart: {
+      required: ["id", "type", "chartType", "source"],
+      chartTypes: ["donut", "bar", "line", "sparkline", "scatter"],
+      source: "Grouped aggregate saved view or inline GQL with maxRows from 1 to 100",
+      note: "Renders grouped, aggregated output with at most 100 buckets",
     },
     record: {
       required: ["id", "type", "fieldIds"],

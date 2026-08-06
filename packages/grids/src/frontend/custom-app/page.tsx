@@ -1,7 +1,7 @@
-import { MarkdownView } from "@k2b/ui";
+import { MarkdownView, StatCell, StatGrid } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { executeSavedViewSourceForContext } from "../../api/gql-runtime";
+import { executeGqlSourceForContext, executeSavedViewSourceForContext } from "../../api/gql-runtime";
 import {
   actorViewerFor,
   gateAtAccess,
@@ -14,10 +14,11 @@ import { ssr } from "../../config";
 import type { DocumentRunSummary, DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
+import { customAppViewSourceHash } from "../../custom-apps/insight-source";
 import {
-  customAppCommentsUrl,
   customAppActionHref,
   customAppActionUrl,
+  customAppCommentsUrl,
   customAppFormSubmitUrl,
   customAppPageHref,
   customAppRecordUpdateUrl,
@@ -25,20 +26,28 @@ import {
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
 import { gridsService } from "../../service";
+import { chartDataFromPreview, type MetricCell, metricCellsFromPreview, type WidgetData } from "../../service/dashboard-widget-data";
 import type { PublicRenderableForm } from "../../service/forms";
+import { ChartBody } from "../_components/dashboard/ChartWidget";
+import { formatWidgetValue } from "../_components/dashboard/widget-format";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import RecordComments from "../_components/records/RecordComments.island";
-import RecordsTable from "./RecordsTable.island";
 import Actions, { type CustomAppRenderedAction } from "./Actions.island";
 import RecordDetails from "./RecordDetails.island";
+import RecordsTable from "./RecordsTable.island";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
+type MetricsBlock = Extract<CustomAppBlock, { type: "metrics" }>;
+type ChartBlock = Extract<CustomAppBlock, { type: "chart" }>;
+type InsightBlock = MetricsBlock | ChartBlock;
 type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
 type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
 type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 type ActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
+type MetricsBlockData = { ok: true; cells: MetricCell[] } | { ok: false; message: string };
+type ChartBlockData = { ok: true; chart: Extract<WidgetData, { kind: "chart" }> } | { ok: false; message: string };
 type PageRecord = {
   record: GridRecord;
   fields: Field[];
@@ -69,6 +78,33 @@ const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: strin
       result={props.data.result}
       rowNavigate={props.block.rowNavigate}
     />
+  );
+};
+
+const Metrics = (props: { data: MetricsBlockData; dateConfig: ReturnType<typeof getDateConfig> }) => {
+  if (!props.data.ok) {
+    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+  }
+  if (props.data.cells.length === 0) return <div class="rounded-xl border p-4 text-sm text-secondary">No metrics found.</div>;
+  return (
+    <StatGrid columns={props.data.cells.length === 1 ? 1 : props.data.cells.length === 2 ? 2 : 3}>
+      {props.data.cells.map((cell) => {
+        const value = formatWidgetValue(cell.value, cell.valueFormat, props.dateConfig);
+        return <StatCell label={cell.label} value={value} title={value} />;
+      })}
+    </StatGrid>
+  );
+};
+
+const AppChart = (props: { block: ChartBlock; data: ChartBlockData; dateConfig: ReturnType<typeof getDateConfig> }) => {
+  if (!props.data.ok) {
+    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+  }
+  return (
+    <div class="flex h-72 min-h-0 flex-col">
+      {props.block.subtitle ? <p class="mb-3 text-sm text-secondary">{props.block.subtitle}</p> : null}
+      <ChartBody widget={props.block} data={props.data.chart} dateConfig={props.dateConfig} />
+    </div>
   );
 };
 
@@ -120,6 +156,8 @@ const CustomAppPage = (props: {
   page: CustomAppPage;
   shortId: string;
   results: Map<string, BlockResult>;
+  metrics: Map<string, MetricsBlockData>;
+  charts: Map<string, ChartBlockData>;
   forms: Map<string, FormBlockData>;
   commentEndpoints: Map<string, string>;
   actions: Map<string, CustomAppRenderedAction[]>;
@@ -171,6 +209,17 @@ const CustomAppPage = (props: {
                         block={block}
                         data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
                         shortId={props.shortId}
+                      />
+                    ) : block.type === "metrics" ? (
+                      <Metrics
+                        data={props.metrics.get(block.id) ?? { ok: false, message: "Metrics are unavailable." }}
+                        dateConfig={props.dateConfig}
+                      />
+                    ) : block.type === "chart" ? (
+                      <AppChart
+                        block={block}
+                        data={props.charts.get(block.id) ?? { ok: false, message: "Chart data is unavailable." }}
+                        dateConfig={props.dateConfig}
                       />
                     ) : block.type === "record" ? (
                       <Record
@@ -255,9 +304,7 @@ export default ssr<AuthContext>(async (c) => {
     const expectedEditableFieldIds = [
       ...new Set(
         page.rows.flatMap((row) =>
-          row.columns.flatMap((column) =>
-            column.blocks.flatMap((block) => (block.type === "record" ? block.editableFieldIds : [])),
-          ),
+          row.columns.flatMap((column) => column.blocks.flatMap((block) => (block.type === "record" ? block.editableFieldIds : []))),
         ),
       ),
     ].sort();
@@ -307,8 +354,7 @@ export default ssr<AuthContext>(async (c) => {
     for (const block of documentBlocks) {
       const expectedTemplateIds = [...(block.documents?.templateIds ?? [])].sort();
       const capability = app.publishedCapabilities.documents.find(
-        (candidate) =>
-          candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record!.tableId,
+        (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record!.tableId,
       );
       if (!capability || capability.templateIds.join("\0") !== expectedTemplateIds.join("\0")) return c.notFound();
       for (const templateId of expectedTemplateIds) configuredTemplateIds.add(templateId);
@@ -324,14 +370,13 @@ export default ssr<AuthContext>(async (c) => {
       );
       if (templateAccess.ok) readableTemplateIds.push(templateId);
     }
-    const runs = await gridsService.document.listRunSummariesForRecordByTemplates(
-      page.record.tableId,
-      record.id,
-      readableTemplateIds,
-    );
+    const runs = await gridsService.document.listRunSummariesForRecordByTemplates(page.record.tableId, record.id, readableTemplateIds);
     for (const block of documentBlocks) {
       const allowed = new Set(block.documents?.templateIds ?? []);
-      documentRuns.set(block.id, runs.filter((run) => run.templateId && allowed.has(run.templateId)));
+      documentRuns.set(
+        block.id,
+        runs.filter((run) => run.templateId && allowed.has(run.templateId)),
+      );
     }
   }
 
@@ -354,6 +399,78 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const results = new Map(entries);
+  const insightBlocks = page.rows.flatMap((row) =>
+    row.columns.flatMap((column) =>
+      column.blocks.filter((block): block is InsightBlock => block.type === "metrics" || block.type === "chart"),
+    ),
+  );
+  const insightEntries = await Promise.all(
+    insightBlocks.map(async (block): Promise<[string, MetricsBlockData | ChartBlockData]> => {
+      const capability = app.publishedCapabilities!.insights.find(
+        (candidate) =>
+          candidate.pageId === page.id &&
+          candidate.blockId === block.id &&
+          candidate.blockType === block.type &&
+          candidate.source.kind === block.source.kind &&
+          (candidate.source.kind !== "view" || (block.source.kind === "view" && candidate.source.viewId === block.source.viewId)),
+      );
+      if (!capability) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
+      const maxRows = block.type === "metrics" ? 1 : Math.min(block.limit, block.source.kind === "gql" ? block.source.maxRows : 100);
+      try {
+        if (block.source.kind === "view") {
+          const view = await gridsService.view.get(block.source.viewId);
+          if (
+            !view ||
+            capability.source.kind !== "view" ||
+            customAppViewSourceHash(view.tableId, view.source) !== capability.source.sourceHash
+          ) {
+            return [block.id, { ok: false, message: "This saved view changed after the app was published. Republish the app." }];
+          }
+        }
+        const response =
+          block.source.kind === "view"
+            ? await executeSavedViewSourceForContext(
+                { access: requestAccess, dateConfig, signal: c.req.raw.signal },
+                app.baseId,
+                block.source.viewId,
+                { maxRows, pageSize: maxRows, maxResultBytes: 512_000, operation: "execute", surface: "ssr" },
+              )
+            : (
+                await executeGqlSourceForContext(
+                  { access: requestAccess, dateConfig, signal: c.req.raw.signal },
+                  app.baseId,
+                  { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
+                  { maxRows, maxResultBytes: 512_000, operation: "execute", labelRelationValues: true },
+                )
+              ).response;
+        if (!response.ok) {
+          return [block.id, { ok: false, message: response.diagnostics[0]?.message ?? "This data source is unavailable." }];
+        }
+        const allowedTableIds = new Set(capability.source.tableIds);
+        const outputTableIds = [...new Set(response.columns.flatMap((column) => (column.tableId ? [column.tableId] : [])))];
+        if (outputTableIds.some((tableId) => !allowedTableIds.has(tableId))) {
+          return [block.id, { ok: false, message: "This data source changed after the app was published." }];
+        }
+        const fieldGroups = await gridsService.field.listByTables(outputTableIds);
+        const sourceFields = outputTableIds.flatMap((tableId) => fieldGroups.get(tableId) ?? []);
+        if (block.type === "metrics") return [block.id, { ok: true, cells: metricCellsFromPreview(response, sourceFields) }];
+        const chart = chartDataFromPreview(response, sourceFields);
+        if (chart.kind === "error" || (block.chartType === "scatter" && chart.viewQuery.aggregations.length < 2)) {
+          return [block.id, { ok: false, message: chart.kind === "error" ? chart.reason : "Scatter charts need two value series." }];
+        }
+        return [block.id, { ok: true, chart }];
+      } catch {
+        return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
+      }
+    }),
+  );
+  const metrics = new Map<string, MetricsBlockData>();
+  const charts = new Map<string, ChartBlockData>();
+  for (const [blockId, data] of insightEntries) {
+    const block = insightBlocks.find((candidate) => candidate.id === blockId);
+    if (block?.type === "metrics") metrics.set(blockId, data as MetricsBlockData);
+    if (block?.type === "chart") charts.set(blockId, data as ChartBlockData);
+  }
   const commentBlocks = page.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is CommentsBlock => block.type === "comments")),
   );
@@ -463,6 +580,8 @@ export default ssr<AuthContext>(async (c) => {
         page={page}
         shortId={app.shortId}
         results={results}
+        metrics={metrics}
+        charts={charts}
         forms={forms}
         commentEndpoints={commentEndpoints}
         actions={actions}

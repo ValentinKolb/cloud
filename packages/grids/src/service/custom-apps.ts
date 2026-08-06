@@ -2,20 +2,25 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import {
+  type CustomAppBlock,
   type CustomAppCapabilities,
   CustomAppCapabilitiesSchema,
   type CustomAppDefinition,
   CustomAppDefinitionSchema,
   type CustomAppDiagnostic,
 } from "../custom-apps/contracts";
+import { customAppViewSourceHash } from "../custom-apps/insight-source";
+import { isRecordWritableFieldType } from "../field-types";
+import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
+import { collectDslPlanTableIds } from "../query-dsl/source-plan";
 import { logAudit, type SqlClient } from "./audit";
+import { compileDashboardWidgetQuery } from "./dashboard-widget-query";
 import { normalizeFormConfig } from "./forms";
+import { parseJsonbRow } from "./jsonb";
+import { insertWithShortId } from "./short-id";
 import { getWorkflow } from "./workflow-definitions";
 import { getLauncher } from "./workflow-launchers";
 import { workflowInputShapeError } from "./workflow-values";
-import { parseJsonbRow } from "./jsonb";
-import { insertWithShortId } from "./short-id";
-import { isRecordWritableFieldType } from "../field-types";
 
 type DbRow = Record<string, unknown>;
 
@@ -51,7 +56,15 @@ const mapRow = (row: DbRow): CustomApp => ({
   icon: (row.icon as string | null) ?? null,
   draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
   draftCapabilities: CustomAppCapabilitiesSchema.parse(
-    parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [], comments: [], documents: [], workflowLaunchers: [] }),
+    parseJsonbRow(row.draft_capabilities, {
+      views: [],
+      insights: [],
+      records: [],
+      forms: [],
+      comments: [],
+      documents: [],
+      workflowLaunchers: [],
+    }),
   ),
   publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
   publishedCapabilities: row.published_capabilities
@@ -82,7 +95,7 @@ const zodDiagnostics = (error: { issues: Array<{ path: PropertyKey[]; message: s
     message: issue.message,
   }));
 
-const blocksByType = <T extends "actions" | "comments" | "form" | "record" | "records">(definition: CustomAppDefinition, type: T) =>
+const blocksByType = <T extends CustomAppBlock["type"]>(definition: CustomAppDefinition, type: T) =>
   definition.pages.flatMap((page) =>
     page.rows.flatMap((row) =>
       row.columns.flatMap((column) =>
@@ -98,6 +111,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
   const definition = parsed.data;
   const recordsBlocks = blocksByType(definition, "records");
+  const insightBlocks = [...blocksByType(definition, "metrics"), ...blocksByType(definition, "chart")];
   const formBlocks = blocksByType(definition, "form");
   const commentBlocks = blocksByType(definition, "comments");
   const actionBlocks = blocksByType(definition, "actions");
@@ -107,6 +121,9 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   if (formBlocks.length > 24) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 24 Form blocks" }] };
   }
+  if (insightBlocks.length > 24) {
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 24 Metrics and Chart blocks" }] };
+  }
 
   const [base] = await client<Array<{ id: string }>>`
     SELECT id FROM grids.bases WHERE id = ${definition.baseId}::uuid AND deleted_at IS NULL
@@ -115,6 +132,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
 
   const diagnostics: CustomAppDiagnostic[] = [];
   const views: CustomAppCapabilities["views"] = [];
+  const insights: CustomAppCapabilities["insights"] = [];
   const pageRecords: CustomAppCapabilities["records"] = [];
   const forms: CustomAppCapabilities["forms"] = [];
   const comments: CustomAppCapabilities["comments"] = [];
@@ -246,6 +264,95 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         });
     }
     views.push({ viewId: view.view_id, tableId: view.table_id });
+  }
+
+  for (const { page, block } of insightBlocks) {
+    const source =
+      block.source.kind === "view"
+        ? await client<Array<{ view_id: string; table_id: string; base_id: string; source: string }>>`
+            SELECT v.id AS view_id, v.table_id, t.base_id, v.source
+            FROM grids.views v
+            JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+            WHERE v.id = ${block.source.viewId}::uuid AND v.deleted_at IS NULL
+          `.then(([view]) =>
+            !view || view.base_id !== definition.baseId
+              ? null
+              : { kind: "view" as const, query: view.source, currentTableId: view.table_id, viewId: view.view_id },
+          )
+        : { kind: "gql" as const, query: block.source.query };
+    if (!source) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "source", "viewId"],
+        message: "View is missing or belongs to another base",
+      });
+      continue;
+    }
+    const compiled = await compileDashboardWidgetQuery({
+      baseId: definition.baseId,
+      source: source.query,
+      ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
+    });
+    if (!compiled.ok) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "source"],
+        message: compiled.error,
+      });
+      continue;
+    }
+    const plan = compiled.data.plan;
+    const aggregationCount =
+      (plan.query.aggregations?.length ?? 0) + (plan.sqlAggregations?.length ?? 0) + (plan.formulaAggregations?.length ?? 0);
+    const groupCount = (plan.query.groupBy?.length ?? 0) + (plan.sqlGroupBy?.length ?? 0);
+    if (block.type === "metrics") {
+      if (!isDslAggregateOnlyPlan(plan)) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "source"],
+          message: "Metrics source must return ungrouped scalar aggregations",
+        });
+        continue;
+      }
+      if (aggregationCount > 12) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "source"],
+          message: "Metrics source may return at most 12 aggregations",
+        });
+        continue;
+      }
+    } else {
+      const minimumAggregations = block.chartType === "scatter" ? 2 : 1;
+      if (groupCount === 0 || aggregationCount < minimumAggregations) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "source"],
+          message:
+            block.chartType === "scatter"
+              ? "Scatter chart source must group rows and include at least two aggregations"
+              : "Chart source must group rows and include at least one aggregation",
+        });
+        continue;
+      }
+    }
+    const tableIds = collectDslPlanTableIds(plan, compiled.data.fieldsByTableId).sort();
+    if (tableIds.length > 24) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "source"],
+        message: "Metrics and Chart sources may reference at most 24 tables",
+      });
+      continue;
+    }
+    insights.push({
+      pageId: page.id,
+      blockId: block.id,
+      blockType: block.type,
+      source:
+        source.kind === "view"
+          ? {
+              kind: "view",
+              viewId: source.viewId,
+              sourceHash: customAppViewSourceHash(source.currentTableId, source.query),
+              tableIds,
+            }
+          : { kind: "gql", tableIds },
+    });
   }
 
   for (const { page, block } of formBlocks) {
@@ -438,6 +545,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
 
   const capabilities = CustomAppCapabilitiesSchema.parse({
     views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
+    insights: insights.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
     forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     comments: comments.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
