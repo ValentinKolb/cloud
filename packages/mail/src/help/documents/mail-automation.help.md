@@ -26,11 +26,11 @@ Mailbox admins create one guided flow under **Automations > Incoming mail** or s
 Add steps in the order they should run. A flow can freely mix:
 
 - **Mail action** to move, mark, label, tag, assign, or change conversation status.
-- **AI generate text** to create a bounded text value for a later step.
-- **AI classify** to choose exactly one category.
-- **AI classify many** to choose every matching category within the configured limit.
-- **Branch** to run different nested Mail or AI steps for each classification result.
-- **Create reply draft from AI text** to attach a reviewable draft to the source conversation.
+- **AI generate text** to write bounded text and create a reviewable reply draft from it in the same block.
+- **AI classify** to choose exactly one category and run the Mail or AI steps configured directly below that result.
+- **AI classify many** to choose up to the configured maximum of matching categories. Actions from multiple matching categories can run together.
+
+AI output wiring is automatic in this guided editor. Configure the reply-draft sender inside **AI generate text**, and configure classification routes directly with each choice. Nested routes can again contain Mail actions or AI blocks.
 
 Mail generates canonical workflow YAML from the flow and shows it read-only in the editor. Steps run from top to bottom through the shared workflow runtime. If a later step fails, effects from earlier completed steps remain. Editing the flow publishes a new immutable workflow version; changing only the name or active state does not duplicate identical source. Destructive actions cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
@@ -40,7 +40,7 @@ New incoming automations start inactive. A deterministic flow can preview and pr
 
 Any flow containing an AI step processes only future messages. Conditions run before AI. The Safety section shows the maximum number of AI calls per matching message. AI can classify or write incorrectly, so keep category descriptions precise and review the first runs under **Activity**. Reply automation only creates drafts for human review and never sends them.
 
-For automation through `cld`, use `mail automation catalog` to discover valid IDs. `mail automation create` and `mail automation update` accept the complete guided definition as JSON or YAML through `--definition-file` or `--definition-stdin`, including `scope` and the ordered `steps` tree. This keeps CLI and UI behavior identical, including mixed AI branches.
+For automation through `cld`, use `mail automation catalog` to discover valid IDs. `mail automation create` and `mail automation update` accept the complete guided definition as JSON or YAML through `--definition-file` or `--definition-stdin`, including `scope` and the ordered `steps` tree. This keeps CLI and UI behavior identical, including nested AI routes.
 
 The platform workflow model is used automatically; Mail does not expose a separate model choice. Use advanced **Workflows** only when the guided building blocks do not cover the task.
 

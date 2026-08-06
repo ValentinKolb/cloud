@@ -17,7 +17,7 @@ export default function MailIncomingAutomationsPage(props: {
     >
       <header>
         <h1 class="text-base font-semibold text-primary">Incoming mail</h1>
-        <p class="mt-0.5 text-xs text-dimmed">Build one clear flow from direct mail actions, AI steps, and branches.</p>
+        <p class="mt-0.5 text-xs text-dimmed">Build one clear flow from direct mail actions and self-contained AI routes.</p>
       </header>
       <div class="info-block-info flex items-start gap-2">
         <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />

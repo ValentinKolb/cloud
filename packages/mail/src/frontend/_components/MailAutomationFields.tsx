@@ -1,4 +1,4 @@
-import { IconButton, Select, TextInput } from "@k2b/ui";
+import { Button, IconButton, Select, TextInput } from "@k2b/ui";
 import { Index, Show } from "solid-js";
 import type { MailAutomationAction, MailAutomationCondition, MailAutomationConditions } from "../../contracts";
 import type { MailWorkflowCatalogSnapshot } from "../../workflows/catalog";
@@ -164,15 +164,16 @@ export function MailAutomationConditionsEditor(props: {
       </Index>
       <div class="flex flex-wrap items-center gap-2">
         <Show when={props.conditions.items.length < 8}>
-          <button
-            class="ui-button ui-button-secondary ui-button-sm"
+          <Button
+            size="sm"
+            variant="secondary"
             type="button"
             onClick={() =>
               props.onChange({ ...props.conditions, items: [...props.conditions.items, initialMailAutomationCondition("subject")] })
             }
           >
             <i class="ti ti-plus" aria-hidden="true" /> Add condition
-          </button>
+          </Button>
         </Show>
         <Show when={props.conditions.items.length > 1}>
           <div class="w-56">

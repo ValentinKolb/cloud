@@ -3888,6 +3888,17 @@ const unifyIncomingAutomations = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const resetIncomingAutomationAuthoringModel = async (db: SqlClient): Promise<void> => {
+  await db`
+    DELETE FROM workflows.workflow
+    WHERE id IN (
+      SELECT workflow_id
+      FROM mail.incoming_automations
+    )
+  `;
+  await db`DELETE FROM mail.incoming_automations`;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -3982,6 +3993,7 @@ const migrations: readonly MailMigration[] = [
   { version: 107, name: "mail_security_operations_hardening", run: hardenMailSecurityOperations },
   { version: 108, name: "guided_ai_automations", run: addGuidedAiAutomations },
   { version: 109, name: "unified_incoming_automations", run: unifyIncomingAutomations },
+  { version: 110, name: "compound_incoming_automation_steps", run: resetIncomingAutomationAuthoringModel },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

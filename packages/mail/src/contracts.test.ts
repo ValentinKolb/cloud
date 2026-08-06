@@ -288,7 +288,7 @@ describe("incoming automation contracts", () => {
   const importantId = "00000000-0000-4000-8000-000000000003";
   const routineId = "00000000-0000-4000-8000-000000000004";
 
-  test("accepts match-all flows that mix mail, AI, branches, and drafts", () => {
+  test("accepts match-all flows that mix mail, AI routes, and drafts", () => {
     const result = createIncomingAutomationSchema.safeParse({
       name: "Triage and draft",
       scope: { mode: "all" },
@@ -303,23 +303,18 @@ describe("incoming automation contracts", () => {
           kind: "ai_classify",
           instructions: "Choose the best category",
           choices: [
-            { id: importantId, name: "Important", description: "Needs attention" },
-            { id: routineId, name: "Routine", description: "Routine message" },
-          ],
-        },
-        {
-          id: "00000000-0000-4000-8000-000000000011",
-          kind: "branch",
-          sourceStepId: classifierId,
-          cases: [
             {
-              choiceId: importantId,
+              id: importantId,
+              name: "Important",
+              description: "Needs attention",
               steps: [
                 { id: "00000000-0000-4000-8000-000000000012", kind: "mail_action", action: { kind: "set_status", status: "needs_action" } },
               ],
             },
             {
-              choiceId: routineId,
+              id: routineId,
+              name: "Routine",
+              description: "Routine message",
               steps: [
                 { id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "Routine" } },
               ],
@@ -327,12 +322,12 @@ describe("incoming automation contracts", () => {
           ],
           fallback: [],
         },
-        { id: textId, kind: "ai_generate_text", instructions: "Write a concise reply", maxOutputChars: 2_000 },
         {
-          id: "00000000-0000-4000-8000-000000000014",
-          kind: "create_reply_draft",
-          sourceStepId: textId,
-          senderIdentityId: "00000000-0000-4000-8000-000000000015",
+          id: textId,
+          kind: "ai_generate_text",
+          instructions: "Write a concise reply",
+          maxOutputChars: 2_000,
+          replyDraft: { senderIdentityId: "00000000-0000-4000-8000-000000000015" },
         },
       ],
     });
@@ -340,45 +335,39 @@ describe("incoming automation contracts", () => {
     if (result.success) expect(result.data.enabled).toBe(false);
   });
 
-  test("rejects forward references and incomplete branches", () => {
+  test("rejects incomplete compound AI blocks", () => {
     const result = createIncomingAutomationSchema.safeParse({
       name: "Invalid dependencies",
       scope: { mode: "all" },
       steps: [
         {
           id: "00000000-0000-4000-8000-000000000020",
-          kind: "create_reply_draft",
-          sourceStepId: textId,
-          senderIdentityId: "00000000-0000-4000-8000-000000000021",
+          kind: "ai_generate_text",
+          instructions: "Write a reply",
+          maxOutputChars: 2_000,
         },
       ],
     });
     expect(result.success).toBe(false);
   });
 
-  test("keeps alternative branch effects independent and rejects conflicting effects after the branch", () => {
-    const branchId = "00000000-0000-4000-8000-000000000030";
+  test("keeps alternative classification effects independent and rejects conflicting effects afterward", () => {
     const steps = [
       {
         id: classifierId,
         kind: "ai_classify" as const,
         instructions: "Choose the destination",
         choices: [
-          { id: importantId, name: "Important", description: "Needs attention" },
-          { id: routineId, name: "Routine", description: "Routine message" },
-        ],
-      },
-      {
-        id: branchId,
-        kind: "branch" as const,
-        sourceStepId: classifierId,
-        cases: [
           {
-            choiceId: importantId,
+            id: importantId,
+            name: "Important",
+            description: "Needs attention",
             steps: [{ id: "00000000-0000-4000-8000-000000000031", kind: "mail_action" as const, action: { kind: "junk" as const } }],
           },
           {
-            choiceId: routineId,
+            id: routineId,
+            name: "Routine",
+            description: "Routine message",
             steps: [{ id: "00000000-0000-4000-8000-000000000032", kind: "mail_action" as const, action: { kind: "trash" as const } }],
           },
         ],
@@ -395,24 +384,17 @@ describe("incoming automation contracts", () => {
     ).toBe(false);
   });
 
-  test("allows sparse branches and rejects effects that can co-occur after multi-classification", () => {
+  test("allows sparse routes and rejects effects that can co-occur after multi-classification", () => {
     const sparse = [
       {
         id: classifierId,
         kind: "ai_classify" as const,
         instructions: "Choose the destination",
         choices: [
-          { id: importantId, name: "Important", description: "Needs attention" },
-          { id: routineId, name: "Routine", description: "Routine message" },
-        ],
-      },
-      {
-        id: "00000000-0000-4000-8000-000000000040",
-        kind: "branch" as const,
-        sourceStepId: classifierId,
-        cases: [
           {
-            choiceId: importantId,
+            id: importantId,
+            name: "Important",
+            description: "Needs attention",
             steps: [
               {
                 id: "00000000-0000-4000-8000-000000000043",
@@ -421,38 +403,44 @@ describe("incoming automation contracts", () => {
               },
             ],
           },
+          { id: routineId, name: "Routine", description: "Routine message", steps: [] },
         ],
         fallback: [],
       },
     ];
     expect(createIncomingAutomationSchema.safeParse({ name: "Sparse routing", scope: { mode: "all" }, steps: sparse }).success).toBe(true);
 
-    const multiClassifier = { ...sparse[0]!, kind: "ai_classify_many" as const, maxChoices: 2 };
-    const conflicting = [
-      multiClassifier,
-      {
-        ...sparse[1]!,
-        sourceStepId: multiClassifier.id,
-        cases: [
-          {
-            choiceId: importantId,
-            steps: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action" as const, action: { kind: "junk" as const } }],
-          },
-          {
-            choiceId: routineId,
-            steps: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action" as const, action: { kind: "trash" as const } }],
-          },
-        ],
-      },
-    ];
-    const result = createIncomingAutomationSchema.safeParse({ name: "Unsafe multi routing", scope: { mode: "all" }, steps: conflicting });
+    const multiClassifier = {
+      ...sparse[0]!,
+      kind: "ai_classify_many" as const,
+      maxChoices: 2,
+      choices: [
+        {
+          id: importantId,
+          name: "Important",
+          description: "Needs attention",
+          steps: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action" as const, action: { kind: "junk" as const } }],
+        },
+        {
+          id: routineId,
+          name: "Routine",
+          description: "Routine message",
+          steps: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action" as const, action: { kind: "trash" as const } }],
+        },
+      ],
+    };
+    const result = createIncomingAutomationSchema.safeParse({
+      name: "Unsafe multi routing",
+      scope: { mode: "all" },
+      steps: [multiClassifier],
+    });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes("only one provider message action"))).toBe(true);
     expect(
       createIncomingAutomationSchema.safeParse({
         name: "Single-result multi routing",
         scope: { mode: "all" },
-        steps: [{ ...multiClassifier, maxChoices: 1 }, conflicting[1]],
+        steps: [{ ...multiClassifier, maxChoices: 1 }],
       }).success,
     ).toBe(false);
   });

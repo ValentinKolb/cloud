@@ -4252,6 +4252,7 @@ test("incoming automation CRUD accepts complete mixed-flow definitions and prese
         kind: "ai_generate_text",
         instructions: "Summarize this message",
         maxOutputChars: 2_000,
+        replyDraft: { senderIdentityId: "00000000-0000-4000-8000-000000000042" },
       },
     ],
   };

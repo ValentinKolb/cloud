@@ -146,6 +146,7 @@ describe("mailHelp", () => {
     expect(automation).toContain("skips messages already accepted");
     expect(automation).toContain("shared workflow runtime");
     expect(automation).toContain("AI classify many");
+    expect(automation).toContain("AI output wiring is automatic");
     expect(automation).toContain("never sends them");
     expect(work).toContain("Find all from this sender");
     expect(work).toContain("Mark all as read");

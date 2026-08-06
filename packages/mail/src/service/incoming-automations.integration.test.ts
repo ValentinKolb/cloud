@@ -144,20 +144,18 @@ suite("incoming automations", () => {
             kind: "ai_classify",
             instructions: "Choose a category",
             choices: [
-              { id: firstChoice, name: "Important", description: "Needs attention" },
-              { id: secondChoice, name: "Routine", description: "Routine mail" },
-            ],
-          },
-          {
-            id: crypto.randomUUID(),
-            kind: "branch",
-            sourceStepId: classifierId,
-            cases: [
               {
-                choiceId: firstChoice,
+                id: firstChoice,
+                name: "Important",
+                description: "Needs attention",
                 steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "set_status", status: "needs_action" } }],
               },
-              { choiceId: secondChoice, steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }] },
+              {
+                id: secondChoice,
+                name: "Routine",
+                description: "Routine mail",
+                steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "mark_read" } }],
+              },
             ],
             fallback: [],
           },
