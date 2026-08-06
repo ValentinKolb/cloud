@@ -21,7 +21,6 @@ const suite = (await canUseDatabase()) ? describe : describe.skip;
 
 suite("Spaces item completion workflow", () => {
   test("moves items between active and completed workflow columns", async () => {
-
     const suffix = crypto.randomUUID();
     const [space] = await sql<{ id: string }[]>`
       INSERT INTO spaces.spaces (name, description, color)

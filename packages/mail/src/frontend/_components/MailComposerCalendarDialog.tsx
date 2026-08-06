@@ -1,14 +1,5 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import {
-  Button,
-  DateTimePicker,
-  dialogCore,
-  PanelDialog,
-  panelDialogOptions,
-  SegmentedControl,
-  Select,
-  TextInput,
-} from "@k2b/ui";
+import { Button, DateTimePicker, dialogCore, PanelDialog, panelDialogOptions, SegmentedControl, Select, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CalendarEvent } from "../../app-integration-contracts";
@@ -214,13 +205,37 @@ function MailComposerCalendarDialog(props: {
               fallback={
                 <div class="grid gap-3 sm:grid-cols-2">
                   <div class="sm:col-span-2">
-                    <TextInput label="Title" value={title} onValueChange={setTitle} maxLength={200} disabled={saving() || Boolean(createdEventId())} />
+                    <TextInput
+                      label="Title"
+                      value={title}
+                      onValueChange={setTitle}
+                      maxLength={200}
+                      disabled={saving() || Boolean(createdEventId())}
+                    />
                   </div>
                   <div class="sm:col-span-2">
-                    <TextInput label="Location" value={location} onValueChange={setLocation} maxLength={500} disabled={saving() || Boolean(createdEventId())} />
+                    <TextInput
+                      label="Location"
+                      value={location}
+                      onValueChange={setLocation}
+                      maxLength={500}
+                      disabled={saving() || Boolean(createdEventId())}
+                    />
                   </div>
-                  <DateTimePicker label="Starts" value={startsAt} onValueChange={setStartsAt} dateConfig={props.dateConfig} disabled={saving() || Boolean(createdEventId())} />
-                  <DateTimePicker label="Ends" value={endsAt} onValueChange={setEndsAt} dateConfig={props.dateConfig} disabled={saving() || Boolean(createdEventId())} />
+                  <DateTimePicker
+                    label="Starts"
+                    value={startsAt}
+                    onValueChange={setStartsAt}
+                    dateConfig={props.dateConfig}
+                    disabled={saving() || Boolean(createdEventId())}
+                  />
+                  <DateTimePicker
+                    label="Ends"
+                    value={endsAt}
+                    onValueChange={setEndsAt}
+                    dateConfig={props.dateConfig}
+                    disabled={saving() || Boolean(createdEventId())}
+                  />
                 </div>
               }
             >
@@ -273,7 +288,7 @@ export const openMailComposerCalendarDialog = (params: {
   recipientCount: number;
   dateConfig: DateContext;
 }): Promise<MailDraft | null | undefined> =>
-  dialogCore.open<MailDraft | null>(
-    (close) => <MailComposerCalendarDialog {...params} close={close} />,
-    { ...panelDialogOptions, cancelBehavior: "ignore" },
-  );
+  dialogCore.open<MailDraft | null>((close) => <MailComposerCalendarDialog {...params} close={close} />, {
+    ...panelDialogOptions,
+    cancelBehavior: "ignore",
+  });

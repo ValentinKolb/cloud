@@ -197,9 +197,7 @@ describe("@k2b/ui content and chat behavior", () => {
   test("follows new messages only while the reader remains pinned", async () => {
     const dom = createDomTestHarness();
     const { Chat } = await import("../src/chat");
-    const [items, setItems] = createSignal<ChatTimelineItem[]>([
-      { kind: "message", id: "one", role: "user", content: "One" },
-    ]);
+    const [items, setItems] = createSignal<ChatTimelineItem[]>([{ kind: "message", id: "one", role: "user", content: "One" }]);
     let scrollHeight = 500;
     let viewport: HTMLDivElement | undefined;
     const dispose = render(
@@ -239,9 +237,7 @@ describe("@k2b/ui content and chat behavior", () => {
   test("preserves the visible scroll position when older messages are prepended", async () => {
     const dom = createDomTestHarness();
     const { Chat } = await import("../src/chat");
-    const [items, setItems] = createSignal<ChatTimelineItem[]>([
-      { kind: "message", id: "new", role: "assistant", content: "New" },
-    ]);
+    const [items, setItems] = createSignal<ChatTimelineItem[]>([{ kind: "message", id: "new", role: "assistant", content: "New" }]);
     let scrollHeight = 500;
     let viewport: HTMLDivElement | undefined;
     const dispose = render(

@@ -83,13 +83,8 @@ const controlledPanel = (root: HTMLElement, handle: HTMLElement) => {
 };
 const controlsResizableRegion = (root: HTMLElement, handle: HTMLElement, kind: AppWorkspaceResizeKind) =>
   (kind === "sidebar" ? sidebarElement(root) : controlledPanel(root, handle))?.dataset.workspaceResizable === "true";
-const panelId = (handle: HTMLElement) =>
-  safeAppWorkspacePanelId(handle.dataset.workspacePanelId ?? "primary") || "primary";
-const numberData = (
-  handle: HTMLElement,
-  key: "workspaceDefaultSize" | "workspaceMinSize" | "workspaceMaxSize",
-  fallback: number,
-) => {
+const panelId = (handle: HTMLElement) => safeAppWorkspacePanelId(handle.dataset.workspacePanelId ?? "primary") || "primary";
+const numberData = (handle: HTMLElement, key: "workspaceDefaultSize" | "workspaceMinSize" | "workspaceMaxSize", fallback: number) => {
   const value = Number(handle.dataset[key]);
   return Number.isFinite(value) ? value : fallback;
 };
@@ -99,18 +94,12 @@ const sizeLimits = (root: HTMLElement, handle: HTMLElement, kind: AppWorkspaceRe
   const main = kind === "pane" ? handle.closest<HTMLElement>(".k2b-app-workspace__main") : mainElement(root);
   const panes = main
     ? Array.from(main.querySelectorAll<HTMLElement>(".k2b-app-workspace__main-pane")).filter(
-        (pane) =>
-          pane.closest(".k2b-app-workspace__main") === main &&
-          !pane.classList.contains("is-primary") &&
-          isVisible(pane),
+        (pane) => pane.closest(".k2b-app-workspace__main") === main && !pane.classList.contains("is-primary") && isVisible(pane),
       )
     : [];
   const details = rootElements(root, ".k2b-app-workspace__detail").filter(isVisible);
   const sidebarWidth = elementSize(sidebarElement(root), "sidebar");
-  const otherDetailWidth = details.reduce(
-    (total, detail) => total + (detail === controlled ? 0 : elementSize(detail, "detail")),
-    0,
-  );
+  const otherDetailWidth = details.reduce((total, detail) => total + (detail === controlled ? 0 : elementSize(detail, "detail")), 0);
   const defaultMin =
     kind === "sidebar"
       ? APP_WORKSPACE_SIDEBAR_MIN
@@ -237,17 +226,13 @@ const reconcilePanes = (root: HTMLElement, layoutState: AppWorkspaceLayoutState,
     const preferred =
       active?.moved && active.root === root && active.kind === "pane" && active.handle === handle
         ? active.liveSize
-        : layoutState.paneWidths?.[panelId(handle)] ??
-          numberData(handle, "workspaceDefaultSize", elementSize(panel, "pane"));
+        : (layoutState.paneWidths?.[panelId(handle)] ?? numberData(handle, "workspaceDefaultSize", elementSize(panel, "pane")));
     const desired = clamp(preferred, min, max);
     return [{ desired, handle, min }];
   });
   if (!fits.length) return;
 
-  const sizes = fitAppWorkspacePaneSizes(
-    fits,
-    main.getBoundingClientRect().width - fixedWidth - APP_WORKSPACE_MAIN_MIN,
-  );
+  const sizes = fitAppWorkspacePaneSizes(fits, main.getBoundingClientRect().width - fixedWidth - APP_WORKSPACE_MAIN_MIN);
   fits.forEach((fit, index) => {
     root.style.setProperty(appWorkspacePanelVariable("pane", panelId(fit.handle)), `${sizes[index]}px`);
   });
@@ -331,9 +316,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       // the per-handle limits here would count the already-fitted sibling panes
       // a second time and permanently shrink the preference on release.
       const size =
-        finished.kind === "pane"
-          ? finished.liveSize
-          : applySize(finished.root, finished.handle, finished.kind, finished.liveSize);
+        finished.kind === "pane" ? finished.liveSize : applySize(finished.root, finished.handle, finished.kind, finished.liveSize);
       persistSize(finished.handle, finished.kind, size);
       if (finished.kind !== "drawer") reconcilePanes(finished.root, layoutState);
     }
@@ -397,10 +380,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     // clamped straight back to the minimum, so the handle is simply stuck and
     // collapse/expand is unreachable without a pointer.
     else if (kind !== "drawer" && event.key === "ArrowLeft")
-      requested =
-        collapsibleSidebar && current <= APP_WORKSPACE_SIDEBAR_MIN
-          ? APP_WORKSPACE_SIDEBAR_COLLAPSED
-          : current - step * direction;
+      requested = collapsibleSidebar && current <= APP_WORKSPACE_SIDEBAR_MIN ? APP_WORKSPACE_SIDEBAR_COLLAPSED : current - step * direction;
     else if (kind !== "drawer" && event.key === "ArrowRight")
       requested =
         collapsibleSidebar && current <= APP_WORKSPACE_SIDEBAR_COLLAPSED
@@ -420,9 +400,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     // A hidden or zero-width workspace measures 0, which drives every limit
     // down to its minimum — reconciling one would overwrite its variables and
     // `aria-valuenow` with that minimum for good.
-    return allRoots().filter(
-      (root) => getComputedStyle(root).display !== "none" && root.getBoundingClientRect().width > 0,
-    );
+    return allRoots().filter((root) => getComputedStyle(root).display !== "none" && root.getBoundingClientRect().width > 0);
   };
   const reconcile = () => {
     roots().forEach((root) => {
@@ -434,24 +412,26 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       // Chrome establishes the space available to the work area. Auxiliary
       // panes are then fitted together into what remains, so DOM order cannot
       // give the last pane an accidental sizing priority.
-      handles.filter((handle) => resizeKind(handle) !== "pane").forEach((handle) => {
-        const kind = resizeKind(handle);
-        if (!kind || !controlsResizableRegion(root, handle, kind)) return;
-        if (active?.moved && active.root === root && active.handle === handle && active.kind === kind) {
-          applySize(root, handle, kind, active.liveSize, { snapSidebar: kind !== "sidebar" });
-          return;
-        }
-        const persisted =
-          kind === "sidebar"
-            ? layoutState.sidebarCollapsed && sidebarCollapsible(root)
-              ? APP_WORKSPACE_SIDEBAR_COLLAPSED
-              : layoutState.sidebarWidth
-            : kind === "detail"
+      handles
+        .filter((handle) => resizeKind(handle) !== "pane")
+        .forEach((handle) => {
+          const kind = resizeKind(handle);
+          if (!kind || !controlsResizableRegion(root, handle, kind)) return;
+          if (active?.moved && active.root === root && active.handle === handle && active.kind === kind) {
+            applySize(root, handle, kind, active.liveSize, { snapSidebar: kind !== "sidebar" });
+            return;
+          }
+          const persisted =
+            kind === "sidebar"
+              ? layoutState.sidebarCollapsed && sidebarCollapsible(root)
+                ? APP_WORKSPACE_SIDEBAR_COLLAPSED
+                : layoutState.sidebarWidth
+              : kind === "detail"
                 ? layoutState.detailWidths?.[panelId(handle)]
                 : layoutState.drawerHeights?.[panelId(handle)];
-        if (persisted !== undefined) applySize(root, handle, kind, persisted);
-        else updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
-      });
+          if (persisted !== undefined) applySize(root, handle, kind, persisted);
+          else updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
+        });
       reconcilePanes(root, layoutState, active?.root === root ? active : null);
     });
   };

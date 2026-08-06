@@ -24,16 +24,8 @@ export function StatusBadge(props: StatusBadgeProps): JSX.Element {
   const variant = () => props.variant ?? "chip";
   const icon = () => (props.icon === null ? undefined : (props.icon ?? DEFAULT_ICONS[props.tone]));
   return (
-    <span
-      class={`k2b-status-badge ${props.class ?? ""}`}
-      data-tone={props.tone}
-      data-variant={variant()}
-      title={props.title}
-    >
-      <Show
-        when={variant() !== "dot"}
-        fallback={<span class="k2b-status-badge__dot" aria-hidden="true" />}
-      >
+    <span class={`k2b-status-badge ${props.class ?? ""}`} data-tone={props.tone} data-variant={variant()} title={props.title}>
+      <Show when={variant() !== "dot"} fallback={<span class="k2b-status-badge__dot" aria-hidden="true" />}>
         <Show when={icon()}>{(glyph) => <i class={glyph()} aria-hidden="true" />}</Show>
       </Show>
       <span class="k2b-status-badge__label">{props.label}</span>

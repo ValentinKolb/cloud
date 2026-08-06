@@ -4,14 +4,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
-import {
-  BaseSchema,
-  CreateBaseSchema,
-  GrantBaseAccessSchema,
-  MessageSchema,
-  UpdateBaseAccessSchema,
-  UpdateBaseSchema,
-} from "../schemas";
+import { BaseSchema, CreateBaseSchema, GrantBaseAccessSchema, MessageSchema, UpdateBaseAccessSchema, UpdateBaseSchema } from "../schemas";
 import { requestAccessScope, requireUserBackedActor, requireUuidParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
@@ -74,12 +67,20 @@ const routes = new Hono<AuthContext>()
   .delete("/bases/:baseId", async (c) => {
     const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respondMessage(c, pulseService.base.remove({ baseId: baseId.value, user: requestAccessScope(c) }), "Pulse base deletion started");
+    return respondMessage(
+      c,
+      pulseService.base.remove({ baseId: baseId.value, user: requestAccessScope(c) }),
+      "Pulse base deletion started",
+    );
   })
   .post("/bases/:baseId/clear-data", async (c) => {
     const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respondMessage(c, pulseService.base.clearData({ baseId: baseId.value, user: requestAccessScope(c) }), "Pulse data clear started");
+    return respondMessage(
+      c,
+      pulseService.base.clearData({ baseId: baseId.value, user: requestAccessScope(c) }),
+      "Pulse data clear started",
+    );
   })
   .get(
     "/bases/:baseId/access",

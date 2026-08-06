@@ -5,7 +5,7 @@ section: AI
 order: 1070
 description: Present conversation state, tools, approvals, and failures with the shared chat controller and components.
 tags: [ai, ui, solidjs]
-updated: 2026-08-02
+updated: 2026-08-04
 ---
 
 # Chat interface
@@ -128,10 +128,27 @@ Keep the Stop action available until the server accepts the abort.
 
 Render tool input and output as data. Do not inject model text as HTML.
 
-Capability calls use the owning application's saved name and icon in running,
-approval, success, and failure states. The saved snapshot keeps history readable
-when an app is temporarily unavailable or later changes its registry metadata;
-ordinary Nessi tools keep the generic tool presentation.
+Capability calls use the owning application's saved name, icon, and optional
+accent in running, approval, success, and failure states. The saved snapshot
+keeps history readable when an app is temporarily unavailable or later changes
+its registry metadata; ordinary Nessi tools keep the generic tool presentation.
+
+Generic tool rows and disclosures use `Chat.Activity` from `@k2b/ui`. Cloud
+only supplies protocol-derived labels and specialized bodies such as web search
+results, first-party favicons, structured data, and approval controls. Keep
+those domain renderers in Cloud instead of duplicating the shared activity
+shell.
+
+An active response always uses the shared streaming state of `Chat.Message`,
+including before the first model block arrives. It renders the same minimal
+three-dot progress indicator in both states; do not add a separate generating
+activity or label.
+
+Approval prompts span the available message column and lead with the owning
+application's name and icon. The primary control names the concrete action;
+review labels are emphasized and explanatory copy appears only when it adds
+information beyond that action name. Expanding Details renders validated
+arguments in a separate full-width structured-data panel below the prompt.
 
 ## Handle frontend tools
 

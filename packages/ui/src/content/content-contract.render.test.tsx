@@ -214,9 +214,7 @@ describe("@k2b/ui Cloud content contract", () => {
   });
 
   test("keeps SSR navigation and observability content defaults", () => {
-    const pagination = renderToString(() =>
-      createComponent(Pagination, { currentPage: 5, totalPages: 10, baseUrl: "/items?page=" }),
-    );
+    const pagination = renderToString(() => createComponent(Pagination, { currentPage: 5, totalPages: 10, baseUrl: "/items?page=" }));
     const range = renderToString(() =>
       createComponent(RangePicker, {
         value: "24h",
@@ -251,9 +249,7 @@ describe("@k2b/ui Cloud content contract", () => {
   test("renders unknown log levels without mislabelling them as debug", () => {
     const html = renderToString(() =>
       createComponent(LogEntriesTable, {
-        entries: [
-          { id: 1, level: "notice", source: "worker", message: "Observed", metadata: null, createdAt: "2026-01-01T12:00:00Z" },
-        ],
+        entries: [{ id: 1, level: "notice", source: "worker", message: "Observed", metadata: null, createdAt: "2026-01-01T12:00:00Z" }],
       }),
     );
 
@@ -278,9 +274,7 @@ describe("@k2b/ui Cloud content contract", () => {
   });
 
   test("normalizes invalid pagination bounds", () => {
-    const html = renderToString(() =>
-      createComponent(Pagination, { currentPage: -4, totalPages: 3, baseUrl: "/items?page=" }),
-    );
+    const html = renderToString(() => createComponent(Pagination, { currentPage: -4, totalPages: 3, baseUrl: "/items?page=" }));
 
     expect(html).toContain("Page 1 of 3");
     expect(html).not.toContain("page=0");
@@ -293,9 +287,7 @@ describe("@k2b/ui Cloud content contract", () => {
         selectedDate: "2026-07-15",
         view: "day",
         timeZone: "America/Los_Angeles",
-        events: [
-          { id: "planning", title: "All-day planning", start: "2026-07-15", end: "2026-07-16", allDay: true },
-        ],
+        events: [{ id: "planning", title: "All-day planning", start: "2026-07-15", end: "2026-07-16", allDay: true }],
       }),
     );
 
@@ -306,12 +298,8 @@ describe("@k2b/ui Cloud content contract", () => {
   });
 
   test("keeps trusted Markdown, structured data and PDF interaction shells", () => {
-    const markdown = renderToString(() =>
-      createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", smallHeadings: true }),
-    );
-    const data = renderToString(() =>
-      createComponent(StructuredDataPreview, { data: { ok: true }, defaultMode: "raw", copy: true }),
-    );
+    const markdown = renderToString(() => createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", smallHeadings: true }));
+    const data = renderToString(() => createComponent(StructuredDataPreview, { data: { ok: true }, defaultMode: "raw", copy: true }));
     const pdf = renderToString(() =>
       createComponent(PdfPreview, { request: async () => new Blob([], { type: "application/pdf" }), title: "Report" }),
     );
@@ -398,9 +386,7 @@ describe("@k2b/ui Cloud content contract", () => {
   });
 
   test("keeps observability presentation hooks off Cloud-era utility names", () => {
-    const pagination = renderToString(() =>
-      createComponent(Pagination, { currentPage: 5, totalPages: 20, baseUrl: "/items?page=" }),
-    );
+    const pagination = renderToString(() => createComponent(Pagination, { currentPage: 5, totalPages: 20, baseUrl: "/items?page=" }));
     const range = renderToString(() =>
       createComponent(RangePicker, {
         value: "24h",
@@ -413,9 +399,7 @@ describe("@k2b/ui Cloud content contract", () => {
     );
     const logs = renderToString(() =>
       createComponent(LogEntriesTable, {
-        entries: [
-          { id: 1, level: "warn", source: "worker", message: "Slow", metadata: null, createdAt: "2026-01-01T12:00:00Z" },
-        ],
+        entries: [{ id: 1, level: "warn", source: "worker", message: "Slow", metadata: null, createdAt: "2026-01-01T12:00:00Z" }],
       }),
     );
 
@@ -440,14 +424,7 @@ describe("@k2b/ui Cloud content contract", () => {
   });
 
   test("styles every class the content group renders", async () => {
-    const owned = [
-      "Calendar.tsx",
-      "Chart.tsx",
-      "DataTable.tsx",
-      "LogEntriesTable.tsx",
-      "Pagination.tsx",
-      "RangePicker.tsx",
-    ];
+    const owned = ["Calendar.tsx", "Chart.tsx", "DataTable.tsx", "LogEntriesTable.tsx", "Pagination.tsx", "RangePicker.tsx"];
     const packageRoot = resolve(import.meta.dir, "../..");
     const css = await Bun.file(resolve(packageRoot, "dist/styles.css")).text();
     const defined = new Set<string>();
@@ -456,9 +433,7 @@ describe("@k2b/ui Cloud content contract", () => {
     const unstyled: string[] = [];
     for (const file of owned) {
       // Comments carry documentation examples, not rendered markup.
-      const source = (await Bun.file(resolve(import.meta.dir, file)).text())
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/^\s*\/\/.*$/gm, "");
+      const source = (await Bun.file(resolve(import.meta.dir, file)).text()).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
       for (const match of source.matchAll(/class(?:Name)?\s*[:=]\s*\{?\s*[`"']([^`"']*)[`"']/g)) {
         // Interpolated segments are caller-owned classes, not package classes.
         const literal = match[1]!.replace(/\$\{[^}]*\}?/g, " ");

@@ -19,9 +19,7 @@ export type {
   SuggestContext,
   Suggestion,
 } from "./completion";
-export {
-  abbreviations,
-} from "./completion";
+export { abbreviations } from "./completion";
 export type {
   DatePickerBaseProps,
   DatePickerProps,

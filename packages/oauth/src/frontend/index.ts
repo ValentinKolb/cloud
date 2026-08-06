@@ -12,6 +12,9 @@ export default new Hono<AuthContext>()
     async (c, next) => {
       c.header("Cache-Control", "no-store");
       c.header("Pragma", "no-cache");
+      c.header("Content-Security-Policy", "frame-ancestors 'none'");
+      c.header("X-Frame-Options", "DENY");
+      c.header("Referrer-Policy", "no-referrer");
       await next();
     },
     auth.requireRole("authenticated", auth.redirectToLogin),

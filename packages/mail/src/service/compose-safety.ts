@@ -1,14 +1,14 @@
 import { domainToASCII } from "node:url";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
-import { sql, type SQL } from "bun";
+import { type SQL, sql } from "bun";
 import {
-  composeSafetyConfigSchema,
   type ComposeSafetyApproval,
   type ComposeSafetyConfig,
   type ComposeSafetyReview,
   type ComposeSafetyWarning,
-  defaultComposeSafetyConfig,
+  composeSafetyConfigSchema,
   type DraftIntent,
+  defaultComposeSafetyConfig,
   type MailAddress,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
@@ -65,9 +65,7 @@ const uniqueRecipients = (source: ComposeSafetySource): MailAddress[] => {
 const mentionsAttachment = (body: string): boolean => {
   const normalized = body.toLowerCase();
   if (/\b(?:not|nicht|kein(?:e|en|er|es)?)\s+(?:attached|enclosed|angeh[aä]ngt|beigef[uü]gt)\b/u.test(normalized)) return false;
-  return /\b(?:attach(?:ed|ment|ments)|enclos(?:ed|ure)|anhang|anh[aä]nge|angeh[aä]ngt|beigef[uü]gt|anlage|anlagen)\b/u.test(
-    normalized,
-  );
+  return /\b(?:attach(?:ed|ment|ments)|enclos(?:ed|ure)|anhang|anh[aä]nge|angeh[aä]ngt|beigef[uü]gt|anlage|anlagen)\b/u.test(normalized);
 };
 
 const markdownLinks = (body: string): Array<{ label: string; destination: string }> => {
@@ -171,11 +169,7 @@ export const evaluateComposeSafety = (source: ComposeSafetySource): ComposeSafet
   return { draftId: source.draftId, revision: source.revision, fingerprint, warnings };
 };
 
-const loadSafetySource = async (params: {
-  db: SQL;
-  mailboxId: string;
-  draftId: string;
-}): Promise<Result<ComposeSafetySource>> => {
+const loadSafetySource = async (params: { db: SQL; mailboxId: string; draftId: string }): Promise<Result<ComposeSafetySource>> => {
   const [draft] = await params.db<SafetyDraft[]>`
     SELECT
       draft.id,

@@ -1,13 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { simpleParser } from "mailparser";
 import { Readable } from "node:stream";
-import {
-  buildMimeSource,
-  buildMimeStream,
-  measureMimeStream,
-  outboundDraftSnapshotSchema,
-  outboundRecipients,
-} from "./outbound-mime";
+import { simpleParser } from "mailparser";
+import { buildMimeSource, buildMimeStream, measureMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 
 describe("outbound MIME", () => {
   test("builds a stable threaded multipart message without exposing Bcc", async () => {
@@ -113,10 +107,7 @@ describe("outbound MIME", () => {
       date: new Date("2026-07-24T10:00:00.000Z"),
       openAttachment: () => Readable.from([]),
     };
-    const [source, measured] = await Promise.all([
-      buildMimeSource(params),
-      measureMimeStream(params),
-    ]);
+    const [source, measured] = await Promise.all([buildMimeSource(params), measureMimeStream(params)]);
     expect(measured).toBe(source.byteLength);
   });
 

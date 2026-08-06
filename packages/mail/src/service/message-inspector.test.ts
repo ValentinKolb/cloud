@@ -56,9 +56,7 @@ describe("message inspector contracts", () => {
   });
 
   test("bounds the number of parsed header fields", () => {
-    const source = `${Array.from({ length: MESSAGE_HEADER_FIELD_LIMIT + 1 }, (_, index) => `X-${index}: value`).join(
-      "\r\n",
-    )}\r\n\r\nbody`;
+    const source = `${Array.from({ length: MESSAGE_HEADER_FIELD_LIMIT + 1 }, (_, index) => `X-${index}: value`).join("\r\n")}\r\n\r\nbody`;
     const parsed = parseMessageHeaderBlock(encode(source));
 
     expect(parsed.headers).toHaveLength(MESSAGE_HEADER_FIELD_LIMIT);

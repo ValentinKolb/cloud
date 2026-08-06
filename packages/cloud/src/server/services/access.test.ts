@@ -139,7 +139,6 @@ const cleanupFixture = async (fixture: Fixture) => {
 
 suite("listUsersWithAccess", () => {
   test("expands direct and recursive group access without exposing mail", async () => {
-
     const fixture = await createFixture();
     try {
       const users = await listUsersWithAccess({ accessIds: fixture.accessIds, limit: 20 });
@@ -250,7 +249,6 @@ suite("listUsersWithAccess", () => {
 
 suite("effective access", () => {
   test("resolves nested groups from the database and rejects caller-supplied group escalation", async () => {
-
     const fixture = await createFixture();
     try {
       const nestedGroups = await getEffectiveGroupIds({ userId: fixture.userIds.nested });

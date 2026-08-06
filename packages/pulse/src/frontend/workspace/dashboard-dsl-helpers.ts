@@ -1,4 +1,10 @@
-import type { PanelVisual, PulseDashboard, PulseDashboardConfig, PulseDashboardDslCompileResult, PulseExplorerQuery } from "../../contracts";
+import type {
+  PanelVisual,
+  PulseDashboard,
+  PulseDashboardConfig,
+  PulseDashboardDslCompileResult,
+  PulseExplorerQuery,
+} from "../../contracts";
 
 export const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 

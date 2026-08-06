@@ -30,4 +30,5 @@ export const matchDashboardCondition = (
 };
 
 export const formatDashboardConditionText = (condition: PulseDashboardCondition): string =>
-  condition.message?.trim() || `${condition.level === "critical" ? "Critical" : "Warning"} when value ${condition.operator} ${String(condition.value)}`;
+  condition.message?.trim() ||
+  `${condition.level === "critical" ? "Critical" : "Warning"} when value ${condition.operator} ${String(condition.value)}`;

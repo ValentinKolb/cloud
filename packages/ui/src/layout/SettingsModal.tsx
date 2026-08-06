@@ -55,7 +55,10 @@ const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
   const resolved = children(() => props.children);
   const tabs = createMemo(() => {
     const collected = collectTabs(resolved());
-    assertUniqueStableUiIds(collected.map((tab) => tab.props.id), "SettingsModal.Tab id");
+    assertUniqueStableUiIds(
+      collected.map((tab) => tab.props.id),
+      "SettingsModal.Tab id",
+    );
     return collected;
   });
   const instanceId = `k2b-settings-${createUniqueId()}`;
@@ -63,8 +66,7 @@ const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
   const firstTabId = () => tabs()[0]?.props.id ?? "";
   const [localActiveTab, setLocalActiveTab] = createSignal(props.defaultTab ?? firstTabId());
   const requestedActiveTabId = () => props.activeTab ?? (localActiveTab() || firstTabId());
-  const resolvedActiveTabId = () =>
-    tabs().some((tab) => tab.props.id === requestedActiveTabId()) ? requestedActiveTabId() : firstTabId();
+  const resolvedActiveTabId = () => (tabs().some((tab) => tab.props.id === requestedActiveTabId()) ? requestedActiveTabId() : firstTabId());
   const activeTab = () => tabs().find((tab) => tab.props.id === resolvedActiveTabId()) ?? null;
 
   const selectTab = (id: string) => {
@@ -94,12 +96,7 @@ const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
   return (
     <div class={`k2b-settings ${props.class ?? ""}`} role="region" aria-label={props.title}>
       <Show when={props.onClose}>
-        <button
-          type="button"
-          class="k2b-settings__close k2b-icon-button"
-          aria-label={props.closeLabel ?? "Close"}
-          onClick={props.onClose}
-        >
+        <button type="button" class="k2b-settings__close k2b-icon-button" aria-label={props.closeLabel ?? "Close"} onClick={props.onClose}>
           <i class="ti ti-x" aria-hidden="true" />
         </button>
       </Show>

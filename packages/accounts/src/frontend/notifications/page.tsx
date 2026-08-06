@@ -105,9 +105,12 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {batchesPage.items.length === 0 ? (
-            <Placeholder surface="paper" description={<>
-              {status ? `No ${statusLabel(status).toLowerCase()} notification batches found.` : "No notification batches found."}
-            </>} />
+            <Placeholder
+              surface="paper"
+              description={
+                <>{status ? `No ${statusLabel(status).toLowerCase()} notification batches found.` : "No notification batches found."}</>
+              }
+            />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-notifications-table">
               <DataTable

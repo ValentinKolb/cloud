@@ -29,17 +29,18 @@ export default function HotkeysHelpRail(props: HotkeysHelpTriggerProps) {
     }));
   }
 
-  if (props.variant === "rail") return (
-    <button
-      type="button"
-      class={`rail-item text-blue-500 hover:bg-blue-500/10 hover:text-blue-600 dark:text-blue-400 dark:hover:bg-blue-500/15 dark:hover:text-blue-300 ${props.class ?? ""}`}
-      onClick={openHelp}
-      aria-label="Open help"
-      title="Help (Shift+/)"
-    >
-      <i class="ti ti-help-circle text-base" />
-    </button>
-  );
+  if (props.variant === "rail")
+    return (
+      <button
+        type="button"
+        class={`rail-item text-blue-500 hover:bg-blue-500/10 hover:text-blue-600 dark:text-blue-400 dark:hover:bg-blue-500/15 dark:hover:text-blue-300 ${props.class ?? ""}`}
+        onClick={openHelp}
+        aria-label="Open help"
+        title="Help (Shift+/)"
+      >
+        <i class="ti ti-help-circle text-base" />
+      </button>
+    );
 
   return (
     <IconButton class={props.class} onClick={openHelp} label="Open help" title="Help (Shift+/)">

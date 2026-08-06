@@ -28,26 +28,28 @@ const stylesheets = readdirSync(stylesDir).filter((file) => file.endsWith(".css"
 const parityCss = readFileSync(resolve(stylesDir, "surfaces-widgets-parity.css"), "utf8");
 const ownedSelectors =
   /\.k2b-(avatar|link-card|not-found|notice-card|notice-grid|placeholder|progress|stat-grid|stat-cell|status-badge|widget)/;
-const ownedSelectorFiles = new Set(
-  stylesheets.filter((file) => ownedSelectors.test(readFileSync(resolve(stylesDir, file), "utf8"))),
-);
+const ownedSelectorFiles = new Set(stylesheets.filter((file) => ownedSelectors.test(readFileSync(resolve(stylesDir, file), "utf8"))));
 
 describe("@k2b/ui Cloud-faithful surfaces", () => {
   test("renders portable tags and semantic description lists", () => {
-    const tag = renderToString(() => createComponent(Tag, {
-      color: "#7c3aed",
-      icon: "ti ti-tag",
-      onRemove: () => {},
-      removeLabel: "Remove UI",
-      children: "UI",
-    }));
-    const list = renderToString(() => createComponent(DescriptionList, {
-      columns: 2,
-      items: [
-        { term: "Owner", description: "Platform team", action: "Open" },
-        { term: "Status", description: "Ready" },
-      ],
-    }));
+    const tag = renderToString(() =>
+      createComponent(Tag, {
+        color: "#7c3aed",
+        icon: "ti ti-tag",
+        onRemove: () => {},
+        removeLabel: "Remove UI",
+        children: "UI",
+      }),
+    );
+    const list = renderToString(() =>
+      createComponent(DescriptionList, {
+        columns: 2,
+        items: [
+          { term: "Owner", description: "Platform team", action: "Open" },
+          { term: "Status", description: "Ready" },
+        ],
+      }),
+    );
 
     expect(tag).toContain("--k2b-choice-color:#7c3aed");
     expect(tag).toContain('aria-label="Remove UI"');
@@ -145,9 +147,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
   });
 
   test("keeps placeholder icons free of decorative frames", () => {
-    const iconDeclarations = [...parityCss.matchAll(/[^{}]*\.k2b-placeholder__icon[^{}]*\{([^}]*)\}/g)].map(
-      (match) => match[1] ?? "",
-    );
+    const iconDeclarations = [...parityCss.matchAll(/[^{}]*\.k2b-placeholder__icon[^{}]*\{([^}]*)\}/g)].map((match) => match[1] ?? "");
 
     expect(iconDeclarations.length).toBeGreaterThan(0);
     for (const declarations of iconDeclarations) {

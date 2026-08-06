@@ -177,7 +177,8 @@
   --ui-pagination-current-text: var(--color-blue-200);
   --ui-shadow-surface: none;
   --ui-shadow-frame:
-    0 -3px 10px -8px rgb(0 0 0 / 0.32), 0 0 16px -9px rgb(0 0 0 / 0.56), 0 16px 40px -30px rgb(0 0 0 / 0.48), 0 1px 7px rgb(0 0 0 / 0.14);
+    inset 0 0 0 1px var(--ui-border), 0 -3px 10px -8px rgb(0 0 0 / 0.32), 0 0 16px -9px rgb(0 0 0 / 0.56),
+    0 16px 40px -30px rgb(0 0 0 / 0.48), 0 1px 7px rgb(0 0 0 / 0.14);
   --ui-shadow-float: 0 22px 54px -18px rgb(0 0 0 / 0.72), 0 6px 18px rgb(0 0 0 / 0.3);
   --ui-shadow-hover: 0 14px 32px -24px rgb(0 0 0 / 0.8), 0 3px 12px rgb(0 0 0 / 0.22);
   --ui-shadow-workspace-edge: -3px 0 6px -5px rgb(0 0 0 / 0.28), 3px 0 6px -5px rgb(0 0 0 / 0.28);

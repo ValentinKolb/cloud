@@ -14,24 +14,26 @@ beforeAll(async () => {
 }, 60_000);
 
 describe("Pulse metric cardinality Postgres smoke", () => {
-  postgresTest("admits one concurrent final series and keeps existing series writable", async () => {
-    const baseId = crypto.randomUUID();
-    const sourceId = crypto.randomUUID();
-    const metricName = "cardinality.concurrent";
-    await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Metric cardinality smoke')`;
-    await sql`
+  postgresTest(
+    "admits one concurrent final series and keeps existing series writable",
+    async () => {
+      const baseId = crypto.randomUUID();
+      const sourceId = crypto.randomUUID();
+      const metricName = "cardinality.concurrent";
+      await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Metric cardinality smoke')`;
+      await sql`
       INSERT INTO pulse.sources (id, base_id, kind, name)
       VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Metric cardinality source')
     `;
 
-    try {
-      const [definition] = await sql<{ id: string }[]>`
+      try {
+        const [definition] = await sql<{ id: string }[]>`
         INSERT INTO pulse.metric_defs (base_id, name, unit, type)
         VALUES (${baseId}::uuid, ${metricName}, 'count', 'gauge'::pulse.metric_type)
         RETURNING id
       `;
-      if (!definition) throw new Error("Metric definition fixture was not created");
-      await sql`
+        if (!definition) throw new Error("Metric definition fixture was not created");
+        await sql`
         INSERT INTO pulse.metric_series (
           base_id, metric_id, source_id, entity_id, series_key, dimensions_hash, dimensions, last_seen_at
         )
@@ -47,38 +49,38 @@ describe("Pulse metric cardinality Postgres smoke", () => {
         FROM generate_series(1, ${PULSE_METRIC_SERIES_LIMIT - 1}) value
       `;
 
-      const candidates: PulseMetric[] = [
-        { name: metricName, value: 1, entityId: "candidate-a", dimensions: { shard: "a" } },
-        { name: metricName, value: 1, entityId: "candidate-b", dimensions: { shard: "b" } },
-      ];
-      const results = await Promise.all(
-        candidates.map((metric) => ingestBatch({ baseId, sourceId, batch: { metrics: [metric] } })),
-      );
+        const candidates: PulseMetric[] = [
+          { name: metricName, value: 1, entityId: "candidate-a", dimensions: { shard: "a" } },
+          { name: metricName, value: 1, entityId: "candidate-b", dimensions: { shard: "b" } },
+        ];
+        const results = await Promise.all(candidates.map((metric) => ingestBatch({ baseId, sourceId, batch: { metrics: [metric] } })));
 
-      expect(results.filter((result) => result.ok)).toHaveLength(1);
-      const rejected = results.find((result) => !result.ok);
-      expect(rejected?.error.message).toContain(`limit of ${PULSE_METRIC_SERIES_LIMIT} series`);
+        expect(results.filter((result) => result.ok)).toHaveLength(1);
+        const rejected = results.find((result) => !result.ok);
+        expect(rejected?.error.message).toContain(`limit of ${PULSE_METRIC_SERIES_LIMIT} series`);
 
-      const [seriesCount] = await sql<{ count: number }[]>`
+        const [seriesCount] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count
         FROM pulse.metric_series
         WHERE metric_id = ${definition.id}::uuid
       `;
-      expect(seriesCount?.count).toBe(PULSE_METRIC_SERIES_LIMIT);
+        expect(seriesCount?.count).toBe(PULSE_METRIC_SERIES_LIMIT);
 
-      const acceptedIndex = results.findIndex((result) => result.ok);
-      const repeated = await recordMetric({ baseId, sourceId, metric: candidates[acceptedIndex]! });
-      expect(repeated.ok).toBe(true);
-      const newSingle = await recordMetric({
-        baseId,
-        sourceId,
-        metric: { name: metricName, value: 1, entityId: "candidate-c", dimensions: { shard: "c" } },
-      });
-      expect(newSingle.ok).toBe(false);
-      if (newSingle.ok) throw new Error("Expected a metric cardinality failure");
-      expect(newSingle.error.message).toContain(`limit of ${PULSE_METRIC_SERIES_LIMIT} series`);
-    } finally {
-      await sql`DELETE FROM pulse.bases WHERE id = ${baseId}::uuid`;
-    }
-  }, 60_000);
+        const acceptedIndex = results.findIndex((result) => result.ok);
+        const repeated = await recordMetric({ baseId, sourceId, metric: candidates[acceptedIndex]! });
+        expect(repeated.ok).toBe(true);
+        const newSingle = await recordMetric({
+          baseId,
+          sourceId,
+          metric: { name: metricName, value: 1, entityId: "candidate-c", dimensions: { shard: "c" } },
+        });
+        expect(newSingle.ok).toBe(false);
+        if (newSingle.ok) throw new Error("Expected a metric cardinality failure");
+        expect(newSingle.error.message).toContain(`limit of ${PULSE_METRIC_SERIES_LIMIT} series`);
+      } finally {
+        await sql`DELETE FROM pulse.bases WHERE id = ${baseId}::uuid`;
+      }
+    },
+    60_000,
+  );
 });

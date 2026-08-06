@@ -1,4 +1,5 @@
 import { ephemeral } from "@k2b/sync";
+import type { AppAppearanceColor } from "../contracts/app";
 import type { CapabilityManifest } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
@@ -149,6 +150,9 @@ const capabilityEndpoint = (baseUrl: string): string | null => {
   }
 };
 
+const appAccent = (value: string | undefined): AppAppearanceColor | undefined =>
+  /^#[0-9a-f]{6}$/i.test(value ?? "") ? (value as AppAppearanceColor) : undefined;
+
 export const resolveLiveCapabilityRegistryEntry = (
   key: string,
   value: unknown,
@@ -166,7 +170,15 @@ export const resolveLiveCapabilityRegistryEntry = (
     if (app.capabilities.protocolVersion !== manifest.protocolVersion || app.capabilities.manifestHash !== manifest.manifestHash) {
       return null;
     }
-    return { appId: app.id, appName: app.name, appIcon: app.icon, appDescription: app.description, endpoint, manifest };
+    return {
+      appId: app.id,
+      appName: app.name,
+      appIcon: app.icon,
+      appAccent: appAccent(app.appearance?.accent),
+      appDescription: app.description,
+      endpoint,
+      manifest,
+    };
   } catch {
     return null;
   }

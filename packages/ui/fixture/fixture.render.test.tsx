@@ -38,8 +38,7 @@ const externalClass = (token: string) =>
   token.startsWith("stdlib-") ||
   /^(?:is|has)-/.test(token);
 const hookClass = new Set(["k2b-copy-button", "k2b-toast-container"]);
-const hasRule = (token: string) =>
-  new RegExp(`\\.${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(styles);
+const hasRule = (token: string) => new RegExp(`\\.${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(styles);
 const renderedClasses = (html: string): string[] => {
   const tokens = new Set<string>();
   for (const match of html.matchAll(/class="([^"]*)"/g)) {
@@ -69,9 +68,7 @@ describe("@k2b/ui standalone fixture", () => {
 
   test("renders no package class missing from the shipped stylesheet", () => {
     const html = renderToString(() => createComponent(StandaloneUi, {}));
-    const unstyled = renderedClasses(html).filter(
-      (token) => !externalClass(token) && !hookClass.has(token) && !hasRule(token),
-    );
+    const unstyled = renderedClasses(html).filter((token) => !externalClass(token) && !hookClass.has(token) && !hasRule(token));
 
     expect(unstyled).toEqual([]);
   });

@@ -201,22 +201,18 @@ test("rejects invalid braced field references", () => {
 // tokeniser's whitespace-skipping behaviour around every operator
 // position (after the slug, before & after the binary op).
 
-test.each([
-  "#x*1.19",
-  "#x *1.19",
-  "#x* 1.19",
-  "#x * 1.19",
-  "#x  *  1.19",
-  "\t#x\n*\r1.19",
-])("whitespace-variant '%s' produces the same AST", (src) => {
-  const r = parseFormula(src);
-  expect(r.ok).toBe(true);
-  if (r.ok) {
-    expect(r.ast).toEqual({
-      kind: "binop",
-      op: "*",
-      left: { kind: "field", fieldId: "x" },
-      right: { kind: "literal", value: 1.19 },
-    });
-  }
-});
+test.each(["#x*1.19", "#x *1.19", "#x* 1.19", "#x * 1.19", "#x  *  1.19", "\t#x\n*\r1.19"])(
+  "whitespace-variant '%s' produces the same AST",
+  (src) => {
+    const r = parseFormula(src);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.ast).toEqual({
+        kind: "binop",
+        op: "*",
+        left: { kind: "field", fieldId: "x" },
+        right: { kind: "literal", value: 1.19 },
+      });
+    }
+  },
+);

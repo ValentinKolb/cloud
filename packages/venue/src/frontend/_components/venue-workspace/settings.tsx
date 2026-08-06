@@ -477,11 +477,7 @@ export function SettingsDialog(props: {
               <div class="grid gap-2 sm:grid-cols-2">
                 <For
                   each={openingRules()}
-                  fallback={
-                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>
-                      No regular hours.
-                    </>} />
-                  }
+                  fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>No regular hours.</>} />}
                 >
                   {(rule) => (
                     <div class="paper p-3 text-sm">
@@ -530,11 +526,7 @@ export function SettingsDialog(props: {
               <div class="grid gap-2 sm:grid-cols-2">
                 <For
                   each={overrides()}
-                  fallback={
-                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>
-                      No closed days.
-                    </>} />
-                  }
+                  fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>No closed days.</>} />}
                 >
                   {(entry) => (
                     <div class="paper p-3 text-sm">
@@ -583,11 +575,7 @@ export function SettingsDialog(props: {
               <div class="grid gap-2 sm:grid-cols-2">
                 <For
                   each={shiftTemplates()}
-                  fallback={
-                    <Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>
-                      No shifts configured.
-                    </>} />
-                  }
+                  fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>No shifts configured.</>} />}
                 >
                   {(shift) => (
                     <div class="paper p-3 text-sm">

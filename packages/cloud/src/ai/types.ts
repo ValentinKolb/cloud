@@ -654,6 +654,7 @@ export type AiCapabilityToolPresentation = {
   appId: string;
   appName: string;
   appIcon: string;
+  appAccent?: string;
   title: string;
   capabilityKind: "query" | "action";
 };

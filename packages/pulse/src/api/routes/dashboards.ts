@@ -57,7 +57,10 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
       if (!dashboardId.ok) return respond(c, dashboardId.result);
-      return respond(c, pulseService.dashboard.update({ dashboardId: dashboardId.value, user: requestAccessScope(c), ...c.req.valid("json") }));
+      return respond(
+        c,
+        pulseService.dashboard.update({ dashboardId: dashboardId.value, user: requestAccessScope(c), ...c.req.valid("json") }),
+      );
     },
   )
   .get(

@@ -328,12 +328,7 @@ export default function VersionHistory(props: Props) {
       {/* Header */}
       <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-2 pt-2">
         <div class="flex items-center gap-2">
-          <IconButtonLink
-            href={backUrl}
-            size="sm"
-            class="text-dimmed"
-            label="Back to editor"
-          >
+          <IconButtonLink href={backUrl} size="sm" class="text-dimmed" label="Back to editor">
             <i class="ti ti-arrow-left" />
           </IconButtonLink>
           <div>

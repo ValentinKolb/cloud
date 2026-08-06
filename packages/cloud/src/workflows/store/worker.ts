@@ -259,17 +259,16 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
       return { state: "released", runId: outcome.claim.runId, error: outcome.error };
     case "stale":
       return { state: "lost", runId: outcome.claim.runId };
-    case "canceled":
-      {
-        const finished = await finishWorkflowRunCancel(outcome.claim, { db });
-        if (finished.state === "stale") return { state: "lost", runId: outcome.claim.runId };
-        await traceRun(options.trace, {
-          type: "run.finished",
-          run: runIdentity(outcome.claim, "execute"),
-          state: finished.result.state,
-        });
-        return { state: "finished", runId: outcome.claim.runId, result: finished.result };
-      }
+    case "canceled": {
+      const finished = await finishWorkflowRunCancel(outcome.claim, { db });
+      if (finished.state === "stale") return { state: "lost", runId: outcome.claim.runId };
+      await traceRun(options.trace, {
+        type: "run.finished",
+        run: runIdentity(outcome.claim, "execute"),
+        state: finished.result.state,
+      });
+      return { state: "finished", runId: outcome.claim.runId, result: finished.result };
+    }
   }
 };
 
@@ -378,12 +377,11 @@ export const dryRunOneWorkflow = async (options: WorkflowDryRunWorkerOptions & {
       return { state: "released", runId: outcome.claim.runId, error: outcome.error };
     case "stale":
       return { state: "lost", runId: outcome.claim.runId };
-    case "canceled":
-      {
-        const finished = await finishWorkflowRunCancel(outcome.claim, { db });
-        if (finished.state === "stale") return { state: "lost", runId: outcome.claim.runId };
-        return { state: "finished", runId: outcome.claim.runId, result: planned as unknown as WorkflowDryRunResult };
-      }
+    case "canceled": {
+      const finished = await finishWorkflowRunCancel(outcome.claim, { db });
+      if (finished.state === "stale") return { state: "lost", runId: outcome.claim.runId };
+      return { state: "finished", runId: outcome.claim.runId, result: planned as unknown as WorkflowDryRunResult };
+    }
   }
 };
 

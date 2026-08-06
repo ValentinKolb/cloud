@@ -66,6 +66,7 @@ const capabilityApp = (
     appId,
     appName,
     appIcon: "ti ti-box",
+    appAccent: "#0f766e",
     appDescription: "",
     endpoint: `http://${appId}:3000/api/_internal/capabilities/v1`,
     manifest: compiled.manifest,
@@ -469,7 +470,8 @@ describe("AI capability catalog", () => {
     expect(searchDescription).not.toContain("spaces__action__create");
   });
 
-  test("snapshots remembered-approval scope for a loaded capability", async () => {
+  test("snapshots presentation and remembered-approval scope for a loaded capability", async () => {
+    let presentation: unknown;
     let approvalScope: string | undefined;
     const resolver = createAiCapabilityToolResolver({
       conversationId: "conversation-1",
@@ -481,12 +483,18 @@ describe("AI capability catalog", () => {
       },
       listRegistry: async () => [capabilityApp("contacts", "Contacts")],
       execute: async () => ({ data: [] }),
-      onPrepared: ({ rememberableApprovals }) => {
+      onPrepared: ({ presentations, rememberableApprovals }) => {
+        presentation = presentations.get("contacts__action__create");
         approvalScope = rememberableApprovals.get("contacts__action__create");
       },
     });
 
     await resolver();
+    expect(presentation).toMatchObject({
+      kind: "capability",
+      appId: "contacts",
+      appAccent: "#0f766e",
+    });
     expect(approvalScope).toBe("contacts.create");
   });
 

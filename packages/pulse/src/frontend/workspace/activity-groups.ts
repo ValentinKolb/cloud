@@ -4,7 +4,8 @@ import { eventGroupId, signalSubject, stateGroupId } from "./signal-helpers";
 
 const newestEventFirst = (left: PulseRecordedEvent, right: PulseRecordedEvent): number => Date.parse(right.ts) - Date.parse(left.ts);
 
-const newestStateFirst = (left: PulseCurrentState, right: PulseCurrentState): number => Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+const newestStateFirst = (left: PulseCurrentState, right: PulseCurrentState): number =>
+  Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
 
 export const buildActivityEventGroups = (events: PulseRecordedEvent[]): ActivityEventGroup[] => {
   const groups = new Map<string, ActivityEventGroup>();

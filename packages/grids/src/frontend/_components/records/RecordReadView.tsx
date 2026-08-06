@@ -205,14 +205,7 @@ export default function RecordReadView(props: RecordReadViewProps) {
       </header>
 
       <div class="detail-stack" data-scroll-preserve={props.scrollPreserveKey}>
-        <Show
-          when={hasBodyFields()}
-          fallback={
-            <Placeholder surface="paper" align="left" description={<>
-              No record values yet.
-            </>} />
-          }
-        >
+        <Show when={hasBodyFields()} fallback={<Placeholder surface="paper" align="left" description={<>No record values yet.</>} />}>
           <For each={barcodeFields()}>{(field) => renderBarcodeSection(field)}</For>
 
           <Show when={detailsFields().length > 0}>

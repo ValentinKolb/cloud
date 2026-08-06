@@ -79,7 +79,6 @@ const deniedAuthenticationEvents = async (credentialId: string): Promise<number>
 
 suite("serviceAccountCredentials", () => {
   test("creates, authenticates, lists, and revokes user delegated API keys", async () => {
-
     const userId = await insertUser();
     try {
       const user = await accounts.users.get({ id: userId });
@@ -174,7 +173,6 @@ suite("serviceAccountCredentials", () => {
   });
 
   test("upgrades legacy hashes and coalesces concurrent successful authentication activity", async () => {
-
     const userId = await insertUser();
     try {
       const user = await accounts.users.get({ id: userId });
@@ -278,7 +276,6 @@ suite("serviceAccountCredentials", () => {
   });
 
   test("creates, authenticates, lists, and revokes resource-bound API keys", async () => {
-
     const userId = await insertUser();
     const resourceId = crypto.randomUUID();
     let serviceAccountId: string | null = null;

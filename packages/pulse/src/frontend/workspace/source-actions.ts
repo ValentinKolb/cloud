@@ -41,9 +41,11 @@ export const sourceCreateValidationError = (input: CreateSourceInput): string | 
   return String(input.endpointUrl ?? "").trim() ? null : "Endpoint URL is required";
 };
 
-export const sourceCreatedMessage = (kind: CreateSourceInput["kind"]): string => `${kind === "http_ingest" ? "HTTP ingest" : "Metrics"} source created`;
+export const sourceCreatedMessage = (kind: CreateSourceInput["kind"]): string =>
+  `${kind === "http_ingest" ? "HTTP ingest" : "Metrics"} source created`;
 
-export const sourceInitialScrapeSuccessMessage = (counts: IngestCounts): string => `Metrics source added and scraped: ${formatIngestCounts(counts)}`;
+export const sourceInitialScrapeSuccessMessage = (counts: IngestCounts): string =>
+  `Metrics source added and scraped: ${formatIngestCounts(counts)}`;
 
 export const sourceInitialScrapeFailureMessage = (error: unknown): string =>
   error instanceof Error ? `Source added, initial scrape failed: ${error.message}` : "Source added, initial scrape failed";

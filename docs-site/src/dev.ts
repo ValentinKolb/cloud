@@ -15,4 +15,9 @@ await buildAssets();
 
 const { default: server } = await import("./server");
 
-export default server;
+try {
+  Bun.serve(server);
+} catch (error) {
+  console.error(error);
+  process.exit(1);
+}

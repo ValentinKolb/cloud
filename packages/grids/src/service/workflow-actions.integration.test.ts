@@ -9,11 +9,7 @@
  * ports, and the assertions are about rows.
  */
 import { beforeAll, describe, expect } from "bun:test";
-import {
-  type WorkflowBoundPlan,
-  type WorkflowIrStep,
-  type WorkflowJsonValue,
-} from "@valentinkolb/cloud/workflows";
+import { type WorkflowBoundPlan, type WorkflowIrStep, type WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createWorkflowRun } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
@@ -129,10 +125,7 @@ const hash = (seed: string): string => new Bun.CryptoHasher("sha256").update(see
  * would test a runtime nobody ships.
  */
 const ACTION_POLICIES = Object.fromEntries(
-  gridsWorkflows.manifest.actions.map((descriptor) => [
-    descriptor.kind,
-    { effect: descriptor.effect, dryRun: descriptor.dryRun },
-  ]),
+  gridsWorkflows.manifest.actions.map((descriptor) => [descriptor.kind, { effect: descriptor.effect, dryRun: descriptor.dryRun }]),
 );
 
 const actionStep = (index: number, action: string, config: Record<string, WorkflowJsonValue>): WorkflowIrStep => ({

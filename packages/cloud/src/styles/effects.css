@@ -7,49 +7,15 @@
   color: var(--color-zinc-300) !important;
 }
 
-.ai-pulse-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  line-height: 1;
-}
-
-.ai-pulse-dot {
-  width: 0.3rem;
-  height: 0.3rem;
-  border-radius: 9999px;
-  background: currentColor;
-  opacity: 0.22;
-  animation: ai-dot-pulse 1s ease-in-out infinite;
-  will-change: opacity, transform;
-}
-
-.ai-pulse-dot:nth-child(2) {
-  animation-delay: 180ms;
-}
-
-.ai-pulse-dot:nth-child(3) {
-  animation-delay: 360ms;
-}
-
-@keyframes ai-dot-pulse {
-  0%,
-  80%,
-  100% {
-    opacity: 0.22;
-    transform: translateY(0);
-  }
-  40% {
-    opacity: 0.92;
-    transform: translateY(-1px);
-  }
-}
-
 /* Assistant chat markdown. Vertical rhythm works through explicit block
    margins + normal-flow margin collapsing (adjacent blocks share the larger
    margin instead of stacking), trimmed at the block edges. */
 .assistant-markdown-block {
   @apply min-w-0 text-sm leading-6 text-primary;
+}
+
+.k2b-ui .k2b-chat-message.ai-chat-message-wide {
+  width: 100%;
 }
 
 .assistant-markdown-block :where(*) {

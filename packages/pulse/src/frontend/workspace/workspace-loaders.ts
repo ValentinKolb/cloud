@@ -117,11 +117,7 @@ export const fetchPulseActivityData = async (
   return { events, metrics, states };
 };
 
-export const fetchPulseMetricSeries = async (
-  baseId: string,
-  metric: string,
-  sourceId?: string | null,
-): Promise<PulseMetricSeries[]> => {
+export const fetchPulseMetricSeries = async (baseId: string, metric: string, sourceId?: string | null): Promise<PulseMetricSeries[]> => {
   const params = new URLSearchParams({ metric });
   if (sourceId) params.set("sourceId", sourceId);
   return jsonFetch<PulseMetricSeries[]>(`/api/pulse/bases/${baseId}/series?${params}`);

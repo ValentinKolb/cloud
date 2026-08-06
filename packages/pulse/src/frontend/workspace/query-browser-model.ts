@@ -82,13 +82,18 @@ const ensureEntity = (
   return current;
 };
 
-const incrementUnlistedEntity = (entity: BrowseEntity | null, resourceIds: Set<string>, key: "metricCount" | "eventCount" | "stateCount") => {
+const incrementUnlistedEntity = (
+  entity: BrowseEntity | null,
+  resourceIds: Set<string>,
+  key: "metricCount" | "eventCount" | "stateCount",
+) => {
   if (entity && !resourceIds.has(entity.id)) entity[key] += 1;
 };
 
 const entityTotal = (entity: BrowseEntity): number => entity.metricCount + entity.eventCount + entity.stateCount;
 
-const compareEntities = (left: BrowseEntity, right: BrowseEntity): number => entityTotal(right) - entityTotal(left) || left.id.localeCompare(right.id);
+const compareEntities = (left: BrowseEntity, right: BrowseEntity): number =>
+  entityTotal(right) - entityTotal(left) || left.id.localeCompare(right.id);
 
 export const buildBrowseEntities = (params: {
   inventory: PulseInventory;
@@ -100,13 +105,25 @@ export const buildBrowseEntities = (params: {
   const resourceIds = new Set(params.inventory.resources.map((resource) => resource.id));
 
   for (const item of params.series) {
-    incrementUnlistedEntity(ensureEntity(entities, item.entityId, item.entityType, item.sourceId, item.dimensions), resourceIds, "metricCount");
+    incrementUnlistedEntity(
+      ensureEntity(entities, item.entityId, item.entityType, item.sourceId, item.dimensions),
+      resourceIds,
+      "metricCount",
+    );
   }
   for (const item of params.events) {
-    incrementUnlistedEntity(ensureEntity(entities, item.entityId, item.entityType, item.sourceId, item.dimensions), resourceIds, "eventCount");
+    incrementUnlistedEntity(
+      ensureEntity(entities, item.entityId, item.entityType, item.sourceId, item.dimensions),
+      resourceIds,
+      "eventCount",
+    );
   }
   for (const item of params.states) {
-    incrementUnlistedEntity(ensureEntity(entities, item.entityId, item.entityType, item.sourceId, item.dimensions), resourceIds, "stateCount");
+    incrementUnlistedEntity(
+      ensureEntity(entities, item.entityId, item.entityType, item.sourceId, item.dimensions),
+      resourceIds,
+      "stateCount",
+    );
   }
 
   return [...entities.values()].sort(compareEntities);

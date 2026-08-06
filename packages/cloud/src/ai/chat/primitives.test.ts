@@ -3,34 +3,32 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("AI chat primitives", () => {
-  test("keeps pulse dots visible while using the shared animation CSS", () => {
+  test("leaves response and tool progress indicators to the shared Chat UI", () => {
     const primitiveSource = readFileSync(resolve(import.meta.dir, "primitives.tsx"), "utf8");
     const effectsSource = readFileSync(resolve(import.meta.dir, "../../styles/effects.css"), "utf8");
+    const uiChatSource = readFileSync(resolve(import.meta.dir, "../../../../ui/src/chat/ChatPrimitives.tsx"), "utf8");
+    const uiStyles = readFileSync(resolve(import.meta.dir, "../../../../ui/src/styles/index.css"), "utf8");
 
-    expect(primitiveSource).toContain("ai-pulse-dots");
-    expect(primitiveSource).toContain("ai-pulse-dot");
-    expect(primitiveSource).toContain('class="ai-pulse-dot"');
-    expect(primitiveSource).toContain('"animation-delay": delay');
-    expect(primitiveSource).not.toContain('animation: "ai-dot-pulse 1s ease-in-out infinite"');
-    expect(effectsSource).toContain("height: 0.3rem");
-    expect(effectsSource).toContain("width: 0.3rem");
-    expect(effectsSource).toContain("animation: ai-dot-pulse 1s ease-in-out infinite");
-    expect(effectsSource).toContain("@keyframes ai-dot-pulse");
-    expect(effectsSource).toContain("transform: translateY(-1px)");
+    expect(primitiveSource).not.toContain("PulseDots");
+    expect(effectsSource).not.toContain("ai-pulse-dot");
+    expect(uiChatSource).toContain("k2b-chat-progress-dots");
+    expect(uiStyles).toContain("@keyframes k2b-chat-dot-pulse");
   });
 
-  test("renders utility rows text-only with hover emphasis instead of boxes", () => {
+  test("uses the shared Chat activity directly for generic tool presentation", () => {
     const primitiveSource = readFileSync(resolve(import.meta.dir, "primitives.tsx"), "utf8");
-    const toneSection = primitiveSource.slice(primitiveSource.indexOf("utilityToneClass"), primitiveSource.indexOf("utilityBlockClass"));
+    const blocksSource = readFileSync(resolve(import.meta.dir, "blocks.tsx"), "utf8");
+    const fileSource = readFileSync(resolve(import.meta.dir, "file-tools.tsx"), "utf8");
+    const presentationSource = readFileSync(resolve(import.meta.dir, "presentation.tsx"), "utf8");
+    const webSource = readFileSync(resolve(import.meta.dir, "web-tools.tsx"), "utf8");
 
-    // No bordered/filled boxes on the rows themselves.
-    expect(toneSection).not.toContain("border-");
-    expect(toneSection).not.toContain("bg-");
-    expect(primitiveSource).not.toContain("rounded-md border px-2");
-    // Hover darkens the text.
-    expect(toneSection).toContain("hover:text-primary");
-    expect(toneSection).toContain("hover:text-cyan-700");
-    expect(toneSection).toContain("hover:text-red-700");
+    expect([primitiveSource, blocksSource, fileSource, presentationSource, webSource].join("\n")).not.toContain("ChatUtility");
+    expect(blocksSource).toContain("<Chat.Activity");
+    expect(blocksSource).toContain("busy");
+    expect(fileSource).toContain("<Chat.Activity");
+    expect(presentationSource).toContain("<Chat.Activity");
+    expect(webSource).toContain("<Chat.Activity");
+    expect(webSource).toContain('leading={<Favicon url={url()} fallbackIcon="ti ti-world-download" />}');
   });
 
   test("keeps assistant markdown stable while the generic timeline owns message actions", () => {

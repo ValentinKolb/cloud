@@ -44,12 +44,7 @@ const ScopeChipRow = (props: {
   <div class="flex flex-col gap-2">
     <p class="text-xs font-semibold text-dimmed">{props.label}</p>
     <div class="flex flex-wrap gap-2">
-      <Button
-        type="button"
-        variant={!props.selected ? "subtle" : "ghost"}
-        size="xs"
-        onClick={() => props.onSelect("")}
-      >
+      <Button type="button" variant={!props.selected ? "subtle" : "ghost"} size="xs" onClick={() => props.onSelect("")}>
         <i class="ti ti-asterisk" />
         <span>{props.allLabel}</span>
       </Button>

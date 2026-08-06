@@ -1,10 +1,7 @@
 import { retry } from "@k2b/sync/browser";
 import type { AcquiredDraftLease } from "../../contracts";
 
-export type DraftLeaseHeartbeatResult =
-  | { kind: "ok"; lease: AcquiredDraftLease }
-  | { kind: "rejected" }
-  | { kind: "unavailable" };
+export type DraftLeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
 
 export const recoverDraftLeaseHeartbeat = (options: {
   heartbeat: () => Promise<DraftLeaseHeartbeatResult>;
@@ -18,11 +15,7 @@ export const recoverDraftLeaseHeartbeat = (options: {
     run: options.heartbeat,
     signal: options.signal,
     after: ({ ctx }) => {
-      if (
-        ctx.data?.kind !== "unavailable" ||
-        ctx.attempt >= (options.maxAttempts ?? 3)
-      )
-        return;
+      if (ctx.data?.kind !== "unavailable" || ctx.attempt >= (options.maxAttempts ?? 3)) return;
       ctx.reschedule({
         delayMs: ctx.expBackoff({
           baseMs: options.retryBaseMs ?? 500,

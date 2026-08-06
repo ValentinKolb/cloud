@@ -52,11 +52,7 @@ const createSource = async (baseId: string): Promise<string> => {
   return sourceId;
 };
 
-const insertTelemetryFixture = async (
-  baseId: string,
-  sourceId: string,
-  age: "active" | "sensitive-expired" | "raw-expired" = "active",
-) => {
+const insertTelemetryFixture = async (baseId: string, sourceId: string, age: "active" | "sensitive-expired" | "raw-expired" = "active") => {
   const offsetMs = age === "raw-expired" ? 40 * 24 * 60 * 60 * 1_000 : age === "sensitive-expired" ? 2 * 60 * 60 * 1_000 : 0;
   const ts = new Date(Date.now() - offsetMs);
   const metricId = uuid();

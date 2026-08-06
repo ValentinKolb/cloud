@@ -17,13 +17,7 @@ export const normalizeEmailDomain = (value: string): string | null => {
 export const normalizeEmailAddress = (value: string): string | null => {
   const normalized = value.trim().toLowerCase();
   const separator = normalized.lastIndexOf("@");
-  if (
-    normalized.length < 3 ||
-    normalized.length > 320 ||
-    separator < 1 ||
-    separator === normalized.length - 1 ||
-    /\s/u.test(normalized)
-  ) {
+  if (normalized.length < 3 || normalized.length > 320 || separator < 1 || separator === normalized.length - 1 || /\s/u.test(normalized)) {
     return null;
   }
   const domain = normalizeEmailDomain(normalized.slice(separator + 1));

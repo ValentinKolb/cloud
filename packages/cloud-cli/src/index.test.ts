@@ -7,8 +7,11 @@ type MockServerState = {
   refreshCalls: number;
   authorizationCodeCalls?: number;
   revokeCalls: number;
+  revokedTokens?: string[];
   meCalls: number;
   failFirstMe?: boolean;
+  tokenResponse?: unknown;
+  tokenDelayMs?: number;
   appsCalls?: number;
   appsSearch?: string | null;
   capabilityCatalog?: unknown;
@@ -49,6 +52,7 @@ const startMockServer = (state: MockServerState) =>
     fetch: async (request) => {
       const url = new URL(request.url);
       if (url.pathname === "/oauth/token") {
+        if (state.tokenDelayMs) await Bun.sleep(state.tokenDelayMs);
         const body = await request.formData();
         const grantType = body.get("grant_type");
         if (grantType === "authorization_code") {
@@ -60,18 +64,23 @@ const startMockServer = (state: MockServerState) =>
           state.refreshCalls += 1;
           expect(grantType).toBe("refresh_token");
         }
-        return Response.json({
-          access_token: grantType === "authorization_code" ? "login-access" : "new-access",
-          token_type: "Bearer",
-          expires_in: 3600,
-          id_token: null,
-          scope: "openid",
-          refresh_token: grantType === "authorization_code" ? "login-refresh" : "new-refresh",
-        });
+        return Response.json(
+          state.tokenResponse ?? {
+            access_token: grantType === "authorization_code" ? "login-access" : "new-access",
+            token_type: "Bearer",
+            expires_in: 3600,
+            id_token: null,
+            scope: "openid",
+            refresh_token: grantType === "authorization_code" ? "login-refresh" : "new-refresh",
+          },
+        );
       }
 
       if (url.pathname === "/oauth/revoke") {
         state.revokeCalls += 1;
+        const body = await request.formData();
+        state.revokedTokens ??= [];
+        state.revokedTokens.push(String(body.get("token")));
         return new Response(null, { status: 200 });
       }
 
@@ -380,6 +389,21 @@ describe("cloud CLI OAuth session handling", () => {
     const configPath = join(dir, "config.json");
 
     try {
+      await writeConfig(configPath, {
+        currentProfile: "local",
+        profiles: {
+          local: {
+            server: `http://127.0.0.1:${server.port}`,
+            oauth: {
+              clientId: "cloud-cli",
+              accessToken: "old-access",
+              accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
+              refreshToken: "old-refresh",
+              scope: "openid",
+            },
+          },
+        },
+      });
       const proc = startCli(configPath, ["login", "local", "--server", `http://127.0.0.1:${server.port}`, "--no-open"]);
       const stderrPromise = new Response(proc.stderr).text();
       const stdout = await readUntil(proc.stdout, "Waiting for the OAuth callback.");
@@ -395,8 +419,15 @@ describe("cloud CLI OAuth session handling", () => {
       expect(stateParam).toBeString();
 
       const callbackUrl = new URL(redirectUri!);
+      callbackUrl.searchParams.set("error", "access_denied");
+      callbackUrl.searchParams.set("state", "wrong-state");
+      const unrelatedCallback = await fetch(callbackUrl);
+      expect(unrelatedCallback.status).toBe(400);
+
+      callbackUrl.searchParams.delete("error");
       callbackUrl.searchParams.set("code", "test-code");
       callbackUrl.searchParams.set("state", stateParam!);
+      callbackUrl.searchParams.set("iss", `http://127.0.0.1:${server.port}`);
       const callbackResponse = await fetch(callbackUrl);
       const callbackText = await callbackResponse.text();
 
@@ -408,6 +439,7 @@ describe("cloud CLI OAuth session handling", () => {
       expect(exitCode).toBe(0);
       expect(await stderrPromise).toBe("");
       expect(state.authorizationCodeCalls).toBe(1);
+      expect(state.revokedTokens).toEqual(["old-refresh"]);
 
       const config = JSON.parse(await readFile(configPath, "utf8")) as {
         currentProfile: string;
@@ -421,12 +453,256 @@ describe("cloud CLI OAuth session handling", () => {
     }
   });
 
-  test("refresh recovers stale profile locks and persists the rotated token", async () => {
+  test("rejects stored OAuth credentials when the effective server changes", async () => {
+    let receivedRequests = 0;
+    const foreignServer = Bun.serve({
+      port: 0,
+      fetch: () => {
+        receivedRequests += 1;
+        return Response.json(testUser);
+      },
+    });
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      for (const mode of ["fresh", "expired"] as const) {
+        await writeConfig(configPath, {
+          currentProfile: "default",
+          profiles: {
+            default: {
+              server: "https://cloud.example.test",
+              oauth: {
+                clientId: "cloud-cli",
+                accessToken: "secret-access",
+                accessTokenExpiresAt: mode === "fresh" ? new Date(Date.now() + 3_600_000).toISOString() : "2000-01-01T00:00:00.000Z",
+                refreshToken: "secret-refresh",
+                scope: "openid",
+              },
+            },
+          },
+        });
+
+        const override = `http://127.0.0.1:${foreignServer.port}`;
+        const result =
+          mode === "fresh"
+            ? await runCli(configPath, ["--server", override, "account", "whoami", "--json"])
+            : await runCli(configPath, ["account", "whoami", "--json"], { CLD_SERVER: override });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("is bound to https://cloud.example.test");
+      }
+      const profileSet = await runCli(configPath, ["profile", "set", "default", "--server", `http://127.0.0.1:${foreignServer.port}`]);
+      expect(profileSet.exitCode).toBe(1);
+      const stored = JSON.parse(await readFile(configPath, "utf8")) as { profiles: { default: { server: string } } };
+      expect(stored.profiles.default.server).toBe("https://cloud.example.test");
+      expect(receivedRequests).toBe(0);
+    } finally {
+      foreignServer.stop(true);
+    }
+  });
+
+  test("accepts only pathless HTTP or HTTPS server origins", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    await writeConfig(configPath, {});
+
+    for (const [index, server] of [
+      "ftp://cloud.example.test",
+      "https://user:secret@cloud.example.test",
+      "https://cloud.example.test/path",
+      "https://cloud.example.test?query=yes",
+      "https://cloud.example.test#fragment",
+    ].entries()) {
+      const result = await runCli(configPath, ["profile", "set", `invalid-${index}`, "--server", server, "--token", "token"]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("HTTP(S) origin");
+    }
+  });
+
+  test("revokes a displaced OAuth grant when profile set changes credential providers", async () => {
     const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
     const server = startMockServer(state);
     const dir = await createTempDir();
     const configPath = join(dir, "config.json");
-    const lockPath = join(dir, "locks", "default.lock");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: {
+          default: {
+            server: `http://127.0.0.1:${server.port}`,
+            oauth: {
+              clientId: "cloud-cli",
+              accessToken: "old-access",
+              accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              refreshToken: "old-refresh",
+            },
+          },
+        },
+      });
+
+      const result = await runCli(configPath, ["profile", "set", "default", "--token", "static-token"]);
+      expect(result.exitCode).toBe(0);
+      expect(state.revokedTokens).toEqual(["old-refresh"]);
+      const stored = JSON.parse(await readFile(configPath, "utf8")) as {
+        profiles: { default: { token: string; oauth?: unknown } };
+      };
+      expect(stored.profiles.default.token).toBe("static-token");
+      expect(stored.profiles.default.oauth).toBeUndefined();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a callback with the wrong issuer before exchanging a code", async () => {
+    const state: MockServerState = { refreshCalls: 0, authorizationCodeCalls: 0, revokeCalls: 0, meCalls: 0 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      const proc = startCli(configPath, ["login", "local", "--server", `http://127.0.0.1:${server.port}`, "--no-open"]);
+      const stderrPromise = new Response(proc.stderr).text();
+      const stdout = await readUntil(proc.stdout, "Waiting for the OAuth callback.");
+      const printedLoginUrl = stdout.match(/Login URL:\n(?<url>http:\/\/127\.0\.0\.1:\d+\/oauth\/authorize[^\n]+)/)?.groups?.url;
+      if (!printedLoginUrl) throw new Error("CLI did not print a login URL.");
+      const loginUrl = new URL(printedLoginUrl);
+      const callbackUrl = new URL(loginUrl.searchParams.get("redirect_uri")!);
+      callbackUrl.searchParams.set("code", "test-code");
+      callbackUrl.searchParams.set("state", loginUrl.searchParams.get("state")!);
+      callbackUrl.searchParams.set("iss", "https://other.example.test");
+
+      expect((await fetch(callbackUrl)).status).toBe(400);
+      expect(await proc.exited).toBe(1);
+      expect(await stderrPromise).toContain("expected issuer");
+      expect(state.authorizationCodeCalls).toBe(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("revokes a newly issued refresh token when login persistence fails", async () => {
+    const state: MockServerState = { refreshCalls: 0, authorizationCodeCalls: 0, revokeCalls: 0, meCalls: 0 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {});
+      const proc = startCli(configPath, ["login", "local", "--server", `http://127.0.0.1:${server.port}`, "--no-open"]);
+      const stderrPromise = new Response(proc.stderr).text();
+      const stdout = await readUntil(proc.stdout, "Waiting for the OAuth callback.");
+      const printedLoginUrl = stdout.match(/Login URL:\n(?<url>http:\/\/127\.0\.0\.1:\d+\/oauth\/authorize[^\n]+)/)?.groups?.url;
+      if (!printedLoginUrl) throw new Error("CLI did not print a login URL.");
+      const loginUrl = new URL(printedLoginUrl);
+      const callbackUrl = new URL(loginUrl.searchParams.get("redirect_uri")!);
+      callbackUrl.searchParams.set("code", "test-code");
+      callbackUrl.searchParams.set("state", loginUrl.searchParams.get("state")!);
+      callbackUrl.searchParams.set("iss", `http://127.0.0.1:${server.port}`);
+
+      await rm(configPath);
+      await mkdir(configPath);
+      expect((await fetch(callbackUrl)).status).toBe(200);
+      expect(await proc.exited).toBe(1);
+      expect(await stderrPromise).not.toBe("");
+      expect(state.revokedTokens).toEqual(["login-refresh"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("validates OAuth token responses before persisting them", async () => {
+    const state: MockServerState = {
+      refreshCalls: 0,
+      revokeCalls: 0,
+      meCalls: 0,
+      tokenResponse: {
+        access_token: "new-access",
+        token_type: "Bearer",
+        expires_in: "3600",
+        refresh_token: "new-refresh",
+      },
+    };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: {
+          default: {
+            server: `http://127.0.0.1:${server.port}`,
+            oauth: {
+              clientId: "cloud-cli",
+              accessToken: "old-access",
+              accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
+              refreshToken: "old-refresh",
+              scope: "openid",
+            },
+          },
+        },
+      });
+
+      const result = await runCli(configPath, ["account", "whoami", "--json"]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("invalid token lifetime");
+      expect(state.meCalls).toBe(0);
+      const stored = JSON.parse(await readFile(configPath, "utf8")) as {
+        profiles: { default: { oauth: { refreshToken: string } } };
+      };
+      expect(stored.profiles.default.oauth.refreshToken).toBe("old-refresh");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("does not follow redirects for refresh-token requests", async () => {
+    let redirectedRequests = 0;
+    const redirectTarget = Bun.serve({
+      port: 0,
+      fetch: () => {
+        redirectedRequests += 1;
+        return Response.json({});
+      },
+    });
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => Response.redirect(`http://127.0.0.1:${redirectTarget.port}/capture`, 307),
+    });
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: {
+          default: {
+            server: `http://127.0.0.1:${server.port}`,
+            oauth: {
+              clientId: "cloud-cli",
+              accessToken: "old-access",
+              accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
+              refreshToken: "secret-refresh",
+            },
+          },
+        },
+      });
+
+      expect((await runCli(configPath, ["account", "whoami", "--json"])).exitCode).toBe(1);
+      expect(redirectedRequests).toBe(0);
+    } finally {
+      server.stop(true);
+      redirectTarget.stop(true);
+    }
+  });
+
+  test("refresh recovers a stale config lock and persists the rotated token", async () => {
+    const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    const lockPath = join(dir, "locks", "config.lock");
 
     try {
       await writeConfig(configPath, {
@@ -457,6 +733,44 @@ describe("cloud CLI OAuth session handling", () => {
       };
       expect(config.profiles.default.oauth.accessToken).toBe("new-access");
       expect(config.profiles.default.oauth.refreshToken).toBe("new-refresh");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("serializes refresh writes across different profiles", async () => {
+    const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0, tokenDelayMs: 50 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    const profile = (refreshToken: string) => ({
+      server: `http://127.0.0.1:${server.port}`,
+      oauth: {
+        clientId: "cloud-cli",
+        accessToken: "old-access",
+        accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
+        refreshToken,
+      },
+    });
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "one",
+        profiles: { one: profile("refresh-one"), two: profile("refresh-two") },
+      });
+
+      const [one, two] = await Promise.all([
+        runCli(configPath, ["--profile", "one", "account", "whoami", "--json"]),
+        runCli(configPath, ["--profile", "two", "account", "whoami", "--json"]),
+      ]);
+      expect(one.exitCode).toBe(0);
+      expect(two.exitCode).toBe(0);
+      expect(state.refreshCalls).toBe(2);
+      const stored = JSON.parse(await readFile(configPath, "utf8")) as {
+        profiles: { one: { oauth: { accessToken: string } }; two: { oauth: { accessToken: string } } };
+      };
+      expect(stored.profiles.one.oauth.accessToken).toBe("new-access");
+      expect(stored.profiles.two.oauth.accessToken).toBe("new-access");
     } finally {
       server.stop(true);
     }
@@ -545,6 +859,68 @@ exit 0
 
       const config = JSON.parse(await readFile(configPath, "utf8")) as { profiles: { default: { oauth?: unknown } } };
       expect(config.profiles.default.oauth).toBeUndefined();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("removes fd0 refresh tokens non-interactively during logout", async () => {
+    const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    const argsPath = join(dir, "fd0-args.txt");
+    const binDir = join(dir, "bin");
+    const fd0Path = join(binDir, "fd0");
+
+    try {
+      await mkdir(binDir, { recursive: true });
+      await writeFile(
+        fd0Path,
+        `#!/bin/sh
+if [ "$1" = "get" ]; then
+  printf '%s\n' old-refresh
+  exit 0
+fi
+if [ "$1" = "rm" ]; then
+  printf '%s\n' "$@" > "$FD0_ARGS_PATH"
+  [ "$3" = "--yes" ]
+  exit $?
+fi
+exit 1
+`,
+        { mode: 0o700 },
+      );
+      await chmod(fd0Path, 0o700);
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: {
+          default: {
+            server: `http://127.0.0.1:${server.port}`,
+            oauth: {
+              clientId: "cloud-cli",
+              accessToken: "access",
+              accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              refreshTokenFd0: { name: "cloud-default-oauth-refresh-token", scope: "test" },
+            },
+          },
+        },
+      });
+
+      const result = await runCli(configPath, ["logout"], {
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        FD0_ARGS_PATH: argsPath,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect((await readFile(argsPath, "utf8")).trim().split("\n")).toEqual([
+        "rm",
+        "cloud-default-oauth-refresh-token",
+        "--yes",
+        "--scope",
+        "test",
+      ]);
+      expect(state.revokedTokens).toEqual(["old-refresh"]);
     } finally {
       server.stop(true);
     }

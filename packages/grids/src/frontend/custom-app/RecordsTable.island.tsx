@@ -38,13 +38,14 @@ export default function RecordsTable(props: {
     return <div class="rounded-xl border p-4 text-sm text-secondary">The selected fields are not part of this view result.</div>;
   }
   return (
-    <div class="overflow-hidden rounded-xl border">
+    <div class="overflow-x-auto">
       <DataTable
         ariaLabel={props.title}
         rows={rows}
         columns={columns}
         getRowId={(row) => row.rowKey}
         density="compact"
+        surface="plain"
         hoverRows={Boolean(props.rowNavigate)}
         rowClass={(row) => (row.href ? "cursor-pointer" : undefined)}
         onRowClick={

@@ -35,7 +35,6 @@ suite("browser notification endpoints", () => {
   });
 
   test("encrypts subscriptions and atomically rebinds a browser to the latest user", async () => {
-
     const suffix = crypto.randomUUID();
     const users = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)

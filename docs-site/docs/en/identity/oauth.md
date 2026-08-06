@@ -77,6 +77,18 @@ Confidential clients can send credentials through HTTP Basic or the form.
 The resulting access token resolves to a user actor. `offline_access` can
 produce a refresh token.
 
+Refresh tokens rotate on every successful use. A refresh request can reduce
+its scopes, but cannot add scopes; the reduced set remains in effect for later
+rotations. Resource-bound grants must repeat the exact `resource` on every
+refresh. Cloud also rechecks the account, client scopes and audiences, profile
+or explicit client access, and client existence before issuing a replacement.
+If any check fails, the grant cannot mint another access token.
+
+The OpenID Connect UserInfo endpoint accepts only user access tokens that
+contain `openid`, were issued for the requesting client, and still refer to an
+active account and registered client. ID tokens and resource-only access tokens
+are rejected.
+
 ## Client-credentials flow
 
 The OAuth client must:
@@ -173,6 +185,10 @@ can identify and revoke dynamic clients from **Admin → OAuth**; revocation als
 invalidates existing access and refresh tokens. Abandoned dynamic registrations
 that never start authorization are cleaned up automatically.
 
+When registration includes `scope`, Cloud registers exactly that allowed
+subset. When it omits `scope`, Cloud uses the advertised delegated default:
+`openid profile email offline_access read write`.
+
 ## Restrict authorization
 
 `allowedProfiles` rejects account profiles outside the configured list.
@@ -183,6 +199,10 @@ allowed group. Nested group membership is included.
 
 These client restrictions decide who may authorize the OAuth client. They do
 not replace application resource permissions.
+
+Client creation, updates, secret rotation, and revocation are atomic and
+recorded in the Cloud audit log. Expired codes and refresh grants are removed
+by the OAuth app's background cleanup.
 
 ## Validate access tokens
 

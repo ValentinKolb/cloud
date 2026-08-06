@@ -130,8 +130,15 @@ export const capabilityCredentialHeaders = (request: Request): Headers => {
   });
   const authorization = request.headers.get("authorization");
   const cookie = request.headers.get("cookie");
-  if (authorization) headers.set("authorization", authorization);
-  else if (cookie) headers.set("cookie", cookie);
+  if (authorization && /^Bearer\s+\S+$/i.test(authorization)) {
+    headers.set("authorization", authorization);
+  } else if (cookie) {
+    const sessionCookie = cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("session_token="));
+    if (sessionCookie) headers.set("cookie", sessionCookie);
+  }
   for (const name of ["x-request-id", "traceparent", "tracestate", "idempotency-key"] as const) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
@@ -349,6 +356,11 @@ export const dispatchCapability = async (params: {
 };
 
 export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies = {}) => {
+  const requireReadScope = auth.requireOAuthScope("read", "admin");
+  const requireWriteScope = auth.requireOAuthScope("write", "admin");
+  const requireInvocationScope: MiddlewareHandler<AuthContext> = (c, next) =>
+    (c.req.param("kind") === "actions" ? requireWriteScope : requireReadScope)(c, next);
+
   return new Hono<AuthContext>()
     .use("/capabilities/v1/*", dependencies.authenticate ?? auth.requireRole("authenticated"))
     .get(
@@ -361,9 +373,11 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
         responses: {
           200: jsonResponse(CapabilityCatalogSchema, "Live capability catalog"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
+          403: jsonResponse(CapabilityErrorSchema, "Insufficient OAuth scope"),
           503: jsonResponse(CapabilityErrorSchema, "Capability registry unavailable"),
         },
       }),
+      requireReadScope,
       v("query", CapabilityCatalogQuerySchema),
       async (c) => {
         const query = c.req.valid("query");
@@ -391,6 +405,7 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           200: jsonResponse(z.unknown(), "Capability Action review"),
           400: jsonResponse(CapabilityErrorSchema, "Invalid request"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
+          403: jsonResponse(CapabilityErrorSchema, "Insufficient OAuth scope"),
           404: jsonResponse(CapabilityErrorSchema, "Capability review not found"),
           409: jsonResponse(CapabilityErrorSchema, "Schema changed"),
           499: jsonResponse(CapabilityErrorSchema, "Request cancelled"),
@@ -400,6 +415,7 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           504: jsonResponse(CapabilityErrorSchema, "App deadline exceeded"),
         },
       }),
+      requireReadScope,
       async (c) => {
         const body = await readBoundedJson(c.req.raw, CAPABILITY_MAX_REQUEST_BYTES);
         if (!body.ok) {
@@ -438,6 +454,7 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           200: jsonResponse(z.unknown(), "Capability result"),
           400: jsonResponse(CapabilityErrorSchema, "Invalid request"),
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
+          403: jsonResponse(CapabilityErrorSchema, "Insufficient OAuth scope"),
           404: jsonResponse(CapabilityErrorSchema, "Capability not found"),
           409: jsonResponse(CapabilityErrorSchema, "Schema changed"),
           429: jsonResponse(CapabilityErrorSchema, "Capability rate limited"),
@@ -448,6 +465,7 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           504: jsonResponse(CapabilityErrorSchema, "App deadline exceeded"),
         },
       }),
+      requireInvocationScope,
       async (c) => {
         const body = await readBoundedJson(c.req.raw, CAPABILITY_MAX_REQUEST_BYTES);
         if (!body.ok) {

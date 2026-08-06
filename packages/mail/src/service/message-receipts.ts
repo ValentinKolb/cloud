@@ -1,4 +1,4 @@
-import { sql } from "bun";
+import type { sql } from "bun";
 import type { MailConversationChangedEvent } from "../live-events";
 
 type SqlClient = typeof sql;
@@ -92,9 +92,7 @@ export const recordMessageReceipt = async (params: {
     WHERE report_message_id = ${params.reportMessageId}::uuid
   `;
   if (existing) return null;
-  const candidates = await params.db<
-    { id: string; conversation_id: string | null; stable_message_id: string }[]
-  >`
+  const candidates = await params.db<{ id: string; conversation_id: string | null; stable_message_id: string }[]>`
     SELECT submission.id, draft.conversation_id, submission.stable_message_id
     FROM mail.outbox_submissions submission
     JOIN mail.drafts draft ON draft.id = submission.draft_id

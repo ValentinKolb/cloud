@@ -98,6 +98,10 @@ login until the grant or dynamic client is revoked. `admin` permits both read
 and write. Sessions and personal API keys keep their existing application
 authorization behavior.
 
+Every refresh repeats the exact MCP `resource`. Scope reductions are durable,
+and Cloud rechecks the current account and client access before rotating the
+grant.
+
 Personal Cloud API keys remain an explicit compatibility path for clients that
 cannot use browser OAuth. Send the key only in the bearer header:
 

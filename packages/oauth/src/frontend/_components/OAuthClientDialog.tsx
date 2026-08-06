@@ -1,7 +1,7 @@
 import { Button, CheckboxCard, PanelDialog, Select, TextInput } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createSignal, For, Show } from "solid-js";
-import type { CreateOAuthClient, OAuthClient, UpdateOAuthClient } from "@/contracts";
+import type { CreateOAuthClient, OAuthClient, OAuthScope, UpdateOAuthClient } from "@/contracts";
 
 type AccessChoice = "user" | "everybody" | "specific";
 
@@ -55,6 +55,27 @@ const accessChoiceOptions = [
   },
 ];
 
+const scopeOptions = [
+  { id: "openid", label: "OpenID", description: "Identify the signed-in account.", icon: "ti ti-fingerprint" },
+  { id: "profile", label: "Profile", description: "Name and display name claims.", icon: "ti ti-id-badge-2" },
+  { id: "email", label: "Email", description: "Email address claim.", icon: "ti ti-mail" },
+  { id: "groups", label: "Groups", description: "Recursive group membership claim.", icon: "ti ti-users-group" },
+  {
+    id: "offline_access",
+    label: "Offline access",
+    description: "Rotate a refresh token after the browser session ends.",
+    icon: "ti ti-refresh",
+  },
+  { id: "read", label: "Read", description: "Read Cloud data allowed for the account.", icon: "ti ti-eye" },
+  { id: "write", label: "Write", description: "Change Cloud data allowed for the account.", icon: "ti ti-pencil" },
+  {
+    id: "admin",
+    label: "Admin",
+    description: "Use APIs that explicitly accept the privileged admin scope.",
+    icon: "ti ti-shield-lock",
+  },
+] as const satisfies readonly { id: OAuthScope; label: string; description: string; icon: string }[];
+
 const accessChoiceFromClient = (client?: OAuthClient): AccessChoice => {
   if (client?.accessMode === "specific") return "specific";
   return client?.allowedProfiles.includes("guest") ? "everybody" : "user";
@@ -85,9 +106,7 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
   const [redirectUri, setRedirectUri] = createSignal(client()?.redirectUris[0] ?? "");
   const [logoutUri, setLogoutUri] = createSignal(client()?.logoutUri ?? "");
   const [accessChoice, setAccessChoice] = createSignal<AccessChoice>(accessChoiceFromClient(client()));
-  const [scopeProfile, setScopeProfile] = createSignal(client()?.scopes.includes("profile") ?? true);
-  const [scopeEmail, setScopeEmail] = createSignal(client()?.scopes.includes("email") ?? true);
-  const [scopeGroups, setScopeGroups] = createSignal(client()?.scopes.includes("groups") ?? false);
+  const [scopes, setScopes] = createSignal<OAuthScope[]>(client()?.scopes ?? ["openid", "profile", "email"]);
   const [isPublic, setIsPublic] = createSignal(client()?.isPublic ?? false);
   const [users, setUsers] = createSignal<SelectedUser[]>(selectedUsersFromClient(client()));
   const [groups, setGroups] = createSignal<SelectedGroup[]>(selectedGroupsFromClient(client()));
@@ -134,13 +153,10 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
     }
   };
 
-  const buildScopes = (): ("openid" | "profile" | "email" | "groups")[] => {
-    const scopes: ("openid" | "profile" | "email" | "groups")[] = ["openid"];
-    if (scopeProfile()) scopes.push("profile");
-    if (scopeEmail()) scopes.push("email");
-    if (scopeGroups()) scopes.push("groups");
-    return scopes;
-  };
+  const setScopeEnabled = (scope: OAuthScope, enabled: boolean) =>
+    setScopes((current) =>
+      enabled ? (current.includes(scope) ? current : [...current, scope]) : current.filter((item) => item !== scope),
+    );
 
   const buildAccessPayload = () => {
     const specific = accessChoice() === "specific";
@@ -162,7 +178,7 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
       description: description().trim() || undefined,
       redirectUris: [cleanRedirectUri],
       logoutUri: cleanLogoutUri || undefined,
-      scopes: buildScopes(),
+      scopes: scopes(),
       ...buildAccessPayload(),
     };
 
@@ -273,27 +289,17 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
             </PanelDialog.Section>
 
             <PanelDialog.Section title="Scopes" subtitle="Claims this client can request." icon="ti ti-checklist">
-              <ScopeToggle
-                label="Profile"
-                description="Name and display name claims."
-                icon="ti ti-id-badge-2"
-                checked={scopeProfile}
-                onChange={setScopeProfile}
-              />
-              <ScopeToggle
-                label="Email"
-                description="Email address claim."
-                icon="ti ti-mail"
-                checked={scopeEmail}
-                onChange={setScopeEmail}
-              />
-              <ScopeToggle
-                label="Groups"
-                description="Recursive group membership claim."
-                icon="ti ti-users-group"
-                checked={scopeGroups}
-                onChange={setScopeGroups}
-              />
+              <For each={scopeOptions}>
+                {(scope) => (
+                  <ScopeToggle
+                    label={scope.label}
+                    description={scope.description}
+                    icon={scope.icon}
+                    checked={() => scopes().includes(scope.id)}
+                    onChange={(checked) => setScopeEnabled(scope.id, checked)}
+                  />
+                )}
+              </For>
             </PanelDialog.Section>
           </aside>
         </div>

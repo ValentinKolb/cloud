@@ -164,20 +164,26 @@ export default ssr<AuthContext>(async (c) => {
                   ))}
                 </ul>
               ) : (
-                <Placeholder surface="paper" icon="ti ti-search-off" description={<>
-                  {search ? (
-                    <p>
-                      No notes tagged #{tagParam} match "{search}".
-                    </p>
-                  ) : totalNotesForTag === 0 ? (
+                <Placeholder
+                  surface="paper"
+                  icon="ti ti-search-off"
+                  description={
                     <>
-                      <p>No notes tagged #{tagParam}.</p>
-                      <p>The tag may have been removed since the index was last refreshed.</p>
+                      {search ? (
+                        <p>
+                          No notes tagged #{tagParam} match "{search}".
+                        </p>
+                      ) : totalNotesForTag === 0 ? (
+                        <>
+                          <p>No notes tagged #{tagParam}.</p>
+                          <p>The tag may have been removed since the index was last refreshed.</p>
+                        </>
+                      ) : (
+                        <p>No results.</p>
+                      )}
                     </>
-                  ) : (
-                    <p>No results.</p>
-                  )}
-                </>} />
+                  }
+                />
               )}
 
               <Pagination currentPage={page} totalPages={totalPages} baseUrl={paginationBaseUrl} />

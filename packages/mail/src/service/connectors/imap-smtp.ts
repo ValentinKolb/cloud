@@ -172,10 +172,7 @@ const imapQuotaResourceSchema = z
     usage: z.number().int().nonnegative().optional(),
     limit: z.number().int().nonnegative(),
   })
-  .refine(
-    (resource) => resource.used !== undefined || resource.usage !== undefined,
-    "Quota usage is required",
-  );
+  .refine((resource) => resource.used !== undefined || resource.usage !== undefined, "Quota usage is required");
 
 const imapQuotaEvidenceSchema = z
   .object({
@@ -185,25 +182,19 @@ const imapQuotaEvidenceSchema = z
   })
   .passthrough();
 
-const normalizeQuotaResource = (
-  resource: z.infer<typeof imapQuotaResourceSchema> | undefined,
-): { used: number; limit: number } | null => {
+const normalizeQuotaResource = (resource: z.infer<typeof imapQuotaResourceSchema> | undefined): { used: number; limit: number } | null => {
   if (!resource) return null;
   const used = resource.used ?? resource.usage;
   return used === undefined ? null : { used, limit: resource.limit };
 };
 
-export const normalizeImapQuotaEvidence = (
-  value: unknown,
-): ProviderLimitSnapshot["imap"] | null => {
+export const normalizeImapQuotaEvidence = (value: unknown): ProviderLimitSnapshot["imap"] | null => {
   const parsed = imapQuotaEvidenceSchema.safeParse(value);
   if (!parsed.success) return null;
   return {
     status: "supported",
     storage: normalizeQuotaResource(parsed.data.storage),
-    messages: normalizeQuotaResource(
-      parsed.data.messages ?? parsed.data.message,
-    ),
+    messages: normalizeQuotaResource(parsed.data.messages ?? parsed.data.message),
   };
 };
 
@@ -231,10 +222,12 @@ const mapNamespaces = (client: ImapFlowWithNamespaces): RemoteNamespace[] => {
 
 const verifyImap = async (
   config: ProviderConnectionInput,
-): Promise<Omit<ConnectorVerification, "accounts" | "limits"> & {
-  namespaces: RemoteNamespace[];
-  limits: ProviderLimitSnapshot["imap"];
-}> =>
+): Promise<
+  Omit<ConnectorVerification, "accounts" | "limits"> & {
+    namespaces: RemoteNamespace[];
+    limits: ProviderLimitSnapshot["imap"];
+  }
+> =>
   withImapClient(config, async (client) => {
     const limits = await readImapLimits(client);
     return {
@@ -337,11 +330,7 @@ const readSmtpCapabilityEvidence = (connection: SMTPConnection): z.infer<typeof 
   return parsed.data;
 };
 
-const smtpConnectionOptions = (
-  config: SmtpConnectionConfig,
-  endpoint: ResolvedEndpoint,
-  address: string,
-): SMTPConnection.Options => ({
+const smtpConnectionOptions = (config: SmtpConnectionConfig, endpoint: ResolvedEndpoint, address: string): SMTPConnection.Options => ({
   host: address,
   port: endpoint.port,
   secure: endpoint.tlsMode === "implicit",

@@ -12,7 +12,7 @@ export type ProgressBarProps = {
   class?: string;
 };
 
-const clamp = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+const clamp = (value: number) => (Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0);
 
 export function ProgressBar(props: ProgressBarProps): JSX.Element {
   const percent = () => clamp(props.value);

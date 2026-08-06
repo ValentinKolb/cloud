@@ -551,6 +551,11 @@ POST /api/capabilities/v1/actions/<appId>/<localId>
 POST /api/capabilities/v1/actions/<appId>/<localId>/review
 ```
 
+OAuth callers need `read` or `admin` for the catalog, Queries, and Action
+reviews, and `write` or `admin` for Actions. Sessions and API keys keep their
+existing application authorization behavior. Scopes only cap the operation
+kind; the owning app still enforces its domain permissions.
+
 The public catalog contains only revalidated live manifests plus current app
 name, icon, and description. Core derives the internal endpoint from the live
 app registry; providers cannot publish a dispatch URL or trusted app metadata

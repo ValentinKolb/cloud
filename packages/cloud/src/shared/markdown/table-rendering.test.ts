@@ -12,7 +12,7 @@ describe("markdown tables", () => {
     expect(html).toContain('<div class="md-table-wrap">');
     expect(html).toContain('<table class="md-table">');
     expect(html).toContain('class="md-table-cell md-align-right"');
-    expect(html).toContain("<span class=\"md-table-cell\">Flour</span>");
+    expect(html).toContain('<span class="md-table-cell">Flour</span>');
   });
 
   test("preserves formula and summary-row semantics", () => {

@@ -167,13 +167,19 @@ describe("completion behaviors", () => {
     globalThis.document = { execCommand: () => false } as unknown as Document;
     const element = textarea("Hi @al");
 
-    expect(behavior.applySuggestion(element, {
-      start: 3,
-      end: 6,
-      text: "@al",
-      query: "al",
-      completion: { suggest: () => [] },
-    }, { text: "@alice", appendSpace: false })).toBe(true);
+    expect(
+      behavior.applySuggestion(
+        element,
+        {
+          start: 3,
+          end: 6,
+          text: "@al",
+          query: "al",
+          completion: { suggest: () => [] },
+        },
+        { text: "@alice", appendSpace: false },
+      ),
+    ).toBe(true);
     expect(element.value).toBe("Hi @alice");
   });
 });

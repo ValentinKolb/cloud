@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  buildContactCreateHref,
-  parseContactCreateSeed,
-} from "./integration";
+import { buildContactCreateHref, parseContactCreateSeed } from "./integration";
 
 describe("Contacts create link", () => {
   test("builds and parses bounded contact create links", () => {

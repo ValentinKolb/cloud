@@ -1,10 +1,10 @@
 import { fileIcons } from "@k2b/stdlib";
+import { Chat } from "@k2b/ui";
 import { Show } from "solid-js";
 import { formatAiFileSize } from "../attachments";
 import type { AiTurnBlock } from "../protocol";
 import { useAiChatActions } from "./message-actions";
 import { isRecord } from "./message-utils";
-import { ChatUtilityLine, PulseDots } from "./primitives";
 
 type ToolBlock = Extract<AiTurnBlock, { kind: "tool" }>;
 type PresentResult = { path: string; size: number; mediaType: string };
@@ -35,7 +35,7 @@ export function PresentToolBlock(props: { block: ToolBlock }) {
       when={file() && !props.block.isError}
       fallback={
         <Show when={props.block.status === "running"}>
-          <ChatUtilityLine meta={{ icon: "ti ti-file-export", label: "Preparing file" }} trailing={<PulseDots />} />
+          <Chat.Activity label="Preparing file" icon="ti ti-file-export" busy />
         </Show>
       }
     >

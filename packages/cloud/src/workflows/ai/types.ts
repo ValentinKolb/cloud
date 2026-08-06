@@ -4,7 +4,11 @@ import type { WorkflowJsonValue } from "../contracts";
 const prompt = z.string().trim().min(1).max(20_000);
 const modelProfileId = z.string().trim().min(1).max(120).optional();
 const choice = z.string().trim().min(1).max(200);
-const choices = z.array(choice).min(2).max(50).refine((values) => new Set(values).size === values.length, "Choices must be unique.");
+const choices = z
+  .array(choice)
+  .min(2)
+  .max(50)
+  .refine((values) => new Set(values).size === values.length, "Choices must be unique.");
 
 export const workflowAiRequestSchema = z.discriminatedUnion("kind", [
   z.object({

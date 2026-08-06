@@ -97,10 +97,20 @@ function EditorForm(props: EditorFormProps): JSX.Element {
           compact
         />
       </div>
-      <Show when={error()}>{(message) => <p class="k2b-tag-editor__error" role="alert">{message()}</p>}</Show>
+      <Show when={error()}>
+        {(message) => (
+          <p class="k2b-tag-editor__error" role="alert">
+            {message()}
+          </p>
+        )}
+      </Show>
       <div class="k2b-tag-editor__form-actions">
-        <Button type="submit" size="sm" loading={props.busy} disabled={!name().trim()}>{props.labels.save}</Button>
-        <Button type="button" size="sm" variant="ghost" disabled={props.busy} onClick={props.onCancel}>{props.labels.cancel}</Button>
+        <Button type="submit" size="sm" loading={props.busy} disabled={!name().trim()}>
+          {props.labels.save}
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={props.busy} onClick={props.onCancel}>
+          {props.labels.cancel}
+        </Button>
       </div>
     </form>
   );
@@ -148,7 +158,9 @@ export function TagEditor<T extends TagEditorItem = TagEditorItem>(props: TagEdi
                             label={`${labels().edit} ${item.name}`}
                             disabled={props.disabled || Boolean(busyId())}
                             onClick={() => setMode(item.id)}
-                          ><i class="ti ti-pencil" aria-hidden="true" /></IconButton>
+                          >
+                            <i class="ti ti-pencil" aria-hidden="true" />
+                          </IconButton>
                         </Show>
                         <Show when={props.onDelete}>
                           {(remove) => (
@@ -159,7 +171,9 @@ export function TagEditor<T extends TagEditorItem = TagEditorItem>(props: TagEdi
                               loading={busyId() === item.id}
                               disabled={props.disabled || Boolean(busyId())}
                               onClick={() => void run(item.id, () => remove()(item)).catch(() => undefined)}
-                            ><i class="ti ti-trash" aria-hidden="true" /></IconButton>
+                            >
+                              <i class="ti ti-trash" aria-hidden="true" />
+                            </IconButton>
                           )}
                         </Show>
                       </span>
@@ -176,7 +190,11 @@ export function TagEditor<T extends TagEditorItem = TagEditorItem>(props: TagEdi
                   />
                 </Show>
                 <Show when={rowError()?.id === item.id && mode() !== item.id ? rowError() : undefined}>
-                  {(error) => <p class="k2b-tag-editor__error" role="alert">{error().message}</p>}
+                  {(error) => (
+                    <p class="k2b-tag-editor__error" role="alert">
+                      {error().message}
+                    </p>
+                  )}
                 </Show>
               </li>
             )}
@@ -190,7 +208,8 @@ export function TagEditor<T extends TagEditorItem = TagEditorItem>(props: TagEdi
             when={mode() === "create"}
             fallback={
               <Button size="xs" variant="subtle" disabled={props.disabled || Boolean(busyId())} onClick={() => setMode("create")}>
-                <i class="ti ti-plus" aria-hidden="true" />{labels().create}
+                <i class="ti ti-plus" aria-hidden="true" />
+                {labels().create}
               </Button>
             }
           >

@@ -14,18 +14,14 @@ const metricQuery: PulseExplorerQuery = {
 describe("Pulse saved query dialog helpers", () => {
   test("derives default names from compiled queries", () => {
     expect(defaultSavedQueryName(metricQuery)).toBe("system.cpu.usage");
-    expect(
-      defaultSavedQueryName({ kind: "events", baseId: "base-a", event: "deploy.finished", since: "24h", limit: 100 }),
-    ).toBe("deploy.finished");
-    expect(defaultSavedQueryName({ kind: "events", baseId: "base-a", event: null, since: "24h", limit: 100 })).toBe(
-      "All events",
+    expect(defaultSavedQueryName({ kind: "events", baseId: "base-a", event: "deploy.finished", since: "24h", limit: 100 })).toBe(
+      "deploy.finished",
     );
-    expect(
-      defaultSavedQueryName({ kind: "states", baseId: "base-a", state: "service.online", since: "24h", limit: 100 }),
-    ).toBe("service.online");
-    expect(defaultSavedQueryName({ kind: "states", baseId: "base-a", state: null, since: "24h", limit: 100 })).toBe(
-      "All states",
+    expect(defaultSavedQueryName({ kind: "events", baseId: "base-a", event: null, since: "24h", limit: 100 })).toBe("All events");
+    expect(defaultSavedQueryName({ kind: "states", baseId: "base-a", state: "service.online", since: "24h", limit: 100 })).toBe(
+      "service.online",
     );
+    expect(defaultSavedQueryName({ kind: "states", baseId: "base-a", state: null, since: "24h", limit: 100 })).toBe("All states");
     expect(defaultSavedQueryName(null)).toBe("Pulse query");
   });
 

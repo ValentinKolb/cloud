@@ -54,8 +54,7 @@ const matchesResourceEntity = (resource: InventoryResource, entityId: string | n
   return Boolean(entityId && refs.has(entityId));
 };
 
-const optionalEquals = (filter: string | undefined, value: string | null | undefined): boolean =>
-  filter === undefined || value === filter;
+const optionalEquals = (filter: string | undefined, value: string | null | undefined): boolean => filter === undefined || value === filter;
 
 const optionalResourceEntity = (
   resource: InventoryResource | undefined,
@@ -93,7 +92,9 @@ const metricSearchValues = (metric: InventoryMetric): SearchValue[] => [
 ];
 
 const metricMatchesFilters = (metric: InventoryMetric, filters: MetricFilters): boolean =>
-  metricMatchesScope(metric, filters) && metricMatchesEntity(metric, filters.entity) && includesSearch(filters.q, metricSearchValues(metric));
+  metricMatchesScope(metric, filters) &&
+  metricMatchesEntity(metric, filters.entity) &&
+  includesSearch(filters.q, metricSearchValues(metric));
 
 export const filterInventoryMetrics = (inventory: PulseInventory, filters: MetricFilters): InventoryMetric[] =>
   inventory.metrics.filter((metric) => metricMatchesFilters(metric, filters));

@@ -18,8 +18,7 @@ describe("draft lease heartbeat recovery", () => {
   test("recovers automatically from transient transport failures", async () => {
     let attempts = 0;
     const result = await recoverDraftLeaseHeartbeat({
-      heartbeat: async () =>
-        ++attempts < 3 ? { kind: "unavailable" } : { kind: "ok", lease },
+      heartbeat: async () => (++attempts < 3 ? { kind: "unavailable" } : { kind: "ok", lease }),
       signal: new AbortController().signal,
       retryBaseMs: 0,
       retryMaxMs: 0,

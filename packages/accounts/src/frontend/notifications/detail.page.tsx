@@ -337,11 +337,16 @@ export default ssr<AuthContext>(async (c) => {
             {batch.status !== "draft" ? <NotificationRecipientStatusFilters batchId={batch.id} status={recipientStatus ?? ""} /> : null}
 
             {batch.status === "draft" ? (
-              <Placeholder surface="paper" description={<>
-                {isLegacyRuleAudience
-                  ? "Create a new notification batch with users and groups."
-                  : "Finalize this draft to create the recipient snapshot."}
-              </>} />
+              <Placeholder
+                surface="paper"
+                description={
+                  <>
+                    {isLegacyRuleAudience
+                      ? "Create a new notification batch with users and groups."
+                      : "Finalize this draft to create the recipient snapshot."}
+                  </>
+                }
+              />
             ) : recipientsPage.items.length === 0 ? (
               <Placeholder surface="paper" description={<>No recipients found.</>} />
             ) : (

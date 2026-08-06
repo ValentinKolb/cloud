@@ -75,10 +75,7 @@ export const sourceCommands = [
       }
       const bearerToken = flags.clearBearerToken
         ? null
-        : await readOptionalSecretInput(
-            { file: flags.bearerTokenFile, stdin: flags.bearerTokenStdin },
-            "Metrics endpoint bearer token",
-          );
+        : await readOptionalSecretInput({ file: flags.bearerTokenFile, stdin: flags.bearerTokenStdin }, "Metrics endpoint bearer token");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
       const source = await resolveSource(ctx, base.id, requireRestArg(rest, 0, "source"));
       const updated = await readApi<PulseSource>(
@@ -103,11 +100,7 @@ export const sourceCommands = [
       if (!flags.yes) throw new Error("Refusing to delete without --yes.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
       const source = await resolveSource(ctx, base.id, requireRestArg(rest, 0, "source"));
-      await readApi<unknown>(
-        ctx,
-        `/bases/${encodeURIComponent(base.id)}/sources/${encodeURIComponent(source.id)}`,
-        jsonRequest("DELETE"),
-      );
+      await readApi<unknown>(ctx, `/bases/${encodeURIComponent(base.id)}/sources/${encodeURIComponent(source.id)}`, jsonRequest("DELETE"));
       printMessage(ctx, { deleted: source.id }, `Deleted source ${source.name}.`);
     },
   }),

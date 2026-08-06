@@ -47,9 +47,7 @@ export const DocSection = (props: { title: string; eyebrow?: string; children: J
   </section>
 );
 
-export const DocInlineCode = (props: { children: JSX.Element }) => (
-  <code class="k2b-content-doc-inline-code">{props.children}</code>
-);
+export const DocInlineCode = (props: { children: JSX.Element }) => <code class="k2b-content-doc-inline-code">{props.children}</code>;
 
 export const DocCode = (props: DocCodeProps) => {
   const code = () => props.format?.(props.code) ?? props.code;

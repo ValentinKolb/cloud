@@ -131,9 +131,7 @@ describe("Chart runtime behavior", () => {
     await nextTurn();
     expect(regions()).toBe(3);
 
-    setRows([
-      { label: "Worker", intervals: [interval(0, 10), interval(10, 20), interval(20, 40), interval(40, 80)] },
-    ]);
+    setRows([{ label: "Worker", intervals: [interval(0, 10), interval(10, 20), interval(20, 40), interval(40, 80)] }]);
     await nextTurn();
     expect(regions()).toBe(4);
 

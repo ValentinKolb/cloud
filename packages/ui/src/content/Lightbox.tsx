@@ -29,9 +29,7 @@ export default function Lightbox(props: LightboxProps) {
       setIndex((currentIndex) => {
         if (initialIndex !== previous.initialIndex) return clampIndex(initialIndex ?? 0, images);
         const previousImage = previous.images[currentIndex];
-        const retained = previousImage
-          ? images.findIndex((image) => image === previousImage || image.src === previousImage.src)
-          : -1;
+        const retained = previousImage ? images.findIndex((image) => image === previousImage || image.src === previousImage.src) : -1;
         return retained >= 0 ? retained : clampIndex(currentIndex, images);
       });
       return { images, initialIndex };
@@ -161,13 +159,7 @@ export default function Lightbox(props: LightboxProps) {
       </div>
 
       <Show when={isMultiple()}>
-        <button
-          type="button"
-          onClick={prev}
-          class="k2b-content-lightbox__nav"
-          data-direction="previous"
-          aria-label="Previous image"
-        >
+        <button type="button" onClick={prev} class="k2b-content-lightbox__nav" data-direction="previous" aria-label="Previous image">
           <i class="ti ti-chevron-left" aria-hidden="true" />
         </button>
         <button type="button" onClick={next} class="k2b-content-lightbox__nav" data-direction="next" aria-label="Next image">

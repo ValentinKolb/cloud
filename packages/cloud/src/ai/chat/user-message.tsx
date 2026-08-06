@@ -1,13 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import {
-  Button,
-  type ChatAction,
-  type ChatAttachment,
-  dialogCore,
-  PanelDialog,
-  panelDialogOptions,
-  TextInput,
-} from "@k2b/ui";
+import { Button, type ChatAction, type ChatAttachment, dialogCore, PanelDialog, panelDialogOptions, TextInput } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage, AiUserContentPart } from "../types";
@@ -27,56 +19,53 @@ const openModifyRetryDialog = (
   entry: AiStoredMessage,
   onRetryMessage: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>,
 ) => {
-  void dialogCore.open<void>(
-    (close) => {
-      const [draft, setDraft] = createSignal(userVisibleTextFromMessage(entry.message));
-      const content = () => userContentWithEditedVisibleText(entry.message, draft());
-      const retryMutation = mutation.create<void, AiUserContentPart[]>({
-        mutation: async (nextContent) => onRetryMessage(entry, { content: nextContent }),
-        onSuccess: () => close(),
-      });
-      const canRetry = () => content().length > 0 && !retryMutation.loading();
-      const retry = () => {
-        const nextContent = content();
-        if (nextContent.length === 0 || retryMutation.loading()) return;
-        void retryMutation.mutate(nextContent);
-      };
+  void dialogCore.open<void>((close) => {
+    const [draft, setDraft] = createSignal(userVisibleTextFromMessage(entry.message));
+    const content = () => userContentWithEditedVisibleText(entry.message, draft());
+    const retryMutation = mutation.create<void, AiUserContentPart[]>({
+      mutation: async (nextContent) => onRetryMessage(entry, { content: nextContent }),
+      onSuccess: () => close(),
+    });
+    const canRetry = () => content().length > 0 && !retryMutation.loading();
+    const retry = () => {
+      const nextContent = content();
+      if (nextContent.length === 0 || retryMutation.loading()) return;
+      void retryMutation.mutate(nextContent);
+    };
 
-      return (
-        <PanelDialog>
-          <PanelDialog.Header title="Edit and try again" icon="ti ti-pencil" close={close} />
-          <PanelDialog.Body>
-            <TextInput
-              label="Prompt"
-              description="Attachments from the original message stay attached."
-              multiline
-              lines={8}
-              value={draft}
-              onValueChange={setDraft}
-              onSubmit={retry}
-            />
-            <Show when={retryMutation.error()}>
-              <p class="text-xs text-red-600 dark:text-red-400" role="alert">
-                Could not retry this message. Your changes are still here.
-              </p>
-            </Show>
-          </PanelDialog.Body>
-          <PanelDialog.Footer>
-            <div class="ml-auto flex items-center gap-2">
-              <Button type="button" variant="secondary" size="sm" onClick={() => close()}>
-                Cancel
-              </Button>
-              <Button type="button" variant="ai" size="sm" disabled={!canRetry()} onClick={retry}>
-                <i class={`ti ${retryMutation.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
-                {retryMutation.loading() ? "Trying again" : "Try again"}
-              </Button>
-            </div>
-          </PanelDialog.Footer>
-        </PanelDialog>
-      );
-    },
-    panelDialogOptions,
-  );
+    return (
+      <PanelDialog>
+        <PanelDialog.Header title="Edit and try again" icon="ti ti-pencil" close={close} />
+        <PanelDialog.Body>
+          <TextInput
+            label="Prompt"
+            description="Attachments from the original message stay attached."
+            multiline
+            lines={8}
+            value={draft}
+            onValueChange={setDraft}
+            onSubmit={retry}
+          />
+          <Show when={retryMutation.error()}>
+            <p class="text-xs text-red-600 dark:text-red-400" role="alert">
+              Could not retry this message. Your changes are still here.
+            </p>
+          </Show>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <div class="ml-auto flex items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => close()}>
+              Cancel
+            </Button>
+            <Button type="button" variant="ai" size="sm" disabled={!canRetry()} onClick={retry}>
+              <i class={`ti ${retryMutation.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
+              {retryMutation.loading() ? "Trying again" : "Try again"}
+            </Button>
+          </div>
+        </PanelDialog.Footer>
+      </PanelDialog>
+    );
+  }, panelDialogOptions);
 };
 
 export const aiUserMessageText = (entry: AiStoredMessage): string => userVisibleTextFromMessage(entry.message);

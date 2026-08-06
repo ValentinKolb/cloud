@@ -1,13 +1,13 @@
-import { audit, decryptSecret, encryptSecret, logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { audit, decryptSecret, encryptSecret, logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import {
-  providerSecretSchema,
-  parseProviderLimitSnapshot,
-  smtpTransportCapabilitiesSchema,
   type ProviderSecret,
+  parseProviderLimitSnapshot,
+  providerSecretSchema,
   type SenderIdentityTransport,
   type SmtpTransportCapabilities,
+  smtpTransportCapabilitiesSchema,
   type UpdateSenderIdentityTransportInput,
   updateSenderIdentityTransportInputSchema,
 } from "../contracts";
@@ -304,14 +304,11 @@ export const loadSenderIdentityTransportRuntime = async (params: {
   mailboxId: string;
   senderIdentityId: string;
   expectedRevision?: number;
-}): Promise<
-  | {
-      runtime: SmtpConnectionConfig;
-      revision: number;
-      capabilities: SmtpTransportCapabilities;
-    }
-  | null
-> => {
+}): Promise<{
+  runtime: SmtpConnectionConfig;
+  revision: number;
+  capabilities: SmtpTransportCapabilities;
+} | null> => {
   const [row] = await sql<DbTransport[]>`
     SELECT *
     FROM mail.sender_identity_transports

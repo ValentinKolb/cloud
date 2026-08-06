@@ -8,12 +8,7 @@ export type SwitchProps = ValueFieldProps<boolean> & {
 };
 
 export function Switch(props: SwitchProps): JSX.Element {
-  const [local, rest] = splitProps(props, [
-    "label",
-    "onValueChange",
-    "onValueCommit",
-    "value",
-  ]);
+  const [local, rest] = splitProps(props, ["label", "onValueChange", "onValueCommit", "value"]);
   const meta = createFieldMeta(props.id);
   const checked = () => resolveMaybeAccessor(local.value) ?? false;
   const error = () => resolveMaybeAccessor(props.error);
@@ -43,16 +38,22 @@ export function Switch(props: SwitchProps): JSX.Element {
           <span id={meta.labelId} class="k2b-switch__label">
             {local.label}
             <Show when={rest.required}>
-              <span class="k2b-field__required" aria-hidden="true">*</span>
+              <span class="k2b-field__required" aria-hidden="true">
+                *
+              </span>
             </Show>
           </span>
         )}
       </label>
       <Show when={props.description}>
-        <span id={meta.descriptionId} class="k2b-field__description">{props.description}</span>
+        <span id={meta.descriptionId} class="k2b-field__description">
+          {props.description}
+        </span>
       </Show>
       <Show when={error()}>
-        <p id={meta.errorId} class="k2b-field__error" role="alert" aria-live="polite">{error()}</p>
+        <p id={meta.errorId} class="k2b-field__error" role="alert" aria-live="polite">
+          {error()}
+        </p>
       </Show>
     </div>
   );

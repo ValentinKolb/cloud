@@ -1,4 +1,5 @@
 import { accounts, serviceAccounts } from "@valentinkolb/cloud/services";
+import { isAccountExpired } from "@valentinkolb/cloud/services/account-model";
 import { sql } from "bun";
 import * as jose from "jose";
 import { DYNAMIC_CLIENT_SCOPES, type OAuthClient, type OAuthScope } from "@/contracts";
@@ -39,6 +40,12 @@ export class InvalidOAuthServiceAccountError extends Error {
 export class InvalidOAuthResourceError extends Error {
   constructor() {
     super("Requested resource is not allowed for this client");
+  }
+}
+
+export class InactiveOAuthUserError extends Error {
+  constructor() {
+    super("User account is missing or expired");
   }
 }
 
@@ -203,6 +210,7 @@ export const createTokens = async (params: {
   nonce?: string | null;
   scopes?: OAuthScope[];
   audiences?: string[];
+  resource?: string | null;
   issueRefreshToken?: boolean;
   refreshTokenLabel?: string | null;
 }): Promise<{ accessToken: string; idToken: string | null; expiresIn: number; scope: string; refreshToken?: string }> => {
@@ -214,9 +222,7 @@ export const createTokens = async (params: {
 
   // Load user to get uid for sub claim
   const user = await accounts.users.get({ id: userId });
-  if (!user) {
-    throw new Error("User not found");
-  }
+  if (!user || isAccountExpired(user.accountExpires)) throw new InactiveOAuthUserError();
 
   const now = Math.floor(Date.now() / 1000);
   const expiresIn = 3600; // 1 hour
@@ -263,7 +269,7 @@ export const createTokens = async (params: {
       idTokenClaims.family_name = user.sn;
     }
 
-    if (scopes.includes("email")) {
+    if (scopes.includes("email") && user.mail) {
       idTokenClaims.email = user.mail;
     }
 
@@ -288,7 +294,8 @@ export const createTokens = async (params: {
           userId,
           client,
           scopes,
-          audiences,
+          audiences: accessTokenAudiences,
+          resource: params.resource,
           label: params.refreshTokenLabel,
         })
       : null;
@@ -371,17 +378,19 @@ export const verifyAccessToken = async (params: { token: string; issuer: string 
 
 /**
  * Create userinfo response based on scopes
- * @param sub - The subject (uid) from the access token
+ * Build UserInfo claims for the already validated access-token subject.
  */
-export const createUserInfo = async (params: { sub: string; scopes: OAuthScope[] }): Promise<Record<string, unknown> | null> => {
-  const { sub, scopes } = params;
-
-  // sub is the uid, load user by uid
-  const user = await accounts.users.get({ uid: sub });
-  if (!user) return null;
+export const createUserInfo = async (params: {
+  userId: string;
+  subject: string;
+  scopes: OAuthScope[];
+}): Promise<Record<string, unknown> | null> => {
+  const { userId, subject, scopes } = params;
+  const user = await accounts.users.get({ id: userId });
+  if (!user || isAccountExpired(user.accountExpires)) return null;
 
   const userInfo: Record<string, unknown> = {
-    sub: user.uid,
+    sub: subject,
     uid: user.uid,
     id: user.id,
   };
@@ -393,7 +402,7 @@ export const createUserInfo = async (params: { sub: string; scopes: OAuthScope[]
     userInfo.family_name = user.sn;
   }
 
-  if (scopes.includes("email")) {
+  if (scopes.includes("email") && user.mail) {
     userInfo.email = user.mail;
   }
 

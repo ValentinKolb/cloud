@@ -127,9 +127,7 @@ describe("Chart line interaction SSR", () => {
 
 describe("Chart presentation hooks", () => {
   test("carries the drag, crosshair and empty affordances as package classes", () => {
-    const draggable = renderToString(() =>
-      createComponent(Chart, { kind: "map", series, interactive: true }),
-    );
+    const draggable = renderToString(() => createComponent(Chart, { kind: "map", series, interactive: true }));
     const crosshair = renderToString(() =>
       createComponent(Chart, {
         kind: "line",

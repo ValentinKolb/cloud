@@ -8,7 +8,7 @@ import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
-import type { AuthContext } from "../server";
+import { type AuthContext, auth } from "../server";
 import { createCapabilityRoutes } from "./capabilities";
 import { cloudMcpResourceUri, createMcpProtectedResourceRoutes, createMcpRoutes as createMcpRoutesBase } from "./mcp";
 
@@ -298,6 +298,46 @@ describe("capability MCP projection", () => {
     });
     const resources = await rpc(noRead, { jsonrpc: "2.0", id: 43, method: "resources/list", params: {} });
     expect(await resources.json()).toMatchObject({ error: { data: { code: "FORBIDDEN" } } });
+  });
+
+  test("uses an explicit OAuth bearer instead of a session cookie for MCP authorization", async () => {
+    let dispatched = false;
+    const routes = createMcpRoutes({
+      authenticate: async (c, next) => {
+        const token = auth.session.getToken(c);
+        if (token === "session-token") return next();
+        if (token === "read-token") {
+          c.set("oauthScopes", ["read"]);
+          return next();
+        }
+        return c.json({ message: "Authentication required" }, 401);
+      },
+      getCapability: async () => app,
+      fetch: async () => {
+        dispatched = true;
+        return Response.json({ data: { id: "created" } });
+      },
+    });
+    const cookie = "other=private; session_token=session-token";
+    const denied = await rpc(
+      routes,
+      {
+        jsonrpc: "2.0",
+        id: 44,
+        method: "tools/call",
+        params: { name: "demo__action__create", arguments: { title: "No", idempotencyKey: "no-2" } },
+      },
+      "2025-06-18",
+      { authorization: "Bearer read-token", cookie },
+    );
+    expect(await denied.json()).toMatchObject({ result: { isError: true, structuredContent: { code: "FORBIDDEN" } } });
+    expect(dispatched).toBeFalse();
+
+    const invalid = await rpc(routes, { jsonrpc: "2.0", id: 45, method: "tools/list", params: {} }, "2025-06-18", {
+      authorization: "Bearer invalid-token",
+      cookie,
+    });
+    expect(invalid.status).toBe(401);
   });
 
   test("returns structured registry failures for list and call", async () => {
@@ -696,7 +736,7 @@ describe("capability MCP projection", () => {
         },
       },
       "2025-06-18",
-      { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" },
+      { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https", "idempotency-key": "untrusted-header" },
     );
     expect(response.status).toBe(200);
     const result = ((await response.json()) as { result: Record<string, any> }).result;
@@ -711,6 +751,33 @@ describe("capability MCP projection", () => {
     );
     expect(forwarded?.get("authorization")).toBe("Bearer caller");
     expect(forwarded?.get("idempotency-key")).toBe("create-1");
+  });
+
+  test("does not accept an MCP idempotency key outside the validated tool arguments", async () => {
+    let forwarded: Headers | undefined;
+    const routes = createMcpRoutes({
+      getCapability: async () => app,
+      authenticate: async (_c, next) => next(),
+      fetch: async (_input, init) => {
+        forwarded = new Headers(init?.headers);
+        return Response.json({ data: { id: "one" } });
+      },
+    });
+    const response = await rpc(
+      routes,
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "demo__action__update", arguments: { id: "one" } },
+      },
+      "2025-06-18",
+      { "idempotency-key": "untrusted-header" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { structuredContent: { data: { id: "one" } } } });
+    expect(forwarded?.get("idempotency-key")).toBeNull();
   });
 
   test("returns an actionable protocol error when a live tool disappears", async () => {

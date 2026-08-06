@@ -12,14 +12,10 @@ export const createMailPresenceSession = <TSnapshot>(options: {
     if (disposed || controller) return;
     const current = new AbortController();
     controller = current;
-    timeout = setTimeout(
-      () => current.abort(),
-      options.requestTimeoutMs ?? 8_000
-    );
+    timeout = setTimeout(() => current.abort(), options.requestTimeoutMs ?? 8_000);
     try {
       const snapshot = await options.heartbeat(current.signal);
-      if (!disposed && !current.signal.aborted && snapshot)
-        options.onSnapshot(snapshot);
+      if (!disposed && !current.signal.aborted && snapshot) options.onSnapshot(snapshot);
     } catch {
       // Presence is best-effort and the next interval retries it.
     } finally {

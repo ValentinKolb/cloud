@@ -64,13 +64,12 @@ export const oauthService = {
       return paginateItems(filtered, config?.pagination);
     },
     get: async (config: { id: string }) => oauth.clients.get({ id: config.id }),
-    create: async (config: { data: Parameters<typeof oauth.clients.create>[0]["data"]; createdBy: string }) =>
-      fromMutation(await oauth.clients.create(config)),
-    update: async (config: { id: string; data: Parameters<typeof oauth.clients.update>[0]["data"] }) =>
-      fromMutation(await oauth.clients.update(config)),
+    create: async (config: Parameters<typeof oauth.clients.create>[0]) => fromMutation(await oauth.clients.create(config)),
+    update: async (config: Parameters<typeof oauth.clients.update>[0]) => fromMutation(await oauth.clients.update(config)),
     remove: async (config: { id: string; actor: Parameters<typeof oauth.clients.delete_>[0]["actor"] }) =>
       fromMutation(await oauth.clients.delete_(config)),
-    regenerateSecret: async (config: { id: string }) => fromMutation(await oauth.clients.regenerateSecret(config)),
+    regenerateSecret: async (config: Parameters<typeof oauth.clients.regenerateSecret>[0]) =>
+      fromMutation(await oauth.clients.regenerateSecret(config)),
   },
 };
 

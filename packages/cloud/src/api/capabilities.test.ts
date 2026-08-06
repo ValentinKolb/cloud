@@ -4,7 +4,14 @@ import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
-import { capabilityCredentialHeaders, createCapabilityRoutes, dispatchCapability, loadCapabilityCatalogPage } from "./capabilities";
+import { auth } from "../server";
+import {
+  type CapabilityRouteDependencies,
+  capabilityCredentialHeaders,
+  createCapabilityRoutes,
+  dispatchCapability,
+  loadCapabilityCatalogPage,
+} from "./capabilities";
 
 const compiled = compileCapabilities(
   "demo",
@@ -60,6 +67,24 @@ const summary = (capability: CapabilityRegistryEntry): AppRegistryEntry => ({
 });
 
 const authenticate = async (_c: unknown, next: () => Promise<void>) => next();
+
+const credentialAuthenticate: NonNullable<CapabilityRouteDependencies["authenticate"]> = async (c, next) => {
+  const token = auth.session.getToken(c);
+  if (token === "session-token") return next();
+  if (token === "read-token") {
+    c.set("oauthScopes", ["read"]);
+    return next();
+  }
+  if (token === "write-token") {
+    c.set("oauthScopes", ["write"]);
+    return next();
+  }
+  if (token === "admin-token") {
+    c.set("oauthScopes", ["admin"]);
+    return next();
+  }
+  return c.json({ message: "Authentication required" }, 401);
+};
 
 describe("capability API", () => {
   test("paginates the live catalog deterministically", async () => {
@@ -148,6 +173,83 @@ describe("capability API", () => {
     expect(forwarded?.get("tracestate")).toBe("cloud=test");
     expect(forwarded?.get("x-request-id")).toBe("request-123");
     expect(forwarded?.get("x-cloud-capability-schema-hash")).toBe(compiled.manifest.queries[0]?.schemaHash);
+  });
+
+  test("prefers an explicit bearer over a session cookie and enforces its OAuth scope", async () => {
+    let requested = false;
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate: credentialAuthenticate,
+      fetch: async (input) => {
+        requested = true;
+        return String(input).endsWith("/review")
+          ? Response.json({ message: "Rename one to Two." })
+          : Response.json({ data: { id: "one", name: "Two" } });
+      },
+    });
+    const headers = {
+      authorization: "Bearer read-token",
+      cookie: "other=private; session_token=session-token",
+      "content-type": "application/json",
+    };
+
+    const action = await routes.request("/capabilities/v1/actions/demo/rename", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(action.status).toBe(403);
+    expect(await action.json()).toEqual({ code: "FORBIDDEN", message: "OAuth scope write or admin is required" });
+    expect(requested).toBeFalse();
+
+    const review = await routes.request("/capabilities/v1/actions/demo/rename/review", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(review.status).toBe(200);
+    expect(requested).toBeTrue();
+  });
+
+  test("does not fall back to a valid session cookie when an explicit bearer is invalid", async () => {
+    const routes = createCapabilityRoutes({ authenticate: credentialAuthenticate });
+    for (const authorization of ["Bearer invalid-token", "Bearer"]) {
+      const response = await routes.request("/capabilities/v1/catalog", {
+        headers: { authorization, cookie: "session_token=session-token" },
+      });
+      expect(response.status).toBe(401);
+    }
+  });
+
+  test("enforces read and write OAuth scopes while leaving sessions and admin tokens unrestricted", async () => {
+    const routes = createCapabilityRoutes({
+      listApps: async () => [],
+      getCapability: async () => entry(),
+      authenticate: credentialAuthenticate,
+      fetch: async (input) =>
+        String(input).includes("/actions/") ? Response.json({ data: { id: "one", name: "Two" } }) : Response.json({ data: { id: "one" } }),
+    });
+    const request = (path: string, token: string, input?: unknown) =>
+      routes.request(path, {
+        method: input === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        ...(input === undefined ? {} : { body: JSON.stringify({ input }) }),
+      });
+
+    expect((await request("/capabilities/v1/catalog", "read-token")).status).toBe(200);
+    expect((await request("/capabilities/v1/queries/demo/get", "read-token", { id: "one" })).status).toBe(200);
+    expect((await request("/capabilities/v1/actions/demo/rename", "read-token", { id: "one", name: "Two" })).status).toBe(403);
+    expect((await request("/capabilities/v1/catalog", "write-token")).status).toBe(403);
+    expect((await request("/capabilities/v1/actions/demo/rename/review", "write-token", { id: "one", name: "Two" })).status).toBe(403);
+    expect((await request("/capabilities/v1/actions/demo/rename", "write-token", { id: "one", name: "Two" })).status).toBe(200);
+    expect((await request("/capabilities/v1/catalog", "admin-token")).status).toBe(200);
+
+    const sessionAction = await routes.request("/capabilities/v1/actions/demo/rename", {
+      method: "POST",
+      headers: { cookie: "session_token=session-token", "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one", name: "Two" } }),
+    });
+    expect(sessionAction.status).toBe(200);
   });
 
   test("enforces the declared Action idempotency policy before dispatch", async () => {
@@ -435,10 +537,16 @@ test("shared catalog loader rejects limits outside the public schema", async () 
 
 test("capabilityCredentialHeaders never forwards internal identity headers", () => {
   const request = new Request("http://cloud.test", {
-    headers: { cookie: "session=ok", "x-cloud-actor": "forged", "x-cloud-user": "forged" },
+    headers: {
+      authorization: "Basic ignored",
+      cookie: "other=private; session_token=session-value; analytics=private",
+      "x-cloud-actor": "forged",
+      "x-cloud-user": "forged",
+    },
   });
   const headers = capabilityCredentialHeaders(request);
-  expect(headers.get("cookie")).toBe("session=ok");
+  expect(headers.get("authorization")).toBeNull();
+  expect(headers.get("cookie")).toBe("session_token=session-value");
   expect(headers.get("x-cloud-actor")).toBeNull();
   expect(headers.get("x-cloud-user")).toBeNull();
 });

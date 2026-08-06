@@ -47,10 +47,7 @@ const heapPop = <T>(heap: T[], before: (left: T, right: T) => boolean): T | unde
   }
 };
 
-const layoutGroup = <T>(
-  group: readonly BoundedItem<T>[],
-  groupId: number,
-): CalendarIntervalLayout<T>[] => {
+const layoutGroup = <T>(group: readonly BoundedItem<T>[], groupId: number): CalendarIntervalLayout<T>[] => {
   const active: ActiveLane[] = [];
   const freeLanes: number[] = [];
   const assigned: Array<{ item: T; lane: number }> = [];

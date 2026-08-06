@@ -41,7 +41,9 @@ describe("Pulse frontend HTTP helpers", () => {
       });
     });
 
-    await expect(jsonFetch<Record<string, string | null>>("/api/pulse/test", { headers: { Authorization: "Bearer token" } })).resolves.toEqual({
+    await expect(
+      jsonFetch<Record<string, string | null>>("/api/pulse/test", { headers: { Authorization: "Bearer token" } }),
+    ).resolves.toEqual({
       authorization: "Bearer token",
       contentType: "application/json",
     });
@@ -89,6 +91,8 @@ describe("Pulse frontend HTTP helpers", () => {
 
   test("supports a custom error fallback", async () => {
     mockFetch(async () => new Response("nope", { status: 500, headers: { "Content-Type": "text/plain" } }));
-    await expect(jsonFetch<void>("/api/pulse/broken", undefined, "Failed to create Pulse base")).rejects.toThrow("Failed to create Pulse base");
+    await expect(jsonFetch<void>("/api/pulse/broken", undefined, "Failed to create Pulse base")).rejects.toThrow(
+      "Failed to create Pulse base",
+    );
   });
 });

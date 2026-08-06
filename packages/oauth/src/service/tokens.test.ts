@@ -59,6 +59,8 @@ const insertGroup = async (name: string) => {
   return row!.id;
 };
 
+const adminActor = (id: string) => ({ id, uid: `oauth-admin-${id}`, provider: "local", roles: ["admin"] });
+
 const createSessionToken = async (userId: string): Promise<string> => {
   const randomToken = crypto.randomUUID();
   await redis.set(`session:${userId}:${randomToken}`, JSON.stringify({ userId, gen: 0 }), "EX", 60);
@@ -108,7 +110,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `User token client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -157,7 +159,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Authorization code race client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -202,6 +204,75 @@ suite("OAuth resource access tokens", () => {
     }
   });
 
+  test("authorization codes cannot outlive current client scope or resource policy", async () => {
+    const userId = await insertUser();
+    const oldResource = "https://old.example.test/api";
+    let clientId: string | null = null;
+
+    try {
+      const created = await oauth.clients.create({
+        actor: adminActor(userId),
+        data: {
+          name: `Code policy client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "write"],
+          audiences: [oldResource],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const exchange = (code: string, resource?: string) => {
+        const body = new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: created.data.clientId,
+          client_secret: created.data.clientSecret,
+          code,
+          redirect_uri: "https://client.example.test/callback",
+        });
+        if (resource) body.set("resource", resource);
+        return oauthRoutes.request("/oauth/token", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        });
+      };
+
+      const scopedCode = await oauth.codes.create({
+        clientId: created.data.clientId,
+        userId,
+        redirectUri: "https://client.example.test/callback",
+        scopes: ["write"],
+      });
+      await oauth.clients.update({ id: clientId, data: { scopes: ["openid"] }, actor: adminActor(userId) });
+      expect(await (await exchange(scopedCode)).json()).toMatchObject({ error: "invalid_grant" });
+
+      await oauth.clients.update({ id: clientId, data: { scopes: ["openid", "write"] }, actor: adminActor(userId) });
+      const resourceCode = await oauth.codes.create({
+        clientId: created.data.clientId,
+        userId,
+        redirectUri: "https://client.example.test/callback",
+        scopes: ["openid"],
+        resource: oldResource,
+      });
+      await oauth.clients.update({
+        id: clientId,
+        data: { audiences: ["https://new.example.test/api"] },
+        actor: adminActor(userId),
+      });
+      expect(await (await exchange(resourceCode, oldResource)).json()).toMatchObject({ error: "invalid_grant" });
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("authorization requests without scope use conservative default scopes", async () => {
     const userId = await insertUser();
     const sessionToken = await createSessionToken(userId);
@@ -209,7 +280,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Authorization scope default client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -264,7 +335,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Refresh token client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -307,7 +378,7 @@ suite("OAuth resource access tokens", () => {
       expect(codeToken.refresh_token.startsWith("cld_rt_")).toBe(true);
 
       await expect(
-        oauth.refreshTokens.rotate(codeToken.refresh_token, created.data.clientId, undefined, undefined, async () => {
+        oauth.refreshTokens.rotate(codeToken.refresh_token, created.data, undefined, undefined, async () => {
           throw new Error("simulated signing failure");
         }),
       ).rejects.toThrow("simulated signing failure");
@@ -317,6 +388,7 @@ suite("OAuth resource access tokens", () => {
         client_id: created.data.clientId,
         client_secret: created.data.clientSecret,
         refresh_token: codeToken.refresh_token,
+        scope: "openid offline_access",
       });
       const refreshResponse = await oauthRoutes.request("/oauth/token", {
         method: "POST",
@@ -324,9 +396,24 @@ suite("OAuth resource access tokens", () => {
         body: refreshBody,
       });
       expect(refreshResponse.status).toBe(200);
-      const refreshed = (await refreshResponse.json()) as { refresh_token: string };
+      const refreshed = (await refreshResponse.json()) as { refresh_token: string; scope: string };
       expect(refreshed.refresh_token.startsWith("cld_rt_")).toBe(true);
       expect(refreshed.refresh_token).not.toBe(codeToken.refresh_token);
+      expect(refreshed.scope).toBe("openid offline_access");
+
+      const durableDownscopeResponse = await oauthRoutes.request("/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: created.data.clientId,
+          client_secret: created.data.clientSecret,
+          refresh_token: refreshed.refresh_token,
+        }),
+      });
+      expect(durableDownscopeResponse.status).toBe(200);
+      const durableDownscope = (await durableDownscopeResponse.json()) as { refresh_token: string; scope: string };
+      expect(durableDownscope.scope).toBe("openid offline_access");
 
       const reuseResponse = await oauthRoutes.request("/oauth/token", {
         method: "POST",
@@ -344,7 +431,7 @@ suite("OAuth resource access tokens", () => {
           grant_type: "refresh_token",
           client_id: created.data.clientId,
           client_secret: created.data.clientSecret,
-          refresh_token: refreshed.refresh_token,
+          refresh_token: durableDownscope.refresh_token,
         }),
       });
       expect(revokedFamilyResponse.status).toBe(400);
@@ -376,6 +463,7 @@ suite("OAuth resource access tokens", () => {
     } satisfies Awaited<ReturnType<typeof oauth.clients.list>>[number];
 
     expect(oauth.clients.validateRedirectUri(client, "http://127.0.0.1:49152/callback")).toBe(true);
+    expect(oauth.clients.validateRedirectUri(client, "http://[::1]:49152/callback")).toBe(false);
     expect(oauth.clients.validateRedirectUri(client, "http://127.0.0.1:49152/other")).toBe(false);
     expect(oauth.clients.validateRedirectUri(client, "https://127.0.0.1/callback")).toBe(false);
     expect(oauth.clients.validateRedirectUri(client, "http://example.test/callback")).toBe(false);
@@ -448,6 +536,32 @@ suite("OAuth resource access tokens", () => {
       expect(new Set(clientIds).size).toBe(2);
     } finally {
       for (const clientId of clientIds) await sql`DELETE FROM oauth.clients WHERE client_id = ${clientId}`;
+    }
+  });
+
+  test("dynamic registration preserves an explicitly restricted scope", async () => {
+    let clientId: string | null = null;
+    try {
+      const response = await oauthRoutes.request("/oauth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": crypto.randomUUID() },
+        body: JSON.stringify({
+          client_name: "Read-only MCP client",
+          application_type: "native",
+          redirect_uris: ["http://127.0.0.1:49154/callback"],
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+          scope: "read",
+        }),
+      });
+      expect(response.status).toBe(201);
+      const registered = (await response.json()) as { client_id: string; scope: string };
+      clientId = registered.client_id;
+      expect(registered.scope).toBe("read");
+      expect((await oauth.clients.getByClientId({ clientId }))?.scopes).toEqual(["read"]);
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE client_id = ${clientId}`;
     }
   });
 
@@ -667,9 +781,16 @@ suite("OAuth resource access tokens", () => {
         })}`,
         { headers: { cookie: `session_token=${sessionToken}` }, redirect: "manual" },
       );
-      expect(foreignResource.status).toBe(400);
+      expect(foreignResource.status).toBe(302);
+      const foreignResourceCallback = new URL(foreignResource.headers.get("location")!);
+      expect(foreignResourceCallback.searchParams.get("error")).toBe("invalid_target");
+      expect(foreignResourceCallback.searchParams.get("iss")).toBe("http://localhost:3000");
 
-      const immutableUpdate = await oauth.clients.update({ id: client.id, data: { name: "Changed by administrator" } });
+      const immutableUpdate = await oauth.clients.update({
+        id: client.id,
+        data: { name: "Changed by administrator" },
+        actor: adminActor(userId),
+      });
       expect(immutableUpdate).toMatchObject({ ok: false, status: 400 });
 
       const revoked = await oauth.clients.delete_({
@@ -704,7 +825,10 @@ suite("OAuth resource access tokens", () => {
     try {
       const client = await oauth.clients.getByClientId({ clientId: "cloud-cli" });
       expect(client?.registrationKind).toBe("first_party");
-      expect(await oauth.clients.update({ id: client!.id, data: { name: "Changed Cloud CLI" } })).toMatchObject({ ok: false, status: 400 });
+      expect(await oauth.clients.update({ id: client!.id, data: { name: "Changed Cloud CLI" }, actor: adminActor(userId) })).toMatchObject({
+        ok: false,
+        status: 400,
+      });
       expect(
         await oauth.clients.delete_({
           id: client!.id,
@@ -712,6 +836,144 @@ suite("OAuth resource access tokens", () => {
         }),
       ).toMatchObject({ ok: false, status: 400 });
     } finally {
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("migration restores Cloud CLI invariants and creator deletion preserves managed clients", async () => {
+    const creatorId = await insertUser();
+    const accessUserId = await insertUser();
+    const accessGroupId = await insertGroup("oauth-migration");
+    let managedClientId: string | null = null;
+
+    try {
+      const cloudCli = await oauth.clients.getByClientId({ clientId: "cloud-cli" });
+      expect(cloudCli).not.toBeNull();
+      await sql`
+        UPDATE oauth.clients
+        SET name = 'Legacy CLI',
+          description = NULL,
+          redirect_uris = ARRAY['https://wrong.example/callback'],
+          scopes = ARRAY['admin'],
+          audiences = ARRAY['wrong'],
+          allowed_profiles = ARRAY['guest'],
+          access_mode = 'specific',
+          registration_kind = 'managed',
+          is_public = false,
+          client_secret_hash = 'legacy-secret'
+        WHERE id = ${cloudCli!.id}::uuid
+      `;
+      await sql`INSERT INTO oauth.client_access_users (client_id, user_id) VALUES (${cloudCli!.id}::uuid, ${accessUserId}::uuid)`;
+      await sql`INSERT INTO oauth.client_access_groups (client_id, group_id) VALUES (${cloudCli!.id}::uuid, ${accessGroupId}::uuid)`;
+      const [legacyFamily] = await sql<{ id: string }[]>`
+        INSERT INTO oauth.refresh_token_families (client_id, user_id, scopes, audiences, resource, expires_at)
+        VALUES (
+          'cloud-cli',
+          ${accessUserId}::uuid,
+          ARRAY['offline_access', 'read'],
+          ARRAY['https://legacy.example.test/api'],
+          NULL,
+          now() + INTERVAL '30 days'
+        )
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO oauth.refresh_tokens (family_id, token_prefix, secret_hash, generation, expires_at)
+        VALUES (${legacyFamily!.id}::uuid, ${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}, 'legacy', 1, now() + INTERVAL '30 days')
+      `;
+
+      await migrate();
+      await migrate();
+      const restored = await oauth.clients.getByClientId({ clientId: "cloud-cli" });
+      expect(restored).toMatchObject({
+        name: "Cloud CLI",
+        redirectUris: ["http://127.0.0.1/callback", "http://[::1]/callback"],
+        scopes: ["openid", "profile", "email", "offline_access", "read", "write"],
+        audiences: ["cloud"],
+        serviceAccountId: null,
+        allowedProfiles: ["user", "guest"],
+        accessMode: "profiles",
+        accessUsers: [],
+        accessGroups: [],
+        registrationKind: "first_party",
+        isPublic: true,
+      });
+      const [secretRow] = await sql<{ client_secret_hash: string | null }[]>`
+        SELECT client_secret_hash FROM oauth.clients WHERE id = ${cloudCli!.id}::uuid
+      `;
+      expect(secretRow?.client_secret_hash).toBeNull();
+      const [legacyGrant] = await sql<{ family_status: string; token_status: string; revoked_reason: string | null }[]>`
+        SELECT family.status AS family_status, token.status AS token_status, family.revoked_reason
+        FROM oauth.refresh_token_families family
+        JOIN oauth.refresh_tokens token ON token.family_id = family.id
+        WHERE family.id = ${legacyFamily!.id}::uuid
+      `;
+      expect(legacyGrant).toEqual({
+        family_status: "revoked",
+        token_status: "revoked",
+        revoked_reason: "legacy_resource_binding_migration",
+      });
+
+      const managed = await oauth.clients.create({
+        actor: adminActor(creatorId),
+        data: {
+          name: `Creator lifecycle client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: true,
+        },
+      });
+      expect(managed.ok).toBe(true);
+      if (!managed.ok) return;
+      managedClientId = managed.data.id;
+
+      await sql`DELETE FROM auth.users WHERE id = ${creatorId}::uuid`;
+      expect(await oauth.clients.get({ id: managedClientId })).toMatchObject({ createdBy: null });
+    } finally {
+      if (managedClientId) await sql`DELETE FROM oauth.clients WHERE id = ${managedClientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id IN (${creatorId}::uuid, ${accessUserId}::uuid)`;
+      await sql`DELETE FROM auth.groups WHERE id = ${accessGroupId}::uuid`;
+    }
+  });
+
+  test("concurrent managed client patches preserve independent fields", async () => {
+    const userId = await insertUser();
+    let clientId: string | null = null;
+    try {
+      const created = await oauth.clients.create({
+        actor: adminActor(userId),
+        data: {
+          name: `Concurrent client ${crypto.randomUUID()}`,
+          description: "before",
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: true,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      await Promise.all([
+        oauth.clients.update({ id: clientId, data: { name: "Concurrent name" }, actor: adminActor(userId) }),
+        oauth.clients.update({ id: clientId, data: { description: "Concurrent description" }, actor: adminActor(userId) }),
+      ]);
+      expect(await oauth.clients.get({ id: clientId })).toMatchObject({
+        name: "Concurrent name",
+        description: "Concurrent description",
+      });
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
   });
@@ -726,6 +988,190 @@ suite("OAuth resource access tokens", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(await response.json()).toEqual({ error: "invalid_request", error_description: "Token request validation failed" });
+
+    const mixedAuthentication = await oauthRoutes.request("/oauth/token", {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${btoa("basic-client:secret")}`,
+        "content-type": "application/x-www-form-urlencoded",
+        "x-forwarded-for": crypto.randomUUID(),
+      },
+      body: new URLSearchParams({ grant_type: "refresh_token", client_id: "body-client", refresh_token: "invalid" }),
+    });
+    expect(mixedAuthentication.status).toBe(400);
+    expect(await mixedAuthentication.json()).toMatchObject({ error: "invalid_request" });
+
+    const malformedBasic = await oauthRoutes.request("/oauth/token", {
+      method: "POST",
+      headers: {
+        authorization: "Basic not-base64!",
+        "content-type": "application/x-www-form-urlencoded",
+        "x-forwarded-for": crypto.randomUUID(),
+      },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: "invalid" }),
+    });
+    expect(malformedBasic.status).toBe(401);
+    expect(malformedBasic.headers.get("www-authenticate")).toBe('Basic realm="oauth"');
+
+    const oversized = await oauthRoutes.request("/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-forwarded-for": crypto.randomUUID() },
+      body: new URLSearchParams({ grant_type: "refresh_token", client_id: "client", refresh_token: "x".repeat(17_000) }),
+    });
+    expect(oversized.status).toBe(413);
+    expect(oversized.headers.get("cache-control")).toBe("no-store");
+    expect(await oversized.json()).toMatchObject({ error: "invalid_request" });
+
+    const invalidResource = await oauthRoutes.request("/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-forwarded-for": crypto.randomUUID() },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: "client",
+        refresh_token: "invalid",
+        resource: "https://cloud.example/api#fragment",
+      }),
+    });
+    expect(invalidResource.status).toBe(400);
+    expect(await invalidResource.json()).toMatchObject({ error: "invalid_target" });
+  });
+
+  test("UserInfo accepts only active openid user access tokens for the issuing client", async () => {
+    const userId = await insertUser();
+    let clientId: string | null = null;
+
+    try {
+      const created = await oauth.clients.create({
+        actor: adminActor(userId),
+        data: {
+          name: `UserInfo client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "email", "read"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const tokens = await oauth.tokens.createTokens({
+        userId,
+        client: created.data,
+        issuer: "http://localhost:3000",
+        scopes: ["openid", "email"],
+      });
+      const userInfo = (token: string) => oauthRoutes.request("/oauth/userinfo", { headers: { authorization: `Bearer ${token}` } });
+
+      const valid = await userInfo(tokens.accessToken);
+      expect(valid.status).toBe(200);
+      expect(valid.headers.get("cache-control")).toBe("no-store");
+      expect(await valid.json()).toMatchObject({ id: userId });
+      expect((await userInfo(tokens.idToken!)).status).toBe(401);
+
+      const noOpenId = await oauth.tokens.createTokens({
+        userId,
+        client: created.data,
+        issuer: "http://localhost:3000",
+        scopes: ["read"],
+      });
+      expect((await userInfo(noOpenId.accessToken)).status).toBe(403);
+
+      const resourceBound = await oauth.tokens.createTokens({
+        userId,
+        client: created.data,
+        issuer: "http://localhost:3000",
+        scopes: ["openid"],
+        audiences: ["http://localhost:3000/api/mcp/v1"],
+        resource: "http://localhost:3000/api/mcp/v1",
+      });
+      expect((await userInfo(resourceBound.accessToken)).status).toBe(401);
+
+      await sql`UPDATE auth.users SET account_expires = now() - INTERVAL '1 minute' WHERE id = ${userId}::uuid`;
+      expect((await userInfo(tokens.accessToken)).status).toBe(401);
+
+      await sql`UPDATE auth.users SET account_expires = NULL WHERE id = ${userId}::uuid`;
+      await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      clientId = null;
+      expect((await userInfo(tokens.accessToken)).status).toBe(401);
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("expired accounts cannot authorize or refresh and failed refreshes do not rotate", async () => {
+    const userId = await insertUser();
+    const sessionToken = await createSessionToken(userId);
+    let clientId: string | null = null;
+
+    try {
+      const created = await oauth.clients.create({
+        actor: adminActor(userId),
+        data: {
+          name: `Account lifecycle client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "offline_access", "read"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const issued = await oauth.tokens.createTokens({
+        userId,
+        client: created.data,
+        issuer: "http://localhost:3000",
+        scopes: ["openid", "offline_access", "read"],
+        issueRefreshToken: true,
+      });
+      expect(issued.refreshToken).toBeTruthy();
+
+      await sql`UPDATE auth.users SET account_expires = now() - INTERVAL '1 minute' WHERE id = ${userId}::uuid`;
+      const authorize = await oauthRoutes.request(
+        `/oauth/authorize?${new URLSearchParams({
+          client_id: created.data.clientId,
+          redirect_uri: "https://client.example.test/callback",
+          response_type: "code",
+          scope: "openid read",
+        })}`,
+        { headers: { cookie: `session_token=${sessionToken}` }, redirect: "manual" },
+      );
+      expect(authorize.status).toBe(302);
+      expect(authorize.headers.get("location")).toStartWith("/auth/login?");
+
+      const refresh = () =>
+        oauthRoutes.request("/oauth/token", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: created.data.clientId,
+            client_secret: created.data.clientSecret,
+            refresh_token: issued.refreshToken!,
+          }),
+        });
+      const denied = await refresh();
+      expect(denied.status).toBe(400);
+      expect(await denied.json()).toMatchObject({ error: "invalid_grant" });
+
+      await sql`UPDATE auth.users SET account_expires = NULL WHERE id = ${userId}::uuid`;
+      expect((await refresh()).status).toBe(200);
+    } finally {
+      await redis.del(`session:${sessionToken}`);
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
   });
 
   test("public clients must use PKCE S256", async () => {
@@ -734,7 +1180,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Public PKCE client ${crypto.randomUUID()}`,
           redirectUris: ["http://127.0.0.1/callback"],
@@ -759,7 +1205,8 @@ suite("OAuth resource access tokens", () => {
           code_challenge: "a".repeat(43),
         })}`,
       );
-      expect(missingMethod.status).toBe(400);
+      expect(missingMethod.status).toBe(302);
+      expect(new URL(missingMethod.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
 
       const plainMethod = await oauthRoutes.request(
         `/oauth/authorize?${new URLSearchParams({
@@ -770,7 +1217,8 @@ suite("OAuth resource access tokens", () => {
           code_challenge_method: "plain",
         })}`,
       );
-      expect(plainMethod.status).toBe(400);
+      expect(plainMethod.status).toBe(302);
+      expect(new URL(plainMethod.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
     } finally {
       if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
@@ -783,7 +1231,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Refresh audience client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -818,7 +1266,9 @@ suite("OAuth resource access tokens", () => {
         }),
       });
       expect(codeResponse.status).toBe(200);
-      const codeToken = (await codeResponse.json()) as { refresh_token: string };
+      const codeToken = (await codeResponse.json()) as { access_token: string; refresh_token: string };
+      const initialPayload = jose.decodeJwt(codeToken.access_token);
+      const initialAudience = Array.isArray(initialPayload.aud) ? initialPayload.aud : [initialPayload.aud];
 
       await sql`
         UPDATE oauth.clients
@@ -840,6 +1290,9 @@ suite("OAuth resource access tokens", () => {
       const refreshed = (await refreshResponse.json()) as { access_token: string };
       const payload = jose.decodeJwt(refreshed.access_token);
       const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+      expect(audience).toEqual(initialAudience);
+      expect(audience).toContain("cloud");
+      expect(audience).toContain(created.data.clientId);
       expect(audience).toContain("old-api");
       expect(audience).not.toContain("new-api");
     } finally {
@@ -856,7 +1309,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `MCP resource client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -977,7 +1430,7 @@ suite("OAuth resource access tokens", () => {
 
     try {
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Refresh token revocation client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -1019,7 +1472,7 @@ suite("OAuth resource access tokens", () => {
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           token: codeToken.refresh_token,
-          token_type_hint: "unsupported_hint",
+          token_type_hint: "access_token",
           client_id: created.data.clientId,
           client_secret: created.data.clientSecret,
         }),
@@ -1037,6 +1490,19 @@ suite("OAuth resource access tokens", () => {
         }),
       });
       expect(refreshResponse.status).toBe(400);
+
+      await sql`
+        UPDATE oauth.refresh_token_families
+        SET revoked_at = now() - INTERVAL '2 days'
+        WHERE client_id = ${created.data.clientId}
+      `;
+      expect(await oauth.refreshTokens.cleanup()).toBeGreaterThanOrEqual(1);
+      const [remaining] = await sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM oauth.refresh_token_families
+        WHERE client_id = ${created.data.clientId}
+      `;
+      expect(remaining?.count).toBe(0);
     } finally {
       if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
@@ -1057,7 +1523,7 @@ suite("OAuth resource access tokens", () => {
       await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${nestedUserId}::uuid, ${childGroupId}::uuid)`;
 
       const created = await oauth.clients.create({
-        createdBy: creatorId,
+        actor: adminActor(creatorId),
         data: {
           name: `Specific access client ${crypto.randomUUID()}`,
           redirectUris: ["https://client.example.test/callback"],
@@ -1104,7 +1570,7 @@ suite("OAuth resource access tokens", () => {
       serviceAccountId = serviceAccount.data.id;
 
       const publicBinding = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Invalid public service token client ${crypto.randomUUID()}`,
           redirectUris: [],
@@ -1121,7 +1587,7 @@ suite("OAuth resource access tokens", () => {
       expect(publicBinding.ok).toBe(false);
 
       const created = await oauth.clients.create({
-        createdBy: userId,
+        actor: adminActor(userId),
         data: {
           name: `Service token client ${crypto.randomUUID()}`,
           redirectUris: [],

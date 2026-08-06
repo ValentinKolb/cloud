@@ -53,6 +53,7 @@ export const failedQueryDiagnostics = (message: string): PulseQueryCompileResult
   compiled: null,
 });
 
-export const shouldRememberQueryRun = (options: { manual?: boolean; remember?: boolean }): boolean => options.remember ?? options.manual ?? true;
+export const shouldRememberQueryRun = (options: { manual?: boolean; remember?: boolean }): boolean =>
+  options.remember ?? options.manual ?? true;
 
 export const shouldToastQueryError = (options: { manual?: boolean }): boolean => options.manual ?? true;

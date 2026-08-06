@@ -170,7 +170,6 @@ suite("notification batch selections", () => {
   });
 
   test("resolves explicit users and recursive group members", async () => {
-
     const suffix = crypto.randomUUID();
     const explicitUserId = await insertUser(suffix, "explicit-user");
     const directMemberId = await insertUser(suffix, "direct-member");
@@ -202,7 +201,6 @@ suite("notification batch selections", () => {
   });
 
   test("finalize rejects legacy rule drafts without creating a recipient snapshot", async () => {
-
     const suffix = crypto.randomUUID();
     const actorId = await insertUser(suffix, "legacy-actor");
     const legacySelection = { mode: "rules", rules: ["account_manager"] };

@@ -33,7 +33,8 @@ export const explicitPulseResource = (resource: PulseResourceRef | null | undefi
 
 const signalStartsWith = (input: ResourceInput, prefix: string): boolean => (input.signalName ?? "").startsWith(prefix);
 
-const hostDimension = (dimensions: Record<string, string>): string | null => dimensions.host ?? dimensions.instance ?? dimensions.node ?? null;
+const hostDimension = (dimensions: Record<string, string>): string | null =>
+  dimensions.host ?? dimensions.instance ?? dimensions.node ?? null;
 
 const deriveContainerResource = (input: ResourceInput): PulseResourceIdentity | null => {
   const dimensions = input.dimensions;
@@ -61,7 +62,8 @@ const deriveComposeProjectResource = (input: ResourceInput): PulseResourceIdenti
 const deriveFilesystemResource = (input: ResourceInput): PulseResourceIdentity | null => {
   const dimensions = input.dimensions;
   const filesystemLabel = dimensions.mountpoint ?? dimensions.mount ?? dimensions.device ?? null;
-  if (!filesystemLabel && !signalStartsWith(input, "system.filesystem.") && !signalStartsWith(input, "docker.container.mount.")) return null;
+  if (!filesystemLabel && !signalStartsWith(input, "system.filesystem.") && !signalStartsWith(input, "docker.container.mount."))
+    return null;
   const id = compact([hostDimension(dimensions), filesystemLabel], ":");
   return id ? identity("filesystem", id, filesystemLabel ?? id) : null;
 };

@@ -532,9 +532,13 @@ export const defineApp = <
       const capabilityAuth = auth.requireRole("authenticated", {
         oauthAudience: async () => ["cloud", cloudMcpResourceUri(await get<string>("app.url"))],
       });
-      server.post("/api/_internal/capabilities/v1/queries/:capabilityId", capabilityAuth, (c) => invoke(c, "query"));
-      server.post("/api/_internal/capabilities/v1/actions/:capabilityId", capabilityAuth, (c) => invoke(c, "action"));
-      server.post("/api/_internal/capabilities/v1/actions/:capabilityId/review", capabilityAuth, (c) => invoke(c, "review"));
+      const capabilityReadScope = auth.requireOAuthScope("read", "admin");
+      const capabilityWriteScope = auth.requireOAuthScope("write", "admin");
+      server.post("/api/_internal/capabilities/v1/queries/:capabilityId", capabilityAuth, capabilityReadScope, (c) => invoke(c, "query"));
+      server.post("/api/_internal/capabilities/v1/actions/:capabilityId", capabilityAuth, capabilityWriteScope, (c) => invoke(c, "action"));
+      server.post("/api/_internal/capabilities/v1/actions/:capabilityId/review", capabilityAuth, capabilityReadScope, (c) =>
+        invoke(c, "review"),
+      );
     }
 
     // OpenAPI spec mount. Registered on the framework server (before the

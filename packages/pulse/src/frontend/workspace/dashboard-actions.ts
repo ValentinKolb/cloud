@@ -1,8 +1,4 @@
-import type {
-  PulseDashboard,
-  PulseDashboardConfig,
-  PulseDashboardDslCompileResult,
-} from "../../contracts";
+import type { PulseDashboard, PulseDashboardConfig, PulseDashboardDslCompileResult } from "../../contracts";
 import { jsonFetch } from "../http";
 
 export const compileDashboardDslText = (baseId: string, text: string): Promise<PulseDashboardDslCompileResult> =>

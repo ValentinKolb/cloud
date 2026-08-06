@@ -25,11 +25,6 @@ export default ssr<AuthContext>(async (c) => {
   const dateConfig = getDateConfig(c);
 
   return () => (
-    <PublicPulseDashboard
-      token={token}
-      initialSnapshot={snapshot.data}
-      initialDateConfig={dateConfig}
-      displayHeight={displayHeight}
-    />
+    <PublicPulseDashboard token={token} initialSnapshot={snapshot.data} initialDateConfig={dateConfig} displayHeight={displayHeight} />
   );
 });

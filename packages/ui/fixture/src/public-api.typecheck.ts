@@ -1,13 +1,4 @@
-import {
-  Button,
-  Checkbox,
-  CheckboxCard,
-  IconButton,
-  MultiSelectInput,
-  RemoveButton,
-  Select,
-  Switch,
-} from "@k2b/ui";
+import { Button, Checkbox, CheckboxCard, IconButton, MultiSelectInput, RemoveButton, Select, Switch } from "@k2b/ui";
 import type {
   ContextMenuContent,
   CopyButtonValue,
@@ -29,16 +20,7 @@ const copyValue: CopyButtonValue = { text: "portable" };
 const dropdownAction: DropdownActionBase = { label: "Open" };
 const promptField: PromptFieldBase<string> = { label: "Name" };
 
-void [
-  components,
-  contextMenu,
-  copyValue,
-  dateProps,
-  dropdownAction,
-  maybe,
-  promptField,
-  selectOption,
-];
+void [components, contextMenu, copyValue, dateProps, dropdownAction, maybe, promptField, selectOption];
 
 // Cloud compatibility names are deliberately absent from the package API.
 // @ts-expect-error no compatibility alias

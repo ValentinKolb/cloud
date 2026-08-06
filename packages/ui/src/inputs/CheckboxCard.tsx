@@ -8,10 +8,10 @@ export type CheckboxCardProps = Omit<
   "checked" | "onChange" | "type" | "value" | keyof ValueFieldProps<boolean>
 > &
   ValueFieldProps<boolean> & {
-  icon?: string;
-  color?: string;
-  variant?: "card" | "input";
-};
+    icon?: string;
+    color?: string;
+    variant?: "card" | "input";
+  };
 
 const validHexColor = (color: string | undefined): string | undefined =>
   color && /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.trim()) ? color.trim() : undefined;
@@ -60,9 +60,7 @@ export function CheckboxCard(props: CheckboxCardProps): JSX.Element {
                 without one does not reserve an empty grid column plus its gap. */}
             <Show
               when={local.icon}
-              fallback={
-                <Show when={color()}>{(value) => <span class="k2b-checkbox-card__color" style={{ background: value() }} />}</Show>
-              }
+              fallback={<Show when={color()}>{(value) => <span class="k2b-checkbox-card__color" style={{ background: value() }} />}</Show>}
             >
               {(icon) => <i class={`k2b-checkbox-card__icon ${icon()}`} aria-hidden="true" />}
             </Show>

@@ -64,16 +64,20 @@ const revokeToken = async (token: string): Promise<void> => {
 
 export const session = {
   /**
-   * Get session token from cookie or Authorization header.
+   * Get a session token from an explicit Bearer credential or the session cookie.
+   * An explicit Bearer credential always wins, including when it is invalid.
    * Token format: userId:randomToken
    *
    * Note: the userId is embedded in the token to enable efficient generation
    * lookup and per-user key namespacing. The userId (UUID) is not secret.
    */
   getToken: (c: Context): string | null => {
-    const cookie = getCookie(c, "session_token");
-    const bearer = parseBearer(c.req.header("Authorization"));
-    return cookie || (isCloudApiToken(bearer) ? null : bearer) || null;
+    const authorization = c.req.header("Authorization");
+    const bearer = parseBearer(authorization);
+    if (/^Bearer(?:\s|$)/i.test(authorization ?? "")) {
+      return isCloudApiToken(bearer) ? null : bearer;
+    }
+    return getCookie(c, "session_token") ?? null;
   },
 
   getBearerToken: (c: Context): string | null => parseBearer(c.req.header("Authorization")),

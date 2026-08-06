@@ -14,10 +14,7 @@ type ChatActionBase = {
 
 /** Exactly one executable behavior for every chat action. */
 export type ChatAction = ChatActionBase &
-  (
-    | { onSelect: () => void | Promise<void>; copyText?: never }
-    | { copyText: string; onSelect?: never }
-  );
+  ({ onSelect: () => void | Promise<void>; copyText?: never } | { copyText: string; onSelect?: never });
 
 export type ChatAttachment = {
   id: string;

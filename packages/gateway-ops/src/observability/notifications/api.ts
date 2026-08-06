@@ -14,7 +14,6 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { notificationsService } from "./service";
 
-
 const UpdateNotificationSchema = z.object({
   subject: z.string().min(1).optional().describe("Notification subject"),
   content: z.string().optional().describe("Content (HTML)"),

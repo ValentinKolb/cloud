@@ -72,6 +72,8 @@
 /* The authenticated rail is part of the canvas. Keeping it transparent also
    covers shell-only routes such as 404 pages that have no app workspace. */
 .cloud-app-canvas > .layout-rail {
+  width: calc(2.5rem + var(--ui-space-shell));
+  margin-inline-start: calc(-1 * var(--ui-space-shell));
   background-color: transparent !important;
   background-image: none !important;
 }

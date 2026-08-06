@@ -96,9 +96,7 @@ export const shippedStyleFiles = (stylesDir: string): string[] => {
 };
 
 export const readShippedCssRules = (stylesDir: string): CssRule[] =>
-  shippedStyleFiles(stylesDir).flatMap((file) =>
-    parseCssRules(file, readFileSync(resolve(stylesDir, file), "utf8")),
-  );
+  shippedStyleFiles(stylesDir).flatMap((file) => parseCssRules(file, readFileSync(resolve(stylesDir, file), "utf8")));
 
 export const cssDeclarations = (body: string): Map<string, string[]> => {
   const declarations = new Map<string, string[]>();
@@ -120,15 +118,16 @@ const focusShadow = (values: string[] | undefined) =>
   values?.some(
     (value) =>
       !/\binset\b/i.test(value) &&
-      (/(?:focus|action|ai-border|ui-focus)/i.test(value) ||
-        /\b0(?:px)?\s+0(?:px)?\s+0(?:px)?\s+(?!0(?:px)?(?:\s|$))/.test(value)),
+      (/(?:focus|action|ai-border|ui-focus)/i.test(value) || /\b0(?:px)?\s+0(?:px)?\s+0(?:px)?\s+(?!0(?:px)?(?:\s|$))/.test(value)),
   ) ?? false;
 
 export const focusSignalCount = (body: string): number => {
   const declarations = cssDeclarations(body);
   const border =
     visibleValue(declarations.get("border-color")) ||
-    [...declarations].some(([property, values]) => /^border(?:-(?:block|inline)(?:-(?:start|end))?)?$/.test(property) && visibleValue(values));
+    [...declarations].some(
+      ([property, values]) => /^border(?:-(?:block|inline)(?:-(?:start|end))?)?$/.test(property) && visibleValue(values),
+    );
   const outline = visibleValue(declarations.get("outline")) || visibleValue(declarations.get("outline-color"));
   const shadow = focusShadow(declarations.get("box-shadow"));
   return Number(border) + Number(outline) + Number(shadow);

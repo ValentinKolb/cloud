@@ -1,11 +1,6 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
-import {
-  type MessageInspector,
-  type MessageSourcePreview,
-  messageInspectorSchema,
-  messageSourcePreviewSchema,
-} from "../contracts";
+import { type MessageInspector, type MessageSourcePreview, messageInspectorSchema, messageSourcePreviewSchema } from "../contracts";
 import type { MailRequestContext } from "./auth";
 import { resolveMailExecution } from "./execution";
 import { mailingListMetadata } from "./list-subscriptions";
@@ -285,8 +280,7 @@ export const inspectMessage = async (params: {
   if (attachments.length > MESSAGE_INSPECTOR_ATTACHMENT_LIMIT) {
     warnings.push(`Only the first ${MESSAGE_INSPECTOR_ATTACHMENT_LIMIT} attachments are shown.`);
   }
-  const sourceAvailable =
-    message.source_blob_id !== null && message.source_byte_length !== null && message.source_content_hash !== null;
+  const sourceAvailable = message.source_blob_id !== null && message.source_byte_length !== null && message.source_content_hash !== null;
   if (sourceAvailable && message.source_blob_id) {
     try {
       const prefix = await readStoredBlobPrefix(message.source_blob_id, MESSAGE_HEADER_LIMIT_BYTES);
@@ -316,9 +310,7 @@ export const inspectMessage = async (params: {
   }
   if (message.hydration_status === "failed") {
     warnings.push(
-      message.hydration_error_code
-        ? `Message hydration failed (${message.hydration_error_code}).`
-        : "Message hydration failed.",
+      message.hydration_error_code ? `Message hydration failed (${message.hydration_error_code}).` : "Message hydration failed.",
     );
   }
   if (message.source_hash && message.source_content_hash && message.source_hash !== message.source_content_hash) {
@@ -351,10 +343,7 @@ export const inspectMessage = async (params: {
     source: {
       available: sourceAvailable,
       exact: sourceAvailable,
-      byteLength:
-        message.source_byte_length === null
-          ? null
-          : toSafeNonNegativeInteger(message.source_byte_length, "Message source size"),
+      byteLength: message.source_byte_length === null ? null : toSafeNonNegativeInteger(message.source_byte_length, "Message source size"),
       contentHash: message.source_content_hash,
     },
     headers: parsedHeaders.headers,

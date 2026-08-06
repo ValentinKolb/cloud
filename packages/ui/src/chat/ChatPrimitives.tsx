@@ -24,7 +24,13 @@ export type ChatActivityProps = {
   label: string;
   description?: string;
   icon?: string;
+  /** Optional host-owned leading visual rendered instead of the icon. */
+  leading?: JSX.Element;
+  /** Optional identity accent for the leading visual. Semantic tones still take precedence. */
+  accent?: string;
   tone?: ChatActivityTone;
+  /** Shows the shared three-dot progress indicator at the end of the row. */
+  busy?: boolean;
   trailing?: JSX.Element;
   defaultOpen?: boolean;
   anchorId?: string | number;
@@ -54,9 +60,16 @@ const statusLabel = (status: ChatMessageStatus | undefined): string | null => {
 
 const statusIcon = (status: ChatMessageStatus | undefined): string => {
   if (status === "pending") return "ti ti-clock";
-  if (status === "streaming") return "ti ti-loader-2";
   return "ti ti-alert-circle";
 };
+
+const ChatProgressDots = () => (
+  <span class="k2b-chat-progress-dots" aria-hidden="true">
+    <span />
+    <span />
+    <span />
+  </span>
+);
 
 const attachmentIcon = (attachment: ChatAttachment): string =>
   attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : "ti ti-file");
@@ -178,13 +191,22 @@ export function ChatMessage(props: ChatMessageProps): JSX.Element {
       </Show>
 
       <footer class="k2b-chat-message__meta">
-        <Show when={status()}>
-          {(label) => (
-            <span class="k2b-chat-message__status" role={props.status === "error" ? "alert" : "status"}>
-              <i class={`${statusIcon(props.status)} ${props.status === "streaming" ? "k2b-spin" : ""}`} aria-hidden="true" />
-              {label()}
-            </span>
-          )}
+        <Show
+          when={props.status === "streaming"}
+          fallback={
+            <Show when={status()}>
+              {(label) => (
+                <span class="k2b-chat-message__status" role={props.status === "error" ? "alert" : "status"}>
+                  <i class={statusIcon(props.status)} aria-hidden="true" />
+                  {label()}
+                </span>
+              )}
+            </Show>
+          }
+        >
+          <span class="k2b-chat-message__status k2b-chat-message__status--streaming" role="status" aria-label="Generating">
+            <ChatProgressDots />
+          </span>
         </Show>
         <Show when={time()}>{(label) => <time dateTime={timestamp() ?? undefined}>{label()}</time>}</Show>
         <Show when={actions().length > 0 && actionDisplay() === "inline"}>
@@ -219,11 +241,18 @@ export function ChatMessage(props: ChatMessageProps): JSX.Element {
 
 const ActivityContent = (props: ChatActivityProps & { disclosure?: boolean }) => (
   <>
-    <i class={props.icon ?? "ti ti-sparkles"} aria-hidden="true" />
+    <span class="k2b-chat-activity__leading" aria-hidden="true">
+      <Show when={props.leading} fallback={<i class={props.icon ?? "ti ti-sparkles"} />}>
+        {props.leading}
+      </Show>
+    </span>
     <span class="k2b-chat-activity__copy">
       <strong>{props.label}</strong>
       <Show when={props.description}>{(description) => <small>{description()}</small>}</Show>
     </span>
+    <Show when={props.busy}>
+      <ChatProgressDots />
+    </Show>
     <Show when={props.trailing}>
       <span class="k2b-chat-activity__trailing">{props.trailing}</span>
     </Show>
@@ -235,6 +264,7 @@ const ActivityContent = (props: ChatActivityProps & { disclosure?: boolean }) =>
 
 export function ChatActivity(props: ChatActivityProps): JSX.Element {
   const tone = () => props.tone ?? "neutral";
+  const style = () => (props.accent ? { "--k2b-chat-activity-accent": props.accent } : undefined);
   return (
     <Show
       when={props.children}
@@ -242,7 +272,9 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
         <div
           class={`k2b-chat-activity ${props.class ?? ""}`}
           data-tone={tone()}
+          data-accent={props.accent ? "true" : undefined}
           data-chat-anchor={props.anchorId !== undefined ? String(props.anchorId) : undefined}
+          style={style()}
         >
           <div class="k2b-chat-activity__row">
             <ActivityContent {...props} />
@@ -253,7 +285,9 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
       <details
         class={`k2b-chat-activity ${props.class ?? ""}`}
         data-tone={tone()}
+        data-accent={props.accent ? "true" : undefined}
         data-chat-anchor={props.anchorId !== undefined ? String(props.anchorId) : undefined}
+        style={style()}
         open={props.defaultOpen}
       >
         <summary class="k2b-chat-activity__row">

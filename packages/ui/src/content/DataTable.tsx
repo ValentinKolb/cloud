@@ -331,11 +331,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
     const rowsLength = props.rows.length;
     const nextHasMore = !!props.hasMore;
     const nextLoadingMore = !!props.loadingMore;
-    if (
-      rowsLength !== previousRowsLength ||
-      (previousLoadingMore && !nextLoadingMore) ||
-      (!previousHasMore && nextHasMore)
-    ) {
+    if (rowsLength !== previousRowsLength || (previousLoadingMore && !nextLoadingMore) || (!previousHasMore && nextHasMore)) {
       loadMoreRequested = false;
     }
     previousRowsLength = rowsLength;

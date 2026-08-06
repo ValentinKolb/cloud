@@ -6,15 +6,19 @@ describe("workflow AI requests", () => {
     const generated = workflowAiRequestSchema.parse({ kind: "generate_text", prompt: "Draft a reply" });
     expect(generated.kind === "generate_text" ? generated.maxOutputChars : null).toBe(4_000);
     expect(
-      workflowAiRequestSchema.safeParse({ kind: "classify", prompt: "Route it", input: { subject: "Invoice" }, choices: ["sales", "finance"] })
-        .success,
+      workflowAiRequestSchema.safeParse({
+        kind: "classify",
+        prompt: "Route it",
+        input: { subject: "Invoice" },
+        choices: ["sales", "finance"],
+      }).success,
     ).toBe(true);
   });
 
   test("rejects duplicate choices and invalid multi-choice bounds", () => {
-    expect(
-      workflowAiRequestSchema.safeParse({ kind: "classify", prompt: "Route it", input: "x", choices: ["same", "same"] }).success,
-    ).toBe(false);
+    expect(workflowAiRequestSchema.safeParse({ kind: "classify", prompt: "Route it", input: "x", choices: ["same", "same"] }).success).toBe(
+      false,
+    );
     expect(
       workflowAiRequestSchema.safeParse({
         kind: "classify_many",

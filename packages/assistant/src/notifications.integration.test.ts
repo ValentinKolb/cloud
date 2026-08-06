@@ -26,7 +26,6 @@ const suite = (await canRun()) ? describe : describe.skip;
 
 suite("Assistant completion notifications", () => {
   test("recovers each completed direct chat once and skips non-chat resources", async () => {
-
     const suffix = crypto.randomUUID();
     const [user] = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)

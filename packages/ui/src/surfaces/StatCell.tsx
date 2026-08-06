@@ -29,10 +29,21 @@ function Body(props: StatCellProps): JSX.Element {
   const accent = () => props.accent;
   return (
     <>
-      <span class="k2b-stat-cell__label" data-size={size()}>{props.label}</span>
-      <span class={`k2b-stat-cell__value ${props.valueClass ?? ""}`} data-size={size()} title={props.title}>{props.value}</span>
+      <span class="k2b-stat-cell__label" data-size={size()}>
+        {props.label}
+      </span>
+      <span class={`k2b-stat-cell__value ${props.valueClass ?? ""}`} data-size={size()} title={props.title}>
+        {props.value}
+      </span>
       <Show when={props.trend && props.trend.length > 1}>
-        <Chart kind="sparkline" class="k2b-stat-cell__trend" style={{ height: "32px" }} data={Array.from(props.trend ?? [])} showLast showMinMax />
+        <Chart
+          kind="sparkline"
+          class="k2b-stat-cell__trend"
+          style={{ height: "32px" }}
+          data={Array.from(props.trend ?? [])}
+          showLast
+          showMinMax
+        />
       </Show>
       <Show when={props.sub || accent()}>
         <div class="k2b-stat-cell__support">
@@ -45,7 +56,8 @@ function Body(props: StatCellProps): JSX.Element {
               >
                 {(text) => (
                   <span class="k2b-stat-cell__accent" data-tone={value().tone}>
-                    <i class={value().icon} aria-hidden="true" />{text()}
+                    <i class={value().icon} aria-hidden="true" />
+                    {text()}
                   </span>
                 )}
               </Show>
@@ -64,7 +76,11 @@ export function StatCell(props: StatCellProps): JSX.Element {
   return (
     <Show
       when={props.href}
-      fallback={<div class="k2b-stat-cell" data-size={size()} data-surface={surface}><Body {...props} /></div>}
+      fallback={
+        <div class="k2b-stat-cell" data-size={size()} data-surface={surface}>
+          <Body {...props} />
+        </div>
+      }
     >
       {(href) => (
         <a href={href()} class="k2b-stat-cell k2b-stat-cell--link" data-size={size()} data-surface={surface}>

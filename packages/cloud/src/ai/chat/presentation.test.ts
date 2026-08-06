@@ -3,13 +3,24 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type AiTurnBlock, splitActiveTurnBlocks } from "../protocol";
 
-test("distinguishes a pending response from model reasoning", () => {
+test("uses the shared message streaming state before the first model block", () => {
   const presentationSource = readFileSync(resolve(import.meta.dir, "presentation.tsx"), "utf8");
   const blocksSource = readFileSync(resolve(import.meta.dir, "blocks.tsx"), "utf8");
 
-  expect(presentationSource).toContain('label: "Generating response"');
-  expect(blocksSource).toContain('label: "Thinking"');
-  expect(blocksSource).toContain('label: "Show reasoning"');
+  expect(presentationSource).toContain("id: `${turn.turnId}-pending`");
+  expect(presentationSource).toContain('kind: "message"');
+  expect(presentationSource).toContain('status: "streaming"');
+  expect(presentationSource).not.toContain("Generating response");
+  expect(blocksSource).toContain('label="Thinking"');
+  expect(blocksSource).toContain('label="Show reasoning"');
+});
+
+test("uses the full message width while an approval is pending", () => {
+  const presentationSource = readFileSync(resolve(import.meta.dir, "presentation.tsx"), "utf8");
+  const cloudStyles = readFileSync(resolve(import.meta.dir, "../../styles/effects.css"), "utf8");
+
+  expect(presentationSource).toContain('class: hasApproval ? "ai-chat-message-wide" : undefined');
+  expect(cloudStyles).toMatch(/\.k2b-chat-message\.ai-chat-message-wide\s*\{\s*width:\s*100%;/);
 });
 
 describe("active turn message segmentation", () => {

@@ -1,7 +1,7 @@
+import { Chat } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { AiTurnBlock } from "../protocol";
 import { isRecord } from "./message-utils";
-import { ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
 
 type ToolBlock = Extract<AiTurnBlock, { kind: "tool" }>;
 
@@ -66,24 +66,19 @@ export function WebSearchToolBlock(props: { block: ToolBlock }) {
   const results = () => searchResults(props.block.result);
 
   return (
-    <Show
-      when={!running()}
-      fallback={<ChatUtilityLine meta={{ icon: "ti ti-search", label: searchQuery(props.block.args) }} trailing={<PulseDots />} />}
-    >
-      <ChatUtilityDisclosure
+    <Show when={!running()} fallback={<Chat.Activity label={searchQuery(props.block.args)} icon="ti ti-search" busy />}>
+      <Chat.Activity
         defaultOpen
-        meta={{
-          icon: "ti ti-search",
-          label: searchQuery(props.block.args),
-          description: `${results().length} result${results().length === 1 ? "" : "s"}`,
-        }}
+        icon="ti ti-search"
+        label={searchQuery(props.block.args)}
+        description={`${results().length} result${results().length === 1 ? "" : "s"}`}
       >
         <div class="max-h-56 max-w-xl overflow-y-auto rounded-md bg-zinc-100/70 p-1 text-xs [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           <Show when={results().length > 0} fallback={<p class="px-2 py-1.5 text-dimmed">No results.</p>}>
             <For each={results()}>{(result) => <WebLinkRow url={result.url} title={result.title} />}</For>
           </Show>
         </div>
-      </ChatUtilityDisclosure>
+      </Chat.Activity>
     </Show>
   );
 }
@@ -104,18 +99,11 @@ export function WebExtractToolBlock(props: { block: ToolBlock }) {
   const truncated = () => isRecord(props.block.result) && props.block.result.truncated === true;
 
   return (
-    <Show
-      when={!running()}
-      fallback={
-        <ChatUtilityLine meta={{ icon: "ti ti-world-download", label: domainOf(url()) || "Reading page" }} trailing={<PulseDots />} />
-      }
-    >
-      <ChatUtilityDisclosure
-        meta={{
-          icon: "ti ti-world-download",
-          leading: <Favicon url={url()} fallbackIcon="ti ti-world-download" />,
-          label: title() || domainOf(url()),
-        }}
+    <Show when={!running()} fallback={<Chat.Activity label={domainOf(url()) || "Reading page"} icon="ti ti-world-download" busy />}>
+      <Chat.Activity
+        icon="ti ti-world-download"
+        leading={<Favicon url={url()} fallbackIcon="ti ti-world-download" />}
+        label={title() || domainOf(url())}
       >
         <div class="flex max-w-xl flex-col gap-0.5 rounded-md bg-zinc-100/70 px-2 py-1.5 text-xs [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           <a
@@ -134,7 +122,7 @@ export function WebExtractToolBlock(props: { block: ToolBlock }) {
             <p class="text-[11px] text-dimmed">Content was truncated for the model.</p>
           </Show>
         </div>
-      </ChatUtilityDisclosure>
+      </Chat.Activity>
     </Show>
   );
 }

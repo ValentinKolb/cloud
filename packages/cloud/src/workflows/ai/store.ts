@@ -127,8 +127,7 @@ export const migrateWorkflowAi = async (db: SQL = sql): Promise<void> => {
   `.simple();
 };
 
-const requestHash = (request: WorkflowAiRequest): string =>
-  new Bun.CryptoHasher("sha256").update(JSON.stringify(request)).digest("hex");
+const requestHash = (request: WorkflowAiRequest): string => new Bun.CryptoHasher("sha256").update(JSON.stringify(request)).digest("hex");
 
 export const getWorkflowAiTask = async (id: string, db: SQL = sql): Promise<WorkflowAiTask | null> => {
   const rows = await db<WorkflowAiTaskRow[]>`

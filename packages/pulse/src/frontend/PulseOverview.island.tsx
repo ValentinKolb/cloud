@@ -71,103 +71,99 @@ export default function PulseOverview(props: Props) {
   };
 
   return (
-    <AppOverview
-        title="Pulse"
-        subtitle="Metrics, events, states, and realtime dashboards."
-        icon="ti ti-activity-heartbeat"
+    <AppOverview title="Pulse" subtitle="Metrics, events, states, and realtime dashboards." icon="ti ti-activity-heartbeat">
+      <AppOverview.Main
+        title="Your Pulse bases"
+        description={
+          props.bases.length === 0
+            ? "Create a base for servers, websites, business metrics, or automation telemetry."
+            : `${props.bases.length} base${props.bases.length === 1 ? "" : "s"} available`
+        }
+        toolbar={
+          <TextInput
+            name="pulse-search"
+            type="search"
+            aria-label="Search Pulse bases"
+            placeholder="Search bases..."
+            icon="ti ti-search"
+            activeIcon="ti ti-search"
+            value={query}
+            onValueChange={onSearchInput}
+            clearable
+            onClear={() => onSearchInput("")}
+          />
+        }
       >
-        <AppOverview.Main
-          title="Your Pulse bases"
-          description={
-            props.bases.length === 0
-              ? "Create a base for servers, websites, business metrics, or automation telemetry."
-              : `${props.bases.length} base${props.bases.length === 1 ? "" : "s"} available`
-          }
-          toolbar={
-            <TextInput
-              name="pulse-search"
-              type="search"
-              aria-label="Search Pulse bases"
-              placeholder="Search bases..."
-              icon="ti ti-search"
-              activeIcon="ti ti-search"
-              value={query}
-              onValueChange={onSearchInput}
-              clearable
-              onClear={() => onSearchInput("")}
-            />
+        <Show
+          when={props.bases.length > 0}
+          fallback={
+            <AppOverview.EmptyState
+              title="No Pulse bases yet"
+              description="Create a base to collect, explore, and visualize related telemetry."
+              icon="ti ti-activity-heartbeat"
+              class="min-h-72"
+            >
+              <Button variant="secondary" size="sm" disabled={creating()} onClick={() => void createBase()}>
+                <i class="ti ti-plus" /> Create a base
+              </Button>
+            </AppOverview.EmptyState>
           }
         >
           <Show
-            when={props.bases.length > 0}
-            fallback={
-              <AppOverview.EmptyState
-                title="No Pulse bases yet"
-                description="Create a base to collect, explore, and visualize related telemetry."
-                icon="ti ti-activity-heartbeat"
-                class="min-h-72"
-              >
-                <Button variant="secondary" size="sm" disabled={creating()} onClick={() => void createBase()}>
-                  <i class="ti ti-plus" /> Create a base
-                </Button>
-              </AppOverview.EmptyState>
-            }
+            when={filteredBases().length > 0}
+            fallback={<AppOverview.EmptyState title="No matching bases" description="Try a different search term." icon="ti ti-search" />}
           >
-            <Show
-              when={filteredBases().length > 0}
-              fallback={<AppOverview.EmptyState title="No matching bases" description="Try a different search term." icon="ti ti-search" />}
-            >
-              <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <For each={filteredBases()}>
-                  {(base) => (
-                    <a
-                      href={`/app/pulse/${base.id}`}
-                      class="paper group flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
-                    >
-                      <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--ui-shadow-surface)] dark:bg-zinc-950">
-                        <i class="ti ti-activity-heartbeat app-accent-text text-lg" />
-                      </div>
-                      <div class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-semibold text-primary">{base.name}</span>
-                        <p class="truncate text-xs text-dimmed">{base.description || `${base.rawRetentionDays} day raw retention`}</p>
-                      </div>
-                      <i class="ti ti-chevron-right text-dimmed transition-colors group-hover:app-accent-text" />
-                    </a>
-                  )}
-                </For>
-              </div>
-            </Show>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <For each={filteredBases()}>
+                {(base) => (
+                  <a
+                    href={`/app/pulse/${base.id}`}
+                    class="paper group flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
+                  >
+                    <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--ui-shadow-surface)] dark:bg-zinc-950">
+                      <i class="ti ti-activity-heartbeat app-accent-text text-lg" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-semibold text-primary">{base.name}</span>
+                      <p class="truncate text-xs text-dimmed">{base.description || `${base.rawRetentionDays} day raw retention`}</p>
+                    </div>
+                    <i class="ti ti-chevron-right text-dimmed transition-colors group-hover:app-accent-text" />
+                  </a>
+                )}
+              </For>
+            </div>
           </Show>
-        </AppOverview.Main>
+        </Show>
+      </AppOverview.Main>
 
-        <AppOverview.Aside title="Create" description="Sources and dashboards are configured inside the base.">
-          <div class="grid grid-cols-1 gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              class="group h-auto w-full items-start justify-start gap-3 rounded-xl border border-[var(--ui-border)] p-4 text-left hover:bg-[var(--ui-surface-subtle)]"
-              disabled={creating()}
-              onClick={() => void createBase()}
-            >
-              <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-900">
-                <i class="ti ti-plus app-accent-text text-lg" />
+      <AppOverview.Aside title="Create" description="Sources and dashboards are configured inside the base.">
+        <div class="grid grid-cols-1 gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            class="group h-auto w-full items-start justify-start gap-3 rounded-xl border border-[var(--ui-border)] p-4 text-left hover:bg-[var(--ui-surface-subtle)]"
+            disabled={creating()}
+            onClick={() => void createBase()}
+          >
+            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-900">
+              <i class="ti ti-plus app-accent-text text-lg" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold text-primary">New base</span>
+              <span class="block text-xs leading-snug text-dimmed">
+                Create a telemetry base for metrics, states, events, and dashboards.
               </span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-semibold text-primary">New base</span>
-                <span class="block text-xs leading-snug text-dimmed">
-                  Create a telemetry base for metrics, states, events, and dashboards.
-                </span>
-              </span>
-              <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-colors group-hover:app-accent-text" />
-            </Button>
+            </span>
+            <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-colors group-hover:app-accent-text" />
+          </Button>
 
-            <Show when={props.capabilities && !props.capabilities.timescaleEnabled}>
-              <div class="info-block-warning mt-2">
-                TimescaleDB is not enabled here. Pulse still works in dev, but long historical dashboards can fall back to raw samples.
-              </div>
-            </Show>
-          </div>
-        </AppOverview.Aside>
+          <Show when={props.capabilities && !props.capabilities.timescaleEnabled}>
+            <div class="info-block-warning mt-2">
+              TimescaleDB is not enabled here. Pulse still works in dev, but long historical dashboards can fall back to raw samples.
+            </div>
+          </Show>
+        </div>
+      </AppOverview.Aside>
     </AppOverview>
   );
 }

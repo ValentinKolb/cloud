@@ -71,6 +71,9 @@ const normalizeCondition = (condition: unknown): PulseDashboardCondition | null 
 
 export const normalizeConditions = (conditions: unknown): PulseDashboardCondition[] | undefined => {
   if (!Array.isArray(conditions)) return undefined;
-  const normalized = conditions.map(normalizeCondition).filter((item): item is PulseDashboardCondition => item !== null).slice(0, 8);
+  const normalized = conditions
+    .map(normalizeCondition)
+    .filter((item): item is PulseDashboardCondition => item !== null)
+    .slice(0, 8);
   return normalized.length ? normalized : undefined;
 };

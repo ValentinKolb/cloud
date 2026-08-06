@@ -81,11 +81,7 @@ describe("Panes state kernel", () => {
     expect(normalized.root.type).toBe("split");
     if (normalized.root.type !== "split") throw new Error("Expected split");
     expect(normalized.root.id).toBe("workspace");
-    expect(normalized.root.children.map((node) => node.id)).toEqual([
-      "duplicate",
-      "duplicate-2",
-      "leaf-three",
-    ]);
+    expect(normalized.root.children.map((node) => node.id)).toEqual(["duplicate", "duplicate-2", "leaf-three"]);
     expect(normalized.root.sizes.reduce((sum, size) => sum + size, 0)).toBeCloseTo(100);
     expect(normalized.root.children[0]).toMatchObject({
       elementIds: ["one"],
@@ -184,9 +180,7 @@ describe("Panes state kernel", () => {
 
     // "three" is the solo occupant of child index 1; gaps 0 and 1 are its own.
     for (const index of [0, 1]) {
-      expect(
-        applyPanesIntent(value, { kind: "insert", elementId: "three", splitId: "root", index, direction: "horizontal" }),
-      ).toBe(value);
+      expect(applyPanesIntent(value, { kind: "insert", elementId: "three", splitId: "root", index, direction: "horizontal" })).toBe(value);
     }
 
     // No `beforeElementId` means the pointer was released over the pane body.
@@ -202,9 +196,7 @@ describe("Panes state kernel", () => {
   test("rejects a persisted layout stamped with a different schema version", () => {
     const stored = { ...splitValue(), version: 2 };
 
-    expect(normalizePanesValue(stored, ["one", "two", "three"])).toEqual(
-      createPanesValue(["one", "two", "three"], "tabs"),
-    );
+    expect(normalizePanesValue(stored, ["one", "two", "three"])).toEqual(createPanesValue(["one", "two", "three"], "tabs"));
     // An unversioned payload predates the field and is still trusted.
     expect(normalizePanesValue({ root: splitValue().root }, ["one", "two", "three"]).root.type).toBe("split");
   });

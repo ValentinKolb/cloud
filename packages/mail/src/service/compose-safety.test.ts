@@ -55,15 +55,11 @@ describe("compose safety", () => {
         cc: [{ address: "casey@example.org" }],
       }),
     );
-    expect(review.warnings.map((warning) => warning.id)).toEqual(
-      expect.arrayContaining(["external_recipients", "reply_all"]),
-    );
+    expect(review.warnings.map((warning) => warning.id)).toEqual(expect.arrayContaining(["external_recipients", "reply_all"]));
   });
 
   test("warns when visible and destination link hosts differ", () => {
-    const review = evaluateComposeSafety(
-      source({ body: "[https://example.org](https://lookalike.example/login)" }),
-    );
+    const review = evaluateComposeSafety(source({ body: "[https://example.org](https://lookalike.example/login)" }));
     expect(review.warnings.map((warning) => warning.id)).toContain("suspicious_link");
     expect(evaluateComposeSafety(source({ body: "[Project](https://example.org/project)" })).warnings).toHaveLength(0);
   });
@@ -71,8 +67,8 @@ describe("compose safety", () => {
   test("fingerprint changes with reviewed content and configuration", () => {
     const initial = evaluateComposeSafety(source());
     expect(evaluateComposeSafety(source({ body: "Changed" })).fingerprint).not.toBe(initial.fingerprint);
-    expect(
-      evaluateComposeSafety(source({ config: { internalDomains: [], largeRecipientThreshold: 20 } })).fingerprint,
-    ).not.toBe(initial.fingerprint);
+    expect(evaluateComposeSafety(source({ config: { internalDomains: [], largeRecipientThreshold: 20 } })).fingerprint).not.toBe(
+      initial.fingerprint,
+    );
   });
 });

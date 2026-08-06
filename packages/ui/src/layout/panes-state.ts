@@ -48,8 +48,7 @@ const MAX_NODES = 64;
 export const PANES_MAX_ID_LENGTH = 160;
 const MAX_ID_LENGTH = PANES_MAX_ID_LENGTH;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  !!value && typeof value === "object" && !Array.isArray(value);
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
 const validId = (value: unknown): value is string => isStableUiId(value, MAX_ID_LENGTH);
 
@@ -73,20 +72,12 @@ export const normalizePanesSizes = (sizes: readonly number[], length: number): n
   return sanitized.map((size) => (size / total) * 100);
 };
 
-const normalizedPresentation = (
-  value: unknown,
-  fallback: PanesLeafPresentation,
-  elementCount: number,
-): PanesLeafPresentation => {
+const normalizedPresentation = (value: unknown, fallback: PanesLeafPresentation, elementCount: number): PanesLeafPresentation => {
   const presentation = value === "single" || value === "tabs" || value === "stack" ? value : fallback;
   return presentation === "single" && elementCount > 1 ? "tabs" : presentation;
 };
 
-const leafNode = (
-  id: string,
-  elementIds: readonly string[] = [],
-  presentation: PanesLeafPresentation = "tabs",
-): PanesLeafNode => {
+const leafNode = (id: string, elementIds: readonly string[] = [], presentation: PanesLeafPresentation = "tabs"): PanesLeafNode => {
   const ids = uniqueStrings(elementIds);
   return {
     type: "leaf",
@@ -97,10 +88,7 @@ const leafNode = (
   };
 };
 
-export const createPanesValue = (
-  elementIds: readonly string[],
-  presentation: PanesLeafPresentation = "tabs",
-): PanesValue => ({
+export const createPanesValue = (elementIds: readonly string[], presentation: PanesLeafPresentation = "tabs"): PanesValue => ({
   version: PANES_VALUE_VERSION,
   root: leafNode("root", elementIds, presentation),
 });
@@ -145,10 +133,7 @@ const normalizeNode = (
       type: "leaf",
       id,
       elementIds,
-      activeElementId:
-        validId(value.activeElementId) && elementIds.includes(value.activeElementId)
-          ? value.activeElementId
-          : elementIds[0],
+      activeElementId: validId(value.activeElementId) && elementIds.includes(value.activeElementId) ? value.activeElementId : elementIds[0],
       presentation,
     };
   }
@@ -202,14 +187,7 @@ export const normalizePanesValue = (
   const candidate = !versioned && isRecord(value) && isRecord(value.root) ? value.root : null;
   const usedElements = new Set<string>();
   const usedNodes = new Set<string>();
-  const root = normalizeNode(
-    candidate,
-    new Set(ids),
-    usedElements,
-    usedNodes,
-    presentation,
-    { nodes: 0 },
-  );
+  const root = normalizeNode(candidate, new Set(ids), usedElements, usedNodes, presentation, { nodes: 0 });
   const missing = ids.filter((id) => !usedElements.has(id));
 
   if (!root) return createPanesValue(ids, presentation);
@@ -238,11 +216,7 @@ export const normalizePanesValue = (
   };
 };
 
-const mapPanesNode = (
-  node: PanesNode,
-  targetId: string,
-  update: (node: PanesNode) => PanesNode,
-): PanesNode =>
+const mapPanesNode = (node: PanesNode, targetId: string, update: (node: PanesNode) => PanesNode): PanesNode =>
   node.id === targetId
     ? update(node)
     : node.type === "split"
@@ -298,12 +272,7 @@ const findPanesSplit = (node: PanesNode, splitId: string): PanesSplitNode | null
   return null;
 };
 
-const findElementLocation = (
-  node: PanesNode,
-  elementId: string,
-  parentSplitId?: string,
-  childIndex?: number,
-): ElementLocation | null => {
+const findElementLocation = (node: PanesNode, elementId: string, parentSplitId?: string, childIndex?: number): ElementLocation | null => {
   if (node.type === "leaf") {
     const elementIndex = node.elementIds.indexOf(elementId);
     return elementIndex >= 0 ? { leaf: node, parentSplitId, childIndex, elementIndex } : null;
@@ -321,15 +290,14 @@ const collectNodeIds = (node: PanesNode, ids: Set<string>) => {
 };
 
 const safeNodeBase = (value: string): string => {
-  const safe = value.replace(/[^A-Za-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const safe = value
+    .replace(/[^A-Za-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
   return (safe || "pane").slice(0, 96);
 };
 
-const nextPanesNodeId = (
-  root: PanesNode,
-  base: string,
-  reserved: readonly string[] = [],
-): string => {
+const nextPanesNodeId = (root: PanesNode, base: string, reserved: readonly string[] = []): string => {
   const ids = new Set<string>();
   collectNodeIds(root, ids);
   reserved.forEach((id) => ids.add(id));
@@ -345,18 +313,11 @@ export const activatePanesElement = (value: PanesValue, elementId: string): Pane
   if (!location || location.leaf.activeElementId === elementId) return value;
   return {
     version: PANES_VALUE_VERSION,
-    root: mapPanesNode(value.root, location.leaf.id, (node) =>
-      node.type === "leaf" ? { ...node, activeElementId: elementId } : node,
-    ),
+    root: mapPanesNode(value.root, location.leaf.id, (node) => (node.type === "leaf" ? { ...node, activeElementId: elementId } : node)),
   };
 };
 
-const insertElement = (
-  node: PanesNode,
-  leafId: string,
-  elementId: string,
-  beforeElementId?: string,
-): PanesNode =>
+const insertElement = (node: PanesNode, leafId: string, elementId: string, beforeElementId?: string): PanesNode =>
   mapPanesNode(node, leafId, (target) => {
     if (target.type !== "leaf") return target;
     const elementIds = target.elementIds.filter((id) => id !== elementId);
@@ -413,10 +374,7 @@ const insertLeafIntoSplit = (
     return {
       ...target,
       children,
-      sizes: normalizePanesSizes(
-        [...sizes.slice(0, insertIndex), insertedSize, ...sizes.slice(insertIndex)],
-        children.length,
-      ),
+      sizes: normalizePanesSizes([...sizes.slice(0, insertIndex), insertedSize, ...sizes.slice(insertIndex)], children.length),
     };
   });
 
@@ -440,11 +398,7 @@ export const resizePanesSplit = (
   }),
 });
 
-export const applyPanesIntent = (
-  value: PanesValue,
-  intent: PanesDropIntent,
-  presentation: PanesLeafPresentation = "tabs",
-): PanesValue => {
+export const applyPanesIntent = (value: PanesValue, intent: PanesDropIntent, presentation: PanesLeafPresentation = "tabs"): PanesValue => {
   const source = findElementLocation(value.root, intent.elementId);
   if (!source) return value;
   if (intent.kind === "move" && !findPanesLeaf(value.root, intent.leafId)) return value;

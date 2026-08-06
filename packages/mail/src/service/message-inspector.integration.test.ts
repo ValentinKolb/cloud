@@ -5,8 +5,8 @@ import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
-import { inspectMessage, openMessageSource, previewMessageSource } from "./message-inspector";
 import { storeReadableBlob } from "./message-blobs";
+import { inspectMessage, openMessageSource, previewMessageSource } from "./message-inspector";
 import { createAttachmentStream } from "./messages";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
@@ -213,9 +213,7 @@ suite("mail message inspector", () => {
     expect(inspection.ok).toBe(true);
     if (!inspection.ok) return;
     expect(inspection.data.headers.filter((header) => header.name === "Received")).toHaveLength(2);
-    expect(inspection.data.headers.find((header) => header.name === "Subject")?.value).toBe(
-      "Inspector fixture folded continuation",
-    );
+    expect(inspection.data.headers.find((header) => header.name === "Subject")?.value).toBe("Inspector fixture folded continuation");
     expect(inspection.data.placements).toHaveLength(1);
     expect(inspection.data.parts).toHaveLength(1);
     expect(inspection.data.warnings).toContain("Message hydration failed (malformed_mime).");
@@ -238,10 +236,9 @@ suite("mail message inspector", () => {
       messageId: missingSourceMessageId,
     });
     expect(missingInspection.ok && missingInspection.data.source.available).toBe(false);
-    expect(
-      missingInspection.ok &&
-        missingInspection.data.warnings.includes("The exact original message source is unavailable."),
-    ).toBe(true);
+    expect(missingInspection.ok && missingInspection.data.warnings.includes("The exact original message source is unavailable.")).toBe(
+      true,
+    );
     expect(
       (
         await previewMessageSource({

@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, SplitButton } from "@k2b/ui";
+import { Button, Chat, isStructuredDataValue, SplitButton, StructuredDataPreview } from "@k2b/ui";
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
@@ -16,7 +16,7 @@ import {
   memoryToolPresentation,
   toolBlockSummary,
 } from "./message-utils";
-import { AssistantMarkdownBlock, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
+import { AssistantMarkdownBlock } from "./primitives";
 import { CloudCardBlock, CloudSurveyBlock, CloudSurveyResultBlock } from "./visual-tools";
 import { WebExtractToolBlock, WebSearchToolBlock } from "./web-tools";
 
@@ -32,15 +32,15 @@ function ThinkingBlockView(props: { text: string; streaming?: boolean }) {
       when={props.text.trim()}
       fallback={
         <Show when={props.streaming}>
-          <ChatUtilityLine meta={{ icon: "ti ti-sparkles", label: "Thinking", tone: "ai" }} trailing={<PulseDots />} />
+          <Chat.Activity label="Thinking" icon="ti ti-sparkles" tone="ai" busy />
         </Show>
       }
     >
-      <ChatUtilityDisclosure meta={{ icon: "ti ti-sparkles", label: "Show reasoning", tone: "ai" }}>
+      <Chat.Activity label="Show reasoning" icon="ti ti-sparkles" tone="ai">
         <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           {props.text}
         </pre>
-      </ChatUtilityDisclosure>
+      </Chat.Activity>
     </Show>
   );
 }
@@ -55,13 +55,8 @@ function CompactionBlockView(props: { block: Extract<AiTurnBlock, { kind: "compa
   };
 
   return (
-    <Show
-      when={status() !== "running"}
-      fallback={<ChatUtilityLine meta={{ icon: "ti ti-brain", label: "Compacting context", tone: "ai" }} trailing={<PulseDots />} />}
-    >
-      <ChatUtilityDisclosure
-        meta={{ icon: "ti ti-brain", label: "Show compaction", description: description(), tone: status() === "failed" ? "danger" : "ai" }}
-      >
+    <Show when={status() !== "running"} fallback={<Chat.Activity label="Compacting context" icon="ti ti-brain" tone="ai" busy />}>
+      <Chat.Activity label="Show compaction" description={description()} icon="ti ti-brain" tone={status() === "failed" ? "danger" : "ai"}>
         <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--ui-control-recess)] dark:bg-zinc-950/70">
           <Show when={props.block.result} fallback={<p>Older chat context was summarized into compact conversation memory.</p>}>
             {(compactResult) => (
@@ -78,7 +73,7 @@ function CompactionBlockView(props: { block: Extract<AiTurnBlock, { kind: "compa
             )}
           </Show>
         </div>
-      </ChatUtilityDisclosure>
+      </Chat.Activity>
     </Show>
   );
 }
@@ -101,6 +96,7 @@ function ToolResultDisclosure(props: {
   result: unknown;
   isError: boolean;
   icon?: string;
+  accent?: string;
   labelOnError?: string;
   descriptionPrefix?: string;
 }) {
@@ -108,13 +104,12 @@ function ToolResultDisclosure(props: {
   const description = () =>
     [props.descriptionPrefix, props.isError ? "error" : undefined, summary() || undefined].filter(Boolean).join(" · ") || undefined;
   return (
-    <ChatUtilityDisclosure
-      meta={{
-        icon: props.icon ?? `ti ${props.isError ? "ti-alert-circle" : "ti-tool"}`,
-        label: props.isError ? (props.labelOnError ?? "Show tool error") : props.name,
-        description: description(),
-        tone: props.isError ? "danger" : "neutral",
-      }}
+    <Chat.Activity
+      icon={props.icon ?? `ti ${props.isError ? "ti-alert-circle" : "ti-tool"}`}
+      label={props.isError ? (props.labelOnError ?? "Show tool error") : props.name}
+      description={description()}
+      tone={props.isError ? "danger" : "neutral"}
+      accent={props.accent}
     >
       <div class="flex max-w-xl flex-col gap-2">
         <Show when={props.args !== undefined}>
@@ -122,7 +117,7 @@ function ToolResultDisclosure(props: {
         </Show>
         <ToolDetailSection title="Result">{formatToolDetailText(props.toolName, props.result)}</ToolDetailSection>
       </div>
-    </ChatUtilityDisclosure>
+    </Chat.Activity>
   );
 }
 
@@ -132,6 +127,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
   const pending = () => props.block.status === "awaiting_approval";
   const actionDisabled = () => actions.actionDisabled?.() ?? false;
   const [submitted, setSubmitted] = createSignal(false);
+  const [detailsOpen, setDetailsOpen] = createSignal(false);
   const approval = mutation.create<void, { approved: boolean; remember?: "always" }>({
     mutation: async (input) => {
       if (!actions.onApproval) throw new Error("Approval is unavailable.");
@@ -142,86 +138,159 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
   const submit = (input: { approved: boolean; remember?: "always" }) => {
     if (!actionDisabled() && !approval.loading()) void approval.mutate(input);
   };
+  const title = () => props.block.presentation?.title ?? displayToolName(props.block.name);
+  const ownerName = () => props.block.presentation?.appName ?? "Assistant";
+  const description = () => {
+    const message = props.block.approval?.message?.trim();
+    if (!message) return null;
+    const duplicateTitle = props.block.presentation ? `${props.block.presentation.appName}: ${props.block.presentation.title}\n` : "";
+    const withoutDuplicateTitle = message.startsWith(duplicateTitle) ? message.slice(duplicateTitle.length).trim() : message;
+    if (/^Review the validated arguments below before running this action\.$/i.test(withoutDuplicateTitle)) return null;
+    return withoutDuplicateTitle || null;
+  };
+  const reviewLines = () =>
+    (description() ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const match = /^([^:]{1,40}):\s+(.+)$/.exec(line);
+        return match ? { label: match[1], value: match[2] } : { value: line };
+      });
+  const detailData = () => (isStructuredDataValue(props.block.args) ? props.block.args : undefined);
+  const appAccent = () => props.block.presentation?.appAccent;
+  const detailsId = `approval-details-${props.block.callId}`;
   return (
-    <div class="max-w-xl rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/25 dark:text-amber-100">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div class="min-w-0">
-          <p class="flex items-center gap-1.5 font-semibold">
-            <i class={props.block.presentation?.appIcon ?? "ti ti-tool"} aria-hidden="true" />
-            Approve {props.block.presentation ? `${props.block.presentation.appName}: ${props.block.presentation.title}` : props.block.name}
-          </p>
-          <p class="mt-0.5 whitespace-pre-wrap text-xs opacity-80">
-            {props.block.approval?.message ?? "The assistant wants to run this tool."}
-          </p>
-        </div>
-        <Show
-          when={pending()}
-          fallback={<span class="text-xs font-medium opacity-80">{props.block.status === "rejected" ? "rejected" : "approved"}</span>}
-        >
-          <Show when={actions.onApproval} fallback={<span class="text-xs font-medium opacity-80">Approval unavailable</span>}>
-            <div class="shrink-0">
-              <Show
-                when={!actionDisabled()}
-                fallback={
-                  <span class="inline-flex items-center gap-1 text-xs font-medium opacity-80">
-                    <i class="ti ti-player-stop" aria-hidden="true" />
-                    Stopping response
-                  </span>
-                }
-              >
+    <div class="w-full">
+      <section
+        class={`w-full rounded-xl border p-4 text-sm text-primary ${appAccent() ? "app-accent-scope" : ""}`}
+        style={{
+          "--app-accent": appAccent(),
+          "border-color": appAccent() ? "color-mix(in srgb, var(--app-accent) 42%, var(--k2b-border))" : "var(--k2b-ai-border)",
+          background: appAccent()
+            ? "color-mix(in srgb, var(--app-accent) 7%, var(--k2b-surface))"
+            : "color-mix(in srgb, var(--k2b-ai-surface) 62%, var(--k2b-surface))",
+        }}
+        aria-label={`Approval required: ${title()}`}
+      >
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="flex min-w-0 items-center gap-3">
+            <span
+              class="inline-flex size-6 shrink-0 items-center justify-center text-lg leading-none"
+              style={{ color: appAccent() ? "var(--ui-app-accent-text)" : "var(--k2b-ai-accent)" }}
+              aria-hidden="true"
+            >
+              <i class={`${props.block.presentation?.appIcon ?? "ti ti-tool"} leading-none`} />
+            </span>
+            <h3 class="min-w-0 text-sm font-semibold leading-5 text-primary">{ownerName()}</h3>
+          </div>
+          <Show
+            when={pending()}
+            fallback={
+              <span class="text-xs font-medium text-secondary">
+                {title()} · {props.block.status === "rejected" ? "Rejected" : "Approved"}
+              </span>
+            }
+          >
+            <Show when={actions.onApproval} fallback={<span class="text-xs font-medium text-secondary">Approval unavailable</span>}>
+              <div class="shrink-0">
                 <Show
-                  when={!approval.loading() && !submitted()}
+                  when={!actionDisabled()}
                   fallback={
-                    <span class="inline-flex items-center gap-1 text-xs font-medium opacity-80">
-                      <i class={`ti ${submitted() ? "ti-check" : "ti-loader-2 animate-spin"}`} aria-hidden="true" />
-                      {submitted() ? "Submitted" : "Submitting"}
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-secondary">
+                      <i class="ti ti-player-stop" aria-hidden="true" />
+                      Stopping response
                     </span>
                   }
                 >
-                  <div class="flex flex-wrap gap-1">
-                    <Button size="xs" variant="secondary" onClick={() => submit({ approved: false })}>
-                      Reject
-                    </Button>
-                    <Show
-                      when={props.block.approval?.allowAlways}
-                      fallback={
-                        <Button size="xs" variant="ai" onClick={() => submit({ approved: true })}>
-                          Approve
-                        </Button>
-                      }
-                    >
-                      <SplitButton
-                        size="xs"
-                        variant="ai"
-                        onClick={() => submit({ approved: true })}
-                        menuLabel={`More approval options for ${props.block.presentation?.title ?? displayToolName(props.block.name)}`}
-                        menuPosition="bottom-right"
-                        items={[
-                          {
-                            label: "Always approve",
-                            icon: "ti ti-shield-check",
-                            action: () => submit({ approved: true, remember: "always" }),
-                          },
-                        ]}
+                  <Show
+                    when={!approval.loading() && !submitted()}
+                    fallback={
+                      <span class="inline-flex items-center gap-1 text-xs font-medium text-secondary">
+                        <i class={`ti ${submitted() ? "ti-check" : "ti-loader-2 animate-spin"}`} aria-hidden="true" />
+                        {submitted() ? "Submitted" : "Submitting"}
+                      </span>
+                    }
+                  >
+                    <div class="flex flex-wrap gap-1">
+                      <Button size="xs" variant="ghost" onClick={() => submit({ approved: false })}>
+                        Reject
+                      </Button>
+                      <Show
+                        when={props.block.approval?.allowAlways}
+                        fallback={
+                          <Button size="xs" variant="ai" onClick={() => submit({ approved: true })}>
+                            {title()}
+                          </Button>
+                        }
                       >
-                        Approve
-                      </SplitButton>
-                    </Show>
-                  </div>
+                        <SplitButton
+                          size="xs"
+                          variant="ai"
+                          onClick={() => submit({ approved: true })}
+                          menuLabel={`More approval options for ${title()}`}
+                          menuPosition="bottom-right"
+                          items={[
+                            {
+                              label: "Always approve",
+                              icon: "ti ti-shield-check",
+                              action: () => submit({ approved: true, remember: "always" }),
+                            },
+                          ]}
+                        >
+                          {title()}
+                        </SplitButton>
+                      </Show>
+                    </div>
+                  </Show>
                 </Show>
-              </Show>
-              <Show when={approval.error()}>
-                <p class="mt-1 text-xs text-red-700 dark:text-red-300">Could not submit. Try again.</p>
-              </Show>
-            </div>
+                <Show when={approval.error()}>
+                  <p class="mt-1 text-xs text-red-700 dark:text-red-300">Could not submit. Try again.</p>
+                </Show>
+              </div>
+            </Show>
           </Show>
+        </div>
+        <Show when={reviewLines().length > 0}>
+          <div class="mt-3 flex flex-col gap-1 text-xs leading-5 text-secondary">
+            <For each={reviewLines()}>
+              {(line) => (
+                <p class="whitespace-pre-wrap">
+                  <Show when={line.label}>{(label) => <strong class="font-semibold text-primary">{label()}: </strong>}</Show>
+                  {line.value}
+                </p>
+              )}
+            </For>
+          </div>
         </Show>
-      </div>
-      <ChatUtilityDisclosure meta={{ icon: "ti ti-list-details", label: "Show details" }} class="mt-2">
-        <pre class="max-h-40 overflow-auto rounded-md bg-white/55 p-2 text-[11px] text-primary dark:bg-black/20">
-          {jsonPreview(props.block.args)}
-        </pre>
-      </ChatUtilityDisclosure>
+        <button
+          type="button"
+          class="mt-3 inline-flex min-h-6 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-medium text-secondary transition-colors hover:text-primary"
+          aria-expanded={detailsOpen()}
+          aria-controls={detailsId}
+          onClick={() => setDetailsOpen((open) => !open)}
+        >
+          Details
+          <i
+            class={`ti ti-chevron-right text-xs leading-none transition-transform ${detailsOpen() ? "rotate-90" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+      </section>
+      <Show when={detailsOpen()}>
+        <div id={detailsId} class="mt-2 w-full" role="region" aria-label={`${title()} details`}>
+          <Show
+            when={detailData()}
+            fallback={
+              <pre class="max-h-40 overflow-auto rounded-md bg-white/55 p-2 text-[11px] text-primary dark:bg-black/20">
+                {jsonPreview(props.block.args)}
+              </pre>
+            }
+          >
+            {(data) => <StructuredDataPreview data={data()} class="w-full" />}
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }
@@ -234,9 +303,13 @@ function CapabilityToolView(props: { block: ToolBlock }) {
     <Show
       when={props.block.status !== "running"}
       fallback={
-        <ChatUtilityLine
-          meta={{ icon: presentation().appIcon || "ti ti-apps", label: label(), description: kind(), tone: "ai" }}
-          trailing={<PulseDots />}
+        <Chat.Activity
+          icon={presentation().appIcon || "ti ti-apps"}
+          label={label()}
+          description={kind()}
+          tone="ai"
+          accent={presentation().appAccent}
+          busy
         />
       }
     >
@@ -244,6 +317,7 @@ function CapabilityToolView(props: { block: ToolBlock }) {
         name={label()}
         labelOnError={label()}
         icon={presentation().appIcon || "ti ti-apps"}
+        accent={presentation().appAccent}
         descriptionPrefix={kind()}
         toolName={props.block.name}
         args={props.block.args}
@@ -278,10 +352,7 @@ function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
 function MemoryToolView(props: { block: ToolBlock }) {
   const presentation = () => memoryToolPresentation(props.block.args, props.block.result);
   return (
-    <Show
-      when={props.block.status !== "running"}
-      fallback={<ChatUtilityLine meta={{ icon: "ti ti-brain", label: "Updating memory", tone: "ai" }} trailing={<PulseDots />} />}
-    >
+    <Show when={props.block.status !== "running"} fallback={<Chat.Activity label="Updating memory" icon="ti ti-brain" tone="ai" busy />}>
       <Show
         when={presentation()}
         fallback={
@@ -295,13 +366,11 @@ function MemoryToolView(props: { block: ToolBlock }) {
         }
       >
         {(item) => (
-          <ChatUtilityLine
-            meta={{
-              icon: `ti ${item().failed ? "ti-alert-circle" : "ti-brain"}`,
-              label: item().label,
-              description: item().description,
-              tone: item().failed ? "danger" : "ai",
-            }}
+          <Chat.Activity
+            icon={`ti ${item().failed ? "ti-alert-circle" : "ti-brain"}`}
+            label={item().label}
+            description={item().description}
+            tone={item().failed ? "danger" : "ai"}
           />
         )}
       </Show>
@@ -348,7 +417,7 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
         <SurveyToolView turnId={props.turnId} block={props.block} />
       </Match>
       <Match when={status() === "running" || status() === "awaiting_client"}>
-        <ChatUtilityLine meta={{ icon: "ti ti-tool", label: displayToolName(props.block.name) }} trailing={<PulseDots />} />
+        <Chat.Activity label={displayToolName(props.block.name)} icon="ti ti-tool" busy />
       </Match>
     </Switch>
   );
@@ -366,7 +435,7 @@ export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; str
     case "steer_message":
       return null;
     case "steer_applied":
-      return <ChatUtilityLine meta={{ icon: "ti ti-route", label: "Conversation steered", tone: "ai" }} />;
+      return <Chat.Activity label="Conversation steered" icon="ti ti-route" tone="ai" />;
     case "tool":
       return <ToolBlockView turnId={props.turnId} block={block} />;
     case "compaction":

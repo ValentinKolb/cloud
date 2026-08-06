@@ -68,7 +68,9 @@ export function TagsInput(props: TagsInputProps): JSX.Element {
         <Show when={!focused()}>
           <span class="k2b-tags-input__values" aria-hidden="true">
             <Show when={value().length > 0} fallback={<span class="k2b-tags-input__placeholder">{placeholder()}</span>}>
-              {value().map((tag) => <span class="k2b-tag">{tag}</span>)}
+              {value().map((tag) => (
+                <span class="k2b-tag">{tag}</span>
+              ))}
             </Show>
           </span>
         </Show>

@@ -21,19 +21,15 @@ export default new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/remote-content-rules", v("param", mailboxParamSchema), async (c) =>
     respond(c, remoteContent.listRemoteContentRules(requestContext(c), c.req.valid("param").mailboxId)),
   )
-  .post(
-    "/mailboxes/:mailboxId/remote-content-rules",
-    v("param", mailboxParamSchema),
-    v("json", remoteContentRuleInputSchema),
-    async (c) =>
-      respond(
-        c,
-        remoteContent.createRemoteContentRule({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .post("/mailboxes/:mailboxId/remote-content-rules", v("param", mailboxParamSchema), v("json", remoteContentRuleInputSchema), async (c) =>
+    respond(
+      c,
+      remoteContent.createRemoteContentRule({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
   .delete("/mailboxes/:mailboxId/remote-content-rules/:ruleId", v("param", ruleParamSchema), async (c) =>
     respond(c, remoteContent.deleteRemoteContentRule({ context: requestContext(c), ...c.req.valid("param") })),

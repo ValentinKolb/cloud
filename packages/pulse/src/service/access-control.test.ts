@@ -36,11 +36,7 @@ const insertGroup = async (suffix: string, label: string): Promise<string> => {
   return row!.id;
 };
 
-const insertServiceAccount = async (params: {
-  suffix: string;
-  resourceType: string;
-  resourceId: string;
-}): Promise<string> => {
+const insertServiceAccount = async (params: { suffix: string; resourceType: string; resourceId: string }): Promise<string> => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
     VALUES (
@@ -72,7 +68,6 @@ const resourceScope = (params: {
 
 suite("Pulse base access", () => {
   test("uses effective groups and caps resource service accounts by binding and scopes", async () => {
-
     const suffix = crypto.randomUUID();
     const baseId = crypto.randomUUID();
     const noneBaseId = crypto.randomUUID();
@@ -162,9 +157,11 @@ suite("Pulse base access", () => {
       const entries = await listBaseAccess(baseId, { id: userId });
       expect(entries.ok).toBe(true);
       if (entries.ok) {
-        expect(entries.data.some((entry) =>
-          entry.principal.type === "service_account" && entry.principal.serviceAccountId === baseServiceAccountId,
-        )).toBe(true);
+        expect(
+          entries.data.some(
+            (entry) => entry.principal.type === "service_account" && entry.principal.serviceAccountId === baseServiceAccountId,
+          ),
+        ).toBe(true);
       }
     } finally {
       await sql`DELETE FROM pulse.bases WHERE id IN (${baseId}::uuid, ${noneBaseId}::uuid)`;

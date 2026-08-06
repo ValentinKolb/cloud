@@ -37,10 +37,7 @@ export const readJsonInput = async <T>(input: CliInputFlagValue, label: string):
   }
 };
 
-export const readOptionalSecretInput = async (
-  input: { file?: string; stdin: boolean },
-  label: string,
-): Promise<string | undefined> => {
+export const readOptionalSecretInput = async (input: { file?: string; stdin: boolean }, label: string): Promise<string | undefined> => {
   if (input.file && input.stdin) throw new Error("Pass only one of --bearer-token-file or --bearer-token-stdin.");
   const cliInput: CliInputFlagValue = input.file
     ? { source: "file", file: input.file, provided: true }

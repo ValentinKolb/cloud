@@ -30,7 +30,12 @@ export function WidgetStat(props: WidgetStatProps): JSX.Element {
                 when={accent().text}
                 fallback={<i class={`${accent().icon} k2b-widget-stat__accent-icon`} data-tone={accent().tone} aria-hidden="true" />}
               >
-                {(text) => <span class="k2b-widget-stat__accent" data-tone={accent().tone}><i class={accent().icon} aria-hidden="true" />{text()}</span>}
+                {(text) => (
+                  <span class="k2b-widget-stat__accent" data-tone={accent().tone}>
+                    <i class={accent().icon} aria-hidden="true" />
+                    {text()}
+                  </span>
+                )}
               </Show>
             )}
           </Show>

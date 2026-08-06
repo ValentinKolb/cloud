@@ -67,20 +67,14 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     expect(tabs()[0]?.getAttribute("aria-setsize")).toBe("2");
     expect(tabs()[0]?.parentElement?.getAttribute("role")).toBe("tablist");
     expect(
-      Array.from(
-        dom.root.querySelectorAll<HTMLElement>(".k2b-panes__drag, .k2b-panes__close"),
-      ).every(
-        (control) => control.tabIndex === -1,
-      ),
+      Array.from(dom.root.querySelectorAll<HTMLElement>(".k2b-panes__drag, .k2b-panes__close")).every((control) => control.tabIndex === -1),
     ).toBe(true);
 
     setTitle("Renamed source");
     setIcon("ti ti-file-text");
     expect(tabs()[0]?.textContent).toContain("Renamed source");
     expect(tabs()[0]?.querySelector(".k2b-panes__icon")?.className).toContain("ti-file-text");
-    expect(dom.root.querySelector(".k2b-panes__close")?.getAttribute("title")).toBe(
-      "Close Renamed source",
-    );
+    expect(dom.root.querySelector(".k2b-panes__close")?.getAttribute("title")).toBe("Close Renamed source");
 
     tabs()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     await Promise.resolve();
@@ -198,8 +192,10 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     }, dom.root);
 
     const tabs = () => Array.from(dom.root.querySelectorAll<HTMLElement>('[role="tab"]'));
-    const activeControls = () => tabs().find((tab) => tab.getAttribute("aria-selected") === "true")
-      ?.getAttribute("aria-controls");
+    const activeControls = () =>
+      tabs()
+        .find((tab) => tab.getAttribute("aria-selected") === "true")
+        ?.getAttribute("aria-controls");
 
     expect(tabs()[0]?.getAttribute("aria-controls")).toBeTruthy();
     expect(tabs()[1]?.hasAttribute("aria-controls")).toBe(false);
@@ -214,9 +210,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     tabs()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     expect(tabs()[0]?.hasAttribute("aria-controls")).toBe(false);
     expect(tabs()[1]?.getAttribute("aria-controls")).toBeTruthy();
-    expect(dom.document.getElementById(activeControls() ?? "")?.textContent).toContain(
-      "Security content",
-    );
+    expect(dom.document.getElementById(activeControls() ?? "")?.textContent).toContain("Security content");
 
     dispose();
     dom.cleanup();

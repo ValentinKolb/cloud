@@ -84,9 +84,7 @@ const activateCompletion = async (dom: DomTestHarness, kind: EditorKind, activat
     expect(keyboardEvent.defaultPrevented).toBe(true);
   } else {
     if (activation === "pointer-click") {
-      const mouseDownContinues = option!.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
-      );
+      const mouseDownContinues = option!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
       expect(mouseDownContinues).toBe(false);
       expect(dom.document.activeElement).toBe(textarea);
     }
@@ -178,9 +176,7 @@ describe("completion editor runtime behavior", () => {
 
     const lastFormattingTool = formattingTools.at(-1)!;
     lastFormattingTool.focus();
-    lastFormattingTool.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowRight" }),
-    );
+    lastFormattingTool.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowRight" }));
 
     expect(dom.document.activeElement).toBe(formattingTools[0]!);
     expect(dom.document.activeElement).not.toBe(disabledSave);

@@ -135,9 +135,7 @@ export const resolveCliRelease = async (version: string | undefined, source: Rel
   if (version && !requestedVersion) throw new Error("Cloud CLI updates require a stable version such as 1.2.3.");
 
   const url = requestedTag ? `${apiBase}/releases/tags/${encodeURIComponent(requestedTag)}` : undefined;
-  const response = url
-    ? await fetchWithRetry(url, { headers: { Accept: "application/vnd.github+json" } }, fetchImpl)
-    : undefined;
+  const response = url ? await fetchWithRetry(url, { headers: { Accept: "application/vnd.github+json" } }, fetchImpl) : undefined;
 
   if (requestedTag) {
     if (!response) throw new Error("Could not resolve the requested Cloud CLI release.");
@@ -298,7 +296,10 @@ const installSkillArchive = async (directory: string, archive: Uint8Array, skill
   return destination;
 };
 
-const ensureClaudeSkillSymlink = async (skillPath: string, claudeSkillsDir = defaultClaudeSkillsDir()): Promise<"created" | "exists" | "blocked"> => {
+const ensureClaudeSkillSymlink = async (
+  skillPath: string,
+  claudeSkillsDir = defaultClaudeSkillsDir(),
+): Promise<"created" | "exists" | "blocked"> => {
   const claudeSkillPath = join(claudeSkillsDir, CLOUD_CLI_SKILL_NAME);
   await mkdir(claudeSkillsDir, { recursive: true, mode: 0o700 });
   const existing = await lstat(claudeSkillPath).catch((error: NodeJS.ErrnoException) => {
@@ -329,11 +330,18 @@ export const updateCli = async (options: UpdateOptions = {}): Promise<CliUpdateR
   const installSkill = options.installSkill !== false;
   const requestedVersion = options.version ? parseStableVersion(options.version.replace(/^cli-v/, "").replace(/^v/, "")) : null;
   if (!installSkill && requestedVersion && currentStableVersion && compareStableVersions(requestedVersion, currentStableVersion) === 0) {
-    return { release: { tag: `cli-v${currentVersion}`, version: currentVersion }, target, cosign: "skipped", skill: "skipped", claudeSymlink: "skipped" };
+    return {
+      release: { tag: `cli-v${currentVersion}`, version: currentVersion },
+      target,
+      cosign: "skipped",
+      skill: "skipped",
+      claudeSymlink: "skipped",
+    };
   }
 
   const release = await resolveCliRelease(options.version, source);
-  if (!installSkill && release.version === currentVersion) return { release, target, cosign: "skipped", skill: "skipped", claudeSymlink: "skipped" };
+  if (!installSkill && release.version === currentVersion)
+    return { release, target, cosign: "skipped", skill: "skipped", claudeSymlink: "skipped" };
   if (!options.version && currentStableVersion && compareStableVersions(releaseVersion(release), currentStableVersion) < 0) {
     throw new Error(`Refusing to downgrade cld ${currentVersion} to ${release.version} without --version.`);
   }
@@ -375,7 +383,9 @@ export const updateCli = async (options: UpdateOptions = {}): Promise<CliUpdateR
       cosign,
       skill: installSkill ? "installed" : "skipped",
       claudeSymlink:
-        options.claudeSymlink && installedSkillPath ? await ensureClaudeSkillSymlink(installedSkillPath, options.claudeSkillsDir) : "skipped",
+        options.claudeSymlink && installedSkillPath
+          ? await ensureClaudeSkillSymlink(installedSkillPath, options.claudeSkillsDir)
+          : "skipped",
     };
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

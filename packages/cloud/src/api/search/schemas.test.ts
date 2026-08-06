@@ -21,19 +21,17 @@ describe("SearchItemSchema paths", () => {
     ).toBe(true);
   });
 
-  test.each([
-    "https://evil.example/item",
-    "//evil.example/item",
-    String.raw`/\evil.example/item`,
-    "/\t/evil.example/item",
-  ])("rejects cross-origin path %s", (href) => {
-    expect(SearchItemSchema.safeParse({ ...item, href }).success).toBe(false);
-    expect(
-      SearchItemSchema.safeParse({
-        ...item,
-        href: "/app/inventory",
-        previewUrl: href,
-      }).success,
-    ).toBe(false);
-  });
+  test.each(["https://evil.example/item", "//evil.example/item", String.raw`/\evil.example/item`, "/\t/evil.example/item"])(
+    "rejects cross-origin path %s",
+    (href) => {
+      expect(SearchItemSchema.safeParse({ ...item, href }).success).toBe(false);
+      expect(
+        SearchItemSchema.safeParse({
+          ...item,
+          href: "/app/inventory",
+          previewUrl: href,
+        }).success,
+      ).toBe(false);
+    },
+  );
 });

@@ -1,13 +1,12 @@
-import type { ChatTimelineItem } from "@k2b/ui";
+import { Chat, type ChatTimelineItem } from "@k2b/ui";
 import { type Accessor, createEffect, createMemo, createSignal, type JSX, onCleanup, Show } from "solid-js";
 import type { AiActiveTurn } from "../client/projection";
 import { type AiActiveTurnSegment, isRenderableTurnBlock, splitActiveTurnBlocks } from "../protocol";
 import { type AiAssistantTimelineItem, buildAiMessageTimeline, copyTextFromAssistantEntries } from "../timeline";
 import type { AiConversationTimelineEntry, AiStoredMessage } from "../types";
 import { AiTurnBlockList } from "./blocks";
-import { AiChatActionsProvider, type AiChatActions, createAssistantMessageActions, useAiChatActions } from "./message-actions";
+import { type AiChatActions, AiChatActionsProvider, createAssistantMessageActions, useAiChatActions } from "./message-actions";
 import { formatWorkedDuration, isCardToolName, isSurveyToolName, textFromMessage } from "./message-utils";
-import { ChatUtilityDisclosure, PulseDots } from "./primitives";
 import { TurnNavigator } from "./turn-navigator";
 import { activeTimelineSeq } from "./turn-navigator-utils";
 import {
@@ -23,7 +22,7 @@ export type AiChatTimelineSession = {
   activeTurn: AiActiveTurn | null;
 };
 
-export { AiChatActionsProvider, type AiChatActions };
+export { type AiChatActions, AiChatActionsProvider };
 
 const isShowcaseBlock = (block: AiAssistantTimelineItem["blocks"][number]) =>
   block.kind === "tool" && (isCardToolName(block.name) || isSurveyToolName(block.name) || block.name === "present");
@@ -37,14 +36,9 @@ function AiAssistantContent(props: { item: AiAssistantTimelineItem }): JSX.Eleme
   return (
     <div class="flex flex-col gap-2">
       <Show when={worked().length > 0}>
-        <ChatUtilityDisclosure
-          meta={{
-            icon: "ti ti-route",
-            label: `Worked for ${formatWorkedDuration(props.item.workedMs)}`,
-          }}
-        >
+        <Chat.Activity icon="ti ti-route" label={`Worked for ${formatWorkedDuration(props.item.workedMs)}`}>
           <AiTurnBlockList blocks={worked()} turnId={turnId()} compact />
-        </ChatUtilityDisclosure>
+        </Chat.Activity>
       </Show>
       <AiTurnBlockList blocks={visible()} turnId={turnId()} />
     </div>
@@ -115,12 +109,10 @@ const activeItems = (turn: AiActiveTurn | null, actions: AiChatActions): ChatTim
   if (segments.length === 0) {
     return [
       {
-        kind: "activity",
+        kind: "message",
         id: `${turn.turnId}-pending`,
-        label: "Generating response",
-        icon: "ti ti-sparkles",
-        tone: "ai",
-        trailing: <PulseDots />,
+        role: "assistant",
+        status: "streaming",
         anchorId: turn.seq,
       },
     ];
@@ -142,11 +134,15 @@ const activeItems = (turn: AiActiveTurn | null, actions: AiChatActions): ChatTim
     }
 
     const blocks = (segment as Extract<AiActiveTurnSegment, { type: "assistant" }>).blocks;
+    const hasApproval = blocks.some(
+      (block) => block.kind === "tool" && (block.status === "awaiting_approval" || block.status === "rejected"),
+    );
     return {
       kind: "message",
       id: `${turn.turnId}-assistant-${index}`,
       role: "assistant",
       status: turn.status === "running" && index === segments.length - 1 ? "streaming" : "complete",
+      class: hasApproval ? "ai-chat-message-wide" : undefined,
       content: (
         <AiTurnBlockList blocks={blocks} turnId={turn.turnId} streaming={turn.status === "running" && index === segments.length - 1} />
       ),

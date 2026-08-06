@@ -85,7 +85,8 @@ const recordMutationResult = (config: {
 const getServiceSession = async (): Promise<Result<string>> => {
   const config = await getFreeIpaConfig();
   if (!config.enabled) return fail(err.badInput("FreeIPA is disabled."));
-  if (!config.configured) return fail(err.badInput(`FreeIPA is enabled but not fully configured. Missing: ${config.missingSettings.join(", ")}.`));
+  if (!config.configured)
+    return fail(err.badInput(`FreeIPA is enabled but not fully configured. Missing: ${config.missingSettings.join(", ")}.`));
   try {
     return ok(
       await freeipa.session.getServiceSession({

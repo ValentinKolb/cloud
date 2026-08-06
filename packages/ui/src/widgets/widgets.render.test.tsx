@@ -88,9 +88,7 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
     const status = renderToString(() =>
       createComponent(WidgetStatus, { title: "Degraded", message: "One source unavailable", tone: "warning", grow: true }),
     );
-    const custom = renderToString(() =>
-      createComponent(WidgetStatus, { title: "Queued", tone: "info", icon: "ti ti-clock" }),
-    );
+    const custom = renderToString(() => createComponent(WidgetStatus, { title: "Queued", tone: "info", icon: "ti ti-clock" }));
 
     expect(status).toContain('data-tone="warning"');
     expect(status).toContain("ti ti-alert-triangle");

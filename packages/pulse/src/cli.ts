@@ -1,12 +1,5 @@
-import {
-  arg,
-  command,
-  defineCliCommands,
-} from "@valentinkolb/cloud/cli";
-import {
-  type PulseCapabilitySnapshot,
-  type PulseIngestBatch,
-} from "./contracts";
+import { arg, command, defineCliCommands } from "@valentinkolb/cloud/cli";
+import { type PulseCapabilitySnapshot, type PulseIngestBatch } from "./contracts";
 import { pulseAccessCommands } from "./cli/access";
 import { baseCommands } from "./cli/bases";
 import { dashboardCommands } from "./cli/dashboards";
@@ -16,17 +9,8 @@ import { signalCommands } from "./cli/signals";
 import { sourceCommands } from "./cli/sources";
 import { sourceTokenCommands } from "./cli/source-tokens";
 import { resolveBaseFromCommand } from "./cli/context";
-import {
-  baseFlag,
-  JSON_INPUT,
-} from "./cli/flags";
-import {
-  jsonRequest,
-  printJsonOrTable,
-  readApi,
-  readJsonInput,
-  yesNo,
-} from "./cli/shared";
+import { baseFlag, JSON_INPUT } from "./cli/flags";
+import { jsonRequest, printJsonOrTable, readApi, readJsonInput, yesNo } from "./cli/shared";
 
 type IngestResult = { metrics: number; events: number; states: number };
 

@@ -283,10 +283,7 @@ describe("@k2b/ui choice and date browser behavior", () => {
       return remove(...args);
     };
 
-    const dispose = render(
-      () => createComponent(DatePicker, { label: "Release date", value: "2026-07-27" }),
-      dom.root,
-    );
+    const dispose = render(() => createComponent(DatePicker, { label: "Release date", value: "2026-07-27" }), dom.root);
     const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-date-trigger")!;
     const surface = dom.root.querySelector<HTMLElement>(".k2b-date-popover")!;
     expect(activeListeners).toEqual({ resize: 0, scroll: 0 });

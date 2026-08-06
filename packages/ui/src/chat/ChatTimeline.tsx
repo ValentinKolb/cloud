@@ -26,7 +26,10 @@ export type ChatActivityItem = {
   label: string;
   description?: string;
   icon?: string;
+  leading?: JSX.Element;
+  accent?: string;
   tone?: ChatActivityTone;
+  busy?: boolean;
   trailing?: JSX.Element;
   defaultOpen?: boolean;
   anchorId?: string | number;
@@ -246,7 +249,10 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
                       label={(item as ChatActivityItem).label}
                       description={(item as ChatActivityItem).description}
                       icon={(item as ChatActivityItem).icon}
+                      leading={(item as ChatActivityItem).leading}
+                      accent={(item as ChatActivityItem).accent}
                       tone={(item as ChatActivityItem).tone}
+                      busy={(item as ChatActivityItem).busy}
                       trailing={(item as ChatActivityItem).trailing}
                       defaultOpen={(item as ChatActivityItem).defaultOpen}
                       anchorId={(item as ChatActivityItem).anchorId}

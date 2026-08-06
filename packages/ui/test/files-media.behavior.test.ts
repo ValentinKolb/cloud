@@ -92,7 +92,9 @@ describe("@k2b/ui files and media runtime behavior", () => {
     expect(row("/src/app.ts")?.tabIndex).toBe(0);
     expect(row("/src")?.tabIndex).toBe(-1);
 
-    const stableRows = new Map(rows().map((item) => [item.querySelector<HTMLButtonElement>(".k2b-content-file-tree__select")?.title, item]));
+    const stableRows = new Map(
+      rows().map((item) => [item.querySelector<HTMLButtonElement>(".k2b-content-file-tree__select")?.title, item]),
+    );
     setEntries([
       { path: "/src/app.ts", size: 40, updatedAt: "2026-07-29T10:00:00Z", badge: "fresh" },
       { path: "/src/lib.ts", size: 5 },

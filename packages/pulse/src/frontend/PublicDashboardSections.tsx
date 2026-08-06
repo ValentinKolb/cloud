@@ -204,10 +204,7 @@ export function PublicDashboardSections(props: Props) {
   };
 
   const renderMarkdownWidget = (widget: PulsePublicDashboardMarkdownWidget) =>
-    renderWidgetFrame(
-      widget,
-      <MarkdownView markdown={sanitizePublicDashboardMarkdown(widget.markdown)} smallHeadings class="text-sm" />,
-    );
+    renderWidgetFrame(widget, <MarkdownView markdown={sanitizePublicDashboardMarkdown(widget.markdown)} smallHeadings class="text-sm" />);
 
   const renderEventsWidget = (widget: PulsePublicDashboardEventsWidget) =>
     renderWidgetFrame(

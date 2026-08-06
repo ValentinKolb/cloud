@@ -104,7 +104,7 @@ const app = new Hono<AuthContext>()
 
       const result = await oauthService.client.create({
         data,
-        createdBy: user.id,
+        actor: user,
       });
 
       return respond(c, result);
@@ -132,8 +132,10 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const { id } = c.req.valid("param");
       const data = c.req.valid("json");
+      const user = getUserBackedActor(c);
+      if (!user) return respond(c, fail(err.forbidden("OAuth client management requires a user-backed actor")));
 
-      return respondMessage(c, oauthService.client.update({ id, data }), "Client updated");
+      return respondMessage(c, oauthService.client.update({ id, data, actor: user }), "Client updated");
     },
   )
 
@@ -182,8 +184,10 @@ const app = new Hono<AuthContext>()
     v("param", OAuthClientParamSchema),
     async (c) => {
       const { id } = c.req.valid("param");
+      const user = getUserBackedActor(c);
+      if (!user) return respond(c, fail(err.forbidden("OAuth client management requires a user-backed actor")));
 
-      return respond(c, oauthService.client.regenerateSecret({ id }));
+      return respond(c, oauthService.client.regenerateSecret({ id, actor: user }));
     },
   );
 

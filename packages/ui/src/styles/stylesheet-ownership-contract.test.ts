@@ -4,12 +4,7 @@ import { resolve } from "node:path";
 import { readShippedCssRules, shippedStyleFiles } from "./css-contract-test-helpers";
 
 const rules = readShippedCssRules(import.meta.dir);
-const scopeSelectors = new Set([
-  ".k2b-ui",
-  ".k2b-ui.k2b-dark",
-  '.k2b-ui[data-theme="dark"]',
-  ".dark .k2b-ui",
-]);
+const scopeSelectors = new Set([".k2b-ui", ".k2b-ui.k2b-dark", '.k2b-ui[data-theme="dark"]', ".dark .k2b-ui"]);
 
 describe("@k2b/ui shipped stylesheet ownership", () => {
   test("loads every stylesheet exported by the package entry", () => {
@@ -23,7 +18,11 @@ describe("@k2b/ui shipped stylesheet ownership", () => {
       "content-parity.css",
       "editors-parity.css",
     ]);
-    for (const file of files) expect(rules.some((rule) => rule.file === file), file).toBe(true);
+    for (const file of files)
+      expect(
+        rules.some((rule) => rule.file === file),
+        file,
+      ).toBe(true);
   });
 
   test("declares every exact component selector in one stylesheet per cascade context", () => {

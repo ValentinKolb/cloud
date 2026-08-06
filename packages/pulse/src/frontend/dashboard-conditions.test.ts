@@ -28,8 +28,6 @@ describe("Pulse dashboard conditions", () => {
   });
 
   test("formats condition fallback text", () => {
-    expect(formatDashboardConditionText({ level: "critical", operator: "<", value: 10, message: null })).toBe(
-      "Critical when value < 10",
-    );
+    expect(formatDashboardConditionText({ level: "critical", operator: "<", value: 10, message: null })).toBe("Critical when value < 10");
   });
 });

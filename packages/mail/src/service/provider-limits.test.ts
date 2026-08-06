@@ -1,18 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import {
-  PROVIDER_LIMIT_MAX_AGE_MS,
-  type ProviderLimitSnapshot,
-  providerLimitSnapshotSchema,
-} from "../contracts";
-import {
-  activeSmtpMessageLimit,
-  assertProviderMessageSize,
-} from "./provider-limits";
+import { PROVIDER_LIMIT_MAX_AGE_MS, type ProviderLimitSnapshot, providerLimitSnapshotSchema } from "../contracts";
+import { activeSmtpMessageLimit, assertProviderMessageSize } from "./provider-limits";
 
-const snapshot = (
-  checkedAt: string,
-  maxMessageBytes: number | null = 25_000_000,
-): ProviderLimitSnapshot => ({
+const snapshot = (checkedAt: string, maxMessageBytes: number | null = 25_000_000): ProviderLimitSnapshot => ({
   checkedAt,
   imap: { status: "supported", storage: null, messages: null },
   smtp: { status: "supported", maxMessageBytes, dsn: false },
@@ -20,11 +10,7 @@ const snapshot = (
 
 describe("provider limits", () => {
   test("validates bounded provider evidence", () => {
-    expect(
-      providerLimitSnapshotSchema.safeParse(
-        snapshot("2026-07-24T10:00:00.000Z"),
-      ).success,
-    ).toBe(true);
+    expect(providerLimitSnapshotSchema.safeParse(snapshot("2026-07-24T10:00:00.000Z")).success).toBe(true);
     expect(
       providerLimitSnapshotSchema.safeParse({
         ...snapshot("2026-07-24T10:00:00.000Z"),
@@ -41,18 +27,9 @@ describe("provider limits", () => {
 
   test("only enforces current numeric SMTP limits", () => {
     const now = Date.parse("2026-07-24T10:00:00.000Z");
-    expect(
-      activeSmtpMessageLimit(snapshot(new Date(now).toISOString()), now),
-    ).toBe(25_000_000);
-    expect(
-      activeSmtpMessageLimit(
-        snapshot(new Date(now - PROVIDER_LIMIT_MAX_AGE_MS - 1).toISOString()),
-        now,
-      ),
-    ).toBeNull();
-    expect(
-      activeSmtpMessageLimit(snapshot(new Date(now).toISOString(), null), now),
-    ).toBeNull();
+    expect(activeSmtpMessageLimit(snapshot(new Date(now).toISOString()), now)).toBe(25_000_000);
+    expect(activeSmtpMessageLimit(snapshot(new Date(now - PROVIDER_LIMIT_MAX_AGE_MS - 1).toISOString()), now)).toBeNull();
+    expect(activeSmtpMessageLimit(snapshot(new Date(now).toISOString(), null), now)).toBeNull();
     expect(
       activeSmtpMessageLimit(
         {

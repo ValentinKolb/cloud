@@ -547,6 +547,7 @@ export const createAiCapabilityToolResolver =
         appId: entry.appId,
         appName: entry.appName,
         appIcon: entry.app.appIcon,
+        appAccent: entry.app.appAccent,
         title: entry.title,
         capabilityKind: entry.kind,
       });

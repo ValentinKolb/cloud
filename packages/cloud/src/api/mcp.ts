@@ -533,6 +533,7 @@ const createMcpServer = (request: Request, dependencies: McpRouteDependencies, o
     const idempotencyKey = selected.kind === "actions" ? args[IDEMPOTENCY_KEY_FIELD] : undefined;
     if (selected.kind === "actions") delete args[IDEMPOTENCY_KEY_FIELD];
     const headers = new Headers(request.headers);
+    headers.delete("idempotency-key");
     if (typeof idempotencyKey === "string") headers.set("idempotency-key", idempotencyKey);
     const response = await dispatchCapability({
       request: new Request(request.url, { method: "POST", headers, signal: request.signal }),

@@ -181,7 +181,9 @@ describe("Pulse workspace dashboard snippets", () => {
         payload: {},
         recordedAt: "2026-01-01T00:00:00.000Z",
       }),
-    ).toBe('events docker.error since 24h source source-a entity container:api where collector=docker, message="context deadline exceeded", ignored="still included" limit 100');
+    ).toBe(
+      'events docker.error since 24h source source-a entity container:api where collector=docker, message="context deadline exceeded", ignored="still included" limit 100',
+    );
 
     expect(
       currentStateQueryText({
@@ -229,8 +231,8 @@ describe("Pulse workspace dashboard snippets", () => {
   });
 
   test("normalizes query lines without changing quoted values", () => {
-    expect(dashboardQueryLine(' metric app.orders sum\n  every  1h \n where customer="ACME  North" env=\'prod  blue\' ')).toBe(
-      'metric app.orders sum every 1h where customer="ACME  North" env=\'prod  blue\'',
+    expect(dashboardQueryLine(" metric app.orders sum\n  every  1h \n where customer=\"ACME  North\" env='prod  blue' ")).toBe(
+      "metric app.orders sum every 1h where customer=\"ACME  North\" env='prod  blue'",
     );
   });
 

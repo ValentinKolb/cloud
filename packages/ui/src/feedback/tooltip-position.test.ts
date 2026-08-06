@@ -38,7 +38,11 @@ const targetAt = (rect: Partial<Rect> & { top: number; height: number; left: num
 
 /** Both measurement passes report the same box, isolating the placement maths. */
 const surfaceOf = (width: number, height: number) => {
-  const element = { dataset: {} as Record<string, string>, style: {} as Record<string, string>, getBoundingClientRect: () => ({ width, height }) };
+  const element = {
+    dataset: {} as Record<string, string>,
+    style: {} as Record<string, string>,
+    getBoundingClientRect: () => ({ width, height }),
+  };
   return element as unknown as HTMLElement & { dataset: Record<string, string>; style: Record<string, string> };
 };
 

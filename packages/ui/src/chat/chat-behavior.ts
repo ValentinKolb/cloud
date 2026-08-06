@@ -1,32 +1,19 @@
 import type { ChatAction } from "./types";
 
-export const filterChatCommands = <T extends { name: string }>(
-  value: string,
-  commands: readonly T[],
-): T[] => {
+export const filterChatCommands = <T extends { name: string }>(value: string, commands: readonly T[]): T[] => {
   if (!value.startsWith("/") || /\s/.test(value)) return [];
   const query = value.slice(1).toLowerCase();
   return commands.filter((command) => command.name.toLowerCase().startsWith(query));
 };
 
-export const nextChatCommandIndex = (
-  index: number,
-  length: number,
-  direction: 1 | -1,
-): number => (length <= 0 ? 0 : (index + direction + length) % length);
+export const nextChatCommandIndex = (index: number, length: number, direction: 1 | -1): number =>
+  length <= 0 ? 0 : (index + direction + length) % length;
 
-export const isChatNearBottom = (
-  scrollHeight: number,
-  scrollTop: number,
-  clientHeight: number,
-  threshold = 96,
-): boolean => scrollHeight - scrollTop - clientHeight <= threshold;
+export const isChatNearBottom = (scrollHeight: number, scrollTop: number, clientHeight: number, threshold = 96): boolean =>
+  scrollHeight - scrollTop - clientHeight <= threshold;
 
-export const restoredChatScrollTop = (
-  previousScrollTop: number,
-  previousScrollHeight: number,
-  nextScrollHeight: number,
-): number => Math.max(0, previousScrollTop + nextScrollHeight - previousScrollHeight);
+export const restoredChatScrollTop = (previousScrollTop: number, previousScrollHeight: number, nextScrollHeight: number): number =>
+  Math.max(0, previousScrollTop + nextScrollHeight - previousScrollHeight);
 
 export type ChatSubmissionRun = {
   /** Clears the controlled draft (and attachments) before the handler runs. */
@@ -62,10 +49,7 @@ export const runChatSubmission = async (run: ChatSubmissionRun): Promise<boolean
 };
 
 /** Reports a handler failure without letting a synchronous throw escape. */
-export const reportChatFailure = (
-  perform: () => unknown,
-  onError?: (error: unknown) => void,
-): void => {
+export const reportChatFailure = (perform: () => unknown, onError?: (error: unknown) => void): void => {
   try {
     const result = perform();
     if (result instanceof Promise) void result.catch((error) => onError?.(error));

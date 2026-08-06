@@ -270,6 +270,14 @@ const requireUser = (options: RoleOptions = {}) =>
     return c.json({ message: "Self-service endpoints require a user-backed actor", code: "FORBIDDEN" }, 403);
   });
 
+/** Require one OAuth scope when the caller uses OAuth. Sessions and API credentials are unaffected. */
+const requireOAuthScope = (...requiredScopes: string[]) =>
+  createMiddleware<AuthContext>(async (c, next) => {
+    const scopes = c.get("oauthScopes");
+    if (!scopes || requiredScopes.some((scope) => scopes.includes(scope))) return next();
+    return c.json({ code: "FORBIDDEN", message: `OAuth scope ${requiredScopes.join(" or ")} is required` }, 403);
+  });
+
 /** Preset: Redirect to a fixed URL on rejection */
 const redirect = (url: string): RoleOptions => ({
   onReject: () => url,
@@ -307,6 +315,7 @@ export const auth = {
   session,
   requireRole,
   requireUser,
+  requireOAuthScope,
   requireAccount,
   redirect,
   redirectToLogin,

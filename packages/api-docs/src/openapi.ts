@@ -35,7 +35,8 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"
 
 const isObject = (value: unknown): value is JsonObject => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const stringValue = (value: unknown): string => (typeof value === "string" ? value : "");
-const stringList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 const compactText = (value: unknown): string => stringValue(value).replace(/\s+/g, " ").trim();
 
 export const parseOpenApiDocument = (value: unknown): OpenApiDocument => {
@@ -97,7 +98,8 @@ export const extractOperations = (source: ApiDocSource, document: OpenApiDocumen
   }
 
   return operations.sort(
-    (a, b) => a.effectivePath.localeCompare(b.effectivePath) || a.method.localeCompare(b.method) || a.operationId.localeCompare(b.operationId),
+    (a, b) =>
+      a.effectivePath.localeCompare(b.effectivePath) || a.method.localeCompare(b.method) || a.operationId.localeCompare(b.operationId),
   );
 };
 
@@ -116,10 +118,7 @@ const mergeParameters = (shared: readonly unknown[], own: readonly unknown[]): u
   return [...merged.values()];
 };
 
-export const filterOperations = (
-  operations: readonly ApiOperation[],
-  filters: { method?: string; tag?: string } = {},
-): ApiOperation[] => {
+export const filterOperations = (operations: readonly ApiOperation[], filters: { method?: string; tag?: string } = {}): ApiOperation[] => {
   const method = filters.method?.trim().toUpperCase();
   const tag = filters.tag?.trim().toLowerCase();
   return operations.filter(
@@ -155,7 +154,8 @@ export const searchOperations = (operations: readonly ApiOperation[], query: str
       if (!terms.every((term) => haystack.includes(term))) return [];
       const title = `${operation.operationId} ${operation.summary}`.toLowerCase();
       const route = `${operation.method} ${operation.effectivePath}`.toLowerCase();
-      const score = (title.includes(normalized) ? 4 : 0) + (route.includes(normalized) ? 3 : 0) + terms.filter((term) => title.includes(term)).length;
+      const score =
+        (title.includes(normalized) ? 4 : 0) + (route.includes(normalized) ? 3 : 0) + terms.filter((term) => title.includes(term)).length;
       return [{ operation, score }];
     })
     .sort(

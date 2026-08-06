@@ -3,7 +3,13 @@ import CopyButton from "../actions/CopyButton";
 import { resolveMaybeAccessor, type MaybeAccessor } from "../inputs/field-contract";
 
 export type StructuredDataPreviewMode = "formatted" | "raw";
-export type StructuredDataValue = null | boolean | number | string | readonly StructuredDataValue[] | { readonly [key: string]: StructuredDataValue };
+export type StructuredDataValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly StructuredDataValue[]
+  | { readonly [key: string]: StructuredDataValue };
 
 export const isStructuredDataValue = (value: unknown, seen = new WeakSet<object>()): value is StructuredDataValue => {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true;

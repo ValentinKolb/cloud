@@ -17,7 +17,6 @@ const suite = (await canUseDatabase()) ? describe : describe.skip;
 
 suite("Spaces comment pagination", () => {
   test("returns the newest bounded page in chronological display order", async () => {
-
     const [space] = await sql<{ id: string }[]>`
       INSERT INTO spaces.spaces (name, description, color)
       VALUES (${`Comments Test ${crypto.randomUUID()}`}, 'comments pagination test', '#2563eb')

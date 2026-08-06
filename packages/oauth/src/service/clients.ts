@@ -109,19 +109,19 @@ const emptyAccessMap = (clientIds: string[]): Map<string, AccessPrincipals> =>
 
 const uniqueIds = (ids: string[]): string[] => Array.from(new Set(ids));
 
-const loadAccessPrincipals = async (clientIds: string[]): Promise<Map<string, AccessPrincipals>> => {
+const loadAccessPrincipals = async (clientIds: string[], db: typeof sql = sql): Promise<Map<string, AccessPrincipals>> => {
   const access = emptyAccessMap(clientIds);
   if (clientIds.length === 0) return access;
 
   const [users, groups] = await Promise.all([
-    sql<DbAccessUser[]>`
+    db<DbAccessUser[]>`
       SELECT cau.client_id, u.id, u.uid, u.display_name, u.mail, u.provider
       FROM oauth.client_access_users cau
       JOIN auth.users u ON u.id = cau.user_id
       WHERE cau.client_id = ANY(${toPgUuidArray(clientIds)}::uuid[])
       ORDER BY u.uid
     `,
-    sql<DbAccessGroup[]>`
+    db<DbAccessGroup[]>`
       SELECT cag.client_id, g.id, g.provider, g.name, g.description
       FROM oauth.client_access_groups cag
       JOIN auth.groups g ON g.id = cag.group_id
@@ -179,14 +179,16 @@ const replaceAccessPrincipals = async (params: {
   accessMode: OAuthAccessMode;
   userIds: string[];
   groupIds: string[];
+  db?: typeof sql;
 }): Promise<void> => {
-  await sql`DELETE FROM oauth.client_access_users WHERE client_id = ${params.clientId}::uuid`;
-  await sql`DELETE FROM oauth.client_access_groups WHERE client_id = ${params.clientId}::uuid`;
+  const db = params.db ?? sql;
+  await db`DELETE FROM oauth.client_access_users WHERE client_id = ${params.clientId}::uuid`;
+  await db`DELETE FROM oauth.client_access_groups WHERE client_id = ${params.clientId}::uuid`;
 
   if (params.accessMode !== "specific") return;
 
   if (params.userIds.length > 0) {
-    await sql`
+    await db`
       INSERT INTO oauth.client_access_users (client_id, user_id)
       SELECT ${params.clientId}::uuid, unnest(${toPgUuidArray(params.userIds)}::uuid[])
       ON CONFLICT DO NOTHING
@@ -194,7 +196,7 @@ const replaceAccessPrincipals = async (params: {
   }
 
   if (params.groupIds.length > 0) {
-    await sql`
+    await db`
       INSERT INTO oauth.client_access_groups (client_id, group_id)
       SELECT ${params.clientId}::uuid, unnest(${toPgUuidArray(params.groupIds)}::uuid[])
       ON CONFLICT DO NOTHING
@@ -218,14 +220,27 @@ export const list = async (): Promise<OAuthClient[]> => {
 /**
  * Get client by internal ID
  */
-export const get = async (params: { id: string }): Promise<OAuthClient | null> => {
-  const [row] = await sql<DbClient[]>`
+export const get = async (params: { id: string; db?: typeof sql }): Promise<OAuthClient | null> => {
+  const db = params.db ?? sql;
+  const [row] = await db<DbClient[]>`
     SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
     FROM oauth.clients
     WHERE id = ${params.id}
   `;
   if (!row) return null;
-  const access = await loadAccessPrincipals([row.id]);
+  const access = await loadAccessPrincipals([row.id], db);
+  return mapToClient(row, access.get(row.id));
+};
+
+const getForUpdate = async (params: { id: string; db: typeof sql }): Promise<OAuthClient | null> => {
+  const [row] = await params.db<DbClient[]>`
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
+    FROM oauth.clients
+    WHERE id = ${params.id}
+    FOR UPDATE
+  `;
+  if (!row) return null;
+  const access = await loadAccessPrincipals([row.id], params.db);
   return mapToClient(row, access.get(row.id));
 };
 
@@ -246,8 +261,11 @@ export const getByClientId = async (params: { clientId: string }): Promise<OAuth
 /**
  * Create a new OAuth client
  */
-export const create = async (params: { data: CreateOAuthClient; createdBy: string }): Promise<MutationResult<OAuthClientWithSecret>> => {
-  const { data, createdBy } = params;
+export const create = async (params: {
+  data: CreateOAuthClient;
+  actor: OAuthClientAdminActor;
+}): Promise<MutationResult<OAuthClientWithSecret>> => {
+  const { data, actor } = params;
 
   // Generate client secret for confidential clients
   const clientSecret = data.isPublic ? null : crypto.randomUUID() + crypto.randomUUID();
@@ -278,45 +296,48 @@ export const create = async (params: { data: CreateOAuthClient; createdBy: strin
   });
   if (!serviceAccountResult.ok) return serviceAccountResult;
 
-  const [row] = await sql<DbClient[]>`
-    INSERT INTO oauth.clients (name, description, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, client_secret_hash, created_by)
-    VALUES (
-      ${data.name},
-      ${data.description ?? null},
-      ${redirectUrisLiteral}::text[],
-      ${data.logoutUri ?? null},
-      ${scopesLiteral}::text[],
-      ${audiencesLiteral}::text[],
-      ${data.serviceAccountId ?? null}::uuid,
-      ${allowedProfilesLiteral}::text[],
-      ${accessMode},
-      ${data.isPublic},
-      ${clientSecretHash},
-      ${createdBy}
-    )
-    RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
-  `;
+  return sql.begin(async (tx) => {
+    const [row] = await tx<DbClient[]>`
+      INSERT INTO oauth.clients (name, description, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, is_public, client_secret_hash, created_by)
+      VALUES (
+        ${data.name},
+        ${data.description ?? null},
+        ${redirectUrisLiteral}::text[],
+        ${data.logoutUri ?? null},
+        ${scopesLiteral}::text[],
+        ${audiencesLiteral}::text[],
+        ${data.serviceAccountId ?? null}::uuid,
+        ${allowedProfilesLiteral}::text[],
+        ${accessMode},
+        ${data.isPublic},
+        ${clientSecretHash},
+        ${actor.id}
+      )
+      RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
+    `;
 
-  if (!row) {
-    return { ok: false, error: "Failed to create client", status: 500 };
-  }
+    if (!row) return { ok: false, error: "Failed to create client", status: 500 } as const;
 
-  await replaceAccessPrincipals({
-    clientId: row.id,
-    accessMode,
-    userIds,
-    groupIds,
+    await replaceAccessPrincipals({ clientId: row.id, accessMode, userIds, groupIds, db: tx });
+    const created = await get({ id: row.id, db: tx });
+    if (!created) return { ok: false, error: "Failed to load created client", status: 500 } as const;
+
+    await audit.record(
+      {
+        action: "oauth.client.create",
+        outcome: "allowed",
+        actor: { userId: actor.id, uid: actor.uid, provider: actor.provider, roles: actor.roles },
+        target: { type: "oauth_client", id: created.id, label: created.name },
+        metadata: { clientId: created.clientId, isPublic: created.isPublic },
+      },
+      tx,
+    );
+
+    return {
+      ok: true,
+      data: { ...created, clientSecret: clientSecret ?? "" },
+    } as const;
   });
-  const created = await get({ id: row.id });
-  if (!created) return { ok: false, error: "Failed to load created client", status: 500 };
-
-  return {
-    ok: true,
-    data: {
-      ...created,
-      clientSecret: clientSecret ?? "",
-    },
-  };
 };
 
 /** Register an untrusted public client through RFC 7591. */
@@ -406,58 +427,62 @@ export const markDynamicAuthorized = async (params: { id: string; db?: typeof sq
 /**
  * Update an OAuth client
  */
-export const update = async (params: { id: string; data: UpdateOAuthClient }): Promise<MutationResult<void>> => {
-  const { id, data } = params;
+export const update = async (params: {
+  id: string;
+  data: UpdateOAuthClient;
+  actor: OAuthClientAdminActor;
+}): Promise<MutationResult<void>> => {
+  const { id, data, actor } = params;
+  return sql.begin(async (tx) => {
+    const existing = await getForUpdate({ id, db: tx });
+    if (!existing) return { ok: false, error: "Client not found", status: 404 } as const;
+    if (existing.registrationKind !== "managed") {
+      return { ok: false, error: "Only managed OAuth clients can be edited", status: 400 } as const;
+    }
 
-  const existing = await get({ id });
-  if (!existing) {
-    return { ok: false, error: "Client not found", status: 404 };
-  }
-  if (existing.registrationKind !== "managed") {
-    return { ok: false, error: "Only managed OAuth clients can be edited", status: 400 };
-  }
+    const redirectUrisLiteral = toPgTextArray(data.redirectUris ?? existing.redirectUris);
+    const scopesLiteral = toPgTextArray(data.scopes ?? existing.scopes);
+    const audiencesLiteral = toPgTextArray(data.audiences ?? existing.audiences);
+    const allowedProfilesLiteral = toPgTextArray(data.allowedProfiles ?? existing.allowedProfiles);
+    const serviceAccountId = data.serviceAccountId === undefined ? existing.serviceAccountId : data.serviceAccountId;
+    const accessMode = data.accessMode ?? existing.accessMode;
+    const userIds = uniqueIds(data.allowedUserIds ?? existing.accessUsers.map((user) => user.id));
+    const groupIds = uniqueIds(data.allowedGroupIds ?? existing.accessGroups.map((group) => group.id));
+    const accessResult = validateAccessSelection({ accessMode, userIds, groupIds });
+    if (!accessResult.ok) return accessResult;
+    const principalResult = await validateAccessPrincipals({ accessMode, userIds, groupIds });
+    if (!principalResult.ok) return principalResult;
+    const serviceAccountResult = await validateServiceAccountBinding({ serviceAccountId, isPublic: existing.isPublic });
+    if (!serviceAccountResult.ok) return serviceAccountResult;
 
-  const redirectUrisLiteral = toPgTextArray(data.redirectUris ?? existing.redirectUris);
-  const scopesLiteral = toPgTextArray(data.scopes ?? existing.scopes);
-  const audiencesLiteral = toPgTextArray(data.audiences ?? existing.audiences);
-  const allowedProfilesLiteral = toPgTextArray(data.allowedProfiles ?? existing.allowedProfiles);
-  const serviceAccountId = data.serviceAccountId === undefined ? existing.serviceAccountId : data.serviceAccountId;
-  const accessMode = data.accessMode ?? existing.accessMode;
-  const userIds = uniqueIds(data.allowedUserIds ?? existing.accessUsers.map((user) => user.id));
-  const groupIds = uniqueIds(data.allowedGroupIds ?? existing.accessGroups.map((group) => group.id));
-  const accessResult = validateAccessSelection({ accessMode, userIds, groupIds });
-  if (!accessResult.ok) return accessResult;
-  const principalResult = await validateAccessPrincipals({ accessMode, userIds, groupIds });
-  if (!principalResult.ok) return principalResult;
-  const serviceAccountResult = await validateServiceAccountBinding({
-    serviceAccountId,
-    isPublic: existing.isPublic,
+    await tx`
+      UPDATE oauth.clients
+      SET
+        name = ${data.name ?? existing.name},
+        description = ${data.description === undefined ? existing.description : data.description},
+        redirect_uris = ${redirectUrisLiteral}::text[],
+        logout_uri = ${data.logoutUri === undefined ? existing.logoutUri : data.logoutUri},
+        scopes = ${scopesLiteral}::text[],
+        audiences = ${audiencesLiteral}::text[],
+        service_account_id = ${serviceAccountId}::uuid,
+        allowed_profiles = ${allowedProfilesLiteral}::text[],
+        access_mode = ${accessMode}
+      WHERE id = ${id}
+    `;
+
+    await replaceAccessPrincipals({ clientId: id, accessMode, userIds, groupIds, db: tx });
+    await audit.record(
+      {
+        action: "oauth.client.update",
+        outcome: "allowed",
+        actor: { userId: actor.id, uid: actor.uid, provider: actor.provider, roles: actor.roles },
+        target: { type: "oauth_client", id: existing.id, label: data.name ?? existing.name },
+        metadata: { clientId: existing.clientId },
+      },
+      tx,
+    );
+    return { ok: true, data: undefined } as const;
   });
-  if (!serviceAccountResult.ok) return serviceAccountResult;
-
-  // Handle description: undefined means keep existing, null means clear it
-  const description = data.description === undefined ? existing.description : data.description;
-  // Handle logoutUri: undefined means keep existing, null means clear it
-  const logoutUri = data.logoutUri === undefined ? existing.logoutUri : data.logoutUri;
-
-  await sql`
-    UPDATE oauth.clients
-    SET
-      name = ${data.name ?? existing.name},
-      description = ${description},
-      redirect_uris = ${redirectUrisLiteral}::text[],
-      logout_uri = ${logoutUri},
-      scopes = ${scopesLiteral}::text[],
-      audiences = ${audiencesLiteral}::text[],
-      service_account_id = ${serviceAccountId}::uuid,
-      allowed_profiles = ${allowedProfilesLiteral}::text[],
-      access_mode = ${accessMode}
-    WHERE id = ${id}
-  `;
-
-  await replaceAccessPrincipals({ clientId: id, accessMode, userIds, groupIds });
-
-  return { ok: true, data: undefined };
 };
 
 /**
@@ -499,7 +524,10 @@ export const delete_ = async (params: { id: string; actor: OAuthClientAdminActor
 /**
  * Regenerate client secret (confidential clients only)
  */
-export const regenerateSecret = async (params: { id: string }): Promise<MutationResult<{ clientSecret: string }>> => {
+export const regenerateSecret = async (params: {
+  id: string;
+  actor: OAuthClientAdminActor;
+}): Promise<MutationResult<{ clientSecret: string }>> => {
   const existing = await get({ id: params.id });
   if (!existing) {
     return { ok: false, error: "Client not found", status: 404 };
@@ -512,13 +540,33 @@ export const regenerateSecret = async (params: { id: string }): Promise<Mutation
   const clientSecret = crypto.randomUUID() + crypto.randomUUID();
   const clientSecretHash = await Bun.password.hash(clientSecret);
 
-  await sql`
-    UPDATE oauth.clients
-    SET client_secret_hash = ${clientSecretHash}
-    WHERE id = ${params.id}
-  `;
+  return sql.begin(async (tx) => {
+    const result = await tx`
+      UPDATE oauth.clients
+      SET client_secret_hash = ${clientSecretHash}
+      WHERE id = ${params.id}
+        AND registration_kind = 'managed'
+    `;
+    if (result.count !== 1) return { ok: false, error: "Client cannot rotate its secret", status: 400 } as const;
 
-  return { ok: true, data: { clientSecret } };
+    await audit.record(
+      {
+        action: "oauth.client.secret_regenerate",
+        outcome: "allowed",
+        actor: {
+          userId: params.actor.id,
+          uid: params.actor.uid,
+          provider: params.actor.provider,
+          roles: params.actor.roles,
+        },
+        target: { type: "oauth_client", id: existing.id, label: existing.name },
+        metadata: { clientId: existing.clientId },
+      },
+      tx,
+    );
+
+    return { ok: true, data: { clientSecret } } as const;
+  });
 };
 
 /**
@@ -583,6 +631,7 @@ const isLoopbackRedirectMatch = (registeredUri: string, redirectUri: string): bo
 
   if (registered.protocol !== "http:" || requested.protocol !== "http:") return false;
   if (!LOOPBACK_IP_LITERAL_HOSTS.has(registered.hostname) || !LOOPBACK_IP_LITERAL_HOSTS.has(requested.hostname)) return false;
+  if (registered.hostname !== requested.hostname) return false;
   return registered.pathname === requested.pathname && registered.search === requested.search;
 };
 

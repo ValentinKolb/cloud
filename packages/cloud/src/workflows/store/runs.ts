@@ -489,9 +489,7 @@ export const finishWorkflowRunCancel = async (
       RETURNING step_key
     `;
     const result =
-      unsettled.length > 0
-        ? ({ state: "needs_attention", error: canceledWithUncertainEffect } as const)
-        : ({ state: "canceled" } as const);
+      unsettled.length > 0 ? ({ state: "needs_attention", error: canceledWithUncertainEffect } as const) : ({ state: "canceled" } as const);
     await tx`
       UPDATE workflows.run
       SET state = ${result.state},
@@ -513,10 +511,7 @@ export const finishWorkflowRunCancel = async (
 };
 
 /** Finalizes canceled runs whose worker disappeared before observing the request. */
-export const finishExpiredWorkflowRunCancels = async (
-  limit: number,
-  options: { appId: string; db?: SQL },
-): Promise<number> => {
+export const finishExpiredWorkflowRunCancels = async (limit: number, options: { appId: string; db?: SQL }): Promise<number> => {
   const db = options.db ?? sql;
   return withTransaction(db, async (tx) => {
     const rows = await tx<{ id: string; execution_generation: string }[]>`
@@ -531,10 +526,7 @@ export const finishExpiredWorkflowRunCancels = async (
       FOR UPDATE SKIP LOCKED
     `;
     for (const row of rows) {
-      await finishWorkflowRunCancel(
-        { runId: row.id, executionGeneration: Number(row.execution_generation) },
-        { db: tx },
-      );
+      await finishWorkflowRunCancel({ runId: row.id, executionGeneration: Number(row.execution_generation) }, { db: tx });
     }
     return rows.length;
   });

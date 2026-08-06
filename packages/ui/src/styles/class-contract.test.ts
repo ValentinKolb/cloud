@@ -64,27 +64,16 @@ const literalClassTokens = (source: string): string[] => {
   const definitions = new Map<string, Definition[]>();
   const lexicalScope = (node: ts.Node): ts.Node => {
     let current = node.parent;
-    while (
-      current &&
-      !ts.isBlock(current) &&
-      !ts.isSourceFile(current) &&
-      !ts.isFunctionLike(current)
-    ) {
+    while (current && !ts.isBlock(current) && !ts.isSourceFile(current) && !ts.isFunctionLike(current)) {
       current = current.parent;
     }
     return current ?? sourceFile;
   };
   const rememberDefinitions = (node: ts.Node) => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      definitions.set(node.name.text, [
-        ...(definitions.get(node.name.text) ?? []),
-        { node: node.initializer, scope: lexicalScope(node) },
-      ]);
+      definitions.set(node.name.text, [...(definitions.get(node.name.text) ?? []), { node: node.initializer, scope: lexicalScope(node) }]);
     } else if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      definitions.set(node.name.text, [
-        ...(definitions.get(node.name.text) ?? []),
-        { node: node.body, scope: lexicalScope(node) },
-      ]);
+      definitions.set(node.name.text, [...(definitions.get(node.name.text) ?? []), { node: node.body, scope: lexicalScope(node) }]);
     }
     ts.forEachChild(node, rememberDefinitions);
   };
@@ -170,11 +159,7 @@ const literalClassTokens = (source: string): string[] => {
   };
 
   const visitClasses = (node: ts.Node) => {
-    if (
-      ts.isJsxAttribute(node) &&
-      ts.isIdentifier(node.name) &&
-      (node.name.text === "class" || node.name.text === "className")
-    ) {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && (node.name.text === "class" || node.name.text === "className")) {
       if (node.initializer && ts.isStringLiteral(node.initializer)) addText(node.initializer.text);
       else if (node.initializer && ts.isJsxExpression(node.initializer)) collect(node.initializer.expression);
     }
@@ -205,14 +190,11 @@ describe("@k2b/ui class extraction coverage", () => {
       const joined = ["k2b-array", enabled && "has-value"].filter(Boolean).join(" ");
       <><div class={accessor()} /><div class={joined} /><div class={wide ? "" : "k2b-wide"} /></>;
     `;
-    expect(literalClassTokens(source).sort()).toEqual(
-      ["has-value", "is-active", "k2b-array", "k2b-root", "k2b-wide"].sort(),
-    );
+    expect(literalClassTokens(source).sort()).toEqual(["has-value", "is-active", "k2b-array", "k2b-root", "k2b-wide"].sort());
   });
 });
 
-const hasRule = (token: string) =>
-  new RegExp(`\\.${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(styles);
+const hasRule = (token: string) => new RegExp(`\\.${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(styles);
 
 describe("@k2b/ui package class contract", () => {
   test("renders no class the shipped stylesheet cannot style", () => {
@@ -250,9 +232,7 @@ describe("@k2b/ui package class contract", () => {
           // headed by a `k2b-` ancestor cannot reach unrelated consumer markup.
           for (const compound of part.split(/\s+|>|~|\+/).filter(Boolean)) {
             const classes = [...compound.matchAll(/\.([\w-]+)/g)].map((match) => match[1]!);
-            const unprefixed = classes.filter(
-              (name) => name !== "k2b-ui" && name !== "dark" && !name.startsWith("k2b-"),
-            );
+            const unprefixed = classes.filter((name) => name !== "k2b-ui" && name !== "dark" && !name.startsWith("k2b-"));
             if (!unprefixed.length) continue;
             if (classes.some((name) => name.startsWith("k2b-") && name !== "k2b-ui")) continue;
             for (const name of unprefixed) if (!isForeignContract(name)) owned.add(`${file}: .${name}`);

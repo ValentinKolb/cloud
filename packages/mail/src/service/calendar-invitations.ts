@@ -2,11 +2,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
-import type {
-  CalendarAddress,
-  CalendarParticipationStatus,
-  SpacesMailDestinationContext,
-} from "../app-integration-contracts";
+import type { CalendarAddress, CalendarParticipationStatus, SpacesMailDestinationContext } from "../app-integration-contracts";
 import type { MailDraft } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import {
@@ -33,13 +29,9 @@ import * as senderIdentities from "./sender-identities";
 
 const MAX_CALENDAR_BYTES = 1_000_000;
 
-export const composerIntegrationAvailable = async (): Promise<boolean> =>
-  (await getSpacesMailIntegrationAvailability()).composer;
+export const composerIntegrationAvailable = async (): Promise<boolean> => (await getSpacesMailIntegrationAvailability()).composer;
 
-export const visibleInvitationAttendees = (
-  draft: Pick<MailDraft, "to" | "cc">,
-  organizerAddress: string,
-): CalendarAddress[] => {
+export const visibleInvitationAttendees = (draft: Pick<MailDraft, "to" | "cc">, organizerAddress: string): CalendarAddress[] => {
   const organizer = organizerAddress.trim().toLowerCase();
   const recipients = new Map<string, CalendarAddress>();
   for (const recipient of [...draft.to, ...draft.cc]) {
@@ -315,9 +307,7 @@ export const attachEventInvitation = async (params: {
   if (!current.ok) return current;
   if (!identities.ok) return identities;
   if (current.data.state !== "draft") return fail(err.conflict("Only an editable draft can receive an invitation"));
-  const identity = identities.data.find(
-    (candidate) => candidate.id === current.data.senderIdentityId && candidate.status === "verified",
-  );
+  const identity = identities.data.find((candidate) => candidate.id === current.data.senderIdentityId && candidate.status === "verified");
   if (!identity) return fail(err.badInput("The draft sender identity is no longer verified"));
 
   const attendees = visibleInvitationAttendees(current.data, identity.fromAddress);

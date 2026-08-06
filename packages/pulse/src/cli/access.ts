@@ -26,7 +26,11 @@ export const pulseAccessCommands = createAccessCommands({
     );
   },
   revoke: async (ctx, base, accessId) => {
-    await readApi<MessageResult>(ctx, `/bases/${encodeURIComponent(base.id)}/access/${encodeURIComponent(accessId)}`, jsonRequest("DELETE"));
+    await readApi<MessageResult>(
+      ctx,
+      `/bases/${encodeURIComponent(base.id)}/access/${encodeURIComponent(accessId)}`,
+      jsonRequest("DELETE"),
+    );
   },
   examples: {
     list: ['cld pulse access list "Ops telemetry"', "cld pulse access list --base 810db53e-e756-4db5-9a40-9091f04a0abd"],

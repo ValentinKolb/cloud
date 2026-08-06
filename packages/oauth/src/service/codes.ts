@@ -64,6 +64,7 @@ export const create = async (params: {
 export const consume = async (params: {
   code: string;
   clientId: string;
+  client?: OAuthClient;
   redirectUri: string;
   resource?: string;
   codeVerifier?: string;
@@ -115,13 +116,15 @@ export const consume = async (params: {
   const [usedRow] = await sql<{ code: string }[]>`
     UPDATE oauth.codes
     SET used = true
-    WHERE code = ${code} AND used = false
+    WHERE code = ${code}
+      AND used = false
+      AND expires_at >= now()
     RETURNING code
   `;
   if (!usedRow) return null;
 
   // Get client
-  const client = await clients.getByClientId({ clientId });
+  const client = params.client ?? (await clients.getByClientId({ clientId }));
   if (!client) return null;
 
   return { userId: row.user_id, client, scopes: row.scopes as OAuthScope[], resource: row.resource, nonce: row.nonce };

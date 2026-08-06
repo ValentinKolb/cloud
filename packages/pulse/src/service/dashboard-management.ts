@@ -3,9 +3,7 @@ import { sql } from "bun";
 import type { PulseDashboard } from "../contracts";
 import { requireBaseAccess, requireBaseActive, userIdForScope, type AccessScope } from "./access-control";
 import { compileDashboardConfigForSave, normalizeDashboardConfig } from "./dashboard-config";
-import {
-  resolvePublicDashboardToken,
-} from "./public-dashboard-tokens";
+import { resolvePublicDashboardToken } from "./public-dashboard-tokens";
 import { iso } from "./telemetry-values";
 
 type DashboardRow = {

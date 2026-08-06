@@ -156,12 +156,7 @@ export default function ResourceBrowserView(props: Props) {
           {` across ${plural(sourceCount(), "source")}`}
         </span>
         <Show when={props.sourceFilter()}>
-          <Button
-            type="button"
-            variant="subtle"
-            size="xs"
-            onClick={() => props.setSourceFilter([])}
-          >
+          <Button type="button" variant="subtle" size="xs" onClick={() => props.setSourceFilter([])}>
             <i class="ti ti-database-share" />
             {selectedSourceLabel()}
             <i class="ti ti-x text-[10px]" />

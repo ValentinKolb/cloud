@@ -119,11 +119,11 @@ describe("source-faithful editor SSR contracts", () => {
     const css = await Bun.file(resolve(import.meta.dir, "../../styles/editors-parity.css")).text();
     const rules = parseCssRules("editors-parity.css", css);
 
-    for (const selector of [
-      ".k2b-ui .k2b-autocomplete:focus-within",
-      ".k2b-ui .k2b-markdown-editor:focus-within",
-    ]) {
-      const body = rules.filter((rule) => rule.selector === selector).map((rule) => rule.body).join(";");
+    for (const selector of [".k2b-ui .k2b-autocomplete:focus-within", ".k2b-ui .k2b-markdown-editor:focus-within"]) {
+      const body = rules
+        .filter((rule) => rule.selector === selector)
+        .map((rule) => rule.body)
+        .join(";");
       expect(body, selector).toContain("outline: none");
       expect(body, selector).toContain("border-color: var(--k2b-focus-ring)");
       expect(body, selector).toContain("background: var(--k2b-surface)");

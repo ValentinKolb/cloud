@@ -91,9 +91,10 @@ export default ssr<AuthContext>(async (c) => {
             />
           </section>
         ) : (
-          <Placeholder surface="paper" description={<>
-            No announcements yet. Create an announcement or banner to show it through the shared layout.
-          </>} />
+          <Placeholder
+            surface="paper"
+            description={<>No announcements yet. Create an announcement or banner to show it through the shared layout.</>}
+          />
         )}
       </div>
     </AdminLayout>

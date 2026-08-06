@@ -99,7 +99,13 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
               </div>
             </SettingsModal.Tab>
 
-            <SettingsModal.Tab id="danger" title="Danger zone" icon="ti ti-alert-triangle" tone="danger" description="Delete this dashboard.">
+            <SettingsModal.Tab
+              id="danger"
+              title="Danger zone"
+              icon="ti ti-alert-triangle"
+              tone="danger"
+              description="Delete this dashboard."
+            >
               <Button
                 type="button"
                 variant="danger"

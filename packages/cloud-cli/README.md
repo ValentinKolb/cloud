@@ -36,6 +36,14 @@ bun run packages/cloud-cli/src/index.ts --server http://localhost:3000 --token c
 
 Profiles live in `~/.config/cloud/cld/config.json` by default. The directory is
 written with `0700` and the config file with `0600`.
+OAuth credentials stay bound to the profile's Cloud server. To move a profile
+to another server, run `cld login <profile> --server <url>` instead of
+overriding `--server` or `CLD_SERVER` on an existing OAuth profile.
+The server value must be an `http://` or `https://` origin without credentials,
+a path, query parameters, or a fragment.
+Re-login replaces and remotely revokes the previous refresh grant. `cld
+logout` revokes the current grant and removes its local or fd0-backed refresh
+token reference.
 
 ```bash
 bun run packages/cloud-cli/src/index.ts profile set \

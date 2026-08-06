@@ -18,11 +18,7 @@ export class MetricSeriesLimitError extends Error {
   }
 }
 
-export const enforceMetricSeriesBudget = async (
-  baseId: string,
-  candidates: SeriesCandidate[],
-  db: SqlClient,
-): Promise<void> => {
+export const enforceMetricSeriesBudget = async (baseId: string, candidates: SeriesCandidate[], db: SqlClient): Promise<void> => {
   if (candidates.length === 0) return;
   const uniqueCandidates = [
     ...new Map(candidates.map((candidate) => [`${candidate.metric}\u001f${candidate.seriesKey}`, candidate])).values(),

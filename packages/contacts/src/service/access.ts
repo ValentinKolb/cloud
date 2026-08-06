@@ -379,10 +379,7 @@ export const getBookAccessGuard = async (config: {
 /**
  * Resolves the effective permission of a user for one manual book.
  */
-export const getBookPermission = async (config: {
-  bookId: string;
-  subject: AccessSubject;
-}): Promise<PermissionLevel> => {
+export const getBookPermission = async (config: { bookId: string; subject: AccessSubject }): Promise<PermissionLevel> => {
   if (!isUuid(config.bookId)) return "none";
 
   const accessRows = await sql<{ access_id: string }[]>`

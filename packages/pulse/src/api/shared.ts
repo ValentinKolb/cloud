@@ -11,9 +11,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export const requireUuidParam = (value: string | undefined, label: string) => {
   const param = requireParam(value, label);
   if (!param.ok) return param;
-  return UUID_RE.test(param.value)
-    ? param
-    : { ok: false as const, result: fail(err.badInput(`${label} must be a UUID`)) };
+  return UUID_RE.test(param.value) ? param : { ok: false as const, result: fail(err.badInput(`${label} must be a UUID`)) };
 };
 
 export const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {

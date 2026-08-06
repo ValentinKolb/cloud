@@ -1,5 +1,5 @@
-import { audit, decryptSecret, encryptSecret, isUniqueViolation, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result, type ServiceError } from "@k2b/stdlib";
+import { audit, decryptSecret, encryptSecret, isUniqueViolation, logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type {
   ConnectorVerification,
@@ -320,90 +320,56 @@ export const refreshProviderConnectionLimits = async (params: {
 
   try {
     const resourceIds = await listConnectionRemoteResourceIds(params.connectionId);
-    const barrier = await withMailboxProviderOperationBarrier(
-      params.mailboxId,
-      resourceIds,
-      async (assertLeaseActive) => {
-        const runtime = await loadProviderConnectionRuntimeSnapshot(
-          params.connectionId,
-        );
-        await assertLeaseActive();
-        const limits = await imapSmtpConnector.discoverLimits(runtime.runtime);
-        await assertLeaseActive();
+    const barrier = await withMailboxProviderOperationBarrier(params.mailboxId, resourceIds, async (assertLeaseActive) => {
+      const runtime = await loadProviderConnectionRuntimeSnapshot(params.connectionId);
+      await assertLeaseActive();
+      const limits = await imapSmtpConnector.discoverLimits(runtime.runtime);
+      await assertLeaseActive();
 
-        return sql.begin(async (tx) => {
-          const locked = await loadConnectionRow(params.connectionId, tx, true);
-          if (
-            !locked ||
-            locked.owner_mailbox_id !== params.mailboxId ||
-            locked.status === "revoked"
-          ) {
-            return fail(err.notFound("Provider connection"));
-          }
-          const recheck = await authorizeMailbox(
-            params.context,
-            params.mailboxId,
-            tx,
-          );
-          if (!recheck.ok) return recheck;
-          if (
-            locked.secret_revision !== runtime.secretRevision ||
-            Number(locked.oauth_token_revision) !== runtime.oauthTokenRevision
-          ) {
-            return fail(
-              err.conflict(
-                "Provider credentials changed while limits were being refreshed; retry the operation",
-              ),
-            );
-          }
-          const [updated] = await tx<DbProviderConnection[]>`
+      return sql.begin(async (tx) => {
+        const locked = await loadConnectionRow(params.connectionId, tx, true);
+        if (!locked || locked.owner_mailbox_id !== params.mailboxId || locked.status === "revoked") {
+          return fail(err.notFound("Provider connection"));
+        }
+        const recheck = await authorizeMailbox(params.context, params.mailboxId, tx);
+        if (!recheck.ok) return recheck;
+        if (locked.secret_revision !== runtime.secretRevision || Number(locked.oauth_token_revision) !== runtime.oauthTokenRevision) {
+          return fail(err.conflict("Provider credentials changed while limits were being refreshed; retry the operation"));
+        }
+        const [updated] = await tx<DbProviderConnection[]>`
             UPDATE mail.provider_connections pc
             SET limit_snapshot = ${limits}::jsonb, updated_at = now()
             WHERE pc.id = ${params.connectionId}::uuid
             RETURNING ${connectionColumns}
           `;
-          if (!updated) return fail(err.notFound("Provider connection"));
-          await audit.record(
-            {
-              action: "mail.provider_connection.refresh_limits",
-              outcome: "allowed",
-              actor: auditActorFromRequest(params.context),
-              target: {
-                type: "provider_connection",
-                id: updated.id,
-                label: updated.name,
-              },
-              requestId: params.context.requestId,
-              metadata: {
-                mailboxId: params.mailboxId,
-                imapStatus: limits.imap.status,
-                smtpStatus: limits.smtp.status,
-              },
+        if (!updated) return fail(err.notFound("Provider connection"));
+        await audit.record(
+          {
+            action: "mail.provider_connection.refresh_limits",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: {
+              type: "provider_connection",
+              id: updated.id,
+              label: updated.name,
             },
-            tx,
-          );
-          await assertLeaseActive();
-          return ok(mapConnection(updated));
-        });
-      },
-    );
-    return barrier.acquired
-      ? barrier.value
-      : fail(
-          err.conflict(
-            "Provider work is still running; retry the limit refresh shortly",
-          ),
+            requestId: params.context.requestId,
+            metadata: {
+              mailboxId: params.mailboxId,
+              imapStatus: limits.imap.status,
+              smtpStatus: limits.smtp.status,
+            },
+          },
+          tx,
         );
+        await assertLeaseActive();
+        return ok(mapConnection(updated));
+      });
+    });
+    return barrier.acquired ? barrier.value : fail(err.conflict("Provider work is still running; retry the limit refresh shortly"));
   } catch (error) {
-    if (
-      (error as { code?: unknown } | null)?.code ===
-      "MAIL_PROVIDER_OPERATION_LEASE_LOST"
-    ) {
-      return fail(
-        err.conflict(
-          "Provider state changed during the limit refresh; retry the operation",
-        ),
-      );
+    if ((error as { code?: unknown } | null)?.code === "MAIL_PROVIDER_OPERATION_LEASE_LOST") {
+      return fail(err.conflict("Provider state changed during the limit refresh; retry the operation"));
     }
     return fail(normalizeProviderError(error));
   }

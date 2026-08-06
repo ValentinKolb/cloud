@@ -153,7 +153,6 @@ const cleanupFixture = async (fixture: Fixture) => {
 
 suite("Spaces assignable users", () => {
   test("lists only users with effective space access and rejects invalid assignees", async () => {
-
     const fixture = await createFixture();
     try {
       const nestedSpaces = await listSpaces({ subject: { type: "user", userId: fixture.userIds.nested } });
@@ -224,7 +223,6 @@ suite("Spaces assignable users", () => {
   });
 
   test("keeps item assignees and tags consistent across create and replacement writes", async () => {
-
     const fixture = await createFixture();
     try {
       const created = await create({

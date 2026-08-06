@@ -50,7 +50,9 @@ export const openPublicDashboardDisplayDialog = async (options: OpenPublicDashbo
 
         return (
           <div class="flex w-full min-w-0 max-w-xl flex-col gap-4 overflow-hidden">
-            <p class="max-w-full text-sm leading-relaxed text-dimmed">Choose a display URL for monitors, shared links, or embedded screens.</p>
+            <p class="max-w-full text-sm leading-relaxed text-dimmed">
+              Choose a display URL for monitors, shared links, or embedded screens.
+            </p>
 
             <div class="flex min-w-0 flex-col gap-2">
               <p class="text-sm font-medium text-primary">Theme</p>

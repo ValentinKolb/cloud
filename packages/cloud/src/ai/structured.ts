@@ -14,8 +14,7 @@ export const selectAiWorkflowModelId = (input: {
   requestedModelId?: string;
   workflowModelId?: string;
   backgroundModelId?: string;
-}): string | undefined =>
-  input.requestedModelId?.trim() || input.workflowModelId?.trim() || input.backgroundModelId?.trim() || undefined;
+}): string | undefined => input.requestedModelId?.trim() || input.workflowModelId?.trim() || input.backgroundModelId?.trim() || undefined;
 
 /**
  * Resolve the model for background inference: explicit request →

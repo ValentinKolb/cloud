@@ -87,9 +87,7 @@ const mapBase = (row: BaseRow): PulseBase => ({
   updatedAt: iso(row.updated_at),
 });
 
-const principalFromAccessRow = (
-  row: Pick<AccessRow, "user_id" | "group_id" | "service_account_id" | "authenticated_only">,
-): Principal => {
+const principalFromAccessRow = (row: Pick<AccessRow, "user_id" | "group_id" | "service_account_id" | "authenticated_only">): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
   if (row.group_id) return { type: "group", groupId: row.group_id };
   if (row.service_account_id) return { type: "service_account", serviceAccountId: row.service_account_id };
@@ -294,16 +292,13 @@ const getMutableBase = async (baseId: string): Promise<Result<BaseRow>> => {
   return ok(existing);
 };
 
-const normalizeBaseName = (input: BaseUpdateInput, existing: BaseRow): string =>
-  input.name?.trim() || existing.name;
+const normalizeBaseName = (input: BaseUpdateInput, existing: BaseRow): string => input.name?.trim() || existing.name;
 
 const normalizeBaseDescription = (input: BaseUpdateInput, existing: BaseRow): string | null =>
   input.description === undefined ? existing.description : input.description?.trim() || null;
 
 const validateRetentionDays = (value: number, label: string): Result<number> =>
-  Number.isInteger(value) && value >= 1 && value <= 3650
-    ? ok(value)
-    : fail(err.badInput(`${label} must be between 1 and 3650 days`));
+  Number.isInteger(value) && value >= 1 && value <= 3650 ? ok(value) : fail(err.badInput(`${label} must be between 1 and 3650 days`));
 
 const validateSensitiveRetentionHours = (value: number): Result<number> =>
   Number.isInteger(value) && value >= 1 && value <= 8760

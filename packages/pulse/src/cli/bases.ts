@@ -78,8 +78,18 @@ export const baseCommands = [
       name: flag.string({ description: "New base name" }),
       description: flag.string({ description: "New base description" }),
       rawRetentionDays: flag.int({ name: "raw-retention-days", min: 1, max: 3650, description: "Raw telemetry retention in days" }),
-      rollupRetentionDays: flag.int({ name: "rollup-retention-days", min: 1, max: 3650, description: "Hourly metric rollup retention in days" }),
-      sensitiveRetentionHours: flag.int({ name: "sensitive-retention-hours", min: 1, max: 8760, description: "Sensitive event field retention in hours" }),
+      rollupRetentionDays: flag.int({
+        name: "rollup-retention-days",
+        min: 1,
+        max: 3650,
+        description: "Hourly metric rollup retention in days",
+      }),
+      sensitiveRetentionHours: flag.int({
+        name: "sensitive-retention-hours",
+        min: 1,
+        max: 8760,
+        description: "Sensitive event field retention in hours",
+      }),
     },
     args: { args: arg.rest({ valueLabel: "base" }) },
     async run({ ctx, args, flags }) {

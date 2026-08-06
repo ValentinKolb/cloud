@@ -26,9 +26,8 @@ export const publicDashboardRefreshDelayMs = (intervalSeconds: number, failures:
 
 export const publicDashboardEventSubject = (event: PulsePublicRecordedEvent): string => event.entityId || event.entityType || "-";
 
-export const publicDashboardStateRowId = (state: PulsePublicCurrentState): string => [state.key, state.entityId, state.entityType ?? ""].join(":");
+export const publicDashboardStateRowId = (state: PulsePublicCurrentState): string =>
+  [state.key, state.entityId, state.entityType ?? ""].join(":");
 
 export const sanitizePublicDashboardMarkdown = (input: string): string =>
-  input
-    .replace(/!\[[^\]]*]\(\s*https?:\/\/[^)]+\)/gi, "")
-    .replace(/<img\b[^>]*>/gi, "");
+  input.replace(/!\[[^\]]*]\(\s*https?:\/\/[^)]+\)/gi, "").replace(/<img\b[^>]*>/gi, "");

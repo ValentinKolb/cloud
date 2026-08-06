@@ -1,7 +1,6 @@
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { OAuthClient, OAuthScope } from "@/contracts";
-import * as clients from "./clients";
 
 type RefreshTokenStatus = "active" | "rotated" | "revoked" | "reused";
 type RefreshTokenFamilyStatus = "active" | "revoked";
@@ -17,6 +16,7 @@ type DbRefreshTokenGrant = {
   user_id: string;
   scopes: string[];
   audiences: string[];
+  resource: string | null;
   family_status: RefreshTokenFamilyStatus;
   family_expires_at: Date;
 };
@@ -34,6 +34,7 @@ export type RefreshTokenRotationResult =
       client: OAuthClient;
       scopes: OAuthScope[];
       audiences: string[];
+      resource: string | null;
       refreshToken: string;
       refreshTokenExpiresAt: string;
     }
@@ -107,6 +108,7 @@ export const create = async (params: {
   client: OAuthClient;
   scopes: OAuthScope[];
   audiences?: string[];
+  resource?: string | null;
   label?: string | null;
 }): Promise<{ refreshToken: string; refreshTokenExpiresAt: string; familyId: string }> => {
   const expiresAt = nowPlusDays(REFRESH_TOKEN_LIFETIME_DAYS);
@@ -118,6 +120,7 @@ export const create = async (params: {
         user_id,
         scopes,
         audiences,
+        resource,
         label,
         expires_at
       )
@@ -126,6 +129,7 @@ export const create = async (params: {
         ${params.userId}::uuid,
         ${toPgTextArray(params.scopes)}::text[],
         ${toPgTextArray(params.audiences ?? params.client.audiences)}::text[],
+        ${params.resource ?? null},
         ${params.label ?? null},
         ${expiresAt}
       )
@@ -168,10 +172,10 @@ const revokeFamily = async (familyId: string, reason: string): Promise<void> => 
 
 export const rotate = async (
   refreshToken: string,
-  expectedClientId?: string,
+  client: OAuthClient,
   expectedAudience?: string,
   requestedScopes?: OAuthScope[],
-  beforeRotation?: (grant: { userId: string; scopes: OAuthScope[]; audiences: string[] }) => Promise<void>,
+  beforeRotation?: (grant: { userId: string; scopes: OAuthScope[]; audiences: string[]; resource: string | null }) => Promise<void>,
 ): Promise<RefreshTokenRotationResult> => {
   const parsed = parseRefreshToken(refreshToken);
   if (!parsed) return { ok: false, error: "invalid_grant" };
@@ -189,6 +193,7 @@ export const rotate = async (
         f.user_id,
         f.scopes,
         f.audiences,
+        f.resource,
         f.status AS family_status,
         f.expires_at AS family_expires_at
       FROM oauth.refresh_tokens rt
@@ -200,7 +205,8 @@ export const rotate = async (
 
     const valid = await Bun.password.verify(parsed.secret, row.secret_hash);
     if (!valid) return { ok: false as const, error: "invalid_grant" as const };
-    if (expectedClientId && row.client_id !== expectedClientId) return { ok: false as const, error: "invalid_grant" as const };
+    if (row.client_id !== client.clientId) return { ok: false as const, error: "invalid_grant" as const };
+    if (row.resource && expectedAudience !== row.resource) return { ok: false as const, error: "invalid_grant" as const };
     if (expectedAudience && !row.audiences.includes(expectedAudience)) return { ok: false as const, error: "invalid_grant" as const };
     if (row.status !== "active") {
       if (row.status === "rotated") {
@@ -236,7 +242,9 @@ export const rotate = async (
       return { ok: false as const, error: "invalid_scope" as const };
     }
     const scopes = requestedScopes ?? (row.scopes as OAuthScope[]);
-    await beforeRotation?.({ userId: row.user_id, scopes, audiences: row.audiences });
+    const audiences = expectedAudience ? [expectedAudience] : row.audiences;
+    const resource = row.resource ?? expectedAudience ?? null;
+    await beforeRotation?.({ userId: row.user_id, scopes, audiences, resource });
 
     const next = await insertRefreshToken({
       db: tx,
@@ -255,16 +263,19 @@ export const rotate = async (
     `;
     await tx`
       UPDATE oauth.refresh_token_families
-      SET last_used_at = now()
+      SET scopes = ${toPgTextArray(scopes)}::text[],
+        audiences = ${toPgTextArray(audiences)}::text[],
+        resource = ${resource},
+        last_used_at = now()
       WHERE id = ${row.family_id}::uuid
     `;
 
     return {
       ok: true as const,
       userId: row.user_id,
-      clientId: row.client_id,
       scopes,
-      audiences: row.audiences,
+      audiences,
+      resource,
       refreshToken: next.token,
       refreshTokenExpiresAt: row.family_expires_at.toISOString(),
     };
@@ -272,33 +283,16 @@ export const rotate = async (
 
   if (!rotated.ok) return rotated;
 
-  const client = await clients.getByClientId({ clientId: rotated.clientId });
-  if (!client) {
-    const familyId = await findFamilyId(refreshToken);
-    if (familyId) await revokeFamily(familyId, "client_missing").catch(() => undefined);
-    return { ok: false, error: "invalid_grant" };
-  }
-
   return {
     ok: true,
     userId: rotated.userId,
     client,
     scopes: rotated.scopes,
     audiences: rotated.audiences,
+    resource: rotated.resource,
     refreshToken: rotated.refreshToken,
     refreshTokenExpiresAt: rotated.refreshTokenExpiresAt,
   };
-};
-
-const findFamilyId = async (refreshToken: string): Promise<string | null> => {
-  const parsed = parseRefreshToken(refreshToken);
-  if (!parsed) return null;
-  const [row] = await sql<{ family_id: string }[]>`
-    SELECT family_id
-    FROM oauth.refresh_tokens
-    WHERE token_prefix = ${parsed.tokenPrefix}
-  `;
-  return row?.family_id ?? null;
 };
 
 export const revoke = async (refreshToken: string, clientId?: string): Promise<void> => {
@@ -318,4 +312,14 @@ export const revoke = async (refreshToken: string, clientId?: string): Promise<v
   if (!valid) return;
 
   await revokeFamily(row.family_id, "revoked");
+};
+
+/** Remove grants that can no longer authorize or detect a relevant replay. */
+export const cleanup = async (): Promise<number> => {
+  const result = await sql`
+    DELETE FROM oauth.refresh_token_families
+    WHERE expires_at < now()
+      OR (status = 'revoked' AND revoked_at < now() - INTERVAL '1 day')
+  `;
+  return result.count;
 };

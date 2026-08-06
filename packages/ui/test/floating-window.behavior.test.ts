@@ -79,9 +79,7 @@ describe("FloatingWindow browser behaviour", () => {
     expect(first.frame.querySelector(`#${firstTitleId}`)?.textContent).toBe("First");
     expect(second.frame.querySelector(`#${secondTitleId}`)?.textContent).toBe("Second");
 
-    first.frame.dispatchEvent(
-      new dom.window.PointerEvent("pointerdown", { bubbles: true, button: 0 }) as unknown as Event,
-    );
+    first.frame.dispatchEvent(new dom.window.PointerEvent("pointerdown", { bubbles: true, button: 0 }) as unknown as Event);
     expect(first.frame.style.zIndex).toBe("81");
     expect(second.frame.style.zIndex).toBe("80");
 
@@ -102,9 +100,14 @@ describe("FloatingWindow browser behaviour", () => {
       if (event.key === "Escape") event.preventDefault();
     });
     let closeCalls = 0;
-    const mounted = await mountWindow(dom, "Nested Escape", () => {
-      closeCalls += 1;
-    }, nested);
+    const mounted = await mountWindow(
+      dom,
+      "Nested Escape",
+      () => {
+        closeCalls += 1;
+      },
+      nested,
+    );
 
     nested.dispatchEvent(
       new dom.window.KeyboardEvent("keydown", {
@@ -155,8 +158,7 @@ describe("FloatingWindow browser behaviour", () => {
       listeners.get(type)?.delete(listener);
       originalRemove(type, listener, options);
     }) as EventTarget["removeEventListener"];
-    const activePointerListeners = () =>
-      [...listeners.values()].reduce((total, current) => total + current.size, 0);
+    const activePointerListeners = () => [...listeners.values()].reduce((total, current) => total + current.size, 0);
 
     let closeCalls = 0;
     const moving = await mountWindow(dom, "Moving", () => {
@@ -181,16 +183,14 @@ describe("FloatingWindow browser behaviour", () => {
     moving.dispose();
 
     const resizing = await mountWindow(dom, "Resizing");
-    resizing.frame
-      .querySelector<HTMLElement>('[data-edge="bottom-right"]')
-      ?.dispatchEvent(
-        new dom.window.PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          clientX: 400,
-          clientY: 400,
-        }) as unknown as Event,
-      );
+    resizing.frame.querySelector<HTMLElement>('[data-edge="bottom-right"]')?.dispatchEvent(
+      new dom.window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 400,
+        clientY: 400,
+      }) as unknown as Event,
+    );
     expect(activePointerListeners()).toBe(3);
 
     resizing.dispose();
@@ -202,7 +202,13 @@ describe("FloatingWindow browser behaviour", () => {
     const header = mounted.frame.querySelector("header")!;
     const before = mounted.frame.style.left;
     header.dispatchEvent(
-      new dom.window.PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100, pointerId: 7 }) as unknown as Event,
+      new dom.window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 100,
+        clientY: 100,
+        pointerId: 7,
+      }) as unknown as Event,
     );
     dom.window.dispatchEvent(new dom.window.PointerEvent("pointermove", { clientX: 500, clientY: 500, pointerId: 8 }));
     expect(mounted.frame.style.left).toBe(before);

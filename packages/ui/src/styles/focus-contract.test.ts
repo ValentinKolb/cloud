@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import {
-  cssDeclarations,
-  focusSignalCount,
-  isFocusSelector,
-  readShippedCssRules,
-  shippedStyleFiles,
-} from "./css-contract-test-helpers";
+import { cssDeclarations, focusSignalCount, isFocusSelector, readShippedCssRules, shippedStyleFiles } from "./css-contract-test-helpers";
 
 const stylesDir = import.meta.dir;
 const rules = readShippedCssRules(stylesDir);
@@ -51,9 +45,7 @@ describe("@k2b/ui focus and color contract", () => {
       if (!isFocusSelector(rule.selector) || rule.context.includes("@media (forced-colors: active)")) return false;
       const declarations = cssDeclarations(rule.body);
       const hasShadow = hasVisibleValue(declarations.get("box-shadow"));
-      const hasOutline =
-        hasVisibleValue(declarations.get("outline")) ||
-        hasVisibleValue(declarations.get("outline-color"));
+      const hasOutline = hasVisibleValue(declarations.get("outline")) || hasVisibleValue(declarations.get("outline-color"));
       const hasBorder = hasVisibleValue(declarations.get("border-color"));
       return hasShadow && !hasOutline && !hasBorder;
     });
@@ -70,10 +62,7 @@ describe("@k2b/ui focus and color contract", () => {
               return false;
             }
             const declarations = cssDeclarations(fallback.body);
-            return (
-              hasVisibleValue(declarations.get("outline")) ||
-              hasVisibleValue(declarations.get("outline-color"))
-            );
+            return hasVisibleValue(declarations.get("outline")) || hasVisibleValue(declarations.get("outline-color"));
           }),
       )
       .map((rule) => `${rule.file}: ${rule.selector}`);
@@ -102,7 +91,10 @@ describe("@k2b/ui focus and color contract", () => {
     ];
     expect(css).toContain("--k2b-focus-inset: inset 0 0 0 2px");
     for (const selector of shared) {
-      const body = rules.filter((rule) => rule.selector === selector).map((rule) => rule.body).join("\n");
+      const body = rules
+        .filter((rule) => rule.selector === selector)
+        .map((rule) => rule.body)
+        .join("\n");
       expect(body, selector).toMatch(/min-height:\s*2\.25rem/);
       expect(body, selector).toMatch(/border:\s*1px solid transparent/);
       expect(body, selector).toMatch(/background:\s*var\(--k2b-surface-muted\)/);
@@ -120,10 +112,7 @@ describe("@k2b/ui focus and color contract", () => {
     // the AI accent into general chrome.
     const leaked = rules
       .filter((rule) => rule.body.includes("var(--k2b-ai-"))
-      .filter(
-        (rule) =>
-          !/\.k2b-(?:ai|chat)-|\.k2b-[\w-]*-ai(?![\w-])|\.k2b-button\[data-variant=["']ai["']\]/.test(rule.selector),
-      )
+      .filter((rule) => !/\.k2b-(?:ai|chat)-|\.k2b-[\w-]*-ai(?![\w-])|\.k2b-button\[data-variant=["']ai["']\]/.test(rule.selector))
       .map((rule) => `${rule.file}: ${rule.selector}`);
 
     expect(leaked).toEqual([]);
@@ -141,7 +130,12 @@ describe("@k2b/ui focus and color contract", () => {
 
     for (const selector of controlledEditors) {
       const editableCss = rules
-        .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+        .filter((rule) =>
+          rule.selector
+            .split(",")
+            .map((part) => part.trim())
+            .includes(selector),
+        )
         .map((rule) => rule.body)
         .join("\n");
       expect(editableCss, selector).toMatch(/border:\s*0(?:\s*!important)?/);
@@ -152,7 +146,12 @@ describe("@k2b/ui focus and color contract", () => {
   test("keeps the tags editor geometry stable while its markup changes on focus", () => {
     const selector = ".k2b-ui .k2b-tags-input > input";
     const editableCss = rules
-      .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+      .filter((rule) =>
+        rule.selector
+          .split(",")
+          .map((part) => part.trim())
+          .includes(selector),
+      )
       .map((rule) => rule.body)
       .join("\n");
 
@@ -165,7 +164,12 @@ describe("@k2b/ui focus and color contract", () => {
   test("lets autocomplete popovers apply their measured viewport position", () => {
     const selector = ".k2b-ui .k2b-autocomplete__options";
     const popoverCss = rules
-      .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+      .filter((rule) =>
+        rule.selector
+          .split(",")
+          .map((part) => part.trim())
+          .includes(selector),
+      )
       .map((rule) => rule.body)
       .join("\n");
 
@@ -178,7 +182,7 @@ describe("@k2b/ui focus and color contract", () => {
     const css = await Bun.file(resolve(stylesDir, "index.css")).text();
 
     expect(css).not.toContain(".k2b-ui .k2b-panes__tab::after");
-    expect(css).not.toContain(".k2b-ui .k2b-panes__tab[data-active=\"true\"]::after");
+    expect(css).not.toContain('.k2b-ui .k2b-panes__tab[data-active="true"]::after');
   });
 
   test("does not fade interactive calendar days below the muted text contrast", () => {

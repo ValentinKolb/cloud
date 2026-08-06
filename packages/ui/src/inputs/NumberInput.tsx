@@ -8,21 +8,21 @@ export type NumberInputProps = Omit<
   "max" | "min" | "onChange" | "onInput" | "prefix" | "step" | "type" | "value" | keyof ValueFieldProps<number | null>
 > &
   ValueFieldProps<number | null> & {
-  max?: number;
-  min?: number;
-  step?: number;
-  decimalPlaces?: number;
-  allowNegative?: boolean;
-  clearable?: boolean;
-  onClear?: () => void;
-  clearLabel?: string;
-  showSteppers?: boolean;
-  disableSteppers?: boolean;
-  icon?: string;
-  activeIcon?: string;
-  prefix?: JSX.Element;
-  suffix?: JSX.Element;
-};
+    max?: number;
+    min?: number;
+    step?: number;
+    decimalPlaces?: number;
+    allowNegative?: boolean;
+    clearable?: boolean;
+    onClear?: () => void;
+    clearLabel?: string;
+    showSteppers?: boolean;
+    disableSteppers?: boolean;
+    icon?: string;
+    activeIcon?: string;
+    prefix?: JSX.Element;
+    suffix?: JSX.Element;
+  };
 
 export function NumberInput(props: NumberInputProps): JSX.Element {
   const [local, rest] = splitProps(props, [

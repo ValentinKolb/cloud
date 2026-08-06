@@ -35,9 +35,7 @@ export const normalizeMailUserPreferences = (value: unknown): MailUserPreference
   };
 };
 
-export const readStoredMailUserPreferencesFromCookieHeader = (
-  cookieHeader: string | null | undefined,
-): StoredMailUserPreferences => {
+export const readStoredMailUserPreferencesFromCookieHeader = (cookieHeader: string | null | undefined): StoredMailUserPreferences => {
   let mailboxes: Record<string, unknown> = {};
   for (const part of (cookieHeader ?? "").split(";")) {
     const trimmed = part.trim();
@@ -54,8 +52,5 @@ export const readStoredMailUserPreferencesFromCookieHeader = (
   return { mailboxes };
 };
 
-export const readMailUserPreferencesFromCookieHeader = (
-  cookieHeader: string | null | undefined,
-  mailboxId: string,
-): MailUserPreferences =>
+export const readMailUserPreferencesFromCookieHeader = (cookieHeader: string | null | undefined, mailboxId: string): MailUserPreferences =>
   normalizeMailUserPreferences(readStoredMailUserPreferencesFromCookieHeader(cookieHeader).mailboxes[mailboxId]);

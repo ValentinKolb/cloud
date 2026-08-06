@@ -18,8 +18,10 @@ import {
 } from "./query-browser-model";
 
 const matchesAll = () => true;
-const matchesTerm = (term: string) => (values: Array<string | null | undefined>): boolean =>
-  values.some((value) => value?.toLowerCase().includes(term.toLowerCase()));
+const matchesTerm =
+  (term: string) =>
+  (values: Array<string | null | undefined>): boolean =>
+    values.some((value) => value?.toLowerCase().includes(term.toLowerCase()));
 
 const source = (overrides: Partial<PulseSource>): PulseSource => ({
   id: "source-a",

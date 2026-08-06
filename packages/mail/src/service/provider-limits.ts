@@ -1,17 +1,10 @@
 import { text } from "@k2b/stdlib";
-import { sql } from "bun";
-import {
-  parseProviderLimitSnapshot,
-  PROVIDER_LIMIT_MAX_AGE_MS,
-  type ProviderLimitSnapshot,
-} from "../contracts";
+import type { sql } from "bun";
+import { PROVIDER_LIMIT_MAX_AGE_MS, type ProviderLimitSnapshot, parseProviderLimitSnapshot } from "../contracts";
 
 type SqlClient = typeof sql;
 
-export const activeSmtpMessageLimit = (
-  snapshot: ProviderLimitSnapshot,
-  now = Date.now(),
-): number | null => {
+export const activeSmtpMessageLimit = (snapshot: ProviderLimitSnapshot, now = Date.now()): number | null => {
   const checkedAt = Date.parse(snapshot.checkedAt);
   if (
     snapshot.smtp.status !== "supported" ||
@@ -25,10 +18,7 @@ export const activeSmtpMessageLimit = (
   return snapshot.smtp.maxMessageBytes;
 };
 
-export const loadBindingProviderLimits = async (
-  db: SqlClient,
-  bindingId: string,
-): Promise<ProviderLimitSnapshot | null> => {
+export const loadBindingProviderLimits = async (db: SqlClient, bindingId: string): Promise<ProviderLimitSnapshot | null> => {
   const [row] = await db<{ limit_snapshot: unknown }[]>`
     SELECT connection.limit_snapshot
     FROM mail.provider_bindings binding
@@ -41,10 +31,7 @@ export const loadBindingProviderLimits = async (
   return row ? parseProviderLimitSnapshot(row.limit_snapshot) : null;
 };
 
-const providerMessageSizeError = (
-  byteLength: number,
-  limitBytes: number,
-): Error =>
+const providerMessageSizeError = (byteLength: number, limitBytes: number): Error =>
   Object.assign(
     new Error(
       `This message is ${text.pprintBytes(byteLength)}, but the mail provider allows at most ${text.pprintBytes(limitBytes)}. Remove attachments or share large files with a download link.`,
@@ -56,10 +43,7 @@ const providerMessageSizeError = (
     },
   );
 
-export const assertProviderMessageSize = (
-  byteLength: number,
-  limitBytes: number | null,
-): void => {
+export const assertProviderMessageSize = (byteLength: number, limitBytes: number | null): void => {
   if (limitBytes !== null && byteLength > limitBytes) {
     throw providerMessageSizeError(byteLength, limitBytes);
   }

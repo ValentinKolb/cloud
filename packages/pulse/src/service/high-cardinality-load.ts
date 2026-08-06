@@ -295,22 +295,28 @@ const main = async (): Promise<void> => {
     const valkeyAfter = await countPulseKeys();
     if (valkeyAfter !== valkeyBefore) throw new Error("Pulse load changed Valkey key count");
 
-    console.log(JSON.stringify({
-      eventCount,
-      actors: numeric(counts?.actors),
-      sessions: numeric(counts?.sessions),
-      ipHashes: numeric(counts?.ip_hashes),
-      insertDurationMs,
-      ingestEventsPerSecond: Math.round((eventCount / insertDurationMs) * 1_000),
-      tableBytes: numeric(size?.table_bytes),
-      indexBytes: numeric(size?.index_bytes),
-      totalBytes: numeric(size?.total_bytes),
-      groupedCountP95Ms: grouped.p95Ms,
-      uniqueActorP95Ms: uniqueActors.p95Ms,
-      retention,
-      valkeyKeysBefore: valkeyBefore,
-      valkeyKeysAfter: valkeyAfter,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          eventCount,
+          actors: numeric(counts?.actors),
+          sessions: numeric(counts?.sessions),
+          ipHashes: numeric(counts?.ip_hashes),
+          insertDurationMs,
+          ingestEventsPerSecond: Math.round((eventCount / insertDurationMs) * 1_000),
+          tableBytes: numeric(size?.table_bytes),
+          indexBytes: numeric(size?.index_bytes),
+          totalBytes: numeric(size?.total_bytes),
+          groupedCountP95Ms: grouped.p95Ms,
+          uniqueActorP95Ms: uniqueActors.p95Ms,
+          retention,
+          valkeyKeysBefore: valkeyBefore,
+          valkeyKeysAfter: valkeyAfter,
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await sql`DROP SCHEMA IF EXISTS pulse CASCADE`.simple();
   }

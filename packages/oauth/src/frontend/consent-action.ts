@@ -24,7 +24,7 @@ const actorForAudit = (user: AuthContext["Variables"]["user"]) => ({
 const redirectWithDecision = (redirectUri: string, state: string | undefined, params: Record<string, string>): string => {
   const url = new URL(redirectUri);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  if (state) url.searchParams.set("state", state);
+  if (state !== undefined) url.searchParams.set("state", state);
   return url.toString();
 };
 

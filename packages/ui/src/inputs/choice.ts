@@ -192,8 +192,7 @@ export function createChoicePopover(disabled: () => boolean): {
     // placement measures an empty panel. Re-place whenever the panel resizes,
     // otherwise a dropdown that grows past the viewport bottom stays clipped.
     const popoverElement = popover();
-    const observer =
-      popoverElement && typeof ResizeObserver !== "undefined" ? new ResizeObserver(reposition) : undefined;
+    const observer = popoverElement && typeof ResizeObserver !== "undefined" ? new ResizeObserver(reposition) : undefined;
     if (popoverElement) observer?.observe(popoverElement);
 
     document.addEventListener("pointerdown", dismiss, true);

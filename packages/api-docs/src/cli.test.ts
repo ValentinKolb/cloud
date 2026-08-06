@@ -26,11 +26,7 @@ const spec = {
   },
 };
 
-const mockContext = (options: {
-  args?: string[];
-  flags?: CloudCliContext["flags"];
-  fetch?: CloudCliContext["fetch"];
-} = {}) => {
+const mockContext = (options: { args?: string[]; flags?: CloudCliContext["flags"]; fetch?: CloudCliContext["fetch"] } = {}) => {
   const output: string[] = [];
   const json: unknown[] = [];
   const tables: unknown[][] = [];

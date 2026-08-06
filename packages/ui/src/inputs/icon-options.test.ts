@@ -22,9 +22,7 @@ const tablerPath = resolve(import.meta.dir, "../../dist/tabler.css");
 if (!existsSync(tablerPath)) throw new Error("dist/tabler.css is missing — run `bun run build` before this test");
 
 /** Every `.ti-*` class the shipped webfont preset actually defines. */
-const shippedGlyphs = new Set(
-  [...readFileSync(tablerPath, "utf8").matchAll(/\.ti-([a-z0-9-]+)/g)].map((match) => match[1] as string),
-);
+const shippedGlyphs = new Set([...readFileSync(tablerPath, "utf8").matchAll(/\.ti-([a-z0-9-]+)/g)].map((match) => match[1] as string));
 
 describe("@k2b/ui default icon catalogue", () => {
   test("only lists glyphs the shipped Tabler preset can render", () => {

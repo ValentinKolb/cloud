@@ -53,11 +53,18 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
           body: JSON.stringify({ permission }),
         });
 
-      const revokeAccess = (accessId: string) => jsonFetch<void>(`/api/pulse/bases/${options.base.id}/access/${accessId}`, { method: "DELETE" });
+      const revokeAccess = (accessId: string) =>
+        jsonFetch<void>(`/api/pulse/bases/${options.base.id}/access/${accessId}`, { method: "DELETE" });
 
       return (
         <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
-          <SettingsModal title="Pulse settings" subtitle={options.base.name} icon="ti ti-activity-heartbeat" onClose={close} closeLabel="Close">
+          <SettingsModal
+            title="Pulse settings"
+            subtitle={options.base.name}
+            icon="ti ti-activity-heartbeat"
+            onClose={close}
+            closeLabel="Close"
+          >
             <SettingsModal.Tab id="general" title="General" icon="ti ti-settings" description="Name and description shown across Pulse.">
               <form
                 class="flex flex-col gap-3"
@@ -91,7 +98,12 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
               </form>
             </SettingsModal.Tab>
 
-            <SettingsModal.Tab id="access" title="Access" icon="ti ti-users" description="Grant people and groups access to this Pulse base.">
+            <SettingsModal.Tab
+              id="access"
+              title="Access"
+              icon="ti ti-users"
+              description="Grant people and groups access to this Pulse base."
+            >
               <PermissionEditor
                 initialEntries={options.accessEntries}
                 canEdit
@@ -106,7 +118,12 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
               />
             </SettingsModal.Tab>
 
-            <SettingsModal.Tab id="retention" title="Retention" icon="ti ti-clock-cog" description="Bound raw, aggregated, and sensitive telemetry independently.">
+            <SettingsModal.Tab
+              id="retention"
+              title="Retention"
+              icon="ti ti-clock-cog"
+              description="Bound raw, aggregated, and sensitive telemetry independently."
+            >
               <form
                 class="flex flex-col gap-3"
                 onSubmit={(event) => {
@@ -165,7 +182,14 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                 Clearing data removes observed metrics, events, states, resources, and scrape history. Sources, API keys, dashboards, saved
                 queries, access, and settings are kept.
               </div>
-              <Button type="button" variant="danger" size="sm" class="mb-5" disabled={options.loading()} onClick={() => void options.clearBaseData()}>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                class="mb-5"
+                disabled={options.loading()}
+                onClick={() => void options.clearBaseData()}
+              >
                 <i class="ti ti-eraser text-sm" />
                 Clear all telemetry data
               </Button>

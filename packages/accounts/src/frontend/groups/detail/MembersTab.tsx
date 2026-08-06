@@ -85,9 +85,11 @@ export default function MembersTab(props: MembersTabProps) {
       {props.indirect && <p class="text-xs text-dimmed">Showing all members including indirect memberships via child groups.</p>}
 
       {isEmpty ? (
-        <Placeholder surface="paper" icon="ti ti-users" description={<>
-          {props.search ? "No members found matching your search." : "This group has no members."}
-        </>} />
+        <Placeholder
+          surface="paper"
+          icon="ti ti-users"
+          description={<>{props.search ? "No members found matching your search." : "This group has no members."}</>}
+        />
       ) : (
         <div class="paper overflow-hidden">
           <DataTable

@@ -42,7 +42,6 @@ const suite = (await canUseNotificationDatabase()) ? describe : describe.skip;
 
 suite("typed notification delivery integration", () => {
   test("persists encrypted delivery state and deduplicates sends", async () => {
-
     const suffix = crypto.randomUUID();
     const rows = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)

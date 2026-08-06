@@ -6,8 +6,7 @@ import type { WorkflowAiRequestInput, WorkflowAiTask } from "./ai/types";
 
 const text = (description: string, optional = false, maxLength = 20_000) =>
   ({ kind: "string", minLength: 1, maxLength, optional, description }) as const;
-const identifier = (description: string) =>
-  ({ kind: "string", format: "identifier", minLength: 1, maxLength: 120, description }) as const;
+const identifier = (description: string) => ({ kind: "string", format: "identifier", minLength: 1, maxLength: 120, description }) as const;
 const model = text("Optional enabled AI model profile ID.", true, 120);
 const prompt = text("Instructions for the AI task.");
 const choices = {
@@ -48,8 +47,8 @@ const dependencies = async (): Promise<WorkflowAiActionDependencies> => {
 };
 
 const failureCode = (error: unknown): string => {
-  const code = (error as { aiError?: { code?: unknown }; code?: unknown } | null)?.aiError?.code ??
-    (error as { code?: unknown } | null)?.code;
+  const code =
+    (error as { aiError?: { code?: unknown }; code?: unknown } | null)?.aiError?.code ?? (error as { code?: unknown } | null)?.code;
   return typeof code === "string" ? `WORKFLOW_AI_${code.toUpperCase()}` : "WORKFLOW_AI_UNAVAILABLE";
 };
 

@@ -46,7 +46,9 @@ export function Field(props: FieldLayoutProps): JSX.Element {
             <span id={props.meta.labelId} class="k2b-field__label">
               {props.label}
               <Show when={props.required}>
-                <span class="k2b-field__required" aria-hidden="true">*</span>
+                <span class="k2b-field__required" aria-hidden="true">
+                  *
+                </span>
               </Show>
             </span>
           }
@@ -54,7 +56,9 @@ export function Field(props: FieldLayoutProps): JSX.Element {
           <label id={props.meta.labelId} class="k2b-field__label" for={props.labelFor || props.meta.controlId}>
             {props.label}
             <Show when={props.required}>
-              <span class="k2b-field__required" aria-hidden="true">*</span>
+              <span class="k2b-field__required" aria-hidden="true">
+                *
+              </span>
             </Show>
           </label>
         </Show>

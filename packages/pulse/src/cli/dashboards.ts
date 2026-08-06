@@ -31,7 +31,8 @@ const dashboardRefreshFlag = flag.enum(["1", "5", "10", "60", "never"] as const,
 const dashboardRefreshInterval = (
   value: "1" | "5" | "10" | "60" | "never" | undefined,
   fallback: DashboardRefreshInterval | null = 5,
-): DashboardRefreshInterval | null => (value === undefined ? fallback : value === "never" ? null : (Number(value) as DashboardRefreshInterval));
+): DashboardRefreshInterval | null =>
+  value === undefined ? fallback : value === "never" ? null : (Number(value) as DashboardRefreshInterval);
 
 const formatDashboardRefresh = (value: DashboardRefreshInterval | null | undefined): string =>
   value === null ? "never" : `${value ?? 5}s`;
@@ -162,12 +163,13 @@ export const dashboardCommands = [
       const text = await readCliInput(flags.content, { label: "dashboard DSL", required: false, trimFinalNewline: true });
       const trimmedText = text?.trim();
       if (trimmedText) await validateDashboardDsl(ctx, base.id, trimmedText);
-      const config = trimmedText || flags.refresh !== undefined
-        ? {
-            dsl: trimmedText || dashboard.config.dsl,
-            refreshIntervalSeconds: dashboardRefreshInterval(flags.refresh, dashboard.config.refreshIntervalSeconds),
-          }
-        : undefined;
+      const config =
+        trimmedText || flags.refresh !== undefined
+          ? {
+              dsl: trimmedText || dashboard.config.dsl,
+              refreshIntervalSeconds: dashboardRefreshInterval(flags.refresh, dashboard.config.refreshIntervalSeconds),
+            }
+          : undefined;
       const updated = await readApi<PulseDashboard>(
         ctx,
         `/dashboards/${encodeURIComponent(dashboard.id)}`,

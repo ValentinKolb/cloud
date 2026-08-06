@@ -133,13 +133,13 @@ describe("Cloud CLI releases", () => {
         updateCli({
           apiBase: `http://127.0.0.1:${server.port}`,
           releaseBase: `http://127.0.0.1:${server.port}/release`,
-        executablePath,
-        standalone: true,
-        target: { os: "linux", arch: "x64", asset: assetName },
-        verifyCosign: false,
-        installSkill: false,
-        confirm: async () => true,
-      }),
+          executablePath,
+          standalone: true,
+          target: { os: "linux", arch: "x64", asset: assetName },
+          verifyCosign: false,
+          installSkill: false,
+          confirm: async () => true,
+        }),
       ).rejects.toThrow("checksum verification failed");
       expect(await readFile(executablePath, "utf8")).toBe("old binary");
     } finally {

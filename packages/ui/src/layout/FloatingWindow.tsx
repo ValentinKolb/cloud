@@ -1,11 +1,7 @@
 import { createSignal, createUniqueId, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal, render } from "solid-js/web";
 import { getK2bPortalRoot } from "../internal/portal";
-import {
-  FLOATING_WINDOW_VIEWPORT_GAP,
-  type FloatingWindowRect,
-  fitFloatingWindowRect,
-} from "./floating-window-geometry";
+import { FLOATING_WINDOW_VIEWPORT_GAP, type FloatingWindowRect, fitFloatingWindowRect } from "./floating-window-geometry";
 
 export { type FloatingWindowRect, fitFloatingWindowRect } from "./floating-window-geometry";
 
@@ -108,9 +104,7 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
       setMobile(compact);
       if (!compact) setRect((current) => fit(current));
     };
-    setRect((current) =>
-      fit({ ...current, x: (window.innerWidth - current.width) / 2, y: (window.innerHeight - current.height) / 2 }),
-    );
+    setRect((current) => fit({ ...current, x: (window.innerWidth - current.width) / 2, y: (window.innerHeight - current.height) / 2 }));
     viewport();
     const escape = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.key !== "Escape" || !isTopLayer(layerOwner)) return;
@@ -268,11 +262,7 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
       </Show>
     </section>
   );
-  return (
-    <Portal mount={typeof document === "undefined" ? undefined : getK2bPortalRoot(props.resolveScope?.())}>
-      {view}
-    </Portal>
-  );
+  return <Portal mount={typeof document === "undefined" ? undefined : getK2bPortalRoot(props.resolveScope?.())}>{view}</Portal>;
 }
 
 export const openFloatingWindow = (

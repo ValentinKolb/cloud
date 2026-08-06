@@ -50,8 +50,7 @@ export const validateDimensions = (dimensions: Record<string, unknown> | undefin
   if (entries.length > PULSE_DIMENSION_KEY_LIMIT) return `Dimensions cannot exceed ${PULSE_DIMENSION_KEY_LIMIT} keys`;
   for (const [key, value] of entries) {
     if (!key.trim()) return "Dimension keys cannot be empty";
-    if (key.length > PULSE_DIMENSION_KEY_MAX_LENGTH)
-      return `Dimension keys cannot exceed ${PULSE_DIMENSION_KEY_MAX_LENGTH} characters`;
+    if (key.length > PULSE_DIMENSION_KEY_MAX_LENGTH) return `Dimension keys cannot exceed ${PULSE_DIMENSION_KEY_MAX_LENGTH} characters`;
     if (value !== null && String(value).length > PULSE_DIMENSION_VALUE_MAX_LENGTH)
       return `Dimension values cannot exceed ${PULSE_DIMENSION_VALUE_MAX_LENGTH} characters`;
   }

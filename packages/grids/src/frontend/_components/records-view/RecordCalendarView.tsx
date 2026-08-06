@@ -59,11 +59,7 @@ export function RecordCalendarView(props: {
     <div class="paper relative min-h-0 flex-1 overflow-hidden">
       <Show
         when={dateField()}
-        fallback={
-          <Placeholder icon="ti ti-calendar" class="min-h-48 justify-center" description={<>
-            Choose a date field in settings.
-          </>} />
-        }
+        fallback={<Placeholder icon="ti ti-calendar" class="min-h-48 justify-center" description={<>Choose a date field in settings.</>} />}
       >
         <Calendar
           class="h-full"

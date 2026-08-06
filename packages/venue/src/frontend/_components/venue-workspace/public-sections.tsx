@@ -359,9 +359,7 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
           <For
             each={links()}
             fallback={
-              <Placeholder align="left" class="px-0 py-2" description={<>
-                {sectionText(props.section, "text") || "No links yet."}
-              </>} />
+              <Placeholder align="left" class="px-0 py-2" description={<>{sectionText(props.section, "text") || "No links yet."}</>} />
             }
           >
             {(raw) => {
@@ -379,14 +377,7 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
       </Show>
       <Show when={props.section.kind === "menu"}>
         <div class="grid gap-2">
-          <For
-            each={items()}
-            fallback={
-              <Placeholder align="left" class="px-0 py-2" description={<>
-                No menu items yet.
-              </>} />
-            }
-          >
+          <For each={items()} fallback={<Placeholder align="left" class="px-0 py-2" description={<>No menu items yet.</>} />}>
             {(raw) => {
               const item = raw as Record<string, unknown>;
               const image = typeof item.image === "string" ? item.image : "";

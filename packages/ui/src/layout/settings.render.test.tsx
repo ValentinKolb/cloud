@@ -11,8 +11,16 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { readSettingsError, sameSettingValue, SettingsField, SettingsModal, SettingsPage, SettingsPanelFooter, SettingsSaveBar, SettingsSection } =
-  await import("../index");
+const {
+  readSettingsError,
+  sameSettingValue,
+  SettingsField,
+  SettingsModal,
+  SettingsPage,
+  SettingsPanelFooter,
+  SettingsSaveBar,
+  SettingsSection,
+} = await import("../index");
 
 describe("@k2b/ui complete settings surfaces", () => {
   test("renders a flat full-page settings shell", () => {

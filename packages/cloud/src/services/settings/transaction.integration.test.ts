@@ -33,7 +33,6 @@ const rowFor = async (key: string) => {
 
 suite("settings writes inside a caller's transaction", () => {
   test("a later failure rolls the earlier write back", async () => {
-
     const key = probeKey();
     registerSettings([{ key, kind: "string", default: "", label: "Transaction probe", description: "Test only.", group: "test" }]);
 
@@ -56,7 +55,6 @@ suite("settings writes inside a caller's transaction", () => {
   });
 
   test("a transaction that commits keeps every write", async () => {
-
     const first = probeKey();
     const second = probeKey();
     for (const key of [first, second]) {

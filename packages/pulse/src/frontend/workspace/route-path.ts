@@ -31,7 +31,9 @@ const dashboardRouteState: RouteReader = (rest) => ({
 const sourceRouteState: RouteReader = (rest) => ({ ...blankWorkspaceRouteState("sources"), sourceId: rest[1] ?? "" });
 
 const resourceRouteState: RouteReader = (rest) =>
-  rest[1] ? { ...blankWorkspaceRouteState("resource-detail"), signalId: decodeURIComponent(rest[1]) } : blankWorkspaceRouteState("resources");
+  rest[1]
+    ? { ...blankWorkspaceRouteState("resource-detail"), signalId: decodeURIComponent(rest[1]) }
+    : blankWorkspaceRouteState("resources");
 
 const focusedSignalRoute =
   (view: Extract<WorkspaceRouteState["view"], "event-detail" | "metric-detail" | "state-detail">): RouteReader =>

@@ -20,7 +20,7 @@ export const migrate = async (): Promise<void> => {
       is_public BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       authorized_at TIMESTAMPTZ,
-      created_by UUID REFERENCES auth.users(id),
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       logout_uri TEXT
     )
   `.simple();
@@ -61,6 +61,25 @@ export const migrate = async (): Promise<void> => {
   await sql`
     ALTER TABLE oauth.clients
     ADD COLUMN IF NOT EXISTS authorized_at TIMESTAMPTZ
+  `.simple();
+  await sql`
+    DO $$
+    DECLARE
+      delete_action "char";
+    BEGIN
+      SELECT confdeltype
+      INTO delete_action
+      FROM pg_constraint
+      WHERE conname = 'clients_created_by_fkey'
+        AND conrelid = 'oauth.clients'::regclass;
+
+      IF delete_action IS DISTINCT FROM 'n' THEN
+        ALTER TABLE oauth.clients DROP CONSTRAINT IF EXISTS clients_created_by_fkey;
+        ALTER TABLE oauth.clients
+        ADD CONSTRAINT clients_created_by_fkey
+        FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+      END IF;
+    END $$
   `.simple();
   await sql`ALTER TABLE oauth.clients DROP CONSTRAINT IF EXISTS clients_name_key`.simple();
   await sql`ALTER TABLE oauth.clients DROP CONSTRAINT IF EXISTS oauth_clients_name_key`.simple();
@@ -159,6 +178,7 @@ export const migrate = async (): Promise<void> => {
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       scopes TEXT[] NOT NULL,
       audiences TEXT[] NOT NULL DEFAULT ARRAY['cloud'],
+      resource TEXT,
       label TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       expires_at TIMESTAMPTZ NOT NULL,
@@ -168,6 +188,19 @@ export const migrate = async (): Promise<void> => {
       revoked_reason TEXT,
       CONSTRAINT oauth_refresh_token_families_status_check CHECK (status IN ('active', 'revoked'))
     )
+  `.simple();
+  await sql`
+    ALTER TABLE oauth.refresh_token_families
+    ADD COLUMN IF NOT EXISTS resource TEXT
+  `.simple();
+  await sql`
+    UPDATE oauth.refresh_token_families
+    SET status = 'revoked',
+      revoked_at = COALESCE(revoked_at, now()),
+      revoked_reason = 'legacy_resource_binding_migration'
+    WHERE resource IS NULL
+      AND status = 'active'
+      AND (NOT audiences @> ARRAY['cloud']::text[] OR NOT client_id = ANY(audiences))
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_families_user
@@ -202,6 +235,15 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires
     ON oauth.refresh_tokens(expires_at)
   `.simple();
+  await sql`
+    UPDATE oauth.refresh_tokens token
+    SET status = 'revoked',
+      revoked_at = COALESCE(token.revoked_at, now())
+    FROM oauth.refresh_token_families family
+    WHERE token.family_id = family.id
+      AND family.revoked_reason = 'legacy_resource_binding_migration'
+      AND token.status = 'active'
+  `.simple();
   console.log("  ✓ oauth refresh token tables");
 
   await sql`
@@ -209,21 +251,17 @@ export const migrate = async (): Promise<void> => {
     BEGIN
       IF EXISTS (SELECT 1 FROM oauth.clients WHERE client_id = 'cloud-cli') THEN
         UPDATE oauth.clients
-        SET description = COALESCE(description, 'First-party public OAuth client for the cloud CLI.'),
-          redirect_uris = ARRAY(
-            SELECT DISTINCT value
-            FROM unnest(redirect_uris || ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback']) AS added(value)
-          ),
-          scopes = ARRAY(
-            SELECT DISTINCT value
-            FROM unnest(scopes || ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write']) AS added(value)
-          ),
-          audiences = ARRAY(
-            SELECT DISTINCT value
-            FROM unnest(audiences || ARRAY['cloud']) AS added(value)
-          ),
+        SET name = 'Cloud CLI',
+          description = 'First-party public OAuth client for the cloud CLI.',
+          redirect_uris = ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback'],
+          scopes = ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write'],
+          audiences = ARRAY['cloud'],
+          service_account_id = NULL,
+          allowed_profiles = ARRAY['user', 'guest'],
+          access_mode = 'profiles',
           registration_kind = 'first_party',
-          is_public = true
+          is_public = true,
+          client_secret_hash = NULL
         WHERE client_id = 'cloud-cli';
       ELSIF EXISTS (
         SELECT 1
@@ -233,21 +271,17 @@ export const migrate = async (): Promise<void> => {
       ) THEN
         UPDATE oauth.clients
         SET client_id = 'cloud-cli',
-          description = COALESCE(description, 'First-party public OAuth client for the cloud CLI.'),
-          redirect_uris = ARRAY(
-            SELECT DISTINCT value
-            FROM unnest(redirect_uris || ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback']) AS added(value)
-          ),
-          scopes = ARRAY(
-            SELECT DISTINCT value
-            FROM unnest(scopes || ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write']) AS added(value)
-          ),
-          audiences = ARRAY(
-            SELECT DISTINCT value
-            FROM unnest(audiences || ARRAY['cloud']) AS added(value)
-          ),
+          name = 'Cloud CLI',
+          description = 'First-party public OAuth client for the cloud CLI.',
+          redirect_uris = ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback'],
+          scopes = ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write'],
+          audiences = ARRAY['cloud'],
+          service_account_id = NULL,
+          allowed_profiles = ARRAY['user', 'guest'],
+          access_mode = 'profiles',
           registration_kind = 'first_party',
-          is_public = true
+          is_public = true,
+          client_secret_hash = NULL
         WHERE name = 'Cloud CLI'
           AND registration_kind <> 'dynamic';
       ELSE
@@ -277,6 +311,14 @@ export const migrate = async (): Promise<void> => {
         );
       END IF;
     END $$
+  `.simple();
+  await sql`
+    DELETE FROM oauth.client_access_users
+    WHERE client_id = (SELECT id FROM oauth.clients WHERE client_id = 'cloud-cli')
+  `.simple();
+  await sql`
+    DELETE FROM oauth.client_access_groups
+    WHERE client_id = (SELECT id FROM oauth.clients WHERE client_id = 'cloud-cli')
   `.simple();
   console.log("  ✓ oauth first-party CLI client");
 

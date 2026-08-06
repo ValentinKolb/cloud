@@ -17,7 +17,7 @@ const isJsonResponse = (response: Response): boolean => {
   return (response.headers.get("Content-Type") ?? "").includes("application/json");
 };
 
-const readSuccess = async <T,>(response: Response): Promise<T> => {
+const readSuccess = async <T>(response: Response): Promise<T> => {
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();
@@ -25,7 +25,7 @@ const readSuccess = async <T,>(response: Response): Promise<T> => {
   return JSON.parse(text) as T;
 };
 
-export const jsonFetch = async <T,>(url: string, init?: RequestInit, fallback = "Request failed"): Promise<T> => {
+export const jsonFetch = async <T>(url: string, init?: RequestInit, fallback = "Request failed"): Promise<T> => {
   const response = await fetch(url, {
     ...init,
     headers: withJsonContentType(init),

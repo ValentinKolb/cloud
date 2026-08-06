@@ -131,7 +131,9 @@ describe("declared actions", () => {
       }),
     };
 
-    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) })).state).toBe("finished");
+    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) })).state).toBe(
+      "finished",
+    );
     expect(seen).toEqual(["a@b.c"]);
     // Nothing left the process, so there is nothing to reconcile.
     expect(await effectRow(runId)).toMatchObject({ effect_key: null, effect_state: null });
@@ -638,7 +640,9 @@ describe("declared actions", () => {
 
     // Released rather than failed: a provider being briefly unreachable would
     // otherwise cost a whole run.
-    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) })).state).toBe("released");
+    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(workflowModule(actions)) })).state).toBe(
+      "released",
+    );
     expect((await getWorkflowRun(runId))?.state).toBe("queued");
   });
 
@@ -646,18 +650,20 @@ describe("declared actions", () => {
     if (!(await ready())) return;
     const { runId } = await queued("probe.always-down");
     let calls = 0;
-    const actions = createWorkflowActionPort(workflowModule({
-      "probe.always-down": workflowAction.idempotent({
-        label: "Down",
-        description: "Always unavailable.",
-        config: CONFIG,
-        run: async () => {
-          calls += 1;
-          return { state: "failed", message: "still unavailable", retryable: true };
-        },
-        plan: async () => ({ summary: "call" }),
+    const actions = createWorkflowActionPort(
+      workflowModule({
+        "probe.always-down": workflowAction.idempotent({
+          label: "Down",
+          description: "Always unavailable.",
+          config: CONFIG,
+          run: async () => {
+            calls += 1;
+            return { state: "failed", message: "still unavailable", retryable: true };
+          },
+          plan: async () => ({ summary: "call" }),
+        }),
       }),
-    }));
+    );
 
     for (let index = 0; index < WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES; index += 1) {
       expect((await runOneWorkflow({ worker: `w${index}`, runId, actions })).state).toBe("released");

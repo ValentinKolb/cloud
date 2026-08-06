@@ -265,22 +265,27 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
             })()}
           </Match>
           <Match when={route.kind === "empty"}>
-            <Placeholder surface="paper" description={<>
-              <Show
-                when={state.catalog.sidebarForms.length > 0 || state.catalog.sidebarDocumentTemplates.length > 0}
-                fallback={
-                  state.canCreateTables
-                    ? state.adminModeRequested
-                      ? 'No tables yet. Choose "New table" in the sidebar.'
-                      : "No tables yet. Turn on Edit mode to create one."
-                    : "No tables. You don't have write access to create one."
-                }
-              >
-                {state.catalog.sidebarDocumentTemplates.length > 0
-                  ? limitedAccessEmptyText(state.catalog.sidebarForms.length, state.catalog.sidebarDocumentTemplates.length)
-                  : formOnlyEmptyText(state.catalog.sidebarForms.length)}
-              </Show>
-            </>} />
+            <Placeholder
+              surface="paper"
+              description={
+                <>
+                  <Show
+                    when={state.catalog.sidebarForms.length > 0 || state.catalog.sidebarDocumentTemplates.length > 0}
+                    fallback={
+                      state.canCreateTables
+                        ? state.adminModeRequested
+                          ? 'No tables yet. Choose "New table" in the sidebar.'
+                          : "No tables yet. Turn on Edit mode to create one."
+                        : "No tables. You don't have write access to create one."
+                    }
+                  >
+                    {state.catalog.sidebarDocumentTemplates.length > 0
+                      ? limitedAccessEmptyText(state.catalog.sidebarForms.length, state.catalog.sidebarDocumentTemplates.length)
+                      : formOnlyEmptyText(state.catalog.sidebarForms.length)}
+                  </Show>
+                </>
+              }
+            />
           </Match>
         </Switch>
       </AppWorkspace.Main>

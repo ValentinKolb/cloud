@@ -117,7 +117,14 @@ const renderSvg = (
   mapViewport?: MapViewport,
   timelineViewport?: StateTimelineDomain,
 ): string => {
-  const { kind, class: _class, style: _style, labels: _labels, interactive: _interactive, ...opts } = props as ChartProps & { interactive?: boolean };
+  const {
+    kind,
+    class: _class,
+    style: _style,
+    labels: _labels,
+    interactive: _interactive,
+    ...opts
+  } = props as ChartProps & { interactive?: boolean };
   if (kind === "stateTimeline") {
     return renderStateTimelineSvg({
       ...(opts as StateTimelineChartOptions),
@@ -345,9 +352,7 @@ const Chart = (props: ChartProps): JSX.Element => {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       const anchor = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5;
-      updateTimelineViewport((current) =>
-        zoomStateTimelineViewport(current, timelineFullDomain(), event.deltaY < 0 ? 1 : -1, anchor),
-      );
+      updateTimelineViewport((current) => zoomStateTimelineViewport(current, timelineFullDomain(), event.deltaY < 0 ? 1 : -1, anchor));
     } else if (event.shiftKey) {
       event.preventDefault();
       updateTimelineViewport((current) =>

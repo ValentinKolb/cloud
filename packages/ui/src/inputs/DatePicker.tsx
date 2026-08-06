@@ -755,10 +755,7 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
               disabled={
                 Boolean(draftRange().start) !== Boolean(draftRange().end) ||
                 Boolean(
-                  withTime() &&
-                    draftRange().start &&
-                    draftRange().end &&
-                    (!isCompleteTime(startTime()) || !isCompleteTime(endTime())),
+                  withTime() && draftRange().start && draftRange().end && (!isCompleteTime(startTime()) || !isCompleteTime(endTime())),
                 )
               }
               onClick={() => commit(close)}

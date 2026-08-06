@@ -55,8 +55,7 @@ const classTokens = (html: string): string[] => {
  */
 const HOOK_CLASSES = new Set(["k2b-copy-button"]);
 
-const unstyled = (html: string) =>
-  classTokens(html).filter((token) => !isIconClass(token) && !HOOK_CLASSES.has(token) && !hasRule(token));
+const unstyled = (html: string) => classTokens(html).filter((token) => !isIconClass(token) && !HOOK_CLASSES.has(token) && !hasRule(token));
 const foreign = (html: string) => classTokens(html).filter((token) => !isIconClass(token) && !/^(k2b-|cd-)/.test(token));
 
 const content = { encoding: "utf8" as const, mediaType: "text/plain", content: "const answer = 42;\n" };
@@ -64,7 +63,11 @@ const content = { encoding: "utf8" as const, mediaType: "text/plain", content: "
 /** FileView loads its content through a resource — render it inside Suspense so SSR waits. */
 const renderFileView = (props: Record<string, unknown>) =>
   renderToStringAsync(() =>
-    createComponent(Suspense, { get children() { return createComponent(FileView, props as never); } }),
+    createComponent(Suspense, {
+      get children() {
+        return createComponent(FileView, props as never);
+      },
+    }),
   );
 
 describe("@k2b/ui content style coverage", () => {
@@ -75,7 +78,11 @@ describe("@k2b/ui content style coverage", () => {
       createComponent(DocPage, {
         children: [
           createComponent(DocLead, { children: "Lead" }),
-          createComponent(DocSection, { title: "Section", eyebrow: "Eyebrow", children: createComponent(DocInlineCode, { children: "x" }) }),
+          createComponent(DocSection, {
+            title: "Section",
+            eyebrow: "Eyebrow",
+            children: createComponent(DocInlineCode, { children: "x" }),
+          }),
           createComponent(DocCode, { code: "select 1", title: "query", copy: true, lineNumbers: true }),
           createComponent(DocConceptGrid, { items: [{ title: "Source", icon: "ti ti-code", text: "Exact" }] }),
           createComponent(DocRows, { items: [{ title: "Mode", icon: "ti ti-check", text: "Portable" }] }),
@@ -152,9 +159,7 @@ describe("@k2b/ui content style coverage", () => {
   });
 
   test("code and Markdown never turn untrusted source into executable markup", () => {
-    const code = renderToString(() =>
-      createComponent(CodeDisplay, { code: '<img src=x onerror="alert(1)">', language: "text" }),
-    );
+    const code = renderToString(() => createComponent(CodeDisplay, { code: '<img src=x onerror="alert(1)">', language: "text" }));
     const markdown = renderToString(() =>
       createComponent(MarkdownView, {
         markdown: '<img src=x onerror="alert(1)">\n\n[unsafe](javascript:alert(1))',
@@ -295,9 +300,7 @@ describe("@k2b/ui content behaviour", () => {
   });
 
   test("StructuredDataPreview caps rows and reports the remainder", () => {
-    const html = renderToString(() =>
-      createComponent(StructuredDataPreview, { data: { a: 1, b: 2, c: 3 }, maxRows: 1 }),
-    );
+    const html = renderToString(() => createComponent(StructuredDataPreview, { data: { a: 1, b: 2, c: 3 }, maxRows: 1 }));
 
     expect(html).toContain("2 more rows hidden.");
     expect(html).toContain("View raw");

@@ -37,9 +37,7 @@ const PaginationLink = (props: PaginationLinkProps) =>
 
 /** Link-based pagination with directional navigation and compact mobile disclosure. */
 export const Pagination = (props: PaginationProps): JSX.Element => {
-  const totalPages = createMemo(() =>
-    Math.max(1, Math.floor(Number.isFinite(props.totalPages) ? props.totalPages : 1)),
-  );
+  const totalPages = createMemo(() => Math.max(1, Math.floor(Number.isFinite(props.totalPages) ? props.totalPages : 1)));
   const currentPage = createMemo(() =>
     Math.min(totalPages(), Math.max(1, Math.floor(Number.isFinite(props.currentPage) ? props.currentPage : 1))),
   );

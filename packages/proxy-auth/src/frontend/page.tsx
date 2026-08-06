@@ -88,9 +88,10 @@ export default ssr<AuthContext>(async (c) => {
             />
           </section>
         ) : (
-          <Placeholder surface="paper" description={<>
-            No proxy auth clients found. Create one to protect external apps via Traefik ForwardAuth.
-          </>} />
+          <Placeholder
+            surface="paper"
+            description={<>No proxy auth clients found. Create one to protect external apps via Traefik ForwardAuth.</>}
+          />
         )}
 
         <section class="info-block-info p-4" style="view-transition-name: admin-proxy-auth-reference">

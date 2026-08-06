@@ -60,11 +60,22 @@ const recordIngestResult = async (params: {
   result: Result<IngestCounts>;
 }): Promise<void> => {
   if (params.result.ok) {
-    await recordSourceScrape({ baseId: params.baseId, sourceId: params.sourceId, startedAt: params.startedAt, success: true, counts: params.result.data });
+    await recordSourceScrape({
+      baseId: params.baseId,
+      sourceId: params.sourceId,
+      startedAt: params.startedAt,
+      success: true,
+      counts: params.result.data,
+    });
     await markSourceError({ sourceId: params.sourceId, message: null });
     return;
   }
-  await recordFailedSourceScrape({ baseId: params.baseId, sourceId: params.sourceId, startedAt: params.startedAt, message: params.result.error.message });
+  await recordFailedSourceScrape({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    startedAt: params.startedAt,
+    message: params.result.error.message,
+  });
 };
 
 const recordSourceScrape = async (params: {
@@ -265,9 +276,7 @@ const loadMetricsSourceConfig = async (params: { baseId: string; sourceId: strin
         OR b.data_clear_failed_at IS NOT NULL
       )
   `;
-  return source?.endpoint_url
-    ? { endpointUrl: source.endpoint_url, bearerTokenEncrypted: source.bearer_token_encrypted }
-    : null;
+  return source?.endpoint_url ? { endpointUrl: source.endpoint_url, bearerTokenEncrypted: source.bearer_token_encrypted } : null;
 };
 
 const buildMetricsScrapeHeaders = async (bearerTokenEncrypted: string | null): Promise<Record<string, string>> => {

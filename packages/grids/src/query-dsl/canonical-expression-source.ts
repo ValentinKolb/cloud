@@ -58,7 +58,7 @@ const scopeTableId = (scope: CanonicalScope, alias: string | undefined): string 
   return scope.joinsByAlias.get(normalizeRefKey(alias))?.tableId ?? null;
 };
 
-const recordMetaRef = (ref: DslQualifiedRef): string | null => {
+export const recordMetaRef = (ref: DslQualifiedRef): string | null => {
   if (!ref.scope || normalizeRefKey(ref.scope) !== RECORD_SCOPE) return null;
   return RECORD_META_REFS.get(ref.ref.replaceAll("_", "").toLowerCase()) ?? null;
 };

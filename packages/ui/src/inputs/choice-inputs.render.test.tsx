@@ -206,9 +206,7 @@ describe("@k2b/ui complete choice input migrations", () => {
   });
 
   test("keeps composite field labels out of invalid HTML for targets", () => {
-    const multi = renderToString(() =>
-      createComponent(MultiSelectInput, { label: "Teams", value: [], options: [] }),
-    );
+    const multi = renderToString(() => createComponent(MultiSelectInput, { label: "Teams", value: [], options: [] }));
     const tags = renderToString(() => createComponent(TagsInput, { label: "Tags", value: [] }));
     const pin = renderToString(() => createComponent(PinInput, { label: "PIN", value: "", length: 4 }));
 
@@ -274,9 +272,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     // trailing check rather than a leading icon.
     expect(html).toContain("--k2b-dropdown-width:10rem");
     expect(html).toContain("k2b-select-chip__option");
-    expect(html).toContain(
-      '<span class="k2b-dropdown__copy"><span>Comfortable</span></span><i class="ti ti-check k2b-dropdown__check"',
-    );
+    expect(html).toContain('<span class="k2b-dropdown__copy"><span>Comfortable</span></span><i class="ti ti-check k2b-dropdown__check"');
     expect(html).not.toContain('<i class="ti ti-check" aria-hidden="true"></i><span>Comfortable');
   });
 
@@ -399,9 +395,7 @@ describe("@k2b/ui complete choice input migrations", () => {
         icon: "ti ti-flask",
       }),
     );
-    const withColor = renderToString(() =>
-      createComponent(CheckboxCard, { label: "Early access", value: false, color: "#123456" }),
-    );
+    const withColor = renderToString(() => createComponent(CheckboxCard, { label: "Early access", value: false, color: "#123456" }));
 
     // Two grid items (control + content) against a two-column template: an icon
     // must not claim a column of its own, or a card without one indents its label.
@@ -594,9 +588,7 @@ describe("@k2b/ui complete choice input migrations", () => {
 
   test("reports empty static and searchable option lists with the matching copy", () => {
     const plain = renderToString(() => createComponent(Select, { label: "Team", value: null, options: [] }));
-    const searchable = renderToString(() =>
-      createComponent(Select, { label: "Team", value: null, options: [], searchable: true }),
-    );
+    const searchable = renderToString(() => createComponent(Select, { label: "Team", value: null, options: [], searchable: true }));
 
     expect(plain).toContain("No options available");
     expect(plain).not.toContain("k2b-choice-search");

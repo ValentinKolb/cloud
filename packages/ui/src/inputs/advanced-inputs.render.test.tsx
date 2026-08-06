@@ -5,7 +5,14 @@ import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import { abbreviations, collectKnownLabels, createCompletionBehaviorState, detectQuery, displayLabel, renderWithOverlay } from "./completion";
+import {
+  abbreviations,
+  collectKnownLabels,
+  createCompletionBehaviorState,
+  detectQuery,
+  displayLabel,
+  renderWithOverlay,
+} from "./completion";
 import { clampImageCropRect, getInitialImageCropRect, imageCropRectToPixels, normalizeImageCropRotation } from "./image-crop";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-advanced-inputs-"));

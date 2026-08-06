@@ -9,9 +9,7 @@ export type StateIdentity = {
 };
 
 export const lockStateIdentities = async (baseId: string, identities: StateIdentity[], db: SqlClient): Promise<void> => {
-  const keys = [
-    ...new Set(identities.map((identity) => [identity.key, identity.entityId, identity.dimensionsHash].join("\u001f"))),
-  ].sort();
+  const keys = [...new Set(identities.map((identity) => [identity.key, identity.entityId, identity.dimensionsHash].join("\u001f")))].sort();
   if (keys.length === 0) return;
   await db`
     SELECT pg_advisory_xact_lock(hashtextextended(${baseId} || E'\\x1f' || identity, 0))

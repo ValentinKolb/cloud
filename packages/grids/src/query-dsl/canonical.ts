@@ -1,5 +1,5 @@
 import { normalizeRefKey } from "../ref-syntax";
-import { type CanonicalScope, formulaSource, resolveFieldRef } from "./canonical-expression-source";
+import { type CanonicalScope, formulaSource, recordMetaRef, resolveFieldRef } from "./canonical-expression-source";
 import {
   type DslResolvedRelationJoin,
   type DslResolvedSqlQueryPlan,
@@ -146,6 +146,8 @@ const sortTargetSource = (
   if ("kind" in target) return { ok: true, text: target.alias };
   const alias = !target.scope ? aliases.get(normalizeRefKey(target.ref)) : undefined;
   if (alias) return { ok: true, text: alias };
+  const recordMeta = recordMetaRef(target);
+  if (recordMeta) return { ok: true, text: recordMeta };
   return resolveFieldRef(target, scope);
 };
 

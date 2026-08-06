@@ -5,6 +5,14 @@ import { app } from "./config";
 import pageRoutes from "./frontend";
 import { migrate } from "./migrate";
 import { oauthService } from "./service";
+import { oauth } from "./service/oauth";
+
+const OAUTH_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+let cleanupTimer: ReturnType<typeof setInterval> | undefined;
+
+const cleanupOAuthStorage = async (): Promise<void> => {
+  await Promise.all([oauth.codes.cleanup(), oauth.refreshTokens.cleanup(), oauth.clients.cleanupUnusedDynamic()]);
+};
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -18,6 +26,21 @@ export default await app.start({
   lifecycle: {
     setup: async () => {
       await migrate();
+    },
+    start: async (ctx) => {
+      await cleanupOAuthStorage().catch((error) => {
+        ctx.logger("oauth:cleanup").warn("OAuth cleanup failed", { error: error instanceof Error ? error.message : String(error) });
+      });
+      cleanupTimer = setInterval(() => {
+        void cleanupOAuthStorage().catch((error) => {
+          ctx.logger("oauth:cleanup").warn("OAuth cleanup failed", { error: error instanceof Error ? error.message : String(error) });
+        });
+      }, OAUTH_CLEANUP_INTERVAL_MS);
+      cleanupTimer.unref?.();
+    },
+    stop: async () => {
+      if (cleanupTimer) clearInterval(cleanupTimer);
+      cleanupTimer = undefined;
     },
   },
 });

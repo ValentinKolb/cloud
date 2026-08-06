@@ -8,6 +8,14 @@ Compose `Chat.Timeline` and `Chat.Composer` inside `Chat`. The application owns 
 
 Timeline items are plain message or activity records. Message actions and attachments are structured arrays; activity bodies remain JSX so an application can render rich tool results without coupling the package to a protocol.
 
+Use `leading` when an activity needs a host-owned visual such as a favicon. Use
+the optional `accent` only for source or application identity; `success` and
+`danger` tones continue to own semantic state colors. Keep the rich activity
+body in the host so `Chat` remains independent from tool protocols.
+Set `busy` on an activity while work is running. Streaming messages and busy
+activities share the same three-dot progress treatment; applications should
+not add a second spinner or visible generating label.
+
 ## Import
 
 ```tsx

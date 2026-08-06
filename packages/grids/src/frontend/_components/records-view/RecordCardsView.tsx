@@ -73,11 +73,7 @@ export function RecordCardsView(props: {
     <div class="flex min-h-0 flex-1 flex-col overflow-auto" data-scroll-preserve={`grids-cards-${props.tableId}`}>
       <Show
         when={props.items.length > 0}
-        fallback={
-          <Placeholder icon="ti ti-table" class="min-h-48 justify-center" description={<>
-            No records
-          </>} />
-        }
+        fallback={<Placeholder icon="ti ti-table" class="min-h-48 justify-center" description={<>No records</>} />}
       >
         <div class="grids-record-card-grid grid p-0.5" data-card-size={size()}>
           <For each={props.items}>

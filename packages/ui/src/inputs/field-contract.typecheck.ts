@@ -51,10 +51,7 @@ type ValueFieldContractCoverage = [
   Expect<Extends<IconInputProps, ValueFieldProps<string | null>>>,
 ];
 
-type FieldContractCoverage = [
-  Expect<Extends<ComboboxProps, FieldProps>>,
-  Expect<Extends<FileDropzoneProps, FieldProps>>,
-];
+type FieldContractCoverage = [Expect<Extends<ComboboxProps, FieldProps>>, Expect<Extends<FileDropzoneProps, FieldProps>>];
 
 const text: TextInputProps = { label: "Name", value: "", onValueChange: () => {}, onValueCommit: () => {} };
 const number: NumberInputProps = { label: "Count", value: null, onValueChange: () => {}, onValueCommit: () => {} };

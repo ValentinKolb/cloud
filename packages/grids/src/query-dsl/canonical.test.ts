@@ -181,6 +181,18 @@ sort weighted_score desc nulls first
 offset 3`);
   });
 
+  test("preserves record metadata sort targets", () => {
+    expect(
+      canonical(`
+        from table Orders
+        select Amount
+        sort record.createdAt desc
+      `),
+    ).toBe(`from table {${orders.id}}
+select {${amountId}}
+sort record.createdAt desc`);
+  });
+
   test("emits reverse joins and aggregate/having aliases", () => {
     expect(
       canonical(`

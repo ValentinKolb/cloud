@@ -148,9 +148,7 @@ export default function PdfPreview(props: PdfPreviewProps) {
           </div>
         }
       >
-        {(currentUrl) => (
-          <iframe class="k2b-content-pdf-preview__frame" src={currentUrl()} title={props.title ?? "PDF preview"} />
-        )}
+        {(currentUrl) => <iframe class="k2b-content-pdf-preview__frame" src={currentUrl()} title={props.title ?? "PDF preview"} />}
       </Show>
     </section>
   );

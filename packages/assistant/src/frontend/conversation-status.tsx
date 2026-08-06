@@ -10,7 +10,9 @@ export function ConversationStatusMeta(props: { conversation: AiConversation; la
         <span class="inline-flex items-center gap-1" title="Pinned">
           <i class="ti ti-pin-filled text-xs" aria-hidden="true" />
           <Show when={props.labels}>Pinned</Show>
-          <Show when={!props.labels}><span class="sr-only">Pinned</span></Show>
+          <Show when={!props.labels}>
+            <span class="sr-only">Pinned</span>
+          </Show>
         </span>
       </Show>
       <Show when={status()}>
@@ -18,7 +20,9 @@ export function ConversationStatusMeta(props: { conversation: AiConversation; la
           <span class={`inline-flex items-center gap-1 ${item().class}`} title={item().label}>
             <i class={`${item().icon} text-xs`} aria-hidden="true" />
             <Show when={props.labels}>{item().label}</Show>
-            <Show when={!props.labels}><span class="sr-only">{item().label}</span></Show>
+            <Show when={!props.labels}>
+              <span class="sr-only">{item().label}</span>
+            </Show>
           </span>
         )}
       </Show>

@@ -14,8 +14,7 @@ await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
 const ignoredSource = (path: string): boolean =>
-  /\.(?:test|typecheck)\.[cm]?[jt]sx?$/.test(path) ||
-  path.endsWith("styles/css-contract-test-helpers.ts");
+  /\.(?:test|typecheck)\.[cm]?[jt]sx?$/.test(path) || path.endsWith("styles/css-contract-test-helpers.ts");
 
 const sourceFiles = async (directory: string): Promise<string[]> => {
   const files: string[] = [];
@@ -23,7 +22,7 @@ const sourceFiles = async (directory: string): Promise<string[]> => {
   entries.sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
     const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await sourceFiles(path));
+    if (entry.isDirectory()) files.push(...(await sourceFiles(path)));
     else if (/\.[cm]?[jt]sx?$/.test(entry.name) && !ignoredSource(path)) files.push(path);
   }
   return files;
@@ -110,13 +109,7 @@ for (const asset of await readdir(dist)) {
 await writeFile(buildComplete, "");
 
 const declarations = Bun.spawnSync({
-  cmd: [
-    resolve(root, "../../node_modules/.bin/tsc"),
-    "-p",
-    resolve(root, "tsconfig.build.json"),
-    "--pretty",
-    "false",
-  ],
+  cmd: [resolve(root, "../../node_modules/.bin/tsc"), "-p", resolve(root, "tsconfig.build.json"), "--pretty", "false"],
   stdout: "inherit",
   stderr: "inherit",
 });

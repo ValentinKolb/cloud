@@ -96,6 +96,7 @@ const DEFAULT_OAUTH_SCOPE = "openid profile email offline_access read write";
 const CONFIG_PATH =
   process.env.CLD_CONFIG ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cloud", "cld", "config.json");
 const TOKEN_TIMEOUT_MS = 10_000;
+const OAUTH_REQUEST_TIMEOUT_MS = 15_000;
 const OAUTH_REFRESH_SKEW_MS = 60_000;
 const PROFILE_LOCK_TIMEOUT_MS = 15_000;
 const PROFILE_LOCK_STALE_MS = 60_000;
@@ -279,6 +280,19 @@ const saveConfig = async (config: CloudCliConfig): Promise<void> => {
 
 const normalizeServer = (server: string): string => server.replace(/\/+$/, "");
 
+const canonicalServer = (server: string): string => {
+  let url: URL;
+  try {
+    url = new URL(server);
+  } catch {
+    throw new CliError("Cloud server must be an HTTP(S) origin.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new CliError("Cloud server must be an HTTP(S) origin without credentials, path, query, or fragment.");
+  }
+  return url.origin;
+};
+
 const joinUrl = (server: string, path: string): string => `${normalizeServer(server)}${path.startsWith("/") ? path : `/${path}`}`;
 
 const readTokenFile = async (path: string): Promise<string> => (await readFile(path, "utf8")).trim();
@@ -328,13 +342,12 @@ const writeFd0Secret = async (name: string, scope: string | undefined, value: st
 };
 
 const removeFd0Secret = async (name: string, scope: string | undefined): Promise<void> => {
-  const args = ["rm", name];
+  const args = ["rm", name, "--yes"];
   if (scope) args.push("--scope", scope);
   try {
     await execFileAsync("fd0", args, { timeout: TOKEN_TIMEOUT_MS });
-  } catch {
-    // The remote OAuth revocation is the security boundary. A missing or locked fd0 vault
-    // should not prevent logout from removing the local profile reference.
+  } catch (error) {
+    console.error(`Warning: failed to remove OAuth refresh token from fd0: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -357,6 +370,35 @@ type OAuthTokenResponse = {
   refresh_token?: string;
   scope?: string;
 };
+
+const parseOAuthTokenResponse = (payload: unknown): OAuthTokenResponse => {
+  if (!payload || typeof payload !== "object") throw new CliError("OAuth server returned an invalid token response.");
+  const token = payload as Record<string, unknown>;
+  if (typeof token.access_token !== "string" || token.access_token.length === 0) {
+    throw new CliError("OAuth server returned an invalid access token.");
+  }
+  if (token.token_type !== "Bearer") throw new CliError("OAuth server returned an unsupported token type.");
+  if (typeof token.expires_in !== "number" || !Number.isFinite(token.expires_in) || token.expires_in <= 0) {
+    throw new CliError("OAuth server returned an invalid token lifetime.");
+  }
+  if (token.refresh_token !== undefined && (typeof token.refresh_token !== "string" || token.refresh_token.length === 0)) {
+    throw new CliError("OAuth server returned an invalid refresh token.");
+  }
+  if (token.scope !== undefined && typeof token.scope !== "string") {
+    throw new CliError("OAuth server returned an invalid scope.");
+  }
+  return token as OAuthTokenResponse;
+};
+
+const readOAuthTokenResponse = async (response: Response): Promise<OAuthTokenResponse> =>
+  parseOAuthTokenResponse(await readJson<unknown>(response));
+
+const fetchOAuth = (url: string, init: RequestInit): Promise<Response> =>
+  fetch(url, {
+    ...init,
+    redirect: "error",
+    signal: AbortSignal.timeout(OAUTH_REQUEST_TIMEOUT_MS),
+  });
 
 type ResolvedAuth = {
   token: string;
@@ -386,10 +428,7 @@ const writeOAuthRefreshToken = async (session: OAuthSessionConfig, refreshToken:
   return { ...session, refreshToken };
 };
 
-const profileLockPath = (profileName: string): string => {
-  const safeName = profileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
-  return join(dirname(CONFIG_PATH), "locks", `${safeName}.lock`);
-};
+const configLockPath = (): string => join(dirname(CONFIG_PATH), "locks", "config.lock");
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -408,9 +447,8 @@ const cleanupStaleProfileLock = async (lockPath: string): Promise<boolean> => {
     const metadata = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) as { pid?: unknown; createdAt?: unknown };
     const pid = typeof metadata.pid === "number" ? metadata.pid : null;
     const createdAt = typeof metadata.createdAt === "number" ? metadata.createdAt : 0;
-    const staleByAge = Date.now() - createdAt > PROFILE_LOCK_STALE_MS;
-    const staleByDeadProcess = pid !== null && !isProcessAlive(pid);
-    if (!staleByAge && !staleByDeadProcess) return false;
+    if (pid !== null && isProcessAlive(pid)) return false;
+    if (pid === null && Date.now() - createdAt <= PROFILE_LOCK_STALE_MS) return false;
   } catch {
     try {
       const lockStat = await stat(lockPath);
@@ -424,8 +462,8 @@ const cleanupStaleProfileLock = async (lockPath: string): Promise<boolean> => {
   return true;
 };
 
-const withProfileLock = async <T>(profileName: string, run: () => Promise<T>): Promise<T> => {
-  const lockPath = profileLockPath(profileName);
+const withConfigLock = async <T>(run: () => Promise<T>): Promise<T> => {
+  const lockPath = configLockPath();
   await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
   const startedAt = Date.now();
 
@@ -438,7 +476,7 @@ const withProfileLock = async <T>(profileName: string, run: () => Promise<T>): P
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       if (await cleanupStaleProfileLock(lockPath)) continue;
       if (Date.now() - startedAt > PROFILE_LOCK_TIMEOUT_MS) {
-        throw new CliError(`Timed out waiting for profile "${profileName}" auth lock.`);
+        throw new CliError("Timed out waiting for the Cloud CLI config lock.");
       }
       await sleep(100);
     }
@@ -452,7 +490,7 @@ const withProfileLock = async <T>(profileName: string, run: () => Promise<T>): P
 };
 
 const revokeOAuthRefreshToken = async (server: string, clientId: string, refreshToken: string): Promise<void> => {
-  const response = await fetch(joinUrl(server, "/oauth/revoke"), {
+  const response = await fetchOAuth(joinUrl(server, "/oauth/revoke"), {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -473,7 +511,7 @@ const removeLocalOAuthSession = async (profileName: string): Promise<void> => {
 };
 
 const refreshOAuthSession = async (profileName: string, server: string, force = false): Promise<string> =>
-  withProfileLock(profileName, async () => {
+  withConfigLock(async () => {
     const config = await loadConfig();
     const profile = config.profiles?.[profileName];
     const session = profile?.oauth;
@@ -487,13 +525,12 @@ const refreshOAuthSession = async (profileName: string, server: string, force = 
       refresh_token: refreshToken,
     });
 
-    const response = await fetch(joinUrl(server, "/oauth/token"), {
+    const response = await fetchOAuth(joinUrl(server, "/oauth/token"), {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
     });
-    const token = await readJson<OAuthTokenResponse>(response);
-    if (token.token_type !== "Bearer") throw new CliError("OAuth server returned an unsupported token type.");
+    const token = await readOAuthTokenResponse(response);
     if (!token.refresh_token) throw new CliError("OAuth server did not rotate the refresh token.");
 
     let refreshTokenStoredInFd0 = false;
@@ -546,6 +583,11 @@ const resolveAuth = async (
   if (global.fd0) return { token: await readFd0Token(global.fd0, global.fd0Scope) };
   if (global.tokenCommand) return { token: await readCommandToken(global.tokenCommand) };
   if (profile.oauth) {
+    if (!profile.server || canonicalServer(profile.server) !== canonicalServer(server)) {
+      throw new CliError(
+        `OAuth profile "${profileName}" is bound to ${profile.server ?? "an unknown server"}. Run \`cld login\` for ${server}.`,
+      );
+    }
     const token = isOAuthAccessTokenFresh(profile.oauth) ? profile.oauth.accessToken : await refreshOAuthSession(profileName, server);
     return { token, refresh: () => refreshOAuthSession(profileName, server, true) };
   }
@@ -574,7 +616,7 @@ const resolveOptions = async (global: GlobalArgs): Promise<ResolvedCliOptions> =
   const profile = config.profiles?.[profileName] ?? {};
   const server = global.server ?? process.env.CLD_SERVER ?? profile.server;
   if (!server) throw new CliError("No server configured. Pass --server or run `cld profile set --server <url>`.");
-  const normalizedServer = normalizeServer(server);
+  const normalizedServer = canonicalServer(server);
   const auth = await resolveAuth(global, config, profileName, profile, normalizedServer);
   return {
     profile: profileName,
@@ -641,12 +683,17 @@ const renderTable = <TRow extends Record<string, unknown>>(rows: TRow[], columns
 
 const createContext = (args: string[], flags: CloudCliFlags, options: ResolvedCliOptions): CloudCliContext => {
   let bearerToken = options.token;
+  const cloudOrigin = options.server ? new URL(options.server).origin : null;
   const authHeaders = () => ({ Authorization: `Bearer ${bearerToken}` });
   const fetchWithAuth = async (pathOrUrl: string | URL | Request, init: RequestInit = {}, retry = true): Promise<Response> => {
     const url =
       typeof pathOrUrl === "string" && pathOrUrl.startsWith("/")
         ? joinUrl(options.server, pathOrUrl)
         : (pathOrUrl as string | URL | Request);
+    const requestUrl = new URL(pathOrUrl instanceof Request ? pathOrUrl.url : String(url), options.server);
+    if (!cloudOrigin || requestUrl.origin !== cloudOrigin) {
+      throw new CliError(`Refusing to send Cloud credentials to ${requestUrl.origin}.`);
+    }
     const headers = new Headers(pathOrUrl instanceof Request ? pathOrUrl.headers : undefined);
     new Headers(init.headers).forEach((value, name) => headers.set(name, value));
     headers.set("authorization", `Bearer ${bearerToken}`);
@@ -670,19 +717,22 @@ const createContext = (args: string[], flags: CloudCliFlags, options: ResolvedCl
       return config.profiles?.[options.profile]?.defaults?.[key];
     },
     setDefault: async (key, value) => {
-      const config = await loadConfig();
-      config.profiles ??= {};
-      const profile = config.profiles[options.profile] ?? {};
-      const hadPersistentToken = hasPersistentTokenProvider(profile);
-      const defaults = { ...(profile.defaults ?? {}) };
-      if (value === undefined) delete defaults[key];
-      else defaults[key] = value;
-      config.profiles[options.profile] = {
-        ...profile,
-        server: profile.server ?? options.server,
-        defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
-      };
-      await saveConfig(config);
+      let hadPersistentToken = false;
+      await withConfigLock(async () => {
+        const config = await loadConfig();
+        config.profiles ??= {};
+        const profile = config.profiles[options.profile] ?? {};
+        hadPersistentToken = hasPersistentTokenProvider(profile);
+        const defaults = { ...(profile.defaults ?? {}) };
+        if (value === undefined) delete defaults[key];
+        else defaults[key] = value;
+        config.profiles[options.profile] = {
+          ...profile,
+          server: profile.server ?? options.server,
+          defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
+        };
+        await saveConfig(config);
+      });
       if (value !== undefined && !hadPersistentToken) {
         console.error(
           `Warning: saved a default for profile "${options.profile}", but this profile has no persistent token provider. Run \`cld profile set ${options.profile} --server ${options.server} --token-file <path>\` or pass a token/env token on future calls.`,
@@ -795,7 +845,9 @@ const runUpdateCommand = async (args: string[]): Promise<number> => {
     return 0;
   }
   if (parsed.args.length > 0)
-    throw new CliError("Usage: cld update [--version <version>] [--yes] [--no-verify] [--no-skills] [--skills-dir <dir>] [--claude-symlink]");
+    throw new CliError(
+      "Usage: cld update [--version <version>] [--yes] [--no-verify] [--no-skills] [--skills-dir <dir>] [--claude-symlink]",
+    );
   const allowedFlags = new Set(["version", "yes", "y", "no-verify", "no-skills", "skills-dir", "claude-symlink"]);
   const unsupportedFlag = Object.keys(parsed.flags).find((flag) => !allowedFlags.has(flag));
   if (unsupportedFlag) throw new CliError(`Unknown update option "--${unsupportedFlag}".`);
@@ -909,9 +961,12 @@ const runProfileCommand = async (args: string[]): Promise<number> => {
 
   if (command === "use") {
     if (!maybeName) throw new CliError("Missing profile name.");
-    if (!config.profiles[maybeName]) throw new CliError(`Profile "${maybeName}" does not exist.`);
-    config.currentProfile = maybeName;
-    await saveConfig(config);
+    await withConfigLock(async () => {
+      const latestConfig = await loadConfig();
+      if (!latestConfig.profiles?.[maybeName]) throw new CliError(`Profile "${maybeName}" does not exist.`);
+      latestConfig.currentProfile = maybeName;
+      await saveConfig(latestConfig);
+    });
     console.log(`Using profile "${maybeName}".`);
     return 0;
   }
@@ -928,27 +983,58 @@ const runProfileCommand = async (args: string[]): Promise<number> => {
     const fd0 = takeStringFlag(parsed.flags, "fd0");
     const fd0Scope = takeStringFlag(parsed.flags, "fd0-scope");
 
-    const existing = config.profiles[name] ?? {};
-    const next: CloudCliProfile = {
-      ...existing,
-      ...(server ? { server: normalizeServer(server) } : {}),
-    };
     const setsAuthProvider = Boolean(token || tokenFile || tokenCommand || fd0);
-    delete next.token;
-    delete next.tokenFile;
-    delete next.tokenCommand;
-    delete next.fd0;
-    if (setsAuthProvider) delete next.oauth;
-    if (token) next.token = token;
-    if (tokenFile) next.tokenFile = tokenFile;
-    if (tokenCommand) next.tokenCommand = tokenCommand;
-    if (fd0) next.fd0 = { name: fd0, ...(fd0Scope ? { scope: fd0Scope } : {}) };
+    return withConfigLock(async () => {
+      const latestConfig = await loadConfig();
+      latestConfig.profiles ??= {};
+      const existing = latestConfig.profiles[name] ?? {};
+      if (existing.oauth && server && (!existing.server || canonicalServer(existing.server) !== canonicalServer(server))) {
+        throw new CliError(
+          `OAuth profile "${name}" is bound to ${existing.server ?? "an unknown server"}. Run \`cld login ${name}\` to change servers.`,
+        );
+      }
 
-    config.profiles[name] = next;
-    config.currentProfile ??= name;
-    await saveConfig(config);
-    console.log(`Saved profile "${name}" to ${CONFIG_PATH}.`);
-    return 0;
+      let displacedRefreshToken: string | null = null;
+      if (setsAuthProvider && existing.oauth) {
+        try {
+          displacedRefreshToken = await readOAuthRefreshToken(existing.oauth);
+        } catch (error) {
+          console.error(`Warning: could not read replaced OAuth refresh token for remote revocation: ${(error as Error).message}`);
+        }
+      }
+
+      const next: CloudCliProfile = {
+        ...existing,
+        ...(server ? { server: canonicalServer(server) } : {}),
+      };
+      delete next.token;
+      delete next.tokenFile;
+      delete next.tokenCommand;
+      delete next.fd0;
+      if (setsAuthProvider) delete next.oauth;
+      if (token) next.token = token;
+      if (tokenFile) next.tokenFile = tokenFile;
+      if (tokenCommand) next.tokenCommand = tokenCommand;
+      if (fd0) next.fd0 = { name: fd0, ...(fd0Scope ? { scope: fd0Scope } : {}) };
+
+      latestConfig.profiles[name] = next;
+      latestConfig.currentProfile ??= name;
+      await saveConfig(latestConfig);
+
+      if (setsAuthProvider && existing.oauth) {
+        if (existing.server && displacedRefreshToken) {
+          await revokeOAuthRefreshToken(existing.server, existing.oauth.clientId, displacedRefreshToken).catch((error) => {
+            console.error(`Warning: failed to revoke the replaced OAuth login: ${(error as Error).message}`);
+          });
+        }
+        const displacedFd0 = existing.oauth.refreshTokenFd0;
+        const reusesDisplacedFd0 = displacedFd0 && next.fd0?.name === displacedFd0.name && next.fd0.scope === displacedFd0.scope;
+        if (displacedFd0 && !reusesDisplacedFd0) await removeFd0Secret(displacedFd0.name, displacedFd0.scope);
+      }
+
+      console.log(`Saved profile "${name}" to ${CONFIG_PATH}.`);
+      return 0;
+    });
   }
 
   throw new CliError(`Unknown profile command "${command}".`);
@@ -1012,7 +1098,7 @@ const oauthCallbackResponse = (message: string, status = 200): Response =>
     },
   });
 
-const waitForOAuthCode = async (authorizationUrl: URL, expectedState: string, open: boolean): Promise<string> => {
+const waitForOAuthCode = async (authorizationUrl: URL, expectedState: string, expectedIssuer: string, open: boolean): Promise<string> => {
   let resolveCode!: (code: string) => void;
   let rejectCode!: (error: Error) => void;
   const codePromise = new Promise<string>((resolve, reject) => {
@@ -1029,6 +1115,22 @@ const waitForOAuthCode = async (authorizationUrl: URL, expectedState: string, op
         return oauthCallbackResponse("This is not a Cloud CLI login callback.", 404);
       }
 
+      const state = url.searchParams.get("state");
+      if (state !== expectedState) {
+        return oauthCallbackResponse(
+          "Authentication failed: the OAuth callback did not match the expected state. You may close this window.",
+          400,
+        );
+      }
+
+      if (url.searchParams.get("iss") !== expectedIssuer) {
+        rejectCode(new CliError("OAuth callback did not match the expected issuer."));
+        return oauthCallbackResponse(
+          "Authentication failed: the OAuth callback did not match the expected issuer. You may close this window.",
+          400,
+        );
+      }
+
       const error = url.searchParams.get("error");
       if (error) {
         const message = url.searchParams.get("error_description") ?? error;
@@ -1036,11 +1138,13 @@ const waitForOAuthCode = async (authorizationUrl: URL, expectedState: string, op
         return oauthCallbackResponse(`Authentication failed: ${message}. You may close this window.`);
       }
 
-      const state = url.searchParams.get("state");
       const code = url.searchParams.get("code");
-      if (!code || state !== expectedState) {
-        rejectCode(new CliError("OAuth callback did not match the expected state."));
-        return oauthCallbackResponse("Authentication failed: the OAuth callback did not match the expected state. You may close this window.");
+      if (!code) {
+        rejectCode(new CliError("OAuth callback did not include an authorization code."));
+        return oauthCallbackResponse(
+          "Authentication failed: the OAuth callback did not include an authorization code. You may close this window.",
+          400,
+        );
       }
 
       resolveCode(code);
@@ -1080,7 +1184,7 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
   const fd0Flag = parsed.flags.fd0;
   const fd0Name = typeof fd0Flag === "string" ? fd0Flag : fd0Flag === true ? `cloud-${name}-oauth-refresh-token` : undefined;
   const fd0Scope = takeStringFlag(parsed.flags, "fd0-scope") ?? global.fd0Scope;
-  const normalizedServer = normalizeServer(server);
+  const normalizedServer = canonicalServer(server);
   const verifier = randomBase64Url(32);
   const state = randomBase64Url(24);
 
@@ -1093,7 +1197,7 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
   authorizationUrl.searchParams.set("code_challenge_method", "S256");
   authorizationUrl.searchParams.set("redirect_uri", "http://127.0.0.1/callback");
 
-  const code = await waitForOAuthCode(authorizationUrl, state, !takeBooleanFlag(parsed.flags, "no-open"));
+  const code = await waitForOAuthCode(authorizationUrl, state, normalizedServer, !takeBooleanFlag(parsed.flags, "no-open"));
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -1102,39 +1206,93 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
     redirect_uri: authorizationUrl.searchParams.get("redirect_uri") ?? "",
     code_verifier: verifier,
   });
-  const token = await readJson<OAuthTokenResponse>(
-    await fetch(joinUrl(normalizedServer, "/oauth/token"), {
+  const token = await readOAuthTokenResponse(
+    await fetchOAuth(joinUrl(normalizedServer, "/oauth/token"), {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
     }),
   );
-  if (token.token_type !== "Bearer") throw new CliError("OAuth server returned an unsupported token type.");
   if (!token.refresh_token) throw new CliError("OAuth server did not issue a refresh token. Check the offline_access scope.");
 
-  const baseSession: OAuthSessionConfig = {
-    clientId,
-    accessToken: token.access_token,
-    accessTokenExpiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
-    scope: token.scope ?? scope,
-    ...(fd0Name ? { refreshTokenFd0: { name: fd0Name, ...(fd0Scope ? { scope: fd0Scope } : {}) } } : {}),
-  };
-  const oauth = await writeOAuthRefreshToken(baseSession, token.refresh_token);
+  let persisted = false;
+  try {
+    await withConfigLock(async () => {
+      const latestConfig = await loadConfig();
+      const latestProfile = latestConfig.profiles?.[name] ?? {};
+      const displacedSession = latestProfile.oauth;
+      let displacedRefreshToken: string | null = null;
+      if (displacedSession) {
+        try {
+          displacedRefreshToken = await readOAuthRefreshToken(displacedSession);
+        } catch (error) {
+          throw new CliError(`Could not replace the existing OAuth login: ${(error as Error).message}`);
+        }
+      }
 
-  const next: CloudCliProfile = {
-    ...existing,
-    server: normalizedServer,
-    oauth,
-  };
-  delete next.token;
-  delete next.tokenFile;
-  delete next.tokenCommand;
-  delete next.fd0;
+      const refreshTokenFd0 = fd0Name ? { name: fd0Name, ...(fd0Scope ? { scope: fd0Scope } : {}) } : undefined;
+      const baseSession: OAuthSessionConfig = {
+        clientId,
+        accessToken: token.access_token,
+        accessTokenExpiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
+        scope: token.scope ?? scope,
+        ...(refreshTokenFd0 ? { refreshTokenFd0 } : {}),
+      };
 
-  config.profiles ??= {};
-  config.profiles[name] = next;
-  config.currentProfile = name;
-  await saveConfig(config);
+      let storedInFd0 = false;
+      try {
+        const oauth = await writeOAuthRefreshToken(baseSession, token.refresh_token!);
+        storedInFd0 = Boolean(refreshTokenFd0);
+        const next: CloudCliProfile = {
+          ...latestProfile,
+          server: normalizedServer,
+          oauth,
+        };
+        delete next.token;
+        delete next.tokenFile;
+        delete next.tokenCommand;
+        delete next.fd0;
+
+        latestConfig.profiles ??= {};
+        latestConfig.profiles[name] = next;
+        latestConfig.currentProfile = name;
+        await saveConfig(latestConfig);
+        persisted = true;
+      } catch (error) {
+        if (storedInFd0 && refreshTokenFd0) {
+          const displacedFd0 = displacedSession?.refreshTokenFd0;
+          const replacedDisplacedSecret = displacedFd0?.name === refreshTokenFd0.name && displacedFd0.scope === refreshTokenFd0.scope;
+          if (replacedDisplacedSecret && displacedRefreshToken !== null) {
+            await writeFd0Secret(refreshTokenFd0.name, refreshTokenFd0.scope, displacedRefreshToken).catch((restoreError) => {
+              console.error(`Warning: failed to restore the previous fd0 refresh token: ${(restoreError as Error).message}`);
+            });
+          } else {
+            await removeFd0Secret(refreshTokenFd0.name, refreshTokenFd0.scope);
+          }
+        }
+        throw error;
+      }
+
+      if (displacedRefreshToken && latestProfile.server && displacedSession) {
+        await revokeOAuthRefreshToken(latestProfile.server, displacedSession.clientId, displacedRefreshToken).catch((error) => {
+          console.error(`Warning: failed to revoke the previous OAuth login: ${(error as Error).message}`);
+        });
+      }
+      const displacedFd0 = displacedSession?.refreshTokenFd0;
+      const reusesDisplacedFd0 =
+        displacedFd0 && refreshTokenFd0 && displacedFd0.name === refreshTokenFd0.name && displacedFd0.scope === refreshTokenFd0.scope;
+      if (displacedFd0 && !reusesDisplacedFd0) {
+        await removeFd0Secret(displacedFd0.name, displacedFd0.scope);
+      }
+    });
+  } catch (error) {
+    if (!persisted) {
+      await revokeOAuthRefreshToken(normalizedServer, clientId, token.refresh_token).catch((revokeError) => {
+        console.error(`Warning: failed to revoke the unpersisted OAuth login: ${(revokeError as Error).message}`);
+      });
+    }
+    throw error;
+  }
   console.log(`Logged in to ${normalizedServer} as profile "${name}".`);
   return 0;
 };
@@ -1143,32 +1301,35 @@ const runLogoutCommand = async (args: string[], global: GlobalArgs): Promise<num
   const parsed = parseArgs(args);
   const config = await loadConfig();
   const name = takeStringFlag(parsed.flags, "profile", "p") ?? global.profile ?? resolveProfileName(config, undefined);
-  const profile = config.profiles?.[name];
-  if (!profile?.oauth) {
-    console.log(`Profile "${name}" is not logged in with OAuth.`);
+  return withConfigLock(async () => {
+    const latestConfig = await loadConfig();
+    const profile = latestConfig.profiles?.[name];
+    if (!profile?.oauth) {
+      console.log(`Profile "${name}" is not logged in with OAuth.`);
+      return 0;
+    }
+
+    let refreshToken: string | null = null;
+    try {
+      refreshToken = await readOAuthRefreshToken(profile.oauth);
+    } catch (error) {
+      console.error(`Warning: could not read refresh token for remote revocation: ${(error as Error).message}`);
+    }
+
+    if (profile.server && refreshToken) {
+      await revokeOAuthRefreshToken(profile.server, profile.oauth.clientId, refreshToken).catch((error) => {
+        console.error(`Warning: ${(error as Error).message} Removing local credentials anyway.`);
+      });
+    }
+
+    if (profile.oauth.refreshTokenFd0) {
+      await removeFd0Secret(profile.oauth.refreshTokenFd0.name, profile.oauth.refreshTokenFd0.scope);
+    }
+    delete profile.oauth;
+    await saveConfig(latestConfig);
+    console.log(`Logged out profile "${name}".`);
     return 0;
-  }
-
-  let refreshToken: string | null = null;
-  try {
-    refreshToken = await readOAuthRefreshToken(profile.oauth);
-  } catch (error) {
-    console.error(`Warning: could not read refresh token for remote revocation: ${(error as Error).message}`);
-  }
-
-  if (profile.server && refreshToken) {
-    await revokeOAuthRefreshToken(profile.server, profile.oauth.clientId, refreshToken).catch((error) => {
-      console.error(`Warning: ${(error as Error).message} Removing local credentials anyway.`);
-    });
-  }
-
-  if (profile.oauth.refreshTokenFd0) {
-    await removeFd0Secret(profile.oauth.refreshTokenFd0.name, profile.oauth.refreshTokenFd0.scope);
-  }
-  delete profile.oauth;
-  await saveConfig(config);
-  console.log(`Logged out profile "${name}".`);
-  return 0;
+  });
 };
 
 const runAuthCommand = async (args: string[], global: GlobalArgs): Promise<number> => {
@@ -1242,11 +1403,7 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
     module.requiresCloud === false || helpRequest ? await resolveOfflineOptions(global) : await resolveOptions(global);
   const options: ResolvedCliOptions = {
     ...resolvedOptions,
-    output: takeBooleanFlag(parsed.flags, "jsonl")
-      ? "jsonl"
-      : takeBooleanFlag(parsed.flags, "json")
-        ? "json"
-        : resolvedOptions.output,
+    output: takeBooleanFlag(parsed.flags, "jsonl") ? "jsonl" : takeBooleanFlag(parsed.flags, "json") ? "json" : resolvedOptions.output,
   };
   const code = await module.run(createContext(parsed.args, parsed.flags, options));
   return code ?? 0;
@@ -1276,8 +1433,7 @@ if (import.meta.main) {
       if (wantsJsonError(Bun.argv.slice(2))) {
         const payload = errorPayload(error, exitCode);
         console.error(Bun.argv.includes("--jsonl") ? JSON.stringify(payload) : JSON.stringify(payload, null, 2));
-      }
-      else console.error(error instanceof Error ? error.message : String(error));
+      } else console.error(error instanceof Error ? error.message : String(error));
       process.exitCode = exitCode;
     },
   );

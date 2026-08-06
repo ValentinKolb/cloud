@@ -20,15 +20,11 @@ const aspectRatio = (aspect: Exclude<ImageCropAspect, "free">) =>
   aspect.width > 0 && aspect.height > 0 ? aspect.width / aspect.height : 1;
 
 export const normalizeImageCropRotation = (rotation: number): ImageCropRotation =>
-  (((Math.round(rotation / 90) * 90) % 360 + 360) % 360) as ImageCropRotation;
+  ((((Math.round(rotation / 90) * 90) % 360) + 360) % 360) as ImageCropRotation;
 
-export const rotateImageCropRight = (rotation: ImageCropRotation): ImageCropRotation =>
-  normalizeImageCropRotation(rotation + 90);
+export const rotateImageCropRight = (rotation: ImageCropRotation): ImageCropRotation => normalizeImageCropRotation(rotation + 90);
 
-export const getInitialImageCropRect = (
-  imageSize: ImageCropSize,
-  aspect: ImageCropAspect = "free",
-): ImageCropRect => {
+export const getInitialImageCropRect = (imageSize: ImageCropSize, aspect: ImageCropAspect = "free"): ImageCropRect => {
   if (aspect === "free") return { x: 0.1, y: 0.1, width: 0.8, height: 0.8 };
   const target = aspectRatio(aspect);
   const source = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : 1;
@@ -43,11 +39,7 @@ export const getInitialImageCropRect = (
   return { x: (1 - width) / 2, y: (1 - height) / 2, width, height };
 };
 
-export const clampImageCropRect = (
-  rect: ImageCropRect,
-  imageSize: ImageCropSize,
-  aspect: ImageCropAspect = "free",
-): ImageCropRect => {
+export const clampImageCropRect = (rect: ImageCropRect, imageSize: ImageCropSize, aspect: ImageCropAspect = "free"): ImageCropRect => {
   if (aspect === "free") {
     const width = clamp(rect.width, MIN_CROP_SIZE, 1);
     const height = clamp(rect.height, MIN_CROP_SIZE, 1);
@@ -110,17 +102,14 @@ export const resizeImageCropFromCorner = (
 
   const source = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : 1;
   const target = aspectRatio(aspect);
-  const widthFromHeight = requestedHeight * target / source;
-  const requested =
-    Math.abs(requestedWidth - rect.width) >= Math.abs(widthFromHeight - rect.width)
-      ? requestedWidth
-      : widthFromHeight;
+  const widthFromHeight = (requestedHeight * target) / source;
+  const requested = Math.abs(requestedWidth - rect.width) >= Math.abs(widthFromHeight - rect.width) ? requestedWidth : widthFromHeight;
   const horizontalLimit = movesEast ? 1 - anchorX : anchorX;
   const verticalLimit = movesSouth ? 1 - anchorY : anchorY;
-  const maxWidth = Math.max(0, Math.min(horizontalLimit, verticalLimit * target / source));
-  const minimumWidth = Math.min(maxWidth, Math.max(MIN_CROP_SIZE, MIN_CROP_SIZE * target / source));
+  const maxWidth = Math.max(0, Math.min(horizontalLimit, (verticalLimit * target) / source));
+  const minimumWidth = Math.min(maxWidth, Math.max(MIN_CROP_SIZE, (MIN_CROP_SIZE * target) / source));
   const width = clamp(requested, minimumWidth, maxWidth);
-  const height = width * source / target;
+  const height = (width * source) / target;
 
   return {
     x: movesEast ? anchorX : anchorX - width,

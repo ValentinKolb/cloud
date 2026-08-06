@@ -17,7 +17,7 @@ export type DisclosureProps = {
 export function Disclosure(props: DisclosureProps): JSX.Element {
   const controlled = () => props.value !== undefined;
   const [internal, setInternal] = createSignal(props.defaultValue ?? false);
-  const open = () => controlled() ? Boolean(resolveMaybeAccessor(props.value)) : internal();
+  const open = () => (controlled() ? Boolean(resolveMaybeAccessor(props.value)) : internal());
   let details: HTMLDetailsElement | undefined;
 
   createEffect(() => {

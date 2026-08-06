@@ -71,13 +71,9 @@ const flushFrames = () => {
   pending.forEach((callback) => callback(0));
 };
 
-const workspace = (options: {
-  collapsible?: boolean;
-  height?: number;
-  resizable?: boolean;
-  sidebarWidth?: number;
-  width?: number;
-} = {}) => {
+const workspace = (
+  options: { collapsible?: boolean; height?: number; resizable?: boolean; sidebarWidth?: number; width?: number } = {},
+) => {
   const root = document.createElement("div");
   root.dataset.k2bAppWorkspace = "";
   root.dataset.workspaceResizable = options.resizable === false ? "false" : "true";
@@ -330,9 +326,7 @@ describe("AppWorkspace resize controller behaviour", () => {
 
     window.dispatchEvent(new window.PointerEvent("pointerup", { clientX: 480, pointerId: 7 }));
     expect(root.style.getPropertyValue(paneVariable)).toBe("351px");
-    expect(written).toEqual([
-      expect.objectContaining({ paneWidths: { conversations: 480, activity: 400 } }),
-    ]);
+    expect(written).toEqual([expect.objectContaining({ paneWidths: { conversations: 480, activity: 400 } })]);
 
     resizeObservers.forEach((observer) => observer.trigger());
     flushFrames();

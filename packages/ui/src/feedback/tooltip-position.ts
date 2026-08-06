@@ -3,11 +3,7 @@ export type TooltipPlacement = "top" | "bottom";
 const VIEWPORT_PADDING = 8;
 const TRIGGER_GAP = 6;
 
-export const positionTooltipSurface = (
-  tooltip: HTMLElement,
-  target: HTMLElement,
-  placement: TooltipPlacement = "top",
-): void => {
+export const positionTooltipSurface = (tooltip: HTMLElement, target: HTMLElement, placement: TooltipPlacement = "top"): void => {
   const targetRect = target.getBoundingClientRect();
   const initialTooltipRect = tooltip.getBoundingClientRect();
   const initialLeft = Math.max(

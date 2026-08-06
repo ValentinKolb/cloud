@@ -122,12 +122,7 @@ export default function BrowserNotifications(props: { userId: string }) {
               </a>
             )}
           </div>
-          <IconButton
-            size="xs"
-            class="shrink-0"
-            label="Dismiss notification"
-            onClick={() => setNotification(null)}
-          >
+          <IconButton size="xs" class="shrink-0" label="Dismiss notification" onClick={() => setNotification(null)}>
             <i class="ti ti-x" />
           </IconButton>
         </aside>

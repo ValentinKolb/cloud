@@ -161,6 +161,8 @@ describe("@k2b/ui portable chat family", () => {
       createComponent(Chat.Activity, {
         label: "Looked up documentation",
         description: "2 sources",
+        leading: "Source icon",
+        accent: "#0f766e",
         defaultOpen: true,
         children: "Source details",
       }),
@@ -168,11 +170,18 @@ describe("@k2b/ui portable chat family", () => {
 
     expect(message).toContain('data-role="assistant"');
     expect(message).toContain('aria-busy="true"');
-    expect(message).toContain("Generating");
+    expect(message).toContain('aria-label="Generating"');
+    expect(message).toContain("k2b-chat-progress-dots");
+    expect(message.match(/k2b-chat-progress-dots[^]*?<span><\/span><span><\/span><span><\/span>/)).not.toBeNull();
+    expect(message).not.toContain(">Generating<");
+    expect(message).not.toContain("ti ti-loader-2");
     expect(message).toContain("Retry");
     expect(activity).toContain("<details");
     expect(activity).toContain("open");
     expect(activity).toContain("Source details");
+    expect(activity).toContain("Source icon");
+    expect(activity).toContain('data-accent="true"');
+    expect(activity).toContain("--k2b-chat-activity-accent:#0f766e");
   });
 
   test("keeps visible timestamps explicit and SSR-stable", () => {
@@ -221,6 +230,9 @@ describe("@k2b/ui portable chat family", () => {
             label: "Searching",
             description: "Documentation",
             tone: "ai",
+            accent: "#2563eb",
+            leading: "Documentation icon",
+            busy: true,
           },
           {
             kind: "message",
@@ -236,6 +248,9 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain('role="log"');
     expect(html).toContain("Hello");
     expect(html).toContain("Searching");
+    expect(html).toContain("Documentation icon");
+    expect(html).toContain("--k2b-chat-activity-accent:#2563eb");
+    expect(html).toContain("k2b-chat-progress-dots");
     expect(html).toContain("How can I help?");
     expect(html).not.toContain("AiStoredMessage");
   });
@@ -425,5 +440,24 @@ describe("@k2b/ui portable chat family", () => {
     expect(css).toContain("box-shadow: none;");
     expect(css).not.toContain("--k2b-ai-focus-ring");
     expect(css).not.toContain(".k2b-ui .k2b-chat-composer textarea:focus-visible");
+  });
+
+  test("renders the minimal shared streaming indicator", () => {
+    const css = readFileSync(resolve(import.meta.dir, "../styles/index.css"), "utf8");
+    const dotsRule = css.match(/\.k2b-ui \.k2b-chat-progress-dots > span \{([^}]+)\}/)?.[1] ?? "";
+
+    expect(dotsRule).toContain("width: 0.3rem;");
+    expect(dotsRule).toContain("height: 0.3rem;");
+    expect(dotsRule).toContain("animation: k2b-chat-dot-pulse 1s ease-in-out infinite;");
+    expect(css).toContain("@keyframes k2b-chat-dot-pulse");
+    expect(css).toContain(".k2b-ui .k2b-chat-message__status--streaming");
+  });
+
+  test("keeps semantic activity tones stronger than an optional identity accent", () => {
+    const css = readFileSync(resolve(import.meta.dir, "../styles/index.css"), "utf8");
+
+    expect(css).toContain('.k2b-chat-activity[data-accent="true"]:not([data-tone="success"]):not([data-tone="danger"])');
+    expect(css).toContain("var(--k2b-chat-activity-accent) 78%, black");
+    expect(css).toContain("var(--k2b-chat-activity-accent) 58%, white");
   });
 });

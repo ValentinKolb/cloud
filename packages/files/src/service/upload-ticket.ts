@@ -26,12 +26,7 @@ const ticketFor = (params: { uploadId: string; baseType: string; baseId: string 
 export const signUploadTicket = ticketFor;
 
 /** Check a ticket against the base the caller is authorized for. */
-export const verifyUploadTicket = (params: {
-  uploadId: string;
-  baseType: string;
-  baseId: string;
-  ticket: string;
-}): boolean => {
+export const verifyUploadTicket = (params: { uploadId: string; baseType: string; baseId: string; ticket: string }): boolean => {
   const expected = Buffer.from(ticketFor(params), "utf8");
   const received = Buffer.from(params.ticket, "utf8");
   // timingSafeEqual throws on a length mismatch, which a caller controls.

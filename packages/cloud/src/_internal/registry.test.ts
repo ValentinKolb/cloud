@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { ok } from "@k2b/stdlib";
 import { z } from "zod";
+import { defineCapabilities } from "../contracts/capabilities";
 import { compileCapabilities } from "./capabilities";
 import { type AppRegistrySnapshot, requireUsableAppRegistry, resolveLiveCapabilityRegistryEntry } from "./registry";
-import { defineCapabilities } from "../contracts/capabilities";
 
 const compiled = compileCapabilities(
   "demo",
@@ -27,6 +27,7 @@ const liveApp = {
   name: "Demo",
   icon: "box",
   description: "Demo app",
+  appearance: { accent: "#0f766e" as const },
   baseUrl: "http://demo:3000/custom/path",
   routes: ["/app/demo"],
   capabilities: { protocolVersion: 1, manifestHash: compiled.manifest.manifestHash },
@@ -65,7 +66,17 @@ describe("resolveLiveCapabilityRegistryEntry", () => {
       appId: "demo",
       appName: "Demo",
       appIcon: "box",
+      appAccent: "#0f766e",
       endpoint: "http://demo:3000/api/_internal/capabilities/v1",
+    });
+  });
+
+  test("drops an invalid app accent from capability presentation metadata", () => {
+    const invalidAppearance = { ...liveApp, appearance: { accent: "not-a-color" as `#${string}` } };
+    expect(
+      resolveLiveCapabilityRegistryEntry("capabilities/demo", { appId: "demo", manifest: compiled.manifest }, invalidAppearance),
+    ).toMatchObject({
+      appAccent: undefined,
     });
   });
 

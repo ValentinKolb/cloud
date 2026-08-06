@@ -1,13 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  symlinkSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -85,11 +76,7 @@ try {
     if (!html.includes("Packed button")) throw new Error("packed SSR component did not render");
   `;
   for (const nodeEnv of ["development", "production"]) {
-    run(
-      [process.execPath, "--no-install", "-e", serverSmoke],
-      consumer,
-      { ...process.env, NODE_ENV: nodeEnv },
-    );
+    run([process.execPath, "--no-install", "-e", serverSmoke], consumer, { ...process.env, NODE_ENV: nodeEnv });
   }
 
   const browserSmoke = `
@@ -108,15 +95,7 @@ try {
     outdir: browserOut,
     target: "browser",
     format: "esm",
-    external: [
-      "@k2b/ssr",
-      "@k2b/ssr/*",
-      "@k2b/stdlib",
-      "@k2b/stdlib/*",
-      "marked",
-      "solid-js",
-      "solid-js/*",
-    ],
+    external: ["@k2b/ssr", "@k2b/ssr/*", "@k2b/stdlib", "@k2b/stdlib/*", "marked", "solid-js", "solid-js/*"],
   });
   if (!browserBuild.success) {
     throw new Error(`packed browser build failed\n${browserBuild.logs.join("\n")}`);
@@ -134,9 +113,7 @@ try {
     }
   }
 
-  console.log(
-    `Packed @k2b/ui imports and renders via SSR; browser tree-shaking produced ${browserOutput.length} bytes`,
-  );
+  console.log(`Packed @k2b/ui imports and renders via SSR; browser tree-shaking produced ${browserOutput.length} bytes`);
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
 }

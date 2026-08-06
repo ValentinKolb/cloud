@@ -3,12 +3,7 @@
  * where possible. The fallback emits the input event that the editing command
  * would have emitted, so callers never need a second dispatch.
  */
-export const replaceTextareaRange = (
-  textarea: HTMLTextAreaElement,
-  start: number,
-  end: number,
-  replacement: string,
-): boolean => {
+export const replaceTextareaRange = (textarea: HTMLTextAreaElement, start: number, end: number, replacement: string): boolean => {
   textarea.focus();
   textarea.setSelectionRange(start, end);
 

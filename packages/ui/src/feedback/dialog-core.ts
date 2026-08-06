@@ -51,10 +51,7 @@ const DEFAULT_PANEL_CLASS = "k2b-dialog";
 const DEFAULT_CONTENT_CLASS = "k2b-dialog__viewport";
 let nextDialogTitleId = 0;
 
-const resolveInitialFocusTarget = (
-  entry: DialogStackEntry,
-  dialog: HTMLDialogElement,
-): HTMLElement | null => {
+const resolveInitialFocusTarget = (entry: DialogStackEntry, dialog: HTMLDialogElement): HTMLElement | null => {
   const { initialFocus } = entry;
   if (initialFocus === "none") return null;
   if (typeof initialFocus === "function") return initialFocus(dialog);

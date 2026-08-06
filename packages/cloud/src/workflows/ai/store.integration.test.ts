@@ -199,9 +199,7 @@ describe("durable workflow AI tasks", () => {
       const failure = await captureFailure(() =>
         processWorkflowAiTask(transient.task.id, processContext(), { runStructured: unavailable, maxAttempts: 3, cancelPollMs: 10 }),
       );
-      expect(await settleWorkflowAiAttemptFailure(transient.task.id, failure, failureCount, 3)).toBe(
-        failureCount < 2 ? "retry" : "failed",
-      );
+      expect(await settleWorkflowAiAttemptFailure(transient.task.id, failure, failureCount, 3)).toBe(failureCount < 2 ? "retry" : "failed");
     }
     expect(await getWorkflowAiTask(transient.task.id)).toMatchObject({
       status: "failed",

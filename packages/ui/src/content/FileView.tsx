@@ -9,7 +9,19 @@
  */
 
 import { mutation } from "@k2b/stdlib/solid";
-import { type Component, createEffect, createMemo, createResource, createSignal, For, type JSX, Match, Show, Switch, untrack } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  Match,
+  Show,
+  Switch,
+  untrack,
+} from "solid-js";
 import { MarkdownEditor } from "../inputs/markdown/MarkdownEditor";
 import { toast } from "../feedback/toast";
 import CodeDisplay, { type CodeDisplayLanguage } from "./CodeDisplay";
@@ -348,9 +360,7 @@ function PdfRenderer(props: FileViewRendererProps) {
       when={href()}
       fallback={<Placeholder icon="ti ti-file-type-pdf" title="PDF" description="No inline preview available for this source." />}
     >
-      {(href) => (
-        <object data={href()} type="application/pdf" class="k2b-content-file-view__pdf" aria-label={props.file.path} />
-      )}
+      {(href) => <object data={href()} type="application/pdf" class="k2b-content-file-view__pdf" aria-label={props.file.path} />}
     </Show>
   );
 }
@@ -371,13 +381,7 @@ function VideoRenderer(props: FileViewRendererProps) {
   return (
     <OverlayPanel actions={downloadAction(props)}>
       <div class="k2b-content-file-view__media" data-kind="video">
-        <video
-          controls
-          preload="metadata"
-          playsinline
-          src={mediaSource(props)}
-          aria-label={props.file.path}
-        >
+        <video controls preload="metadata" playsinline src={mediaSource(props)} aria-label={props.file.path}>
           Your browser does not support video playback.
         </video>
       </div>

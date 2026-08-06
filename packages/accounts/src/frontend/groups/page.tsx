@@ -81,13 +81,18 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {groupsPage.items.length === 0 ? (
-            <Placeholder surface="paper" description={<>
-              {listState.scope === "managed" && !listState.search
-                ? "You do not manage any groups yet."
-                : listState.search
-                  ? "No groups found."
-                  : "No groups available in this view."}
-            </>} />
+            <Placeholder
+              surface="paper"
+              description={
+                <>
+                  {listState.scope === "managed" && !listState.search
+                    ? "You do not manage any groups yet."
+                    : listState.search
+                      ? "No groups found."
+                      : "No groups available in this view."}
+                </>
+              }
+            />
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-groups-table">
               <DataTable

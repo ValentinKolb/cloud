@@ -48,7 +48,6 @@ const insertGroup = async () => {
 
 suite("Proxy Auth service", () => {
   test("does not persist a new client when allowed groups are invalid", async () => {
-
     const userId = await insertUser();
     const name = `Invalid proxy client ${crypto.randomUUID()}`;
 
@@ -70,7 +69,6 @@ suite("Proxy Auth service", () => {
   });
 
   test("keeps existing allowed groups when an update references invalid groups", async () => {
-
     const userId = await insertUser();
     const groupId = await insertGroup();
     let clientId: string | null = null;
