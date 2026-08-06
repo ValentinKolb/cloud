@@ -49,11 +49,12 @@ const backfillSpan = (overrides: Partial<TraceSpan> = {}): TraceSpan => ({
 });
 
 describe("Mail automation activity projection", () => {
-  test("distinguishes guided replies, mail rules, and custom workflows", () => {
+  test("distinguishes guided replies, mail rules, AI automations, and custom workflows", () => {
     const common = {
       mailboxId: "mailbox-1",
       replyWorkflowIds: new Set(["reply"]),
       mailRuleWorkflowIds: new Set(["rule"]),
+      aiAutomationWorkflowIds: new Set(["ai"]),
       workflowNames: new Map([["rule", "Invoices"]]),
     };
     expect(projectMailWorkflowActivity({ ...common, run: run("reply") })).toMatchObject({
@@ -64,6 +65,10 @@ describe("Mail automation activity projection", () => {
     expect(projectMailWorkflowActivity({ ...common, run: run("rule") })).toMatchObject({
       kind: "mail_rule",
       name: "Invoices",
+      href: "/app/mail/mailbox-1/automations/rules",
+    });
+    expect(projectMailWorkflowActivity({ ...common, run: run("ai") })).toMatchObject({
+      kind: "ai_automation",
       href: "/app/mail/mailbox-1/automations/rules",
     });
     expect(projectMailWorkflowActivity({ ...common, run: run("custom") })).toMatchObject({

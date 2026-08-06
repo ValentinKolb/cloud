@@ -4,10 +4,15 @@ import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
+import {
+  createMailAiAutomation,
+  deleteMailAiAutomation,
+  listMailAiAutomations,
+  setMailAiAutomationEnabled,
+  updateMailAiAutomation,
+} from "./ai-automations";
 import type { MailRequestContext } from "./auth";
 import { createLocalTag } from "./local-tags";
-import { createMailbox, updateMailbox } from "./mailboxes";
-import { createSenderIdentity } from "./sender-identities";
 import {
   cancelMailRuleBackfill,
   createMailRule,
@@ -21,6 +26,8 @@ import {
   stopMailRuleBackfillRuntime,
   updateMailRule,
 } from "./mail-rules";
+import { createMailbox, updateMailbox } from "./mailboxes";
+import { createSenderIdentity } from "./sender-identities";
 import { listWorkflows } from "./workflow-definition-service";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
@@ -840,5 +847,98 @@ suite("mail rules", () => {
     });
     if (!canceled.ok) throw new Error(canceled.error.message);
     expect(["completed", "canceled"]).toContain(canceled.data.state);
+  });
+
+  test("keeps guided AI configuration and managed workflow versions consistent", async () => {
+    const input = {
+      name: "Route incoming requests",
+      enabled: false,
+      scope: { mode: "matching" as const, conditions: ruleConditions("domain", "EXAMPLE.TEST") },
+      definition: {
+        kind: "route" as const,
+        prompt: "Choose the best queue.",
+        categories: [
+          {
+            name: "Customer",
+            description: "Customer support requests",
+            actions: [{ kind: "set_status" as const, status: "needs_action" as const }],
+          },
+          {
+            name: "Other",
+            description: "Everything else",
+            actions: [{ kind: "set_status" as const, status: "done" as const }],
+          },
+        ],
+      },
+    };
+    const denied = await createMailAiAutomation({ context: writerContext, mailboxId, input });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("FORBIDDEN");
+
+    const created = await createMailAiAutomation({ context: ownerContext, mailboxId, input });
+    if (!created.ok) throw new Error(created.error.message);
+    expect(created.data).toMatchObject({ enabled: false, revision: 1, definition: { kind: "route" } });
+    expect(created.data.scope).toEqual({ mode: "matching", conditions: ruleConditions("domain", "example.test") });
+
+    const duplicate = await createMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      input: { ...input, name: " route   INCOMING requests " },
+    });
+    expect(duplicate.ok).toBe(false);
+    if (!duplicate.ok) expect(duplicate.error.code).toBe("CONFLICT");
+
+    const updated = await updateMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: {
+        ...input,
+        expectedRevision: created.data.revision,
+        enabled: true,
+        definition: { ...input.definition, prompt: "Choose exactly one responsible queue." },
+      },
+    });
+    if (!updated.ok) throw new Error(updated.error.message);
+    expect(updated.data).toMatchObject({ enabled: true, revision: 2 });
+    expect(updated.data.workflowVersionId).not.toBe(created.data.workflowVersionId);
+
+    const [versionCount] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count FROM workflows.version
+      WHERE workflow_id = ${created.data.workflowId}::uuid
+    `;
+    expect(versionCount?.count).toBe(2);
+    const visibleWorkflows = await listWorkflows(ownerContext, mailboxId);
+    if (!visibleWorkflows.ok) throw new Error(visibleWorkflows.error.message);
+    expect(visibleWorkflows.data.some((workflow) => workflow.id === created.data.workflowId)).toBe(false);
+
+    const disabled = await setMailAiAutomationEnabled({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: { expectedRevision: updated.data.revision, enabled: false },
+    });
+    if (!disabled.ok) throw new Error(disabled.error.message);
+    expect(disabled.data).toMatchObject({ enabled: false, revision: 3 });
+
+    const staleDelete = await deleteMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: { expectedRevision: updated.data.revision },
+    });
+    expect(staleDelete.ok).toBe(false);
+    if (!staleDelete.ok) expect(staleDelete.error.code).toBe("CONFLICT");
+
+    const deleted = await deleteMailAiAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: created.data.id,
+      input: { expectedRevision: disabled.data.revision },
+    });
+    expect(deleted.ok).toBe(true);
+    const remaining = await listMailAiAutomations(ownerContext, mailboxId);
+    if (!remaining.ok) throw new Error(remaining.error.message);
+    expect(remaining.data.some((automation) => automation.id === created.data.id)).toBe(false);
   });
 });

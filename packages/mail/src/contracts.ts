@@ -2062,6 +2062,111 @@ export type SetMailRuleEnabled = z.infer<typeof setMailRuleEnabledSchema>;
 export const deleteMailRuleSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
 export type DeleteMailRule = z.infer<typeof deleteMailRuleSchema>;
 
+export const mailAiAutomationKindSchema = z.enum(["route", "tag", "draft"]);
+export type MailAiAutomationKind = z.infer<typeof mailAiAutomationKindSchema>;
+
+export const mailAiAutomationScopeSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("all") }).strict(),
+  z.object({ mode: z.literal("matching"), conditions: mailRuleConditionsSchema }).strict(),
+]);
+export type MailAiAutomationScope = z.infer<typeof mailAiAutomationScopeSchema>;
+
+const mailAiRouteActionKinds = new Set<MailRuleAction["kind"]>(["move_to_folder", "add_local_tag", "assign_user", "set_status"]);
+export const mailAiRouteActionsSchema = mailRuleActionsSchema.refine(
+  (actions) => actions.every((action) => mailAiRouteActionKinds.has(action.kind)),
+  "AI routing supports folders, local tags, assignees, and conversation status",
+);
+
+export const mailAiRouteDefinitionSchema = z
+  .object({
+    kind: z.literal("route"),
+    prompt: z.string().trim().min(1).max(4_000),
+    categories: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(80),
+            description: z.string().trim().min(1).max(500),
+            actions: mailAiRouteActionsSchema,
+          })
+          .strict(),
+      )
+      .min(2, "Add at least two routing categories")
+      .max(10, "AI routing can have at most 10 categories"),
+  })
+  .strict()
+  .superRefine((definition, context) => {
+    const seen = new Set<string>();
+    definition.categories.forEach((category, index) => {
+      const normalized = category.name.toLocaleLowerCase();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        return;
+      }
+      context.addIssue({ code: "custom", message: "Category names must be unique", path: ["categories", index, "name"] });
+    });
+  });
+
+export const mailAiTagDefinitionSchema = z
+  .object({
+    kind: z.literal("tag"),
+    prompt: z.string().trim().min(1).max(4_000),
+    tags: z
+      .array(z.object({ tagId: z.string().uuid(), description: z.string().trim().min(1).max(500) }).strict())
+      .min(2, "Select at least two tags")
+      .max(10, "AI tagging can use at most 10 tags"),
+    maxTags: z.number().int().min(1).max(10),
+  })
+  .strict()
+  .superRefine((definition, context) => {
+    if (definition.maxTags > definition.tags.length) {
+      context.addIssue({ code: "custom", message: "Maximum tags cannot exceed the selected tags", path: ["maxTags"] });
+    }
+    const seen = new Set<string>();
+    definition.tags.forEach((tag, index) => {
+      if (!seen.has(tag.tagId)) {
+        seen.add(tag.tagId);
+        return;
+      }
+      context.addIssue({ code: "custom", message: "Select each tag once", path: ["tags", index, "tagId"] });
+    });
+  });
+
+export const mailAiDraftDefinitionSchema = z
+  .object({
+    kind: z.literal("draft"),
+    senderIdentityId: z.string().uuid(),
+    instructions: z.string().trim().min(1).max(4_000),
+    maxOutputChars: z.number().int().min(200).max(10_000),
+  })
+  .strict();
+
+export const mailAiAutomationDefinitionSchema = z.discriminatedUnion("kind", [
+  mailAiRouteDefinitionSchema,
+  mailAiTagDefinitionSchema,
+  mailAiDraftDefinitionSchema,
+]);
+export type MailAiAutomationDefinition = z.infer<typeof mailAiAutomationDefinitionSchema>;
+
+const mailAiAutomationFields = {
+  name: z.string().trim().min(1).max(120),
+  enabled: z.boolean(),
+  scope: mailAiAutomationScopeSchema,
+  definition: mailAiAutomationDefinitionSchema,
+} as const;
+
+export const createMailAiAutomationSchema = z.object({ ...mailAiAutomationFields, enabled: z.boolean().default(false) }).strict();
+export type CreateMailAiAutomation = z.infer<typeof createMailAiAutomationSchema>;
+
+export const updateMailAiAutomationSchema = z.object({ expectedRevision: z.number().int().positive(), ...mailAiAutomationFields }).strict();
+export type UpdateMailAiAutomation = z.infer<typeof updateMailAiAutomationSchema>;
+
+export const setMailAiAutomationEnabledSchema = z.object({ expectedRevision: z.number().int().positive(), enabled: z.boolean() }).strict();
+export type SetMailAiAutomationEnabled = z.infer<typeof setMailAiAutomationEnabledSchema>;
+
+export const deleteMailAiAutomationSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
+export type DeleteMailAiAutomation = z.infer<typeof deleteMailAiAutomationSchema>;
+
 export const previewMailRuleMatchesInputSchema = z
   .object({
     conditions: mailRuleConditionsSchema,

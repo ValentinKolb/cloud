@@ -1,5 +1,6 @@
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import * as mailboxAccess from "./access";
+import * as aiAutomations from "./ai-automations";
 import * as attachmentLinks from "./attachment-links";
 import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
@@ -68,6 +69,7 @@ export const mailRuntime = {
 
 export type { MailRequestContext } from "./auth";
 export {
+  aiAutomations,
   attachmentLinks,
   automaticReplyConfigurations,
   bindings,

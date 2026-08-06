@@ -30,6 +30,7 @@ const MailMailboxChangedEventSchema = z
       "reference_configuration",
       "automatic_reply",
       "mail_rule",
+      "ai_automation",
       "scheduled_send",
       "subscription",
       "folder",

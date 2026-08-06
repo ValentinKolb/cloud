@@ -158,6 +158,44 @@ suite("mail migrations", () => {
     });
   });
 
+  test("installs guided AI automations with managed workflow ownership", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied_count: number;
+        table_present: boolean;
+        active_name_index_present: boolean;
+        workflow_profile_fk_present: boolean;
+        managed_owner_present: boolean;
+      }[]
+    >`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 108 AND name = 'guided_ai_automations') AS applied_count,
+        to_regclass('mail.ai_automations') IS NOT NULL AS table_present,
+        to_regclass('mail.ai_automations_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
+        EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'mail.ai_automations'::regclass
+            AND contype = 'f'
+            AND confrelid = 'mail.workflow_profile'::regclass
+        ) AS workflow_profile_fk_present,
+        EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'mail.workflow_profile'::regclass
+            AND conname = 'workflow_profile_managed_by_check'
+            AND pg_get_constraintdef(oid) LIKE '%ai_automation%'
+        ) AS managed_owner_present
+    `;
+    expect(shape).toEqual({
+      applied_count: 1,
+      table_present: true,
+      active_name_index_present: true,
+      workflow_profile_fk_present: true,
+      managed_owner_present: true,
+    });
+  });
+
   test("installs composer safety and idempotent message reuse once", async () => {
     await migrate();
     await migrate();

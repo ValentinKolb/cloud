@@ -2,7 +2,7 @@ import type { TraceSpan } from "@valentinkolb/cloud/services";
 import type { WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import type { WorkflowRunSummary } from "@valentinkolb/cloud/workflows/store";
 
-export type MailAutomationActivityKind = "automatic_reply" | "mail_rule" | "workflow" | "backfill";
+export type MailAutomationActivityKind = "automatic_reply" | "mail_rule" | "ai_automation" | "workflow" | "backfill";
 export type MailAutomationActivityStatus = WorkflowRunState | "completed";
 
 export type MailAutomationActivityItem = {
@@ -48,15 +48,18 @@ export const projectMailWorkflowActivity = (params: {
   run: WorkflowRunSummary;
   replyWorkflowIds: ReadonlySet<string>;
   mailRuleWorkflowIds: ReadonlySet<string>;
+  aiAutomationWorkflowIds?: ReadonlySet<string>;
   workflowNames?: ReadonlyMap<string, string>;
 }): MailAutomationActivityItem => {
-  const { mailboxId, run, replyWorkflowIds, mailRuleWorkflowIds, workflowNames } = params;
+  const { mailboxId, run, replyWorkflowIds, mailRuleWorkflowIds, aiAutomationWorkflowIds, workflowNames } = params;
   const kind: MailAutomationActivityKind = replyWorkflowIds.has(run.workflowId)
     ? "automatic_reply"
     : mailRuleWorkflowIds.has(run.workflowId)
       ? "mail_rule"
-      : "workflow";
-  const section = kind === "automatic_reply" ? "replies" : kind === "mail_rule" ? "rules" : "workflows";
+      : aiAutomationWorkflowIds?.has(run.workflowId)
+        ? "ai_automation"
+        : "workflow";
+  const section = kind === "automatic_reply" ? "replies" : kind === "mail_rule" || kind === "ai_automation" ? "rules" : "workflows";
   return {
     id: `run:${run.id}`,
     kind,

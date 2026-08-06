@@ -1,9 +1,11 @@
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { logger, trace } from "@valentinkolb/cloud/services";
 import { listWorkflowRuns } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { Mailbox, MailWorkflow, SenderIdentity } from "../contracts";
 import { type MailWorkflowCatalogSnapshot, snapshotMailWorkflowCatalog } from "../workflows/catalog";
 import * as access from "./access";
+import type { MailAiAutomation } from "./ai-automations";
+import * as aiAutomations from "./ai-automations";
 import type { MailRequestContext } from "./auth";
 import { requireAutomaticReplyManagementPermission } from "./automatic-reply-access";
 import type { AutomaticReplyConfiguration } from "./automatic-reply-configuration";
@@ -34,6 +36,7 @@ export type MailAutomationOverviewData = MailAutomationAccessData & {
   canManageAutomaticReplies: boolean;
   automaticReplies: AutomaticReplyConfiguration[];
   mailRules: MailRule[] | null;
+  aiAutomations: MailAiAutomation[] | null;
   customWorkflows: MailWorkflow[] | null;
   recentActivity: MailAutomationActivityItem[] | null;
 };
@@ -47,6 +50,7 @@ export type MailAutomaticRepliesWorkspaceData = MailAutomationAccessData & {
 
 export type MailRulesWorkspaceData = MailAutomationAccessData & {
   mailRules: MailRule[];
+  aiAutomations: MailAiAutomation[];
   catalog: MailWorkflowCatalogSnapshot;
 };
 
@@ -94,6 +98,7 @@ const loadActivityItems = async (
   mailboxId: string,
   replies: AutomaticReplyConfiguration[],
   rules: MailRule[],
+  guidedAi: MailAiAutomation[],
   limit = 200,
 ): Promise<MailAutomationActivityItem[]> => {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000);
@@ -114,13 +119,17 @@ const loadActivityItems = async (
   ]);
   const replyWorkflowIds = new Set(replies.map((configuration) => configuration.workflowId));
   const mailRuleWorkflowIds = new Set(rules.map((rule) => rule.workflowId));
+  const aiAutomationWorkflowIds = new Set(guidedAi.map((automation) => automation.workflowId));
   const ruleNames = new Map(rules.map((rule) => [rule.id, rule.name]));
   const workflowNames = new Map([
     ...replies.map((configuration) => [configuration.workflowId, configuration.name] as const),
     ...rules.map((rule) => [rule.workflowId, rule.name] as const),
+    ...guidedAi.map((automation) => [automation.workflowId, automation.name] as const),
   ]);
   return [
-    ...runs.map((run) => projectMailWorkflowActivity({ mailboxId, run, replyWorkflowIds, mailRuleWorkflowIds, workflowNames })),
+    ...runs.map((run) =>
+      projectMailWorkflowActivity({ mailboxId, run, replyWorkflowIds, mailRuleWorkflowIds, aiAutomationWorkflowIds, workflowNames }),
+    ),
     ...backfills.spans.map((span) => projectMailBackfillActivity({ mailboxId, span, ruleNames })),
   ]
     .toSorted((left, right) => right.occurredAt.localeCompare(left.occurredAt))
@@ -145,29 +154,35 @@ export const loadMailAutomationOverview = async (
       canManageAutomaticReplies: managementPermission.ok,
       automaticReplies: replyResult.data,
       mailRules: null,
+      aiAutomations: null,
       customWorkflows: null,
       recentActivity: null,
     });
   }
 
-  const [ruleResult, workflowResult] = await Promise.all([
+  const [ruleResult, aiAutomationResult, workflowResult] = await Promise.all([
     mailRules.listMailRules(context, mailboxId),
+    aiAutomations.listMailAiAutomations(context, mailboxId),
     workflows.listWorkflows(context, mailboxId),
   ]);
   if (!ruleResult.ok) return fail(ruleResult.error);
+  if (!aiAutomationResult.ok) return fail(aiAutomationResult.error);
   if (!workflowResult.ok) return fail(workflowResult.error);
-  const recentActivity = await loadActivityItems(mailboxId, replyResult.data, ruleResult.data, 8).catch((error) => {
-    log.warn("Failed to load recent Mail automation activity", {
-      mailboxId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  });
+  const recentActivity = await loadActivityItems(mailboxId, replyResult.data, ruleResult.data, aiAutomationResult.data, 8).catch(
+    (error) => {
+      log.warn("Failed to load recent Mail automation activity", {
+        mailboxId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    },
+  );
   return ok({
     ...accessResult.data,
     canManageAutomaticReplies: true,
     automaticReplies: replyResult.data,
     mailRules: ruleResult.data,
+    aiAutomations: aiAutomationResult.data,
     customWorkflows: customWorkflows(workflowResult.data, replyResult.data, ruleResult.data),
     recentActivity,
   });
@@ -200,14 +215,17 @@ export const loadMailAutomaticRepliesWorkspace = async (
 export const loadMailRulesWorkspace = async (context: MailRequestContext, mailboxId: string): Promise<Result<MailRulesWorkspaceData>> => {
   const accessResult = await loadAdminAccess(context, mailboxId);
   if (!accessResult.ok) return accessResult;
-  const [ruleResult, catalog] = await Promise.all([
+  const [ruleResult, aiAutomationResult, catalog] = await Promise.all([
     mailRules.listMailRules(context, mailboxId),
+    aiAutomations.listMailAiAutomations(context, mailboxId),
     loadMailWorkflowCatalog({ context, mailboxId }),
   ]);
   if (!ruleResult.ok) return fail(ruleResult.error);
+  if (!aiAutomationResult.ok) return fail(aiAutomationResult.error);
   return ok({
     ...accessResult.data,
     mailRules: ruleResult.data,
+    aiAutomations: aiAutomationResult.data,
     catalog: snapshotMailWorkflowCatalog(catalog),
   });
 };
@@ -241,15 +259,17 @@ export const loadMailAutomationActivity = async (
 ): Promise<Result<MailAutomationActivityData>> => {
   const accessResult = await loadAdminAccess(context, mailboxId);
   if (!accessResult.ok) return accessResult;
-  const [replyResult, ruleResult] = await Promise.all([
+  const [replyResult, ruleResult, aiAutomationResult] = await Promise.all([
     automaticReplies.listAutomaticReplyConfigurations(context, mailboxId),
     mailRules.listMailRules(context, mailboxId),
+    aiAutomations.listMailAiAutomations(context, mailboxId),
   ]);
   if (!replyResult.ok) return fail(replyResult.error);
   if (!ruleResult.ok) return fail(ruleResult.error);
+  if (!aiAutomationResult.ok) return fail(aiAutomationResult.error);
   let items: MailAutomationActivityItem[];
   try {
-    items = await loadActivityItems(mailboxId, replyResult.data, ruleResult.data);
+    items = await loadActivityItems(mailboxId, replyResult.data, ruleResult.data, aiAutomationResult.data);
   } catch (error) {
     log.error("Failed to load Mail automation activity", {
       mailboxId,

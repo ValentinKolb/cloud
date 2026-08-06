@@ -1,8 +1,8 @@
+import { err, fail, isServiceError, ok, type Result, unwrap } from "@k2b/stdlib";
 import { type PumpHandle, type PumpState, pump } from "@k2b/sync";
 import { audit, toPgTextArray, toPgUuidArray, trace } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, isServiceError, ok, type Result, unwrap } from "@k2b/stdlib";
 import { sql } from "bun";
 import { stringify } from "yaml";
 import {
@@ -11,16 +11,16 @@ import {
   type DeleteMailRule,
   deleteMailRuleSchema,
   type MailCommand,
+  type MailRuleAction,
+  type MailRuleBackfill,
   type MailRuleCondition,
   type MailRuleConditions,
+  type MailRuleMatchPreview,
   type MarkSenderMessagesReadInput,
   type MarkSenderMessagesReadResult,
   markSenderMessagesReadInputSchema,
   type PreviewMailRuleMatchesInput,
   previewMailRuleMatchesInputSchema,
-  type MailRuleAction,
-  type MailRuleBackfill,
-  type MailRuleMatchPreview,
   type SenderMatchKind,
   type SetMailRuleEnabled,
   type StartMailRuleBackfillInput,
@@ -179,7 +179,7 @@ const workflowBudget = (actions: MailRuleAction[]): WorkflowEffectBudget => ({
   maxAiCalls: 0,
 });
 
-const workflowAction = (action: MailRuleAction): Record<string, unknown> => {
+export const buildMailRuleActionStep = (action: MailRuleAction): Record<string, unknown> => {
   if (action.kind === "junk") return { junkMessage: { message: "${{ inputs.message }}" } };
   if (action.kind === "trash") return { trashMessage: { message: "${{ inputs.message }}" } };
   if (action.kind === "mark_read") {
@@ -224,7 +224,7 @@ const workflowCondition = (condition: MailRuleCondition): Record<string, unknown
   return { [operator]: [reference, condition.value] };
 };
 
-const workflowRuleCondition = (conditions: MailRuleConditions): Record<string, unknown> => {
+export const buildMailRuleConditionExpression = (conditions: MailRuleConditions): Record<string, unknown> => {
   const items = conditions.items.map(workflowCondition);
   return items.length === 1 ? items[0]! : { [conditions.mode]: items };
 };
@@ -251,8 +251,8 @@ export const buildMailRuleWorkflowSource = (params: { conditions: MailRuleCondit
       },
       steps: [
         {
-          if: workflowRuleCondition(params.conditions),
-          then: params.actions.map(workflowAction),
+          if: buildMailRuleConditionExpression(params.conditions),
+          then: params.actions.map(buildMailRuleActionStep),
         },
       ],
     },
@@ -272,7 +272,7 @@ const senderMatchSql = (kind: SenderMatchKind, value: string) =>
   kind === "sender" ? sql`sender.normalized_email = ${value}` : sql`split_part(sender.normalized_email, '@', 2) = ${value}`;
 type SqlFragment = ReturnType<typeof senderMatchSql>;
 
-const normalizeMailRuleConditions = (conditions: MailRuleConditions): Result<MailRuleConditions> => {
+export const normalizeMailRuleConditions = (conditions: MailRuleConditions): Result<MailRuleConditions> => {
   const items: MailRuleCondition[] = [];
   for (const condition of conditions.items) {
     if (condition.field !== "sender_address" && condition.field !== "sender_domain") {
