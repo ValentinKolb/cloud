@@ -985,9 +985,10 @@ export default function MailConversationReader(props: {
                 </p>
                 <Show when={props.canWrite && props.conversationDrafts.length > 0}>
                   <Button
-                    variant="subtle"
+                    variant="primary"
                     size="xs"
                     type="button"
+                    class="mail-compose-action"
                     title={
                       props.conversationDrafts.length === 1
                         ? "Open the conversation draft"
@@ -995,10 +996,10 @@ export default function MailConversationReader(props: {
                     }
                     onClick={continueNewestDraft}
                   >
-                    <i class="ti ti-file-pencil" aria-hidden="true" />
+                    <i class="ti ti-arrow-back-up" aria-hidden="true" />
                     Continue draft
                     <Show when={props.conversationDrafts.length > 1}>
-                      <span class="text-dimmed">{props.conversationDrafts.length}</span>
+                      <span>{props.conversationDrafts.length}</span>
                     </Show>
                   </Button>
                 </Show>
