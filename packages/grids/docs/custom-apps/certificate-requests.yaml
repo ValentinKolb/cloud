@@ -53,7 +53,7 @@ pages:
                   kind: view
                   viewId: 10000000-0000-4000-8000-000000000401
                 display:
-                  kind: cards
+                  kind: table
                   columnIds:
                     - 10000000-0000-4000-8000-000000000301
                     - 10000000-0000-4000-8000-000000000302
@@ -95,7 +95,6 @@ pages:
                 documents:
                   templateIds:
                     - 10000000-0000-4000-8000-000000000601
-                  emptyText: Your certificate will appear here after approval.
           - id: discussion
             span: 4
             blocks:

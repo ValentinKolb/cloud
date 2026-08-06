@@ -1,7 +1,7 @@
 # Custom Apps contract fixtures
 
-These files are the unreleased, implementation-driving examples for the first
-Custom Apps vertical slice. They are not loaded by the current product.
+These files are the implementation-driving examples for the first Custom Apps
+vertical slice. The product does not load them at runtime.
 
 Each YAML file defines one Custom App and references existing resources in one
 base by canonical UUID. Tables, fields, views, forms, document templates,
@@ -18,8 +18,8 @@ clear.
 
 The fixtures cover the three acceptance journeys:
 
-- `certificate-requests.yaml`: create, personal list, record detail, comments,
-  and generated document download.
+- `certificate-requests.yaml`: executable Golden App proof for create, personal
+  list, record detail, comments, and generated document download.
 - `article-entry.yaml`: carry a parent relation through the URL and submit many
   child records without re-entering it.
 - `inventory-borrower.yaml`: discover available items, build a draft loan,
@@ -27,9 +27,9 @@ The fixtures cover the three acceptance journeys:
 - `inventory-loan-desk.yaml`: review and update all loans through an ordinary
   group-restricted app.
 
-Before these fixtures become executable tests, a test fixture must create the
-referenced base resources and access bindings with the matching UUIDs. The
-Custom Apps implementation must then prove this loop for every file:
+`certificate-requests.yaml` already runs through this loop in the Grids DB
+integration suite. The remaining fixtures still need matching base resources
+and access bindings before they become executable Golden App tests:
 
 1. `apps validate` succeeds.
 2. `apps plan` and `apps apply --dry-run` return the same deterministic plan.

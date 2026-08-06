@@ -10,7 +10,7 @@ import {
   IconButton,
   NumberInput,
   PanelDialog,
-  panelDialogFixedOptions,
+  panelDialogWideOptions,
   prompts,
   Select,
   StatusBadge,
@@ -1164,7 +1164,7 @@ export const openIncomingAutomationEditor = (params: {
           onBackfillStarted={(backfill) => params.onBackfillStarted?.(backfill)}
         />
       ),
-      { ...panelDialogFixedOptions, cancelBehavior: "ignore" },
+      { ...panelDialogWideOptions, cancelBehavior: "ignore" },
     );
   };
   return open();
