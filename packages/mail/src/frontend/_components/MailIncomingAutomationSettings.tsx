@@ -90,6 +90,26 @@ type AutomationOutput = {
   choices: string[];
 };
 
+type AutomationContentStep = Extract<MailAutomationStep, { kind: "create_reply_draft" | "add_comment" }>;
+type AutomationTextSource = AutomationContentStep["body"];
+
+const customTextSource = (): AutomationTextSource => ({ kind: "custom", value: "" });
+const outputTextSource = (sourceStepId: string): AutomationTextSource => ({ kind: "step_output", sourceStepId });
+const customTextSourceId = "custom";
+const textSourceValue = (source: AutomationTextSource): string => (source.kind === "custom" ? customTextSourceId : source.sourceStepId);
+const textSourceOptions = (outputs: AutomationOutput[]) => [
+  { id: customTextSourceId, label: "Custom text" },
+  ...outputs.filter((output) => output.type === "text").map((output) => ({ id: output.id, label: output.label })),
+];
+const selectTextSource = (source: AutomationTextSource, value: string | null): AutomationTextSource => {
+  if (!value || value === customTextSourceId) return source.kind === "custom" ? source : customTextSource();
+  return outputTextSource(value);
+};
+const textSourceLabel = (source: AutomationTextSource, outputs: AutomationOutput[]): string =>
+  source.kind === "custom"
+    ? "Uses custom text"
+    : `Uses ${outputs.find((output) => output.id === source.sourceStepId)?.label ?? "missing output"}`;
+
 const outputForStep = (step: MailAutomationStep, index: number): AutomationOutput | null => {
   if (step.kind === "ai_generate_text") return { id: step.id, label: `Generated text · step ${index + 1}`, type: "text", choices: [] };
   if (step.kind === "ai_classify") {
@@ -109,7 +129,12 @@ const outputForStep = (step: MailAutomationStep, index: number): AutomationOutpu
 const outputReferencesResolve = (steps: readonly MailAutomationStep[], inherited: ReadonlySet<string>): boolean => {
   const available = new Set(inherited);
   for (const step of steps) {
-    if ((step.kind === "create_reply_draft" || step.kind === "add_comment") && !available.has(step.body.sourceStepId)) return false;
+    if (
+      (step.kind === "create_reply_draft" || step.kind === "add_comment") &&
+      step.body.kind === "step_output" &&
+      !available.has(step.body.sourceStepId)
+    )
+      return false;
     if (step.kind === "if") {
       if (!available.has(step.condition.sourceStepId)) return false;
       if (!outputReferencesResolve(step.then, available) || !outputReferencesResolve(step.else, available)) return false;
@@ -176,13 +201,24 @@ const generatedTextStep = (): Extract<MailAutomationStep, { kind: "ai_generate_t
 });
 
 const replyDraftStep = (
-  sourceStepId: string,
   catalog: MailWorkflowCatalogSnapshot,
+  sourceStepId?: string,
 ): Extract<MailAutomationStep, { kind: "create_reply_draft" }> | null => {
   const identity = (catalog.senderIdentities ?? [])[0];
   if (!identity) return null;
-  return { id: stepId(), kind: "create_reply_draft", body: { sourceStepId }, senderIdentityId: identity.id };
+  return {
+    id: stepId(),
+    kind: "create_reply_draft",
+    body: sourceStepId ? outputTextSource(sourceStepId) : customTextSource(),
+    senderIdentityId: identity.id,
+  };
 };
+
+const commentStep = (sourceStepId?: string): Extract<MailAutomationStep, { kind: "add_comment" }> => ({
+  id: stepId(),
+  kind: "add_comment",
+  body: sourceStepId ? outputTextSource(sourceStepId) : customTextSource(),
+});
 
 const presetSteps = (preset: IncomingAutomationPreset, catalog: MailWorkflowCatalogSnapshot): MailAutomationStep[] => {
   if (preset === "ai-route") return classificationSteps(false, catalog);
@@ -207,7 +243,7 @@ const presetSteps = (preset: IncomingAutomationPreset, catalog: MailWorkflowCata
       ...generatedTextStep(),
       instructions: "Write a concise, helpful reply in the language of the incoming message. Do not invent facts or commitments.",
     };
-    const draft = replyDraftStep(generated.id, catalog);
+    const draft = replyDraftStep(catalog, generated.id);
     return draft ? [generated, draft] : [];
   }
   return [mailActionStep(initialMailAutomationAction("mark_read", catalog))];
@@ -368,7 +404,9 @@ function AutomationStepsEditor(props: {
       const candidate = props.steps[destination]!;
       const reference =
         candidate.kind === "create_reply_draft" || candidate.kind === "add_comment"
-          ? candidate.body.sourceStepId
+          ? candidate.body.kind === "step_output"
+            ? candidate.body.sourceStepId
+            : null
           : candidate.kind === "if"
             ? candidate.condition.sourceStepId
             : null;
@@ -402,9 +440,8 @@ function AutomationStepsEditor(props: {
     const actions = actionsBefore(props.steps.length);
     const outputs = outputsBefore(props.steps.length);
     const latestOutput = outputs.at(-1);
-    const latestText = outputs.filter((output) => output.type === "text").at(-1);
     const nextAction = nextMailAction(actions, props.catalog, directActionOrder);
-    const replyDraft = latestText ? replyDraftStep(latestText.id, props.catalog) : null;
+    const replyDraft = replyDraftStep(props.catalog);
     const remaining = (props.maxSteps ?? 20) - props.steps.length;
     const classification = classificationSteps(false, props.catalog, actions);
     const multiClassification = classificationSteps(true, props.catalog, actions);
@@ -427,15 +464,11 @@ function AutomationStepsEditor(props: {
             },
           ]
         : []),
-      ...(latestText
-        ? [
-            {
-              label: "Add internal comment",
-              icon: "ti ti-message-plus",
-              action: () => append({ id: stepId(), kind: "add_comment" as const, body: { sourceStepId: latestText.id } }),
-            },
-          ]
-        : []),
+      {
+        label: "Add internal comment",
+        icon: "ti ti-message-plus",
+        action: () => append(commentStep()),
+      },
       {
         label: "AI generate text",
         icon: "ti ti-sparkles",
@@ -509,13 +542,10 @@ function AutomationStepsEditor(props: {
                           : step.kind === "ai_classify_many"
                             ? `Produces up to ${step.maxChoices} choices`
                             : step.kind === "create_reply_draft" || step.kind === "add_comment"
-                              ? `Uses ${outputsBefore(index()).find((output) => output.id === step.body.sourceStepId)?.label ?? "missing output"}`
+                              ? textSourceLabel(step.body, outputsBefore(index()))
                               : `Uses ${outputsBefore(index()).find((output) => output.id === step.condition.sourceStepId)?.label ?? "missing output"}`}
                   </span>
                 </div>
-                <Show when={step.kind.startsWith("ai_")}>
-                  <StatusBadge tone="neutral" label="AI call" />
-                </Show>
                 <IconButton
                   type="button"
                   size="sm"
@@ -597,7 +627,7 @@ function AutomationStepsEditor(props: {
                                     icon: "ti ti-message-reply",
                                     action: () => {
                                       if (step.kind !== "ai_generate_text") return;
-                                      const draft = replyDraftStep(step.id, props.catalog);
+                                      const draft = replyDraftStep(props.catalog, step.id);
                                       if (draft) insertAfterOutput(index(), step.id, draft);
                                     },
                                   },
@@ -606,9 +636,7 @@ function AutomationStepsEditor(props: {
                             {
                               label: "Add internal comment",
                               icon: "ti ti-message-plus",
-                              action: () =>
-                                step.kind === "ai_generate_text" &&
-                                insertAfterOutput(index(), step.id, { id: stepId(), kind: "add_comment", body: { sourceStepId: step.id } }),
+                              action: () => step.kind === "ai_generate_text" && insertAfterOutput(index(), step.id, commentStep(step.id)),
                             },
                           ]}
                         >
@@ -683,13 +711,11 @@ function AutomationStepsEditor(props: {
                     <div class="grid gap-3 md:grid-cols-2">
                       <Select
                         label="Text source"
-                        value={() => (step.kind === "create_reply_draft" ? step.body.sourceStepId : "")}
-                        onValueChange={(sourceStepId) =>
-                          step.kind === "create_reply_draft" && replace(index(), { ...step, body: { sourceStepId: sourceStepId ?? "" } })
+                        value={() => (step.kind === "create_reply_draft" ? textSourceValue(step.body) : customTextSourceId)}
+                        onValueChange={(value) =>
+                          step.kind === "create_reply_draft" && replace(index(), { ...step, body: selectTextSource(step.body, value) })
                         }
-                        options={outputsBefore(index())
-                          .filter((output) => output.type === "text")
-                          .map((output) => ({ id: output.id, label: output.label }))}
+                        options={textSourceOptions(outputsBefore(index()))}
                       />
                       <Select
                         label="From address"
@@ -699,22 +725,54 @@ function AutomationStepsEditor(props: {
                         }
                         options={(props.catalog.senderIdentities ?? []).map((identity) => ({ id: identity.id, label: identity.name }))}
                       />
+                      <Show when={step.kind === "create_reply_draft" && step.body.kind === "custom"}>
+                        <div class="md:col-span-2">
+                          <TextInput
+                            label="Reply text"
+                            description="Write the draft body directly. Mail template variables are supported."
+                            value={() => (step.kind === "create_reply_draft" && step.body.kind === "custom" ? step.body.value : "")}
+                            onValueChange={(value) =>
+                              step.kind === "create_reply_draft" &&
+                              step.body.kind === "custom" &&
+                              replace(index(), { ...step, body: { ...step.body, value } })
+                            }
+                            maxLength={50_000}
+                            markdown
+                            required
+                          />
+                        </div>
+                      </Show>
                       <p class="text-[11px] text-dimmed md:col-span-2">Creates a reply draft for human review and never sends it.</p>
                     </div>
                   </Show>
 
                   <Show when={step.kind === "add_comment"}>
-                    <Select
-                      label="Text source"
-                      description="The selected output is stored as an internal conversation comment."
-                      value={() => (step.kind === "add_comment" ? step.body.sourceStepId : "")}
-                      onValueChange={(sourceStepId) =>
-                        step.kind === "add_comment" && replace(index(), { ...step, body: { sourceStepId: sourceStepId ?? "" } })
-                      }
-                      options={outputsBefore(index())
-                        .filter((output) => output.type === "text")
-                        .map((output) => ({ id: output.id, label: output.label }))}
-                    />
+                    <div class="flex flex-col gap-3">
+                      <Select
+                        label="Text source"
+                        value={() => (step.kind === "add_comment" ? textSourceValue(step.body) : customTextSourceId)}
+                        onValueChange={(value) =>
+                          step.kind === "add_comment" && replace(index(), { ...step, body: selectTextSource(step.body, value) })
+                        }
+                        options={textSourceOptions(outputsBefore(index()))}
+                      />
+                      <Show when={step.kind === "add_comment" && step.body.kind === "custom"}>
+                        <TextInput
+                          label="Comment"
+                          description="Write the internal conversation comment directly. Mail template variables are supported."
+                          value={() => (step.kind === "add_comment" && step.body.kind === "custom" ? step.body.value : "")}
+                          onValueChange={(value) =>
+                            step.kind === "add_comment" &&
+                            step.body.kind === "custom" &&
+                            replace(index(), { ...step, body: { ...step.body, value } })
+                          }
+                          maxLength={50_000}
+                          multiline
+                          lines={4}
+                          required
+                        />
+                      </Show>
+                    </div>
                   </Show>
 
                   <Show when={step.kind === "if"}>
@@ -972,7 +1030,9 @@ function IncomingAutomationEditor(props: {
                 : fieldName === "sourceStepId"
                   ? "Select an earlier compatible output"
                   : fieldName === "value"
-                    ? "Enter a value to compare"
+                    ? issue.path.includes("body")
+                      ? "Enter text"
+                      : "Enter a value to compare"
                     : "Complete the required fields";
     return `${location.join(", ")}: ${message}.`;
   };

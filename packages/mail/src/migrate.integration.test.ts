@@ -15,6 +15,7 @@ suite("mail migrations", () => {
         applied_count: number;
         compound_model_applied_count: number;
         workflow_aligned_model_applied_count: number;
+        text_sources_applied_count: number;
         table_present: boolean;
         active_name_index_present: boolean;
         touch_trigger_present: boolean;
@@ -27,6 +28,7 @@ suite("mail migrations", () => {
         (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 109 AND name = 'unified_incoming_automations') AS applied_count,
         (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 110 AND name = 'compound_incoming_automation_steps') AS compound_model_applied_count,
         (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 111 AND name = 'workflow_aligned_incoming_automation_steps') AS workflow_aligned_model_applied_count,
+        (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 112 AND name = 'mail_automation_text_sources') AS text_sources_applied_count,
         to_regclass('mail.incoming_automations') IS NOT NULL AS table_present,
         to_regclass('mail.incoming_automations_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
         EXISTS (
@@ -55,6 +57,7 @@ suite("mail migrations", () => {
       applied_count: 1,
       compound_model_applied_count: 1,
       workflow_aligned_model_applied_count: 1,
+      text_sources_applied_count: 1,
       table_present: true,
       active_name_index_present: true,
       touch_trigger_present: true,

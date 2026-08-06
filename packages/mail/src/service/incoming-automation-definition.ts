@@ -70,6 +70,9 @@ const outputReference = (stepId: string): string => `\${{ ${outputName(stepId)} 
 
 const outputTemplate = (stepId: string): string => `{{ ${outputName(stepId)} }}`;
 
+const textSource = (source: Extract<MailAutomationStep, { kind: "create_reply_draft" | "add_comment" }>["body"]): string =>
+  source.kind === "custom" ? source.value : outputTemplate(source.sourceStepId);
+
 const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[] => {
   const compiled: Record<string, unknown>[] = [];
   for (const step of steps) {
@@ -106,7 +109,7 @@ const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[]
           message: "${{ inputs.message }}",
           conversation: "${{ inputs.conversation }}",
           sender: step.senderIdentityId,
-          body: outputTemplate(step.body.sourceStepId),
+          body: textSource(step.body),
           format: "markdown",
           saveAs: outputName(step.id),
         },
@@ -117,7 +120,7 @@ const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[]
       compiled.push({
         addComment: {
           conversation: "${{ inputs.conversation }}",
-          body: outputTemplate(step.body.sourceStepId),
+          body: textSource(step.body),
         },
       });
       continue;

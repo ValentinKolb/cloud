@@ -322,10 +322,10 @@ describe("incoming automation contracts", () => {
         {
           id: "00000000-0000-4000-8000-000000000014",
           kind: "create_reply_draft",
-          body: { sourceStepId: textId },
+          body: { kind: "step_output", sourceStepId: textId },
           senderIdentityId: "00000000-0000-4000-8000-000000000015",
         },
-        { id: "00000000-0000-4000-8000-000000000017", kind: "add_comment", body: { sourceStepId: textId } },
+        { id: "00000000-0000-4000-8000-000000000017", kind: "add_comment", body: { kind: "custom", value: "AI summary reviewed" } },
       ],
     });
     expect(result.success).toBe(true);
@@ -340,13 +340,34 @@ describe("incoming automation contracts", () => {
         {
           id: "00000000-0000-4000-8000-000000000020",
           kind: "create_reply_draft",
-          body: { sourceStepId: textId },
+          body: { kind: "step_output", sourceStepId: textId },
           senderIdentityId: "00000000-0000-4000-8000-000000000021",
         },
         { id: textId, kind: "ai_generate_text", instructions: "Write a reply", maxOutputChars: 2_000 },
       ],
     });
     expect(result.success).toBe(false);
+  });
+
+  test("accepts reply drafts and internal comments with custom text without AI", () => {
+    const result = createIncomingAutomationSchema.safeParse({
+      name: "Add standard content",
+      scope: { mode: "all" },
+      steps: [
+        {
+          id: "00000000-0000-4000-8000-000000000021",
+          kind: "create_reply_draft",
+          body: { kind: "custom", value: "Thanks for your message. We will review it shortly." },
+          senderIdentityId: "00000000-0000-4000-8000-000000000022",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000023",
+          kind: "add_comment",
+          body: { kind: "custom", value: "Review during the next support shift." },
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
   });
 
   test("keeps alternative classification effects independent and rejects conflicting effects afterward", () => {

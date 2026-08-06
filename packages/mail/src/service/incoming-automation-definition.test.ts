@@ -35,10 +35,10 @@ describe("incoming automation workflow compiler", () => {
           {
             id: "00000000-0000-4000-8000-000000000018",
             kind: "create_reply_draft",
-            body: { sourceStepId: textId },
+            body: { kind: "step_output", sourceStepId: textId },
             senderIdentityId: "00000000-0000-4000-8000-000000000019",
           },
-          { id: "00000000-0000-4000-8000-000000000020", kind: "add_comment", body: { sourceStepId: textId } },
+          { id: "00000000-0000-4000-8000-000000000020", kind: "add_comment", body: { kind: "step_output", sourceStepId: textId } },
         ],
         else: [{ id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "routine" } }],
       },
@@ -70,10 +70,10 @@ describe("incoming automation workflow compiler", () => {
         {
           id: "00000000-0000-4000-8000-000000000021",
           kind: "create_reply_draft",
-          body: { sourceStepId: textId },
+          body: { kind: "step_output", sourceStepId: textId },
           senderIdentityId: "00000000-0000-4000-8000-000000000022",
         },
-        { id: "00000000-0000-4000-8000-000000000023", kind: "add_comment", body: { sourceStepId: textId } },
+        { id: "00000000-0000-4000-8000-000000000023", kind: "add_comment", body: { kind: "step_output", sourceStepId: textId } },
       ],
     });
     expect(source).toContain("inputs.message.fromDomain");
@@ -82,6 +82,41 @@ describe("incoming automation workflow compiler", () => {
     expect(source).toContain("addComment:");
     expect(source.match(/{{ step_00000000000040008000000000000020 }}/g)).toHaveLength(2);
     expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
+  });
+
+  test("compiles custom reply and comment text without AI", async () => {
+    const source = buildIncomingAutomationWorkflowSource({
+      scope: { mode: "all" },
+      steps: [
+        {
+          id: "00000000-0000-4000-8000-000000000024",
+          kind: "create_reply_draft",
+          body: { kind: "custom", value: "Thanks for your message." },
+          senderIdentityId: "00000000-0000-4000-8000-000000000025",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000026",
+          kind: "add_comment",
+          body: { kind: "custom", value: "Review in the next support shift." },
+        },
+      ],
+    });
+    expect(source).toContain("body: Thanks for your message.");
+    expect(source).toContain("body: Review in the next support shift.");
+    expect(source).not.toContain("aiGenerateText:");
+    const compiled = await compileWorkflow(source, mailWorkflows);
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const bound = await bindMailWorkflow(
+      compiled.ir,
+      buildMailWorkflowCatalog({
+        folders: [],
+        assignableUsers: [],
+        senderIdentities: [{ id: "00000000-0000-4000-8000-000000000025", name: "Support" }],
+        localTags: [],
+      }),
+    );
+    expect(bound.ok).toBe(true);
   });
 
   test("compiles multi-classification as ordinary sequential conditions", async () => {

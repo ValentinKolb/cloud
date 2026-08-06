@@ -1991,7 +1991,7 @@ type MailAutomationChoice = {
   description: string;
 };
 
-type MailAutomationOutputReference = { sourceStepId: string };
+type MailAutomationTextSource = { kind: "custom"; value: string } | { kind: "step_output"; sourceStepId: string };
 
 type MailAutomationIfCondition = {
   sourceStepId: string;
@@ -2015,8 +2015,8 @@ export type MailAutomationStep =
       choices: MailAutomationChoice[];
       maxChoices: number;
     }
-  | { id: string; kind: "create_reply_draft"; body: MailAutomationOutputReference; senderIdentityId: string }
-  | { id: string; kind: "add_comment"; body: MailAutomationOutputReference }
+  | { id: string; kind: "create_reply_draft"; body: MailAutomationTextSource; senderIdentityId: string }
+  | { id: string; kind: "add_comment"; body: MailAutomationTextSource }
   | { id: string; kind: "if"; condition: MailAutomationIfCondition; then: MailAutomationStep[]; else: MailAutomationStep[] };
 
 const mailAutomationChoiceSchema: z.ZodType<MailAutomationChoice> = z.lazy(() =>
@@ -2028,7 +2028,10 @@ const mailAutomationChoiceSchema: z.ZodType<MailAutomationChoice> = z.lazy(() =>
     .strict(),
 );
 
-const mailAutomationOutputReferenceSchema = z.object({ sourceStepId: automationStepIdSchema }).strict();
+const mailAutomationTextSourceSchema: z.ZodType<MailAutomationTextSource> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("custom"), value: z.string().trim().min(1).max(50_000) }).strict(),
+  z.object({ kind: z.literal("step_output"), sourceStepId: automationStepIdSchema }).strict(),
+]);
 
 const mailAutomationIfConditionSchema = z
   .object({
@@ -2070,11 +2073,11 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
       .object({
         id: automationStepIdSchema,
         kind: z.literal("create_reply_draft"),
-        body: mailAutomationOutputReferenceSchema,
+        body: mailAutomationTextSourceSchema,
         senderIdentityId: z.string().uuid(),
       })
       .strict(),
-    z.object({ id: automationStepIdSchema, kind: z.literal("add_comment"), body: mailAutomationOutputReferenceSchema }).strict(),
+    z.object({ id: automationStepIdSchema, kind: z.literal("add_comment"), body: mailAutomationTextSourceSchema }).strict(),
     z
       .object({
         id: automationStepIdSchema,
@@ -2125,7 +2128,7 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
           });
         }
       }
-      if (step.kind === "create_reply_draft" || step.kind === "add_comment") {
+      if ((step.kind === "create_reply_draft" || step.kind === "add_comment") && step.body.kind === "step_output") {
         const source = current.get(step.body.sourceStepId);
         if (!source || source.kind === "ai_classify_many") {
           context.addIssue({

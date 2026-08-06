@@ -4256,7 +4256,7 @@ test("incoming automation CRUD accepts complete mixed-flow definitions and prese
       {
         id: "00000000-0000-4000-8000-000000000043",
         kind: "create_reply_draft",
-        body: { sourceStepId: "00000000-0000-4000-8000-000000000041" },
+        body: { kind: "step_output", sourceStepId: "00000000-0000-4000-8000-000000000041" },
         senderIdentityId: "00000000-0000-4000-8000-000000000042",
       },
     ],

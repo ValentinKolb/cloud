@@ -147,6 +147,7 @@ describe("mailHelp", () => {
     expect(automation).toContain("shared workflow runtime");
     expect(automation).toContain("AI classify many");
     expect(automation).toContain("AI results remain normal workflow outputs");
+    expect(automation).toContain("Reply drafts and internal comments are normal Mail steps");
     expect(automation).toContain("never sends them");
     expect(work).toContain("Find all from this sender");
     expect(work).toContain("Mark all as read");

@@ -29,10 +29,10 @@ Add steps in the order they should run. A flow can freely mix:
 - **AI generate text** to produce bounded text for later steps.
 - **AI classify** to produce exactly one configured category.
 - **AI classify many** to produce up to the configured maximum of matching categories.
-- **Create reply draft** or **Add internal comment** to consume an earlier text output.
+- **Create reply draft** or **Add internal comment** with custom text or an earlier text output.
 - **If output matches** to run normal Mail or AI steps in a Then or Else branch.
 
-AI results remain normal workflow outputs. A later compatible step explicitly selects its source, and a condition explicitly selects the output and value it compares. **Use output** and **Add condition** are shortcuts that add those ordinary following steps; they do not hide extra behavior inside the AI block. Then and Else branches can again contain Mail actions, AI steps, output consumers, or conditions.
+Reply drafts and internal comments are normal Mail steps and do not require AI. Add either step directly, then choose **Custom text** or a compatible earlier workflow output as its text source. AI results remain normal workflow outputs. **Use output** and **Add condition** are shortcuts that add ordinary following steps; they do not hide extra behavior inside the AI block. Then and Else branches can again contain Mail actions, AI steps, output consumers, or conditions.
 
 Mail generates canonical workflow YAML from the flow and shows it read-only in the editor. Steps run from top to bottom through the shared workflow runtime. If a later step fails, effects from earlier completed steps remain. Editing the flow publishes a new immutable workflow version; changing only the name or active state does not duplicate identical source. Destructive actions cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
