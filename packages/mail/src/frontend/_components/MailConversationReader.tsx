@@ -888,7 +888,7 @@ export default function MailConversationReader(props: {
   };
 
   return (
-    <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface-raised)]" data-mail-print-root>
+    <div class="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--ui-surface-raised)]" data-mail-print-root>
       <Show when={props.error}>
         {(error) => {
           const message = error();
@@ -1051,10 +1051,10 @@ export default function MailConversationReader(props: {
           </div>
         </header>
 
-        <div class="relative min-h-0 flex-1">
+        <div class="relative min-h-0 flex-1 overflow-hidden">
           <div
             ref={historyScroller}
-            class="h-full min-h-0 overflow-y-auto px-3 py-2 sm:px-5"
+            class="absolute inset-0 overflow-y-auto overscroll-y-contain px-3 py-2 sm:px-5"
             data-scroll-preserve={`mail-reader-${props.selectionKey}`}
             onScroll={handleReaderScroll}
           >
@@ -1076,7 +1076,7 @@ export default function MailConversationReader(props: {
                   <Show when={summary().length > 280}>
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="text"
                       size="xs"
                       class="mt-1"
                       onClick={() => setSummaryExpanded((expanded) => !expanded)}

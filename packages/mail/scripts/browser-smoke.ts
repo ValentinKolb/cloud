@@ -336,6 +336,22 @@ const waitForWidth = async (page: Page, locator: Locator, width: number, label: 
   fail(`timed out waiting for ${label} to reach ${width}px; current width is ${current ?? "unavailable"}`);
 };
 
+const assertWheelScroll = async (page: Page, scroller: Locator, target: Locator, label: string) => {
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await target.hover();
+  await page.mouse.wheel(0, 400);
+  const state = await scroller.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+  }));
+  if (state.scrollHeight <= state.clientHeight || state.scrollTop <= 0) {
+    fail(`${label} did not scroll the conversation history with wheel input: ${JSON.stringify(state)}`);
+  }
+};
+
 const continueDraft = async (page: Page) => {
   const dialog = page.getByRole("dialog").filter({ hasText: "Continue a draft?" });
   await dialog.getByText("Continue", { exact: true }).first().click();
@@ -538,7 +554,7 @@ const runSmoke = async (fixture: Fixture) => {
     }
     const summaryToggle = summary.getByRole("button", { name: "More", exact: true });
     if ((await summaryToggle.getAttribute("data-size")) !== "xs") fail("conversation summary toggle is not compact");
-    if ((await summaryToggle.getAttribute("data-variant")) !== "ghost") fail("conversation summary toggle is not visually quiet");
+    if ((await summaryToggle.getAttribute("data-variant")) !== "text") fail("conversation summary toggle is not visually quiet");
     const readerState = await readerScroll.evaluate((element) => {
       const message = element.querySelector<HTMLElement>("[data-mail-message-id]");
       const body = element.querySelector<HTMLElement>(".mail-message-body");
@@ -560,18 +576,7 @@ const runSmoke = async (fixture: Fixture) => {
     if (readerState.nestedVerticalScroll) fail("long message body introduced a nested vertical scrollbar");
     await summaryToggle.click();
     await summary.getByText("The summary intentionally spans several paragraphs", { exact: false }).waitFor();
-    const expandedReaderState = await readerScroll.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-      element.dispatchEvent(new Event("scroll"));
-      return {
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-        scrollTop: element.scrollTop,
-      };
-    });
-    if (expandedReaderState.scrollHeight <= expandedReaderState.clientHeight || expandedReaderState.scrollTop <= 0) {
-      fail(`expanded conversation summary did not remain scrollable: ${JSON.stringify(expandedReaderState)}`);
-    }
+    await assertWheelScroll(page, readerScroll, summary, "expanded conversation summary");
     await summary.getByRole("button", { name: "Show less", exact: true }).click();
     await readerScroll.evaluate((element) => {
       element.scrollTop = 0;
@@ -587,6 +592,15 @@ const runSmoke = async (fixture: Fixture) => {
       return element.scrollHeight - element.clientHeight > 96;
     });
     if (!readerHasHistory) fail("long-message fixture did not create a meaningful reader scroll range");
+    const summaryBody = summary.locator("[data-mail-conversation-summary-body]");
+    await page.getByRole("button", { name: "Hide conversation list", exact: true }).click();
+    await assertWheelScroll(page, readerScroll, summaryBody, "collapsed-list reader");
+    await page.getByRole("button", { name: "Show conversation list", exact: true }).click();
+    const detailsTrigger = page.getByRole("button", { name: "Toggle conversation details", exact: true });
+    await detailsTrigger.click();
+    await assertWheelScroll(page, readerScroll, summaryBody, "reader with conversation details");
+    await detailsTrigger.click();
+    ok("conversation history scrolls with wheel input across workspace layouts");
 
     await page.getByRole("button", { name: "More conversation actions", exact: true }).click();
     const conversationMenu = page.locator('[role="menu"]:popover-open');
