@@ -1,5 +1,6 @@
 export {
   browseRunsForTemplate,
+  listRunSummariesForRecordByTemplates,
   listRunsForRecord,
   listRunsForTemplate,
   listRunsForWorkflowRun,

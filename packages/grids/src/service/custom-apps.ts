@@ -51,7 +51,7 @@ const mapRow = (row: DbRow): CustomApp => ({
   icon: (row.icon as string | null) ?? null,
   draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
   draftCapabilities: CustomAppCapabilitiesSchema.parse(
-    parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [], comments: [], workflowLaunchers: [] }),
+    parseJsonbRow(row.draft_capabilities, { views: [], records: [], forms: [], comments: [], documents: [], workflowLaunchers: [] }),
   ),
   publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
   publishedCapabilities: row.published_capabilities
@@ -118,6 +118,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const pageRecords: CustomAppCapabilities["records"] = [];
   const forms: CustomAppCapabilities["forms"] = [];
   const comments: CustomAppCapabilities["comments"] = [];
+  const documents: CustomAppCapabilities["documents"] = [];
   const workflowLaunchers: CustomAppCapabilities["workflowLaunchers"] = [];
   const tableBaseIds = new Map<string, string | null>();
   const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
@@ -182,6 +183,30 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds, editableFieldIds });
     for (const { block } of commentBlocks.filter((candidate) => candidate.page.id === page.id)) {
       comments.push({ pageId: page.id, blockId: block.id, tableId: page.record.tableId });
+    }
+    const pageTemplateIds = [...new Set(recordBlocks.flatMap((block) => block.documents?.templateIds ?? []))].sort();
+    const pageTemplates =
+      pageTemplateIds.length === 0
+        ? []
+        : await client<Array<{ id: string; table_id: string }>>`
+            SELECT id, table_id
+            FROM grids.document_templates
+            WHERE deleted_at IS NULL AND id = ANY(${toPgUuidArray(pageTemplateIds)}::uuid[])
+          `;
+    const templatesById = new Map(pageTemplates.map((template) => [template.id, template]));
+    for (const block of recordBlocks) {
+      const templateIds = [...(block.documents?.templateIds ?? [])].sort();
+      if (templateIds.length === 0) continue;
+      for (const templateId of templateIds) {
+        const template = templatesById.get(templateId);
+        if (!template || template.table_id !== page.record.tableId) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "documents", "templateIds"],
+            message: `Document template ${templateId} is missing or belongs to another table`,
+          });
+        }
+      }
+      documents.push({ pageId: page.id, blockId: block.id, tableId: page.record.tableId, templateIds });
     }
   }
 
@@ -416,6 +441,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
     forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     comments: comments.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
+    documents: documents.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     workflowLaunchers: workflowLaunchers.sort(
       (left, right) =>
         left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId) || left.actionId.localeCompare(right.actionId),

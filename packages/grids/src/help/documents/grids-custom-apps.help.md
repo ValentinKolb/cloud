@@ -111,9 +111,14 @@ pages:
                   - 00000000-0000-4000-8000-000000000004
                 editableFieldIds:
                   - 00000000-0000-4000-8000-000000000004
+                documents:
+                  templateIds:
+                    - 00000000-0000-4000-8000-000000000007
 ```
 
 The Form, saved view, and `request_id` parameter must use the same records table. After a successful submit, Grids replaces the current URL with the new record's detail page. Clicking an existing row opens the same detail page.
+
+The Record block may also list existing PDFs generated for that record by exact template ID. Generation remains a Workflow responsibility; the block only offers protected downloads when the account can read the app, record, and document template.
 
 A Form block may hide one of the Form's relation inputs and set it from a Record parameter declared by the current page. The server resolves this value and rejects browser attempts to override it:
 

@@ -176,6 +176,9 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
     - 10000000-0000-4000-8000-000000000301
   editableFieldIds:
     - 10000000-0000-4000-8000-000000000301
+  documents:
+    templateIds:
+      - 10000000-0000-4000-8000-000000000601
 
 # Comments on the current page record
 - id: discussion
@@ -193,6 +196,8 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
       inputs:
         request_id: { source: RECORD, path: id }
 ```
+
+`documents.templateIds` is an exact publication allowlist for existing generated PDFs. It does not generate a document; point an Actions block at a Workflow launcher when generation is part of the flow.
 
 Metrics and Chart share the Records source contract. Chart additionally declares its chart kind and category/value output IDs. Refer to `apps reference --json` for the exact installed variants.
 

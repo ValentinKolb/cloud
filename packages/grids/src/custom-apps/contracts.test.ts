@@ -90,6 +90,16 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(false);
   });
 
+  test("accepts an exact Record document template allowlist and rejects duplicates", () => {
+    const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    const detail = example.pages.find((page) => page.record)!;
+    const record = detail.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)).find((block) => block.type === "record")!;
+    if (record.type !== "record") throw new Error("Expected Record block");
+    expect(record.documents?.templateIds).toHaveLength(1);
+    record.documents = { templateIds: [uuid(70), uuid(70)] };
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(false);
+  });
+
   test("rejects unbound, visible, or mismatched record pages and incomplete row navigation", () => {
     const example = CUSTOM_APP_REFERENCE.example;
     const detail = example.pages[1];

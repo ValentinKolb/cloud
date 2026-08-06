@@ -27,6 +27,8 @@ describe("Custom App lifecycle", () => {
     const computedFieldId = testUuid();
     const relationFieldId = testUuid();
     const formId = testUuid();
+    const documentTemplateId = testUuid();
+    const otherDocumentTemplateId = testUuid();
     const otherTableId = testUuid();
     const otherFieldId = testUuid();
     const appId = testUuid();
@@ -83,6 +85,12 @@ describe("Custom App lifecycle", () => {
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
         VALUES (${otherFieldId}::uuid, ${testShortId("F")}, ${otherTableId}::uuid, 'Title', 'text', '{}'::jsonb, 0)
+      `;
+      await sql`
+        INSERT INTO grids.document_templates (id, short_id, table_id, name, source, html)
+        VALUES
+          (${documentTemplateId}::uuid, ${testShortId("D")}, ${tableId}::uuid, 'Certificate', 'from table Requests', '<p>Certificate</p>'),
+          (${otherDocumentTemplateId}::uuid, ${testShortId("D")}, ${otherTableId}::uuid, 'Other document', 'from table Other', '<p>Other</p>')
       `;
       await sql`
         INSERT INTO grids.views (id, short_id, table_id, name, source)
@@ -181,7 +189,13 @@ describe("Custom App lifecycle", () => {
                     id: "main",
                     span: 12,
                     blocks: [
-                      { id: "request-details", type: "record", fieldIds: [fieldId], editableFieldIds: [fieldId] },
+                      {
+                        id: "request-details",
+                        type: "record",
+                        fieldIds: [fieldId],
+                        editableFieldIds: [fieldId],
+                        documents: { templateIds: [documentTemplateId] },
+                      },
                       { id: "discussion", type: "comments", title: "Updates" },
                       {
                         id: "actions",
@@ -220,6 +234,7 @@ describe("Custom App lifecycle", () => {
         views: [{ viewId, tableId }],
         records: [{ pageId: "request", tableId, fieldIds: [fieldId], editableFieldIds: [fieldId] }],
         comments: [{ pageId: "request", blockId: "discussion", tableId }],
+        documents: [{ pageId: "request", blockId: "request-details", tableId, templateIds: [documentTemplateId] }],
         forms: [
           {
             pageId: "home",
@@ -325,6 +340,16 @@ describe("Custom App lifecycle", () => {
       expect(computedEditResult.ok).toBe(false);
       if (!computedEditResult.ok) {
         expect(computedEditResult.diagnostics.some((diagnostic) => diagnostic.message.includes("not a writable record field"))).toBe(true);
+      }
+
+      const wrongDocumentTemplate = structuredClone(definition);
+      const documentRecord = wrongDocumentTemplate.pages[1]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "record")!;
+      if (documentRecord.type !== "record") throw new Error("Expected Record block");
+      documentRecord.documents = { templateIds: [otherDocumentTemplateId] };
+      const wrongDocumentResult = await compile({ ...wrongDocumentTemplate, id: testUuid() });
+      expect(wrongDocumentResult.ok).toBe(false);
+      if (!wrongDocumentResult.ok) {
+        expect(wrongDocumentResult.diagnostics.some((diagnostic) => diagnostic.message.includes("another table"))).toBe(true);
       }
 
       const wrongRowTarget = await compile({

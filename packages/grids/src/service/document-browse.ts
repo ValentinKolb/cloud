@@ -1,6 +1,6 @@
-import { escapeLikePattern } from "@valentinkolb/cloud/services";
+import { escapeLikePattern, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { DocumentRun, DocumentRunFolder, DocumentRunSummaryList } from "../contracts";
+import type { DocumentRun, DocumentRunFolder, DocumentRunSummary, DocumentRunSummaryList } from "../contracts";
 import { type DocumentDbRow, mapDocumentRun, summarizeDocumentRun } from "./document-mappers";
 import { decodeDocumentRunCursor, encodeDocumentRunCursor, normalizeDocumentTags } from "./document-run-values";
 
@@ -77,6 +77,41 @@ export const listRunsForRecord = async (tableId: string, recordId: string, limit
     LIMIT ${cap}
   `;
   return rows.map(mapDocumentRun);
+};
+
+export const listRunSummariesForRecordByTemplates = async (
+  tableId: string,
+  recordId: string,
+  templateIds: string[],
+  limit = 100,
+): Promise<DocumentRunSummary[]> => {
+  if (templateIds.length === 0) return [];
+  const cap = Math.min(Math.max(limit, 1), 100);
+  const rows = await sql<DocumentDbRow[]>`
+    SELECT id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id,
+      document_number, filename, tags, generated_by, generated_at
+    FROM grids.document_runs
+    WHERE table_id = ${tableId}::uuid
+      AND record_id = ${recordId}::uuid
+      AND template_id = ANY(${toPgUuidArray(templateIds)}::uuid[])
+    ORDER BY generated_at DESC, id DESC
+    LIMIT ${cap}
+  `;
+  return rows.map((row) => ({
+    id: row.id as string,
+    shortId: row.short_id as string,
+    templateId: (row.template_id as string | null) ?? null,
+    workflowRunId: (row.workflow_run_id as string | null) ?? null,
+    snapshotId: row.snapshot_id as string,
+    baseId: row.base_id as string,
+    tableId: row.table_id as string,
+    recordId: row.record_id as string,
+    documentNumber: row.document_number as string,
+    filename: (row.filename as string | null) ?? `${row.document_number as string}.pdf`,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    generatedBy: (row.generated_by as string | null) ?? null,
+    generatedAt: (row.generated_at as Date).toISOString(),
+  }));
 };
 
 export const listRunsForWorkflowRun = async (

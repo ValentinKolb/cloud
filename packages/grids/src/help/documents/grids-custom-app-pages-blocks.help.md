@@ -93,6 +93,8 @@ Record requires a page record. It renders the explicit `fieldIds` list and may a
 
 The Edit action appears only when the account can write the current record under its table permission and row scope. Submission rechecks that access, the immutable published field allowlist, the live field type, table audit questions, and the current record version. Fields outside the block's editable subset remain read-only even when the account has broader table access.
 
+An optional `documents.templateIds` allowlist shows existing generated PDFs linked to the current record. Every template must belong to the page record table when the app is published. At runtime, Grids also requires ordinary Read access to each live template and uses the protected document download route. The block does not generate documents or create public links; use a Workflow for generation.
+
 ### Comments
 
 Comments requires a page record. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. Creating or changing a comment requires Write access to that record. Authors may edit and delete their own comments; record admins may moderate any comment. Deleted comments remain as a timestamped placeholder so the conversation order stays understandable.

@@ -4,13 +4,14 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { executeSavedViewSourceForContext } from "../../api/gql-runtime";
 import {
   actorViewerFor,
+  gateAtAccess,
   gridsAccessContext,
   hasExplicitGrant,
   resolveRecordAccessForAccess,
   resolveWithGrantsForAccess,
 } from "../../api/permissions";
 import { ssr } from "../../config";
-import type { DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
+import type { DocumentRunSummary, DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
 import {
@@ -76,6 +77,7 @@ const Record = (props: {
   pageRecord: PageRecord | null;
   baseId: string;
   updateEndpoint?: string;
+  documentRuns: DocumentRunSummary[];
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
   if (!props.pageRecord) {
@@ -91,6 +93,7 @@ const Record = (props: {
       fields={props.pageRecord.fields}
       relationLabels={props.pageRecord.relationLabels}
       updateEndpoint={props.updateEndpoint}
+      documentRuns={props.documentRuns}
       dateConfig={props.dateConfig}
     />
   );
@@ -121,6 +124,7 @@ const CustomAppPage = (props: {
   commentEndpoints: Map<string, string>;
   actions: Map<string, CustomAppRenderedAction[]>;
   recordUpdateEndpoints: Map<string, string>;
+  documentRuns: Map<string, DocumentRunSummary[]>;
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
@@ -174,6 +178,7 @@ const CustomAppPage = (props: {
                         pageRecord={props.pageRecord}
                         baseId={props.definition.baseId}
                         updateEndpoint={props.recordUpdateEndpoints.get(block.id)}
+                        documentRuns={props.documentRuns.get(block.id) ?? []}
                         dateConfig={props.dateConfig}
                       />
                     ) : block.type === "comments" ? (
@@ -235,6 +240,7 @@ export default ssr<AuthContext>(async (c) => {
 
   let pageRecord: PageRecord | null = null;
   const recordUpdateEndpoints = new Map<string, string>();
+  const documentRuns = new Map<string, DocumentRunSummary[]>();
   if (page.record) {
     const capability = app.publishedCapabilities.records.find(
       (candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId,
@@ -290,6 +296,42 @@ export default ssr<AuthContext>(async (c) => {
           }
         }
       }
+    }
+
+    const documentBlocks = page.rows.flatMap((row) =>
+      row.columns.flatMap((column) =>
+        column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record" && Boolean(candidate.documents)),
+      ),
+    );
+    const configuredTemplateIds = new Set<string>();
+    for (const block of documentBlocks) {
+      const expectedTemplateIds = [...(block.documents?.templateIds ?? [])].sort();
+      const capability = app.publishedCapabilities.documents.find(
+        (candidate) =>
+          candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record!.tableId,
+      );
+      if (!capability || capability.templateIds.join("\0") !== expectedTemplateIds.join("\0")) return c.notFound();
+      for (const templateId of expectedTemplateIds) configuredTemplateIds.add(templateId);
+    }
+    const readableTemplateIds: string[] = [];
+    for (const templateId of configuredTemplateIds) {
+      const template = await gridsService.document.getTemplate(templateId);
+      if (!template || template.tableId !== page.record.tableId) continue;
+      const templateAccess = await gateAtAccess(
+        requestAccess,
+        { baseId: app.baseId, tableId: page.record.tableId, documentTemplateId: templateId },
+        "read",
+      );
+      if (templateAccess.ok) readableTemplateIds.push(templateId);
+    }
+    const runs = await gridsService.document.listRunSummariesForRecordByTemplates(
+      page.record.tableId,
+      record.id,
+      readableTemplateIds,
+    );
+    for (const block of documentBlocks) {
+      const allowed = new Set(block.documents?.templateIds ?? []);
+      documentRuns.set(block.id, runs.filter((run) => run.templateId && allowed.has(run.templateId)));
     }
   }
 
@@ -425,6 +467,7 @@ export default ssr<AuthContext>(async (c) => {
         commentEndpoints={commentEndpoints}
         actions={actions}
         recordUpdateEndpoints={recordUpdateEndpoints}
+        documentRuns={documentRuns}
         pageRecord={pageRecord}
         dateConfig={dateConfig}
       />

@@ -2,7 +2,13 @@ import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { browseRunsForTemplate, listRunsForRecord, listRunsForTemplate, listRunsForWorkflowRun } from "./document-browse";
+import {
+  browseRunsForTemplate,
+  listRunSummariesForRecordByTemplates,
+  listRunsForRecord,
+  listRunsForTemplate,
+  listRunsForWorkflowRun,
+} from "./document-browse";
 import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 type Fixture = {
@@ -149,6 +155,9 @@ describe("document browsing integration", () => {
     try {
       expect(await listRunsForRecord(fixture.tableId, fixture.recordId, 1_000)).toHaveLength(5);
       expect(await listRunsForRecord(fixture.tableId, testUuid())).toEqual([]);
+      expect(await listRunSummariesForRecordByTemplates(fixture.tableId, fixture.recordId, [fixture.templateId], 1_000)).toHaveLength(5);
+      expect(await listRunSummariesForRecordByTemplates(fixture.tableId, fixture.recordId, [testUuid()])).toEqual([]);
+      expect(await listRunSummariesForRecordByTemplates(fixture.tableId, fixture.recordId, [])).toEqual([]);
       expect(await listRunsForWorkflowRun(fixture.workflowRunId, { limit: 10 }, async () => true)).toMatchObject({
         total: 5,
         items: expect.arrayContaining(fixture.runIds.map((id) => expect.objectContaining({ id }))),

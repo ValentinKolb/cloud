@@ -232,6 +232,7 @@ export const gridsService = {
     createRun: documents.createDocumentRun,
     createRenderedRun: documents.createRenderedDocumentRun,
     createRunForRecord: documents.createRunForRecord,
+    listRunSummariesForRecordByTemplates: documents.listRunSummariesForRecordByTemplates,
     listRunsForRecord: documents.listRunsForRecord,
     listRunsForWorkflowRun: documents.listRunsForWorkflowRun,
     listRunsForTemplate: documents.listRunsForTemplate,

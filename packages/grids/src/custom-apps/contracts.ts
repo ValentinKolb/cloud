@@ -121,6 +121,12 @@ export const CustomAppRecordBlockSchema = z
     emptyText: z.string().trim().min(1).max(240).optional(),
     fieldIds: z.array(z.string().uuid()).min(1).max(30),
     editableFieldIds: z.array(z.string().uuid()).max(30).default([]),
+    documents: z
+      .object({
+        templateIds: z.array(z.string().uuid()).min(1).max(12),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((block, ctx) => {
@@ -142,6 +148,17 @@ export const CustomAppRecordBlockSchema = z
           path: ["editableFieldIds", index],
         });
       }
+    }
+    const templateIds = new Set<string>();
+    for (const [index, templateId] of (block.documents?.templateIds ?? []).entries()) {
+      if (templateIds.has(templateId)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate document template id "${templateId}"`,
+          path: ["documents", "templateIds", index],
+        });
+      }
+      templateIds.add(templateId);
     }
   });
 
@@ -497,6 +514,19 @@ export const CustomAppCapabilitiesSchema = z
       )
       .max(24)
       .default([]),
+    documents: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            tableId: z.string().uuid(),
+            templateIds: z.array(z.string().uuid()).min(1).max(12),
+          })
+          .strict(),
+      )
+      .max(288)
+      .default([]),
     workflowLaunchers: z
       .array(
         z
@@ -556,6 +586,7 @@ export const CUSTOM_APP_REFERENCE = {
     record: {
       required: ["id", "type", "fieldIds"],
       editableFieldIds: "Optional writable subset of fieldIds",
+      documents: "Optionally show existing generated documents from an exact template allowlist",
       note: "Displays allowlisted fields from the current page record and may edit an explicit writable subset",
     },
     comments: { required: ["id", "type"], note: "Shows the bounded comment thread for the current page record" },
@@ -643,6 +674,7 @@ export const CUSTOM_APP_REFERENCE = {
                     id: "request-details",
                     type: "record",
                     fieldIds: ["00000000-0000-4000-8000-000000000004"],
+                    documents: { templateIds: ["00000000-0000-4000-8000-000000000007"] },
                   },
                   { id: "request-comments", type: "comments", emptyText: "No messages yet." },
                 ],
