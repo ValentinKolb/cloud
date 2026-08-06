@@ -34,6 +34,7 @@ The component keeps the raw text while focused, so intermediate input is not los
 - `allowNegative` defaults to `true`.
 - `min` and `max` clamp committed values.
 - `step` defaults to `1` and snaps committed values to its grid.
+- The default stepper buttons are integrated into the left and right edges of the input.
 - `showSteppers={false}` hides the buttons without disabling typed input.
 - `disableSteppers` disables only the buttons.
 

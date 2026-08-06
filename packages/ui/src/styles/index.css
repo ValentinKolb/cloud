@@ -60,7 +60,8 @@
   --k2b-action-solid: var(--k2b-accent-700);
   --k2b-action-solid-hover: var(--k2b-accent-800);
   --k2b-focus-ring: var(--k2b-accent-500);
-  --k2b-focus-inset: inset 0 0 0 2px color-mix(in srgb, var(--k2b-focus-ring) 45%, transparent);
+  --k2b-focus-fill: color-mix(in srgb, var(--k2b-focus-ring) 45%, var(--k2b-surface));
+  --k2b-focus-inset: inset 0 0 0 2px var(--k2b-focus-fill);
   --k2b-info-surface: var(--k2b-accent-50);
   --k2b-info-text: var(--k2b-accent-700);
   --k2b-success-surface: #ecfdf5;
@@ -120,7 +121,8 @@
   --k2b-action-solid: var(--k2b-accent-600);
   --k2b-action-solid-hover: var(--k2b-accent-700);
   --k2b-focus-ring: var(--k2b-accent-400);
-  --k2b-focus-inset: inset 0 0 0 2px color-mix(in srgb, var(--k2b-focus-ring) 55%, transparent);
+  --k2b-focus-fill: color-mix(in srgb, var(--k2b-focus-ring) 55%, var(--k2b-surface));
+  --k2b-focus-inset: inset 0 0 0 2px var(--k2b-focus-fill);
   --k2b-info-surface: var(--k2b-accent-950);
   --k2b-info-text: var(--k2b-accent-300);
   --k2b-success-surface: #052e26;
@@ -1746,19 +1748,23 @@
 }
 
 .k2b-ui .k2b-number-input {
-  display: flex;
-  min-width: 0;
-  align-items: stretch;
-  gap: 0.5rem;
+  width: 100%;
 }
 
-.k2b-ui .k2b-number-input > .k2b-input-shell {
+.k2b-ui .k2b-number-input__value {
+  display: flex;
+  min-width: 0;
   flex: 1;
+  align-items: center;
+}
+
+.k2b-ui .k2b-number-input__value > .k2b-input-shell__affix:last-child {
+  margin-right: 0.625rem;
 }
 
 /* Disabled fields read as a muted well instead of stacking opacity on top of
    the already dimmed `.k2b-input:disabled` text. */
-.k2b-ui .k2b-number-input[data-disabled="true"] > .k2b-input-shell {
+.k2b-ui .k2b-number-input[data-disabled="true"] {
   background: var(--k2b-surface-muted);
   cursor: not-allowed;
 }
@@ -1768,25 +1774,39 @@
   width: 2.25rem;
   flex: 0 0 2.25rem;
   place-items: center;
-  border: 1px solid var(--k2b-border-strong);
-  border-radius: var(--k2b-radius-control);
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   color: var(--k2b-text-secondary);
-  background: var(--k2b-surface);
+  background: transparent;
   cursor: pointer;
+}
+
+.k2b-ui .k2b-number-input__step:first-child {
+  border-right: 1px solid var(--k2b-border);
+}
+
+.k2b-ui .k2b-number-input__step:last-child {
+  border-left: 1px solid var(--k2b-border);
+}
+
+.k2b-ui .k2b-number-input:focus-within > .k2b-number-input__step {
+  border-color: var(--k2b-focus-fill);
 }
 
 .k2b-ui .k2b-number-input__step:hover:not(:disabled) {
   color: var(--k2b-action);
-  background: var(--k2b-hover);
+  background: var(--k2b-focus-fill);
 }
 
 .k2b-ui .k2b-number-input__step:disabled {
-  opacity: 0.45;
+  color: var(--k2b-text-muted);
   cursor: not-allowed;
 }
 
 .k2b-ui .k2b-number-input__step:focus-visible {
-  border-color: var(--k2b-focus-ring);
+  box-shadow: inset 0 0 0 2px var(--k2b-focus-ring);
   outline: none;
 }
 
@@ -5168,6 +5188,7 @@
 }
 
 @media (forced-colors: active) {
+  .k2b-ui .k2b-number-input__step:focus-visible,
   .k2b-ui .k2b-panes__separator:focus-visible > span,
   .k2b-ui .k2b-chart[data-interactive="true"]:focus-visible,
   .k2b-ui .k2b-input-shell:focus-within,

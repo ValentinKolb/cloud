@@ -121,7 +121,11 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
       required={local.required}
       disabled={rest.disabled}
     >
-      <div class="k2b-number-input" data-disabled={rest.disabled ? "true" : undefined}>
+      <div
+        class="k2b-input-shell k2b-number-input"
+        data-disabled={rest.disabled ? "true" : undefined}
+        data-invalid={error() ? "true" : undefined}
+      >
         <Show when={local.showSteppers ?? true}>
           <button
             type="button"
@@ -133,7 +137,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
             <i class="ti ti-minus" aria-hidden="true" />
           </button>
         </Show>
-        <div class="k2b-input-shell" data-invalid={error() ? "true" : undefined}>
+        <div class="k2b-number-input__value">
           <Show when={local.icon}>
             <span class="k2b-input-shell__icon k2b-text-input__icon" aria-hidden="true">
               <i class={local.icon} />

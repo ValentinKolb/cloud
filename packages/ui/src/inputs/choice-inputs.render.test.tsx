@@ -436,6 +436,24 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(cssRule('.k2b-ui .k2b-number-input__control[data-filled="true"]')).toContain("text-align: right");
   });
 
+  test("integrates NumberInput steppers into one full-width input shell", () => {
+    const html = renderToString(() => createComponent(NumberInput, { value: () => 42 }));
+    const withoutSteppers = renderToString(() => createComponent(NumberInput, { value: () => 42, showSteppers: false }));
+
+    expect(html).toContain('class="k2b-input-shell k2b-number-input"');
+    expect(html).toContain('class="k2b-number-input__value"');
+    expect(html.match(/k2b-input-shell/g)).toHaveLength(1);
+    expect(withoutSteppers).toContain('class="k2b-input-shell k2b-number-input"');
+    expect(withoutSteppers).not.toContain("k2b-number-input__step");
+    expect(cssRule(".k2b-ui .k2b-number-input")).toContain("width: 100%");
+    expect(cssRule(".k2b-ui .k2b-number-input__step")).toContain("border: 0");
+    expect(cssRule(".k2b-ui .k2b-number-input__step:first-child")).toContain("border-right");
+    expect(cssRule(".k2b-ui .k2b-number-input__step:last-child")).toContain("border-left");
+    expect(cssRule(".k2b-ui .k2b-number-input:focus-within > .k2b-number-input__step")).toContain("var(--k2b-focus-fill)");
+    expect(cssRule(".k2b-ui .k2b-number-input__step:hover:not(:disabled)")).toContain("var(--k2b-focus-fill)");
+    expect(cssRule(".k2b-ui .k2b-number-input__value > .k2b-input-shell__affix:last-child")).toContain("margin-right: 0.625rem");
+  });
+
   test("sizes a multiline text input from its lines prop", () => {
     const two = renderToString(() => createComponent(TextInput, { label: "Notes", value: "", multiline: true, lines: 2 }));
     const fallback = renderToString(() => createComponent(TextInput, { label: "Notes", value: "", multiline: true }));
