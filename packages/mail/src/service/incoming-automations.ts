@@ -70,6 +70,8 @@ export type IncomingAutomation = {
   updatedAt: string;
 };
 
+export type IncomingAutomationActivityMetadata = Pick<IncomingAutomation, "id" | "workflowId" | "name">;
+
 type IncomingAutomationRow = {
   id: string;
   mailbox_id: string;
@@ -120,6 +122,7 @@ const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSO
 const internalWorkflowName = (id: string): string => `Mail incoming automation ${id}`;
 const EXISTING_MESSAGE_APPLICATION_LIMIT = 100;
 const MAX_INCOMING_AUTOMATIONS = 500;
+const activeIncomingAutomationBackfillStates = new Set(["queued", "running", "waiting"]);
 const isSameOrSubdomain = (candidate: string, domain: string): boolean => candidate === domain || candidate.endsWith(`.${domain}`);
 const incomingAutomationExistingDedupePrefix = (automationId: string, workflowVersionId: string): string =>
   `incoming-automation-existing:${automationId}:v${workflowVersionId}:`;
@@ -299,24 +302,29 @@ const protectMailboxSenders = async (params: {
   actions: MailAutomationAction[];
   db: SqlClient;
 }): Promise<Result<void>> => {
-  const genericMove = params.actions.find(
+  const genericMoves = params.actions.filter(
     (action): action is Extract<MailAutomationAction, { kind: "move_to_folder" }> => action.kind === "move_to_folder",
   );
-  if (genericMove) {
-    const [folder] = await params.db<{ role: string | null }[]>`
-      SELECT COALESCE(role_override.role, folder.role) AS role
+  if (genericMoves.length > 0) {
+    const folderIds = [...new Set(genericMoves.map((action) => action.folderId))];
+    const folders = await params.db<{ id: string; role: string | null }[]>`
+      SELECT folder.id, COALESCE(role_override.role, folder.role) AS role
       FROM mail.folders folder
       JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
       LEFT JOIN mail.folder_role_overrides role_override
         ON role_override.mailbox_id = resource.mailbox_id AND role_override.folder_id = folder.id
       WHERE resource.mailbox_id = ${params.mailboxId}::uuid
-        AND folder.id = ${genericMove.folderId}::uuid
+        AND folder.id = ANY(${toPgUuidArray(folderIds)}::uuid[])
         AND folder.discovery_state = 'active'
         AND folder.selectable
     `;
-    if (!folder) return fail(err.badInput("Choose an available destination folder"));
-    if (folder.role === "junk" || folder.role === "trash") {
-      return fail(err.badInput(`Use the dedicated move-to-${folder.role} action for protected sender checks`));
+    const folderRoles = new Map(folders.map((folder) => [folder.id, folder.role]));
+    for (const folderId of folderIds) {
+      const role = folderRoles.get(folderId);
+      if (role === undefined) return fail(err.badInput("Choose an available destination folder"));
+      if (role === "junk" || role === "trash") {
+        return fail(err.badInput(`Use the dedicated move-to-${role} action for protected sender checks`));
+      }
     }
   }
   const destructive = destructiveActionFrom(params.actions);
@@ -384,20 +392,24 @@ const senderScopesOverlap = (left: { kind: SenderMatchKind; value: string }, rig
   return isSameOrSubdomain(sender.slice(sender.lastIndexOf("@") + 1), domain);
 };
 
-const mandatorySenderScope = (conditions: AutomationConditionSet): { kind: SenderMatchKind; value: string } | null => {
-  if (conditions.mode === "any" && conditions.items.some((condition) => !senderCondition(condition))) return null;
-  for (const condition of conditions.items) {
+const constrainingSenderScopes = (conditions: AutomationConditionSet): Array<{ kind: SenderMatchKind; value: string }> | null => {
+  const scopes = conditions.items.flatMap((condition) => {
     const scope = senderCondition(condition);
-    if (scope) return scope;
-  }
-  return null;
+    return scope ? [scope] : [];
+  });
+  if (conditions.mode === "any") return scopes.length === conditions.items.length ? scopes : null;
+  return scopes.length > 0 ? [scopes[0]!] : null;
 };
 
 const conditionsPotentiallyOverlap = (left: AutomationConditionSet, right: AutomationConditionSet): boolean => {
   if (JSON.stringify(left) === JSON.stringify(right)) return true;
-  const leftScope = mandatorySenderScope(left);
-  const rightScope = mandatorySenderScope(right);
-  return !leftScope || !rightScope || senderScopesOverlap(leftScope, rightScope);
+  const leftScopes = constrainingSenderScopes(left);
+  const rightScopes = constrainingSenderScopes(right);
+  return (
+    !leftScopes ||
+    !rightScopes ||
+    leftScopes.some((leftScope) => rightScopes.some((rightScope) => senderScopesOverlap(leftScope, rightScope)))
+  );
 };
 
 const protectAgainstConflictingAutomations = async (params: {
@@ -599,6 +611,23 @@ export const listIncomingAutomations = async (context: MailRequestContext, mailb
     LIMIT 500
   `;
   return ok(rows.map(mapIncomingAutomation));
+};
+
+export const listIncomingAutomationActivityMetadata = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  workflowIds: readonly string[],
+): Promise<Result<IncomingAutomationActivityMetadata[]>> => {
+  const allowed = await requireMailboxPermission(context, mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  if (workflowIds.length === 0) return ok([]);
+  const rows = await sql<{ id: string; workflow_id: string; name: string }[]>`
+    SELECT id, workflow_id, name
+    FROM mail.incoming_automations
+    WHERE mailbox_id = ${mailboxId}::uuid
+      AND workflow_id = ANY(${toPgUuidArray([...new Set(workflowIds)])}::uuid[])
+  `;
+  return ok(rows.map((row) => ({ id: row.id, workflowId: row.workflow_id, name: row.name })));
 };
 
 export const getIncomingAutomation = async (
@@ -843,6 +872,7 @@ const loadCurrentBackfillAutomation = async (
 ): Promise<IncomingAutomation> => {
   const automation = unwrap(await loadIncomingAutomation(input.mailboxId, input.automationId, db, lock));
   if (!automation.enabled) throw new Error("Mail automation is disabled");
+  if (automation.latestBackfillOperationId !== input.operationId) throw new Error("Mail automation backfill is not active");
   if (automation.workflowId !== input.workflowId || automation.workflowVersionId !== input.workflowVersionId) {
     throw new Error("Mail automation workflow version changed");
   }
@@ -1022,6 +1052,19 @@ const loadIncomingAutomationBackfill = async (params: {
   return ok(await mapIncomingAutomationBackfill(state));
 };
 
+const incomingAutomationHasActiveBackfill = async (automation: IncomingAutomation): Promise<boolean> => {
+  if (!automation.latestBackfillOperationId) return false;
+  const state = await getIncomingAutomationBackfillPump().get({
+    key: incomingAutomationBackfillKey(automation.id, automation.latestBackfillOperationId),
+  });
+  return Boolean(state && activeIncomingAutomationBackfillStates.has(state.state));
+};
+
+const rejectActiveBackfillMutation = async (automation: IncomingAutomation, allowedOperationId?: string): Promise<Result<void>> =>
+  automation.latestBackfillOperationId !== allowedOperationId && (await incomingAutomationHasActiveBackfill(automation))
+    ? fail(err.conflict("Cancel the active backfill before changing this automation"))
+    : ok();
+
 export const startIncomingAutomationBackfill = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -1039,6 +1082,7 @@ export const startIncomingAutomationBackfill = async (params: {
       if (incomingAutomationHasAi(current.steps)) {
         unwrap(fail(err.badInput("Flows with AI run only for future incoming mail")));
       }
+      unwrap(await rejectActiveBackfillMutation(current, parsed.data.operationId));
       unwrap(
         await protectMailboxSenders({
           mailboxId: params.mailboxId,
@@ -1069,13 +1113,28 @@ export const startIncomingAutomationBackfill = async (params: {
     ) {
       return fail(err.conflict("Backfill operation id is already in use"));
     }
-    await sql`
+    const [associated] = await sql<{ id: string }[]>`
       UPDATE mail.incoming_automations
       SET latest_backfill_operation_id = ${parsed.data.operationId}::uuid
       WHERE mailbox_id = ${params.mailboxId}::uuid
         AND id = ${automation.id}::uuid
         AND deleted_at IS NULL
+        AND enabled = true
+        AND revision = ${automation.revision}
+        AND latest_backfill_operation_id IS NOT DISTINCT FROM ${automation.latestBackfillOperationId}::uuid
+        AND (
+          SELECT workflow.active_version_id
+          FROM workflows.workflow workflow
+          WHERE workflow.id = mail.incoming_automations.workflow_id
+        ) = ${automation.workflowVersionId}::uuid
+      RETURNING id
     `;
+    if (!associated) {
+      await getIncomingAutomationBackfillPump().cancel({
+        key: incomingAutomationBackfillKey(automation.id, parsed.data.operationId),
+      });
+      return fail(err.conflict("Mail automation changed before the backfill started"));
+    }
     const result = ok(await mapIncomingAutomationBackfill(state));
     return audit.recordResultAfterSideEffect({
       action: "mail.incoming_automation.backfill.start",
@@ -1294,6 +1353,7 @@ export const updateIncomingAutomation = async (params: {
       const enabledChanged = current.enabled !== parsed.data.enabled;
       const changed = current.name !== name || definitionChanged || enabledChanged;
       if (!changed) return { automation: current, activityId: null as string | null };
+      if (definitionChanged || enabledChanged) unwrap(await rejectActiveBackfillMutation(current));
       if (definitionChanged) {
         unwrap(
           await replaceManagedWorkflowInTransaction({
@@ -1374,6 +1434,7 @@ export const setIncomingAutomationEnabled = async (params: {
       const current = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx, true));
       if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Incoming automation was changed")));
       if (current.enabled === parsed.data.enabled) return { automation: current, activityId: null as string | null };
+      unwrap(await rejectActiveBackfillMutation(current));
       if (parsed.data.enabled) {
         const validation = await validateMailWorkflowSource({
           context: params.context,
@@ -1457,6 +1518,7 @@ export const deleteIncomingAutomation = async (params: {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
       const current = unwrap(await loadIncomingAutomation(params.mailboxId, params.automationId, tx, true));
       if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Incoming automation was changed")));
+      unwrap(await rejectActiveBackfillMutation(current));
       unwrap(
         await setManagedWorkflowEnabledInTransaction({
           db: tx,

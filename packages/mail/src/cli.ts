@@ -422,10 +422,23 @@ const readAutomaticReplyConfiguration = async (input: Parameters<typeof readCliI
   return parsed.data;
 };
 
-const readIncomingAutomationDefinition = async (input: Parameters<typeof readCliInput>[0]): Promise<CreateIncomingAutomation> => {
+const readIncomingAutomationDefinition = async (
+  input: Parameters<typeof readCliInput>[0],
+  options: { requireEnabled?: boolean } = {},
+): Promise<CreateIncomingAutomation> => {
   const raw = await readCliInput(input, { label: "incoming automation definition", required: true });
   if (!raw?.trim()) throw new Error("Incoming automation definition cannot be empty.");
-  const parsed = createIncomingAutomationSchema.safeParse(parseStructuredDocument(raw, "Incoming automation definition"));
+  const definition = parseStructuredDocument(raw, "Incoming automation definition");
+  if (
+    options.requireEnabled &&
+    (!definition ||
+      typeof definition !== "object" ||
+      Array.isArray(definition) ||
+      typeof (definition as { enabled?: unknown }).enabled !== "boolean")
+  ) {
+    throw new Error("Incoming automation updates must explicitly set enabled to true or false.");
+  }
+  const parsed = createIncomingAutomationSchema.safeParse(definition);
   if (!parsed.success) throw new Error(`Invalid incoming automation definition: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
 };
@@ -5939,7 +5952,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/incoming-automations/${current.id}`,
           jsonRequest("PUT", {
             expectedRevision: flags.revision,
-            ...(await readIncomingAutomationDefinition(flags.definition)),
+            ...(await readIncomingAutomationDefinition(flags.definition, { requireEnabled: true })),
           }),
         );
         if (printStructured(ctx, automation)) return;

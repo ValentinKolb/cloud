@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { TraceSpan } from "@valentinkolb/cloud/services";
 import type { WorkflowRunSummary } from "@valentinkolb/cloud/workflows/store";
-import { projectMailBackfillActivity, projectMailWorkflowActivity, summarizeMailAutomationActivity } from "./automation-activity";
+import {
+  mailBackfillWorkflowId,
+  projectMailBackfillActivity,
+  projectMailWorkflowActivity,
+  summarizeMailAutomationActivity,
+} from "./automation-activity";
 
 const run = (workflowId: string, state: WorkflowRunSummary["state"] = "succeeded"): WorkflowRunSummary => ({
   id: `run-${workflowId}`,
@@ -74,6 +79,9 @@ describe("Mail automation activity projection", () => {
 
   test("projects backfill progress and terminal failure without inventing a Mail run store", () => {
     expect(
+      mailBackfillWorkflowId(backfillSpan({ attributes: { "mail.mailbox.id": "mailbox-1", "mail.workflow.id": "deleted-workflow" } })),
+    ).toBe("deleted-workflow");
+    expect(
       projectMailBackfillActivity({
         mailboxId: "mailbox-1",
         span: backfillSpan(),
@@ -92,6 +100,13 @@ describe("Mail automation activity projection", () => {
         automationNames: new Map(),
       }),
     ).toMatchObject({ status: "failed", detail: "Provider unavailable" });
+    expect(
+      projectMailBackfillActivity({
+        mailboxId: "mailbox-1",
+        span: backfillSpan({ summary: { status: "canceled", dispatched: 1 } }),
+        automationNames: new Map(),
+      }),
+    ).toMatchObject({ status: "canceled" });
   });
 
   test("keeps detailed errors and explains older broken conflict records", () => {

@@ -395,6 +395,68 @@ describe("incoming automation contracts", () => {
     ).toBe(false);
   });
 
+  test("allows sparse branches and rejects effects that can co-occur after multi-classification", () => {
+    const sparse = [
+      {
+        id: classifierId,
+        kind: "ai_classify" as const,
+        instructions: "Choose the destination",
+        choices: [
+          { id: importantId, name: "Important", description: "Needs attention" },
+          { id: routineId, name: "Routine", description: "Routine message" },
+        ],
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000040",
+        kind: "branch" as const,
+        sourceStepId: classifierId,
+        cases: [
+          {
+            choiceId: importantId,
+            steps: [
+              {
+                id: "00000000-0000-4000-8000-000000000043",
+                kind: "mail_action" as const,
+                action: { kind: "set_status" as const, status: "needs_action" as const },
+              },
+            ],
+          },
+        ],
+        fallback: [],
+      },
+    ];
+    expect(createIncomingAutomationSchema.safeParse({ name: "Sparse routing", scope: { mode: "all" }, steps: sparse }).success).toBe(true);
+
+    const multiClassifier = { ...sparse[0]!, kind: "ai_classify_many" as const, maxChoices: 2 };
+    const conflicting = [
+      multiClassifier,
+      {
+        ...sparse[1]!,
+        sourceStepId: multiClassifier.id,
+        cases: [
+          {
+            choiceId: importantId,
+            steps: [{ id: "00000000-0000-4000-8000-000000000041", kind: "mail_action" as const, action: { kind: "junk" as const } }],
+          },
+          {
+            choiceId: routineId,
+            steps: [{ id: "00000000-0000-4000-8000-000000000042", kind: "mail_action" as const, action: { kind: "trash" as const } }],
+          },
+        ],
+      },
+    ];
+    const result = createIncomingAutomationSchema.safeParse({ name: "Unsafe multi routing", scope: { mode: "all" }, steps: conflicting });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes("only one provider message action"))).toBe(true);
+    expect(
+      createIncomingAutomationSchema.safeParse({
+        name: "Single-result multi routing",
+        scope: { mode: "all" },
+        steps: [{ ...multiClassifier, maxChoices: 1 }, conflicting[1]],
+      }).success,
+    ).toBe(false);
+  });
+
   test("requires bounded, explicit inputs for previews and existing-message actions", () => {
     expect(previewIncomingAutomationMatchesInputSchema.safeParse({ scope: { mode: "all" } }).success).toBe(true);
     expect(

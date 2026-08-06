@@ -2,6 +2,7 @@ import { mutation } from "@k2b/stdlib/solid";
 import {
   Button,
   CodeDisplay,
+  confirmDiscardIfDirty,
   DataTable,
   type DataTableColumn,
   Dropdown,
@@ -108,14 +109,26 @@ const classificationPair = (
         instructions: "Choose the single best category for this message.",
         choices,
       };
-  const branchAction = nextMailAction(actions, catalog, branchActionOrder);
+  const available = mailAutomationActionKindsFor({ actions, catalog });
+  const singleFallback = nextMailAction(actions, catalog, branchActionOrder);
+  const caseSteps = (index: number): MailAutomationStep[] => {
+    if (many)
+      return index === 0 && available.includes("set_status") ? [mailActionStep({ kind: "set_status", status: "needs_action" })] : [];
+    if (available.includes("set_status")) {
+      return [mailActionStep({ kind: "set_status", status: index === 0 ? "needs_action" : "done" })];
+    }
+    return index === 0 && singleFallback ? [mailActionStep(singleFallback)] : [];
+  };
   return [
     classifier,
     {
       id: stepId(),
       kind: "branch",
       sourceStepId: classifier.id,
-      cases: choices.map((candidate) => ({ choiceId: candidate.id, steps: [defaultBranchAction(branchAction)] })),
+      cases: choices.flatMap((candidate, index) => {
+        const steps = caseSteps(index);
+        return steps.length > 0 ? [{ choiceId: candidate.id, steps }] : [];
+      }),
       fallback: [],
     },
   ];
@@ -159,7 +172,7 @@ const presetSteps = (preset: IncomingAutomationPreset, catalog: MailWorkflowCata
         },
       ];
     }
-    return classificationPair(true, catalog);
+    return [];
   }
   if (preset === "ai-draft") return draftPair(catalog);
   return [mailActionStep(initialMailAutomationAction("mark_read", catalog))];
@@ -320,31 +333,24 @@ function AutomationStepsEditor(props: {
   const syncBranches = (
     steps: MailAutomationStep[],
     source: Extract<MailAutomationStep, { kind: "ai_classify" | "ai_classify_many" }>,
-    branchAction: MailAutomationAction | null,
   ): MailAutomationStep[] =>
     steps.map((candidate) => {
       if (candidate.kind !== "branch") return candidate;
       const nested = {
         ...candidate,
-        cases: candidate.cases.map((branchCase) => ({ ...branchCase, steps: syncBranches(branchCase.steps, source, branchAction) })),
-        fallback: syncBranches(candidate.fallback, source, branchAction),
+        cases: candidate.cases.map((branchCase) => ({ ...branchCase, steps: syncBranches(branchCase.steps, source) })),
+        fallback: syncBranches(candidate.fallback, source),
       };
       if (candidate.sourceStepId !== source.id) return nested;
       return {
         ...nested,
-        cases: source.choices.map(
-          (item) =>
-            nested.cases.find((branchCase) => branchCase.choiceId === item.id) ?? {
-              choiceId: item.id,
-              steps: [defaultBranchAction(branchAction)],
-            },
-        ),
+        cases: nested.cases.filter((branchCase) => source.choices.some((choice) => choice.id === branchCase.choiceId)),
       };
     });
   const replace = (index: number, step: MailAutomationStep) => {
     let next = props.steps.map((candidate, candidateIndex) => (candidateIndex === index ? step : candidate));
     if (step.kind === "ai_classify" || step.kind === "ai_classify_many") {
-      next = syncBranches(next, step, nextMailAction(actionsBefore(index), props.catalog, branchActionOrder));
+      next = syncBranches(next, step);
     }
     props.onChange(next);
   };
@@ -373,6 +379,7 @@ function AutomationStepsEditor(props: {
     const actions = actionsBefore(props.steps.length);
     const nextAction = nextMailAction(actions, props.catalog, directActionOrder);
     const nextBranchAction = nextMailAction(actions, props.catalog, branchActionOrder);
+    const canAddMultiClassification = mailAutomationActionKindsFor({ actions, catalog: props.catalog }).includes("set_status");
     const textOutputs = outputs.filter(
       (step): step is Extract<MailAutomationStep, { kind: "ai_generate_text" }> => step.kind === "ai_generate_text",
     );
@@ -406,11 +413,15 @@ function AutomationStepsEditor(props: {
               icon: "ti ti-list-check",
               action: () => append(classificationPair(false, props.catalog, actions)),
             },
-            {
-              label: "AI classify many",
-              icon: "ti ti-tags",
-              action: () => append(classificationPair(true, props.catalog, actions)),
-            },
+            ...(canAddMultiClassification
+              ? [
+                  {
+                    label: "AI classify many",
+                    icon: "ti ti-tags",
+                    action: () => append(classificationPair(true, props.catalog, actions)),
+                  },
+                ]
+              : []),
           ]
         : []),
       ...(textOutputs.length > 0 && (props.catalog.senderIdentities ?? []).length > 0
@@ -567,13 +578,14 @@ function AutomationStepsEditor(props: {
                         onValueChange={(sourceStepId) => {
                           const nextSource = classifiers().find((candidate) => candidate.id === sourceStepId);
                           if (!nextSource) return;
+                          const branchAction = nextMailAction(actions(), props.catalog, branchActionOrder);
                           replace(index(), {
                             ...branch,
                             sourceStepId: nextSource.id,
-                            cases: nextSource.choices.map((candidate) => ({
-                              choiceId: candidate.id,
-                              steps: [defaultBranchAction(nextMailAction(actions(), props.catalog, branchActionOrder))],
-                            })),
+                            cases:
+                              branchAction && nextSource.choices[0]
+                                ? [{ choiceId: nextSource.choices[0].id, steps: [defaultBranchAction(branchAction)] }]
+                                : [],
                           });
                         }}
                         options={classifiers().map((candidate) => ({ id: candidate.id, label: outputLabel(candidate) }))}
@@ -581,6 +593,17 @@ function AutomationStepsEditor(props: {
                       <For each={source()?.choices ?? []}>
                         {(candidate) => {
                           const branchCase = () => branch.cases.find((item) => item.choiceId === candidate.id);
+                          const siblingActions = () => {
+                            const currentSource = source();
+                            if (currentSource?.kind !== "ai_classify_many") return [];
+                            return branch.cases
+                              .filter((item) => item.choiceId !== candidate.id)
+                              .flatMap((item) =>
+                                flattenSteps(item.steps).flatMap((nestedStep) =>
+                                  nestedStep.kind === "mail_action" ? [nestedStep.action] : [],
+                                ),
+                              );
+                          };
                           return (
                             <div class="border-l-2 border-[var(--ui-accent)] pl-3">
                               <div class="mb-2">
@@ -588,17 +611,24 @@ function AutomationStepsEditor(props: {
                                 <p class="text-[11px] text-dimmed">{candidate.description}</p>
                               </div>
                               <AutomationStepsEditor
-                                steps={branchCase()?.steps ?? [defaultBranchAction()]}
+                                steps={branchCase()?.steps ?? []}
                                 availableOutputs={outputs()}
-                                availableActions={actions()}
+                                availableActions={[...actions(), ...siblingActions()]}
                                 catalog={props.catalog}
+                                allowEmpty={branch.cases.length > 1 || !branchCase()}
                                 maxSteps={12}
-                                onChange={(steps) =>
+                                onChange={(steps) => {
+                                  if (steps.length === 0 && branch.cases.length === 1) return;
                                   replace(index(), {
                                     ...branch,
-                                    cases: branch.cases.map((item) => (item.choiceId === candidate.id ? { ...item, steps } : item)),
-                                  })
-                                }
+                                    cases:
+                                      steps.length === 0
+                                        ? branch.cases.filter((item) => item.choiceId !== candidate.id)
+                                        : branch.cases.some((item) => item.choiceId === candidate.id)
+                                          ? branch.cases.map((item) => (item.choiceId === candidate.id ? { ...item, steps } : item))
+                                          : [...branch.cases, { choiceId: candidate.id, steps }],
+                                  });
+                                }}
                               />
                             </div>
                           );
@@ -676,11 +706,28 @@ function IncomingAutomationEditor(props: {
     if (props.initialAction) return [mailActionStep(initialMailAutomationAction(props.initialAction, props.catalog))];
     return presetSteps(props.preset, props.catalog);
   };
-  const [name, setName] = createSignal(props.automation?.name ?? props.initialName ?? "");
-  const [enabled, setEnabled] = createSignal(props.automation?.enabled ?? false);
-  const [scope, setScope] = createSignal<MailAutomationScope>(props.automation?.scope ?? props.initialScope ?? { mode: "all" });
-  const [steps, setSteps] = createSignal<MailAutomationStep[]>(initialSteps());
+  const initialName = props.automation?.name ?? props.initialName ?? "";
+  const initialEnabled = props.automation?.enabled ?? false;
+  const initialScope = props.automation?.scope ?? props.initialScope ?? ({ mode: "all" } as const);
+  const initialStepList = initialSteps();
+  const initialMatchingConditions =
+    initialScope.mode === "matching" ? initialScope.conditions : { mode: "all" as const, items: [initialMailAutomationCondition()] };
+  const [name, setName] = createSignal(initialName);
+  const [enabled, setEnabled] = createSignal(initialEnabled);
+  const [scope, setScope] = createSignal<MailAutomationScope>(initialScope);
+  const [matchingConditions, setMatchingConditions] = createSignal(initialMatchingConditions);
+  const [steps, setSteps] = createSignal<MailAutomationStep[]>(initialStepList);
   const [applyExisting, setApplyExisting] = createSignal(false);
+  const [nameTouched, setNameTouched] = createSignal(false);
+  const baseline = JSON.stringify({
+    name: initialName,
+    enabled: initialEnabled,
+    scope: initialScope,
+    steps: initialStepList,
+    applyExisting: false,
+  });
+  const dirty = () =>
+    JSON.stringify({ name: name(), enabled: enabled(), scope: scope(), steps: steps(), applyExisting: applyExisting() }) !== baseline;
 
   const save = mutation.create<
     { automation: IncomingAutomation; backfill: IncomingAutomationBackfill | null; backfillError: string | null } | null,
@@ -752,11 +799,21 @@ function IncomingAutomationEditor(props: {
   });
 
   const validation = () => createIncomingAutomationSchema.safeParse({ name: name(), enabled: enabled(), scope: scope(), steps: steps() });
-  const validationMessage = () => {
+  const validationMessage = (field: "name" | "scope" | "steps") => {
+    if (field === "name" && !nameTouched()) return null;
     const result = validation();
-    return result.success ? null : (result.error.issues[0]?.message ?? "Complete the automation before saving.");
+    if (result.success) return null;
+    const issue = result.error.issues.find((candidate) => candidate.path[0] === field);
+    if (!issue) return null;
+    const stepIndex = field === "steps" && typeof issue.path[1] === "number" ? issue.path[1] : null;
+    if (field === "name") return "Enter a name.";
+    return stepIndex === null ? issue.message : `Step ${stepIndex + 1}: ${issue.message}`;
   };
   const usesAi = () => hasAi(steps());
+  const closeSafely = async () => {
+    if (save.loading()) return;
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
   onCleanup(() => save.abort());
 
   return (
@@ -765,7 +822,7 @@ function IncomingAutomationEditor(props: {
         title={props.automation ? "Edit incoming automation" : "Create incoming automation"}
         subtitle="Mix mail and AI building blocks in one top-to-bottom flow."
         icon="ti ti-mailbox"
-        close={props.close}
+        close={() => void closeSafely()}
         closeDisabled={save.loading()}
       />
       <PanelDialog.Body>
@@ -774,19 +831,21 @@ function IncomingAutomationEditor(props: {
           subtitle="New automations start inactive so you can review them safely."
           icon="ti ti-adjustments"
         >
-          <TextInput label="Name" value={name} onValueChange={setName} maxLength={120} required />
+          <TextInput
+            label="Name"
+            value={name}
+            onValueChange={setName}
+            onBlur={() => setNameTouched(true)}
+            error={() => validationMessage("name")}
+            maxLength={120}
+            required
+          />
         </PanelDialog.Section>
         <PanelDialog.Section title="When" subtitle="Run for every incoming message or only when conditions match." icon="ti ti-filter">
           <Select
             label="Incoming messages"
             value={() => scope().mode}
-            onValueChange={(mode) =>
-              setScope(
-                mode === "all"
-                  ? { mode: "all" }
-                  : { mode: "matching", conditions: { mode: "all", items: [initialMailAutomationCondition()] } },
-              )
-            }
+            onValueChange={(mode) => setScope(mode === "all" ? { mode: "all" } : { mode: "matching", conditions: matchingConditions() })}
             options={[
               { id: "all", label: "All incoming mail", icon: "ti ti-mailbox" },
               { id: "matching", label: "Mail matching conditions", icon: "ti ti-filter" },
@@ -795,8 +854,18 @@ function IncomingAutomationEditor(props: {
           <Show when={scope().mode === "matching"}>
             <MailAutomationConditionsEditor
               conditions={(scope() as Extract<MailAutomationScope, { mode: "matching" }>).conditions}
-              onChange={(conditions) => setScope({ mode: "matching", conditions })}
+              onChange={(conditions) => {
+                setMatchingConditions(conditions);
+                setScope({ mode: "matching", conditions });
+              }}
             />
+          </Show>
+          <Show when={validationMessage("scope")}>
+            {(message) => (
+              <p class="text-xs text-red-600 dark:text-red-400" role="alert">
+                {message()}
+              </p>
+            )}
           </Show>
         </PanelDialog.Section>
         <PanelDialog.Section
@@ -805,7 +874,7 @@ function IncomingAutomationEditor(props: {
           icon="ti ti-route"
         >
           <AutomationStepsEditor steps={steps()} availableOutputs={[]} availableActions={[]} catalog={props.catalog} onChange={setSteps} />
-          <Show when={validationMessage()}>
+          <Show when={validationMessage("steps")}>
             {(message) => (
               <p class="text-xs text-red-600 dark:text-red-400" role="alert">
                 {message()}
@@ -865,7 +934,7 @@ function IncomingAutomationEditor(props: {
           {enabled() ? "Applies to newly received messages." : "Saved inactive for review."}
         </span>
         <div class="flex items-center gap-2">
-          <Button type="button" size="sm" variant="secondary" disabled={save.loading()} onClick={props.close}>
+          <Button type="button" size="sm" variant="secondary" disabled={save.loading()} onClick={() => void closeSafely()}>
             Cancel
           </Button>
           <Button type="button" size="sm" disabled={!validation().success || save.loading()} onClick={() => save.mutate()}>
@@ -905,6 +974,10 @@ export const openIncomingAutomationEditor = (params: {
       await prompts.error("Verify a sender identity and allow mailbox automation before creating AI reply drafts.");
       return;
     }
+    if (params.preset === "ai-tag" && (catalog.localTags ?? []).length < 2) {
+      await prompts.error("Create at least two local tags before using AI to add relevant tags.");
+      return;
+    }
     return dialogCore.open<void>(
       (close) => (
         <IncomingAutomationEditor
@@ -920,7 +993,7 @@ export const openIncomingAutomationEditor = (params: {
           onBackfillStarted={(backfill) => params.onBackfillStarted?.(backfill)}
         />
       ),
-      panelDialogFixedOptions,
+      { ...panelDialogFixedOptions, cancelBehavior: "ignore" },
     );
   };
   return open();
@@ -943,6 +1016,11 @@ export default function MailIncomingAutomationSettings(props: {
   const rememberBackfill = (backfill: IncomingAutomationBackfill) => {
     setBackfills((current) => ({ ...current, [backfill.automationId]: backfill }));
     setLoadedBackfills((current) => new Set(current).add(backfill.automationId));
+  };
+  const backfillLocksAutomation = (automation: IncomingAutomation): boolean => {
+    const backfill = backfills()[automation.id];
+    if (automation.latestBackfillOperationId && !loadedBackfills().has(automation.id)) return true;
+    return Boolean(backfill && activeBackfillStates.has(backfill.state));
   };
 
   const toggle = mutation.create<IncomingAutomation, { automation: IncomingAutomation; enabled: boolean }>({
@@ -1047,6 +1125,7 @@ export default function MailIncomingAutomationSettings(props: {
 
   let disposed = false;
   let polling = false;
+  let restoring = false;
   const refreshBackfills = async () => {
     if (polling) return;
     const active = Object.values(backfills()).filter((backfill) => activeBackfillStates.has(backfill.state));
@@ -1069,37 +1148,43 @@ export default function MailIncomingAutomationSettings(props: {
     }
   };
   const restoreBackfills = async () => {
-    await Promise.all(
-      props.initialAutomations.flatMap((automation) =>
-        automation.latestBackfillOperationId
-          ? [
-              (async () => {
-                try {
-                  const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills[
-                    ":operationId"
-                  ].$get({
-                    param: {
-                      mailboxId: props.mailboxId,
-                      automationId: automation.id,
-                      operationId: automation.latestBackfillOperationId!,
-                    },
-                  });
-                  if (response.ok && !disposed) rememberBackfill(await response.json());
-                } catch {
-                  // Backfill history has bounded retention.
-                } finally {
-                  if (!disposed) setLoadedBackfills((current) => new Set(current).add(automation.id));
-                }
-              })(),
-            ]
-          : [],
-      ),
+    if (restoring) return;
+    const pending = props.initialAutomations.filter(
+      (automation) => automation.latestBackfillOperationId && !loadedBackfills().has(automation.id),
     );
+    if (pending.length === 0) return;
+    restoring = true;
+    try {
+      await Promise.all(
+        pending.map(async (automation) => {
+          try {
+            const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills[
+              ":operationId"
+            ].$get({
+              param: {
+                mailboxId: props.mailboxId,
+                automationId: automation.id,
+                operationId: automation.latestBackfillOperationId!,
+              },
+            });
+            if (response.ok && !disposed) rememberBackfill(await response.json());
+            else if (response.status === 404 && !disposed) setLoadedBackfills((current) => new Set(current).add(automation.id));
+          } catch {
+            // Keep the automation locked and retry transient failures.
+          }
+        }),
+      );
+    } finally {
+      restoring = false;
+    }
   };
   let timer: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
     void restoreBackfills();
-    timer = setInterval(() => void refreshBackfills(), 1_500);
+    timer = setInterval(() => {
+      void restoreBackfills();
+      void refreshBackfills();
+    }, 1_500);
     if (props.openPreset) {
       void (async () => {
         await waitForMailPageTransition();
@@ -1169,9 +1254,14 @@ export default function MailIncomingAutomationSettings(props: {
           if (col.id === "enabled") {
             return (
               <Switch
-                label={row.enabled ? "Enabled" : "Disabled"}
+                label={
+                  <>
+                    <span aria-hidden="true">{row.enabled ? "Enabled" : "Disabled"}</span>
+                    <span class="sr-only">{`${row.enabled ? "Disable" : "Enable"} ${row.name}`}</span>
+                  </>
+                }
                 value={() => row.enabled}
-                disabled={toggle.loading()}
+                disabled={toggle.loading() || backfillLocksAutomation(row)}
                 onValueChange={(enabled) => toggle.mutate({ automation: row, enabled })}
               />
             );
@@ -1192,23 +1282,27 @@ export default function MailIncomingAutomationSettings(props: {
           }
           if (col.id === "menu") {
             const backfill = backfills()[row.id];
-            const active = Boolean(backfill && activeBackfillStates.has(backfill.state));
+            const active = backfillLocksAutomation(row);
             return (
               <Dropdown.Root
                 position="bottom-left"
                 items={[
-                  {
-                    label: "Edit automation",
-                    icon: "ti ti-pencil",
-                    action: () =>
-                      void openIncomingAutomationEditor({
-                        mailboxId: props.mailboxId,
-                        catalog: props.catalog,
-                        automation: row,
-                        onSaved: upsert,
-                        onBackfillStarted: rememberBackfill,
-                      }),
-                  },
+                  ...(!active
+                    ? [
+                        {
+                          label: "Edit automation",
+                          icon: "ti ti-pencil",
+                          action: () =>
+                            void openIncomingAutomationEditor({
+                              mailboxId: props.mailboxId,
+                              catalog: props.catalog,
+                              automation: row,
+                              onSaved: upsert,
+                              onBackfillStarted: rememberBackfill,
+                            }),
+                        },
+                      ]
+                    : []),
                   ...(row.enabled && !hasAi(row.steps) && !active
                     ? [
                         {
@@ -1228,12 +1322,16 @@ export default function MailIncomingAutomationSettings(props: {
                         },
                       ]
                     : []),
-                  {
-                    label: "Delete automation",
-                    icon: "ti ti-trash",
-                    variant: "danger" as const,
-                    action: () => remove.mutate(row),
-                  },
+                  ...(!active
+                    ? [
+                        {
+                          label: "Delete automation",
+                          icon: "ti ti-trash",
+                          variant: "danger" as const,
+                          action: () => remove.mutate(row),
+                        },
+                      ]
+                    : []),
                 ]}
               >
                 <Dropdown.Trigger iconOnly size="sm" type="button" variant="ghost" label={`Actions for ${row.name}`}>

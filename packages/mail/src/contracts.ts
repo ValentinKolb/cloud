@@ -2051,7 +2051,7 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
               })
               .strict(),
           )
-          .min(2)
+          .min(1)
           .max(10),
         fallback: z.array(mailAutomationStepSchema).max(12),
       })
@@ -2069,7 +2069,9 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
 
 const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.RefinementCtx): void => {
   type AutomationOutputStep = Extract<MailAutomationStep, { kind: "ai_generate_text" | "ai_classify" | "ai_classify_many" }>;
+  type AutomationClassifierStep = Extract<AutomationOutputStep, { kind: "ai_classify" | "ai_classify_many" }>;
   const ids = new Set<string>();
+  const classifiers = new Map<string, AutomationClassifierStep>();
   let total = 0;
   let aiCalls = 0;
   const visit = (
@@ -2090,6 +2092,7 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
       ids.add(step.id);
       if (step.kind.startsWith("ai_")) aiCalls += 1;
       if (step.kind === "ai_classify" || step.kind === "ai_classify_many") {
+        classifiers.set(step.id, step);
         const choiceIds = new Set<string>();
         const choiceNames = new Set<string>();
         step.choices.forEach((choice, choiceIndex) => {
@@ -2100,7 +2103,7 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
               path: [...stepPath, "choices", choiceIndex, "id"],
             });
           }
-          const name = choice.name.toLocaleLowerCase();
+          const name = choice.name.toLowerCase();
           if (choiceNames.has(name)) {
             context.addIssue({
               code: "custom",
@@ -2142,9 +2145,6 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
           cases.add(branchCase.choiceId);
           visit(branchCase.steps, current, [...stepPath, "cases", caseIndex, "steps"], depth + 1);
         });
-        if (expected.size > 0 && cases.size !== expected.size) {
-          context.addIssue({ code: "custom", message: "Add one branch for every AI choice", path: [...stepPath, "cases"] });
-        }
         visit(step.fallback, current, [...stepPath, "fallback"], depth + 1);
       }
       if (step.kind === "create_reply_draft" && current.get(step.sourceStepId)?.kind !== "ai_generate_text") {
@@ -2205,13 +2205,29 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
         );
       }
       if (step.kind === "branch") {
-        const alternatives = [
-          ...step.cases.map((branchCase, caseIndex) =>
-            validateActionPaths(branchCase.steps, states, [...stepPath, "cases", caseIndex, "steps"]),
-          ),
-          step.fallback.length > 0 ? validateActionPaths(step.fallback, states, [...stepPath, "fallback"]) : states,
-        ];
-        states = uniqueStates(alternatives.flat());
+        const classifier = classifiers.get(step.sourceStepId);
+        if (classifier?.kind === "ai_classify_many") {
+          const noMatchStates = states;
+          let matchedStates = states;
+          step.cases.forEach((branchCase, caseIndex) => {
+            matchedStates = uniqueStates([
+              ...matchedStates,
+              ...validateActionPaths(branchCase.steps, matchedStates, [...stepPath, "cases", caseIndex, "steps"]),
+            ]);
+          });
+          states = uniqueStates([
+            ...matchedStates,
+            ...(step.fallback.length > 0 ? validateActionPaths(step.fallback, noMatchStates, [...stepPath, "fallback"]) : noMatchStates),
+          ]);
+        } else {
+          const alternatives = [
+            ...step.cases.map((branchCase, caseIndex) =>
+              validateActionPaths(branchCase.steps, states, [...stepPath, "cases", caseIndex, "steps"]),
+            ),
+            step.fallback.length > 0 ? validateActionPaths(step.fallback, states, [...stepPath, "fallback"]) : states,
+          ];
+          states = uniqueStates(alternatives.flat());
+        }
       }
     });
     return states;

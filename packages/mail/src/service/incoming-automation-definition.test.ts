@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import type { MailAutomationStep } from "../contracts";
+import { bindMailWorkflow } from "../workflows/binder";
+import { buildMailWorkflowCatalog } from "../workflows/catalog";
 import { mailWorkflows } from "../workflows/module";
 import { buildIncomingAutomationWorkflowSource, incomingAutomationBudget, incomingAutomationHasAi } from "./incoming-automation-definition";
 
@@ -81,5 +83,55 @@ describe("incoming automation workflow compiler", () => {
     expect(source).toContain("createReplyDraft:");
     expect(source).toContain("{{ step_00000000000040008000000000000020 }}");
     expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
+  });
+
+  test("compiles sparse multi-classification branches", async () => {
+    const source = buildIncomingAutomationWorkflowSource({
+      scope: { mode: "all" },
+      steps: [
+        {
+          id: classifyId,
+          kind: "ai_classify_many",
+          instructions: "Choose every matching category",
+          choices: [
+            { id: importantId, name: "Important", description: "Needs attention" },
+            { id: routineId, name: "Routine", description: "Routine mail" },
+          ],
+          maxChoices: 2,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000030",
+          kind: "branch",
+          sourceStepId: classifyId,
+          cases: [
+            {
+              choiceId: importantId,
+              steps: [
+                {
+                  id: "00000000-0000-4000-8000-000000000031",
+                  kind: "mail_action",
+                  action: { kind: "set_status", status: "needs_action" },
+                },
+              ],
+            },
+          ],
+          fallback: [],
+        },
+      ],
+    });
+    expect(source).toContain("aiClassifyMany:");
+    expect(source).toContain("includes:");
+    const compiled = await compileWorkflow(source, mailWorkflows);
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) {
+      expect(
+        (
+          await bindMailWorkflow(
+            compiled.ir,
+            buildMailWorkflowCatalog({ folders: [], assignableUsers: [], senderIdentities: [], localTags: [] }),
+          )
+        ).ok,
+      ).toBe(true);
+    }
   });
 });

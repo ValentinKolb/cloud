@@ -74,6 +74,8 @@ const attributeString = (span: TraceSpan, key: string): string | null => {
   return typeof value === "string" ? value : null;
 };
 
+export const mailBackfillWorkflowId = (span: TraceSpan): string | null => attributeString(span, "mail.workflow.id");
+
 export const projectMailBackfillActivity = (params: {
   mailboxId: string;
   span: TraceSpan;
@@ -86,7 +88,9 @@ export const projectMailBackfillActivity = (params: {
   const status: MailAutomationActivityStatus = span.endedAt
     ? span.status === "error" || summaryStatus === "failed"
       ? "failed"
-      : "completed"
+      : summaryStatus === "canceled"
+        ? "canceled"
+        : "completed"
     : "running";
   return {
     id: `backfill:${span.traceId}:${span.spanId}`,

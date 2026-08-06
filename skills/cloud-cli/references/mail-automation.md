@@ -102,41 +102,64 @@ Schedule rules are evaluated in `timeZone`:
 
 Mail also suppresses unsafe automatic responses such as bulk mail, mailing-list mail, delivery-status notifications, self-mail, and messages that request no automatic reply.
 
-## Manage guided mail rules
+## Manage incoming automations
 
-Mail rules are managed workflows with a narrow, reviewable contract:
+Incoming automations are guided managed workflows. One definition can match all incoming mail or a set of conditions, then mix direct Mail actions with AI steps and branches:
 
 ```bash
-cld --json mail rule catalog
-cld --json mail rule list
-cld --json mail rule create \
-  --name "Route customer mail" \
-  --condition sender:is:customer@example.com \
-  --condition subject:contains:invoice \
-  --action move_to_folder:<folder-id> \
-  --action add_local_tag:<tag-id> \
-  --action assign_user:<user-id> \
-  --action set_status:needs_action
-cld --json mail rule get <rule-id>
-cld --json mail rule update <rule-id> --revision <revision> --action junk
-cld mail rule delete <rule-id> --revision <revision> --yes
+cld --json mail automation catalog
+cld --json mail automation list
+cld --json mail automation create --definition-file automation.yaml
+cld --json mail automation get <automation-id>
+cld --json mail automation update <automation-id> --revision <revision> --definition-file automation.yaml
+cld mail automation delete <automation-id> --revision <revision> --yes
 ```
 
-Repeat `--condition` and choose `--match-mode all|any`. Supported conditions are exact sender/domain, subject or body text with `is`, `contains`, `starts_with`, or `ends_with`, and attachment presence. Repeat `--action` in execution order. A guided rule accepts at most one provider message action: `junk`, `trash`, `mark_read`, `add_keyword:<keyword>`, or `move_to_folder:<folder-id>`. It can additionally add distinct Cloud tags with `add_local_tag:<tag-id>`, assign one user with `assign_user:<user-id>`, and set one status with `set_status:<needs_action|waiting|done>`. `rule catalog` returns the mailbox-scoped folder, tag, and user ids accepted by these actions. Passing any `--condition` or `--action` during update replaces that complete set; omit it to retain the current set.
+`automation.yaml` is the complete definition. Updates must explicitly retain or change `enabled`:
 
-Rules and sender-wide actions apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive rules must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `rule get` exposes the exact generated workflow YAML.
+```yaml
+name: Triage incoming mail
+enabled: false
+scope:
+  mode: all
+steps:
+  - id: 00000000-0000-4000-8000-000000000001
+    kind: ai_classify
+    instructions: Choose the single best category.
+    choices:
+      - id: 00000000-0000-4000-8000-000000000002
+        name: Important
+        description: Needs personal attention.
+      - id: 00000000-0000-4000-8000-000000000003
+        name: Routine
+        description: Can be handled as routine mail.
+  - id: 00000000-0000-4000-8000-000000000004
+    kind: branch
+    sourceStepId: 00000000-0000-4000-8000-000000000001
+    cases:
+      - choiceId: 00000000-0000-4000-8000-000000000002
+        steps:
+          - id: 00000000-0000-4000-8000-000000000005
+            kind: mail_action
+            action: { kind: set_status, status: needs_action }
+    fallback: []
+```
+
+Use `mode: matching` with a condition set for sender, domain, subject, body, or attachment filters. Direct actions can move mail, mark it read, add a keyword or local tag, assign a user, or set collaboration status. AI steps can generate text, classify once, or select multiple labels; a later step can create a reply draft from generated text. `automation catalog` returns the mailbox-scoped folder, tag, user, and sender-identity ids accepted by the definition.
+
+Automations and sender-wide actions apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive flows must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `automation get` exposes the exact generated workflow YAML.
 
 Preview sender-scoped work before changing existing messages:
 
 ```bash
 cld --json mail sender preview --match sender --value news@example.com
 cld --json mail sender mark-read --match domain --value example.com --idempotency-key <stable-key> --yes
-cld --json mail rule backfill start <rule-id> --revision <revision> --yes
-cld --json mail rule backfill status <rule-id> <operation-id>
-cld --json mail rule backfill cancel <rule-id> <operation-id> --yes
+cld --json mail automation backfill start <automation-id> --revision <revision> --yes
+cld --json mail automation backfill status <automation-id> <operation-id>
+cld --json mail automation backfill cancel <automation-id> <operation-id> --yes
 ```
 
-`sender mark-read` is a bounded interactive action for at most 100 matches. It uses the durable command outbox and accepts `--idempotency-key`, so an agent retry returns the original batch. A rule backfill instead walks every candidate message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. Starting another backfill is safe: messages already accepted for the rule's current immutable workflow version are skipped. Update, delete, and backfill start require the revision shown by `rule get`; they refuse stale state instead of silently adopting the latest revision.
+`sender mark-read` is a bounded interactive action for at most 100 matches. It uses the durable command outbox and accepts `--idempotency-key`, so an agent retry returns the original batch. A non-AI automation backfill instead walks every candidate message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. AI flows intentionally process only future mail. Cancel an active backfill before editing, disabling, or deleting its automation. Mutations require the revision shown by `automation get`; they refuse stale state instead of silently adopting the latest revision.
 
 ## Configure conversation references
 

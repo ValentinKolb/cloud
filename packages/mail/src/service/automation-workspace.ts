@@ -10,13 +10,14 @@ import type { AutomaticReplyConfiguration } from "./automatic-reply-configuratio
 import * as automaticReplies from "./automatic-reply-configuration";
 import {
   type MailAutomationActivityItem,
+  mailBackfillWorkflowId,
   projectMailBackfillActivity,
   projectMailWorkflowActivity,
   summarizeMailAutomationActivity,
 } from "./automation-activity";
 import type { ConversationReferenceConfiguration } from "./conversation-reference";
 import * as conversationReferences from "./conversation-reference";
-import type { IncomingAutomation } from "./incoming-automations";
+import type { IncomingAutomation, IncomingAutomationActivityMetadata } from "./incoming-automations";
 import * as incomingAutomations from "./incoming-automations";
 import * as mailboxes from "./mailboxes";
 import * as senderIdentities from "./sender-identities";
@@ -95,9 +96,9 @@ const customWorkflows = (
 };
 
 const loadActivityItems = async (
+  context: MailRequestContext,
   mailboxId: string,
   replies: AutomaticReplyConfiguration[],
-  automations: IncomingAutomation[],
   limit = 200,
 ): Promise<MailAutomationActivityItem[]> => {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000);
@@ -117,6 +118,15 @@ const loadActivityItems = async (
     ),
   ]);
   const replyWorkflowIds = new Set(replies.map((configuration) => configuration.workflowId));
+  const automationResult = await incomingAutomations.listIncomingAutomationActivityMetadata(context, mailboxId, [
+    ...runs.map((run) => run.workflowId),
+    ...backfills.spans.flatMap((span) => {
+      const workflowId = mailBackfillWorkflowId(span);
+      return workflowId ? [workflowId] : [];
+    }),
+  ]);
+  if (!automationResult.ok) throw new Error(automationResult.error.message);
+  const automations: IncomingAutomationActivityMetadata[] = automationResult.data;
   const incomingAutomationWorkflowIds = new Set(automations.map((automation) => automation.workflowId));
   const automationNames = new Map(automations.map((automation) => [automation.id, automation.name]));
   const workflowNames = new Map([
@@ -160,7 +170,7 @@ export const loadMailAutomationOverview = async (
   ]);
   if (!automationResult.ok) return fail(automationResult.error);
   if (!workflowResult.ok) return fail(workflowResult.error);
-  const recentActivity = await loadActivityItems(mailboxId, replyResult.data, automationResult.data, 8).catch((error) => {
+  const recentActivity = await loadActivityItems(context, mailboxId, replyResult.data, 8).catch((error) => {
     log.warn("Failed to load recent Mail automation activity", {
       mailboxId,
       error: error instanceof Error ? error.message : String(error),
@@ -248,15 +258,11 @@ export const loadMailAutomationActivity = async (
 ): Promise<Result<MailAutomationActivityData>> => {
   const accessResult = await loadAdminAccess(context, mailboxId);
   if (!accessResult.ok) return accessResult;
-  const [replyResult, automationResult] = await Promise.all([
-    automaticReplies.listAutomaticReplyConfigurations(context, mailboxId),
-    incomingAutomations.listIncomingAutomations(context, mailboxId),
-  ]);
+  const replyResult = await automaticReplies.listAutomaticReplyConfigurations(context, mailboxId);
   if (!replyResult.ok) return fail(replyResult.error);
-  if (!automationResult.ok) return fail(automationResult.error);
   let items: MailAutomationActivityItem[];
   try {
-    items = await loadActivityItems(mailboxId, replyResult.data, automationResult.data);
+    items = await loadActivityItems(context, mailboxId, replyResult.data);
   } catch (error) {
     log.error("Failed to load Mail automation activity", {
       mailboxId,

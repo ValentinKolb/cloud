@@ -8,6 +8,7 @@ import type { MailRequestContext } from "./auth";
 import {
   createIncomingAutomation,
   deleteIncomingAutomation,
+  listIncomingAutomationActivityMetadata,
   listIncomingAutomations,
   setIncomingAutomationEnabled,
   startIncomingAutomationBackfill,
@@ -183,5 +184,60 @@ suite("incoming automations", () => {
       input: { expectedRevision: updated.data.revision },
     });
     expect(deleted.ok).toBe(true);
+    const activityMetadata = await listIncomingAutomationActivityMetadata(ownerContext, mailboxId, [updated.data.workflowId]);
+    expect(activityMetadata.ok && activityMetadata.data).toContainEqual({
+      id: updated.data.id,
+      workflowId: updated.data.workflowId,
+      name: updated.data.name,
+    });
+
+    const destructive = await createIncomingAutomation({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Overlapping junk",
+        enabled: true,
+        scope: {
+          mode: "matching",
+          conditions: {
+            mode: "any",
+            items: [
+              { field: "sender_address", operator: "is", value: "first@example.test" },
+              { field: "sender_address", operator: "is", value: "shared@example.test" },
+            ],
+          },
+        },
+        steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "junk" } }],
+      },
+    });
+    expect(destructive.ok).toBe(true);
+    if (!destructive.ok) return;
+    const conflict = await createIncomingAutomation({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Overlapping trash",
+        enabled: true,
+        scope: {
+          mode: "matching",
+          conditions: {
+            mode: "any",
+            items: [
+              { field: "sender_address", operator: "is", value: "other@example.test" },
+              { field: "sender_address", operator: "is", value: "shared@example.test" },
+            ],
+          },
+        },
+        steps: [{ id: crypto.randomUUID(), kind: "mail_action", action: { kind: "trash" } }],
+      },
+    });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.error.message).toContain("Overlapping junk");
+    await deleteIncomingAutomation({
+      context: ownerContext,
+      mailboxId,
+      automationId: destructive.data.id,
+      input: { expectedRevision: destructive.data.revision },
+    });
   });
 });

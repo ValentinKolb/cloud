@@ -4314,6 +4314,11 @@ test("incoming automation CRUD accepts complete mixed-flow definitions and prese
     ["--json", "mail", "automation", "update", INCOMING_AUTOMATION_ID, "--mailbox", MAILBOX_ID, "--revision", "2", "--definition-stdin"],
     JSON.stringify(definition),
   );
+  const missingEnabled = await runCli(
+    origin,
+    ["--json", "mail", "automation", "update", INCOMING_AUTOMATION_ID, "--mailbox", MAILBOX_ID, "--revision", "3", "--definition-stdin"],
+    JSON.stringify({ name: definition.name, scope: definition.scope, steps: definition.steps }),
+  );
   const deleted = await runCli(origin, [
     "--json",
     "mail",
@@ -4334,6 +4339,8 @@ test("incoming automation CRUD accepts complete mixed-flow definitions and prese
   expect(JSON.parse(updated.stdout)).toMatchObject({ name: "Updated sender", enabled: false, revision: 4 });
   expect(stale.exitCode).toBe(1);
   expect(stale.stderr).toContain("Incoming automation is at revision 3, not 2");
+  expect(missingEnabled.exitCode).toBe(1);
+  expect(missingEnabled.stderr).toContain("must explicitly set enabled");
   expect(JSON.parse(deleted.stdout)).toMatchObject({ id: INCOMING_AUTOMATION_ID, revision: 3 });
   expect(mutations).toEqual([
     {
