@@ -1435,6 +1435,8 @@ export default function MailWorkspace(props: {
                   reference={data.selectedReference}
                   subject={data.selectedSubject}
                   messages={data.detailMessages}
+                  conversationSummary={data.conversationSummary}
+                  conversationDrafts={data.conversationDrafts}
                   totalMessageCount={selectedListItem()?.messageCount ?? data.detailMessages.length}
                   error={data.detailError}
                   dateConfig={props.dateConfig}

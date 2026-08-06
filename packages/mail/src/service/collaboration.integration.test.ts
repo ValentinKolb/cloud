@@ -15,10 +15,11 @@ import {
   updateConversationComment,
 } from "./collaboration";
 import type { ConnectorEnvelope } from "./connectors";
+import { getConversationSummary, updateConversationSummary } from "./conversation-summary";
+import { latestMailCollaborationEventCursor, liveMailCollaborationEvents } from "./events";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { getConversationViewCounts, listConversations } from "./messages";
-import { latestMailCollaborationEventCursor, liveMailCollaborationEvents } from "./events";
 import { ingestEnvelope } from "./sync-runtime";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
@@ -412,4 +413,35 @@ suite("mail collaboration backend", () => {
     const outsiderRead = await listActivity({ context: outsiderContext, mailboxId });
     expect(outsiderRead.ok).toBe(false);
   }, 30_000);
+
+  test("keeps editable summaries on an independent optimistic revision", async () => {
+    const initial = await getConversationSummary({ context: writerContext, mailboxId, conversationId });
+    expect(initial.ok && initial.data).toMatchObject({ summary: null, summaryRevision: 1 });
+
+    const denied = await updateConversationSummary({
+      context: readerContext,
+      mailboxId,
+      conversationId,
+      input: { expectedSummaryRevision: 1, summary: "Reader edit" },
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.status).toBe(403);
+
+    const updated = await updateConversationSummary({
+      context: writerContext,
+      mailboxId,
+      conversationId,
+      input: { expectedSummaryRevision: 1, summary: "Current customer context" },
+    });
+    expect(updated.ok && updated.data).toMatchObject({ summary: "Current customer context", summaryRevision: 2 });
+
+    const stale = await updateConversationSummary({
+      context: ownerContext,
+      mailboxId,
+      conversationId,
+      input: { expectedSummaryRevision: 1, summary: "Stale replacement" },
+    });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.status).toBe(409);
+  });
 });

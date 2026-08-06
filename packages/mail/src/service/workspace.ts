@@ -1,6 +1,7 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { z } from "zod";
 import {
+  type ConversationDraftSummary,
   type ConversationView,
   conversationViewSchema,
   type Mailbox,
@@ -13,6 +14,9 @@ import type { MailRequestContext } from "./auth";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./collaboration";
 import * as collaboration from "./collaboration";
 import * as conversationReferences from "./conversation-reference";
+import type { ConversationContentSummary } from "./conversation-summary";
+import * as conversationSummaries from "./conversation-summary";
+import * as drafts from "./drafts";
 import { latestMailCollaborationEventCursor } from "./events";
 import type { ConversationLocalTags, LocalTag } from "./local-tags";
 import * as localTags from "./local-tags";
@@ -105,6 +109,8 @@ export type MailboxPageData = {
   listError: string | null;
   listTitle: string;
   detailMessages: MessageDetail[];
+  conversationSummary: ConversationContentSummary | null;
+  conversationDrafts: ConversationDraftSummary[];
   detailError: string | null;
   collaborationState: ConversationCollaboration | null;
   localTags: LocalTag[];
@@ -127,11 +133,15 @@ export type MailDetailErrors = {
   activity: string | null;
   reminder: string | null;
   reference: string | null;
+  summary: string | null;
+  drafts: string | null;
 };
 
 export type MailSelectionDetail = Pick<
   MailboxPageData,
   | "detailMessages"
+  | "conversationSummary"
+  | "conversationDrafts"
   | "detailError"
   | "collaborationState"
   | "conversationLocalTags"
@@ -152,10 +162,14 @@ const EMPTY_DETAIL_ERRORS: MailDetailErrors = {
   activity: null,
   reminder: null,
   reference: null,
+  summary: null,
+  drafts: null,
 };
 
 const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   detailMessages: [],
+  conversationSummary: null,
+  conversationDrafts: [],
   detailError: null,
   collaborationState: null,
   conversationLocalTags: null,
@@ -226,24 +240,38 @@ const loadConversationDetails = async (params: {
   conversationId: string;
   preferredFolderId?: string | null;
 }) => {
-  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult, referenceResult] =
-    await Promise.all([
-      messages.listConversationMessageDetails({ ...params, limit: 100 }),
-      collaboration.getConversationCollaboration(params),
-      localTags.getConversationLocalTags(params),
-      collaboration.listConversationComments({ ...params, limit: 100, order: "newest" }),
-      collaboration.listAssignableUsers({
-        context: params.context,
-        mailboxId: params.mailboxId,
-        limit: 200,
-      }),
-      collaboration.listActivity({ ...params, limit: 30 }),
-      reminders.getConversationReminder(params),
-      conversationReferences.listConversationReferences(params),
-    ]);
+  const [
+    detailResult,
+    stateResult,
+    tagResult,
+    commentsResult,
+    usersResult,
+    activityResult,
+    reminderResult,
+    referenceResult,
+    summaryResult,
+    draftsResult,
+  ] = await Promise.all([
+    messages.listConversationMessageDetails({ ...params, limit: 100 }),
+    collaboration.getConversationCollaboration(params),
+    localTags.getConversationLocalTags(params),
+    collaboration.listConversationComments({ ...params, limit: 100, order: "newest" }),
+    collaboration.listAssignableUsers({
+      context: params.context,
+      mailboxId: params.mailboxId,
+      limit: 200,
+    }),
+    collaboration.listActivity({ ...params, limit: 30 }),
+    reminders.getConversationReminder(params),
+    conversationReferences.listConversationReferences(params),
+    conversationSummaries.getConversationSummary(params),
+    drafts.listConversationDrafts({ ...params, limit: 20 }),
+  ]);
 
   return {
     detailMessages: detailResult.ok ? detailResult.data : [],
+    conversationSummary: summaryResult.ok ? summaryResult.data : null,
+    conversationDrafts: draftsResult.ok ? draftsResult.data : [],
     detailError: detailResult.ok ? null : detailResult.error.message,
     collaborationState: stateResult.ok ? stateResult.data : null,
     conversationLocalTags: tagResult.ok ? tagResult.data : null,
@@ -260,6 +288,8 @@ const loadConversationDetails = async (params: {
       activity: activityResult.ok ? null : activityResult.error.message,
       reminder: reminderResult.ok ? null : reminderResult.error.message,
       reference: referenceResult.ok ? null : referenceResult.error.message,
+      summary: summaryResult.ok ? null : summaryResult.error.message,
+      drafts: draftsResult.ok ? null : draftsResult.error.message,
     },
     selectedReference: referenceResult.ok
       ? ((referenceResult.data.find((reference) => reference.role === "primary") ?? referenceResult.data[0])?.value ?? null)

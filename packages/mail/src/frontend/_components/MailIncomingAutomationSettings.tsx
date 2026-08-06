@@ -1,6 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   CodeDisplay,
   confirmDiscardIfDirty,
@@ -9,6 +8,7 @@ import {
   Dropdown,
   dialogCore,
   IconButton,
+  NoticeCard,
   NumberInput,
   PanelDialog,
   panelDialogWideOptions,
@@ -91,7 +91,7 @@ type AutomationOutput = {
   choices: string[];
 };
 
-type AutomationContentStep = Extract<MailAutomationStep, { kind: "create_reply_draft" | "add_comment" }>;
+type AutomationContentStep = Extract<MailAutomationStep, { kind: "create_reply_draft" | "add_comment" | "set_summary" }>;
 type AutomationTextSource = AutomationContentStep["body"];
 
 const customTextSource = (): AutomationTextSource => ({ kind: "custom", value: "" });
@@ -131,7 +131,7 @@ const outputReferencesResolve = (steps: readonly MailAutomationStep[], inherited
   const available = new Set(inherited);
   for (const step of steps) {
     if (
-      (step.kind === "create_reply_draft" || step.kind === "add_comment") &&
+      (step.kind === "create_reply_draft" || step.kind === "add_comment" || step.kind === "set_summary") &&
       step.body.kind === "step_output" &&
       !available.has(step.body.sourceStepId)
     )
@@ -218,6 +218,12 @@ const replyDraftStep = (
 const commentStep = (sourceStepId?: string): Extract<MailAutomationStep, { kind: "add_comment" }> => ({
   id: stepId(),
   kind: "add_comment",
+  body: sourceStepId ? outputTextSource(sourceStepId) : customTextSource(),
+});
+
+const summaryStep = (sourceStepId?: string): Extract<MailAutomationStep, { kind: "set_summary" }> => ({
+  id: stepId(),
+  kind: "set_summary",
   body: sourceStepId ? outputTextSource(sourceStepId) : customTextSource(),
 });
 
@@ -404,7 +410,7 @@ function AutomationStepsEditor(props: {
     while (destination < props.steps.length) {
       const candidate = props.steps[destination]!;
       const reference =
-        candidate.kind === "create_reply_draft" || candidate.kind === "add_comment"
+        candidate.kind === "create_reply_draft" || candidate.kind === "add_comment" || candidate.kind === "set_summary"
           ? candidate.body.kind === "step_output"
             ? candidate.body.sourceStepId
             : null
@@ -433,6 +439,7 @@ function AutomationStepsEditor(props: {
     if (step.kind === "ai_classify_many") return "AI classify many";
     if (step.kind === "create_reply_draft") return "Create reply draft";
     if (step.kind === "add_comment") return "Add internal comment";
+    if (step.kind === "set_summary") return "Set conversation summary";
     return "If";
   };
   const accessibleStepLabel = (step: MailAutomationStep, index: number): string =>
@@ -469,6 +476,11 @@ function AutomationStepsEditor(props: {
         label: "Add internal comment",
         icon: "ti ti-message-plus",
         action: () => append(commentStep()),
+      },
+      {
+        label: "Set conversation summary",
+        icon: "ti ti-notes",
+        action: () => append(summaryStep()),
       },
       {
         label: "AI generate text",
@@ -527,7 +539,9 @@ function AutomationStepsEditor(props: {
                               ? "ti-message-reply"
                               : step.kind === "add_comment"
                                 ? "ti-message-plus"
-                                : "ti-git-branch"
+                                : step.kind === "set_summary"
+                                  ? "ti-notes"
+                                  : "ti-git-branch"
                   }`}
                   aria-hidden="true"
                 />
@@ -542,7 +556,7 @@ function AutomationStepsEditor(props: {
                           ? `Produces one of ${step.choices.length} choices`
                           : step.kind === "ai_classify_many"
                             ? `Produces up to ${step.maxChoices} choices`
-                            : step.kind === "create_reply_draft" || step.kind === "add_comment"
+                            : step.kind === "create_reply_draft" || step.kind === "add_comment" || step.kind === "set_summary"
                               ? textSourceLabel(step.body, outputsBefore(index()))
                               : `Uses ${outputsBefore(index()).find((output) => output.id === step.condition.sourceStepId)?.label ?? "missing output"}`}
                   </span>
@@ -592,7 +606,7 @@ function AutomationStepsEditor(props: {
                       <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_10rem]">
                         <TextInput
                           label="Instructions"
-                          description="The incoming message is supplied as untrusted context. Say exactly what text should be created."
+                          description="The incoming message and current conversation summary are supplied as untrusted context. Say exactly what text should be created."
                           value={() => (step.kind === "ai_generate_text" ? step.instructions : "")}
                           onValueChange={(instructions) => step.kind === "ai_generate_text" && replace(index(), { ...step, instructions })}
                           maxLength={4_000}
@@ -638,6 +652,11 @@ function AutomationStepsEditor(props: {
                               label: "Add internal comment",
                               icon: "ti ti-message-plus",
                               action: () => step.kind === "ai_generate_text" && insertAfterOutput(index(), step.id, commentStep(step.id)),
+                            },
+                            {
+                              label: "Set conversation summary",
+                              icon: "ti ti-notes",
+                              action: () => step.kind === "ai_generate_text" && insertAfterOutput(index(), step.id, summaryStep(step.id)),
                             },
                           ]}
                         >
@@ -773,6 +792,36 @@ function AutomationStepsEditor(props: {
                           required
                         />
                       </Show>
+                    </div>
+                  </Show>
+
+                  <Show when={step.kind === "set_summary"}>
+                    <div class="flex flex-col gap-3">
+                      <Select
+                        label="Text source"
+                        value={() => (step.kind === "set_summary" ? textSourceValue(step.body) : customTextSourceId)}
+                        onValueChange={(value) =>
+                          step.kind === "set_summary" && replace(index(), { ...step, body: selectTextSource(step.body, value) })
+                        }
+                        options={textSourceOptions(outputsBefore(index()))}
+                      />
+                      <Show when={step.kind === "set_summary" && step.body.kind === "custom"}>
+                        <TextInput
+                          label="Summary"
+                          description="Replace the current conversation summary with this text. Mail template variables are supported."
+                          value={() => (step.kind === "set_summary" && step.body.kind === "custom" ? step.body.value : "")}
+                          onValueChange={(value) =>
+                            step.kind === "set_summary" &&
+                            step.body.kind === "custom" &&
+                            replace(index(), { ...step, body: { ...step.body, value } })
+                          }
+                          maxLength={50_000}
+                          multiline
+                          lines={4}
+                          required
+                        />
+                      </Show>
+                      <p class="text-[11px] text-dimmed">Replaces the editable summary. It does not send or modify any message.</p>
                     </div>
                   </Show>
 

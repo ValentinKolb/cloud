@@ -53,6 +53,8 @@ export type FrozenMailMessage = {
 export type FrozenMailConversation = {
   id: string;
   subject: string;
+  summary: string | null;
+  summaryRevision: number;
   assigneeUserId: string | null;
   workStatus: "needs_action" | "waiting" | "done";
   revision: number;
@@ -108,6 +110,8 @@ type WorkflowSnapshotRow = {
   keywords: string[] | null;
   direction: "inbound" | "outbound";
   conversation_subject: string | null;
+  conversation_summary: string | null;
+  summary_revision: string | number | null;
   collaboration_revision: string | number | null;
   assignee_user_id: string | null;
   work_status: "needs_action" | "waiting" | "done" | null;
@@ -154,6 +158,8 @@ const snapshotColumns = sql`
     WHERE from_address.message_id = mc.id AND from_address.role = 'from'
   ) THEN 'outbound' ELSE 'inbound' END AS direction,
   conversation.subject AS conversation_subject,
+  conversation.summary AS conversation_summary,
+  conversation.summary_revision,
   conversation.revision AS collaboration_revision,
   conversation.assignee_user_id,
   conversation.work_status,
@@ -215,6 +221,8 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
       ? {
           id: row.conversation_id,
           subject: row.conversation_subject ?? "",
+          summary: row.conversation_summary,
+          summaryRevision: Number(row.summary_revision ?? 1),
           assigneeUserId: row.assignee_user_id,
           workStatus: row.work_status,
           revision: Number(row.collaboration_revision),

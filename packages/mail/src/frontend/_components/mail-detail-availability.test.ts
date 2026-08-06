@@ -4,6 +4,8 @@ import { listUnavailableMailDetailSections, preserveUnavailableMailDetail } from
 
 const detail = (overrides: Partial<MailSelectionDetail> = {}): MailSelectionDetail => ({
   detailMessages: [],
+  conversationSummary: null,
+  conversationDrafts: [],
   detailError: null,
   collaborationState: null,
   conversationLocalTags: null,
@@ -20,6 +22,8 @@ const detail = (overrides: Partial<MailSelectionDetail> = {}): MailSelectionDeta
     activity: null,
     reminder: null,
     reference: null,
+    summary: null,
+    drafts: null,
   },
   selectedReference: null,
   ...overrides,

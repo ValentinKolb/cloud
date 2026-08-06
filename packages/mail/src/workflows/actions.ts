@@ -15,12 +15,14 @@ import { mailAddressSchema, responseScheduleDefinitionSchema } from "../contract
 import { linkAutomaticReplyCommandInTransaction, prepareAutomaticReplyInTransaction } from "../service/automatic-reply";
 import {
   createWorkflowConversationCommentInTransaction,
+  insertActivity,
   updateConversationCollaborationInTransaction,
   updateWorkflowConversationCollaborationInTransaction,
 } from "../service/collaboration";
 import { hasCurrentMailboxUserPermission } from "../service/collaborators";
 import { createWorkflowCommand, createWorkflowCommandInTransaction, enqueueCreatedWorkflowCommand } from "../service/commands";
 import { ensureConversationReferenceInTransaction } from "../service/conversation-reference";
+import { updateConversationSummaryInTransaction, updateWorkflowConversationSummaryInTransaction } from "../service/conversation-summary";
 import { createWorkflowDraftInTransaction, createWorkflowReviewReplyDraftInTransaction } from "../service/drafts";
 import { updateWorkflowConversationLocalTagInTransaction } from "../service/local-tags";
 import { parseMessageProtocolFacts } from "../service/message-protocol";
@@ -480,6 +482,69 @@ export const MAIL_WORKFLOW_ACTIONS = {
       status: { kind: "string", enum: ["needs_action", "waiting", "done"], description: "New conversation status." },
     }),
   ),
+  setConversationSummary: workflowAction.transactional({
+    label: "Set conversation summary",
+    description: "Replaces the editable summary of a conversation.",
+    config: object({
+      conversation: conversationReference,
+      summary: text("New conversation summary.", false, 50_000),
+    }),
+    authorize: authorized,
+    plan: async () => planned("Replace the conversation summary.", { maxCollaborationChanges: 1 }),
+    run: (ctx, values) =>
+      attempt(async () => {
+        const tx = ctx.tx as SqlClient;
+        const scope = await loadScope(ctx, tx);
+        const conversation = await resolveObject(ctx, values.conversation, "conversation");
+        const conversationId = asText(conversation.id, "conversation.id");
+        const expectedSummaryRevision = Number(conversation.summaryRevision);
+        if (!Number.isSafeInteger(expectedSummaryRevision) || expectedSummaryRevision < 1) {
+          throw new Error("Conversation summary revision is unavailable");
+        }
+        const summary = renderMailWorkflowTemplate(ctx, asText(values.summary, "summary"), "text").trim();
+        if (!summary) throw new Error("summary must resolve to non-empty text");
+        const mutation =
+          scope.authority.kind === "actor"
+            ? await updateConversationSummaryInTransaction({
+                context: scope.authority.context,
+                mailboxId: scope.mailboxId,
+                conversationId,
+                input: { expectedSummaryRevision, summary },
+                db: tx,
+                actorOverride: { kind: "workflow", workflowVersionId: scope.workflowVersionId },
+                activityMetadata: { workflowRunId: ctx.runId, workflowStepKey: ctx.stepKey },
+              })
+            : await updateWorkflowConversationSummaryInTransaction({
+                mailboxId: scope.mailboxId,
+                workflowVersionId: scope.workflowVersionId,
+                conversationId,
+                input: { expectedSummaryRevision, summary },
+                db: tx,
+                activityMetadata: { workflowRunId: ctx.runId, workflowStepKey: ctx.stepKey },
+              });
+        if (!mutation.ok) return resultFailure(mutation.error);
+        const applied = Boolean(mutation.data.event);
+        if (applied) {
+          conversation.summary = mutation.data.value.summary;
+          conversation.summaryRevision = mutation.data.value.summaryRevision;
+          conversation.revision = mutation.data.value.conversationRevision;
+        }
+        return {
+          state: "succeeded",
+          output: withMailWorkflowCollaborationEvent(
+            {
+              action: "setConversationSummary",
+              applied,
+              value: mutation.data.value.summary,
+              conversationId,
+              revision: mutation.data.value.conversationRevision,
+              summaryRevision: mutation.data.value.summaryRevision,
+            },
+            mutation.data.event,
+          ),
+        };
+      }),
+  }),
   ensureConversationReference: workflowAction.transactional({
     label: "Ensure conversation reference",
     description: "Allocates the immutable mailbox-scoped reference when needed.",
@@ -721,18 +786,45 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const scope = await loadScope(ctx, tx);
         const message = await resolveObject(ctx, values.message, "message");
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
+        const conversationId = asText(conversation.id, "conversation.id");
         const draft = await createWorkflowReviewReplyDraftInTransaction({
           db: tx,
           mailboxId: scope.mailboxId,
           workflowVersionId: scope.workflowVersionId,
           draftId: crypto.randomUUID(),
-          conversationId: asText(conversation.id, "conversation.id"),
+          conversationId,
           sourceMessageId: asText(message.id, "message.id"),
           senderIdentityId: asText(ctx.binding("sender"), "sender identity"),
           body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "plain" ? "text" : "markdown"),
           format: values.format === "plain" ? "plain" : "markdown",
         });
-        return draft.ok ? { state: "succeeded", output: draft.data } : resultFailure(draft.error);
+        if (!draft.ok) return resultFailure(draft.error);
+        const activityId = await insertActivity({
+          db: tx,
+          mailboxId: scope.mailboxId,
+          conversationId,
+          context: null,
+          actorOverride: { kind: "workflow", workflowVersionId: scope.workflowVersionId },
+          action: "draft.created",
+          targetType: "draft",
+          targetId: draft.data.id,
+          metadata: {
+            revision: draft.data.revision,
+            deliveryClass: draft.data.deliveryClass,
+            workflowRunId: ctx.runId,
+            workflowStepKey: ctx.stepKey,
+          },
+        });
+        return {
+          state: "succeeded",
+          output: withMailWorkflowCollaborationEvent(draft.data, {
+            mailboxId: scope.mailboxId,
+            conversationId,
+            reason: "draft",
+            targetId: draft.data.id,
+            activityId,
+          }),
+        };
       }),
   }),
   scheduleDraftSend: workflowAction.idempotent({

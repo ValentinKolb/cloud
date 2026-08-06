@@ -66,6 +66,7 @@ import {
   updateComposeTemplateInputSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
+  updateConversationSummarySchema,
   updateMailboxComposeStyleInputSchema,
   updateSavedConversationViewSchema,
   updateSenderIdentityInputSchema,
@@ -89,6 +90,7 @@ import {
   composeSafety,
   composeTemplates,
   conversationContext,
+  conversationSummaries,
   conversations,
   draftLeases,
   drafts,
@@ -1152,6 +1154,29 @@ const mailOperationsApi = new Hono<AuthContext>()
         }),
       );
     },
+  )
+  .get("/mailboxes/:mailboxId/conversations/:conversationId/summary", v("param", mailboxAndIdParamSchema("conversationId")), async (c) =>
+    respond(
+      c,
+      conversationSummaries.getConversationSummary({
+        context: requestContext(c),
+        ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
+      }),
+    ),
+  )
+  .put(
+    "/mailboxes/:mailboxId/conversations/:conversationId/summary",
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("json", updateConversationSummarySchema),
+    async (c) =>
+      respond(
+        c,
+        conversationSummaries.updateConversationSummary({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
+          input: c.req.valid("json"),
+        }),
+      ),
   )
   .post(
     "/mailboxes/:mailboxId/conversations/:conversationId/merge",

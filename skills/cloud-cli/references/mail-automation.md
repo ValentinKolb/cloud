@@ -145,7 +145,7 @@ steps:
     fallback: []
 ```
 
-Use `mode: matching` with a condition set for sender, domain, subject, body, or attachment filters. Direct actions can move mail, mark it read, add a keyword or local tag, assign a user, or set collaboration status. AI steps can generate text, classify once, or select multiple labels; a later step can create a reply draft from generated text. `automation catalog` returns the mailbox-scoped folder, tag, user, and sender-identity ids accepted by the definition.
+Use `mode: matching` with a condition set for sender, domain, subject, body, or attachment filters. Direct actions can move mail, mark it read, add a keyword or local tag, assign a user, set collaboration status, add an internal comment, create a reply draft, or replace the conversation summary. AI steps can generate text, classify once, or select multiple labels; compatible later steps can consume the generated text. Guided text generation receives the new message and the existing summary as structured input. `automation catalog` returns the mailbox-scoped folder, tag, user, and sender-identity ids accepted by the definition.
 
 Automations and sender-wide actions apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive flows must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `automation get` exposes the exact generated workflow YAML.
 
@@ -254,7 +254,7 @@ Activation reconciles schedules into the shared scheduler. Every delivered slot 
 Mail exposes two input types:
 
 - `mailMessage`: `id`, `conversationId`, `subject`, `sender`, `recipients`, `body`, `bodyText`, `bodyHtml`, `attachments`, `hasAttachments`, `folderId`, `flags`, `keywords`, `direction`, `internalDate`, and `receivedAt`.
-- `mailConversation`: `id`, `subject`, `assigneeUserId`, `workStatus`, and `latestMessageAt`.
+- `mailConversation`: `id`, `subject`, `summary`, `summaryRevision`, `assigneeUserId`, `workStatus`, and `latestMessageAt`.
 
 Use `${{ inputs.<name> }}` for a whole input and `${{ inputs.<name>.<field> }}` for a field. `${{ now() }}` resolves from the run clock. `context.mailboxId` is also available.
 
@@ -281,6 +281,7 @@ Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared pars
 | `removeFlag` | `message`, `seen`, `answered`, `flagged`, or `draft` in `flag` | Remove one standard provider flag |
 | `assignConversation` | `conversation`, assignable user name, id, expression, or `null` in `user` | Change assignment transactionally |
 | `setConversationStatus` | `conversation`, `needs_action`, `waiting`, or `done` in `status` | Change work state transactionally |
+| `setConversationSummary` | `conversation`, `summary` | Replace the editable conversation summary transactionally |
 | `ensureConversationReference` | `conversation`; optional identifier in `saveAs` | Allocate or return the immutable reference |
 | `addLocalTag` | `conversation`, mailbox-local tag name or id in `tag` | Add a Cloud-local tag |
 | `removeLocalTag` | `conversation`, mailbox-local tag name or id in `tag` | Remove a Cloud-local tag |

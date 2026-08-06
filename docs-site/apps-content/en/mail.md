@@ -20,8 +20,9 @@ context such as assignments, comments, local tags, reminders, and work status.
   mailbox.
 - Organize provider mail with folders, read state, flags, archive, junk, and
   trash actions.
-- Assign conversations, leave internal comments, add local tags, and track
-  whether work needs action or is waiting for a reply.
+- Assign conversations, maintain a shared summary, leave internal comments,
+  add local tags, and track whether work needs action or is waiting for a reply.
+- Continue the newest unfinished conversation draft directly from the reader.
 - Compose and schedule messages through verified sender identities.
 - Use incoming automations, automatic replies, or reviewed workflows for
   recurring mailbox work.
@@ -36,7 +37,7 @@ collaboration fields stay in Mail.
 | Mailbox | One connected email account with provider settings and its own access rules |
 | Conversation and message | A synchronized thread and its individual received or sent messages |
 | Sender identity and draft | Verified sending context and message content before delivery |
-| Collaboration state | Assignees, comments, local tags, reminders, and work status |
+| Collaboration state | Editable summaries, assignees, comments, local tags, reminders, and work status |
 | Incoming automation and workflow | Reviewed flows that match incoming mail and mix bounded Mail and AI actions |
 
 The email provider remains the source for portable mail state. Mail keeps a

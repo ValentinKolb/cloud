@@ -29,7 +29,7 @@ Add steps in the order they should run. A flow can freely mix:
 - **AI generate text** to produce bounded text for later steps.
 - **AI classify** to produce exactly one configured category.
 - **AI classify many** to produce up to the configured maximum of matching categories.
-- **Create reply draft** or **Add internal comment** with custom text or an earlier text output.
+- **Create reply draft**, **Add internal comment**, or **Set conversation summary** with custom text or an earlier text output.
 - **If output matches** to run normal Mail or AI steps in a Then or Else branch.
 
 Reply drafts and internal comments are normal Mail steps and do not require AI. Add either step directly, then choose **Custom text** or a compatible earlier workflow output as its text source. AI results remain normal workflow outputs. **Use output** and **Add condition** are shortcuts that add ordinary following steps; they do not hide extra behavior inside the AI block. Then and Else branches can again contain Mail actions, AI steps, output consumers, or conditions.

@@ -60,15 +60,19 @@ export const applyMailMessageTransition = (
 
 export const applyMailConversationTransition = (
   conversation: MailWorkflowProjectedObject,
-  action: "assignConversation" | "setConversationStatus",
+  action: "assignConversation" | "setConversationStatus" | "setConversationSummary",
   value: WorkflowJsonValue,
 ): boolean => {
   if (action === "assignConversation") {
     if ((typeof value !== "string" && value !== null) || conversation.assigneeUserId === value) return false;
     conversation.assigneeUserId = value;
-  } else {
+  } else if (action === "setConversationStatus") {
     if (typeof value !== "string" || conversation.workStatus === value) return false;
     conversation.workStatus = value;
+  } else {
+    if (typeof value !== "string" || conversation.summary === value) return false;
+    conversation.summary = value;
+    conversation.summaryRevision = Number(conversation.summaryRevision ?? 0) + 1;
   }
   conversation.revision = Number(conversation.revision ?? 0) + 1;
   return true;
@@ -91,7 +95,7 @@ export const mailMessageTransitionChanges = (
 
 export const mailConversationTransitionChanges = (
   conversation: MailWorkflowProjectedObject,
-  action: "assignConversation" | "setConversationStatus",
+  action: "assignConversation" | "setConversationStatus" | "setConversationSummary",
   value: WorkflowJsonValue,
 ): boolean => applyMailConversationTransition(structuredClone(conversation), action, value);
 
@@ -144,11 +148,15 @@ export const restoreMailWorkflowProjectedState = async (
     return;
   }
 
-  if (output.applied === true && (output.action === "assignConversation" || output.action === "setConversationStatus")) {
+  if (
+    output.applied === true &&
+    (output.action === "assignConversation" || output.action === "setConversationStatus" || output.action === "setConversationSummary")
+  ) {
     const conversation = await restoredObject(ctx, step, config, "conversation");
     if (conversation && output.value !== undefined) {
       applyMailConversationTransition(conversation, output.action, output.value);
       if (typeof output.revision === "number") conversation.revision = output.revision;
+      if (typeof output.summaryRevision === "number") conversation.summaryRevision = output.summaryRevision;
     }
     return;
   }

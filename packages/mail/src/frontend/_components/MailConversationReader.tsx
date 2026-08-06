@@ -2,13 +2,13 @@ import { documentNavigate, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   CheckboxCard,
   Dropdown,
   type DropdownItem,
   IconButton,
   IconButtonLink,
+  NoticeCard,
   Placeholder,
   prompts,
   Select,
@@ -26,6 +26,7 @@ import type {
   MailDraftSeed,
   SenderIdentity,
 } from "../../contracts";
+import type { ConversationContentSummary } from "../../service/conversation-summary";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import { openMailConversationToolbarDialog } from "./MailConversationToolbarDialog";
@@ -78,6 +79,8 @@ export default function MailConversationReader(props: {
   reference: string | null;
   subject: string;
   messages: MessageDetail[];
+  conversationSummary: ConversationContentSummary | null;
+  conversationDrafts: ConversationDraftSummary[];
   totalMessageCount: number;
   error: string | null;
   dateConfig: DateContext;
@@ -110,6 +113,8 @@ export default function MailConversationReader(props: {
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(initialMessageId ? [initialMessageId] : []));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [pendingNewMessages, setPendingNewMessages] = createSignal(0);
+  const [summaryExpanded, setSummaryExpanded] = createSignal(false);
+  const [summarySaving, setSummarySaving] = createSignal(false);
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
   let cleanupPrint: (() => void) | null = null;
@@ -172,6 +177,56 @@ export default function MailConversationReader(props: {
     setPendingNewMessages(0);
     followingNewest = true;
     scheduleReaderScroll({ selectionKey: props.selectionKey, messageId: newest.id, behavior: "smooth" });
+  };
+
+  createEffect(() => {
+    props.selectionKey;
+    setSummaryExpanded(false);
+  });
+
+  const continueNewestDraft = () => {
+    const draft = props.conversationDrafts[0];
+    if (!draft) return;
+    documentNavigate(mailDraftHref(props.mailboxId, draft.id, props.requestUrl));
+  };
+
+  const editConversationSummary = async () => {
+    const conversationId = props.selectedConversationId;
+    const current = props.conversationSummary;
+    if (!conversationId || !current || summarySaving()) return;
+    const values = await prompts.form({
+      title: current.summary ? "Edit summary" : "Create summary",
+      icon: "ti ti-notes",
+      fields: {
+        summary: {
+          type: "text",
+          label: "Summary",
+          description: "Keep the current conversation context concise. Leave empty to remove the summary.",
+          default: current.summary ?? "",
+          multiline: true,
+          lines: 6,
+        },
+      },
+      confirmText: current.summary ? "Save summary" : "Create summary",
+    });
+    if (!values || conversationId !== props.selectedConversationId) return;
+    setSummarySaving(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].summary.$put({
+        param: { mailboxId: props.mailboxId, conversationId },
+        json: {
+          expectedSummaryRevision: current.summaryRevision,
+          summary: String(values.summary ?? ""),
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation summary"));
+      await props.onReconcile();
+      toast.success(current.summary ? "Summary updated" : "Summary created");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to update conversation summary");
+    } finally {
+      setSummarySaving(false);
+    }
   };
 
   const toggleMessage = (messageId: string) =>
@@ -789,6 +844,12 @@ export default function MailConversationReader(props: {
         sectionLabel: "Conversation",
         items: [
           {
+            label: props.conversationSummary?.summary ? "Edit summary" : "Create summary",
+            icon: "ti ti-notes",
+            disabled: summarySaving() || !props.conversationSummary,
+            action: () => void editConversationSummary(),
+          },
+          {
             label: "Merge with another conversation",
             icon: "ti ti-git-merge",
             action: props.onMergeConversation,
@@ -917,10 +978,49 @@ export default function MailConversationReader(props: {
                   </button>
                 </Show>
               </div>
-              <p class="mt-0.5 text-xs text-dimmed">
-                {props.messages.length} message
-                {props.messages.length === 1 ? "" : "s"}
-              </p>
+              <div class="mt-0.5 flex flex-wrap items-center gap-2">
+                <p class="text-xs text-dimmed">
+                  {props.messages.length} message
+                  {props.messages.length === 1 ? "" : "s"}
+                </p>
+                <Show when={props.canWrite && props.conversationDrafts.length > 0}>
+                  <Button
+                    variant="subtle"
+                    size="xs"
+                    type="button"
+                    title={
+                      props.conversationDrafts.length === 1
+                        ? "Open the conversation draft"
+                        : `Open the newest of ${props.conversationDrafts.length} drafts`
+                    }
+                    onClick={continueNewestDraft}
+                  >
+                    <i class="ti ti-file-pencil" aria-hidden="true" />
+                    Continue draft
+                    <Show when={props.conversationDrafts.length > 1}>
+                      <span class="text-dimmed">{props.conversationDrafts.length}</span>
+                    </Show>
+                  </Button>
+                </Show>
+              </div>
+              <Show when={props.conversationSummary?.summary}>
+                {(summary) => (
+                  <div class="mt-2 max-w-3xl text-sm leading-5 text-secondary">
+                    <p class="whitespace-pre-line" classList={{ "line-clamp-3": !summaryExpanded() }}>
+                      {summary()}
+                    </p>
+                    <Show when={summary().length > 280}>
+                      <button
+                        type="button"
+                        class="mt-1 text-xs font-medium text-dimmed hover:text-primary"
+                        onClick={() => setSummaryExpanded((expanded) => !expanded)}
+                      >
+                        {summaryExpanded() ? "Show less" : "More"}
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </Show>
             </div>
             <div class="flex shrink-0 items-center gap-1">
               <div class="hidden max-w-[min(40vw,28rem)] items-center gap-2 overflow-x-auto sm:flex">

@@ -34,6 +34,7 @@ import {
   updateAutomaticReplySetupSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
+  updateConversationSummarySchema,
   updateLocalTagSchema,
   updateSenderIdentityTransportInputSchema,
   updateWorkflowMetadataInputSchema,
@@ -110,6 +111,19 @@ describe("conversation tag contracts", () => {
     );
     expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [conversationId], tagIds: [tagId, tagId] }).success).toBe(false);
     expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [], tagIds: [tagId] }).success).toBe(false);
+  });
+});
+
+describe("conversation summary contracts", () => {
+  test("normalizes surrounding whitespace and treats an empty summary as removal", () => {
+    expect(updateConversationSummarySchema.parse({ expectedSummaryRevision: 2, summary: "  Current context\n" })).toEqual({
+      expectedSummaryRevision: 2,
+      summary: "Current context",
+    });
+    expect(updateConversationSummarySchema.parse({ expectedSummaryRevision: 2, summary: "   " })).toEqual({
+      expectedSummaryRevision: 2,
+      summary: null,
+    });
   });
 });
 
@@ -326,6 +340,7 @@ describe("incoming automation contracts", () => {
           senderIdentityId: "00000000-0000-4000-8000-000000000015",
         },
         { id: "00000000-0000-4000-8000-000000000017", kind: "add_comment", body: { kind: "custom", value: "AI summary reviewed" } },
+        { id: "00000000-0000-4000-8000-000000000018", kind: "set_summary", body: { kind: "step_output", sourceStepId: textId } },
       ],
     });
     expect(result.success).toBe(true);
@@ -349,7 +364,7 @@ describe("incoming automation contracts", () => {
     expect(result.success).toBe(false);
   });
 
-  test("accepts reply drafts and internal comments with custom text without AI", () => {
+  test("accepts reply drafts, comments, and summaries with custom text without AI", () => {
     const result = createIncomingAutomationSchema.safeParse({
       name: "Add standard content",
       scope: { mode: "all" },
@@ -364,6 +379,11 @@ describe("incoming automation contracts", () => {
           id: "00000000-0000-4000-8000-000000000023",
           kind: "add_comment",
           body: { kind: "custom", value: "Review during the next support shift." },
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000024",
+          kind: "set_summary",
+          body: { kind: "custom", value: "Waiting for support review." },
         },
       ],
     });

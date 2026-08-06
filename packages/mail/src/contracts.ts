@@ -1697,6 +1697,18 @@ export const updateConversationCollaborationSchema = z
   );
 export type UpdateConversationCollaboration = z.infer<typeof updateConversationCollaborationSchema>;
 
+export const updateConversationSummarySchema = z
+  .object({
+    expectedSummaryRevision: z.number().int().positive(),
+    summary: z
+      .string()
+      .max(50_000)
+      .transform((value) => value.trim() || null)
+      .nullable(),
+  })
+  .strict();
+export type UpdateConversationSummary = z.infer<typeof updateConversationSummarySchema>;
+
 export const localTagNameSchema = z
   .string()
   .trim()
@@ -2017,6 +2029,7 @@ export type MailAutomationStep =
     }
   | { id: string; kind: "create_reply_draft"; body: MailAutomationTextSource; senderIdentityId: string }
   | { id: string; kind: "add_comment"; body: MailAutomationTextSource }
+  | { id: string; kind: "set_summary"; body: MailAutomationTextSource }
   | { id: string; kind: "if"; condition: MailAutomationIfCondition; then: MailAutomationStep[]; else: MailAutomationStep[] };
 
 const mailAutomationChoiceSchema: z.ZodType<MailAutomationChoice> = z.lazy(() =>
@@ -2078,6 +2091,7 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
       })
       .strict(),
     z.object({ id: automationStepIdSchema, kind: z.literal("add_comment"), body: mailAutomationTextSourceSchema }).strict(),
+    z.object({ id: automationStepIdSchema, kind: z.literal("set_summary"), body: mailAutomationTextSourceSchema }).strict(),
     z
       .object({
         id: automationStepIdSchema,
@@ -2128,7 +2142,10 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
           });
         }
       }
-      if ((step.kind === "create_reply_draft" || step.kind === "add_comment") && step.body.kind === "step_output") {
+      if (
+        (step.kind === "create_reply_draft" || step.kind === "add_comment" || step.kind === "set_summary") &&
+        step.body.kind === "step_output"
+      ) {
         const source = current.get(step.body.sourceStepId);
         if (!source || source.kind === "ai_classify_many") {
           context.addIssue({
@@ -2173,9 +2190,9 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
   };
   visit(steps, new Map(), ["steps"], 0);
 
-  type ActionState = { providerMutation: boolean; assigned: boolean; statusSet: boolean; tagIds: Set<string> };
+  type ActionState = { providerMutation: boolean; assigned: boolean; statusSet: boolean; summarySet: boolean; tagIds: Set<string> };
   const actionStateKey = (state: ActionState): string =>
-    `${state.providerMutation}:${state.assigned}:${state.statusSet}:${[...state.tagIds].sort().join(",")}`;
+    `${state.providerMutation}:${state.assigned}:${state.statusSet}:${state.summarySet}:${[...state.tagIds].sort().join(",")}`;
   const uniqueStates = (states: ActionState[]): ActionState[] => [
     ...new Map(states.map((state) => [actionStateKey(state), state])).values(),
   ];
@@ -2212,9 +2229,22 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
             providerMutation: state.providerMutation || providerMutation,
             assigned: state.assigned || step.action.kind === "assign_user",
             statusSet: state.statusSet || step.action.kind === "set_status",
+            summarySet: state.summarySet,
             tagIds: step.action.kind === "add_local_tag" ? new Set([...state.tagIds, step.action.tagId]) : new Set(state.tagIds),
           })),
         );
+      }
+      if (step.kind === "set_summary") {
+        for (const state of states) {
+          if (state.summarySet) {
+            context.addIssue({
+              code: "custom",
+              message: "One reachable path can set the conversation summary only once",
+              path: [...stepPath, "body"],
+            });
+          }
+        }
+        states = states.map((state) => ({ ...state, summarySet: true, tagIds: new Set(state.tagIds) }));
       }
       if (step.kind === "if") {
         states = uniqueStates([
@@ -2225,7 +2255,11 @@ const addAutomationStepIssues = (steps: MailAutomationStep[], context: z.Refinem
     });
     return states;
   };
-  validateActionPaths(steps, [{ providerMutation: false, assigned: false, statusSet: false, tagIds: new Set() }], ["steps"]);
+  validateActionPaths(
+    steps,
+    [{ providerMutation: false, assigned: false, statusSet: false, summarySet: false, tagIds: new Set() }],
+    ["steps"],
+  );
 
   if (total > 40) context.addIssue({ code: "custom", message: "An automation can have at most 40 steps", path: ["steps"] });
   if (aiCalls > 10) context.addIssue({ code: "custom", message: "An automation can make at most 10 AI calls", path: ["steps"] });

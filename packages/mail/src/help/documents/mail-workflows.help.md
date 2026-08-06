@@ -116,7 +116,7 @@ Message paths:
 
 Conversation paths:
 
-- `inputs.conversation.id`, `subject`, `assigneeUserId`
+- `inputs.conversation.id`, `subject`, `summary`, `summaryRevision`, `assigneeUserId`
 - `inputs.conversation.workStatus`, `latestMessageAt`
 
 Execution context paths:
@@ -164,6 +164,7 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `addFlag` / `removeFlag` | `message`, `flag` | Changes `seen`, `answered`, `flagged`, or `draft` through the provider command journal |
 | `assignConversation` | `conversation`, `user` | Assigns by accessible user name or ID; `null` unassigns |
 | `setConversationStatus` | `conversation`, `status` | Sets `needs_action`, `waiting`, or `done` |
+| `setConversationSummary` | `conversation`, `summary` | Replaces the editable conversation summary |
 | `ensureConversationReference` | `conversation`; optional `saveAs` | Allocates or reuses the permanent mailbox reference and optionally stores its result |
 | `addLocalTag` / `removeLocalTag` | `conversation`, `tag` | Changes a mailbox-local conversation tag |
 | `addComment` | `conversation`, `body` | Adds an internal comment attributed to the workflow version |
@@ -257,6 +258,39 @@ An optional `model` selects an enabled profile for one action. Otherwise Mail us
 AI tasks survive worker restarts. Canceling the Mail run aborts running inference when supported and discards late output. A dry run cannot predict AI output, so it reports the unavailable value instead of continuing with a fabricated classification or draft.
 
 Prompts, inputs, and outputs are stored with the durable task. Include only message fields needed for the decision. Keep generated replies as drafts when a person should review them; add `scheduleDraftSend` only when unattended sending is intentionally approved.
+
+To maintain a rolling conversation summary, supply both the current summary and the newly received message to `aiGenerateText`, then pass its normal text output to `setConversationSummary`:
+
+```yaml
+inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
+steps:
+  - aiGenerateText:
+      prompt: Update the summary with durable facts and the current next step. Keep it concise.
+      input:
+        existingSummary: "${{ inputs.conversation.summary }}"
+        newMessage:
+          sender: "${{ inputs.message.fromAddress }}"
+          subject: "${{ inputs.message.subject }}"
+          body: "${{ inputs.message.bodyText }}"
+      maxOutputChars: 1200
+      saveAs: updatedSummary
+  - setConversationSummary:
+      conversation: inputs.conversation
+      summary: "{{ updatedSummary }}"
+```
+
+The summary has its own optimistic revision. If a person edits it while AI is still running, the delayed workflow action fails instead of overwriting the newer human edit.
 
 ## Allocate a conversation reference {icon="book-2"}
 

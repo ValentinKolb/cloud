@@ -1132,4 +1132,92 @@ steps:
     `;
     expect(stored).toEqual({ state: "succeeded", revision: String(Number(conversation.revision) + 2), work_status: "done" });
   });
+
+  test("replaces the editable conversation summary through a normal Mail action", async () => {
+    const [conversation] = await sql<{ id: string; revision: string; summary_revision: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${mailboxId}::uuid, 'Summary action test', 'Sender', now())
+      RETURNING id, revision, summary_revision
+    `;
+    if (!conversation) throw new Error("Failed to create summary workflow conversation");
+
+    const created = await createWorkflow({
+      context,
+      mailboxId,
+      input: {
+        name: `Summary action ${suffix}`,
+        priority: 100,
+        source: `inputs:
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      conversation: "\${{ trigger.conversation }}"
+steps:
+  - setConversationSummary:
+      conversation: inputs.conversation
+      summary: "Current context for {{ inputs.conversation.subject }}"
+`,
+        effectBudget: { ...noEffectBudget, maxCollaborationChanges: 1 },
+      },
+    });
+    if (!created.ok) throw new Error(created.error.message);
+    const activated = await activateWorkflow({
+      context,
+      mailboxId,
+      workflowId: created.data.id,
+      input: { expectedVersionId: created.data.currentVersion.id },
+    });
+    if (!activated.ok) throw new Error(activated.error.message);
+
+    const frozenConversation = {
+      id: conversation.id,
+      subject: "Summary action test",
+      summary: null,
+      summaryRevision: Number(conversation.summary_revision),
+      assigneeUserId: null,
+      workStatus: "needs_action" as const,
+      revision: Number(conversation.revision),
+      latestMessageAt: new Date().toISOString(),
+    };
+    const snapshot = {
+      targetKey: crypto.randomUUID(),
+      source: { message: null, conversation: frozenConversation },
+      preconditions: {
+        sourceHash: "summary-action-test",
+        remoteState: null,
+        conversation: { id: conversation.id, revision: Number(conversation.revision) },
+        triggerKind: "messageReceived",
+      },
+      internalDate: new Date().toISOString(),
+    } as unknown as MailWorkflowTargetSnapshot;
+    const emission = await emitWorkflowEvent(
+      {
+        appId: "mail",
+        scopeId: mailboxId,
+        type: "mail.messageReceived",
+        targetWorkflowId: created.data.id,
+        data: { conversation: frozenConversation },
+        context: mailWorkflowEventContext(mailboxId, snapshot),
+        dedupeKey: `mail-workflow-summary-${suffix}`,
+        occurredAt: new Date(snapshot.internalDate),
+      },
+      { dispatch: "now" },
+    );
+    const outcome = await runMailWorkflow(emission.runIds[0]!);
+    expect(outcome.state).toBe("finished");
+
+    const [stored] = await sql<{ summary: string | null; summary_revision: string; revision: string }[]>`
+      SELECT summary, summary_revision, revision
+      FROM mail.conversations
+      WHERE id = ${conversation.id}::uuid
+    `;
+    expect(stored).toEqual({
+      summary: "Current context for Summary action test",
+      summary_revision: String(Number(conversation.summary_revision) + 1),
+      revision: String(Number(conversation.revision) + 1),
+    });
+  });
 });

@@ -39,6 +39,7 @@ describe("incoming automation workflow compiler", () => {
             senderIdentityId: "00000000-0000-4000-8000-000000000019",
           },
           { id: "00000000-0000-4000-8000-000000000020", kind: "add_comment", body: { kind: "step_output", sourceStepId: textId } },
+          { id: "00000000-0000-4000-8000-000000000021", kind: "set_summary", body: { kind: "step_output", sourceStepId: textId } },
         ],
         else: [{ id: "00000000-0000-4000-8000-000000000013", kind: "mail_action", action: { kind: "add_keyword", keyword: "routine" } }],
       },
@@ -52,10 +53,12 @@ describe("incoming automation workflow compiler", () => {
     expect(source).toContain("addKeyword:");
     expect(source).toContain("createReplyDraft:");
     expect(source).toContain("addComment:");
+    expect(source).toContain("setConversationSummary:");
+    expect(source).toContain("existingSummary: ${{ inputs.conversation.summary }}");
     expect(source).toContain("{{ step_00000000000040008000000000000017 }}");
     expect(source).toContain("format: plain");
     expect(incomingAutomationHasAi(steps)).toBe(true);
-    expect(incomingAutomationBudget(steps)).toMatchObject({ maxTargets: 4, maxDrafts: 1, maxCollaborationChanges: 3, maxAiCalls: 2 });
+    expect(incomingAutomationBudget(steps)).toMatchObject({ maxTargets: 4, maxDrafts: 1, maxCollaborationChanges: 4, maxAiCalls: 2 });
     expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
   });
 
@@ -75,13 +78,15 @@ describe("incoming automation workflow compiler", () => {
           senderIdentityId: "00000000-0000-4000-8000-000000000022",
         },
         { id: "00000000-0000-4000-8000-000000000023", kind: "add_comment", body: { kind: "step_output", sourceStepId: textId } },
+        { id: "00000000-0000-4000-8000-000000000027", kind: "set_summary", body: { kind: "step_output", sourceStepId: textId } },
       ],
     });
     expect(source).toContain("inputs.message.fromDomain");
     expect(source).toContain("aiGenerateText:");
     expect(source).toContain("createReplyDraft:");
     expect(source).toContain("addComment:");
-    expect(source.match(/{{ step_00000000000040008000000000000020 }}/g)).toHaveLength(2);
+    expect(source).toContain("setConversationSummary:");
+    expect(source.match(/{{ step_00000000000040008000000000000020 }}/g)).toHaveLength(3);
     expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
   });
 
@@ -100,10 +105,16 @@ describe("incoming automation workflow compiler", () => {
           kind: "add_comment",
           body: { kind: "custom", value: "Review in the next support shift." },
         },
+        {
+          id: "00000000-0000-4000-8000-000000000027",
+          kind: "set_summary",
+          body: { kind: "custom", value: "Waiting for support review." },
+        },
       ],
     });
     expect(source).toContain("body: Thanks for your message.");
     expect(source).toContain("body: Review in the next support shift.");
+    expect(source).toContain("summary: Waiting for support review.");
     expect(source).toContain("format: markdown");
     expect(source).not.toContain("aiGenerateText:");
     const compiled = await compileWorkflow(source, mailWorkflows);

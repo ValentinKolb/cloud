@@ -56,6 +56,12 @@ describe("Mail API composition", () => {
     }
   });
 
+  test("exposes the editable conversation summary boundary", () => {
+    const path = "/mailboxes/:mailboxId/conversations/:conversationId/summary";
+    expect(api.routes.some((route) => route.method === "GET" && route.path === path)).toBe(true);
+    expect(api.routes.some((route) => route.method === "PUT" && route.path === path)).toBe(true);
+  });
+
   test("exposes an explicit mailbox-scoped provider limit refresh", () => {
     expect(
       api.routes.some(

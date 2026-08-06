@@ -8,6 +8,8 @@ const DETAIL_ERROR_LABELS: Array<[keyof MailSelectionDetail["detailErrors"], str
   ["activity", "recent activity"],
   ["reminder", "personal reminder"],
   ["reference", "conversation reference"],
+  ["summary", "conversation summary"],
+  ["drafts", "drafts"],
 ];
 
 export const listUnavailableMailDetailSections = (errors: MailSelectionDetail["detailErrors"]): string[] =>
@@ -23,4 +25,6 @@ export const preserveUnavailableMailDetail = <T extends MailSelectionDetail>(cur
   activity: incoming.detailErrors.activity ? current.activity : incoming.activity,
   reminder: incoming.detailErrors.reminder ? current.reminder : incoming.reminder,
   selectedReference: incoming.detailErrors.reference ? current.selectedReference : incoming.selectedReference,
+  conversationSummary: incoming.detailErrors.summary ? current.conversationSummary : incoming.conversationSummary,
+  conversationDrafts: incoming.detailErrors.drafts ? current.conversationDrafts : incoming.conversationDrafts,
 });

@@ -11,6 +11,7 @@ import * as composeSafety from "./compose-safety";
 import * as composeTemplates from "./compose-templates";
 import * as conversationContext from "./conversation-context";
 import * as conversationReferences from "./conversation-reference";
+import * as conversationSummaries from "./conversation-summary";
 import * as conversations from "./conversations";
 import * as draftLeases from "./draft-leases";
 import * as draftProviderProjection from "./draft-provider-projection";
@@ -84,6 +85,7 @@ export {
   composeTemplates,
   conversationContext,
   conversationReferences,
+  conversationSummaries,
   conversations,
   draftLeases,
   draftProviderProjection,
@@ -133,6 +135,7 @@ export const mailService = {
   composeTemplates,
   conversations,
   conversationReferences,
+  conversationSummaries,
   draftLeases,
   draftProviderProjection,
   draftUploads,

@@ -3918,6 +3918,14 @@ const resetIncomingAutomationAuthoringModel = async (db: SqlClient): Promise<voi
   await db`DELETE FROM mail.incoming_automations`;
 };
 
+const addConversationSummaries = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.conversations
+    ADD COLUMN summary TEXT,
+    ADD COLUMN summary_revision BIGINT NOT NULL DEFAULT 1 CHECK (summary_revision > 0)
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4016,6 +4024,7 @@ const migrations: readonly MailMigration[] = [
   { version: 111, name: "workflow_aligned_incoming_automation_steps", run: resetIncomingAutomationAuthoringModel },
   { version: 112, name: "mail_automation_text_sources", run: resetIncomingAutomationAuthoringModel },
   { version: 113, name: "reviewable_workflow_drafts", run: exposeReviewableWorkflowDrafts },
+  { version: 114, name: "conversation_summaries", run: addConversationSummaries },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

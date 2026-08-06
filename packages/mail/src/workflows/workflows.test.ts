@@ -66,6 +66,7 @@ describe("Mail workflow manifest", () => {
       "removeFlag",
       "assignConversation",
       "setConversationStatus",
+      "setConversationSummary",
       "ensureConversationReference",
       "addLocalTag",
       "removeLocalTag",
@@ -92,7 +93,7 @@ describe("Mail workflow manifest", () => {
   });
 
   test("preserves the published manifest hash", async () => {
-    expect(await hashWorkflowJson(mailWorkflowManifest)).toBe("fe0fe6443368706bda785544c5a13a7a44a426ef8cc13ee514b5ddac30f86e26");
+    expect(await hashWorkflowJson(mailWorkflowManifest)).toBe("a8938c5d08289020d47f729721db2f2aaab314fb26e0f11426d4c1ba23fb5b71");
   });
 
   test("classifies provider, collaboration, and terminal effects", () => {
@@ -108,6 +109,7 @@ describe("Mail workflow manifest", () => {
       removeFlag: "durable-intent",
       assignConversation: "transactional",
       setConversationStatus: "transactional",
+      setConversationSummary: "transactional",
       ensureConversationReference: "transactional",
       addLocalTag: "transactional",
       removeLocalTag: "transactional",

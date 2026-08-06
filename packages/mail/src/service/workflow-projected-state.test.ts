@@ -18,7 +18,7 @@ const plan = {
 
 const source = {
   message: { id: "message", folderId: "inbox", keywords: ["finance"] },
-  conversation: { id: "conversation", workStatus: "needs_action", revision: 2 },
+  conversation: { id: "conversation", workStatus: "needs_action", summary: null, summaryRevision: 1, revision: 2 },
 } as unknown as FrozenMailWorkflowSource;
 
 describe("Mail workflow projected state", () => {
@@ -51,6 +51,14 @@ describe("Mail workflow projected state", () => {
     expect(applyMailConversationTransition(conversation, "setConversationStatus", "needs_action")).toBe(false);
     expect(applyMailConversationTransition(conversation, "setConversationStatus", "done")).toBe(true);
     expect(conversation).toMatchObject({ workStatus: "done", revision: 3 });
+  });
+
+  test("projects summary and summary revision independently", () => {
+    if (!source.conversation) throw new Error("Expected workflow conversation fixture");
+    const conversation = structuredClone(source.conversation);
+
+    expect(applyMailConversationTransition(conversation, "setConversationSummary", "Current context")).toBe(true);
+    expect(conversation).toMatchObject({ summary: "Current context", summaryRevision: 2, revision: 3 });
   });
 
   test("keeps schedule-only inputs when no message source exists", () => {
