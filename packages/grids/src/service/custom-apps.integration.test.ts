@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { migrate as migrateCoreWorkflows } from "../../../core/src/migrate/core/workflows";
-import type { CustomAppDefinition } from "../custom-apps/contracts";
+import { type CustomAppDefinition, CustomAppDefinitionSchema } from "../custom-apps/contracts";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
@@ -295,6 +295,20 @@ describe("Custom App lifecycle", () => {
         workflowLaunchers: [{ pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 }],
       });
       expect((await plan(definition)).action).toBe("noop");
+
+      const exportedYaml = Bun.YAML.stringify(created.data.draftDefinition);
+      const roundTripped = CustomAppDefinitionSchema.parse(Bun.YAML.parse(exportedYaml));
+      expect(roundTripped).toEqual(created.data.draftDefinition);
+      expect((await plan(roundTripped)).action).toBe("noop");
+
+      const reapplied = await apply(roundTripped);
+      expect(reapplied.ok).toBe(true);
+      if (!reapplied.ok) return;
+      expect(reapplied.data.updatedAt).toBe(created.data.updatedAt);
+      const [storedCount] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM grids.custom_apps WHERE id = ${appId}::uuid
+      `;
+      expect(storedCount?.count).toBe(1);
 
       const firstPublish = await publish(appId);
       expect(firstPublish.ok).toBe(true);

@@ -63,6 +63,15 @@ const printValidation = (
   for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.path.join(".") || "definition"}: ${diagnostic.message}`);
 };
 
+const printPlan = (ctx: Parameters<typeof readApi>[0], result: CustomAppPlan) => {
+  if (!printStructured(ctx, result)) {
+    ctx.print(`action: ${result.action}`);
+    for (const change of result.changes) ctx.print(`- ${change}`);
+    for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.path.join(".") || "definition"}: ${diagnostic.message}`);
+  }
+  if (!result.valid) throw new Error("Custom App definition is invalid.");
+};
+
 export const customAppCommands = [
   command("apps reference", {
     summary: "Show the strict Custom App definition reference",
@@ -135,21 +144,25 @@ export const customAppCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const definition = await readDefinition(flags.source, base.id);
       const result = await readApi<CustomAppPlan>(ctx, "/apps/plan", jsonRequest("POST", { definition }));
-      if (!printStructured(ctx, result)) {
-        ctx.print(`action: ${result.action}`);
-        for (const change of result.changes) ctx.print(`- ${change}`);
-        for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.path.join(".") || "definition"}: ${diagnostic.message}`);
-      }
-      if (!result.valid) throw new Error("Custom App definition is invalid.");
+      printPlan(ctx, result);
     },
   }),
   command("apps apply", {
     summary: "Create or update a Custom App draft from its definition",
     args: baseArgs,
-    flags: { ...baseFlag, source: sourceFlag },
+    flags: {
+      ...baseFlag,
+      source: sourceFlag,
+      dryRun: flag.boolean({ name: "dry-run", description: "Show the plan without changing the draft" }),
+    },
     async run({ ctx, args, flags }) {
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const definition = await readDefinition(flags.source, base.id);
+      if (flags.dryRun) {
+        const result = await readApi<CustomAppPlan>(ctx, "/apps/plan", jsonRequest("POST", { definition }));
+        printPlan(ctx, result);
+        return;
+      }
       const app = await readApi<CustomApp>(ctx, "/apps/apply", jsonRequest("POST", { definition }));
       printJsonOrMessage(ctx, app, `Applied ${app.name} (${app.shortId}) as a draft.`);
     },

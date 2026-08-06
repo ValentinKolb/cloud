@@ -235,9 +235,12 @@ Supported operators are `eq`, `notEq`, `in`, `isEmpty`, and `isNotEmpty`. Condit
 ```bash
 cld grids apps validate --source-file certificate-app.yaml --json
 cld grids apps plan --source-file certificate-app.yaml --json
+cld grids apps apply --source-file certificate-app.yaml --dry-run --json
 ```
 
 `validate` checks schema, IDs, references, types, query bounds, navigation, and block invariants without writing. `plan` runs the same compiler and also compares the definition with the saved draft. Its deterministic output contains additions, changes, removals, warnings, and the derived publication capabilities.
+
+`apply --dry-run` is a convenience spelling of that same plan operation. It returns the same `CustomAppPlan` and never calls the apply endpoint, so agents can use one final command shape before removing `--dry-run`.
 
 A missing or inaccessible resource is an error, not a guessed name match. Plans never publish or invoke app operations.
 
@@ -249,7 +252,9 @@ Diagnostics use stable definition paths such as `pages[request].rows[detail].col
 cld grids apps apply --source-file certificate-app.yaml --json
 ```
 
-`apply` creates or updates the draft identified by the supplied app UUID. Applying the same canonical definition again reports no changes and does not create another app. It never changes the published snapshot.
+`apply` creates or updates the draft identified by the supplied app UUID. Applying the same canonical definition again is a no-op and does not create another app. It never changes the published snapshot.
+
+Use `plan` or `apply --dry-run` to observe the `noop` result explicitly. A subsequent ordinary `apply` of that definition leaves the stored app and its update timestamp unchanged.
 
 The command runs as the signed-in Cloud account and requires base-administrator access. It cannot grant itself app or resource permissions.
 
@@ -257,7 +262,7 @@ The command runs as the signed-in Cloud account and requires base-administrator 
 
 ```bash
 cld grids apps export 10000000-0000-4000-8000-000000000101 \
-  --output certificate-app.yaml
+  --out certificate-app.yaml
 ```
 
 Export emits canonical key ordering, canonical resource IDs, the assigned `shortId`, and no secrets. A visual-builder edit followed by export must retain the same semantics as a CLI edit followed by apply.

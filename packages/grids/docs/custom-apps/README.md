@@ -32,9 +32,9 @@ referenced base resources and access bindings with the matching UUIDs. The
 Custom Apps implementation must then prove this loop for every file:
 
 1. `apps validate` succeeds.
-2. `apps plan` is deterministic.
+2. `apps plan` and `apps apply --dry-run` return the same deterministic plan.
 3. `apps apply` creates or updates only the draft.
-4. A second apply reports no changes.
+4. A second apply is a no-op and leaves the stored draft unchanged.
 5. `apps export` is semantically equal to the input plus the assigned
    immutable `shortId`.
 6. Publish preflight derives the expected least-privilege capabilities.
