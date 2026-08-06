@@ -53,6 +53,7 @@ describe("incoming automation workflow compiler", () => {
     expect(source).toContain("createReplyDraft:");
     expect(source).toContain("addComment:");
     expect(source).toContain("{{ step_00000000000040008000000000000017 }}");
+    expect(source).toContain("format: plain");
     expect(incomingAutomationHasAi(steps)).toBe(true);
     expect(incomingAutomationBudget(steps)).toMatchObject({ maxTargets: 4, maxDrafts: 1, maxCollaborationChanges: 3, maxAiCalls: 2 });
     expect((await compileWorkflow(source, mailWorkflows)).ok).toBe(true);
@@ -103,6 +104,7 @@ describe("incoming automation workflow compiler", () => {
     });
     expect(source).toContain("body: Thanks for your message.");
     expect(source).toContain("body: Review in the next support shift.");
+    expect(source).toContain("format: markdown");
     expect(source).not.toContain("aiGenerateText:");
     const compiled = await compileWorkflow(source, mailWorkflows);
     expect(compiled.ok).toBe(true);

@@ -1278,7 +1278,8 @@ const insertWorkflowReplyDraftInTransaction = async (params: {
     ) VALUES (
       ${params.draftId}::uuid, ${params.mailboxId}::uuid, ${params.conversationId}::uuid, 'reply', ${params.sourceMessageId}::uuid,
       ${params.senderIdentityId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
-      'workflow', ${params.deliveryClass}, ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
+      ${params.deliveryClass === "normal" ? "user" : "workflow"}, ${params.deliveryClass},
+      ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
       ${subject}, ${content.data.body}, ${content.data.format}
     )
     ON CONFLICT (id) DO NOTHING
@@ -1297,7 +1298,7 @@ const insertWorkflowReplyDraftInTransaction = async (params: {
     FROM mail.drafts
     WHERE id = ${params.draftId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
-      AND origin = 'workflow'
+      AND origin = ${params.deliveryClass === "normal" ? "user" : "workflow"}
       AND delivery_class = ${params.deliveryClass}
       AND author_kind = 'workflow'
       AND author_id = ${params.workflowVersionId}::uuid
@@ -1412,7 +1413,7 @@ export const createWorkflowDraftInTransaction = async (params: {
     ) VALUES (
       ${params.draftId}::uuid, ${params.mailboxId}::uuid, NULL, 'new', NULL, ${params.senderIdentityId}::uuid,
       'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
-      'workflow', 'normal', ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
+      'user', 'normal', ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
       ${content.data.subject}, ${content.data.body}, ${content.data.format}
     )
     ON CONFLICT (id) DO NOTHING
@@ -1426,7 +1427,7 @@ export const createWorkflowDraftInTransaction = async (params: {
     FROM mail.drafts
     WHERE id = ${params.draftId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
-      AND origin = 'workflow'
+      AND origin = 'user'
       AND delivery_class = 'normal'
       AND author_kind = 'workflow'
       AND author_id = ${params.workflowVersionId}::uuid

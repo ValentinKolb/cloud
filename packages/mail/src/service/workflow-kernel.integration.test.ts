@@ -10,6 +10,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { cancelPendingAutomaticRepliesInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
+import { getDraft, listConversationDrafts } from "./drafts";
 import { createMailbox } from "./mailboxes";
 import { EMPTY_MESSAGE_PROTOCOL_FACTS } from "./message-protocol";
 import { ingestEnvelope } from "./sync-runtime";
@@ -682,6 +683,12 @@ steps:
     if (!reference) throw new Error("Failed to load workflow reply source");
     const snapshot = await getWorkflowSnapshot({ mailboxId, remoteMessageRefId: reference.id });
     if (!snapshot?.source.conversation) throw new Error("Workflow reply source has no conversation");
+    expect(snapshot.source.message.bodyAvailable).toBe(false);
+    await sql`
+      UPDATE mail.message_contents
+      SET hydration_status = 'body', plain_text = 'A reviewable response'
+      WHERE id = ${snapshot.source.message.id}::uuid
+    `;
 
     const created = await createWorkflow({
       context,
@@ -702,13 +709,18 @@ triggers:
       message: "\${{ trigger.message }}"
       conversation: "\${{ trigger.conversation }}"
 steps:
-  - createReplyDraft:
-      message: inputs.message
-      conversation: inputs.conversation
-      sender: ${senderIdentityId}
-      body: A reviewable response
-      format: plain
-      saveAs: draft
+  - if:
+      contains:
+        - "\${{ inputs.message.bodyText }}"
+        - reviewable
+    then:
+      - createReplyDraft:
+          message: inputs.message
+          conversation: inputs.conversation
+          sender: ${senderIdentityId}
+          body: A reviewable response
+          format: plain
+          saveAs: draft
 `,
         effectBudget: { ...noEffectBudget, maxDrafts: 1 },
       },
@@ -738,6 +750,7 @@ steps:
     expect(outcome.state).toBe("finished");
     const [draft] = await sql<
       {
+        id: string;
         conversation_id: string;
         intent: string;
         source_message_id: string;
@@ -745,9 +758,10 @@ steps:
         subject: string;
         body_markdown: string;
         delivery_class: string;
+        origin: string;
       }[]
     >`
-      SELECT conversation_id, intent, source_message_id, to_addresses, subject, body_markdown, delivery_class
+      SELECT id, conversation_id, intent, source_message_id, to_addresses, subject, body_markdown, delivery_class, origin
       FROM mail.drafts
       WHERE author_kind = 'workflow'
         AND author_id = ${created.data.currentVersion.id}::uuid
@@ -759,10 +773,15 @@ steps:
       subject: `Re: ${incoming.subject}`,
       body_markdown: "A reviewable response",
       delivery_class: "normal",
+      origin: "user",
     });
     expect(typeof draft?.to_addresses === "string" ? JSON.parse(draft.to_addresses) : draft?.to_addresses).toEqual([
       { name: "Reply desk", address: "reply-desk@example.test" },
     ]);
+    const visibleDraft = await getDraft(context, mailboxId, draft!.id);
+    expect(visibleDraft.ok).toBe(true);
+    const conversationDrafts = await listConversationDrafts({ context, mailboxId, conversationId: snapshot.source.conversation.id });
+    expect(conversationDrafts.ok && conversationDrafts.data.some((item) => item.id === draft!.id)).toBe(true);
   });
 
   test("guards automatic replies across delivery, repeat, policy-loss, and cancellation boundaries", async () => {

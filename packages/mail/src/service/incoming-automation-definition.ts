@@ -110,7 +110,7 @@ const compileSequence = (steps: MailAutomationStep[]): Record<string, unknown>[]
           conversation: "${{ inputs.conversation }}",
           sender: step.senderIdentityId,
           body: textSource(step.body),
-          format: "markdown",
+          format: step.body.kind === "custom" ? "markdown" : "plain",
           saveAs: outputName(step.id),
         },
       });

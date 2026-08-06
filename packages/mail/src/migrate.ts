@@ -2788,6 +2788,25 @@ const addDraftDeliveryClasses = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const exposeReviewableWorkflowDrafts = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.drafts
+      DROP CONSTRAINT drafts_origin_check,
+      ADD CONSTRAINT drafts_origin_check CHECK (
+        (origin = 'user'
+          AND author_kind IN ('user', 'service_account', 'workflow', 'system')
+          AND last_editor_kind IN ('user', 'service_account', 'workflow', 'system'))
+        OR (origin = 'workflow' AND author_kind = 'workflow' AND last_editor_kind = 'workflow')
+      )
+  `;
+  await db`
+    UPDATE mail.drafts
+    SET origin = 'user'
+    WHERE origin = 'workflow'
+      AND delivery_class = 'normal'
+  `;
+};
+
 const addOperatorMaintenanceCommands = async (db: SqlClient): Promise<void> => {
   await db`
     ALTER TABLE mail.commands
@@ -3996,6 +4015,7 @@ const migrations: readonly MailMigration[] = [
   { version: 110, name: "compound_incoming_automation_steps", run: resetIncomingAutomationAuthoringModel },
   { version: 111, name: "workflow_aligned_incoming_automation_steps", run: resetIncomingAutomationAuthoringModel },
   { version: 112, name: "mail_automation_text_sources", run: resetIncomingAutomationAuthoringModel },
+  { version: 113, name: "reviewable_workflow_drafts", run: exposeReviewableWorkflowDrafts },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

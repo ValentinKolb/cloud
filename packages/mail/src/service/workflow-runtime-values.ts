@@ -115,7 +115,7 @@ const freezeHydrationValue = async (params: {
     if (Object.prototype.hasOwnProperty.call(frozen, params.reference)) return frozen[params.reference]!;
     await tx`
       UPDATE mail.workflow_run_state
-      SET frozen_hydration = frozen_hydration || jsonb_build_object(${params.reference}, ${params.value}::jsonb),
+      SET frozen_hydration = frozen_hydration || jsonb_build_object(${params.reference}::text, ${params.value}::jsonb),
           updated_at = now()
       WHERE run_id = ${params.runId}::uuid
     `;
