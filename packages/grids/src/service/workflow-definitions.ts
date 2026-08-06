@@ -49,8 +49,6 @@ import { loadWorkflowCatalog } from "./workflow-catalog";
 import { assertWorkflowEmailTemplatesAvailable, lockWorkflowCatalogMutation } from "./workflow-catalog-mutation";
 import { emitWorkflowRuntimeEvent } from "./workflow-runtime-events";
 
-const manifest = gridsWorkflows.manifest;
-
 /** How Grids identifies itself to the kernel. A base is one scope. */
 const APP_ID = "grids";
 

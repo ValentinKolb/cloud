@@ -26,8 +26,6 @@ import {
 } from "../service/workflow-catalog";
 import { gridsWorkflows } from "./module";
 
-const manifest = gridsWorkflows.manifest;
-
 export type BindGridsWorkflowResult = { ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
 type ValueInfo = WorkflowValuePathDescriptor & { tableId?: string };
@@ -91,9 +89,6 @@ type BindingContext = {
   bindings: Record<string, WorkflowJsonValue>;
   diagnostics: WorkflowDiagnostic[];
 };
-
-const inputTypes = new Map(manifest.inputs.map((input) => [input.kind, input.valueType]));
-const actionTypes = new Map(manifest.actions.map((action) => [action.kind, action.outputType]));
 
 const locationForPath = (
   path: Array<string | number>,
@@ -328,7 +323,8 @@ const bindMessage = (
 const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Map<string, ValueInfo>, context: BindingContext): void => {
   const config = step.config;
   const path = [...step.sourcePath, step.action];
-  let output: ValueInfo | undefined = actionTypes.get(step.action) ? valueDescriptor(actionTypes.get(step.action)!) : undefined;
+  const outputType = gridsWorkflows.manifest.actions.find((action) => action.kind === step.action)?.outputType;
+  let output: ValueInfo | undefined = outputType ? valueDescriptor(outputType) : undefined;
 
   if (step.action === "updateRecord") {
     const record = expectReference(config.record, "grids.record", "record", [...path, "record"], scope, context);
@@ -457,7 +453,7 @@ const typesCompatible = (expected: string, actual: string): boolean =>
   ((expected === "core.date" || expected === "core.dateTime") && actual === "core.text");
 
 const bindTriggers = (context: BindingContext): void => {
-  const descriptors = new Map(manifest.triggers.map((trigger) => [trigger.kind, trigger]));
+  const descriptors = new Map(gridsWorkflows.manifest.triggers.map((trigger) => [trigger.kind, trigger]));
   for (const trigger of context.ir.triggers) {
     const path = ["triggers", trigger.kind] as Array<string | number>;
     const descriptor = descriptors.get(trigger.kind);
@@ -534,6 +530,7 @@ const bindTriggers = (context: BindingContext): void => {
 };
 
 const bindInputs = (context: BindingContext): void => {
+  const inputTypes = new Map(gridsWorkflows.manifest.inputs.map((input) => [input.kind, input.valueType]));
   for (const input of context.ir.inputs) {
     const type = inputTypes.get(input.type) ?? "core.value";
     let tableId: string | undefined;
@@ -546,6 +543,7 @@ const bindInputs = (context: BindingContext): void => {
 };
 
 export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog): Promise<BindGridsWorkflowResult> => {
+  const manifest = gridsWorkflows.manifest;
   if (ir.languageId !== manifest.id || ir.languageVersion !== manifest.version) {
     return {
       ok: false,
