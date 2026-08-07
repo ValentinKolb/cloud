@@ -253,6 +253,11 @@
   border-radius: 0.9rem;
 }
 
+/* Cloud utility used by copyable examples inside the standalone catalog. */
+.ui-demo-scope .text-dimmed {
+  color: var(--k2b-text-muted);
+}
+
 /*
  * ChatTimeline is `flex: 1; min-height: 0` and its viewport is `height: 100%`,
  * so the package expects a bounded flex column from the host. The showcase
@@ -602,17 +607,6 @@
 .k2b-ui.k2b-dark .ui-stat-attention,
 .dark .k2b-ui .ui-stat-attention {
   color: #fbbf24;
-}
-
-/*
- * Cloud's legacy `text-dimmed` utility assumes Cloud's application shell.
- * Keep the backend-specific widget sample readable when it is embedded in the
- * standalone package catalog's dark surface.
- */
-.k2b-ui[data-theme="dark"] .ui-cloud-widget-demo .text-dimmed,
-.k2b-ui.k2b-dark .ui-cloud-widget-demo .text-dimmed,
-.dark .k2b-ui .ui-cloud-widget-demo .text-dimmed {
-  color: var(--k2b-text-muted) !important;
 }
 
 .ui-reference-body {

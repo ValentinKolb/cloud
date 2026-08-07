@@ -221,7 +221,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
         <Show when={props.clearable && selected().length > 0 && !props.disabled}>
           <button
             type="button"
-            class="k2b-choice-control__clear"
+            class="k2b-choice-control__clear k2b-input-clear-action"
             aria-label={props.clearLabel ?? "Clear selection"}
             onClick={(event) => {
               event.stopPropagation();

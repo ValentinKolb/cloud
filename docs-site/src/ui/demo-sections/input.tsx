@@ -216,7 +216,7 @@ const MarkdownDemo = () => {
   abbreviations={{ afaik: "as far as I know" }}
   completions={[mentionCompletion]}
   onSave={save}
-  toolbarTrailing={<span role="status">{saved() ? "Saved" : "Unsaved"}</span>}
+  toolbarTrailing={<span class="text-xs text-dimmed" role="status">{saved() ? "Saved" : "Unsaved"}</span>}
 />`}
     >
       <MarkdownEditor
@@ -232,7 +232,7 @@ const MarkdownDemo = () => {
         completions={[mentionCompletion]}
         onSave={() => setSaved(true)}
         toolbarTrailing={
-          <span role="status" aria-live="polite">
+          <span class="text-xs text-dimmed" role="status" aria-live="polite">
             {saved() ? "Saved" : "Unsaved"}
           </span>
         }

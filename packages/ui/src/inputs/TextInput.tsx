@@ -155,7 +155,12 @@ export function TextInput(props: TextInputProps): JSX.Element {
               <span class="k2b-input-shell__affix">{local.suffix}</span>
             </Show>
             <Show when={local.clearable && value() && !multiline() && !local.password && !rest.disabled && !rest.readOnly}>
-              <button type="button" class="k2b-input-shell__clear" aria-label={local.clearLabel ?? "Clear"} onClick={clear}>
+              <button
+                type="button"
+                class="k2b-input-shell__clear k2b-input-clear-action"
+                aria-label={local.clearLabel ?? "Clear"}
+                onClick={clear}
+              >
                 <i class="ti ti-x" aria-hidden="true" />
               </button>
             </Show>

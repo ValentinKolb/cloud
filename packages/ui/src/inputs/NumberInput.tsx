@@ -181,7 +181,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
           <Show when={local.clearable && raw() && !rest.disabled && !rest.readOnly}>
             <button
               type="button"
-              class="k2b-input-shell__clear"
+              class="k2b-input-shell__clear k2b-input-clear-action"
               aria-label={local.clearLabel ?? "Clear"}
               onClick={() => (local.onClear ? local.onClear() : commit(null))}
             >

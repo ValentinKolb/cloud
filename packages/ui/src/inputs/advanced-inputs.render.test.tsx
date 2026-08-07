@@ -152,11 +152,13 @@ describe("@k2b/ui complete advanced input migrations", () => {
 
     expect(text).toContain('type="password"');
     expect(text).toContain("Show password");
+    expect(text).not.toContain("k2b-input-clear-action");
     expect(number).toContain('role="spinbutton"');
     expect(number).toContain('aria-label="Decrease value"');
     expect(number).toContain('aria-label="Increase value"');
     expect(number).toContain("gross");
     expect(number).toContain('aria-label="Clear"');
+    expect(number).toContain("k2b-input-clear-action");
   });
 
   test("renders generic file, image and icon controls", () => {

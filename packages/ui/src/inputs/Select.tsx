@@ -184,7 +184,7 @@ export function Select(props: SelectProps): JSX.Element {
         </button>
         <Show when={props.name}>{(name) => <input type="hidden" name={name()} value={value() ?? ""} />}</Show>
         <Show when={props.clearable && selected() && !props.disabled}>
-          <button type="button" class="k2b-choice-control__clear" aria-label="Clear selection" onClick={clear}>
+          <button type="button" class="k2b-choice-control__clear k2b-input-clear-action" aria-label="Clear selection" onClick={clear}>
             <i class="ti ti-x" aria-hidden="true" />
           </button>
         </Show>

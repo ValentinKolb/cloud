@@ -165,17 +165,13 @@
   overflow-y: auto !important;
 }
 
-/* Transparent selection text only makes sense when the glyphs live in the
-   preview layer. In plain mode the textarea paints its own text, so forcing
-   `color: transparent` would blank out whatever the user selects. */
+/* Chromium paints an opaque native highlight when the selected textarea
+   glyphs remain transparent. Paint only the selected glyphs from the input;
+   outside the selection, the preview layer continues to own highlighting. */
 .k2b-ui .k2b-autocomplete[data-overlay="true"] .k2b-autocomplete__input::selection,
 .k2b-ui .k2b-markdown-editor__input::selection {
-  color: transparent;
-  background: color-mix(in srgb, var(--k2b-action) 35%, transparent);
-}
-
-.k2b-ui .k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__input::selection {
-  background: color-mix(in srgb, var(--k2b-action) 35%, transparent);
+  color: var(--k2b-text);
+  -webkit-text-fill-color: var(--k2b-text);
 }
 
 .k2b-ui .k2b-autocomplete__preview {

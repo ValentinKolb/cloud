@@ -147,6 +147,7 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("Launch");
     expect(html).toContain("Clear date");
+    expect(html).toContain("k2b-input-clear-action");
     expect(html).toContain("k2b-field__required");
     // role="grid" needs rows, and exactly one day carries the roving tabindex.
     expect(html).toContain('role="row"');

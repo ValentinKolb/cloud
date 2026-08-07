@@ -59,6 +59,7 @@
   --k2b-action-hover: var(--k2b-accent-800);
   --k2b-action-solid: var(--k2b-accent-700);
   --k2b-action-solid-hover: var(--k2b-accent-800);
+  --k2b-selection: rgb(29 78 216 / 0.35);
   --k2b-focus-ring: var(--k2b-accent-500);
   --k2b-focus-fill: color-mix(in srgb, var(--k2b-focus-ring) 45%, var(--k2b-surface));
   --k2b-focus-inset: inset 0 0 0 2px var(--k2b-focus-fill);
@@ -120,6 +121,7 @@
   --k2b-action-hover: var(--k2b-accent-200);
   --k2b-action-solid: var(--k2b-accent-600);
   --k2b-action-solid-hover: var(--k2b-accent-700);
+  --k2b-selection: rgb(147 197 253 / 0.35);
   --k2b-focus-ring: var(--k2b-accent-400);
   --k2b-focus-fill: color-mix(in srgb, var(--k2b-focus-ring) 55%, var(--k2b-surface));
   --k2b-focus-inset: inset 0 0 0 2px var(--k2b-focus-fill);
@@ -152,6 +154,11 @@
 .k2b-ui *::before,
 .k2b-ui *::after {
   box-sizing: border-box;
+}
+
+.k2b-ui::selection,
+.k2b-ui ::selection {
+  background-color: var(--k2b-selection);
 }
 
 .k2b-ui :where(button, input, select, textarea) {
@@ -1298,6 +1305,16 @@
 .k2b-ui .k2b-input-shell__clear:hover {
   color: var(--k2b-text);
   background: var(--k2b-hover);
+}
+
+.k2b-ui .k2b-input-clear-action {
+  color: var(--k2b-text-muted);
+  background: transparent;
+}
+
+.k2b-ui .k2b-input-clear-action:hover {
+  color: var(--k2b-danger-text);
+  background: transparent;
 }
 .k2b-ui .k2b-input:disabled,
 .k2b-ui .k2b-select:disabled {
@@ -2758,14 +2775,7 @@
   padding: 0;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--k2b-text-muted);
-  background: var(--k2b-surface);
   cursor: pointer;
-}
-
-.k2b-ui .k2b-choice-control__clear:hover {
-  color: var(--k2b-text);
-  background: var(--k2b-hover);
 }
 
 .k2b-ui .k2b-combobox__input {
@@ -3357,14 +3367,7 @@
   padding: 0;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--k2b-text-muted);
-  background: transparent;
   cursor: pointer;
-}
-
-.k2b-ui .k2b-date-trigger__clear:hover {
-  color: var(--k2b-text);
-  background: var(--k2b-hover);
 }
 
 .k2b-ui .k2b-date-trigger__clear:focus-visible,

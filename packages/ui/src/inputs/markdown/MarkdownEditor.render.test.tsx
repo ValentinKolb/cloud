@@ -90,15 +90,19 @@ describe("source-faithful editor SSR contracts", () => {
     expect(anchored).toContain('class="md-syntax"');
   });
 
-  test("keeps the plain autocomplete textarea readable and single-line sized", async () => {
-    const css = await Bun.file(resolve(import.meta.dir, "../../styles/editors-parity.css")).text();
+  test("keeps text selection readable across plain and highlighted editors", async () => {
+    const baseCss = await Bun.file(resolve(import.meta.dir, "../../styles/index.css")).text();
+    const editorCss = await Bun.file(resolve(import.meta.dir, "../../styles/editors-parity.css")).text();
 
-    // Transparent selection text is only correct in overlay mode, where the
-    // glyphs come from the preview layer.
-    expect(css).toContain('.k2b-ui .k2b-autocomplete[data-overlay="true"] .k2b-autocomplete__input::selection');
-    expect(css).not.toMatch(/^\.k2b-ui \.k2b-autocomplete__input::selection/m);
-    expect(css).toContain('.k2b-ui .k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__input {');
-    expect(css).toContain('.k2b-ui .k2b-autocomplete[data-single-line="true"]');
+    expect(baseCss).toContain(".k2b-ui::selection,\n.k2b-ui ::selection {");
+    expect(baseCss).toContain("--k2b-selection: rgb(29 78 216 / 0.35)");
+    expect(baseCss).toContain("--k2b-selection: rgb(147 197 253 / 0.35)");
+    expect(baseCss).toContain("background-color: var(--k2b-selection)");
+    expect(editorCss).toContain('.k2b-ui .k2b-autocomplete[data-overlay="true"] .k2b-autocomplete__input::selection');
+    expect(editorCss).toContain("-webkit-text-fill-color: var(--k2b-text)");
+    expect(editorCss).not.toContain('.k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__input::selection');
+    expect(editorCss).toContain('.k2b-ui .k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__input {');
+    expect(editorCss).toContain('.k2b-ui .k2b-autocomplete[data-single-line="true"]');
   });
 
   test("keeps the recessed editor well while focused", async () => {

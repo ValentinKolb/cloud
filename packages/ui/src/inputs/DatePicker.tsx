@@ -191,7 +191,7 @@ function PickerShell<T>(props: {
         <Show when={props.owner.clearable && props.valueLabel() && !props.owner.disabled}>
           <button
             type="button"
-            class="k2b-date-trigger__clear"
+            class="k2b-date-trigger__clear k2b-input-clear-action"
             aria-label="Clear date"
             onClick={(event) => {
               event.stopPropagation();

@@ -43,6 +43,13 @@ test("choice controls keep descenders inside clipped single-line labels", () => 
   expect(cssRule(".k2b-ui .k2b-choice-pill")).toContain("line-height: 1rem");
 });
 
+test("input clear actions stay minimal and use danger text on hover", () => {
+  expect(cssRule(".k2b-ui .k2b-input-clear-action")).toContain("background: transparent");
+  const hover = cssRule(".k2b-ui .k2b-input-clear-action:hover");
+  expect(hover).toContain("color: var(--k2b-danger-text)");
+  expect(hover).toContain("background: transparent");
+});
+
 const options = [
   {
     value: "platform",
@@ -140,6 +147,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("Runtime and infrastructure");
     expect(html).toContain("Clear selection");
+    expect(html).toContain("k2b-input-clear-action");
     expect(html).toContain("disabled");
     expect(cssRule(".k2b-ui .k2b-choice-popover")).toContain("transition: none");
   });
@@ -201,6 +209,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('aria-label="Platform"');
     expect(html).toContain("Clear selection");
+    expect(html).toContain("k2b-input-clear-action");
     expect(html).toContain("<strong>Platform</strong><small>Runtime and infrastructure</small>");
     expect(html).not.toContain("<span><strong>Platform</strong><small>Runtime and infrastructure</small></span>");
   });
