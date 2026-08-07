@@ -81,6 +81,12 @@ describe("@k2b/ui complete advanced input migrations", () => {
       globalThis.document = originalDocument;
     }
     expect(renderWithOverlay("hello", (value) => value, { ghost: { at: 5, text: " world" } })).toContain("data-completion-anchor");
+    const anchoredGhost = renderWithOverlay("Hi @al", (value) => value, {
+      anchor: { at: 3 },
+      ghost: { at: 6, text: "ice" },
+    });
+    expect(anchoredGhost).toContain('<span class="k2b-completion-anchor" data-completion-anchor');
+    expect(anchoredGhost.indexOf("k2b-completion-anchor")).toBeLessThan(anchoredGhost.indexOf("k2b-completion-ghost"));
     expect(collectKnownLabels([abbreviations({ brb: "be right back" })])).toEqual(new Set(["brb"]));
   });
 
@@ -263,6 +269,7 @@ describe("@k2b/ui complete advanced input migrations", () => {
     expect(single).toContain('data-single-line="true"');
     expect(single).not.toContain("--k2b-editor-lines:1");
     expect(single).not.toContain('data-overlay="true"');
+    expect(single).toContain('class="k2b-autocomplete__preview"');
     expect(single).toContain('rows="1"');
     expect(multi).toContain('data-overlay="true"');
     expect(multi).toContain("--k2b-editor-lines:5");

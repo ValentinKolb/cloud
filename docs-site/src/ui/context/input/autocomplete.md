@@ -34,7 +34,10 @@ function receives `(query, context, signal)` and may return suggestions
 immediately or as a promise. `context` contains the complete text, caret, and
 token start. Use the signal to cancel remote work.
 
-Set `dropdown: true` to show all matches. Without it, the active suggestion appears as a ghost preview. Tab accepts the active suggestion; dropdowns also support arrow keys and Enter.
+Set `dropdown: true` to show all matches. The dropdown aligns with the start of
+the active token, follows editor scrolling, and stays within the viewport.
+Without it, the active suggestion appears as a ghost preview. Tab accepts the
+active suggestion; dropdowns also support arrow keys and Enter.
 
 Use `debounceMs` for remote lookups. A new query aborts the previous request. `allowAfterWord` permits triggers such as `(` directly after a function name.
 

@@ -182,6 +182,10 @@
   scrollbar-color: transparent transparent !important;
 }
 
+.k2b-ui .k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__preview {
+  visibility: hidden;
+}
+
 .k2b-ui .k2b-autocomplete__preview *,
 .k2b-ui .k2b-autocomplete__preview *::before,
 .k2b-ui .k2b-autocomplete__preview *::after,

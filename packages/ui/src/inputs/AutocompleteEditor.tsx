@@ -96,7 +96,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
   };
 
   createEffect(() => {
-    if (!useOverlay() || !preview) {
+    if (!preview) {
       if (overlayFrame !== undefined) cancelAnimationFrame(overlayFrame);
       overlayFrame = undefined;
       renderPendingOverlay = undefined;
@@ -108,7 +108,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
     const current = state();
     const active = activeSuggestion();
     const ghost = current && active ? suggestionGhost(current, active) : undefined;
-    const anchor = current && !ghost ? { at: current.context.end } : undefined;
+    const anchor = current ? { at: current.context.start } : undefined;
     renderPendingOverlay = () => {
       if (!preview) return;
       preview.innerHTML = renderWithOverlay(value, highlighter, { ghost, anchor });
@@ -151,7 +151,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
 
   const positionDropdown = (): void => {
     if (!dropdown?.isConnected || !textarea?.isConnected) return;
-    const anchor = useOverlay() ? preview?.querySelector<HTMLElement>("[data-completion-anchor]") : undefined;
+    const anchor = preview?.querySelector<HTMLElement>("[data-completion-anchor]");
     const rect = anchor?.getBoundingClientRect() ?? textarea.getBoundingClientRect();
     const maxHeight = 260;
     const spaceBelow = window.innerHeight - rect.bottom;
@@ -441,9 +441,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
               {props.placeholder}
             </div>
           </Show>
-          <Show when={useOverlay()}>
-            <div ref={preview} class="k2b-autocomplete__preview" aria-hidden="true" />
-          </Show>
+          <div ref={preview} class="k2b-autocomplete__preview" aria-hidden="true" />
           <textarea
             ref={(element) => {
               textarea = element;
@@ -460,6 +458,7 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
                 preview.scrollTop = event.currentTarget.scrollTop;
                 preview.scrollLeft = event.currentTarget.scrollLeft;
               }
+              if (dropdown?.matches(":popover-open")) positionDropdown();
             }}
             onCompositionStart={() => setComposing(true)}
             onCompositionEnd={() => setComposing(false)}
