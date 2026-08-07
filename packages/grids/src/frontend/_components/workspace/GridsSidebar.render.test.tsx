@@ -25,6 +25,7 @@ const workflowState = (): OkWorkspaceState =>
     canManageBase: false,
     canCreateTables: false,
     catalog: {
+      customApps: [],
       tables: [],
       viewsByTable: {},
       sidebarForms: [],
@@ -70,5 +71,31 @@ describe("GridsSidebar workflows", () => {
     expect(html).toContain("Workflows");
     expect(html).toContain("New workflow");
     expect(html).not.toContain("Add workflow");
+  });
+});
+
+describe("GridsSidebar Custom Apps", () => {
+  test("links base-admin builders and marks drafts", () => {
+    const state = workflowState();
+    state.canManageBase = true;
+    state.catalog.customApps = [
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        shortId: "APP1",
+        baseId: state.base.id,
+        name: "Loan desk",
+        icon: "clipboard",
+        publishedAt: null,
+        updatedAt: "2026-08-07T00:00:00.000Z",
+      },
+    ];
+    state.route = { kind: "customApp", app: { id: state.catalog.customApps[0]!.id } } as OkWorkspaceState["route"];
+
+    const html = renderToString(() => createComponent(GridsSidebar, { state }));
+
+    expect(html).toContain("Custom Apps");
+    expect(html).toContain("Loan desk");
+    expect(html).toContain("/app/grids/BASE1/apps/APP1?edit=true");
+    expect(html).toContain("draft");
   });
 });

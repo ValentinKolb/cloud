@@ -38,9 +38,11 @@ The app grant alone never grants table, form, view, template, or workflow access
 
 **Checkpoint:** a requester can submit the Form and read only request rows they created; the responsible group can read and process all request rows. If this fails, correct the resource grants and row scopes before building pages.
 
-## Create the app {icon="apps"}
+## Open the builder {icon="apps"}
 
-In the base, open **Custom Apps**, choose **New app**, and select **Blank**.
+Create the initial definition with [YAML & CLI](/app/grids/help/grids-custom-app-yaml-cli). Then turn on **Edit mode**, open the base, and choose the app under **Custom Apps**. Only base administrators see this section.
+
+The builder edits the same canonical draft used by YAML and CLI. Use the **Pages** pane to select, add, or remove pages. Choose **Page settings** for the app name, icon, page title, navigation visibility, and start page. Select a block directly on the canvas to edit its title, content, presentation settings, column width, and order. **Add text** appends a Markdown block to the current column. Save the draft before leaving; publish only after previewing the complete journey.
 
 Set:
 
@@ -48,7 +50,7 @@ Set:
 - **Icon:** Certificate
 - **Start page:** Apply
 
-Create these pages:
+Create these pages, then inspect and refine them in the builder:
 
 | Page ID | Title | Navigation | Parameters |
 | --- | --- | --- | --- |

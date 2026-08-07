@@ -4,6 +4,7 @@ type WorkspaceRouteKind = GridsWorkspaceRoute["kind"];
 type WorkspaceSurface = "edge-to-edge" | "inset";
 
 const WORKSPACE_SURFACES = {
+  customApp: "edge-to-edge",
   queryResultView: "inset",
   documentTemplate: "inset",
   empty: "inset",

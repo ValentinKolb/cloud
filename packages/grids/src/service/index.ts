@@ -179,8 +179,10 @@ export const gridsService = {
     unpublish: customApps.unpublish,
     remove: customApps.remove,
     get: customApps.get,
+    getByIdOrShortId: customApps.getByIdOrShortId,
     getPublishedByShortId: customApps.getPublishedByShortId,
     listByBase: customApps.listByBase,
+    listSummariesByBase: customApps.listSummariesByBase,
   },
   view: {
     listForTable: views.listForTable,
@@ -335,6 +337,7 @@ export type {
 } from "../contracts";
 export type { GridsWorkflow as Workflow } from "../workflows/contracts";
 export type { CombinedAuditEntry, CombinedAuditPage, CombinedRecordOrigin } from "./combined-audit";
+export type { CustomApp, CustomAppSummary } from "./custom-apps";
 export type { Form, FormFieldEntry } from "./forms";
 export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
 export type { RecordHistoryEntry } from "./record-history";

@@ -82,6 +82,7 @@ export default new Hono<AuthContext>()
   .get("/:baseId/reference", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)
   .get("/:baseId/query-reference", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)
   .get("/:baseId/query", auth.requireRole("user", auth.redirectToLogin), ...queryWorkspacePage)
+  .get("/:baseId/apps/:customAppId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId/workflows/:workflowId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId/workflows", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage);

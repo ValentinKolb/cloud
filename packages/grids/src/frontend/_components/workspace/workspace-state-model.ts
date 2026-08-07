@@ -13,6 +13,8 @@ import type {
 import type {
   Base,
   CombinedRecordOrigin,
+  CustomApp,
+  CustomAppSummary,
   Field,
   Form,
   GridFile,
@@ -44,6 +46,7 @@ export type WorkspaceGroupBucket = {
 };
 
 export type WorkspaceCatalog = {
+  customApps: CustomAppSummary[];
   workflows: Workflow[];
   workflowLevels: Record<string, "none" | "read" | "write" | "admin">;
   tables: Table[];
@@ -189,7 +192,13 @@ export type WorkspaceDocumentTemplateRoute = {
   initialBrowserPage: DocumentRunBrowseResponse;
 };
 
+export type WorkspaceCustomAppRoute = {
+  kind: "customApp";
+  app: CustomApp;
+};
+
 export type GridsWorkspaceRoute =
+  | WorkspaceCustomAppRoute
   | WorkspaceRecordsRoute
   | WorkspaceQueryResultViewRoute
   | WorkspaceWorkflowsRoute
@@ -230,6 +239,7 @@ export type LoadWorkspaceParams = {
   activeWorkflowSlug?: string | null;
   activeDocumentTableSlug?: string | null;
   activeDocumentTemplateSlug?: string | null;
+  activeCustomAppSlug?: string | null;
   initialDocumentViewMode?: GridsDocumentViewMode;
   dateConfig?: DateContext;
 };

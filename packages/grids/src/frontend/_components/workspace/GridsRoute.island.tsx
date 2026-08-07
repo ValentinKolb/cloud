@@ -1,6 +1,7 @@
 import { AppWorkspace, Placeholder } from "@k2b/ui";
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
+import CustomAppBuilder from "../custom-apps/CustomAppBuilder";
 import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
 import QueryResultView from "../query/QueryResultView";
 import QueryWorkspace from "../query/QueryWorkspace";
@@ -35,6 +36,10 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
   const route = state.route;
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = createSignal(route.kind === "workflows" ? route.selectedRunId : null);
   const [workflowRunUpdate, setWorkflowRunUpdate] = createSignal<GridsWorkflowRun | null>(null);
+
+  if (route.kind === "customApp") {
+    return <CustomAppBuilder app={route.app} />;
+  }
 
   const updateWorkflowRun = (runId: string | null) => {
     const url = new URL(window.location.href);

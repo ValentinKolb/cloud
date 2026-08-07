@@ -40,6 +40,8 @@ export type CustomApp = {
   updatedAt: string;
 };
 
+export type CustomAppSummary = Pick<CustomApp, "id" | "shortId" | "baseId" | "name" | "icon" | "publishedAt" | "updatedAt">;
+
 export type CompiledCustomApp = { definition: CustomAppDefinition; capabilities: CustomAppCapabilities };
 export type CustomAppCompilation = { ok: true; compiled: CompiledCustomApp } | { ok: false; diagnostics: CustomAppDiagnostic[] };
 export type CustomAppPlan = {
@@ -74,6 +76,16 @@ const mapRow = (row: DbRow): CustomApp => ({
     : null,
   publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
+  updatedAt: (row.updated_at as Date).toISOString(),
+});
+
+const mapSummaryRow = (row: DbRow): CustomAppSummary => ({
+  id: row.id as string,
+  shortId: row.short_id as string,
+  baseId: row.base_id as string,
+  name: row.name as string,
+  icon: (row.icon as string | null) ?? null,
+  publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
@@ -612,6 +624,15 @@ export const get = async (id: string, client: SqlClient = sql): Promise<CustomAp
   return row ? mapRow(row) : null;
 };
 
+export const getByIdOrShortId = async (baseId: string, idOrShortId: string, client: SqlClient = sql): Promise<CustomApp | null> => {
+  const [row] = await client<DbRow[]>`
+    SELECT *
+    FROM grids.custom_apps
+    WHERE base_id = ${baseId}::uuid AND (id::text = ${idOrShortId} OR short_id = ${idOrShortId}) AND deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
+};
+
 export const getPublishedByShortId = async (shortId: string): Promise<CustomApp | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT app.*
@@ -625,6 +646,16 @@ export const getPublishedByShortId = async (shortId: string): Promise<CustomApp 
 export const listByBase = async (baseId: string): Promise<CustomApp[]> => {
   const rows = await sql<DbRow[]>`SELECT * FROM grids.custom_apps WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL ORDER BY name, id`;
   return rows.map(mapRow);
+};
+
+export const listSummariesByBase = async (baseId: string): Promise<CustomAppSummary[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT id, short_id, base_id, name, icon, published_at, updated_at
+    FROM grids.custom_apps
+    WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
+    ORDER BY name, id
+  `;
+  return rows.map(mapSummaryRow);
 };
 
 export const plan = async (input: unknown): Promise<CustomAppPlan> => {

@@ -4,7 +4,7 @@ import { gridsService } from "../../../service";
 import { workflowLevelForUser } from "./workspace-state-access";
 import type { AuthUser, WorkspaceCatalog } from "./workspace-state-model";
 
-export const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCatalog> => {
+export const loadCatalog = async (baseId: string, user: AuthUser, includeCustomApps = false): Promise<WorkspaceCatalog> => {
   const catalogRaw = await gridsService.base.catalog({
     baseId,
     userId: user.id,
@@ -33,7 +33,10 @@ export const loadCatalog = async (baseId: string, user: AuthUser): Promise<Works
   }
   sidebarDocumentTemplates.sort((left, right) => left.template.name.localeCompare(right.template.name, undefined, { sensitivity: "base" }));
 
-  const allWorkflows = gridsService.workflow?.listForBase ? await gridsService.workflow.listForBase(baseId) : [];
+  const [allWorkflows, customApps] = await Promise.all([
+    gridsService.workflow?.listForBase ? gridsService.workflow.listForBase(baseId) : Promise.resolve([]),
+    includeCustomApps ? gridsService.customApp.listSummariesByBase(baseId) : Promise.resolve([]),
+  ]);
   const workflowLevels = Object.fromEntries(
     await Promise.all(allWorkflows.map(async (workflow) => [workflow.id, await workflowLevelForUser(user, baseId, workflow.id)] as const)),
   );
@@ -41,6 +44,7 @@ export const loadCatalog = async (baseId: string, user: AuthUser): Promise<Works
     .filter((workflow) => gridsService.permission.hasAtLeast(workflowLevels[workflow.id] ?? "none", "read"))
     .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   return {
+    customApps,
     workflows,
     workflowLevels,
     tables,

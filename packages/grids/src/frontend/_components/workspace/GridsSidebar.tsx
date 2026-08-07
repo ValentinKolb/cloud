@@ -32,6 +32,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
   const recordsRoute = route.kind === "records" ? (route as WorkspaceRecordsRoute) : null;
   const queryResultViewRoute = route.kind === "queryResultView" ? (route as WorkspaceQueryResultViewRoute) : null;
   const workflowsRoute = route.kind === "workflows" ? (route as WorkspaceWorkflowsRoute) : null;
+  const activeCustomAppId = route.kind === "customApp" ? route.app.id : null;
   const canCreateStructure = state.adminModeRequested && state.canCreateTables;
   const sidebarViews = state.catalog.tables.flatMap((table) =>
     (state.catalog.viewsByTable[table.id] ?? []).map((view) => ({ table, view })),
@@ -155,6 +156,26 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
               <EmailTemplatesButton baseId={state.base.id} />
             </>
           )}
+        </AppWorkspace.SidebarSection>
+      )}
+
+      {state.catalog.customApps.length > 0 && (
+        <AppWorkspace.SidebarSection title="Custom Apps">
+          {state.catalog.customApps.map((app) => (
+            <SidebarLink
+              href={keepEdit(`/app/grids/${state.base.shortId}/apps/${app.shortId}`, true)}
+              active={activeCustomAppId === app.id}
+              title={app.name}
+            >
+              <AppWorkspace.SidebarItemIcon icon={app.icon ? `ti ti-${app.icon}` : "ti ti-app-window"} />
+              <AppWorkspace.SidebarItemLabel>{app.name}</AppWorkspace.SidebarItemLabel>
+              {!app.publishedAt && (
+                <AppWorkspace.SidebarItemMeta>
+                  <span class="text-[9px] uppercase tracking-wider text-dimmed">draft</span>
+                </AppWorkspace.SidebarItemMeta>
+              )}
+            </SidebarLink>
+          ))}
         </AppWorkspace.SidebarSection>
       )}
     </>

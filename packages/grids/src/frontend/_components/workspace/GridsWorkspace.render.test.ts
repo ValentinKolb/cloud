@@ -31,6 +31,7 @@ const workspaceState = (): OkWorkspaceState => ({
   metadataEventCursor: null,
   recordEventCursor: null,
   catalog: {
+    customApps: [],
     workflows: [],
     workflowLevels: {},
     tables: [],

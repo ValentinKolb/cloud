@@ -7,6 +7,7 @@ import { workspaceRootClass } from "./workspace-layout";
 import type { OkWorkspaceState, WorkspaceCatalog } from "./workspace-state-model";
 
 const emptyClientCatalog = (): WorkspaceCatalog => ({
+  customApps: [],
   workflows: [],
   workflowLevels: {},
   tables: [],
@@ -24,6 +25,9 @@ const emptyClientCatalog = (): WorkspaceCatalog => ({
 const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
   const catalog = emptyClientCatalog();
   switch (state.route.kind) {
+    case "customApp":
+      catalog.customApps = state.catalog.customApps;
+      break;
     case "records":
     case "queryResultView":
       catalog.tables = state.catalog.tables;

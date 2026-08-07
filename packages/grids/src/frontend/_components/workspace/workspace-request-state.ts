@@ -1,5 +1,5 @@
 import type { DocumentTemplate } from "../../../contracts";
-import type { Base, Table, Workflow } from "../../../service";
+import type { Base, CustomApp, Table, Workflow } from "../../../service";
 import { gridsService } from "../../../service";
 import { canUseEditModeForCatalog, loadCatalog } from "./workspace-catalog-state";
 import { documentTemplateLevelForUser, resolveBaseLevel, viewLevelForUser, workflowLevelForUser } from "./workspace-state-access";
@@ -12,6 +12,7 @@ export type WorkspaceRequestContext = {
   requestedDocumentTemplate: DocumentTemplate | null;
   requestedWorkflow: Workflow | null;
   requestedViewTable: Table | null;
+  requestedCustomApp: CustomApp | null;
 };
 
 export const loadWorkspaceRequest = async (
@@ -20,8 +21,15 @@ export const loadWorkspaceRequest = async (
   eventCursors: { metadata: string | null; records: string | null },
 ): Promise<WorkspaceRequestContext | Extract<GridsWorkspaceState, { kind: "accessDenied" }>> => {
   const level = await resolveBaseLevel(params.user, base.id);
-  const catalog = await loadCatalog(base.id, params.user);
+  const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
+  const catalog = await loadCatalog(base.id, params.user, canManageBase);
   const hasBaseRead = gridsService.permission.hasAtLeast(level, "read");
+  if (params.activeCustomAppSlug && !canManageBase) {
+    return { kind: "accessDenied", title: "Access denied", message: "Base admin access is required to edit Custom Apps" };
+  }
+  const requestedCustomApp = params.activeCustomAppSlug
+    ? await gridsService.customApp.getByIdOrShortId(base.id, params.activeCustomAppSlug)
+    : null;
   const requestedDocumentTable =
     params.activeDocumentTableSlug && params.activeDocumentTemplateSlug
       ? await gridsService.table.getByIdOrShortId(base.id, params.activeDocumentTableSlug)
@@ -65,7 +73,6 @@ export const loadWorkspaceRequest = async (
     return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
   }
 
-  const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
   return {
     common: {
@@ -84,5 +91,6 @@ export const loadWorkspaceRequest = async (
     requestedDocumentTemplate,
     requestedWorkflow,
     requestedViewTable: hasViewRouteAccess ? requestedViewTable : null,
+    requestedCustomApp,
   };
 };

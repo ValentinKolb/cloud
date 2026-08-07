@@ -11,6 +11,7 @@ describe("workspaceMainClass", () => {
 
   test("leaves pane routes edge to edge", () => {
     expect(workspaceMainClass("query")).toBeUndefined();
+    expect(workspaceMainClass("customApp")).toBeUndefined();
   });
 });
 

@@ -8,6 +8,13 @@ import { loadWorkflowState } from "./workspace-workflow-state";
 
 export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Promise<GridsWorkspaceState> => {
   const { common } = request;
+  if (common.params.activeCustomAppSlug) {
+    if (!request.requestedCustomApp) return { kind: "notFound", title: "Not found", message: "Custom App not found" };
+    return okState(common, { kind: "customApp", app: request.requestedCustomApp }, [
+      ...common.chrome.titleBase,
+      { title: request.requestedCustomApp.name },
+    ]);
+  }
   const queryWorkspaceRequested = common.chrome.url.pathname.endsWith("/query");
   const workflowWorkspaceRequested = common.chrome.url.pathname.includes("/workflows");
   const activeTableFromSlug =
