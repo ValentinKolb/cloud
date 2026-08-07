@@ -7,7 +7,7 @@ Read this reference when configuring managed automatic replies, conversation ref
 | Need | Use |
 | --- | --- |
 | Out-of-office or receipt acknowledgement | `automatic-reply ...` |
-| Guided sender, content, or attachment routing plus Cloud actions | `rule ...` |
+| Guided sender, content, or attachment routing plus Mail and AI actions | `automation ...` |
 | Permanent human-facing conversation ids | `reference ...` plus `ensureConversationReference` |
 | Conditional routing, tagging, assignment, drafts, sends, or notifications | `workflow ...` |
 
@@ -44,6 +44,7 @@ ensureReference: false
 minimumIntervalHours: 96
 inactiveBehavior: skip
 schedule:
+  mode: windows
   timeZone: Europe/Berlin
   activeRanges:
     - from: 2026-07-20
@@ -77,6 +78,8 @@ schedule:
 cld --json mail automatic-reply create --configuration-file out-of-office.yml
 ```
 
+Use `--configuration-stdin` instead of `--configuration-file` when another tool produces the document. Do not pass multiline configuration inline.
+
 Replace a configuration at its expected revision:
 
 ```bash
@@ -86,16 +89,16 @@ cld --json mail automatic-reply update \
   --configuration-file out-of-office.yml
 ```
 
-The complete configuration is replaced; omitted optional fields receive their create defaults. The defaults are enabled, Markdown, no reference allocation, a 24-hour sender interval, and `skip` outside active times.
+The complete configuration is replaced; omitted optional fields receive their create defaults. `name` accepts 1–80 characters, `subject` at most 998 characters, and `body` at most 2 MiB. `format` accepts `plain` or `markdown`. The defaults are enabled, Markdown, no reference allocation, a 24-hour sender interval, and `skip` outside active times. `senderIdentityId` must identify a verified automation-enabled identity.
 
 Only one managed automatic reply may be enabled for a mailbox at a time. Set `enabled: false` on the current configuration before enabling another one. The selected identity must be verified and automation-enabled.
 
 Schedule rules are evaluated in `timeZone`:
 
 - `activeRanges` contains at most 32 inclusive date ranges. `to: null` has no end.
-- `weeklyWindows` contains ISO weekdays from 1 for Monday to 7 for Sunday.
+- `weeklyWindows` contains at most 64 entries using ISO weekdays from 1 for Monday to 7 for Sunday.
 - `24:00` is allowed only as an end. Windows cannot cross midnight.
-- `exceptions` either close a date or replace that date's normal windows.
+- `exceptions` contains at most 366 entries and at most 32 windows per entry. Each item has `date`, `closed`, and `windows`: `closed: true` closes the date, while `closed: false` replaces that date's normal windows with the supplied list.
 - `inactiveBehavior: skip` suppresses a response outside active time.
 - `inactiveBehavior: defer` retains it until the next active window.
 - `minimumIntervalHours` limits repeated replies to the same sender. `0` disables this interval, but protocol loop and same-message duplicate guards remain active.
@@ -127,25 +130,35 @@ steps:
     kind: ai_classify
     instructions: Choose the single best category.
     choices:
-      - id: 00000000-0000-4000-8000-000000000002
-        name: Important
+      - name: Important
         description: Needs personal attention.
-      - id: 00000000-0000-4000-8000-000000000003
-        name: Routine
+      - name: Routine
         description: Can be handled as routine mail.
-  - id: 00000000-0000-4000-8000-000000000004
-    kind: branch
-    sourceStepId: 00000000-0000-4000-8000-000000000001
-    cases:
-      - choiceId: 00000000-0000-4000-8000-000000000002
-        steps:
-          - id: 00000000-0000-4000-8000-000000000005
-            kind: mail_action
-            action: { kind: set_status, status: needs_action }
-    fallback: []
+  - id: 00000000-0000-4000-8000-000000000002
+    kind: if
+    condition:
+      sourceStepId: 00000000-0000-4000-8000-000000000001
+      operator: equals
+      value: Important
+    then:
+      - id: 00000000-0000-4000-8000-000000000003
+        kind: mail_action
+        action: { kind: set_status, status: needs_action }
+    else: []
 ```
 
 Use `mode: matching` with a condition set for sender, domain, subject, body, or attachment filters. Direct actions can move mail, mark it read, add a keyword or local tag, assign a user, set collaboration status, add an internal comment, create a reply draft, or replace the conversation summary. AI steps can generate text, classify once, or select multiple labels; compatible later steps can consume the generated text. Guided text generation receives the new message and the existing summary as structured input. `automation catalog` returns the mailbox-scoped folder, tag, user, and sender-identity ids accepted by the definition.
+
+The incoming-automation file is strict: unknown fields are rejected. `name` accepts 1–120 characters and new definitions default to `enabled: false` when the field is omitted.
+
+- `scope.mode: all` needs no conditions. `scope.mode: matching` requires `conditions.mode: all|any` and 1–8 unique condition items.
+- Condition fields are `sender_address`, `sender_domain`, `subject`, `body_text`, and `attachment_presence`. Sender address and domain use only `operator: is`; subject and body accept `is`, `contains`, `starts_with`, or `ends_with`; attachment presence uses a boolean value.
+- Step kinds are `mail_action`, `ai_generate_text`, `ai_classify`, `ai_classify_many`, `create_reply_draft`, `add_comment`, `set_summary`, and `if`. Every step has a unique UUID in `id`.
+- Direct `mail_action` values are `junk`, `trash`, `mark_read`, `add_keyword`, `move_to_folder`, `add_local_tag`, `assign_user`, and `set_status`. Catalog-backed actions use `folderId`, `tagId`, or `userId`; status accepts `needs_action`, `waiting`, or `done`.
+- `ai_generate_text` takes `instructions` of 1–4,000 characters and `maxOutputChars` from 200 to 10,000. Classification takes 2–10 unique `{ name, description }` choices; `ai_classify_many.maxChoices` is from 1 to the number of choices.
+- A text consumer uses `body: { kind: custom, value: ... }` or `body: { kind: step_output, sourceStepId: ... }`. Only an earlier text-producing AI step is valid. `create_reply_draft` additionally requires `senderIdentityId`.
+- An `if` condition references an earlier AI `sourceStepId`: use `equals` for generated text or single classification and `includes` for multi-classification. Both `then` and `else` are step arrays of at most 12 items.
+- A definition starts with 1–20 top-level steps, contains at most 40 steps across branches, nests branches at most 4 levels, and makes at most 10 AI calls. One reachable path may contain only one provider message action, one assignment, one status change, and one summary replacement; it cannot add the same local tag twice.
 
 Automations and sender-wide actions apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive flows must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `automation get` exposes the exact generated workflow YAML.
 
@@ -167,14 +180,14 @@ A mailbox has one optional reference-number configuration. Set its permanent for
 
 ```bash
 cld --json mail reference config set \
-  --pattern 'SUP-{year}-{sequence:6}' \
+  --pattern 'SUP-{{ year }}-{{ sequence | pad_start: 6 }}' \
   --enable \
   --include-in-reply-subjects
 
 cld --json mail reference config show
 ```
 
-`{sequence}` is required. An optional width such as `{sequence:6}` pads the number, and `{year}` uses the allocation year. Changing the pattern affects only future allocations. Existing references remain immutable and searchable.
+The pattern uses Liquid and must output exactly one identity value: `short_id`, `uuid`, `uuid_v7`, `ulid`, or `sequence`. Date values `year`, `month`, `month_name`, and `day` may appear alongside it. Use `{{ sequence | pad_start: 6 }}` to pad a sequence. The default is `REF-{{ short_id }}`. Changing the pattern affects only future allocations; existing references remain immutable and searchable.
 
 Allocation is idempotent for each conversation:
 
@@ -190,7 +203,9 @@ Use `--disable` to stop new allocations without removing existing values. Use `-
 
 Mail workflows use the shared Cloud workflow language: strict YAML with top-level `inputs`, optional automatic `triggers`, and `steps`. Workflow metadata is not part of the YAML. Mail lifecycle records store name, description, priority, activation state, immutable version ids, and effect budgets.
 
-This workflow runs for each newly imported inbound message, adds a provider keyword, moves the message, and updates its conversation:
+The source accepts 1–200,000 characters, at most 20 inputs, 500 steps, 20 nested step levels, 500 conditions, and 20 nested condition levels. Input and variable names start with a letter or underscore and then contain only letters, numbers, and underscores. Input `required` defaults to `false`. `steps` must be non-empty. Unknown root keys, action names, properties, and value paths are validation errors.
+
+This workflow runs for each newly imported inbound message, adds one provider keyword, and updates its conversation:
 
 ```yaml
 inputs:
@@ -219,13 +234,10 @@ steps:
               - done
     then:
       - addKeyword:
-          message: "${{ inputs.message }}"
+          message: inputs.message
           keyword: Finance
-      - moveMessage:
-          message: "${{ inputs.message }}"
-          folder: Invoices
       - setConversationStatus:
-          conversation: "${{ inputs.conversation }}"
+          conversation: inputs.conversation
           status: waiting
 ```
 
@@ -262,6 +274,7 @@ Conditions are recursive and contain exactly one operator:
 
 - `equals` and `notEquals` compare two values.
 - `textEquals`, `contains`, `startsWith`, and `endsWith` compare two normalized, case-insensitive text values.
+- `includes` tests exact membership in an array such as an `aiClassifyMany` result.
 - `exists` accepts one reference such as `inputs.conversation.assigneeUserId`.
 - `all` and `any` contain one or more conditions; `not` contains one condition.
 
@@ -277,6 +290,7 @@ Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared pars
 | `copyMessage` | `message`, accessible folder name or id in `folder` | Copy through the durable provider journal |
 | `archiveMessage` | `message` | Move to the configured Archive role |
 | `trashMessage` | `message` | Move to the configured Trash role |
+| `junkMessage` | `message` | Move to the configured Junk role |
 | `addFlag` | `message`, `seen`, `answered`, `flagged`, or `draft` in `flag` | Add one standard provider flag |
 | `removeFlag` | `message`, `seen`, `answered`, `flagged`, or `draft` in `flag` | Remove one standard provider flag |
 | `assignConversation` | `conversation`, assignable user name, id, expression, or `null` in `user` | Change assignment transactionally |
@@ -287,20 +301,38 @@ Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared pars
 | `removeLocalTag` | `conversation`, mailbox-local tag name or id in `tag` | Remove a Cloud-local tag |
 | `addComment` | `conversation`, `body` | Add an internal comment |
 | `createDraft` | sender, recipients, subject, body, and identifier in `saveAs`; optional cc, bcc, format | Create a normal-delivery draft |
+| `createReplyDraft` | `message`, `conversation`, sender, body, and identifier in `saveAs`; optional format | Create a reviewable reply draft in the source conversation |
 | `scheduleDraftSend` | draft value reference in `draft`, ISO timestamp in `scheduledAt` | Schedule a created draft |
 | `notifyUser` | mailbox reader in `user`, `title`, `body` | Send an internal notification |
-| `automaticReply` | `message`, `conversation`, sender, subject, body; optional format and response schedule | Queue a guarded automatic response |
+| `automaticReply` | `message`, `conversation`, sender, subject, body, `schedule`; optional format, inactive behavior, and repeat interval | Queue a guarded automatic response |
+| `aiGenerateText` | `prompt`, identifier in `saveAs`; optional `input`, `model`, `maxOutputChars` | Return bounded `core.text` without a Mail effect |
+| `aiClassify` | `input`, `prompt`, 2–50 `choices`, identifier in `saveAs`; optional `model` | Return exactly one declared choice as `core.text` |
+| `aiClassifyMany` | `input`, `prompt`, 2–50 `choices`, identifier in `saveAs`; optional `minChoices`, `maxChoices`, `model` | Return a unique `core.textArray` subset |
 | `setVariable` | identifier in `name`, expression or literal in `value` | Store a pure scoped value |
 | `succeed` | operator-facing `message` | Stop successfully |
 | `fail` | operator-facing `message` | Stop with failure |
 
 Literal folder, tag, sender, and user names are bound to accessible stable ids when a version is created. Unknown, inaccessible, or ambiguous names fail validation.
 
+`createDraft` and `createReplyDraft` default `format` to `markdown`; subject text is limited to 998 characters and body text to 2 MiB. `aiGenerateText.maxOutputChars` defaults to 4,000 and accepts 1–20,000. AI prompts accept 1–20,000 characters, model profile ids and identifiers accept at most 120 characters, and classification choices accept 1–200 characters each. `aiClassifyMany.minChoices` defaults to `0`; `maxChoices` defaults to the number of declared choices. Every selected variable name must be a valid identifier and is visible only to later steps in the same scope.
+
 Reference a value stored by `setVariable` or an action result as `${{ <name> }}` in later steps in the same scope. Mail validation reserves `inputs` and `trigger`.
 
 Reference allocation can expose its result:
 
 ```yaml
+inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
 steps:
   - ensureConversationReference:
       conversation: inputs.conversation
@@ -309,9 +341,10 @@ steps:
       message: inputs.message
       conversation: inputs.conversation
       sender: Support
-      subject: "Re: ${{ inputs.message.subject }}"
-      body: "Thank you. Your reference is ${{ reference.value }}."
+      subject: "Re: {{ inputs.message.subject }}"
+      body: "Thank you. Your reference is {{ reference.value }}."
       format: markdown
+      schedule: { mode: always }
 ```
 
 The reference result contains `id`, `value`, `created`, `conversationId`, and `conversationRevision`.
@@ -319,17 +352,30 @@ The reference result contains `id`, `value`, `created`, `conversationId`, and `c
 An automatic reply may carry its response window inline:
 
 ```yaml
+inputs:
+  message:
+    type: mailMessage
+    required: true
+  conversation:
+    type: mailConversation
+    required: true
+triggers:
+  messageReceived:
+    with:
+      message: "${{ trigger.message }}"
+      conversation: "${{ trigger.conversation }}"
 steps:
   - automaticReply:
       message: inputs.message
       conversation: inputs.conversation
       sender: Support
-      subject: "Re: ${{ inputs.message.subject }}"
+      subject: "Re: {{ inputs.message.subject }}"
       body: "We received your message."
       format: markdown
       minimumIntervalHours: 24
       inactiveBehavior: defer
       schedule:
+        mode: windows
         timeZone: Europe/Berlin
         activeRanges: []
         weeklyWindows:
@@ -350,10 +396,10 @@ cld mail workflow validate --source-file route-mail.yml
 
 cld --json mail workflow create \
   --name "Route invoices" \
-  --description "Move new invoices into the team folder" \
+  --description "Tag new invoices for the finance team" \
   --priority 100 \
   --max-targets 500 \
-  --max-moves 500 \
+  --max-moves 0 \
   --max-copies 0 \
   --max-sends 0 \
   --max-drafts 0 \
@@ -361,8 +407,11 @@ cld --json mail workflow create \
   --max-notifications 0 \
   --max-keyword-changes 500 \
   --max-collaboration-changes 500 \
+  --max-ai-calls 10 \
   --source-file route-mail.yml
 ```
+
+Use `--source-stdin` instead of `--source-file` when another command produces exact YAML. Names accept 1–160 characters, descriptions at most 2,000 characters, and priority is an integer from -1,000 to 1,000 with a default of 100. Lower priority numbers run first when several Mail workflows accept the same event.
 
 Creation stores one immutable version but does not activate it:
 
@@ -427,9 +476,9 @@ Cancellation does not undo completed effects. If an external effect has an uncer
 
 ## Understand budgets, permissions, and recovery
 
-Every saved version carries limits for moves, copies, sends, drafts, flag changes, notifications, keyword changes, and collaboration changes. Defaults are 1,000 for moves, copies, sends, drafts, and notifications, and 2,000 for flag, keyword, and collaboration changes.
+Every saved version carries limits for targets, moves, copies, sends, drafts, flag changes, notifications, keyword changes, collaboration changes, and AI calls. Defaults are 1,000 for targets, moves, copies, sends, drafts, and notifications; 2,000 for flag, keyword, and collaboration changes; and 10 for AI calls.
 
-The accepted maximum is 50,000 for moves, copies, sends, drafts, and notifications, and 100,000 for flag, keyword, and collaboration changes.
+The accepted maximum is 50,000 for targets, moves, copies, sends, drafts, and notifications; 100,000 for flag, keyword, and collaboration changes; and 1,000 for AI calls. `maxTargets` must be at least 1; every other budget may be `0` to forbid that effect.
 
 Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`. Central run inspection and control requires Cloud administrator access.
 
@@ -458,7 +507,8 @@ jq -n --rawfile source route-mail.yml '{
     maxFlagChanges: 500,
     maxNotifications: 0,
     maxKeywordChanges: 500,
-    maxCollaborationChanges: 500
+    maxCollaborationChanges: 500,
+    maxAiCalls: 10
   }
 }' > create-workflow.json
 
@@ -476,6 +526,7 @@ The Mail API manages definitions and activations only. Runtime observability and
 | Area | Commands |
 | --- | --- |
 | Automatic replies | `automatic-reply list|create|update` |
+| Incoming automations | `automation catalog|list|get|create|update|delete`, `automation backfill start|status|cancel` |
 | References | `reference config show|set`, `reference list|ensure|find` |
 | Workflow lifecycle | `workflow list|get|validate|create|update|export|activate|deactivate`, `workflow version list|get|create|restore` |
 | Runtime operations | `cld admin workflows health|runs|show|cancel|effects|resolve|events` |

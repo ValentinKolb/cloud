@@ -1,9 +1,40 @@
 import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
+import { createAutomaticReplyConfigurationSchema, createIncomingAutomationSchema } from "../contracts";
 import { bindMailWorkflow } from "../workflows/binder";
 import { buildMailWorkflowCatalog } from "../workflows/catalog";
 import { mailWorkflows } from "../workflows/module";
 import { mailHelp } from ".";
+
+const cliAutomationReference = await Bun.file(
+  new URL("../../../../skills/cloud-cli/references/mail-automation.md", import.meta.url),
+).text();
+
+const manifestTerms = (schema: unknown): string[] => {
+  if (!schema || typeof schema !== "object") return [];
+  const value = schema as { properties?: unknown; enum?: unknown; items?: unknown; variants?: unknown };
+  const terms: string[] = [];
+  if (value.properties && typeof value.properties === "object") {
+    for (const [key, child] of Object.entries(value.properties)) terms.push(key, ...manifestTerms(child));
+  }
+  if (Array.isArray(value.enum)) terms.push(...value.enum.filter((entry): entry is string => typeof entry === "string"));
+  if (value.items) terms.push(...manifestTerms(value.items));
+  if (Array.isArray(value.variants)) {
+    for (const variant of value.variants) terms.push(...manifestTerms(variant));
+  }
+  return terms;
+};
+
+const workflowCatalog = () =>
+  buildMailWorkflowCatalog({
+    folders: [{ id: "10000000-0000-4000-8000-000000000001", name: "Invoices" }],
+    assignableUsers: [{ id: "20000000-0000-4000-8000-000000000001", name: "Alice Example" }],
+    senderIdentities: [{ id: "40000000-0000-4000-8000-000000000001", name: "Support" }],
+    localTags: [
+      { id: "50000000-0000-4000-8000-000000000001", name: "Finance" },
+      { id: "50000000-0000-4000-8000-000000000002", name: "Urgent" },
+    ],
+  });
 
 const expectedIds = [
   "mail-start",
@@ -158,15 +189,7 @@ describe("mailHelp", () => {
   test("keeps every documented workflow example valid for the Mail vocabulary", async () => {
     const markdown = [mailHelp.getMarkdown("mail-automation"), mailHelp.getMarkdown("mail-workflows")].join("\n");
     const examples = [...markdown.matchAll(/```yaml\n([\s\S]*?)```/g)].map((match) => match[1]!);
-    const catalog = buildMailWorkflowCatalog({
-      folders: [{ id: "10000000-0000-4000-8000-000000000001", name: "Invoices" }],
-      assignableUsers: [{ id: "20000000-0000-4000-8000-000000000001", name: "Alice Example" }],
-      senderIdentities: [{ id: "40000000-0000-4000-8000-000000000001", name: "Support" }],
-      localTags: [
-        { id: "50000000-0000-4000-8000-000000000001", name: "Finance" },
-        { id: "50000000-0000-4000-8000-000000000002", name: "Urgent" },
-      ],
-    });
+    const catalog = workflowCatalog();
 
     expect(examples.length).toBeGreaterThanOrEqual(7);
     for (const source of examples) {
@@ -174,6 +197,77 @@ describe("mailHelp", () => {
       expect(compiled.ok).toBe(true);
       if (!compiled.ok) continue;
       expect((await bindMailWorkflow(compiled.ir, catalog)).ok).toBe(true);
+    }
+  });
+
+  test("documents the complete Mail workflow manifest and language in Help and the CLI skill", () => {
+    const references = [
+      ["Help", mailHelp.getMarkdown("mail-workflows")],
+      ["CLI", cliAutomationReference],
+    ] as const;
+    const manifest = mailWorkflows.manifest;
+    const schemaTerms = [
+      ...manifest.inputs.flatMap((input) => manifestTerms(input.config)),
+      ...manifest.triggers.flatMap((trigger) => manifestTerms(trigger.config)),
+      ...manifest.actions.flatMap((action) => manifestTerms(action.config)),
+    ];
+    const languageTerms = [
+      "equals",
+      "notEquals",
+      "includes",
+      "textEquals",
+      "contains",
+      "startsWith",
+      "endsWith",
+      "exists",
+      "all",
+      "any",
+      "not",
+      "now()",
+    ];
+    const budgetTerms = [
+      "maxTargets",
+      "maxMoves",
+      "maxCopies",
+      "maxSends",
+      "maxDrafts",
+      "maxFlagChanges",
+      "maxNotifications",
+      "maxKeywordChanges",
+      "maxCollaborationChanges",
+      "maxAiCalls",
+    ];
+
+    for (const [label, reference] of references) {
+      for (const term of [
+        ...manifest.inputs.map((input) => input.kind),
+        ...manifest.triggers.map((trigger) => trigger.kind),
+        ...manifest.actions.map((action) => action.kind),
+        ...new Set(schemaTerms),
+        ...languageTerms,
+        ...budgetTerms,
+      ]) {
+        expect(reference, `${label} reference missing workflow term ${term}`).toContain(term);
+      }
+      for (const limit of Object.values(manifest.limits ?? {})) {
+        expect(reference, `${label} reference missing workflow limit ${limit}`).toContain(limit.toLocaleString("en-US"));
+      }
+    }
+  });
+
+  test("keeps every CLI automation and workflow example accepted by the public contracts", async () => {
+    const examples = [...cliAutomationReference.matchAll(/```yaml\n([\s\S]*?)```/g)].map((match) => match[1]!.trim());
+    expect(examples.length).toBeGreaterThanOrEqual(6);
+
+    expect(createAutomaticReplyConfigurationSchema.safeParse(Bun.YAML.parse(examples[0]!)).success).toBe(true);
+    expect(createIncomingAutomationSchema.safeParse(Bun.YAML.parse(examples[1]!)).success).toBe(true);
+
+    const catalog = workflowCatalog();
+    for (const source of examples.slice(2)) {
+      const compiled = await compileWorkflow(source, mailWorkflows);
+      expect(compiled.ok, source).toBe(true);
+      if (!compiled.ok) continue;
+      expect((await bindMailWorkflow(compiled.ir, catalog)).ok, source).toBe(true);
     }
   });
 });

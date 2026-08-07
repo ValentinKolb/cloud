@@ -8,6 +8,8 @@ order: 70
 
 Mail workflow YAML has three top-level keys: `inputs`, `triggers`, and `steps`. Only `steps` is required. The workflow name, description, priority, effect budget, saved versions, and activation state are edited outside YAML.
 
+Workflow source is limited to 200,000 characters. A saved workflow name accepts 1–160 characters, its optional description at most 2,000 characters, and its priority an integer from -1,000 to 1,000 with a default of 100. Lower priority numbers run first when several Mail workflows accept the same event.
+
 ## Start with a received-message workflow {icon="route"}
 
 This workflow adds a portable provider keyword when a received subject contains the text `invoice`:
@@ -50,9 +52,11 @@ Mail supports two input types:
 | `mailMessage` | One message in this mailbox |
 | `mailConversation` | One conversation in this mailbox |
 
-Each input name must start with a letter or underscore and contain only letters, numbers, and underscores. Set `required: true` when every caller or trigger must provide the input. A trigger must bind each required input in its `with` block.
+Each input name must start with a letter or underscore and contain only letters, numbers, and underscores. `required` defaults to `false`; set `required: true` when every caller or trigger must provide the input. A trigger must bind each required input in its `with` block. `steps` must contain at least one step, and unknown root keys or action properties are rejected.
 
 A workflow without `triggers` can be validated and saved as an inactive draft, but it cannot be activated. Mail intentionally has no separate manual-run or target-query API.
+
+Mail accepts at most 20 inputs, 500 steps, 20 nested step levels, 500 conditions, and 20 nested condition levels. These limits apply after parsing the complete workflow, including every branch.
 
 ## Use automatic triggers {icon="route"}
 
@@ -86,7 +90,7 @@ steps:
 
 ### `schedule`
 
-`schedule` starts future slots from a five-field cron expression. `timezone` accepts an IANA time zone and defaults to UTC. The runtime supplies `trigger.occurredAt` and `trigger.slot`, but the current Mail vocabulary has no generic date-time input that can retain either value for later steps.
+`schedule` starts future slots from a five-field cron expression of at most 120 characters. `timezone` accepts an IANA time zone of at most 80 characters and defaults to UTC. The runtime supplies `trigger.occurredAt` and `trigger.slot`, but the current Mail vocabulary has no generic date-time input that can retain either value for later steps.
 
 ```yaml
 triggers:
@@ -131,6 +135,7 @@ Array indices must be normal decimal indices such as `.0`, not `.00`. A missing 
 
 - A plain value such as `Finance` is literal text.
 - A dynamic value uses the whole expression string: `"${{ inputs.message.subject }}"`.
+- `${{ now() }}` returns the run clock as an ISO date-time value.
 - Text fields such as reply subjects, reply bodies, and `succeed.message` are Liquid templates: `"Re: {{ inputs.message.subject }}"`.
 - Reference-only action fields use raw paths such as `message: inputs.message` and `conversation: inputs.conversation`.
 - `{{ context.occurredAt }}` contains the workflow occurrence time.
@@ -161,6 +166,7 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `copyMessage` | `message`, `folder` | Copies the message to an accessible provider folder |
 | `archiveMessage` | `message` | Moves the message to the mailbox archive folder |
 | `trashMessage` | `message` | Moves the message to the mailbox trash folder |
+| `junkMessage` | `message` | Moves the message to the mailbox junk folder |
 | `addFlag` / `removeFlag` | `message`, `flag` | Changes `seen`, `answered`, `flagged`, or `draft` through the provider command journal |
 | `assignConversation` | `conversation`, `user` | Assigns by accessible user name or ID; `null` unassigns |
 | `setConversationStatus` | `conversation`, `status` | Sets `needs_action`, `waiting`, or `done` |
@@ -172,7 +178,7 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `createReplyDraft` | `message`, `conversation`, `sender`, `body`, `saveAs` | Creates a reviewable reply draft in the source conversation |
 | `scheduleDraftSend` | `draft`, `scheduledAt` | Schedules a created normal-delivery draft through the durable outbox |
 | `notifyUser` | `user`, `title`, `body` | Sends an internal notification to a current mailbox reader |
-| `automaticReply` | `message`, `conversation`, `sender`, `subject`, `body` | Queues one guarded automatic response |
+| `automaticReply` | `message`, `conversation`, `sender`, `subject`, `body`, `schedule` | Queues one guarded automatic response |
 | `aiGenerateText` | `prompt`, `saveAs` | Generates bounded text; `input`, `model`, and `maxOutputChars` are optional |
 | `aiClassify` | `input`, `prompt`, `choices`, `saveAs` | Returns exactly one declared choice |
 | `aiClassifyMany` | `input`, `prompt`, `choices`, `saveAs` | Returns a unique subset of declared choices |
@@ -181,6 +187,30 @@ Variables created inside a branch do not escape that branch. Defining the same v
 | `fail` | `message` | Stops the run with a non-retryable workflow error |
 
 Folder, local-tag, user, and sender fields accept an unambiguous accessible name or ID. The saved version binds those catalog values before activation. Response timing is written inline and validated as part of the version.
+
+### Check fields, defaults, outputs, and budgets
+
+Reference fields named `message`, `conversation`, or `draft` accept a raw value path and are limited to 500 characters. Folder, keyword, tag, sender, and user selectors are also limited to 500 characters. Variable names in `name` and `saveAs` are identifiers of at most 120 characters.
+
+| Actions | Additional fields and defaults | Output | Budget per execution |
+| --- | --- | --- | --- |
+| `addKeyword`, `removeKeyword` | `keyword`: 1–500 characters | none | 1 `maxKeywordChanges` |
+| `moveMessage` | accessible `folder` name or ID | none | 1 `maxMoves` |
+| `copyMessage` | accessible `folder` name or ID | none | 1 `maxCopies` |
+| `archiveMessage`, `trashMessage`, `junkMessage` | no additional fields | none | 1 `maxMoves` |
+| `addFlag`, `removeFlag` | `flag`: `seen`, `answered`, `flagged`, or `draft` | none | 1 `maxFlagChanges` |
+| `assignConversation`, `setConversationStatus`, `setConversationSummary`, `ensureConversationReference`, `addLocalTag`, `removeLocalTag`, `addComment` | summary and comment text: at most 50,000 characters | reference only when `saveAs` is set | 1 `maxCollaborationChanges` |
+| `createDraft`, `createReplyDraft` | `format`: `markdown` by default or `plain`; subject: at most 998 characters; body: at most 2 MiB; each To, Cc, or Bcc list: at most 200 addresses | required `saveAs` receives `mail.draft` | 1 `maxDrafts` |
+| `scheduleDraftSend` | `scheduledAt`: ISO timestamp of at most 100 characters | none | 1 `maxSends` |
+| `notifyUser` | title: at most 160 characters; body: at most 2,000 characters | none | 1 `maxNotifications` |
+| `automaticReply` | `format`: `plain` by default; `inactiveBehavior`: `defer` by default; `minimumIntervalHours`: 24 by default, from 0 to 8,760 | none | 1 `maxDrafts` and 1 `maxSends` |
+| `aiGenerateText` | prompt: 1–20,000 characters; `maxOutputChars`: 4,000 by default, from 1 to 20,000; optional `input` and `model` | required `saveAs` receives `core.text` | 1 `maxAiCalls` for a newly created task |
+| `aiClassify` | prompt: 1–20,000 characters; 2–50 unique choices of 1–200 characters; optional `model` | required `saveAs` receives one declared choice as `core.text` | 1 `maxAiCalls` for a newly created task |
+| `aiClassifyMany` | same choice limits; `minChoices`: 0 by default; `maxChoices`: all choices by default; both from 0 to 50 | required `saveAs` receives an ordered unique `core.textArray` | 1 `maxAiCalls` for a newly created task |
+| `setVariable` | any JSON-compatible `value` | `name` receives `core.value` | none |
+| `succeed`, `fail` | operator-facing message: at most 1,000 characters | terminal state | none |
+
+`createDraft.to` is required; `cc` and `bcc` are optional. `createReplyDraft` derives recipients and subject from the source message. The `model` field accepts an enabled AI model profile ID of at most 120 characters. AI outputs, draft outputs, reference outputs, and variables are visible only to later steps in the same reachable scope.
 
 One reachable path cannot apply several provider mutations to the same message. For example, adding a keyword and then moving that same message in one branch is rejected. Split those operations into separate workflows when both are required.
 
@@ -380,7 +410,7 @@ Optional fields and defaults:
 
 The sender must be verified and enabled for automatic replies. Mail suppresses loops, bulk/list mail, delivery-status messages, repeated responses to one message, and recipients still inside repeat protection.
 
-`schedule` is explicit: use `{ mode: always }` for an always-active reply, or `mode: windows` with `timeZone`, `activeRanges`, `weeklyWindows`, and `exceptions`. `weekday` uses ISO numbers from `1` for Monday through `7` for Sunday. Times are local `HH:mm` values in the configured IANA timezone. Windows cannot overlap or cross midnight; `24:00` is allowed only as an end. An empty `activeRanges` list repeats weekly without a date limit. Each range uses an inclusive `from` date and an inclusive `to` date or `null`. A date exception overrides normal weekly windows: `closed: true` disables the whole date, while `closed: false` uses only the listed exception windows.
+`schedule` is explicit: use `{ mode: always }` for an always-active reply, or `mode: windows` with `timeZone`, `activeRanges`, `weeklyWindows`, and `exceptions`. A windowed schedule accepts at most 32 active ranges, 64 weekly windows, 366 exceptions, and 32 windows inside one exception. `weekday` uses ISO numbers from `1` for Monday through `7` for Sunday. Times are local `HH:mm` values in the configured IANA timezone. Windows cannot overlap or cross midnight; `24:00` is allowed only as an end. An empty `activeRanges` list repeats weekly without a date limit. Each range uses an inclusive `from` date and an inclusive `to` date or `null`. A date exception overrides normal weekly windows: `closed: true` disables the whole date, while `closed: false` uses only the listed exception windows.
 
 ## Add conditions {icon="search"}
 
@@ -389,12 +419,12 @@ An `if` step takes one condition and a non-empty `then` list. `else` is optional
 Supported comparisons:
 
 - `equals` and `notEquals`
-- `contains`, `startsWith`, and `endsWith` for text
+- `textEquals`, `contains`, `startsWith`, and `endsWith` for normalized, case-insensitive text
 - `includes` for exact membership in an array such as `aiClassifyMany` output
 - `exists` for one raw reference
 - recursive `all`, `any`, and `not`
 
-`equals`, `notEquals`, and `includes` compare exact values. `contains`, `startsWith`, and `endsWith` normalize Unicode text and ignore letter case.
+`equals`, `notEquals`, and `includes` compare exact values. `textEquals`, `contains`, `startsWith`, and `endsWith` normalize Unicode text and ignore letter case.
 
 ```yaml
 inputs:
@@ -459,6 +489,17 @@ Values created in a `case` remain inside that case. Use terminal actions inside 
 
 ## Understand versions and activation {icon="layout-grid"}
 
+Each saved version has an effect budget. `0` disables an effect category except for `maxTargets`, which must be at least 1.
+
+| Budget | Default | Maximum |
+| --- | ---: | ---: |
+| `maxTargets` | 1,000 | 50,000 |
+| `maxMoves`, `maxCopies`, `maxSends`, `maxDrafts`, `maxNotifications` | 1,000 | 50,000 |
+| `maxFlagChanges`, `maxKeywordChanges`, `maxCollaborationChanges` | 2,000 | 100,000 |
+| `maxAiCalls` | 10 | 1,000 |
+
+The budget belongs to the immutable version and limits one run. The runtime charges the relevant category immediately before starting an effect and fails the run instead of exceeding the limit. Idempotent retries reuse the same effect rather than creating another one.
+
 - **Create workflow** stores version 1 but leaves it inactive.
 - **Save version** creates another immutable version. It never edits an older version.
 - **Activate** registers the selected current version's triggers.
@@ -471,7 +512,9 @@ Changing an accessible folder or sender does not rewrite a saved version. The ma
 
 **Validate** checks source and catalog bindings but does not execute steps. Mail workflows start only from their active `messageReceived` or `schedule` triggers; there is no separate manual-run or backfill path.
 
-Every action rechecks current mailbox authority. Removing the required access or deactivating the workflow prevents later effects. Provider commands additionally pin the kernel execution generation, so a worker that lost its lease cannot reach the mail provider.
+Reading and validating workflows requires mailbox Read access. Creating versions, changing metadata, activating, and deactivating require mailbox Admin access. Cross-application run inspection, cancellation, and uncertain-effect resolution require Cloud administrator access.
+
+Every action rechecks the workflow version's pinned mailbox authority. Removing the activating administrator's later personal access does not disable an already accepted run. Deactivation or replacement prevents new runs; request cancellation to stop unfinished effects in an accepted run. Provider commands additionally pin the kernel execution generation, so a worker that lost its lease cannot reach the mail provider.
 
 Administrators inspect runtime history in **Administration > Observability > Workflows**. The shared view shows runs, step outcomes, effects, source events, failures, and items that need attention across all applications. The equivalent CLI commands are:
 
