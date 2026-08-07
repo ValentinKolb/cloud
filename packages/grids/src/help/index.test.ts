@@ -106,6 +106,8 @@ describe("grids help", () => {
       "apps plan",
       "apps apply",
       "apps publish",
+      "apps unpublish",
+      "apps delete",
     ]) {
       expect(customApps, `missing Custom App capability ${capability}`).toContain(capability);
     }

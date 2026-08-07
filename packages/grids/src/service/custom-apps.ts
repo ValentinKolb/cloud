@@ -9,6 +9,7 @@ import {
   CustomAppDefinitionSchema,
   type CustomAppDiagnostic,
 } from "../custom-apps/contracts";
+import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { isRecordWritableFieldType } from "../field-types";
 import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
@@ -165,7 +166,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     const recordBlocks = page.rows.flatMap((row) =>
       row.columns.flatMap((column) => column.blocks.filter((block) => block.type === "record")),
     );
-    const fieldIds = [...new Set(recordBlocks.flatMap((block) => block.fieldIds))].sort();
+    const fieldIds = customAppPageRecordFieldIds(page);
     const editableFieldIds = [...new Set(recordBlocks.flatMap((block) => block.editableFieldIds))].sort();
     if ((await resolveTableBaseId(page.record.tableId)) !== definition.baseId) {
       diagnostics.push({
@@ -740,4 +741,50 @@ export const publish = async (id: string, actorId: string | null = null): Promis
       tx,
     );
     return ok(app);
+  });
+
+export const unpublish = async (id: string, actorId: string | null = null): Promise<Result<CustomApp>> =>
+  sql.begin(async (tx): Promise<Result<CustomApp>> => {
+    const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
+    if (!locked) return fail(err.notFound("Custom App"));
+    if (!locked.published_definition) return ok(mapRow(locked));
+    const [unpublished] = await tx<DbRow[]>`
+      UPDATE grids.custom_apps
+      SET published_definition = NULL, published_capabilities = NULL, published_at = NULL, updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING *
+    `;
+    if (!unpublished) return fail(err.notFound("Custom App"));
+    const app = mapRow(unpublished);
+    await logAudit(
+      {
+        baseId: app.baseId,
+        userId: actorId,
+        action: "updated",
+        diff: { customAppPublication: { old: locked.published_at ?? null, new: null } },
+      },
+      tx,
+    );
+    return ok(app);
+  });
+
+export const remove = async (id: string, actorId: string | null = null): Promise<Result<void>> =>
+  sql.begin(async (tx): Promise<Result<void>> => {
+    const [deleted] = await tx<Array<{ base_id: string; name: string; short_id: string }>>`
+      UPDATE grids.custom_apps
+      SET deleted_at = now(), published_definition = NULL, published_capabilities = NULL, published_at = NULL, updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING base_id, name, short_id
+    `;
+    if (!deleted) return fail(err.notFound("Custom App"));
+    await logAudit(
+      {
+        baseId: deleted.base_id,
+        userId: actorId,
+        action: "deleted",
+        diff: { customApp: { old: { id, name: deleted.name, shortId: deleted.short_id }, new: null } },
+      },
+      tx,
+    );
+    return ok(undefined);
   });

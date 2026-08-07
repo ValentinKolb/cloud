@@ -106,6 +106,38 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(false);
   });
 
+  test("accepts bounded presentation conditions and rejects unavailable values", () => {
+    const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    const detail = example.pages[1]!;
+    const recordBlock = detail.rows[0]!.columns[0]!.blocks.find((block) => block.type === "record")!;
+    recordBlock.visibleWhen = [
+      {
+        left: { source: "RECORD", path: `fields.${recordBlock.fieldIds[0]}` },
+        operator: "isNotEmpty",
+      },
+    ];
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+    recordBlock.visibleWhen = [
+      {
+        left: { source: "RECORD", path: `fields.${Bun.randomUUIDv7()}` },
+        operator: "isNotEmpty",
+      },
+    ];
+    expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
+
+    const missingParam = CustomAppDefinitionSchema.parse(structuredClone(example));
+    missingParam.pages[1]!.rows[0]!.columns[0]!.blocks[0]!.visibleWhen = [
+      { left: { source: "PARAMS", path: "missing" }, operator: "isNotEmpty" },
+    ];
+    expect(CustomAppDefinitionSchema.safeParse(missingParam).success).toBe(false);
+
+    const missingRecord = CustomAppDefinitionSchema.parse(structuredClone(example));
+    missingRecord.pages[0]!.rows[0]!.columns[0]!.blocks[0]!.visibleWhen = [
+      { left: { source: "RECORD", path: `fields.${recordBlock.fieldIds[0]}` }, operator: "isNotEmpty" },
+    ];
+    expect(CustomAppDefinitionSchema.safeParse(missingRecord).success).toBe(false);
+  });
+
   test("rejects unbound, visible, or mismatched record pages and incomplete row navigation", () => {
     const example = CUSTOM_APP_REFERENCE.example;
     const detail = example.pages[1];

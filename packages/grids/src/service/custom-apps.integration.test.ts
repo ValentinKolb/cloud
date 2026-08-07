@@ -6,7 +6,7 @@ import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "./access";
-import { apply, compile, get, plan, publish } from "./custom-apps";
+import { apply, compile, get, getPublishedByShortId, plan, publish, remove, unpublish } from "./custom-apps";
 import { canExecuteWorkflow } from "./workflow-action-scope";
 import { getWorkflow } from "./workflow-definitions";
 import { createLauncher } from "./workflow-launchers";
@@ -501,6 +501,22 @@ describe("Custom App lifecycle", () => {
       if (!wrongFixedTarget.ok) {
         expect(wrongFixedTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("same table"))).toBe(true);
       }
+
+      const unpublished = await unpublish(appId, authUser.id);
+      expect(unpublished.ok).toBe(true);
+      if (!unpublished.ok) return;
+      expect(unpublished.data.publishedDefinition).toBeNull();
+      expect(await getPublishedByShortId(created.data.shortId)).toBeNull();
+      expect((await unpublish(appId, authUser.id)).ok).toBe(true);
+
+      const republished = await publish(appId, authUser.id);
+      expect(republished.ok).toBe(true);
+      expect(await getPublishedByShortId(created.data.shortId)).not.toBeNull();
+
+      expect((await remove(appId, authUser.id)).ok).toBe(true);
+      expect(await get(appId)).toBeNull();
+      expect(await getPublishedByShortId(created.data.shortId)).toBeNull();
+      expect((await remove(appId, authUser.id)).ok).toBe(false);
     } finally {
       await deleteTestWorkflowScope(baseId);
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;

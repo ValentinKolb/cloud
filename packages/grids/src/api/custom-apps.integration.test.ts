@@ -241,6 +241,13 @@ describe("Custom App Form runtime", () => {
             kind: "workflow",
             launcherId,
             inputs: { request: { source: "RECORD", path: "id" } },
+            visibleWhen: [
+              {
+                left: { source: "RECORD", path: `fields.${fieldId}` },
+                operator: "eq",
+                right: { source: "LITERAL", value: "Certificate request updated" },
+              },
+            ],
           },
         ],
       });
@@ -281,6 +288,24 @@ describe("Custom App Form runtime", () => {
           revision: 1,
         },
       });
+
+      const hiddenRecord = await api.request(recordUrl, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "If-Match": "2" },
+        body: JSON.stringify({ values: { [fieldId]: "Hidden" } }),
+      });
+      expect(hiddenRecord.status).toBe(200);
+      actionInvocation = null;
+      const hiddenAction = await api.request(
+        `/apps/runtime/${applied.data.shortId}/request/actions/actions/approve?request_id=${body.recordId}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operationId: testUuid() }),
+        },
+      );
+      expect(hiddenAction.status).toBe(404);
+      expect(actionInvocation).toBeNull();
     } finally {
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.record_event_outbox WHERE base_id = ${baseId}::uuid`;

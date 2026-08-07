@@ -554,6 +554,9 @@ record parameter on a detail page. Record and Comments blocks use that page reco
 Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted fixed values from declared
 page parameters. Run the live reference before authoring a definition:
 
+Blocks and Actions entries may use an ANDed `visibleWhen` list with `eq`, `notEq`, `in`, `isEmpty`, and `isNotEmpty`. Values come from
+JSON literals, declared page parameters, or allowlisted current-record fields. Missing context hides the item; conditions never grant access.
+
 ```bash
 cld grids apps reference
 cld grids apps validate Bookshop --source-file app.yaml
@@ -574,7 +577,8 @@ cld grids apps publish Bookshop "Request overview" --yes
 The standalone app is available to signed-in readers at `/apps/<shortId>`; named pages use `/apps/<shortId>/<pageId>` and record parameters
 stay in the query string. Public Custom App grants are rejected. Readers need the explicit Custom App grant plus the existing view and
 record access required by the active page. Applying a later draft does not affect the published snapshot until the next publish. Commands are
-`apps reference|list|get|validate|plan|apply|export|publish`; `export --out <path>` writes normalized deterministic YAML.
+`apps reference|list|get|validate|plan|apply|export|publish|unpublish|delete`; `export --out <path>` writes normalized deterministic YAML.
+`unpublish --yes` removes only the live snapshot, while `delete --yes` removes the app and its route.
 
 ## Generate documents
 

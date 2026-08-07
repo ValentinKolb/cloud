@@ -135,6 +135,8 @@ fixedValues:
 
 The fixed field must be a user-input relation field targeting the parameter's table. `fixedValues` accepts `PARAMS` only. Success navigation accepts declared `PARAMS` plus the submitted Form's `RESULT.recordId`; it always stays inside the same Custom App and uses replace navigation.
 
+Blocks and Actions entries may use an optional `visibleWhen` list for small presentation rules. Every condition must match. Conditions read literals, declared page parameters, or allowlisted fields from the current page record and support `eq`, `notEq`, `in`, `isEmpty`, and `isNotEmpty`. Missing context hides the item. This never grants access or replaces a Form or Workflow rule.
+
 Inspect the current contract, then validate and plan the file:
 
 ```bash
@@ -171,6 +173,13 @@ cld grids apps publish MyBase "Request overview" --yes
 ```
 
 Applying another draft does not change the live app until you publish again.
+
+Unpublish removes only the live snapshot and keeps the draft. Delete removes the app and its route. Both commands require an explicit confirmation:
+
+```bash
+cld grids apps unpublish MyBase "Request overview" --yes
+cld grids apps delete MyBase "Request overview" --yes
+```
 
 ## Keep publication predictable {icon="versions"}
 

@@ -15,6 +15,8 @@ describe("Custom App CLI", () => {
       "apps apply",
       "apps export",
       "apps publish",
+      "apps unpublish",
+      "apps delete",
     ]);
   });
 
@@ -27,6 +29,10 @@ describe("Custom App CLI", () => {
     expect(apply?.flags?.dryRun).toMatchObject({ kind: "boolean", name: "dry-run" });
     const publish = customAppCommands.find((command) => command.path.join(" ") === "apps publish");
     expect(publish?.flags?.yes).toMatchObject({ kind: "boolean", name: "yes" });
+    const unpublish = customAppCommands.find((command) => command.path.join(" ") === "apps unpublish");
+    expect(unpublish?.flags?.yes).toMatchObject({ kind: "boolean", name: "yes" });
+    const remove = customAppCommands.find((command) => command.path.join(" ") === "apps delete");
+    expect(remove?.flags?.yes).toMatchObject({ kind: "boolean", name: "yes" });
   });
 
   test("routes apply --dry-run through the plan endpoint without applying", async () => {

@@ -2,9 +2,10 @@ import { type AuthContext, auth, getDateConfig, respond, v } from "@valentinkolb
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { CUSTOM_APP_REFERENCE, CustomAppDefinitionInputSchema } from "../custom-apps/contracts";
-import { RecordUpdateBodySchema } from "../contracts";
+import { type GridRecord, RecordUpdateBodySchema } from "../contracts";
 import { isRecordWritableFieldType } from "../field-types";
 import { customAppFormMatchesPublishedCapability } from "../custom-apps/form-runtime";
+import { customAppPageRecordFieldIds, matchesCustomAppConditions } from "../custom-apps/conditions";
 import { customAppFormSuccessHref, resolveCustomAppPage, resolveCustomAppPageParams } from "../custom-apps/routing";
 import { gridsService } from "../service";
 import { FormSubmitSchema, parseFormSubmission } from "./form-api-shared";
@@ -91,7 +92,7 @@ const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
   const recordBlocks = page.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((candidate) => candidate.type === "record")),
   );
-  const expectedFieldIds = [...new Set(recordBlocks.flatMap((candidate) => candidate.fieldIds))].sort();
+  const expectedFieldIds = customAppPageRecordFieldIds(page);
   const expectedEditableFieldIds = [...new Set(recordBlocks.flatMap((candidate) => candidate.editableFieldIds))].sort();
   if (
     !capability ||
@@ -274,7 +275,7 @@ export const createCustomAppsApi = (
         );
         if (!capability) return c.json({ message: "Action not found" }, 404);
 
-        const records = new Map<string, string>();
+        const records = new Map<string, GridRecord>();
         const viewer = actorViewerFor(accessContext);
         for (const [parameterId, parameter] of Object.entries(page.parameters)) {
           const sourceAccess = await resolveRecordAccessForAccess(accessContext, { baseId: app.baseId, tableId: parameter.tableId }, "read");
@@ -285,13 +286,18 @@ export const createCustomAppsApi = (
             recordAccess: sourceAccess.data.recordAccess,
           });
           if (!record) return c.json({ message: "Action not found" }, 404);
-          records.set(parameterId, record.id);
+          records.set(parameterId, record);
         }
-        const pageRecordId = page.record ? records.get(page.record.id.path) : undefined;
-        if (page.record && !pageRecordId) return c.json({ message: "Action not found" }, 404);
+        const pageRecord = page.record ? records.get(page.record.id.path) : undefined;
+        if (page.record && !pageRecord) return c.json({ message: "Action not found" }, 404);
+        const conditionContext = { params: pageParams, record: pageRecord ?? null };
+        if (!matchesCustomAppConditions(block.visibleWhen, conditionContext) || !matchesCustomAppConditions(action.visibleWhen, conditionContext)) {
+          return c.json({ message: "Action not found" }, 404);
+        }
         const inputs: Record<string, unknown> = {};
         for (const [name, value] of Object.entries(action.inputs)) {
-          const resolved = value.source === "LITERAL" ? value.value : value.source === "PARAMS" ? records.get(value.path) : pageRecordId;
+          const resolved =
+            value.source === "LITERAL" ? value.value : value.source === "PARAMS" ? records.get(value.path)?.id : pageRecord?.id;
           if (resolved === undefined) return c.json({ message: "Action not found" }, 404);
           inputs[name] = resolved;
         }
@@ -430,6 +436,22 @@ export const createCustomAppsApi = (
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.customApp.publish(app.id, currentActorUserId(c)));
+    })
+    .post("/:appId/unpublish", requireUuidParam("appId", "Custom App"), async (c) => {
+      const app = await gridsService.customApp.get(c.req.param("appId")!);
+      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      const gate = await gateAt(c, { baseId: app.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(c, () => gridsService.customApp.unpublish(app.id, currentActorUserId(c)));
+    })
+    .delete("/:appId", requireUuidParam("appId", "Custom App"), async (c) => {
+      const app = await gridsService.customApp.get(c.req.param("appId")!);
+      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      const gate = await gateAt(c, { baseId: app.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.customApp.remove(app.id, currentActorUserId(c));
+      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+      return c.json({ id: app.id });
     });
 };
 

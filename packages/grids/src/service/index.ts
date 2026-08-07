@@ -176,6 +176,8 @@ export const gridsService = {
     plan: customApps.plan,
     apply: customApps.apply,
     publish: customApps.publish,
+    unpublish: customApps.unpublish,
+    remove: customApps.remove,
     get: customApps.get,
     getPublishedByShortId: customApps.getPublishedByShortId,
     listByBase: customApps.listByBase,

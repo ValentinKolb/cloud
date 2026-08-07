@@ -72,6 +72,40 @@ const CustomAppGqlSourceSchema = z
 
 const CustomAppRecordIdValueSchema = z.object({ source: z.literal("RECORD"), path: z.literal("id") }).strict();
 
+const CustomAppRecordConditionValueSchema = z
+  .object({
+    source: z.literal("RECORD"),
+    path: z.string().regex(/^fields\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+  })
+  .strict();
+
+export const CustomAppConditionValueSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
+  CustomAppParamValueSchema,
+  CustomAppRecordConditionValueSchema,
+]);
+
+export const CustomAppConditionSchema = z.discriminatedUnion("operator", [
+  z
+    .object({
+      left: CustomAppConditionValueSchema,
+      operator: z.enum(["eq", "notEq", "in"]),
+      right: CustomAppConditionValueSchema,
+    })
+    .strict(),
+  z
+    .object({
+      left: CustomAppConditionValueSchema,
+      operator: z.enum(["isEmpty", "isNotEmpty"]),
+    })
+    .strict(),
+]);
+export type CustomAppCondition = z.infer<typeof CustomAppConditionSchema>;
+
+const CustomAppVisibilityShape = {
+  visibleWhen: z.array(CustomAppConditionSchema).min(1).max(12).optional(),
+};
+
 export const CustomAppActionValueSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
   CustomAppParamValueSchema,
@@ -94,6 +128,7 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
       pageId: CustomAppLocalIdSchema,
       history: z.enum(["push", "replace"]).default("push"),
       params: z.record(CustomAppParameterIdSchema, z.union([CustomAppParamValueSchema, CustomAppRecordIdValueSchema])),
+      ...CustomAppVisibilityShape,
     })
     .strict(),
   z
@@ -111,6 +146,7 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
       launcherId: z.string().uuid(),
       inputs: z.record(z.string().trim().min(1).max(120), CustomAppActionValueSchema).default({}),
       confirm: z.string().trim().min(1).max(240).optional(),
+      ...CustomAppVisibilityShape,
     })
     .strict(),
 ]);
@@ -134,6 +170,7 @@ export const CustomAppMarkdownBlockSchema = z
     type: z.literal("markdown"),
     title: z.string().trim().min(1).max(160).optional(),
     markdown: z.string().max(20_000),
+    ...CustomAppVisibilityShape,
   })
   .strict();
 
@@ -154,6 +191,7 @@ export const CustomAppRecordsBlockSchema = z
       })
       .strict(),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
+    ...CustomAppVisibilityShape,
   })
   .strict();
 
@@ -168,6 +206,7 @@ export const CustomAppMetricsBlockSchema = z
     type: z.literal("metrics"),
     title: z.string().trim().min(1).max(160).optional(),
     source: CustomAppInsightSourceSchema,
+    ...CustomAppVisibilityShape,
   })
   .strict();
 
@@ -183,6 +222,7 @@ export const CustomAppChartBlockSchema = z
     valueFormat: CustomAppValueFormatSchema.optional(),
     xAxisLabel: z.string().trim().min(1).max(60).optional(),
     yAxisLabel: z.string().trim().min(1).max(60).optional(),
+    ...CustomAppVisibilityShape,
   })
   .strict();
 
@@ -200,6 +240,7 @@ export const CustomAppRecordBlockSchema = z
       })
       .strict()
       .optional(),
+    ...CustomAppVisibilityShape,
   })
   .strict()
   .superRefine((block, ctx) => {
@@ -241,6 +282,7 @@ export const CustomAppCommentsBlockSchema = z
     type: z.literal("comments"),
     title: z.string().trim().min(1).max(160).optional(),
     emptyText: z.string().trim().min(1).max(240).optional(),
+    ...CustomAppVisibilityShape,
   })
   .strict();
 
@@ -252,6 +294,7 @@ export const CustomAppFormBlockSchema = z
     formId: z.string().uuid(),
     fixedValues: z.record(z.string().uuid(), CustomAppParamValueSchema).default({}),
     onSuccessNavigate: CustomAppFormSuccessNavigationSchema.optional(),
+    ...CustomAppVisibilityShape,
   })
   .strict();
 
@@ -261,6 +304,7 @@ export const CustomAppActionsBlockSchema = z
     type: z.literal("actions"),
     title: z.string().trim().min(1).max(160).optional(),
     actions: z.array(CustomAppActionSchema).min(1).max(12),
+    ...CustomAppVisibilityShape,
   })
   .strict()
   .superRefine((block, ctx) => {
@@ -391,6 +435,28 @@ export const CustomAppDefinitionSchema = z
             if (block.type === "comments" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Comments block requires a page record", path: [...blockPath, "type"] });
             }
+            const validateConditions = (conditions: CustomAppCondition[] | undefined, path: readonly (string | number)[]) => {
+              for (const [conditionIndex, condition] of (conditions ?? []).entries()) {
+                const values = [condition.left, ...("right" in condition ? [condition.right] : [])];
+                for (const [valueIndex, value] of values.entries()) {
+                  if (value.source === "PARAMS" && !page.parameters[value.path]) {
+                    ctx.addIssue({
+                      code: "custom",
+                      message: "Condition parameters must be declared by the current page",
+                      path: [...path, "visibleWhen", conditionIndex, valueIndex === 0 ? "left" : "right", "path"],
+                    });
+                  }
+                  if (value.source === "RECORD" && !page.record) {
+                    ctx.addIssue({
+                      code: "custom",
+                      message: "RECORD conditions require a page record",
+                      path: [...path, "visibleWhen", conditionIndex, valueIndex === 0 ? "left" : "right"],
+                    });
+                  }
+                }
+              }
+            };
+            validateConditions(block.visibleWhen, blockPath);
             if ((block.type === "records" || block.type === "metrics" || block.type === "chart") && block.source.kind === "gql") {
               for (const [inputName, value] of Object.entries(block.source.inputs ?? {})) {
                 if (!page.parameters[value.path]) {
@@ -415,6 +481,7 @@ export const CustomAppDefinitionSchema = z
             }
             if (block.type === "actions") {
               for (const [actionIndex, action] of block.actions.entries()) {
+                validateConditions(action.visibleWhen, [...blockPath, "actions", actionIndex]);
                 if (action.kind !== "workflow") continue;
                 for (const [inputName, value] of Object.entries(action.inputs)) {
                   if (value.source === "PARAMS" && !page.parameters[value.path]) {
@@ -712,6 +779,12 @@ export const CUSTOM_APP_REFERENCE = {
     navigation: "Set visible to false for route-only parameterized pages",
     parameters: "This release supports required same-base record parameters",
     record: "Bind one authorized page record from PARAMS",
+  },
+  conditions: {
+    visibleWhen: "Optional list on blocks and Actions entries; every condition must match",
+    values: ["LITERAL", "PARAMS", "RECORD fields.<field UUID>"],
+    operators: ["eq", "notEq", "in", "isEmpty", "isNotEmpty"],
+    note: "Presentation only; conditions never grant access or replace workflow preconditions",
   },
   blocks: {
     markdown: { required: ["id", "type", "markdown"] },

@@ -193,4 +193,26 @@ export const customAppCommands = [
       printJsonOrMessage(ctx, published, `Published ${published.name} at /apps/${published.shortId}.`);
     },
   }),
+  command("apps unpublish", {
+    summary: "Remove the published Custom App snapshot while keeping its draft",
+    args: baseArgs,
+    flags: { ...baseFlag, ...appFlag, yes: confirmFlag("Unpublish this Custom App") },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to unpublish.");
+      const { app } = await resolveAppFromCommand(ctx, args.args, flags.app);
+      const unpublished = await readApi<CustomApp>(ctx, `/apps/${encodeURIComponent(app.id)}/unpublish`, jsonRequest("POST"));
+      printJsonOrMessage(ctx, unpublished, `Unpublished ${unpublished.name}; its draft is unchanged.`);
+    },
+  }),
+  command("apps delete", {
+    summary: "Delete a Custom App and remove its published route",
+    args: baseArgs,
+    flags: { ...baseFlag, ...appFlag, yes: confirmFlag("Delete this Custom App") },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to delete.");
+      const { app } = await resolveAppFromCommand(ctx, args.args, flags.app);
+      await readApi<unknown>(ctx, `/apps/${encodeURIComponent(app.id)}`, jsonRequest("DELETE"));
+      printJsonOrMessage(ctx, { id: app.id }, `Deleted ${app.name} (${app.shortId}).`);
+    },
+  }),
 ];

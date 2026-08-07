@@ -13,6 +13,7 @@ import {
 import { ssr } from "../../config";
 import type { DocumentRunSummary, DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
+import { customAppPageRecordFieldIds, visibleCustomAppPage } from "../../custom-apps/conditions";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
 import { customAppViewSourceHash } from "../../custom-apps/insight-source";
 import {
@@ -298,19 +299,14 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   let pageRecord: PageRecord | null = null;
+  let runtimePage = visibleCustomAppPage(page, { params: pageParams, record: null });
   const recordUpdateEndpoints = new Map<string, string>();
   const documentRuns = new Map<string, DocumentRunSummary[]>();
   if (page.record) {
     const capability = app.publishedCapabilities.records.find(
       (candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId,
     );
-    const expectedFieldIds = [
-      ...new Set(
-        page.rows.flatMap((row) =>
-          row.columns.flatMap((column) => column.blocks.flatMap((block) => (block.type === "record" ? block.fieldIds : []))),
-        ),
-      ),
-    ].sort();
+    const expectedFieldIds = customAppPageRecordFieldIds(page);
     const expectedEditableFieldIds = [
       ...new Set(
         page.rows.flatMap((row) =>
@@ -334,6 +330,7 @@ export default ssr<AuthContext>(async (c) => {
     if (!table) return c.notFound();
     const relationLabels = await gridsService.relations.buildLabelCache([record], fields, viewer);
     pageRecord = { record, fields, relationLabels, tableName: table.name, auditPolicy: table.auditPolicy };
+    runtimePage = visibleCustomAppPage(page, { params: pageParams, record });
 
     if (expectedEditableFieldIds.length > 0) {
       const writeAccess = await resolveRecordAccessForAccess(requestAccess, { baseId: app.baseId, tableId: page.record.tableId }, "write");
@@ -345,7 +342,7 @@ export default ssr<AuthContext>(async (c) => {
           })
         : null;
       if (writableRecord) {
-        for (const block of page.rows.flatMap((row) =>
+        for (const block of runtimePage.rows.flatMap((row) =>
           row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
         )) {
           if (block.editableFieldIds.length > 0) {
@@ -355,7 +352,7 @@ export default ssr<AuthContext>(async (c) => {
       }
     }
 
-    const documentBlocks = page.rows.flatMap((row) =>
+    const documentBlocks = runtimePage.rows.flatMap((row) =>
       row.columns.flatMap((column) =>
         column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record" && Boolean(candidate.documents)),
       ),
@@ -391,7 +388,7 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const allowedViews = new Set(app.publishedCapabilities.views.map((view) => view.viewId));
-  const blocks = page.rows.flatMap((row) =>
+  const blocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is RecordsBlock => block.type === "records")),
   );
   const entries = await Promise.all(
@@ -447,7 +444,7 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const results = new Map(entries);
-  const insightBlocks = page.rows.flatMap((row) =>
+  const insightBlocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) =>
       column.blocks.filter((block): block is InsightBlock => block.type === "metrics" || block.type === "chart"),
     ),
@@ -527,7 +524,7 @@ export default ssr<AuthContext>(async (c) => {
     if (block?.type === "metrics") metrics.set(blockId, data as MetricsBlockData);
     if (block?.type === "chart") charts.set(blockId, data as ChartBlockData);
   }
-  const commentBlocks = page.rows.flatMap((row) =>
+  const commentBlocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is CommentsBlock => block.type === "comments")),
   );
   const commentEndpoints = new Map<string, string>();
@@ -538,7 +535,7 @@ export default ssr<AuthContext>(async (c) => {
     if (!capability || !page.record || !pageRecord) return c.notFound();
     commentEndpoints.set(block.id, customAppCommentsUrl(app.shortId, page.id, block.id, pageParams));
   }
-  const formBlocks = page.rows.flatMap((row) =>
+  const formBlocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is FormBlock => block.type === "form")),
   );
   const formEntries = await Promise.all(
@@ -597,7 +594,7 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const forms = new Map(formEntries);
-  const actionBlocks = page.rows.flatMap((row) =>
+  const actionBlocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is ActionsBlock => block.type === "actions")),
   );
   const actions = new Map<string, CustomAppRenderedAction[]>();
@@ -633,7 +630,7 @@ export default ssr<AuthContext>(async (c) => {
     <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
         definition={definition}
-        page={page}
+        page={runtimePage}
         shortId={app.shortId}
         results={results}
         metrics={metrics}

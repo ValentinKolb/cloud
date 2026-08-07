@@ -20,7 +20,7 @@ Apps, pages, rows, columns, blocks, and actions have stable IDs. Labels may chan
 
 A page route is `/apps/<shortId>/<pageId>`. Declared page parameters are query parameters, for example `/apps/a1b2c3/request?request_id=<record-id>`.
 
-App identity is intentionally restrained: a name, supported icon, and optional Cloud file as a header image. Pages and blocks use standard Cloud typography, spacing, colors, and interaction patterns. Custom CSS and arbitrary branding are not part of the definition.
+App identity is intentionally restrained to a name and supported icon. Pages and blocks use standard Cloud typography, spacing, colors, and interaction patterns. Custom CSS and arbitrary branding are not part of the definition.
 
 ## Declare page context {icon="brackets"}
 
@@ -140,9 +140,9 @@ The Form fixes its List relation from `PARAMS.list_id`. After success, one butto
 
 ## Use small presentation conditions {icon="adjustments"}
 
-A block or action may declare a list of simple conditions. All conditions must match. Supported operators are Equals, Not equals, In, Is empty, and Is not empty over compatible scalar values.
+A block or action may declare a list of simple conditions. All conditions must match. Supported operators are Equals, Not equals, In, Is empty, and Is not empty.
 
-Conditions may use `LITERAL`, `PARAMS`, or `RECORD`; row actions may also use `ROW`. They control visibility or enabled state only. They never replace permission checks, form validation, or workflow preconditions.
+Conditions may use `LITERAL`, declared `PARAMS`, or allowlisted `RECORD fields.<fieldId>` values. They control visibility only. Missing context fails closed. Conditions never replace permission checks, form validation, or workflow preconditions.
 
 If a process needs complex branching, put that rule in a View, Form, or Workflow and expose the resulting resource or action.
 

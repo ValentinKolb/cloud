@@ -60,7 +60,6 @@ pages: []
 | `shortId` | Omit on first apply. Grids assigns it; exported values are immutable. |
 | `name` | Required visible name. |
 | `icon` | Optional supported icon name. |
-| `headerImageFileId` | Optional Cloud file UUID used as a restrained header image. |
 | `startPageId` | Required local ID of an existing page. |
 | `pages` | At least one page. |
 
@@ -275,10 +274,17 @@ cld grids apps publish 10000000-0000-4000-8000-000000000101 --yes --json
 
 Publish reruns preflight and replaces the published snapshot only when it succeeds. It is an explicit state change and requires `--yes` in non-interactive use.
 
+Unpublish removes only the live snapshot and keeps the draft. Delete moves the app out of normal listings and removes its live route. Both destructive commands require `--yes`:
+
+```bash
+cld grids apps unpublish 10000000-0000-4000-8000-000000000101 --yes --json
+cld grids apps delete 10000000-0000-4000-8000-000000000101 --yes --json
+```
+
 The first-release command surface is:
 
 ```text
-apps reference|list|get|validate|plan|apply|export|publish
+apps reference|list|get|validate|plan|apply|export|publish|unpublish|delete
 ```
 
 Use [Publish & permissions](/app/grids/help/grids-publish-custom-app) to review the access boundary before an agent publishes an app.
