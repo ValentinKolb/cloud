@@ -1,23 +1,36 @@
-import { NoticeCard, DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
+import { DataTable, type DataTableColumn, NoticeCard, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { formatDate } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
 import { oauthService } from "../service";
 import ClientActions from "./_components/ClientActions.island";
 import CreateClientButton from "./_components/CreateClientButton.island";
 
+const PER_PAGE = 50;
+
 /** Admin OAuth clients list page. */
 export default ssr<AuthContext>(async (c) => {
-  const { items: clients } = await oauthService.client.list();
+  const search = (c.req.query("search") ?? "").trim();
+  const rawPage = Number.parseInt(c.req.query("page") ?? "1", 10);
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+  const [clientsPage, summary] = await Promise.all([
+    oauthService.client.list({
+      pagination: { page, perPage: PER_PAGE },
+      filter: { query: search || undefined },
+    }),
+    oauthService.client.summary(),
+  ]);
+  const clients = clientsPage.items;
+  const totalPages = Math.ceil(clientsPage.total / clientsPage.perPage);
+  const paginationBaseUrl = search ? `/admin/oauth?search=${encodeURIComponent(search)}&page=` : "/admin/oauth?page=";
 
   // Build base URL for OAuth endpoints
   const rawAppUrl = await get<string>("app.url");
   const baseUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
 
-  const publicClients = clients.filter((client) => client.isPublic).length;
-  const dynamicClients = clients.filter((client) => client.registrationKind === "dynamic").length;
   type ClientRow = (typeof clients)[number];
   const columns: DataTableColumn<ClientRow>[] = [
     { id: "client", header: "Client", value: (client) => client.name },
@@ -45,12 +58,13 @@ export default ssr<AuthContext>(async (c) => {
 
         {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
         <StatGrid columns={3}>
-          <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-key" }} />
-          <StatCell label="Public" value={publicClients} sub="PKCE, no secret" />
-          <StatCell label="Dynamic" value={dynamicClients} sub="browser consent" accent={{ tone: "emerald", icon: "ti ti-world" }} />
+          <StatCell label="Clients" value={summary.total} sub="registered" accent={{ tone: "blue", icon: "ti ti-key" }} />
+          <StatCell label="Public" value={summary.public} sub="PKCE, no secret" />
+          <StatCell label="Dynamic" value={summary.dynamic} sub="browser consent" accent={{ tone: "emerald", icon: "ti ti-world" }} />
         </StatGrid>
 
-        <div class="flex justify-end">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <SearchBar action="/admin/oauth" value={search} placeholder="Search OAuth clients..." ariaLabel="Search OAuth clients" />
           <CreateClientButton />
         </div>
 
@@ -132,9 +146,17 @@ export default ssr<AuthContext>(async (c) => {
         ) : (
           <Placeholder
             surface="paper"
-            description={<>No OAuth clients found. Create one to allow external applications to authenticate users.</>}
+            description={
+              search ? (
+                <>No OAuth clients match “{search}”.</>
+              ) : (
+                <>No OAuth clients found. Create one to allow external applications to authenticate users.</>
+              )
+            }
           />
         )}
+
+        {totalPages > 1 ? <Pagination currentPage={clientsPage.page} totalPages={totalPages} baseUrl={paginationBaseUrl} /> : null}
 
         <NoticeCard tone="info" icon={false} style="view-transition-name: admin-oauth-reference">
           <h2 class="mb-3 text-sm font-medium">Discovery Endpoints</h2>

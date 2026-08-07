@@ -34,7 +34,7 @@ export const create = async (params: {
   resource?: string;
   nonce?: string;
   codeChallenge?: string;
-  codeChallengeMethod?: "S256" | "plain";
+  codeChallengeMethod?: "S256";
   db?: typeof sql;
 }): Promise<string> => {
   const { clientId, userId, redirectUri, scopes, resource, nonce, codeChallenge, codeChallengeMethod, db = sql } = params;
@@ -97,17 +97,11 @@ export const consume = async (params: {
   if (row.code_challenge) {
     if (!codeVerifier || !PKCE_VERIFIER_PATTERN.test(codeVerifier)) return null;
 
-    let computedChallenge: string;
-    if (row.code_challenge_method === "S256") {
-      // SHA256 hash of verifier, base64url encoded
-      const encoder = new TextEncoder();
-      const data = encoder.encode(codeVerifier);
-      const hash = await crypto.subtle.digest("SHA-256", data);
-      computedChallenge = base64UrlEncode(new Uint8Array(hash));
-    } else {
-      // plain method
-      computedChallenge = codeVerifier;
-    }
+    if (row.code_challenge_method !== "S256") return null;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(codeVerifier);
+    const hash = await crypto.subtle.digest("SHA-256", data);
+    const computedChallenge = base64UrlEncode(new Uint8Array(hash));
 
     if (computedChallenge !== row.code_challenge) return null;
   }

@@ -5,7 +5,7 @@ section: Identity and access
 order: 310
 description: Resolve Cloud credentials into the actor and access subject used by an application.
 tags: [identity, authentication, sessions, middleware]
-updated: 2026-07-27
+updated: 2026-08-07
 ---
 
 # Request identity
@@ -162,7 +162,7 @@ OAuth access tokens must have:
 - the deployment issuer;
 - the `cloud` audience;
 - `token_use: "access"`;
-- a valid current signing key.
+- a valid active or grace-period signing key.
 
 Applications do not verify these claims themselves.
 

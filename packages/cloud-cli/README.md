@@ -39,8 +39,12 @@ written with `0700` and the config file with `0600`.
 OAuth credentials stay bound to the profile's Cloud server. To move a profile
 to another server, run `cld login <profile> --server <url>` instead of
 overriding `--server` or `CLD_SERVER` on an existing OAuth profile.
-The server value must be an `http://` or `https://` origin without credentials,
-a path, query parameters, or a fragment.
+Interactive login always uses Cloud's protected first-party `cloud-cli` OAuth
+client. Dynamic registration is reserved for external clients that Cloud does
+not know in advance.
+The server value must be an `https://` origin without credentials, a path,
+query parameters, or a fragment. Local development may use `http://` only on
+the exact `localhost`, `127.0.0.1`, or `::1` loopback hosts.
 Re-login replaces and remotely revokes the previous refresh grant. `cld
 logout` revokes the current grant and removes its local or fd0-backed refresh
 token reference.

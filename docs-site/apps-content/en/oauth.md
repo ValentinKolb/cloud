@@ -5,7 +5,7 @@ section: Platform
 order: 320
 description: OAuth 2.0 and OpenID Connect clients, callbacks, scopes, access rules, and secrets.
 tags: [oauth, oidc, identity]
-updated: 2026-08-02
+updated: 2026-08-07
 ---
 
 # OAuth
@@ -63,6 +63,7 @@ client id, or unambiguous name for a detail lookup:
 
 ```bash
 cld oauth clients list --json
+cld oauth clients list --search codex --page 1 --per-page 50
 cld oauth clients get <client> --json
 ```
 

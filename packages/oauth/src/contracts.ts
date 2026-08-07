@@ -1,3 +1,4 @@
+import { PaginationQuerySchema, PaginationResponseSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const MAX_URL_LENGTH = 2_000;
@@ -69,6 +70,16 @@ export const OAuthClientWithSecretSchema = OAuthClientSchema.extend({
   clientSecret: z.string(),
 });
 
+export const OAuthClientListQuerySchema = z.object({
+  ...PaginationQuerySchema.shape,
+  search: z.string().trim().max(200).optional(),
+});
+
+export const OAuthClientListResponseSchema = z.object({
+  clients: z.array(OAuthClientSchema),
+  pagination: PaginationResponseSchema,
+});
+
 export const OAuthClientParamSchema = z.object({
   id: z.uuid(),
 });
@@ -104,6 +115,7 @@ export const UpdateOAuthClientSchema = z.object({
 
 export type OAuthClient = z.infer<typeof OAuthClientSchema>;
 export type OAuthClientWithSecret = z.infer<typeof OAuthClientWithSecretSchema>;
+export type OAuthClientListResponse = z.infer<typeof OAuthClientListResponseSchema>;
 export type OAuthAccessUser = z.infer<typeof OAuthAccessUserSchema>;
 export type OAuthAccessGroup = z.infer<typeof OAuthAccessGroupSchema>;
 export type CreateOAuthClient = z.infer<typeof CreateOAuthClientSchema>;
@@ -170,4 +182,11 @@ export type DynamicClientRegistrationRequest = z.infer<typeof DynamicClientRegis
 export type DynamicClientRegistrationResponse = z.infer<typeof DynamicClientRegistrationResponseSchema>;
 
 export type { MutationResult } from "@valentinkolb/cloud/contracts";
-export { ErrorResponseSchema, MessageResponseSchema } from "@valentinkolb/cloud/contracts";
+export {
+  createPagination,
+  ErrorResponseSchema,
+  MessageResponseSchema,
+  PaginationQuerySchema,
+  PaginationResponseSchema,
+  parsePagination,
+} from "@valentinkolb/cloud/contracts";

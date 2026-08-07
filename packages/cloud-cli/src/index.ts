@@ -51,7 +51,6 @@ type TokenProviderConfig = {
 };
 
 type OAuthSessionConfig = {
-  clientId: string;
   accessToken: string;
   accessTokenExpiresAt: string;
   refreshToken?: string;
@@ -91,7 +90,7 @@ type GlobalArgs = {
 };
 
 const DEFAULT_PROFILE = "default";
-const DEFAULT_OAUTH_CLIENT_ID = "cloud-cli";
+const OAUTH_CLIENT_ID = "cloud-cli";
 const DEFAULT_OAUTH_SCOPE = "openid profile email offline_access read write";
 const CONFIG_PATH =
   process.env.CLD_CONFIG ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cloud", "cld", "config.json");
@@ -289,6 +288,10 @@ const canonicalServer = (server: string): string => {
   }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
     throw new CliError("Cloud server must be an HTTP(S) origin without credentials, path, query, or fragment.");
+  }
+  const hostname = url.hostname.toLowerCase();
+  if (url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(hostname)) {
+    throw new CliError("Cloud server must use HTTPS unless it is an exact localhost, 127.0.0.1, or ::1 loopback origin.");
   }
   return url.origin;
 };
@@ -489,14 +492,14 @@ const withConfigLock = async <T>(run: () => Promise<T>): Promise<T> => {
   }
 };
 
-const revokeOAuthRefreshToken = async (server: string, clientId: string, refreshToken: string): Promise<void> => {
+const revokeOAuthRefreshToken = async (server: string, refreshToken: string): Promise<void> => {
   const response = await fetchOAuth(joinUrl(server, "/oauth/revoke"), {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       token: refreshToken,
       token_type_hint: "refresh_token",
-      client_id: clientId,
+      client_id: OAUTH_CLIENT_ID,
     }),
   });
   if (!response.ok) throw new CliError(`Remote OAuth revocation failed (${response.status}).`);
@@ -521,7 +524,7 @@ const refreshOAuthSession = async (profileName: string, server: string, force = 
     const refreshToken = await readOAuthRefreshToken(session);
     const body = new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: session.clientId,
+      client_id: OAUTH_CLIENT_ID,
       refresh_token: refreshToken,
     });
 
@@ -558,7 +561,7 @@ const refreshOAuthSession = async (profileName: string, server: string, force = 
         return token.access_token;
       }
 
-      await revokeOAuthRefreshToken(server, session.clientId, token.refresh_token).catch((revokeError) => {
+      await revokeOAuthRefreshToken(server, token.refresh_token).catch((revokeError) => {
         console.error(`Warning: failed to revoke unpersisted refresh token: ${(revokeError as Error).message}`);
       });
       await removeLocalOAuthSession(profileName).catch((removeError) => {
@@ -1023,7 +1026,7 @@ const runProfileCommand = async (args: string[]): Promise<number> => {
 
       if (setsAuthProvider && existing.oauth) {
         if (existing.server && displacedRefreshToken) {
-          await revokeOAuthRefreshToken(existing.server, existing.oauth.clientId, displacedRefreshToken).catch((error) => {
+          await revokeOAuthRefreshToken(existing.server, displacedRefreshToken).catch((error) => {
             console.error(`Warning: failed to revoke the replaced OAuth login: ${(error as Error).message}`);
           });
         }
@@ -1175,11 +1178,13 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
   const name = maybeName && !maybeName.startsWith("-") ? maybeName : (global.profile ?? config.currentProfile ?? DEFAULT_PROFILE);
   const flagArgs = maybeName && !maybeName.startsWith("-") ? rest : [maybeName, ...rest].filter((value): value is string => Boolean(value));
   const parsed = parseArgs(flagArgs, new Set([...BOOLEAN_FLAGS, "no-open"]));
+  if ("client-id" in parsed.flags) {
+    throw new CliError('cld login always uses the first-party "cloud-cli" OAuth client; --client-id is not supported.');
+  }
   const existing = config.profiles?.[name] ?? {};
   const server = takeStringFlag(parsed.flags, "server") ?? global.server ?? process.env.CLD_SERVER ?? existing.server;
   if (!server) throw new CliError("Missing server. Run `cld login --server <url>`.");
 
-  const clientId = takeStringFlag(parsed.flags, "client-id") ?? DEFAULT_OAUTH_CLIENT_ID;
   const scope = takeStringFlag(parsed.flags, "scope") ?? DEFAULT_OAUTH_SCOPE;
   const fd0Flag = parsed.flags.fd0;
   const fd0Name = typeof fd0Flag === "string" ? fd0Flag : fd0Flag === true ? `cloud-${name}-oauth-refresh-token` : undefined;
@@ -1189,7 +1194,7 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
   const state = randomBase64Url(24);
 
   const authorizationUrl = new URL(joinUrl(normalizedServer, "/oauth/authorize"));
-  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("client_id", OAUTH_CLIENT_ID);
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("scope", scope);
   authorizationUrl.searchParams.set("state", state);
@@ -1201,7 +1206,7 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: clientId,
+    client_id: OAUTH_CLIENT_ID,
     code,
     redirect_uri: authorizationUrl.searchParams.get("redirect_uri") ?? "",
     code_verifier: verifier,
@@ -1232,7 +1237,6 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
 
       const refreshTokenFd0 = fd0Name ? { name: fd0Name, ...(fd0Scope ? { scope: fd0Scope } : {}) } : undefined;
       const baseSession: OAuthSessionConfig = {
-        clientId,
         accessToken: token.access_token,
         accessTokenExpiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
         scope: token.scope ?? scope,
@@ -1274,7 +1278,7 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
       }
 
       if (displacedRefreshToken && latestProfile.server && displacedSession) {
-        await revokeOAuthRefreshToken(latestProfile.server, displacedSession.clientId, displacedRefreshToken).catch((error) => {
+        await revokeOAuthRefreshToken(latestProfile.server, displacedRefreshToken).catch((error) => {
           console.error(`Warning: failed to revoke the previous OAuth login: ${(error as Error).message}`);
         });
       }
@@ -1287,7 +1291,7 @@ const runLoginCommand = async (args: string[], global: GlobalArgs): Promise<numb
     });
   } catch (error) {
     if (!persisted) {
-      await revokeOAuthRefreshToken(normalizedServer, clientId, token.refresh_token).catch((revokeError) => {
+      await revokeOAuthRefreshToken(normalizedServer, token.refresh_token).catch((revokeError) => {
         console.error(`Warning: failed to revoke the unpersisted OAuth login: ${(revokeError as Error).message}`);
       });
     }
@@ -1317,7 +1321,7 @@ const runLogoutCommand = async (args: string[], global: GlobalArgs): Promise<num
     }
 
     if (profile.server && refreshToken) {
-      await revokeOAuthRefreshToken(profile.server, profile.oauth.clientId, refreshToken).catch((error) => {
+      await revokeOAuthRefreshToken(profile.server, refreshToken).catch((error) => {
         console.error(`Warning: ${(error as Error).message} Removing local credentials anyway.`);
       });
     }

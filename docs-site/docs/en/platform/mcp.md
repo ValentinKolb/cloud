@@ -5,7 +5,7 @@ section: Platform services
 order: 565
 description: Connect MCP clients to live Cloud capabilities and registered app Help.
 tags: [mcp, capabilities, help, oauth, agents]
-updated: 2026-08-05
+updated: 2026-08-07
 ---
 
 # Cloud MCP server
@@ -101,6 +101,11 @@ authorization behavior.
 Every refresh repeats the exact MCP `resource`. Scope reductions are durable,
 and Cloud rechecks the current account and client access before rotating the
 grant.
+
+OAuth access tokens expire after one hour. Disconnecting an MCP client revokes
+its refresh grant, but an access token already issued to that client can remain
+valid until that expiry. The owning app continues to enforce current domain
+authorization on every tool call.
 
 Personal Cloud API keys remain an explicit compatibility path for clients that
 cannot use browser OAuth. Send the key only in the bearer header:

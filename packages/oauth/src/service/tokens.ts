@@ -15,6 +15,7 @@ type DbKey = {
   public_key: string;
   kid: string;
   created_at: Date;
+  retired_at: Date | null;
 };
 
 type KeyPair = {
@@ -23,7 +24,10 @@ type KeyPair = {
   kid: string;
 };
 
-let cachedKeyPair: KeyPair | null = null;
+const ACCESS_TOKEN_LIFETIME_SECONDS = 60 * 60;
+const SIGNING_KEY_ROTATION_MS = 30 * 24 * 60 * 60 * 1_000;
+const SIGNING_KEY_GRACE_MS = 2 * 60 * 60 * 1_000;
+const importedKeyPairs = new Map<string, KeyPair>();
 
 export class InvalidOAuthScopeError extends Error {
   constructor() {
@@ -80,74 +84,106 @@ const validateRequestedResource = (client: OAuthClient, resource: string | undef
   return [resource];
 };
 
-/**
- * Get or create RSA key pair for JWT signing
- */
-export const getOrCreateKeyPair = async (): Promise<KeyPair> => {
-  if (cachedKeyPair) return cachedKeyPair;
+const importKeyPair = async (row: DbKey): Promise<KeyPair> => {
+  const cached = importedKeyPairs.get(row.kid);
+  if (cached) return cached;
+  const pair = {
+    privateKey: await jose.importPKCS8(row.private_key, "RS256"),
+    publicKey: await jose.importSPKI(row.public_key, "RS256"),
+    kid: row.kid,
+  };
+  importedKeyPairs.set(row.kid, pair);
+  return pair;
+};
 
-  // Try to load from database
-  const [row] = await sql<DbKey[]>`
-    SELECT id, private_key, public_key, kid, created_at
-    FROM oauth.keys
-    WHERE id = 'current'
-  `;
-
-  if (row) {
-    const privateKey = await jose.importPKCS8(row.private_key, "RS256");
-    const publicKey = await jose.importSPKI(row.public_key, "RS256");
-    cachedKeyPair = { privateKey, publicKey, kid: row.kid };
-    return cachedKeyPair;
-  }
-
-  // Generate new key pair (extractable: true is required to export to PEM)
+const generateKeyMaterial = async () => {
   const { privateKey, publicKey } = await jose.generateKeyPair("RS256", {
     modulusLength: 2048,
     extractable: true,
   });
-
-  const privateKeyPem = await jose.exportPKCS8(privateKey);
-  const publicKeyPem = await jose.exportSPKI(publicKey);
-  const kid = crypto.randomUUID();
-
-  await sql`
-    INSERT INTO oauth.keys (id, private_key, public_key, kid)
-    VALUES ('current', ${privateKeyPem}, ${publicKeyPem}, ${kid})
-    ON CONFLICT (id) DO NOTHING
-  `;
-
-  const [persisted] = await sql<DbKey[]>`
-    SELECT id, private_key, public_key, kid, created_at
-    FROM oauth.keys
-    WHERE id = 'current'
-  `;
-  if (!persisted) throw new Error("Failed to persist OAuth signing key");
-
-  cachedKeyPair = {
-    privateKey: await jose.importPKCS8(persisted.private_key, "RS256"),
-    publicKey: await jose.importSPKI(persisted.public_key, "RS256"),
-    kid: persisted.kid,
+  return {
+    privateKey: await jose.exportPKCS8(privateKey),
+    publicKey: await jose.exportSPKI(publicKey),
+    kid: crypto.randomUUID(),
   };
-  return cachedKeyPair;
+};
+
+const loadActiveKey = async (db: typeof sql = sql): Promise<DbKey | null> => {
+  const [row] = await db<DbKey[]>`
+    SELECT id, private_key, public_key, kid, created_at, retired_at
+    FROM oauth.keys
+    WHERE retired_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  return row ?? null;
+};
+
+/** Get the active signing key, rotating it after 30 days under one database lock. */
+export const getOrCreateKeyPair = async (): Promise<KeyPair> => {
+  const rotationCutoff = new Date(Date.now() - SIGNING_KEY_ROTATION_MS);
+  const active = await loadActiveKey();
+  if (active && active.created_at > rotationCutoff) return importKeyPair(active);
+
+  const generated = await generateKeyMaterial();
+  const persisted = await sql.begin(async (tx) => {
+    await tx`LOCK TABLE oauth.keys IN EXCLUSIVE MODE`;
+    const current = await loadActiveKey(tx);
+    if (current && current.created_at > rotationCutoff) return current;
+
+    if (current) {
+      await tx`UPDATE oauth.keys SET retired_at = now() WHERE id = ${current.id}`;
+    }
+
+    const [inserted] = await tx<DbKey[]>`
+      INSERT INTO oauth.keys (id, private_key, public_key, kid)
+      VALUES (${crypto.randomUUID()}, ${generated.privateKey}, ${generated.publicKey}, ${generated.kid})
+      RETURNING id, private_key, public_key, kid, created_at, retired_at
+    `;
+    if (!inserted) throw new Error("Failed to persist OAuth signing key");
+    return inserted;
+  });
+
+  return importKeyPair(persisted);
 };
 
 /**
  * Get JWKS (JSON Web Key Set) for public key distribution
  */
 export const getJwks = async (): Promise<jose.JSONWebKeySet> => {
-  const { publicKey, kid } = await getOrCreateKeyPair();
-  const jwk = await jose.exportJWK(publicKey);
-
-  return {
-    keys: [
-      {
-        ...jwk,
-        kid,
-        use: "sig",
+  await getOrCreateKeyPair();
+  const graceCutoff = new Date(Date.now() - SIGNING_KEY_GRACE_MS);
+  const rows = await sql<DbKey[]>`
+    SELECT id, private_key, public_key, kid, created_at, retired_at
+    FROM oauth.keys
+    WHERE retired_at IS NULL OR retired_at > ${graceCutoff}
+    ORDER BY retired_at NULLS FIRST, created_at DESC
+  `;
+  const keys = await Promise.all(
+    rows.map(async (row) => {
+      const publicKey = await jose.importSPKI(row.public_key, "RS256");
+      return {
+        ...(await jose.exportJWK(publicKey)),
+        kid: row.kid,
+        use: "sig" as const,
         alg: "RS256",
-      },
-    ],
-  };
+      };
+    }),
+  );
+
+  return { keys };
+};
+
+export const cleanupSigningKeys = async (): Promise<number> => {
+  const graceCutoff = new Date(Date.now() - SIGNING_KEY_GRACE_MS);
+  const deleted = await sql<{ kid: string }[]>`
+    DELETE FROM oauth.keys
+    WHERE retired_at IS NOT NULL
+      AND retired_at <= ${graceCutoff}
+    RETURNING kid
+  `;
+  for (const row of deleted) importedKeyPairs.delete(row.kid);
+  return deleted.length;
 };
 
 /**
@@ -193,7 +229,7 @@ export const getOpenIdConfiguration = (issuer: string) => ({
     "resource_type",
     "resource_id",
   ],
-  code_challenge_methods_supported: ["S256", "plain"],
+  code_challenge_methods_supported: ["S256"],
   grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
   resource_parameter_supported: true,
   // Authorization responses include RFC 9207 `iss`; keep its optional support
@@ -225,11 +261,10 @@ export const createTokens = async (params: {
   if (!user || isAccountExpired(user.accountExpires)) throw new InactiveOAuthUserError();
 
   const now = Math.floor(Date.now() / 1000);
-  const expiresIn = 3600; // 1 hour
+  const expiresIn = ACCESS_TOKEN_LIFETIME_SECONDS;
   const scopeValue = scopes.join(" ");
 
-  // Use uid as subject (not internal UUID)
-  const subject = user.uid;
+  const subject = user.id;
 
   // Access Token
   const accessToken = await new jose.SignJWT({
@@ -332,7 +367,7 @@ export const createClientCredentialsToken = async (params: {
 
   const requestedScopes = resolveRequestedScopes(client, scope);
   const now = Math.floor(Date.now() / 1000);
-  const expiresIn = 3600;
+  const expiresIn = ACCESS_TOKEN_LIFETIME_SECONDS;
   const scopeValue = requestedScopes.join(" ");
   const resourceAudiences = validateRequestedResource(client, resource);
   const accessTokenAudiences = resource ? resourceAudiences : getAccessTokenAudience(client);
@@ -366,7 +401,17 @@ export const createClientCredentialsToken = async (params: {
  */
 export const verifyAccessToken = async (params: { token: string; issuer: string }): Promise<jose.JWTPayload | null> => {
   try {
-    const { publicKey } = await getOrCreateKeyPair();
+    const { kid } = jose.decodeProtectedHeader(params.token);
+    if (!kid) return null;
+    const graceCutoff = new Date(Date.now() - SIGNING_KEY_GRACE_MS);
+    const [row] = await sql<DbKey[]>`
+      SELECT id, private_key, public_key, kid, created_at, retired_at
+      FROM oauth.keys
+      WHERE kid = ${kid}
+        AND (retired_at IS NULL OR retired_at > ${graceCutoff})
+    `;
+    if (!row) return null;
+    const { publicKey } = await importKeyPair(row);
     const { payload } = await jose.jwtVerify(params.token, publicKey, {
       issuer: params.issuer,
     });

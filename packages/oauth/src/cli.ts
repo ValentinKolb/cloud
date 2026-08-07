@@ -8,7 +8,14 @@ import {
   printRows as printJsonOrTable,
   printStructured,
 } from "@valentinkolb/cloud/cli";
-import type { OAuthAccessMode, OAuthAllowedProfile, OAuthClient, OAuthScope, UpdateOAuthClient } from "./contracts";
+import type {
+  OAuthAccessMode,
+  OAuthAllowedProfile,
+  OAuthClient,
+  OAuthClientListResponse,
+  OAuthScope,
+  UpdateOAuthClient,
+} from "./contracts";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SCOPES: readonly OAuthScope[] = ["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"];
@@ -44,12 +51,31 @@ const clientRows = (clients: OAuthClient[]) =>
     redirects: client.redirectUris.length,
   }));
 
+const listClients = async (
+  ctx: CloudCliContext,
+  params: { page?: number; perPage?: number; search?: string } = {},
+): Promise<OAuthClientListResponse> => {
+  const query = new URLSearchParams({
+    page: String(params.page ?? 1),
+    per_page: String(params.perPage ?? 100),
+  });
+  if (params.search) query.set("search", params.search);
+  return apiGet<OAuthClientListResponse>(ctx, `?${query}`);
+};
+
 const resolveClient = async (ctx: CloudCliContext, ref: string): Promise<OAuthClient> => {
-  const clients = await apiGet<OAuthClient[]>(ctx, "");
-  const matches = clients.filter((client) => client.id === ref || client.clientId === ref || client.name === ref);
+  if (UUID_PATTERN.test(ref)) return apiGet<OAuthClient>(ctx, `/${encodeURIComponent(ref)}`);
+
+  const matches: OAuthClient[] = [];
+  let page = 1;
+  while (matches.length < 2) {
+    const result = await listClients(ctx, { page, search: ref });
+    matches.push(...result.clients.filter((client) => client.clientId === ref || client.name === ref));
+    if (!result.pagination.has_next) break;
+    page += 1;
+  }
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`OAuth client "${ref}" is ambiguous. Use one of: ${matches.map((item) => item.id).join(", ")}`);
-  if (UUID_PATTERN.test(ref)) return apiGet<OAuthClient>(ctx, `/${encodeURIComponent(ref)}`);
   throw new Error(`OAuth client "${ref}" was not found by id, client id, or exact name.`);
 };
 
@@ -126,8 +152,13 @@ export default defineCliCommands({
   commands: [
     command("clients list", {
       summary: "List OAuth clients",
-      async run({ ctx }) {
-        const clients = await apiGet<OAuthClient[]>(ctx, "");
+      flags: {
+        page: flag.int({ min: 1, description: "Page number" }),
+        perPage: flag.int({ name: "per-page", aliases: ["per_page"], min: 1, max: 100, description: "Items per page" }),
+        search: flag.string({ description: "Search name, client ID, or description" }),
+      },
+      async run({ ctx, flags }) {
+        const { clients } = await listClients(ctx, { page: flags.page, perPage: flags.perPage, search: flags.search });
         printJsonOrTable(ctx, clients, clientRows(clients), [
           { key: "name" },
           { key: "clientId", label: "Client ID" },

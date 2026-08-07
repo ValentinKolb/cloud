@@ -5,9 +5,12 @@ import { oauthTokens, serviceAccounts } from "@valentinkolb/cloud/services";
 import { redis, sql } from "bun";
 import { Hono } from "hono";
 import * as jose from "jose";
+import adminApiRoutes from "../api";
+import type { OAuthClient } from "../contracts";
 import { ConsentDecisionSchema, completeConsent } from "../frontend/consent-action";
 import { migrate } from "../migrate";
 import oauthRoutes from "../oauth";
+import { oauthService } from "../service";
 import { oauth } from "./oauth";
 
 const canUseDatabase = async () => {
@@ -39,11 +42,11 @@ const canUseDatabase = async () => {
 /** Reported as skipped rather than silently passing when the backing service is absent. */
 const suite = (await canUseDatabase()) ? describe : describe.skip;
 
-const insertUser = async () => {
+const insertUser = async (options: { admin?: boolean } = {}) => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
-    INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)
-    VALUES (${`oauth-token-${suffix}`}, 'local', 'user', 'OAuth Token Test', ${`oauth-token-${suffix}@example.test`}, 'OAuth', 'Token')
+    INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn, admin)
+    VALUES (${`oauth-token-${suffix}`}, 'local', 'user', 'OAuth Token Test', ${`oauth-token-${suffix}@example.test`}, 'OAuth', 'Token', ${options.admin ?? false})
     RETURNING id
   `;
   return row!.id;
@@ -136,6 +139,7 @@ suite("OAuth resource access tokens", () => {
       const verified = await oauthTokens.verifyAccessToken(tokens.accessToken);
       expect(verified?.kind).toBe("user");
       expect(verified?.kind === "user" ? verified.user.id : null).toBe(userId);
+      expect(jose.decodeJwt(tokens.accessToken)).toMatchObject({ sub: userId, id: userId });
 
       const response = await actorProbe().request("/probe", {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
@@ -147,6 +151,53 @@ suite("OAuth resource access tokens", () => {
         serviceAccountId: null,
         accessSubject: { type: "user", userId },
       });
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("rotates signing keys while old one-hour JWTs remain verifiable during grace", async () => {
+    const userId = await insertUser();
+    let clientId: string | null = null;
+
+    try {
+      const created = await oauth.clients.create({
+        actor: adminActor(userId),
+        data: {
+          name: `Rotation client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "read"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const first = await oauth.tokens.createTokens({ userId, client: created.data, issuer: "http://localhost:3000" });
+      const firstKid = jose.decodeProtectedHeader(first.accessToken).kid!;
+      await sql`UPDATE oauth.keys SET created_at = now() - INTERVAL '31 days' WHERE kid = ${firstKid}`;
+
+      const second = await oauth.tokens.createTokens({ userId, client: created.data, issuer: "http://localhost:3000" });
+      const secondKid = jose.decodeProtectedHeader(second.accessToken).kid!;
+      expect(secondKid).not.toBe(firstKid);
+      expect(jose.decodeJwt(second.accessToken).sub).toBe(userId);
+
+      expect(await oauthTokens.verifyAccessToken(first.accessToken)).not.toBeNull();
+      expect(await oauthTokens.verifyAccessToken(second.accessToken)).not.toBeNull();
+      const jwks = await oauth.tokens.getJwks();
+      expect(jwks.keys.map((key) => key.kid)).toEqual(expect.arrayContaining([firstKid, secondKid]));
+
+      await sql`UPDATE oauth.keys SET retired_at = now() - INTERVAL '3 hours' WHERE kid = ${firstKid}`;
+      expect(await oauth.tokens.cleanupSigningKeys()).toBeGreaterThanOrEqual(1);
+      expect(await oauthTokens.verifyAccessToken(first.accessToken)).toBeNull();
+      expect(await oauthTokens.verifyAccessToken(second.accessToken)).not.toBeNull();
     } finally {
       if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
@@ -460,7 +511,7 @@ suite("OAuth resource access tokens", () => {
       isPublic: true,
       createdAt: new Date().toISOString(),
       createdBy: null,
-    } satisfies Awaited<ReturnType<typeof oauth.clients.list>>[number];
+    } satisfies OAuthClient;
 
     expect(oauth.clients.validateRedirectUri(client, "http://127.0.0.1:49152/callback")).toBe(true);
     expect(oauth.clients.validateRedirectUri(client, "http://[::1]:49152/callback")).toBe(false);
@@ -483,7 +534,7 @@ suite("OAuth resource access tokens", () => {
     expect(configuration.token_endpoint_auth_methods_supported).toContain("none");
     expect(configuration.registration_endpoint).toBe("https://cloud.example.test/oauth/register");
     expect(configuration.revocation_endpoint).toBe("https://cloud.example.test/oauth/revoke");
-    expect(configuration.code_challenge_methods_supported).toContain("S256");
+    expect(configuration.code_challenge_methods_supported).toEqual(["S256"]);
     expect(configuration.resource_parameter_supported).toBe(true);
     const response = await oauthRoutes.request("/.well-known/oauth-authorization-server");
     expect(response.status).toBe(200);
@@ -536,6 +587,63 @@ suite("OAuth resource access tokens", () => {
       expect(new Set(clientIds).size).toBe(2);
     } finally {
       for (const clientId of clientIds) await sql`DELETE FROM oauth.clients WHERE client_id = ${clientId}`;
+    }
+  });
+
+  test("paginates and filters OAuth clients in PostgreSQL", async () => {
+    const marker = `pagination-${crypto.randomUUID()}`;
+    const clients = await Promise.all(
+      ["one", "two", "three"].map((suffix) =>
+        oauth.clients.registerDynamic({
+          name: `${marker}-${suffix}`,
+          redirectUris: [`http://127.0.0.1:${49160 + suffix.length}/callback`],
+          scopes: ["read"],
+        }),
+      ),
+    );
+
+    try {
+      const first = await oauthService.client.list({ pagination: { page: 1, perPage: 2 }, filter: { query: marker } });
+      const second = await oauthService.client.list({ pagination: { page: 2, perPage: 2 }, filter: { query: marker } });
+      expect(first).toMatchObject({ page: 1, perPage: 2, total: 3, hasNext: true });
+      expect(first.items).toHaveLength(2);
+      expect(second).toMatchObject({ page: 2, perPage: 2, total: 3, hasNext: false });
+      expect(second.items).toHaveLength(1);
+      expect(new Set([...first.items, ...second.items].map((client) => client.id))).toEqual(new Set(clients.map((client) => client.id)));
+    } finally {
+      for (const client of clients) await sql`DELETE FROM oauth.clients WHERE id = ${client.id}::uuid`;
+    }
+  });
+
+  test("returns the bounded OAuth client page contract from the admin API", async () => {
+    const userId = await insertUser({ admin: true });
+    const sessionToken = await createSessionToken(userId);
+    const marker = `api-pagination-${crypto.randomUUID()}`;
+    const clients = await Promise.all(
+      ["one", "two", "three"].map((suffix) =>
+        oauth.clients.registerDynamic({
+          name: `${marker}-${suffix}`,
+          redirectUris: [`http://127.0.0.1:${49200 + suffix.length}/callback`],
+          scopes: ["read"],
+        }),
+      ),
+    );
+
+    try {
+      const response = await adminApiRoutes.request(`/?page=2&per_page=2&search=${encodeURIComponent(marker)}`, {
+        headers: { cookie: `session_token=${sessionToken}` },
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        clients: OAuthClient[];
+        pagination: { page: number; per_page: number; total: number; total_pages: number; has_next: boolean };
+      };
+      expect(body.clients).toHaveLength(1);
+      expect(body.pagination).toEqual({ page: 2, per_page: 2, total: 3, total_pages: 2, has_next: false });
+    } finally {
+      await redis.del(`session:${sessionToken}`);
+      for (const client of clients) await sql`DELETE FROM oauth.clients WHERE id = ${client.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
   });
 
@@ -1225,6 +1333,46 @@ suite("OAuth resource access tokens", () => {
     }
   });
 
+  test("confidential clients reject PKCE plain", async () => {
+    const userId = await insertUser();
+    let clientId: string | null = null;
+
+    try {
+      const created = await oauth.clients.create({
+        actor: adminActor(userId),
+        data: {
+          name: `Confidential PKCE client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const response = await oauthRoutes.request(
+        `/oauth/authorize?${new URLSearchParams({
+          client_id: created.data.clientId,
+          redirect_uri: "https://client.example.test/callback",
+          response_type: "code",
+          code_challenge: "a".repeat(43),
+          code_challenge_method: "plain",
+        })}`,
+      );
+      expect(response.status).toBe(302);
+      expect(new URL(response.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("refresh tokens keep the original grant audiences after client changes", async () => {
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -1465,7 +1613,7 @@ suite("OAuth resource access tokens", () => {
         }),
       });
       expect(codeResponse.status).toBe(200);
-      const codeToken = (await codeResponse.json()) as { refresh_token: string };
+      const codeToken = (await codeResponse.json()) as { access_token: string; refresh_token: string };
 
       const revokeResponse = await oauthRoutes.request("/oauth/revoke", {
         method: "POST",
@@ -1478,6 +1626,7 @@ suite("OAuth resource access tokens", () => {
         }),
       });
       expect(revokeResponse.status).toBe(200);
+      expect(await oauthTokens.verifyAccessToken(codeToken.access_token)).not.toBeNull();
 
       const refreshResponse = await oauthRoutes.request("/oauth/token", {
         method: "POST",

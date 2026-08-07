@@ -63,6 +63,7 @@ const startMockServer = (state: MockServerState) =>
         } else {
           state.refreshCalls += 1;
           expect(grantType).toBe("refresh_token");
+          expect(body.get("client_id")).toBe("cloud-cli");
         }
         return Response.json(
           state.tokenResponse ?? {
@@ -79,6 +80,7 @@ const startMockServer = (state: MockServerState) =>
       if (url.pathname === "/oauth/revoke") {
         state.revokeCalls += 1;
         const body = await request.formData();
+        expect(body.get("client_id")).toBe("cloud-cli");
         state.revokedTokens ??= [];
         state.revokedTokens.push(String(body.get("token")));
         return new Response(null, { status: 200 });
@@ -283,6 +285,73 @@ describe("cloud CLI OAuth session handling", () => {
     }
   });
 
+  test("passes OAuth client pagination and search to the bounded admin API", async () => {
+    let receivedQuery: URLSearchParams | null = null;
+    const client = {
+      id: crypto.randomUUID(),
+      name: "Codex",
+      description: "MCP client",
+      clientId: "codex-client",
+      redirectUris: ["https://client.example.test/callback"],
+      logoutUri: null,
+      scopes: ["read"],
+      audiences: ["cloud"],
+      serviceAccountId: null,
+      allowedProfiles: ["user"],
+      accessMode: "profiles",
+      accessUsers: [],
+      accessGroups: [],
+      registrationKind: "managed",
+      isPublic: true,
+      createdAt: new Date().toISOString(),
+      createdBy: null,
+    };
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        const url = new URL(request.url);
+        receivedQuery = url.searchParams;
+        return Response.json({
+          clients: [client],
+          pagination: { page: 2, per_page: 3, total: 4, total_pages: 2, has_next: false },
+        });
+      },
+    });
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: { default: { server: `http://127.0.0.1:${server.port}`, token: "cld_test" } },
+      });
+
+      const result = await runCli(configPath, [
+        "oauth",
+        "clients",
+        "list",
+        "--page",
+        "2",
+        "--per-page",
+        "3",
+        "--search",
+        "codex",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(Object.fromEntries(receivedQuery!)).toEqual({ page: "2", per_page: "3", search: "codex" });
+      expect(JSON.parse(result.stdout)).toEqual([client]);
+
+      const resolved = await runCli(configPath, ["oauth", "clients", "get", "Codex", "--json"]);
+      expect(resolved.exitCode).toBe(0);
+      expect(JSON.parse(resolved.stdout)).toEqual(client);
+      expect(Object.fromEntries(receivedQuery!)).toEqual({ page: "1", per_page: "100", search: "Codex" });
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("forwards capability protocol headers alongside authentication", async () => {
     const receivedHeaders: Array<{ authorization: string | null; idempotencyKey: string | null }> = [];
     const server = Bun.serve({
@@ -395,7 +464,6 @@ describe("cloud CLI OAuth session handling", () => {
           local: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "old-access",
               accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
               refreshToken: "old-refresh",
@@ -413,6 +481,7 @@ describe("cloud CLI OAuth session handling", () => {
       if (!printedLoginUrl) throw new Error("CLI did not print a login URL.");
 
       const loginUrl = new URL(printedLoginUrl);
+      expect(loginUrl.searchParams.get("client_id")).toBe("cloud-cli");
       const redirectUri = loginUrl.searchParams.get("redirect_uri");
       const stateParam = loginUrl.searchParams.get("state");
       expect(redirectUri).toBeString();
@@ -448,9 +517,22 @@ describe("cloud CLI OAuth session handling", () => {
       expect(config.currentProfile).toBe("local");
       expect(config.profiles.local.oauth.accessToken).toBe("login-access");
       expect(config.profiles.local.oauth.refreshToken).toBe("login-refresh");
+      expect("clientId" in config.profiles.local.oauth).toBe(false);
     } finally {
       server.stop(true);
     }
+  });
+
+  test("rejects overriding the first-party OAuth client", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    await writeConfig(configPath, {});
+
+    const result = await runCli(configPath, ["login", "--client-id", "custom-client"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("always uses the first-party");
   });
 
   test("rejects stored OAuth credentials when the effective server changes", async () => {
@@ -473,7 +555,6 @@ describe("cloud CLI OAuth session handling", () => {
             default: {
               server: "https://cloud.example.test",
               oauth: {
-                clientId: "cloud-cli",
                 accessToken: "secret-access",
                 accessTokenExpiresAt: mode === "fresh" ? new Date(Date.now() + 3_600_000).toISOString() : "2000-01-01T00:00:00.000Z",
                 refreshToken: "secret-refresh",
@@ -499,7 +580,7 @@ describe("cloud CLI OAuth session handling", () => {
     } finally {
       foreignServer.stop(true);
     }
-  });
+  }, 15_000);
 
   test("accepts only pathless HTTP or HTTPS server origins", async () => {
     const dir = await createTempDir();
@@ -517,7 +598,24 @@ describe("cloud CLI OAuth session handling", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("HTTP(S) origin");
     }
-  });
+  }, 15_000);
+
+  test("allows plaintext Cloud servers only on exact loopback hosts", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    await writeConfig(configPath, {});
+
+    for (const [index, server] of ["http://cloud.example.test", "http://127.0.0.2:3000", "http://[::2]:3000"].entries()) {
+      const result = await runCli(configPath, ["profile", "set", `remote-${index}`, "--server", server, "--token", "token"]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("must use HTTPS");
+    }
+
+    for (const [index, server] of ["http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"].entries()) {
+      const result = await runCli(configPath, ["profile", "set", `loopback-${index}`, "--server", server, "--token", "token"]);
+      expect(result.exitCode).toBe(0);
+    }
+  }, 15_000);
 
   test("revokes a displaced OAuth grant when profile set changes credential providers", async () => {
     const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
@@ -532,7 +630,6 @@ describe("cloud CLI OAuth session handling", () => {
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "old-access",
               accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
               refreshToken: "old-refresh",
@@ -634,7 +731,6 @@ describe("cloud CLI OAuth session handling", () => {
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "old-access",
               accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
               refreshToken: "old-refresh",
@@ -680,7 +776,6 @@ describe("cloud CLI OAuth session handling", () => {
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "old-access",
               accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
               refreshToken: "secret-refresh",
@@ -711,7 +806,6 @@ describe("cloud CLI OAuth session handling", () => {
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "old-access",
               accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
               refreshToken: "old-refresh",
@@ -746,7 +840,6 @@ describe("cloud CLI OAuth session handling", () => {
     const profile = (refreshToken: string) => ({
       server: `http://127.0.0.1:${server.port}`,
       oauth: {
-        clientId: "cloud-cli",
         accessToken: "old-access",
         accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
         refreshToken,
@@ -789,7 +882,6 @@ describe("cloud CLI OAuth session handling", () => {
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "stale-access",
               accessTokenExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
               refreshToken: "old-refresh",
@@ -841,7 +933,6 @@ exit 0
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "old-access",
               accessTokenExpiresAt: "2000-01-01T00:00:00.000Z",
               refreshTokenFd0: { name: "cloud-default-oauth-refresh-token" },
@@ -898,7 +989,6 @@ exit 1
           default: {
             server: `http://127.0.0.1:${server.port}`,
             oauth: {
-              clientId: "cloud-cli",
               accessToken: "access",
               accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
               refreshTokenFd0: { name: "cloud-default-oauth-refresh-token", scope: "test" },

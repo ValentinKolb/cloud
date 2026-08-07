@@ -11,6 +11,8 @@ type DbKey = {
   kid: string;
 };
 
+const SIGNING_KEY_GRACE_MS = 2 * 60 * 60 * 1_000;
+
 const parseScopeClaim = (payload: jose.JWTPayload): string[] => {
   const value = payload.scope;
   if (typeof value !== "string") return [];
@@ -40,11 +42,13 @@ const getIssuer = async (): Promise<string> => {
   return publicCloudOrigin(appUrl);
 };
 
-const getCurrentPublicKey = async (): Promise<CryptoKey | null> => {
+const getVerificationKey = async (kid: string): Promise<CryptoKey | null> => {
+  const graceCutoff = new Date(Date.now() - SIGNING_KEY_GRACE_MS);
   const [row] = await sql<DbKey[]>`
     SELECT public_key, kid
     FROM oauth.keys
-    WHERE id = 'current'
+    WHERE kid = ${kid}
+      AND (retired_at IS NULL OR retired_at > ${graceCutoff})
   `;
   if (!row) return null;
   return jose.importSPKI(row.public_key, "RS256");
@@ -59,7 +63,14 @@ export const verifyAccessToken = async (
   token: string,
   expectedAudience: string | string[] = "cloud",
 ): Promise<AuthenticatedOAuthToken | null> => {
-  const publicKey = await getCurrentPublicKey();
+  let kid: string | undefined;
+  try {
+    kid = jose.decodeProtectedHeader(token).kid;
+  } catch {
+    return null;
+  }
+  if (!kid) return null;
+  const publicKey = await getVerificationKey(kid);
   if (!publicKey) return null;
 
   let payload: jose.JWTPayload;

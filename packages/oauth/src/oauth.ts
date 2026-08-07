@@ -107,6 +107,7 @@ const AuthorizeQuerySchema = z.object({
   state: z.string().optional(),
   nonce: z.string().optional(),
   code_challenge: z.string().optional(),
+  // Parse legacy `plain` so a valid client receives an OAuth redirect error; the handler rejects it before issuing a code.
   code_challenge_method: z.enum(["S256", "plain"]).optional(),
 });
 
@@ -399,6 +400,9 @@ const app = new Hono<AuthContext>()
         if (code_challenge_method !== "S256") {
           return redirectAuthorizationError(c, redirect_uri, issuer, state, "invalid_request", "Public clients must use PKCE S256");
         }
+      }
+      if (code_challenge_method === "plain") {
+        return redirectAuthorizationError(c, redirect_uri, issuer, state, "invalid_request", "PKCE must use S256");
       }
       if (code_challenge_method && !code_challenge) {
         return redirectAuthorizationError(c, redirect_uri, issuer, state, "invalid_request", "PKCE method requires a code challenge");

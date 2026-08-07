@@ -2,30 +2,8 @@ import { err, fail, ok, type PageParams, type Paginated, paginate, type Result, 
 import type { MutationResult } from "@/contracts";
 import { oauth } from "./oauth";
 
-type OAuthClient = Awaited<ReturnType<typeof oauth.clients.list>>[number];
 type MutationStatus = Extract<MutationResult, { ok: false }>["status"];
-
-const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
-  if (!pagination) {
-    return {
-      items,
-      page: 1,
-      perPage: items.length,
-      total: items.length,
-      hasNext: false,
-    };
-  }
-
-  const { page, perPage, offset } = paginate(pagination);
-  const pagedItems = items.slice(offset, offset + perPage);
-  return {
-    items: pagedItems,
-    page,
-    perPage,
-    total: items.length,
-    hasNext: page * perPage < items.length,
-  };
-};
+type OAuthClient = Awaited<ReturnType<typeof oauth.clients.list>>["items"][number];
 
 /**
  * Maps mutation status codes into the shared service error format.
@@ -47,22 +25,17 @@ const fromMutation = <T>(result: MutationResult<T>): Result<T> => {
 export const oauthService = {
   client: {
     list: async (config?: { pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<OAuthClient>> => {
-      const clients = await oauth.clients.list();
-      const query = config?.filter?.query?.trim().toLowerCase();
-      const filtered =
-        query && query.length > 0
-          ? clients.filter((client) => {
-              const description = client.description ?? "";
-              return (
-                client.name.toLowerCase().includes(query) ||
-                client.clientId.toLowerCase().includes(query) ||
-                description.toLowerCase().includes(query)
-              );
-            })
-          : clients;
-
-      return paginateItems(filtered, config?.pagination);
+      const { page, perPage, offset } = paginate(config?.pagination);
+      const result = await oauth.clients.list({ limit: perPage, offset, query: config?.filter?.query });
+      return {
+        items: result.items,
+        page,
+        perPage,
+        total: result.total,
+        hasNext: page * perPage < result.total,
+      };
     },
+    summary: () => oauth.clients.summary(),
     get: async (config: { id: string }) => oauth.clients.get({ id: config.id }),
     create: async (config: Parameters<typeof oauth.clients.create>[0]) => fromMutation(await oauth.clients.create(config)),
     update: async (config: Parameters<typeof oauth.clients.update>[0]) => fromMutation(await oauth.clients.update(config)),

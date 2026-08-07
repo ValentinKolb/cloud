@@ -144,7 +144,7 @@ export const migrate = async (): Promise<void> => {
       resource TEXT,
       nonce TEXT,
       code_challenge TEXT,
-      code_challenge_method TEXT CHECK (code_challenge_method IN ('S256', 'plain')),
+      code_challenge_method TEXT CHECK (code_challenge_method = 'S256'),
       expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '5 minutes',
       used BOOLEAN NOT NULL DEFAULT false
     )
@@ -168,6 +168,13 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_oauth_codes_client
     ON oauth.codes(client_id)
+  `.simple();
+  await sql`DELETE FROM oauth.codes WHERE code_challenge_method = 'plain'`.simple();
+  await sql`ALTER TABLE oauth.codes DROP CONSTRAINT IF EXISTS codes_code_challenge_method_check`.simple();
+  await sql`
+    ALTER TABLE oauth.codes
+    ADD CONSTRAINT codes_code_challenge_method_check
+    CHECK (code_challenge_method IS NULL OR code_challenge_method = 'S256')
   `.simple();
   console.log("  ✓ oauth.codes table");
 
@@ -328,8 +335,21 @@ export const migrate = async (): Promise<void> => {
       private_key TEXT NOT NULL,
       public_key TEXT NOT NULL,
       kid TEXT NOT NULL DEFAULT gen_random_uuid()::text,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      retired_at TIMESTAMPTZ
     )
+  `.simple();
+  await sql`ALTER TABLE oauth.keys ADD COLUMN IF NOT EXISTS retired_at TIMESTAMPTZ`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS oauth_keys_kid_key ON oauth.keys(kid)`.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS oauth_keys_one_active_key
+    ON oauth.keys ((retired_at IS NULL))
+    WHERE retired_at IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS oauth_keys_retired_at
+    ON oauth.keys(retired_at)
+    WHERE retired_at IS NOT NULL
   `.simple();
   console.log("  ✓ oauth.keys table");
 };

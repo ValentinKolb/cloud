@@ -5,11 +5,15 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
   CreateOAuthClientSchema,
+  createPagination,
   ErrorResponseSchema,
   MessageResponseSchema,
+  OAuthClientListQuerySchema,
+  OAuthClientListResponseSchema,
   OAuthClientParamSchema,
   OAuthClientSchema,
   OAuthClientWithSecretSchema,
+  parsePagination,
   UpdateOAuthClientSchema,
 } from "@/contracts";
 import { oauthService } from "../service";
@@ -17,8 +21,6 @@ import { oauthService } from "../service";
 // ==========================
 // OAuth Admin API
 // ==========================
-
-const OAuthClientListSchema = z.array(OAuthClientSchema);
 
 const getUserBackedActor = (c: Context<AuthContext>) => {
   const actor = c.get("actor");
@@ -40,15 +42,27 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["OAuth Admin"],
       summary: "List OAuth clients",
-      description: "List all registered OAuth clients (admin only).",
+      description: "List a filtered page of registered OAuth clients (admin only).",
       ...requiresAdmin,
       responses: {
-        200: jsonResponse(OAuthClientListSchema, "List of OAuth clients"),
+        200: jsonResponse(OAuthClientListResponseSchema, "Paginated OAuth clients"),
       },
     }),
+    v("query", OAuthClientListQuerySchema),
     async (c) => {
-      const clientsPage = await oauthService.client.list();
-      return respond(c, ok(clientsPage.items));
+      const query = c.req.valid("query");
+      const pagination = parsePagination(query);
+      const clientsPage = await oauthService.client.list({
+        pagination: { page: pagination.page, perPage: pagination.perPage },
+        filter: { query: query.search },
+      });
+      return respond(
+        c,
+        ok({
+          clients: clientsPage.items,
+          pagination: createPagination(pagination, clientsPage.total),
+        }),
+      );
     },
   )
 

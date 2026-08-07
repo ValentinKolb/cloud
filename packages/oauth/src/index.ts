@@ -11,7 +11,12 @@ const OAUTH_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 let cleanupTimer: ReturnType<typeof setInterval> | undefined;
 
 const cleanupOAuthStorage = async (): Promise<void> => {
-  await Promise.all([oauth.codes.cleanup(), oauth.refreshTokens.cleanup(), oauth.clients.cleanupUnusedDynamic()]);
+  await Promise.all([
+    oauth.codes.cleanup(),
+    oauth.refreshTokens.cleanup(),
+    oauth.clients.cleanupUnusedDynamic(),
+    oauth.tokens.cleanupSigningKeys(),
+  ]);
 };
 
 const router = new Hono<AuthContext>()

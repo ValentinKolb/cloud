@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CreateOAuthClientSchema,
   DynamicClientRegistrationRequestSchema,
+  OAuthClientListQuerySchema,
   OAuthClientParamSchema,
   UpdateOAuthClientSchema,
 } from "./contracts";
@@ -49,6 +50,17 @@ describe("OAuth contracts", () => {
     expect(parsed.allowedUserIds).toEqual([]);
     expect(parsed.allowedGroupIds).toEqual([]);
     expect(parsed.isPublic).toBe(false);
+  });
+
+  test("bounds OAuth client list pagination and search", () => {
+    expect(OAuthClientListQuerySchema.parse({ page: "2", per_page: "50", search: "  codex  " })).toEqual({
+      page: 2,
+      per_page: 50,
+      search: "codex",
+    });
+    expect(OAuthClientListQuerySchema.safeParse({ page: 0 }).success).toBe(false);
+    expect(OAuthClientListQuerySchema.safeParse({ per_page: 101 }).success).toBe(false);
+    expect(OAuthClientListQuerySchema.safeParse({ search: "x".repeat(201) }).success).toBe(false);
   });
 
   test("rejects invalid client params and bounded client input", () => {

@@ -204,17 +204,41 @@ const replaceAccessPrincipals = async (params: {
   }
 };
 
-/**
- * List all OAuth clients
- */
-export const list = async (): Promise<OAuthClient[]> => {
+/** List one bounded, filtered OAuth client page directly from PostgreSQL. */
+export const list = async (params: { limit: number; offset: number; query?: string }): Promise<{ items: OAuthClient[]; total: number }> => {
+  const query = params.query?.trim() || null;
+  const [{ total = 0 } = {}] = await sql<{ total: number }[]>`
+    SELECT count(*)::int AS total
+    FROM oauth.clients
+    WHERE ${query}::text IS NULL
+      OR position(lower(${query}) in lower(name)) > 0
+      OR position(lower(${query}) in lower(client_id)) > 0
+      OR position(lower(${query}) in lower(COALESCE(description, ''))) > 0
+  `;
   const rows = await sql<DbClient[]>`
     SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, access_mode, registration_kind, is_public, created_at, created_by
     FROM oauth.clients
-    ORDER BY created_at DESC
+    WHERE ${query}::text IS NULL
+      OR position(lower(${query}) in lower(name)) > 0
+      OR position(lower(${query}) in lower(client_id)) > 0
+      OR position(lower(${query}) in lower(COALESCE(description, ''))) > 0
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${params.limit}
+    OFFSET ${params.offset}
   `;
   const access = await loadAccessPrincipals(rows.map((row) => row.id));
-  return rows.map((row) => mapToClient(row, access.get(row.id)));
+  return { items: rows.map((row) => mapToClient(row, access.get(row.id))), total };
+};
+
+export const summary = async (): Promise<{ total: number; public: number; dynamic: number }> => {
+  const [row] = await sql<{ total: number; public: number; dynamic: number }[]>`
+    SELECT
+      count(*)::int AS total,
+      count(*) FILTER (WHERE is_public)::int AS public,
+      count(*) FILTER (WHERE registration_kind = 'dynamic')::int AS dynamic
+    FROM oauth.clients
+  `;
+  return row ?? { total: 0, public: 0, dynamic: 0 };
 };
 
 /**

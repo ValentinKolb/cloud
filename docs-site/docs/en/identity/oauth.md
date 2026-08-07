@@ -5,7 +5,7 @@ section: Identity and access
 order: 355
 description: Configure OAuth clients and choose authorization code or client credentials.
 tags: [identity, oauth, oidc]
-updated: 2026-08-05
+updated: 2026-08-07
 ---
 
 # OAuth clients and flows
@@ -22,6 +22,11 @@ Cloud has three client origins:
 - `first_party`: seeded by Cloud and protected from editing or deletion;
 - `dynamic`: untrusted public clients registered automatically through RFC
   7591 and authorized through explicit user consent.
+
+The first-party `cld` command uses Cloud's protected `cloud-cli` registration
+for login, refresh, and logout. It does not dynamically register or accept an
+alternate OAuth client ID. Dynamic registration is for clients without a prior
+relationship with the Cloud instance.
 
 ## Authorization-code flow
 
@@ -44,9 +49,11 @@ The authorization request accepts:
 | `state` | No | Client state returned unchanged |
 | `nonce` | No | Included in OpenID Connect processing |
 | `code_challenge` | Public clients | PKCE challenge |
-| `code_challenge_method` | With challenge | `S256` for public clients; `S256` or `plain` for confidential clients |
+| `code_challenge_method` | With challenge | Must be `S256` |
 
-Public clients must use PKCE with `S256`.
+Every client that uses PKCE must use `S256`. Public clients must use PKCE;
+confidential clients may omit it because they also authenticate at the token
+endpoint. Cloud does not accept PKCE `plain`.
 
 Dynamic clients additionally require an explicit `resource` on the same Cloud
 origin. Before issuing a code, Cloud shows the resource owner the client name,
@@ -88,6 +95,10 @@ The OpenID Connect UserInfo endpoint accepts only user access tokens that
 contain `openid`, were issued for the requesting client, and still refer to an
 active account and registered client. ID tokens and resource-only access tokens
 are rejected.
+
+The OpenID Connect `sub` claim is the immutable Cloud user UUID. Human-readable
+account names remain available through `uid`; changing a login name does not
+change the subject seen by clients.
 
 ## Client-credentials flow
 
@@ -204,11 +215,23 @@ Client creation, updates, secret rotation, and revocation are atomic and
 recorded in the Cloud audit log. Expired codes and refresh grants are removed
 by the OAuth app's background cleanup.
 
+The admin API and **Admin → OAuth** page list clients in bounded pages and can
+search by name, client ID, or description. API callers use `page`, `per_page`
+(maximum 100), and optional `search` query parameters.
+
 ## Validate access tokens
 
 Applications do not import `oauthTokens` or verify JWTs. Apply
 `auth.requireRole("authenticated")`, then read `actor` and `accessSubject` from
 the request context.
+
+Access tokens expire after one hour. A signing key rotates on its next use
+after 30 days; JWKS publishes the retired public key for a two-hour grace period so
+tokens issued before a rotation remain verifiable. Revoking a refresh grant or
+signing out an OAuth client prevents future refreshes but does not revoke an
+already issued access token. That token can remain valid until its one-hour
+expiry. Current-client validation and domain authorization still apply on each
+request.
 
 Continue with [Request identity](/en/docs/identity/authentication) and
 [Resource authorization](/en/docs/identity/authorization).
