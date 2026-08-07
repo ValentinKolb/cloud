@@ -3,11 +3,6 @@ import { createSignal, Show } from "solid-js";
 import { CloudAvatar } from "./Avatar";
 import { createAvatarDataUrlFromFile, validateAvatarSourceFile } from "./avatar-upload";
 
-const avatarUploadDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(94vw,34rem)]"),
-};
-
 export type AvatarUploadDialogOptions = {
   username: string;
   userId?: string | null;
@@ -161,5 +156,5 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
 
 export const openAvatarUploadDialog = (options: AvatarUploadDialogOptions): Promise<boolean> =>
   dialogCore
-    .open<boolean>((close) => <AvatarUploadDialog {...options} close={(saved) => close(Boolean(saved))} />, avatarUploadDialogOptions)
+    .open<boolean>((close) => <AvatarUploadDialog {...options} close={(saved) => close(Boolean(saved))} />, panelDialogOptions)
     .then(Boolean);

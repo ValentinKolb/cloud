@@ -8,8 +8,7 @@ import {
   dialogCore,
   ImageInput,
   PanelDialog,
-  panelDialogOptions,
-  panelDialogPanelClass,
+  panelDialogWideOptions,
   prompts,
   TextInput,
 } from "@k2b/ui";
@@ -31,13 +30,8 @@ type OpenFormEditorDialogArgs = {
   onDelete?: () => Promise<void> | void;
 };
 
-const formEditorDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogPanelClass.replace("w-[min(96vw,48rem)]", "w-[min(96vw,72rem)]"),
-};
-
 export const openFormEditorDialog = (args: OpenFormEditorDialogArgs) =>
-  dialogCore.open<void>((close) => <FormEditorDialog args={args} close={close} />, formEditorDialogOptions);
+  dialogCore.open<void>((close) => <FormEditorDialog args={args} close={close} />, panelDialogWideOptions);
 
 function FormEditorDialog(props: { args: OpenFormEditorDialogArgs; close: () => void }) {
   const [dirty, setDirty] = createSignal(false);

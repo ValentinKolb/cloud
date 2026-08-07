@@ -1,4 +1,6 @@
+import { mutation } from "@k2b/stdlib/solid";
 import {
+  Button,
   confirmDiscardIfDirty,
   Dropdown,
   dialogCore,
@@ -11,10 +13,7 @@ import {
   Switch,
   TextInput,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, MailCommand } from "../../contracts";
@@ -41,7 +40,6 @@ const TOP_LEVEL_FOLDER_ID = "__top_level__";
 const terminalCommandStates = new Set(["confirmed", "reconciled", "failed", "cancelled", "ambiguous", "needs_attention"]);
 const folderEditorDialogOptions = {
   ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(94vw,36rem)]"),
   cancelBehavior: "ignore" as const,
 };
 

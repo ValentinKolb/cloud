@@ -1,5 +1,5 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import { Button, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
+import { Button, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, panelDialogWideOptions, prompts, TextInput } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -29,11 +29,6 @@ type PreviewState = {
   deliverableCount: number;
   skippedNoEmailCount: number;
   recipientHash: string;
-};
-
-const notificationBatchDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(96vw,72rem)]"),
 };
 
 const readError = async (res: Response, fallback: string) => {
@@ -352,7 +347,7 @@ function BatchDialog(props: { close: () => void }) {
 
 export default function NewNotificationBatch() {
   const open = () => {
-    void dialogCore.open<void>((close) => <BatchDialog close={close} />, notificationBatchDialogOptions);
+    void dialogCore.open<void>((close) => <BatchDialog close={close} />, panelDialogWideOptions);
   };
 
   return (

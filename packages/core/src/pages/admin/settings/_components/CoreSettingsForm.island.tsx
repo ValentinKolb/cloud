@@ -18,6 +18,7 @@ import {
   CheckboxCard,
   createTemplateEditorPanesValue,
   DataTable,
+  type DataTableColumn,
   dialogCore,
   IconButton,
   ImageInput,
@@ -26,7 +27,7 @@ import {
   NumberInput,
   PanelDialog,
   Panes,
-  panelDialogOptions,
+  panelDialogWideOptions,
   prompts,
   readSettingsError,
   Select,
@@ -42,7 +43,6 @@ import {
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,
-  type DataTableColumn,
   type TemplateVariable,
   type TemplateVariableKind,
   TextInput,
@@ -204,17 +204,6 @@ const AI_DATA_BOUNDARY_OPTIONS = [
   { id: "hosted", label: "Hosted provider", description: "Requests leave the workspace for a hosted model API." },
   { id: "private", label: "Private endpoint", description: "Requests stay on infrastructure you control." },
 ] as const;
-
-const aiProfileDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName
-    .replace("w-[min(96vw,48rem)]", "w-[min(96vw,64rem)]")
-    .replace(
-      "max-h-[min(86vh,var(--ui-dialog-available-height))]",
-      "h-[min(92vh,var(--ui-dialog-available-height))] max-h-[var(--ui-dialog-available-height)]",
-    ),
-  contentClassName: "flex h-full min-h-0 p-0",
-};
 
 export default function CoreSettingsForm(props: Props) {
   const [drafts, setDrafts] = createSignal<Record<string, unknown>>({});
@@ -1749,7 +1738,7 @@ async function openAiProfileDialog(input: {
         </PanelDialog>
       </form>
     );
-  }, aiProfileDialogOptions);
+  }, panelDialogWideOptions);
 }
 
 function FieldRow(props: {

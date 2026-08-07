@@ -1,5 +1,5 @@
-import { NoticeCard, dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, TagsInput, TextInput, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, dialogCore, NoticeCard, PanelDialog, PdfPreview, panelDialogWideOptions, prompts, TagsInput, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import type { DocumentTemplateSummary } from "../../../contracts";
 import type { Table } from "../../../service";
@@ -14,14 +14,8 @@ type DocumentGenerateDialogArgs = {
   onGenerated: () => void | Promise<void>;
 };
 
-const options = {
-  ...panelDialogOptions,
-  panelClassName: `${panelDialogOptions.panelClassName} h-[min(90vh,54rem)] w-[min(96vw,80rem)]`,
-  contentClassName: "flex h-full min-h-0 p-0",
-};
-
 export const openDocumentGenerateDialog = (args: DocumentGenerateDialogArgs) =>
-  dialogCore.open<void>((close) => <DocumentGenerateDialog args={args} close={close} />, options);
+  dialogCore.open<void>((close) => <DocumentGenerateDialog args={args} close={close} />, panelDialogWideOptions);
 
 function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close: () => void }) {
   const [recordId, setRecordId] = createSignal(props.args.initialRecordId ?? "");

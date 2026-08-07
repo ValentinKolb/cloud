@@ -1,17 +1,12 @@
-import { DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogOptions, Select, Button } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogWideOptions, Select } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { CombinedAuditEntry, CombinedAuditPage, Field } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { RecordHistoryList } from "./RecordHistorySection";
 import RecordPicker from "./RecordPicker";
-
-const COMBINED_AUDIT_DIALOG_OPTIONS = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(98vw,76rem)]"),
-};
 
 const ACTION_OPTIONS = [
   { id: "", label: "All record actions" },
@@ -259,4 +254,4 @@ function CombinedAuditDialog(props: Props) {
 }
 
 export const openCombinedAuditDialog = (params: Omit<Props, "close">) =>
-  dialogCore.open<void>((close) => <CombinedAuditDialog {...params} close={() => close()} />, COMBINED_AUDIT_DIALOG_OPTIONS);
+  dialogCore.open<void>((close) => <CombinedAuditDialog {...params} close={() => close()} />, panelDialogWideOptions);
