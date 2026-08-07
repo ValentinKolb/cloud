@@ -6,6 +6,7 @@ export type MailWorkspacePreferences = {
   detailsOpen: boolean;
   toolbarActions: MailConversationToolbarActionId[];
   listMode: MailListMode;
+  lastMailboxId: string | null;
 };
 
 const MAIL_WORKSPACE_COOKIE = "cloud_mail_workspace";
@@ -17,6 +18,13 @@ const normalizeMailWorkspacePreferences = (value: unknown): MailWorkspacePrefere
     value && typeof value === "object" ? (value as { toolbarActions?: unknown }).toolbarActions : undefined,
   ),
   listMode: value && typeof value === "object" && (value as { listMode?: unknown }).listMode === "messages" ? "messages" : "conversations",
+  lastMailboxId:
+    value &&
+    typeof value === "object" &&
+    typeof (value as { lastMailboxId?: unknown }).lastMailboxId === "string" &&
+    (value as { lastMailboxId: string }).lastMailboxId.length > 0
+      ? (value as { lastMailboxId: string }).lastMailboxId
+      : null,
 });
 
 export const readMailWorkspacePreferences = (cookieHeader: string | null | undefined): MailWorkspacePreferences => {

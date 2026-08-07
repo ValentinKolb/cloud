@@ -12,6 +12,7 @@ The email provider remains the source for portable mail state. Moving a message,
 
 ## Choose the right starting point {icon="square-plus"}
 
+- Opening Mail from the app navigation returns to the last mailbox you opened and can still read. Use the **Mail** breadcrumb when you want the mailbox overview.
 - Open a mailbox card under **Your mailboxes** to work with an existing mailbox.
 - Use **Search mailboxes** to filter the overview by mailbox name or description.
 - Select **New mailbox** when you need to connect another email account.

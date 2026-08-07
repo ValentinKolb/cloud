@@ -19,7 +19,7 @@ export const app = defineApp({
   baseUrl: "http://app-mail:3000",
   adminHref: "/admin/mail",
   nav: {
-    href: "/app/mail",
+    href: "/app/mail?recent=true",
     match: "/app/mail",
     section: "primary",
     requiresAuth: true,

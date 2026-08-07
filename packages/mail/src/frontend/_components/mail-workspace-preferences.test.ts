@@ -12,6 +12,7 @@ describe("Mail workspace preferences", () => {
       detailsOpen: true,
       toolbarActions: ["reply", "archive", "tags"],
       listMode: "conversations",
+      lastMailboxId: null,
     });
   });
 
@@ -27,17 +28,26 @@ describe("Mail workspace preferences", () => {
       detailsOpen: false,
       toolbarActions: DEFAULT_MAIL_CONVERSATION_TOOLBAR_ACTIONS,
       listMode: "conversations",
+      lastMailboxId: null,
     });
     expect(readMailWorkspacePreferences("cloud_mail_workspace=%7Bbroken")).toEqual({
       listCollapsed: false,
       detailsOpen: false,
       toolbarActions: DEFAULT_MAIL_CONVERSATION_TOOLBAR_ACTIONS,
       listMode: "conversations",
+      lastMailboxId: null,
     });
   });
 
   test("reads the optional message list mode", () => {
     const value = encodeURIComponent(JSON.stringify({ listMode: "messages" }));
     expect(readMailWorkspacePreferences(`cloud_mail_workspace=${value}`).listMode).toBe("messages");
+  });
+
+  test("reads the last opened mailbox id", () => {
+    const value = encodeURIComponent(JSON.stringify({ lastMailboxId: "00000000-0000-4000-8000-000000000002" }));
+    expect(readMailWorkspacePreferences(`cloud_mail_workspace=${value}`).lastMailboxId).toBe(
+      "00000000-0000-4000-8000-000000000002",
+    );
   });
 });

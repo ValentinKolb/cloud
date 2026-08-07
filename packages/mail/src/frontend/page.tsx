@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import type { MailRequestContext } from "../service";
 import { mailboxes } from "../service";
+import { readMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 import MailOverview from "./MailOverview.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -16,10 +17,16 @@ export default ssr<AuthContext>(async (c) => {
   };
   const query = c.req.query("q")?.trim() || undefined;
   const result = await mailboxes.listMailboxes(context, 200, undefined, query);
-  const deletedResult = await mailboxes.listDeletedMailboxes(context, { limit: 200 });
   const list = result.ok
     ? result.data.filter((mailbox): mailbox is typeof mailbox & { permission: "read" | "write" | "admin" } => mailbox.permission !== "none")
     : [];
+  if (c.req.query("recent") === "true") {
+    const lastMailboxId = readMailWorkspacePreferences(c.req.header("cookie")).lastMailboxId;
+    if (lastMailboxId && list.some((mailbox) => mailbox.id === lastMailboxId)) {
+      return c.redirect(`/app/mail/${lastMailboxId}`);
+    }
+  }
+  const deletedResult = await mailboxes.listDeletedMailboxes(context, { limit: 200 });
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Mail" }]}>
       <MailOverview
