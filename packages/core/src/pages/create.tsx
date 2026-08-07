@@ -8,6 +8,7 @@ import browserNotificationServiceWorker from "../browser-notifications/service-w
 import announcementsAdminPage from "./admin/announcements/page";
 import adminPage from "./admin/page";
 import settingsPage from "./admin/settings/page";
+import { resolveAuthenticatedLoginRedirect } from "./auth/login-redirect";
 import newPasswordPage from "./auth/new-password/page";
 import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
@@ -81,7 +82,7 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
       );
     })
     // Auth routes
-    .get("/auth/login", auth.requireRole("anonymous", auth.redirect("/")), ...loginPage)
+    .get("/auth/login", auth.requireRole("anonymous", { onReject: (c) => resolveAuthenticatedLoginRedirect(c.req.url) }), ...loginPage)
     .get("/auth/new-password", ...newPasswordPage)
     .get("/auth/password-reset", auth.requireRole("anonymous", auth.redirect("/")), ...passwordResetPage)
     .get("/auth/proxy-return", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
