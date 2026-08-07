@@ -197,6 +197,7 @@ export default function MailConversationReader(props: {
     const values = await prompts.form({
       title: current.summary ? "Edit summary" : "Create summary",
       icon: "ti ti-notes",
+      size: "large",
       fields: {
         summary: {
           type: "text",
