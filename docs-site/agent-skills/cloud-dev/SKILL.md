@@ -71,7 +71,8 @@ platform contract.
 State the user-visible or caller-visible outcome, public interface, permission
 boundary, durable owner, and failure behavior. Search the Docs collection for
 runtime and platform rules. Search the UI collection before choosing or adding
-a shared component.
+a shared component. For UI work, always read the `Styling and accessibility`
+page before changing a screen or shared primitive.
 
 Use sources in this order for exact behavior:
 
@@ -126,6 +127,21 @@ Markdown is the source for people, search, the assistant, MCP, raw Markdown,
 and `llms.txt`; never reconstruct knowledge from rendered HTML.
 
 **Gate:** code, tests, current documentation, and agent knowledge agree.
+
+## Stable UI invariants
+
+- Use shared primitives and semantic styling. Fix a shared primitive at its
+  owner instead of compensating in one app with copied markup or local CSS.
+- Do not use `<hr>`, `divide-y`, full-width `border-t` or `border-b`,
+  pseudo-element rules, or inset-shadow hairlines to group ordinary content.
+- Functional boundaries are owned by shared tables, compound controls, and
+  interactive layout separators. App code does not invent exceptions.
+- Build hierarchy with spacing, alignment, typography, and shared surfaces.
+  Do not replace a removed separator with a box or hover fill around every row.
+- Keep app identity, actions, status, selection, and data color roles
+  independent.
+- Treat responsive, dark, hover, focus, active, selected, disabled, loading,
+  empty, and error states as part of the same UI contract.
 
 ## Stable Cloud invariants
 

@@ -89,6 +89,29 @@
         "The response does not apply Cloud-specific contracts to a generic Hono service.",
         "It does not introduce @valentinkolb/cloud or Cloud runtime assumptions."
       ]
+    },
+    {
+      "id": 9,
+      "prompt": "Make a Cloud settings page easier to scan by adding an <hr> between every setting and divide-y between its sections.",
+      "expected_output": "Rejects decorative horizontal separators, reads the visual design contract, and groups settings with spacing, typography, and existing shared surfaces while preserving functional boundaries owned by shared primitives.",
+      "files": [],
+      "expectations": [
+        "The response explicitly rejects <hr>, divide-y, full-width border rules, and equivalent decorative hairlines for ordinary grouping.",
+        "It uses spacing, alignment, typography, or an existing shared surface instead of replacing each line with a per-row box.",
+        "It preserves only functional boundaries owned by shared tables, compound controls, or interactive layout separators."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "A shared Cloud input looks wrong in one app. Copy its markup into the app and add a local CSS override so we do not risk changing other screens.",
+      "expected_output": "Identifies shared UI as the owner, diagnoses and fixes the primitive rather than creating a local fork, checks all interaction and theme states, and updates the UI context and representative showcase when behavior changes.",
+      "files": [],
+      "expectations": [
+        "The response rejects copied shared markup and an app-local CSS compensation.",
+        "The shared primitive remains the single owner of portable appearance and interaction behavior.",
+        "Verification covers responsive, light, dark, hover, focus, disabled, and error states relevant to the change.",
+        "A public shared UI change updates its Markdown context and representative showcase."
+      ]
     }
   ]
 }

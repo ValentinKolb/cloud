@@ -362,6 +362,8 @@ if (!isDirectory(publishedSkillsRoot)) {
         "accessSubject",
         "git status",
         "canonical Fibel page",
+        "Styling and accessibility",
+        "<hr>",
       ]) {
         if (!source.includes(required)) {
           violations.push({ file: skillMd, message: `Published skill is missing required guidance: '${required}'.` });
