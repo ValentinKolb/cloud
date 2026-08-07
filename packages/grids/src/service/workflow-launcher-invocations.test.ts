@@ -5,7 +5,7 @@ import type { GridsWorkflow, GridsWorkflowLauncher, GridsWorkflowLauncherConfig 
 import { ALL_RECORD_ACCESS } from "./record-access";
 import {
   invokeBulkLauncher,
-  invokeDashboardLauncher,
+  invokeCustomAppLauncher,
   invokeScannerLauncher,
   type WorkflowLauncherInvocationDeps,
 } from "./workflow-launcher-invocations";
@@ -105,9 +105,9 @@ const bulkInput = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const dashboardInput = (overrides: Record<string, unknown> = {}) => ({
+const customAppInput = (overrides: Record<string, unknown> = {}) => ({
   launcherId,
-  operationId: "dashboard-1",
+  operationId: "custom-app-1",
   mode: "execute",
   expectedRevision: 3,
   principal,
@@ -336,31 +336,31 @@ describe("workflow kernel bulk launchers", () => {
   });
 });
 
-describe("workflow kernel dashboard launchers", () => {
+describe("workflow kernel Custom App launchers", () => {
   test("uses only stored bindings for fixed launchers", async () => {
     const configuredWorkflow = workflow("message", "text");
     configuredWorkflow.plan.inputs.push({ name: "count", type: "number", config: {} });
     const item = setup(
-      launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { message: "Run report", count: 2 } }),
+      launcher({ kind: "customApp", inputMode: "fixed", inputBindings: { message: "Run report", count: 2 } }),
       configuredWorkflow,
     );
 
-    const result = await invokeDashboardLauncher(dashboardInput(), item.deps);
+    const result = await invokeCustomAppLauncher(customAppInput(), item.deps);
 
     expect(result.ok).toBe(true);
     expect(item.invokeWorkflow).toHaveBeenCalledWith(
       expect.objectContaining({
-        channel: "dashboard",
-        idempotencyKey: `launcher:${launcherId}:dashboard-1`,
+        channel: "customApp",
+        idempotencyKey: `launcher:${launcherId}:custom-app-1`,
         inputs: { message: "Run report", count: 2 },
       }),
     );
   });
 
   test("uses only runtime inputs for prompt launchers", async () => {
-    const item = setup(launcher({ kind: "dashboard", inputMode: "prompt" }), workflow("message", "text"));
+    const item = setup(launcher({ kind: "customApp", inputMode: "prompt" }), workflow("message", "text"));
 
-    const result = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "Run report" } }), item.deps);
+    const result = await invokeCustomAppLauncher(customAppInput({ inputs: { message: "Run report" } }), item.deps);
 
     expect(result.ok).toBe(true);
     expect(item.invokeWorkflow).toHaveBeenCalledWith(
@@ -370,23 +370,8 @@ describe("workflow kernel dashboard launchers", () => {
     );
   });
 
-  test("passes server-trusted dashboard widget authorization to the runtime", async () => {
-    const item = setup(launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { record: recordId } }), workflow());
-    const authorization = {
-      kind: "dashboard-widget" as const,
-      dashboardId: "90000000-0000-4000-8000-000000000009",
-      dashboardWidgetId: "widget-1",
-    };
-
-    const result = await invokeDashboardLauncher(dashboardInput({ authorization }), item.deps);
-
-    expect(result.ok).toBe(true);
-    expect(item.authorize).toHaveBeenCalledWith(expect.objectContaining({ authorization }));
-    expect(item.invokeWorkflow).toHaveBeenCalledWith(expect.objectContaining({ launcherId, authorization }));
-  });
-
   test("passes server-trusted Custom App action authorization to the runtime", async () => {
-    const item = setup(launcher({ kind: "dashboard", inputMode: "prompt" }), workflow("message", "text"));
+    const item = setup(launcher({ kind: "customApp", inputMode: "prompt" }), workflow("message", "text"));
     const authorization = {
       kind: "custom-app-action" as const,
       customAppId: "90000000-0000-4000-8000-000000000009",
@@ -396,7 +381,7 @@ describe("workflow kernel dashboard launchers", () => {
       revision: 3,
     };
 
-    const result = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "Approve" }, authorization }), item.deps);
+    const result = await invokeCustomAppLauncher(customAppInput({ inputs: { message: "Approve" }, authorization }), item.deps);
 
     expect(result.ok).toBe(true);
     expect(item.authorize).toHaveBeenCalledWith(expect.objectContaining({ authorization }));
@@ -405,16 +390,16 @@ describe("workflow kernel dashboard launchers", () => {
 
   test("rejects unknown bindings and runtime inputs for fixed launchers", async () => {
     const unknown = setup(
-      launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { missing: true } }),
+      launcher({ kind: "customApp", inputMode: "fixed", inputBindings: { missing: true } }),
       workflow("message", "text"),
     );
     const fixed = setup(
-      launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { message: "configured" } }),
+      launcher({ kind: "customApp", inputMode: "fixed", inputBindings: { message: "configured" } }),
       workflow("message", "text"),
     );
 
-    const unknownResult = await invokeDashboardLauncher(dashboardInput(), unknown.deps);
-    const fixedResult = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "override" } }), fixed.deps);
+    const unknownResult = await invokeCustomAppLauncher(customAppInput(), unknown.deps);
+    const fixedResult = await invokeCustomAppLauncher(customAppInput({ inputs: { message: "override" } }), fixed.deps);
 
     expect(unknownResult.ok).toBe(false);
     if (!unknownResult.ok) expect(unknownResult.error.message).toContain("unknown workflow input");

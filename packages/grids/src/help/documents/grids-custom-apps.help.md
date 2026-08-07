@@ -9,7 +9,7 @@ Custom Apps give signed-in Cloud accounts a focused app at `/apps/<shortId>` wit
 
 Custom Apps do not copy data. A publication stores an immutable definition and the exact resources it may use. Every request checks the app grant plus the current Form, saved-view, table, and row-level record access.
 
-## Pages and blocks {icon="layout-dashboard"}
+## Pages and blocks {icon="layout-Custom App"}
 
 An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in the app navigation.
 

@@ -120,10 +120,10 @@ const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
 export const createCustomAppsApi = (
   deps: {
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
-    invokeDashboardLauncher?: typeof gridsService.workflow.launcher.invokeDashboard;
+    invokeCustomAppLauncher?: typeof gridsService.workflow.launcher.invokeCustomApp;
   } = {},
 ) => {
-  const invokeDashboardLauncher = deps.invokeDashboardLauncher ?? gridsService.workflow.launcher.invokeDashboard;
+  const invokeCustomAppLauncher = deps.invokeCustomAppLauncher ?? gridsService.workflow.launcher.invokeCustomApp;
   return new Hono<AuthContext>()
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
     .get("/reference", (c) => c.json(CUSTOM_APP_REFERENCE))
@@ -295,7 +295,7 @@ export const createCustomAppsApi = (
           if (resolved === undefined) return c.json({ message: "Action not found" }, 404);
           inputs[name] = resolved;
         }
-        const result = await invokeDashboardLauncher({
+        const result = await invokeCustomAppLauncher({
           launcherId: action.launcherId,
           operationId: c.req.valid("json").operationId,
           mode: "execute",

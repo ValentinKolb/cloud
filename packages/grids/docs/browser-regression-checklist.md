@@ -15,8 +15,8 @@ browser assertions.
 - Export CSV and JSON from a filtered view.
 - Create a form, submit it authenticated, enable public link, submit it
   anonymously.
-- Build a dashboard with stat, chart, view, form, link, and markdown widgets.
-- In dashboard edit mode, add rows, move widgets, resize widget spans, and save.
-- Delete and restore a record, view, form, dashboard, table, and base.
+- Publish a Custom App with Markdown, Records, Metric, Chart, Form, Record,
+  Comments, and Actions blocks, then verify its declared page navigation.
+- Delete and restore a record, view, form, table, and base.
 - Check desktop, tablet, and mobile widths for table, detail panel, public form,
-  and dashboard pages.
+  and Custom App pages.

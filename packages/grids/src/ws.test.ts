@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import {
   createWorkspaceWebSocketSession,
-  isDashboardWorkflowLauncherKind,
   isWorkspaceAccessRefreshCurrent,
   resolveWorkspaceEventCursor,
   sendWorkspaceMessage,
@@ -112,14 +111,6 @@ describe("Grids websocket cursor baseline", () => {
   test("uses the latest cursor or the empty-stream baseline", async () => {
     expect(await resolveWorkspaceEventCursor(null, async () => "9-1")).toBe("9-1");
     expect(await resolveWorkspaceEventCursor(undefined, async () => null)).toBe("0-0");
-  });
-});
-
-describe("Grids dashboard workflow websocket access", () => {
-  test("accepts dashboard and scanner launchers", () => {
-    expect(isDashboardWorkflowLauncherKind("dashboard")).toBe(true);
-    expect(isDashboardWorkflowLauncherKind("scanner")).toBe(true);
-    expect(isDashboardWorkflowLauncherKind("bulk")).toBe(false);
   });
 });
 

@@ -33,7 +33,7 @@ Read the app reference for the current task. Follow specialized links inside it 
 - Read [Capabilities](references/capabilities.md) to discover and invoke live typed app Queries and Actions through the generic CLI.
 - Read [Assistant](references/assistant.md) for one-shot streaming chat, chat history, approvals, files, preferences, and text-only skill management.
 - Read [Contacts](references/contacts.md) for contact books, contacts, tags, notes, exports, and access grants.
-- Read [Grids](references/grids.md) to create bases from templates and manage schema, records, GQL, views, forms, dashboards, documents, access, and workflows.
+- Read [Grids](references/grids.md) to create bases from templates and manage schema, records, GQL, views, forms, Custom Apps, documents, access, and workflows.
 - Read [Mail](references/mail.md) to configure and share mailboxes, search and collaborate on conversations, then follow its compose, automation, and operations references for the complete Mail CLI.
 - Read [Notebooks](references/notebooks.md) for collaborative notes, knowledge search, safe Markdown editing, attachments, scripts, formulas, exports, and access.
 - Read [Pulse](references/pulse.md) to explore telemetry and observed fields, ingest structured events, run queries, create DSL dashboards, manage sources, and share public displays.

@@ -68,6 +68,6 @@ cld grids list --json
 cld grids records list --base "Operations" --table "Requests" --limit 20 --json
 ```
 
-Run `cld grids help` for bases, schema, records, views, forms, dashboards,
+Run `cld grids help` for bases, schema, records, views, forms, Custom Apps,
 documents, templates, and workflows. Run `cld grids <area> <command> --help`
 before changing schema, data, access, or automation.

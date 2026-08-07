@@ -160,7 +160,7 @@ export const renderGqlAssistantSkill = (): string =>
     "- A Combined-table reader needs permission only on the visible target. Physical source access is not required or implied.",
     "- Fields describe record values.",
     "- Views are saved GQL queries. A view can be used as a source with `from view ...`.",
-    "- Dashboards, charts, stats, cards, calendars, exports, and workflows consume saved Grids data and views.",
+    "- Custom Apps, charts, stats, cards, calendars, exports, and workflows consume saved Grids data and views.",
     "",
     "## Hard Rules",
     "- Use only sources and fields listed in `context.md`.",

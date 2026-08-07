@@ -5,7 +5,7 @@ icon: ti ti-code
 description: Find, combine, and summarize Grids data with the Grids Query Language.
 order: 125
 ---
-GQL is the Grids Query Language. It describes which saved data you want and how Grids should shape the result. The query explorer, saved views, dashboard widgets, document sources, exports, and CLI use the same language.
+GQL is the Grids Query Language. It describes which saved data you want and how Grids should shape the result. The query explorer, saved views, Custom App blocks, document sources, exports, and CLI use the same language.
 
 You do not need GQL for ordinary table work. Start with Search, Filter, Sort, and Computed controls. Use GQL when text makes a precise query easier to understand, reuse, or review.
 
@@ -90,7 +90,7 @@ having revenue > 0
 sort "Ordered at" asc
 ```
 
-Grouping returns summary rows rather than editable records. Use it for reports, charts, dashboards, documents, and exports. `where` filters source records before grouping; `having` filters the calculated groups.
+Grouping returns summary rows rather than editable records. Use it for reports, charts, Custom Apps, documents, and exports. `where` filters source records before grouping; `having` filters the calculated groups.
 
 **Follow a relation**
 
@@ -282,9 +282,9 @@ GQL deliberately does not support arbitrary join conditions, subqueries, common 
 
 ## Views and query results {icon="search"}
 
-Row-shaped table and view results can be displayed and paged like records. Grouped and aggregate-only results use a summary table and are not editable. Compatible query results can be saved as views and reused by dashboards, documents, and exports.
+Row-shaped table and view results can be displayed and paged like records. Grouped and aggregate-only results use a summary table and are not editable. Compatible query results can be saved as views and reused by Custom Apps, documents, and exports.
 
-Use a saved view when people revisit the result or it needs independent access. Keep GQL local to a dashboard widget or document when the query exists only for that resource.
+Use a saved view when people revisit the result or it needs independent access. Keep GQL local to a Custom App block or document when the query exists only for that resource.
 
 ## Troubleshoot a query {icon="lifebuoy"}
 

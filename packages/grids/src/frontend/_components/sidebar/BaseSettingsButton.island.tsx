@@ -11,16 +11,13 @@ export default function BaseSettingsButton(props: { base: Base }) {
     if (open()) return;
     setOpen(true);
     try {
-      const [accessResponse, dashboardsResponse] = await Promise.all([
-        apiClient.access["by-base"][":baseId"].$get({ param: { baseId: props.base.id } }),
-        apiClient.dashboards["by-base"][":baseId"].$get({ param: { baseId: props.base.id } }),
-      ]);
-      if (!accessResponse.ok || !dashboardsResponse.ok) throw new Error("Could not load settings");
-      const [accessEntries, dashboards] = await Promise.all([accessResponse.json(), dashboardsResponse.json()]);
+      const accessResponse = await apiClient.access["by-base"][":baseId"].$get({ param: { baseId: props.base.id } });
+      if (!accessResponse.ok) throw new Error("Could not load settings");
+      const accessEntries = await accessResponse.json();
       await prompts.dialog<void>(
         (close) => (
           <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
-            <BaseSettingsPanel base={props.base} accessEntries={accessEntries} dashboards={dashboards} onClose={() => close()} />
+            <BaseSettingsPanel base={props.base} accessEntries={accessEntries} onClose={() => close()} />
           </div>
         ),
         { surface: "bare", header: false, size: "large" },

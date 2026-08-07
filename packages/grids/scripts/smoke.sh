@@ -222,30 +222,6 @@ OTHER_TABLE_ID=$(json '.id')
 http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID "{\"name\":\"bad\",\"type\":\"relation\",\"config\":{\"targetTableId\":\"$OTHER_TABLE_ID\",\"cardinality\":\"single\"}}"
 expect_status 400 "POST cross-base relation → 400"
 
-BAD_DASHBOARD=$(cat <<JSON
-{
-  "name": "bad-cross-base-dashboard",
-  "config": {
-    "rows": [{
-      "id": "row-1",
-      "kind": "row",
-      "height": "sm",
-      "cells": [{
-        "id": "stat-1",
-        "kind": "stat",
-        "source": {
-          "tableId": "$OTHER_TABLE_ID",
-          "aggregations": [{"fieldId": "*", "agg": "count"}]
-        }
-      }]
-    }]
-  }
-}
-JSON
-)
-http POST /api/grids/dashboards/by-base/$BASE_ID "$BAD_DASHBOARD"
-expect_status 400 "POST dashboard with cross-base source → 400"
-
 # Cleanup the other base — keeps the dev DB tidy across reruns.
 cleanup_delete /api/grids/bases/$OTHER_BASE_ID
 
@@ -594,9 +570,6 @@ echo "━━━ negative paths ━━━"
 http GET /api/grids/views/00000000-0000-0000-0000-000000000000
 expect_status 404 "GET non-existent view → 404"
 
-http GET /api/grids/dashboards/00000000-0000-0000-0000-000000000000
-expect_status 404 "GET non-existent dashboard → 404"
-
 http POST /api/grids/tables/$ITEMS_TABLE_ID/query '{"query":{"sort":[{"fieldId":"00000000-0000-0000-0000-000000000000","direction":"asc"}]}}'
 expect_status 400 "POST query with unknown sort field → 400"
 
@@ -638,13 +611,6 @@ expect_status 302 "GET /app/grids/<base>/table/<table>/edit redirects to edit mo
 
 http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID/view/$VIEW_SHORT_ID?edit=true
 expect_status 200 "GET /app/grids/<base>/table/<table>/view/<view>?edit=true"
-
-http POST /api/grids/dashboards/by-base/$BASE_ID '{"name":"smoke-dashboard","shared":true,"config":{"rows":[]}}'
-expect_status 201 "POST dashboard for SSR smoke → 201"
-DASHBOARD_SHORT_ID=$(json '.shortId')
-
-http GET /app/grids/$BASE_SHORT_ID/dashboard/$DASHBOARD_SHORT_ID?edit=true
-expect_status 200 "GET /app/grids/<base>/dashboard/<dashboard>?edit=true"
 
 http GET /app/grids/$BASE_SHORT_ID/settings
 expect_status 404 "GET /app/grids/<base>/settings stays removed"

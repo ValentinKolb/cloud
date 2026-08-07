@@ -148,63 +148,6 @@ describe("grids schema migration", () => {
    * workflow no longer produces one.
    */
 
-  postgresTest(
-    "migrates persisted dashboard value formats",
-    async () => {
-      await withIsolatedDatabase(async (database) => {
-        await migrateCoreWorkflows(database);
-        await migrate(database);
-        const baseId = uuid();
-        const dashboardId = uuid();
-        await database`
-          INSERT INTO grids.bases (id, short_id, name)
-          VALUES (${baseId}::uuid, ${shortId("B")}, 'Dashboard format migration')
-        `;
-        await database`
-          INSERT INTO grids.dashboards (id, short_id, base_id, name, config)
-          VALUES (
-            ${dashboardId}::uuid,
-            ${shortId("D")},
-            ${baseId}::uuid,
-            'Overview',
-            ${{
-              rows: [
-                {
-                  id: "r",
-                  kind: "row",
-                  height: "sm",
-                  cells: [
-                    { id: "value", kind: "stat", format: "currency" },
-                    { id: "count", kind: "stat", format: "integer" },
-                  ],
-                },
-              ],
-            }}::jsonb
-          )
-        `;
-
-        await migrateCoreWorkflows(database);
-        await migrate(database);
-
-        const rows = await database<Array<{ id: string; configText: string }>>`
-          SELECT id::text AS id, config::text AS "configText" FROM grids.dashboards
-        `;
-        expect(rows.map((row) => row.id)).toEqual([dashboardId]);
-        const config = JSON.parse(rows[0]?.configText ?? "null") as {
-          rows: Array<{ cells: Array<Record<string, unknown>> }>;
-        };
-        expect(config.rows[0]?.cells).toEqual([
-          {
-            id: "value",
-            kind: "stat",
-            valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-          },
-          { id: "count", kind: "stat", valueFormat: { style: "integer" } },
-        ]);
-      });
-    },
-    30_000,
-  );
 
   postgresTest(
     "backfills legacy email preview data once without replacing later edits",

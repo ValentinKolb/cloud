@@ -3,7 +3,6 @@ import { workspaceMainClass, workspaceRootClass } from "./workspace-layout";
 
 describe("workspaceMainClass", () => {
   test("insets standard content routes", () => {
-    expect(workspaceMainClass("dashboard")).toBe("p-[var(--ui-space-shell)]");
     expect(workspaceMainClass("documentTemplate")).toBe("p-[var(--ui-space-shell)]");
     expect(workspaceMainClass("empty")).toBe("p-[var(--ui-space-shell)]");
     expect(workspaceMainClass("records")).toBe("p-[var(--ui-space-shell)]");

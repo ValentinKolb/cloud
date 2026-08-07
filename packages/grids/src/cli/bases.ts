@@ -1,5 +1,5 @@
 import { arg, command, confirmFlag, flag, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
-import type { Base, Dashboard, Field, Table } from "../contracts";
+import type { Base, Field, Table } from "../contracts";
 import {
   baseArgs,
   baseFlag,
@@ -31,14 +31,12 @@ type TrashedForm = {
 type BaseTrash = {
   tables: Table[];
   fields: Field[];
-  dashboards: Dashboard[];
   forms: TrashedForm[];
 };
 
 const trashRows = (trash: BaseTrash) => [
   ...trash.tables.map((item) => ({ kind: "table", name: item.name, parent: "-", deletedAt: item.deletedAt, id: item.id })),
   ...trash.fields.map((item) => ({ kind: "field", name: item.name, parent: item.tableId, deletedAt: item.deletedAt, id: item.id })),
-  ...trash.dashboards.map((item) => ({ kind: "dashboard", name: item.name, parent: "-", deletedAt: item.deletedAt, id: item.id })),
   ...trash.forms.map((item) => ({ kind: "form", name: item.name, parent: item.tableId, deletedAt: item.deletedAt, id: item.id })),
 ];
 
@@ -150,7 +148,6 @@ export const baseCrudCommands = [
       body: JSON_BODY_INPUT,
       name: flag.string({ description: "Base name" }),
       description: flag.string({ description: "Base description" }),
-      defaultDashboard: flag.string({ name: "default-dashboard", description: "Default dashboard id or null" }),
     },
     async run({ ctx, args, flags }) {
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
@@ -158,7 +155,6 @@ export const baseCrudCommands = [
       applyDefined(body, {
         name: flags.name,
         description: flags.description,
-        defaultDashboardId: flags.defaultDashboard === "null" ? null : flags.defaultDashboard,
       });
       const updated = await readApi<Base>(ctx, `/bases/${encodeURIComponent(base.id)}`, jsonRequest("PATCH", body));
       printJsonOrMessage(ctx, updated, `Updated ${updated.name} (${updated.shortId}).`);

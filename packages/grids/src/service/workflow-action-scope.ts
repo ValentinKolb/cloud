@@ -16,8 +16,6 @@
 import type { WorkflowActionContext } from "@valentinkolb/cloud/workflows";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
-import { canReadDashboardIncludedData } from "./dashboard-included-access";
-import { get as getDashboard } from "./dashboards";
 import { get as getCustomApp } from "./custom-apps";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 import type { AuthorizedRecordAccess } from "./record-access";
@@ -123,7 +121,7 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
       !launcher ||
       launcher.baseId !== claim.baseId ||
       launcher.workflowId !== claim.workflowId ||
-      launcher.config.kind !== "dashboard" ||
+      launcher.config.kind !== "customApp" ||
       !launcher.enabled ||
       launcher.validatedRevision !== authorization.revision ||
       launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error")
@@ -156,20 +154,7 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
         capability.revision === authorization.revision,
     );
   }
-  const dashboard = await getDashboard(authorization.dashboardId, {}, client);
-  if (!dashboard || dashboard.baseId !== claim.baseId) return false;
-  const readable = await canReadDashboardIncludedData(
-    dashboard,
-    {
-      userId: revalidated.subject.type === "user" ? revalidated.subject.userId : null,
-      userGroups: [],
-      serviceAccountId: revalidated.subject.type === "service_account" ? revalidated.subject.serviceAccountId : null,
-    },
-    client,
-  );
-  if (!readable) return false;
-  const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === authorization.dashboardWidgetId);
-  return widget?.kind === "workflow-button" && widget.launcherId === claim.launcherId;
+  return false;
 };
 
 export const canExecuteRun = (scope: GridsWorkflowActionScope, client?: SqlClient): Promise<boolean> =>

@@ -3,7 +3,6 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { pdfResponse } from "../api/download-response";
 import { gridsService } from "../service";
-import dashboardRenderPage from "./[baseId]/dashboard/[dashboardId]/page";
 import documentTemplatePage from "./[baseId]/document/[documentTableId]/[documentTemplateId]/page";
 import baseDetailPage from "./[baseId]/page";
 import queryWorkspacePage from "./[baseId]/query/page";
@@ -55,7 +54,6 @@ export const customAppRoutes = new Hono<AuthContext>()
  *   /:base/table/:table/view/:view       → records page scoped to view
  *   /:base/table/:table                  → table records page
  *   /:base/document/:table/:template     → document template workspace
- *   /:base/dashboard/:dashboard          → dashboard render page
  *   /:base/reference/...                 → reference window
  *   /:base/query                         → GQL query explorer
  *   /:base/workflows[/workflow]          → workflow overview/detail
@@ -70,9 +68,6 @@ export default new Hono<AuthContext>()
   .get("/:baseId/table/:tableId/edit", auth.requireRole("user", auth.redirectToLogin), (c) =>
     c.redirect(`/app/grids/${c.req.param("baseId")}/table/${c.req.param("tableId")}?edit=true`, 302),
   )
-  .get("/:baseId/dashboard/:dashboardId/edit", auth.requireRole("user", auth.redirectToLogin), (c) =>
-    c.redirect(`/app/grids/${c.req.param("baseId")}/dashboard/${c.req.param("dashboardId")}?edit=true`, 302),
-  )
   // View paths.
   .get("/:baseId/table/:tableId/view/:viewId/query", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId/table/:tableId/view/:viewId", auth.requireRole("user", auth.redirectToLogin), ...viewRecordsPage)
@@ -82,8 +77,6 @@ export default new Hono<AuthContext>()
   .get("/:baseId/table/:tableId", auth.requireRole("user", auth.redirectToLogin), ...tableRecordsPage)
   // Document template paths.
   .get("/:baseId/document/:documentTableId/:documentTemplateId", auth.requireRole("user", auth.redirectToLogin), ...documentTemplatePage)
-  // Dashboard paths.
-  .get("/:baseId/dashboard/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...dashboardRenderPage)
   .get("/:baseId/reference/tables/:sourceId", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)
   .get("/:baseId/reference/:tab", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)
   .get("/:baseId/reference", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)

@@ -5,10 +5,8 @@ import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
-import { projectWorkflowRunEvent } from "./lib/workflow-run-events";
 import { gridsWorkspace } from "./lib/workspace-events";
 import { gridsService } from "./service";
-import { canReadDashboardIncludedData } from "./service/dashboard-included-access";
 import { type GridsMetadataEvent, latestMetadataEventCursor, liveMetadataEvents } from "./service/metadata-events";
 import { latestRecordEventCursor, liveRecordEvents } from "./service/record-events";
 import { latestWorkflowRunEventCursor, liveWorkflowRunEvents } from "./service/workflow-run-events";
@@ -24,7 +22,6 @@ const SubscribeMessageSchema = z.object({
   type: z.literal(WS_TYPE.recordsSubscribe),
   payload: z.object({
     tableId: z.string().uuid(),
-    dashboardId: z.string().uuid().optional(),
     sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
   }),
@@ -39,28 +36,21 @@ const SubscribeMetadataMessageSchema = z.object({
   }),
 });
 
-const SubscribeWorkflowRunsMessageSchema = z
-  .object({
-    type: z.literal(WS_TYPE.workflowRunsSubscribe),
-    payload: z.object({
-      workflowId: z.string().uuid(),
-      dashboardId: z.string().uuid().optional(),
-      dashboardWidgetId: z.string().min(1).max(200).optional(),
-      sessionToken: z.string().min(1).optional(),
-      fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
-    }),
-  })
-  .refine(
-    ({ payload }) => Boolean(payload.dashboardId) === Boolean(payload.dashboardWidgetId),
-    "dashboardId and dashboardWidgetId must be provided together",
-  );
+const SubscribeWorkflowRunsMessageSchema = z.object({
+  type: z.literal(WS_TYPE.workflowRunsSubscribe),
+  payload: z.object({
+    workflowId: z.string().uuid(),
+    sessionToken: z.string().min(1).optional(),
+    fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
+  }),
+});
 
 const ClientMessageSchema = z.union([SubscribeMessageSchema, SubscribeMetadataMessageSchema, SubscribeWorkflowRunsMessageSchema]);
 type WsPhase = "open" | "subscribed" | "closing";
 type Subscription =
-  | { kind: "records"; baseId: string; tableId: string; dashboardId?: string }
+  | { kind: "records"; baseId: string; tableId: string }
   | { kind: "metadata"; baseId: string }
-  | { kind: "workflow-runs"; baseId: string; workflowId: string; dashboardId?: string; dashboardWidgetId?: string };
+  | { kind: "workflow-runs"; baseId: string; workflowId: string };
 
 type WsContext = {
   socket: ServerWebSocket<unknown>;
@@ -81,13 +71,11 @@ type AccessResult =
     }
   | { ok: false; code: string; message: string; tableId?: string };
 
-type DashboardScope = { id: string; widgetId: string };
-
 type WorkspaceRuntime = {
-  evaluateRecordsAccess: (tableId: string, sessionToken: string | null, dashboardId?: string) => Promise<AccessResult>;
+  evaluateRecordsAccess: (tableId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateBaseAccess: (baseId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateMetadataEventAccess: (event: GridsMetadataEvent, sessionToken: string | null) => Promise<boolean>;
-  evaluateWorkflowAccess: (workflowId: string, sessionToken: string | null, dashboard?: DashboardScope) => Promise<AccessResult>;
+  evaluateWorkflowAccess: (workflowId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateSubscriptionAccess: (subscription: Subscription, sessionToken: string | null) => Promise<AccessResult>;
   latestRecordCursor: typeof latestRecordEventCursor;
   latestMetadataCursor: typeof latestMetadataEventCursor;
@@ -230,26 +218,6 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
   };
 };
 
-const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: string, sessionToken: string | null): Promise<AccessResult> => {
-  const user = await resolveSessionUser(sessionToken);
-  if (!user) return { ok: false, code: "login_required", message: "Login required", tableId };
-
-  const dashboard = await gridsService.dashboard.get(dashboardId);
-  if (!dashboard) return { ok: false, code: "not_found", message: "Dashboard not found", tableId };
-  const sourceTableIds = await gridsService.dashboard.sourceTableIds(dashboard);
-  if (!sourceTableIds.includes(tableId)) {
-    return { ok: false, code: "access_denied", message: "Table is not part of this dashboard", tableId };
-  }
-
-  const canRead = await canReadDashboardIncludedData(dashboard, {
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-  });
-  if (!canRead) return { ok: false, code: "access_denied", message: "Access denied", tableId };
-
-  return { ok: true, baseId: dashboard.baseId, tableId, recordEventVisibility: "cursor_only" };
-};
-
 const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): Promise<AccessResult> => {
   const user = await resolveSessionUser(sessionToken);
   if (!user) return { ok: false, code: "login_required", message: "Login required" };
@@ -274,7 +242,6 @@ const metadataEventTarget = (event: GridsMetadataEvent) => {
   const tableId = event.resource.tableId ?? (event.resource.kind === "table" ? event.resource.id : undefined);
   if (event.resource.kind === "view" && tableId) return { baseId: event.baseId, tableId, viewId: event.resource.id } as const;
   if (event.resource.kind === "form" && tableId) return { baseId: event.baseId, tableId, formId: event.resource.id } as const;
-  if (event.resource.kind === "dashboard") return { baseId: event.baseId, dashboardId: event.resource.id } as const;
   if (event.resource.kind === "workflow") return { baseId: event.baseId, workflowId: event.resource.id } as const;
   return tableId ? ({ baseId: event.baseId, tableId } as const) : ({ baseId: event.baseId } as const);
 };
@@ -290,50 +257,27 @@ const evaluateMetadataEventAccess = async (event: GridsMetadataEvent, sessionTok
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
     formId: "formId" in target ? target.formId : null,
-    dashboardId: "dashboardId" in target ? target.dashboardId : null,
     workflowId: "workflowId" in target ? target.workflowId : null,
   });
   return gridsService.permission.hasAtLeast(gridsService.permission.resolve(grants, target), "read");
 };
 
-export const isDashboardWorkflowLauncherKind = (kind: string): boolean => kind === "dashboard" || kind === "scanner";
-
-const evaluateWorkflowAccess = async (
-  workflowId: string,
-  sessionToken: string | null,
-  dashboard?: { id: string; widgetId: string },
-): Promise<AccessResult> => {
+const evaluateWorkflowAccess = async (workflowId: string, sessionToken: string | null): Promise<AccessResult> => {
   const user = await resolveSessionUser(sessionToken);
   if (!user) return { ok: false, code: "login_required", message: "Login required" };
 
   const workflow = await gridsService.workflow.get(workflowId);
   if (!workflow) return { ok: false, code: "not_found", message: "Workflow not found" };
 
-  if (dashboard) {
-    const item = await gridsService.dashboard.get(dashboard.id);
-    if (!item || item.baseId !== workflow.baseId) return { ok: false, code: "not_found", message: "Dashboard not found" };
-    const widget = item.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === dashboard.widgetId);
-    if (!widget || widget.kind !== "workflow-button") {
-      return { ok: false, code: "not_found", message: "Workflow widget not found" };
-    }
-    const launcher = await gridsService.workflow.launcher.get(widget.launcherId);
-    if (!launcher || !isDashboardWorkflowLauncherKind(launcher.config.kind) || launcher.workflowId !== workflow.id) {
-      return { ok: false, code: "not_found", message: "Workflow widget not found" };
-    }
-    if (!(await canReadDashboardIncludedData(item, { userId: user.id, userGroups: user.memberofGroupIds }))) {
-      return { ok: false, code: "access_denied", message: "Access denied" };
-    }
-  } else {
-    const grants = await gridsService.permission.loadGrants({
-      userId: user.id,
-      userGroups: user.memberofGroupIds,
-      baseId: workflow.baseId,
-      workflowId: workflow.id,
-    });
-    const level = gridsService.permission.resolve(grants, { baseId: workflow.baseId, workflowId: workflow.id });
-    if (!gridsService.permission.hasAtLeast(level, "read")) {
-      return { ok: false, code: "access_denied", message: "Access denied" };
-    }
+  const grants = await gridsService.permission.loadGrants({
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    baseId: workflow.baseId,
+    workflowId: workflow.id,
+  });
+  const level = gridsService.permission.resolve(grants, { baseId: workflow.baseId, workflowId: workflow.id });
+  if (!gridsService.permission.hasAtLeast(level, "read")) {
+    return { ok: false, code: "access_denied", message: "Access denied" };
   }
 
   return { ok: true, baseId: workflow.baseId, workflowId: workflow.id };
@@ -341,22 +285,13 @@ const evaluateWorkflowAccess = async (
 
 const evaluateSubscriptionAccess = (subscription: Subscription, sessionToken: string | null): Promise<AccessResult> =>
   subscription.kind === "records"
-    ? subscription.dashboardId
-      ? evaluateDashboardRecordAccess(subscription.dashboardId, subscription.tableId, sessionToken)
-      : evaluateTableAccess(subscription.tableId, sessionToken)
+    ? evaluateTableAccess(subscription.tableId, sessionToken)
     : subscription.kind === "metadata"
       ? evaluateBaseAccess(subscription.baseId, sessionToken)
-      : evaluateWorkflowAccess(
-          subscription.workflowId,
-          sessionToken,
-          subscription.dashboardId && subscription.dashboardWidgetId
-            ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
-            : undefined,
-        );
+      : evaluateWorkflowAccess(subscription.workflowId, sessionToken);
 
 const workspaceRuntime: WorkspaceRuntime = {
-  evaluateRecordsAccess: (tableId, sessionToken, dashboardId) =>
-    dashboardId ? evaluateDashboardRecordAccess(dashboardId, tableId, sessionToken) : evaluateTableAccess(tableId, sessionToken),
+  evaluateRecordsAccess: evaluateTableAccess,
   evaluateBaseAccess,
   evaluateMetadataEventAccess,
   evaluateWorkflowAccess,
@@ -439,17 +374,11 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
         const workflowId = subscription.workflowId;
         for await (const event of runtime.workflowRunEvents({ baseId, workflowId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
-          const dashboardScope =
-            subscription.dashboardId && subscription.dashboardWidgetId
-              ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
-              : undefined;
-          const visibleEvent = projectWorkflowRunEvent(event.data, dashboardScope);
-          if (!visibleEvent) continue;
           if (!(await ensureCurrentAccess(ctx, runtime, subscription))) break;
           const sent = send(ctx.socket, WS_TYPE.workflowRunsEvent, {
             workflowId,
             cursor: event.cursor,
-            event: visibleEvent,
+            event: event.data,
           });
           if (!sent) {
             closeWithError(ctx, runtime, "backpressure", "Workflow updates exceeded the connection capacity");
@@ -557,7 +486,7 @@ const handleSubscribe = async (
 ) => {
   if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
-  const access = await runtime.evaluateRecordsAccess(payload.tableId, sessionToken, payload.dashboardId);
+  const access = await runtime.evaluateRecordsAccess(payload.tableId, sessionToken);
   if (isClosing(ctx)) return;
   if (!access.ok || !access.tableId) {
     if (access.ok) {
@@ -572,7 +501,6 @@ const handleSubscribe = async (
     kind: "records",
     baseId: access.baseId,
     tableId: access.tableId,
-    dashboardId: payload.dashboardId,
   };
   stopSubscription(ctx, runtime);
   ctx.phase = "subscribed";
@@ -628,9 +556,7 @@ const handleWorkflowRunsSubscribe = async (
 ) => {
   if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
-  const dashboard =
-    payload.dashboardId && payload.dashboardWidgetId ? { id: payload.dashboardId, widgetId: payload.dashboardWidgetId } : undefined;
-  const access = await runtime.evaluateWorkflowAccess(payload.workflowId, sessionToken, dashboard);
+  const access = await runtime.evaluateWorkflowAccess(payload.workflowId, sessionToken);
   if (isClosing(ctx)) return;
   if (!access.ok || !access.workflowId) {
     closeWithError(
@@ -648,8 +574,6 @@ const handleWorkflowRunsSubscribe = async (
     kind: "workflow-runs",
     baseId: access.baseId,
     workflowId: access.workflowId,
-    dashboardId: payload.dashboardId,
-    dashboardWidgetId: payload.dashboardWidgetId,
   };
   stopSubscription(ctx, runtime);
   ctx.phase = "subscribed";

@@ -1,12 +1,11 @@
 import { sql as defaultSql, type SQL } from "bun";
-import { migrateDashboardValueFormats } from "./dashboard-value-format-migration";
 import { migrateGridsWorkflowTables } from "./workflows/migrate";
 
 const MIGRATION_LOCK_NAME = "grids:migrate";
 
 /**
  * Schema for the Grids app: bases → tables → fields, records, views, forms,
- * document templates, dashboards, workflows, and generated artifacts.
+ * document templates, Custom Apps, workflows, and generated artifacts.
  *
  * Storage strategy: records use JSONB keyed by stable field IDs. Per-field
  * expression indexes are opt-in (`fields.indexed=true`). No GIN on `data` by
@@ -15,7 +14,7 @@ const MIGRATION_LOCK_NAME = "grids:migrate";
  *
  * Permission model: one `auth.access` row bound through a Grids resource-specific
  * junction table. Base grants are the broad scope; table/view/form/document
- * template/dashboard/workflow grants can narrow or expose specific surfaces.
+ * template/Custom App/workflow grants can narrow or expose specific surfaces.
  */
 const migrateSchema = async (sql: SQL): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS grids`.simple();
@@ -87,7 +86,6 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       description TEXT,
       document_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-      default_dashboard_id UUID,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1313,80 +1311,6 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.{bases,tables,fields,forms,views}.short_id + unique indexes");
 };
 
-const migrateDashboards = async (sql: SQL): Promise<void> => {
-  // ──────────────────────────────────────────────────────────────────
-  // dashboards
-  // ──────────────────────────────────────────────────────────────────
-  // Per-base composition surface. The `config` JSONB carries the full
-  // layout tree (rows × cells × widgets) — same blob-on-row pattern as
-  // forms.config and views.ui. Keeps reads atomic and lets us evolve
-  // the widget shape without DDL. owner_user_id mirrors the views model
-  // (NULL = shared, UUID = personal). dashboard_access narrows visibility
-  // for shared dashboards the same way view_access does.
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.dashboards (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      short_id TEXT NOT NULL,
-      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      icon TEXT,
-      config JSONB NOT NULL DEFAULT '{"rows":[]}'::jsonb,
-      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-      position INT NOT NULL DEFAULT 0,
-      deleted_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT dashboards_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
-    )
-  `.simple();
-  // Hot path: list alive dashboards of a base in user-defined order.
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_dashboards_base_live
-    ON grids.dashboards(base_id, position) WHERE deleted_at IS NULL
-  `.simple();
-  // short_id uniqueness scoped per base, alive rows only — same
-  // partial-index pattern as the other short-id-bearing tables.
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_dashboards_short_id
-    ON grids.dashboards(base_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  console.log("  ✓ grids.dashboards");
-
-  const legacyConfigs = await sql<Array<{ id: string; configText: string }>>`
-    SELECT id, config::text AS "configText"
-    FROM grids.dashboards
-    WHERE jsonb_path_exists(config, '$.rows[*].cells[*].format')
-  `;
-  let migratedConfigCount = 0;
-  for (const dashboard of legacyConfigs) {
-    const storedConfig = JSON.parse(dashboard.configText) as unknown;
-    const config = migrateDashboardValueFormats(storedConfig);
-    if (config === storedConfig) continue;
-    await sql`
-      UPDATE grids.dashboards
-      SET config = ${config}::jsonb
-      WHERE id = ${dashboard.id}::uuid
-    `;
-    migratedConfigCount += 1;
-  }
-  if (migratedConfigCount > 0) console.log(`  ✓ migrated ${migratedConfigCount} dashboard config(s)`);
-
-  // dashboard_access: same junction shape as view_access. Level is
-  // implicit `read` — the API rejects write/admin grants because they
-  // don't make semantic sense for a saved layout (edit-rights flow from
-  // base-write or owner, not from a per-dashboard ACL).
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.dashboard_access (
-      dashboard_id UUID NOT NULL REFERENCES grids.dashboards(id) ON DELETE CASCADE,
-      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      PRIMARY KEY (dashboard_id, access_id)
-    )
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_dashboard_access_access ON grids.dashboard_access(access_id)`.simple();
-  console.log("  ✓ grids.dashboard_access");
-};
-
 const migrateCustomApps = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.custom_apps (
@@ -1423,6 +1347,15 @@ const migrateCustomApps = async (sql: SQL): Promise<void> => {
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_custom_app_access_access ON grids.custom_app_access(access_id)`.simple();
   console.log("  ✓ grids.custom_apps + grids.custom_app_access");
+};
+
+const removeLegacyDashboards = async (sql: SQL): Promise<void> => {
+  await sql`
+    DROP TABLE IF EXISTS grids.dashboard_access;
+    DROP TABLE IF EXISTS grids.dashboards;
+    ALTER TABLE grids.bases DROP COLUMN IF EXISTS default_dashboard_id;
+  `.simple();
+  console.log("  ✓ removed legacy Grids dashboards");
 };
 
 const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
@@ -1573,8 +1506,8 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateDocumentArtifacts(connection);
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);
-    await migrateDashboards(connection);
     await migrateCustomApps(connection);
+    await removeLegacyDashboards(connection);
     await migrateGridsWorkflowTables(connection);
     await migrateRecordScanCodes(connection);
     await migrateOperationalHealth(connection);

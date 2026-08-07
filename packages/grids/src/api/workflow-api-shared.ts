@@ -79,7 +79,7 @@ const BulkLauncherRecordIdsRequestSchema = LauncherInvocationBaseSchema.extend({
 const BulkLauncherQueryRequestSchema = LauncherInvocationBaseSchema.extend({ query: RecordQuerySchema.strict() }).strict();
 
 export const BulkLauncherRequestSchema = z.union([BulkLauncherRecordIdsRequestSchema, BulkLauncherQueryRequestSchema]);
-export const DashboardLauncherRequestSchema = LauncherInvocationBaseSchema.strict();
+export const CustomAppLauncherRequestSchema = LauncherInvocationBaseSchema.strict();
 
 export const canReadWorkflow = async (c: Context<AuthContext>, workflow: { baseId: string; id: string }): Promise<boolean> => {
   const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "read");

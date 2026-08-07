@@ -1,21 +1,15 @@
 import { AppWorkspace, Placeholder } from "@k2b/ui";
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
-import DashboardLayout from "../dashboard/DashboardLayout";
-import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
 import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
 import QueryResultView from "../query/QueryResultView";
 import QueryWorkspace from "../query/QueryWorkspace";
-import { createGridsRecordEventsProvider } from "../records-view/grids-record-events-provider";
 import RecordsView from "../records-view/RecordsView";
 import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
-import { createDeferredWorkspaceReload } from "./deferred-workspace-reload";
-import { notifyWorkspaceLiveUpdateFailure } from "./live-update-feedback";
 import { workspaceMainClass } from "./workspace-layout";
 import type {
   OkWorkspaceState,
-  WorkspaceDashboardRoute,
   WorkspaceDocumentTemplateRoute,
   WorkspaceQueryResultViewRoute,
   WorkspaceQueryRoute,
@@ -63,28 +57,6 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
       onCleanup(() => window.removeEventListener("popstate", onPopState));
     }
 
-    if (route.kind === "dashboard") {
-      const refresh = createDeferredWorkspaceReload(reloadRoute);
-      const providers = (route.recordLiveTableIds ?? []).map((tableId) => {
-        const provider = createGridsRecordEventsProvider({
-          tableId,
-          dashboardId: route.dashboard.id,
-          initialCursor: state.recordEventCursor,
-          onEvent: (_event, cursor) => {
-            provider.markApplied(cursor);
-            refresh.schedule();
-          },
-          onRevoked: refresh.reloadNow,
-          onFatal: (error) => notifyWorkspaceLiveUpdateFailure("dashboard", error),
-        });
-        provider.connect();
-        return provider;
-      });
-      onCleanup(() => {
-        refresh.dispose();
-        for (const provider of providers) provider.dispose();
-      });
-    }
   });
 
   if (route.kind === "records") {
@@ -145,42 +117,6 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
     <>
       <AppWorkspace.Main class={workspaceMainClass(route.kind)}>
         <Switch>
-          <Match when={route.kind === "dashboard"}>
-            {(() => {
-              const dashboard = route as WorkspaceDashboardRoute;
-              return (
-                <div class="flex min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`grids-dashboard-${dashboard.dashboard.id}`}>
-                  {state.adminModeRequested && dashboard.canEditActiveDashboard ? (
-                    <DashboardWysiwygEditor
-                      baseShortId={state.base.shortId}
-                      initialDashboard={dashboard.dashboard}
-                      isBaseDefault={dashboard.isBaseDefault}
-                      tables={state.catalog.tables.map((table) => ({ id: table.id, name: table.name, slug: table.shortId }))}
-                      dashboards={state.catalog.dashboards}
-                      dashboardWorkflows={dashboard.dashboardWorkflows}
-                      fieldsByTable={state.catalog.fieldsByTable}
-                      viewsByTable={state.catalog.viewsByTable}
-                      formsByTable={state.catalog.formsByTable}
-                      initialAccessEntries={dashboard.activeDashboardAccessEntries}
-                      canEditAccess={state.canManageBase}
-                      widgetData={dashboard.widgetData}
-                      dateConfig={state.dateConfig}
-                      onWidgetRecordsChanged={reloadRoute}
-                      onDashboardChanged={reloadRoute}
-                    />
-                  ) : (
-                    <DashboardLayout
-                      dashboard={dashboard.dashboard}
-                      widgetData={dashboard.widgetData}
-                      baseShortId={state.base.shortId}
-                      dateConfig={state.dateConfig}
-                      onWidgetRecordsChanged={reloadRoute}
-                    />
-                  )}
-                </div>
-              );
-            })()}
-          </Match>
           <Match when={route.kind === "workflows"}>
             {(() => {
               const workflows = route as WorkspaceWorkflowsRoute;

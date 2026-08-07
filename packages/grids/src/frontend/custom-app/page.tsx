@@ -26,15 +26,20 @@ import {
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
 import { gridsService } from "../../service";
-import { chartDataFromPreview, type MetricCell, metricCellsFromPreview, type WidgetData } from "../../service/dashboard-widget-data";
+import {
+  chartDataFromPreview,
+  type CustomAppChartData,
+  type CustomAppMetricCell,
+  metricCellsFromPreview,
+} from "../../service/custom-app-insights";
 import type { PublicRenderableForm } from "../../service/forms";
-import { ChartBody } from "../_components/dashboard/ChartWidget";
-import { formatWidgetValue } from "../_components/dashboard/widget-format";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import RecordComments from "../_components/records/RecordComments.island";
 import Actions, { type CustomAppRenderedAction } from "./Actions.island";
+import CustomAppChart from "./Chart";
 import RecordDetails from "./RecordDetails.island";
 import RecordsTable from "./RecordsTable.island";
+import { formatCustomAppValue } from "./value-format";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
 type MetricsBlock = Extract<CustomAppBlock, { type: "metrics" }>;
@@ -46,8 +51,8 @@ type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 type ActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
-type MetricsBlockData = { ok: true; cells: MetricCell[] } | { ok: false; message: string };
-type ChartBlockData = { ok: true; chart: Extract<WidgetData, { kind: "chart" }> } | { ok: false; message: string };
+type MetricsBlockData = { ok: true; cells: CustomAppMetricCell[] } | { ok: false; message: string };
+type ChartBlockData = { ok: true; chart: CustomAppChartData } | { ok: false; message: string };
 type PageRecord = {
   record: GridRecord;
   fields: Field[];
@@ -89,7 +94,7 @@ const Metrics = (props: { data: MetricsBlockData; dateConfig: ReturnType<typeof 
   return (
     <StatGrid columns={props.data.cells.length === 1 ? 1 : props.data.cells.length === 2 ? 2 : 3}>
       {props.data.cells.map((cell) => {
-        const value = formatWidgetValue(cell.value, cell.valueFormat, props.dateConfig);
+        const value = formatCustomAppValue(cell.value, cell.valueFormat, props.dateConfig);
         return <StatCell label={cell.label} value={value} title={value} />;
       })}
     </StatGrid>
@@ -103,7 +108,12 @@ const AppChart = (props: { block: ChartBlock; data: ChartBlockData; dateConfig: 
   return (
     <div class="flex h-72 min-h-0 flex-col">
       {props.block.subtitle ? <p class="mb-3 text-sm text-secondary">{props.block.subtitle}</p> : null}
-      <ChartBody widget={props.block} data={props.data.chart} dateConfig={props.dateConfig} />
+      <CustomAppChart
+        chartType={props.block.chartType}
+        data={props.data.chart}
+        valueFormat={props.block.valueFormat}
+        dateConfig={props.dateConfig}
+      />
     </div>
   );
 };

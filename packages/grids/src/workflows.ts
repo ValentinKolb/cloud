@@ -1,5 +1,5 @@
 /**
- * What Grids brings to the workflow kernel: six actions, and nothing else.
+ * What Grids brings to the workflow kernel: domain actions, and nothing else.
  *
  * Each is one declaration. The config schema drives the language, the editor
  * form and the implementation's parameter type at once, so a change to either
@@ -23,6 +23,13 @@ import type { WorkflowActionContext, WorkflowActionResult, WorkflowJsonValue, Wo
 import { workflowAction } from "@valentinkolb/cloud/workflows";
 import type { RecordMutationAudit, Table } from "./contracts";
 import { logAudit, type SqlClient } from "./service/audit";
+import {
+  atomicQueryMatches,
+  type AtomicQueryPredicate,
+  type AtomicRecordRef,
+  lockAtomicRecords,
+  requireAtomicTable,
+} from "./service/workflow-atomic-records";
 import { summarizeDocumentRun } from "./service/document-mappers";
 import { createDocumentLink, createRunForRecord, getDocumentRun, getTemplate, publicDocumentLinkBaseUrl } from "./service/documents";
 import { get as getEmailTemplate } from "./service/email-templates";
@@ -159,21 +166,43 @@ const readableRecord = async (scope: GridsWorkflowActionScope, reference: Runtim
  * to an id. Passing the written name through would follow a rename onto a
  * different field, or onto none.
  */
-const fieldPayload = (
+const fieldPayloadAt = (
   ctx: WorkflowActionContext,
-  key: "set" | "values",
+  path: Array<string | number>,
   values: Record<string, WorkflowJsonValue>,
 ): Record<string, unknown> => {
   const payload: Record<string, unknown> = {};
   for (const [field, value] of Object.entries(values)) {
-    const fieldId = ctx.binding(key, field);
+    const fieldId = ctx.binding(...path, field);
     if (typeof fieldId !== "string" || !fieldId) {
-      throw actionError("WORKFLOW_BINDING_MISSING", `${key}.${field} has no stable binding`);
+      throw actionError("WORKFLOW_BINDING_MISSING", `${[...path, field].join(".")} has no stable binding`);
     }
     payload[fieldId] = value;
   }
   return payload;
 };
+
+const atomicFieldPayloadAt = (
+  ctx: WorkflowActionContext,
+  path: Array<string | number>,
+  values: Record<string, WorkflowJsonValue>,
+): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(values)) {
+    const fieldId = ctx.binding(...path, field, "$target");
+    if (typeof fieldId !== "string" || !fieldId) {
+      throw actionError("WORKFLOW_BINDING_MISSING", `${[...path, field].join(".")} has no stable target binding`);
+    }
+    payload[fieldId] = value;
+  }
+  return payload;
+};
+
+const fieldPayload = (
+  ctx: WorkflowActionContext,
+  key: "set" | "values",
+  values: Record<string, WorkflowJsonValue>,
+): Record<string, unknown> => fieldPayloadAt(ctx, [key], values);
 
 const auditAnswerPayload = (answers: Record<string, WorkflowJsonValue> | undefined): RecordMutationAudit | undefined => {
   if (answers === undefined) return undefined;
@@ -188,6 +217,14 @@ const auditAnswerPayload = (answers: Record<string, WorkflowJsonValue> | undefin
 const boundId = (ctx: WorkflowActionContext, key: string): string => {
   const id = ctx.binding(key);
   if (typeof id !== "string" || !id) throw actionError("WORKFLOW_BINDING_MISSING", `${key} has no stable binding`);
+  return id;
+};
+
+const boundIdAt = (ctx: WorkflowActionContext, path: Array<string | number>): string => {
+  const id = ctx.binding(...path);
+  if (typeof id !== "string" || !id) {
+    throw actionError("WORKFLOW_BINDING_MISSING", `${path.join(".")} has no stable binding`);
+  }
   return id;
 };
 
@@ -475,6 +512,263 @@ export const GRIDS_WORKFLOW_ACTIONS = {
           // Marked planned: a later step that cannot tell this from a real
           // record would act on a row that does not exist.
           output: { kind: "record", tableId, recordId: `dry-run:${ctx.stepKey}`, planned: true },
+        };
+      }),
+  }),
+
+  atomicRecords: workflowAction.transactional({
+    label: "Atomic record change",
+    description: "Locks records, checks current Grids data, and commits bounded record changes together or not at all.",
+    config: {
+      kind: "object",
+      properties: {
+        locks: {
+          kind: "array",
+          minItems: 1,
+          maxItems: 100,
+          items: { kind: "string", minLength: 1, maxLength: 500, description: "Record reference used to coordinate concurrent runs." },
+          description: "Records locked in stable order before checks run.",
+        },
+        checks: {
+          kind: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            kind: "object",
+            properties: {
+              table: { kind: "string", minLength: 1, maxLength: 200, description: "Table queried by this check." },
+              where: {
+                kind: "array",
+                minItems: 1,
+                maxItems: 20,
+                items: {
+                  kind: "object",
+                  properties: {
+                    field: { kind: "string", minLength: 1, maxLength: 200, description: "Field name or ID." },
+                    op: { kind: "string", minLength: 1, maxLength: 80, description: "Grids filter operator." },
+                    value: { kind: "value", optional: true, description: "Filter value." },
+                    caseInsensitive: { kind: "boolean", optional: true, description: "Use case-insensitive text comparison." },
+                  },
+                },
+                description: "Bound predicates combined with AND.",
+              },
+              assert: {
+                kind: "string",
+                enum: ["empty", "notEmpty"],
+                description: "Whether the query must match no records or at least one record.",
+              },
+              message: { kind: "string", minLength: 1, maxLength: 500, optional: true, description: "Failure shown when the assertion is false." },
+            },
+          },
+          description: "Current-state assertions evaluated while coordination records are locked.",
+        },
+        changes: {
+          kind: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            kind: "union",
+            variants: [
+              {
+                kind: "object",
+                properties: {
+                  createRecord: {
+                    kind: "object",
+                    properties: {
+                      table: { kind: "string", minLength: 1, maxLength: 200, description: "Target table name or ID." },
+                      values: {
+                        kind: "record",
+                        minProperties: 1,
+                        values: { kind: "value", description: "Initial field values." },
+                        description: "Initial field values.",
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                kind: "object",
+                properties: {
+                  updateRecord: {
+                    kind: "object",
+                    properties: {
+                      record: { kind: "string", minLength: 1, maxLength: 500, description: "Record input or output reference." },
+                      set: {
+                        kind: "record",
+                        minProperties: 1,
+                        values: { kind: "value", description: "Fields and values to update." },
+                        description: "Fields and values to update.",
+                      },
+                      ifVersion: {
+                        kind: "number",
+                        integer: true,
+                        minimum: 1,
+                        optional: true,
+                        description: "Optional optimistic record version.",
+                      },
+                      audit: auditAnswers,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          description: "Record creates and updates committed in order.",
+        },
+      },
+    },
+
+    run: (ctx, config) =>
+      attempt(async () => {
+        const tx = transaction(ctx);
+        const scope = await workflowRunScope(ctx, tx);
+        await requireExecution(scope, tx);
+        const dates = await dateContext();
+
+        const locks: AtomicRecordRef[] = [];
+        for (let index = 0; index < config.locks.length; index += 1) {
+          const record = await recordReference(ctx, config.locks[index]!, `locks.${index}`);
+          if (record.planned) throw actionError("WORKFLOW_VALUE_INVALID", `locks.${index} must reference an existing record`);
+          locks.push({ tableId: record.tableId, recordId: record.recordId, required: "read" });
+        }
+        for (let index = 0; index < config.changes.length; index += 1) {
+          const change = config.changes[index]!;
+          if (!("updateRecord" in change)) continue;
+          const record = await recordReference(ctx, change.updateRecord.record, `changes.${index}.updateRecord.record`);
+          if (record.planned) throw actionError("WORKFLOW_VALUE_INVALID", `changes.${index}.updateRecord.record must reference an existing record`);
+          locks.push({ tableId: record.tableId, recordId: record.recordId, required: "write" });
+        }
+
+        const accessCache = new Map<string, Awaited<ReturnType<typeof requireRecordAccess>>>();
+        const accessFor = async (tableId: string, required: "read" | "write") => {
+          const key = `${tableId}:${required}`;
+          const cached = accessCache.get(key);
+          if (cached) return cached;
+          await requireAtomicTable(tx, scope.baseId, tableId);
+          const access = await requireRecordAccess(scope, tableId, required, tx);
+          accessCache.set(key, access);
+          return access;
+        };
+        await lockAtomicRecords(tx, locks, (record) => accessFor(record.tableId, record.required));
+
+        for (let checkIndex = 0; checkIndex < config.checks.length; checkIndex += 1) {
+          const check = config.checks[checkIndex]!;
+          const tableId = boundIdAt(ctx, ["checks", checkIndex, "table"]);
+          const access = await accessFor(tableId, "read");
+          const predicates: AtomicQueryPredicate[] = check.where.map((predicate, predicateIndex) => ({
+            fieldId: boundIdAt(ctx, ["checks", checkIndex, "where", predicateIndex, "field"]),
+            op: predicate.op,
+            ...(predicate.value === undefined ? {} : { value: predicate.value }),
+            ...(predicate.caseInsensitive === undefined ? {} : { caseInsensitive: predicate.caseInsensitive }),
+          }));
+          const matches = await atomicQueryMatches({ client: tx, tableId, predicates, access, timeZone: dates.timeZone ?? "UTC" });
+          const passed = check.assert === "empty" ? !matches : matches;
+          if (!passed) throw actionError("ATOMIC_CHECK_FAILED", check.message?.trim() || "Atomic record check failed");
+        }
+
+        const created: RuntimeRecord[] = [];
+        const updated: RuntimeRecord[] = [];
+        for (let changeIndex = 0; changeIndex < config.changes.length; changeIndex += 1) {
+          const change = config.changes[changeIndex]!;
+          if ("createRecord" in change) {
+            const tableId = boundIdAt(ctx, ["changes", changeIndex, "createRecord", "table"]);
+            const access = await accessFor(tableId, "write");
+            const values = atomicFieldPayloadAt(ctx, ["changes", changeIndex, "createRecord", "values"], change.createRecord.values);
+            const result = requireOk(
+              await createRecordInTransaction(tx, tableId, values, actorId(scope), {
+                dateConfig: dates,
+                recordAccess: access,
+                viewer: viewerForScope(scope),
+              }),
+            );
+            await logAudit(
+              {
+                baseId: scope.baseId,
+                tableId,
+                recordId: result.record.id,
+                userId: actorId(scope),
+                action: "workflow.record.created",
+                diff: { workflowRecordCreate: { old: null, new: { ...workflowAuditMeta(scope), fields: Object.keys(values) } } },
+              },
+              tx,
+            );
+            created.push({ kind: "record", tableId, recordId: result.record.id });
+            continue;
+          }
+
+          const record = await recordReference(ctx, change.updateRecord.record, `changes.${changeIndex}.updateRecord.record`);
+          const access = await accessFor(record.tableId, "write");
+          const values = atomicFieldPayloadAt(ctx, ["changes", changeIndex, "updateRecord", "set"], change.updateRecord.set);
+          const audit = auditAnswerPayload(change.updateRecord.audit);
+          const result = requireOk(
+            await updateRecordInTransaction(tx, record.tableId, record.recordId, values, actorId(scope), change.updateRecord.ifVersion, {
+              dateConfig: dates,
+              recordAccess: access,
+              viewer: viewerForScope(scope),
+              ...(audit ? { audit } : {}),
+            }),
+          );
+          await logAudit(
+            {
+              baseId: scope.baseId,
+              tableId: record.tableId,
+              recordId: record.recordId,
+              userId: actorId(scope),
+              action: "workflow.record.updated",
+              diff: { workflowRecordUpdate: { old: null, new: { ...workflowAuditMeta(scope), fields: Object.keys(values) } } },
+            },
+            tx,
+          );
+          updated.push({ kind: "record", tableId: record.tableId, recordId: result.record.id });
+        }
+
+        return { state: "succeeded", output: { created, updated } as unknown as WorkflowJsonValue };
+      }),
+
+    plan: (ctx, config) =>
+      planned(async () => {
+        const scope = await workflowRunScope(ctx);
+        await requireExecution(scope);
+        const dates = await dateContext();
+        const issues: string[] = [];
+
+        for (let index = 0; index < config.locks.length; index += 1) {
+          const record = await recordReference(ctx, config.locks[index]!, `locks.${index}`);
+          await readableRecord(scope, record, "read");
+        }
+        for (let checkIndex = 0; checkIndex < config.checks.length; checkIndex += 1) {
+          const check = config.checks[checkIndex]!;
+          const tableId = boundIdAt(ctx, ["checks", checkIndex, "table"]);
+          await currentTable(scope, tableId);
+          const access = await requireRecordAccess(scope, tableId, "read");
+          const predicates: AtomicQueryPredicate[] = check.where.map((predicate, predicateIndex) => ({
+            fieldId: boundIdAt(ctx, ["checks", checkIndex, "where", predicateIndex, "field"]),
+            op: predicate.op,
+            ...(predicate.value === undefined ? {} : { value: predicate.value }),
+            ...(predicate.caseInsensitive === undefined ? {} : { caseInsensitive: predicate.caseInsensitive }),
+          }));
+          const matches = await atomicQueryMatches({ tableId, predicates, access, timeZone: dates.timeZone ?? "UTC" });
+          if ((check.assert === "empty" && matches) || (check.assert === "notEmpty" && !matches)) {
+            issues.push(check.message?.trim() || `Check ${checkIndex + 1} does not currently pass.`);
+          }
+        }
+        for (let changeIndex = 0; changeIndex < config.changes.length; changeIndex += 1) {
+          const change = config.changes[changeIndex]!;
+          if ("createRecord" in change) {
+            const tableId = boundIdAt(ctx, ["changes", changeIndex, "createRecord", "table"]);
+            await currentTable(scope, tableId);
+            await requireRecordAccess(scope, tableId, "write");
+            atomicFieldPayloadAt(ctx, ["changes", changeIndex, "createRecord", "values"], change.createRecord.values);
+          } else {
+            const record = await recordReference(ctx, change.updateRecord.record, `changes.${changeIndex}.updateRecord.record`);
+            await readableRecord(scope, record, "write");
+            atomicFieldPayloadAt(ctx, ["changes", changeIndex, "updateRecord", "set"], change.updateRecord.set);
+            auditAnswerPayload(change.updateRecord.audit);
+          }
+        }
+        return {
+          summary: `Run ${config.checks.length} check(s), then commit ${config.changes.length} record change(s) atomically. Record state can change before execution; checks run again while locks are held.`,
+          issues,
         };
       }),
   }),

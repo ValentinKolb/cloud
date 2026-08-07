@@ -4,7 +4,7 @@ import combinedTables from "./documents/grids-combined-tables.help.md" with { ty
 import coreModel from "./documents/grids-core-model.help.md" with { type: "text" };
 import customApps from "./documents/grids-custom-apps.help.md" with { type: "text" };
 import documents from "./documents/grids-documents-pdfs.help.md" with { type: "text" };
-import formsDashboards from "./documents/grids-forms-dashboards.help.md" with { type: "text" };
+import forms from "./documents/grids-forms.help.md" with { type: "text" };
 import formulas from "./documents/grids-formulas.help.md" with { type: "text" };
 import gql from "./documents/grids-gql.help.md" with { type: "text" };
 import operations from "./documents/grids-operations-troubleshooting.help.md" with { type: "text" };
@@ -24,7 +24,7 @@ export const gridsHelp = defineHelp({
     combinedTables,
     gql,
     formulas,
-    formsDashboards,
+    forms,
     customApps,
     documents,
     workflows,

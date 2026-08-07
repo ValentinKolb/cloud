@@ -113,10 +113,10 @@ describe("parseRecordsState", () => {
     expect(r.search).toEqual({ q: "", fieldIds: [], override: true });
   });
 
-  test("table / view / dashboard NOT read from query (path-based now)", () => {
+  test("table and view are not read from query parameters", () => {
     // These would resolve via c.req.param() at the SSR handler; the URL
     // parser is purely UI state on top of the resource the path identifies.
-    const r = parseRecordsState(params("table=foo&view=bar&dashboard=baz"));
+    const r = parseRecordsState(params("table=foo&view=bar"));
     expect(r).toEqual(empty);
   });
 });

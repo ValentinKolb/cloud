@@ -3,7 +3,7 @@ import { accessCommands } from "./cli/access";
 import { baseCrudCommands } from "./cli/bases";
 import { customAppCommands } from "./cli/custom-apps";
 import { documentCommands, documentTemplateCommands } from "./cli/documents";
-import { dashboardCommands, formCommands } from "./cli/forms-dashboards";
+import { formCommands } from "./cli/forms";
 import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
 import { baseTemplateCommands } from "./cli/templates";
@@ -13,12 +13,11 @@ import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflo
 export default defineCliCommands({
   name: "grids",
   summary:
-    "Manage Grids bases, schema, records, forms, Custom Apps, dashboards, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
+    "Manage Grids bases, schema, records, forms, Custom Apps, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
   groupSummaries: {
     access: "Manage direct access to Grids resources",
     apps: "Plan, validate, and publish Grids Custom Apps",
     bases: "Create, inspect, and manage Grids bases",
-    dashboards: "Create, inspect, and manage dashboards",
     "document-templates": "Create, preview, and manage document templates",
     documents: "Generate, browse, and manage stored documents",
     "email-templates": "Create and manage workflow email templates",
@@ -35,7 +34,6 @@ export default defineCliCommands({
     "workflow-launchers": "Create, inspect, and invoke workflow launchers",
     "workflow-runs": "Inspect and control workflow runs",
     workflows: "Create, validate, invoke, and manage workflows",
-    "dashboards widgets": "Resolve and run dashboard widgets",
     "documents links": "Create, inspect, and revoke public document links",
     "records files": "Upload, download, and manage record files",
     "tables combined": "Configure and publish Combined tables",
@@ -52,7 +50,6 @@ export default defineCliCommands({
     ...recordCommands,
     ...viewCommands,
     ...formCommands,
-    ...dashboardCommands,
     ...documentTemplateCommands,
     ...documentCommands,
     ...snapshotCommands,

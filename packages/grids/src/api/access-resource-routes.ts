@@ -10,7 +10,6 @@ import {
   grantAccess,
   listBaseAccess,
   listCustomAppAccess,
-  listDashboardAccess,
   listDocumentTemplateAccess,
   listFormAccess,
   listTableAccess,
@@ -111,16 +110,6 @@ const ACCESS_ROUTE_CONFIGS = {
     grantError: "Document template only accepts level 'read', 'write', 'admin', or 'none'",
     resolveBaseId: (templateId) => resolveRegisteredResource("documentTemplate", templateId),
     list: listDocumentTemplateAccess,
-  },
-  dashboard: {
-    resourceType: "dashboard",
-    path: "/by-dashboard/:dashboardId",
-    param: "dashboardId",
-    label: "Dashboard",
-    grantSummary: "Grant read access on a dashboard (only 'read' / 'none' accepted)",
-    grantError: "Dashboard only accepts level 'read' or 'none'",
-    resolveBaseId: (dashboardId) => resolveRegisteredResource("dashboard", dashboardId),
-    list: listDashboardAccess,
   },
   customApp: {
     resourceType: "customApp",
@@ -231,12 +220,6 @@ export const createAccessResourceRoutes = (deps: AccessRouteDeps = defaultDeps) 
       grantDescription(ACCESS_ROUTE_CONFIGS.documentTemplate),
       v("json", GridsGrantAccessSchema),
       (c) => grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.documentTemplate, c.req.valid("json"), deps),
-    )
-    .get("/by-dashboard/:dashboardId", listDescription(ACCESS_ROUTE_CONFIGS.dashboard), (c) =>
-      listResourceAccess(c, ACCESS_ROUTE_CONFIGS.dashboard, deps),
-    )
-    .post("/by-dashboard/:dashboardId", grantDescription(ACCESS_ROUTE_CONFIGS.dashboard), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.dashboard, c.req.valid("json"), deps),
     )
     .get("/by-custom-app/:customAppId", listDescription(ACCESS_ROUTE_CONFIGS.customApp), (c) =>
       listResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, deps),

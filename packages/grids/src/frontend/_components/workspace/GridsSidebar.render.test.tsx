@@ -25,7 +25,6 @@ const workflowState = (): OkWorkspaceState =>
     canManageBase: false,
     canCreateTables: false,
     catalog: {
-      dashboards: [],
       tables: [],
       viewsByTable: {},
       sidebarForms: [],

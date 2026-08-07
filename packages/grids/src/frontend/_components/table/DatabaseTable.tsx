@@ -33,7 +33,7 @@ const AGG_LABELS: Record<string, string> = {
  * surrounding screen and are wired up there.
  *
  * This is the canonical records table renderer for Grids. It is kept
- * presentational so the records page, dashboard embeds, and view pages
+ * presentational so records pages, Custom App blocks, and view pages
  * can share relation links, formatting, and aggregate footers without
  * dragging in page-specific toolbar or detail-panel state.
  *
@@ -54,7 +54,7 @@ type Props = {
   /**
    * Row click handler. Omit to render rows as non-interactive
    * (cursor stays default, no hover state). The records page passes
-   * a handler that opens the detail panel; the dashboard passes a
+   * a handler that opens the detail panel; embedded surfaces pass a
    * handler that navigates to the records page with the row selected.
    */
   onRecordClick?: (record: GridRecord) => void;
@@ -70,12 +70,12 @@ type Props = {
    * pick up the view's saved style.
    */
   viewColumns?: ColumnSpec[];
-  /** Hide the field-type subtitle in compact surfaces like dashboards. */
+  /** Hide the field-type subtitle in compact embedded surfaces. */
   showColumnSubtitles?: boolean;
   /**
    * Pre-resolved aggregate values keyed `<fieldId>__<agg>`. Drives a
    * footer row when paired with `aggregationSpecs`. Omit both to skip
-   * the footer entirely (the dashboard view widget does this).
+   * the footer entirely (embedded records blocks do this).
    */
   aggregates?: Record<string, unknown>;
   /**

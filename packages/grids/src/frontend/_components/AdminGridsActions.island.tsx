@@ -12,7 +12,7 @@ type AdminGridsActionsProps = {
 };
 
 type ScopedAccessEntry = AccessEntry & {
-  resourceType: "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard";
+  resourceType: "base" | "table" | "view" | "form" | "documentTemplate" | "customApp";
   resourceId: string;
   resourceName: string;
   tableId: string | null;
@@ -39,6 +39,7 @@ const listBaseAccess = async (baseId: string): Promise<ScopedAccessEntry[]> => {
 
 const resourceTypeLabel = (type: ScopedAccessEntry["resourceType"]): string => {
   if (type === "documentTemplate") return "Document template";
+  if (type === "customApp") return "Custom app";
   return type.charAt(0).toUpperCase() + type.slice(1);
 };
 

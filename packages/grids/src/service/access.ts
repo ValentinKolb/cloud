@@ -52,15 +52,6 @@ const ACCESS_RESOURCES = {
     allowedPermissions: ["read", "write", "admin", "none"],
     invalidPermissionMessage: "Document template grants only accept 'read', 'write', 'admin', or 'none'",
   },
-  dashboard: {
-    junctionTable: "grids.dashboard_access",
-    junctionResourceColumn: "dashboard_id",
-    resourceTable: "grids.dashboards",
-    scope: "baseChild",
-    bindingIdKey: "dashboardId",
-    allowedPermissions: ["read", "none"],
-    invalidPermissionMessage: "Dashboard grants only accept 'read' or 'none'",
-  },
   customApp: {
     junctionTable: "grids.custom_app_access",
     junctionResourceColumn: "custom_app_id",
@@ -544,7 +535,6 @@ export const listTableAccess = (tableId: string) => listAccess("table", tableId)
 export const listViewAccess = (viewId: string) => listAccess("view", viewId);
 export const listFormAccess = (formId: string) => listAccess("form", formId);
 export const listDocumentTemplateAccess = (templateId: string) => listAccess("documentTemplate", templateId);
-export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
 export const listCustomAppAccess = (customAppId: string) => listAccess("customApp", customAppId);
 export const listWorkflowAccess = (workflowId: string) => listAccess("workflow", workflowId);
 
@@ -736,7 +726,6 @@ export type AccessBinding =
   | { resourceType: "view"; baseId: string; tableId: string; viewId: string }
   | { resourceType: "form"; baseId: string; tableId: string; formId: string }
   | { resourceType: "documentTemplate"; baseId: string; tableId: string; documentTemplateId: string }
-  | { resourceType: "dashboard"; baseId: string; dashboardId: string }
   | { resourceType: "customApp"; baseId: string; customAppId: string }
   | { resourceType: "workflow"; baseId: string; workflowId: string };
 

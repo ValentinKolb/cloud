@@ -6,20 +6,21 @@ import type { CloudCliContext, CloudCliFlags } from "@valentinkolb/cloud/cli";
 import gridsCli from "./cli";
 import { accessCommands } from "./cli/access";
 import { baseCrudCommands } from "./cli/bases";
+import { customAppCommands } from "./cli/custom-apps";
 import { documentCommands, documentTemplateCommands } from "./cli/documents";
-import { dashboardCommands, formCommands } from "./cli/forms-dashboards";
+import { formCommands } from "./cli/forms";
 import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
 import { baseTemplateCommands } from "./cli/templates";
 import { formulaCommands, gqlCommands, viewCommands } from "./cli/views-gql";
 import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflowRunCommands } from "./cli/workflows";
-import { DashboardConfigSchema } from "./contracts";
 import { WORKFLOW_REVISION_HEADER } from "./workflows/contracts";
 
 const commandGroups = [
   baseCrudCommands,
   baseTemplateCommands,
   accessCommands,
+  customAppCommands,
   gqlCommands,
   formulaCommands,
   tableCommands,
@@ -27,7 +28,6 @@ const commandGroups = [
   recordCommands,
   viewCommands,
   formCommands,
-  dashboardCommands,
   documentTemplateCommands,
   documentCommands,
   snapshotCommands,
@@ -52,7 +52,6 @@ const emailTemplateId = "77777777-7777-4777-8777-777777777777";
 const workflowId = "88888888-8888-4888-8888-888888888888";
 const runId = "99999999-9999-4999-8999-999999999999";
 const formId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const dashboardId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const snapshotId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const documentRunId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const documentLinkId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
@@ -118,7 +117,6 @@ const base = {
   description: "Books and authors",
   documentProfile: {},
   createdBy: null,
-  defaultDashboardId: null,
   deletedAt: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   updatedAt: "2026-07-07T00:00:00.000Z",
@@ -234,21 +232,6 @@ const form = {
   ownerUserId: null,
   position: 0,
   isDefault: false,
-  deletedAt: null,
-  createdAt: "2026-07-07T00:00:00.000Z",
-  updatedAt: "2026-07-07T00:00:00.000Z",
-};
-
-const dashboard = {
-  id: dashboardId,
-  shortId: "dash1",
-  baseId,
-  name: "Overview",
-  description: null,
-  icon: "ti ti-layout-dashboard",
-  config: { rows: [] },
-  ownerUserId: null,
-  position: 0,
   deletedAt: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   updatedAt: "2026-07-07T00:00:00.000Z",
@@ -412,7 +395,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(141);
+    expect(commands).toHaveLength(139);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -439,7 +422,7 @@ describe("grids CLI", () => {
       id: "inventory",
       name: "Inventory",
       description: "Track equipment and loans.",
-      highlights: ["Structured inventory", "Operational workflows", "Documents and dashboards"],
+      highlights: ["Structured inventory", "Operational workflows", "Documents and Custom Apps"],
       icon: "ti ti-packages",
     };
     const { ctx, calls, tables } = createContext(["templates", "list"], {}, [jsonResponse([template])]);
@@ -457,7 +440,7 @@ describe("grids CLI", () => {
       id: "inventory",
       name: "Inventory",
       description: "Track equipment and loans.",
-      highlights: ["Structured inventory", "Operational workflows", "Documents and dashboards"],
+      highlights: ["Structured inventory", "Operational workflows", "Documents and Custom Apps"],
       icon: "ti ti-packages",
     };
     const { ctx, calls, defaults, lines } = createContext(
@@ -480,7 +463,6 @@ describe("grids CLI", () => {
     const trash = {
       tables: [{ ...table, deletedAt }],
       fields: [{ ...field, deletedAt }],
-      dashboards: [{ ...dashboard, deletedAt }],
       forms: [{ id: formId, tableId, name: "Author intake", deletedAt }],
     };
     const { ctx, calls, tables } = createContext(["bases", "trash", baseId], {}, [jsonResponse(base), jsonResponse(trash)]);
@@ -492,7 +474,6 @@ describe("grids CLI", () => {
       expect.arrayContaining([
         expect.objectContaining({ kind: "table", id: tableId }),
         expect.objectContaining({ kind: "field", id: fieldId, parent: tableId }),
-        expect.objectContaining({ kind: "dashboard", id: dashboardId }),
         expect.objectContaining({ kind: "form", id: formId, parent: tableId }),
       ]),
     );
@@ -1210,7 +1191,7 @@ describe("grids CLI", () => {
     expect(lines).toEqual(["Created view Recent authors (view1)."]);
   });
 
-  test("exposes forms and dashboards in top-level help", async () => {
+  test("exposes forms and Custom Apps in top-level help", async () => {
     const { ctx, lines } = createContext(["help"]);
 
     await gridsCli.run(ctx);
@@ -1218,27 +1199,10 @@ describe("grids CLI", () => {
     expect(lines[0]).toContain("access");
     expect(lines[0]).toContain("formulas");
     expect(lines[0]).toContain("forms");
-    expect(lines[0]).toContain("dashboards");
+    expect(lines[0]).toContain("apps");
     expect(lines[0]).toContain("templates");
     expect(lines[0]).toContain("documents");
     expect(lines[0]).toContain("snapshots");
-  });
-
-  test("prints the dashboard config reference for agents", async () => {
-    const { ctx, jsonValues } = createContext(["dashboards", "reference"], {}, [], { output: "json" });
-
-    await gridsCli.run(ctx);
-
-    expect(DashboardConfigSchema.safeParse((jsonValues[0] as { example: unknown }).example).success).toBe(true);
-    expect(jsonValues[0]).toMatchObject({
-      widgetKinds: expect.objectContaining({ stat: expect.any(String), chart: expect.any(String), "workflow-button": expect.any(String) }),
-      widgetShapes: expect.objectContaining({
-        chart: expect.objectContaining({ chartTypes: expect.objectContaining({ scatter: expect.any(String) }) }),
-        link: expect.objectContaining({ targets: expect.arrayContaining([expect.objectContaining({ kind: "url" })]) }),
-      }),
-      valueFormat: expect.objectContaining({ styles: ["number", "integer", "percent"] }),
-      example: { rows: [expect.objectContaining({ kind: "row" })] },
-    });
   });
 
   test("sets direct resource access through resolved Grids resources", async () => {
@@ -1338,82 +1302,6 @@ describe("grids CLI", () => {
     await expect(gridsCli.run(ctx)).rejects.toThrow("Form does not belong to the selected base.");
   });
 
-  test("creates dashboards for resolved bases", async () => {
-    const { ctx, calls, lines } = createContext(
-      ["dashboards", "create", baseId],
-      { name: "Overview", config: JSON.stringify({ rows: [] }), shared: true },
-      [jsonResponse(base), jsonResponse(dashboard, 201)],
-    );
-
-    await gridsCli.run(ctx);
-
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/dashboards/by-base/${baseId}`]);
-    expect(calls[1]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ name: "Overview", config: { rows: [] }, shared: true });
-    expect(lines).toEqual(["Created dashboard Overview (dash1)."]);
-  });
-
-  test("runs dashboard workflow-button widgets", async () => {
-    const { ctx, calls, lines } = createContext(["dashboards", "widgets", "run", baseId, "Overview", "widget-1"], {}, [
-      jsonResponse(base),
-      jsonResponse([dashboard]),
-      jsonResponse(workflowRun),
-    ]);
-
-    await gridsCli.run(ctx);
-
-    expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
-      `/api/grids/dashboards/by-base/${baseId}`,
-      `/api/grids/dashboards/${dashboardId}/widgets/widget-1/run`,
-    ]);
-    expect(calls[2]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ inputs: {} });
-    expect(lines).toEqual([`Queued workflow run ${runId} (succeeded).`]);
-  });
-
-  test("scans dashboard workflow-button widgets", async () => {
-    const scannerDashboard = {
-      ...dashboard,
-      config: {
-        rows: [
-          {
-            id: "scanner-row",
-            kind: "row",
-            height: "md",
-            cells: [{ id: "scanner-1", kind: "workflow-button", launcherId: workflowLauncherId }],
-          },
-        ],
-      },
-    };
-    const { ctx, calls, lines } = createContext(
-      ["dashboards", "widgets", "scan", baseId, "Overview", "scanner-1"],
-      { code: "gsc_opaque", "operation-id": "scan-operation-1", "expected-revision": "3" },
-      [jsonResponse(base), jsonResponse([scannerDashboard]), jsonResponse({ ...workflowRun, channel: "scanner" })],
-    );
-
-    await gridsCli.run(ctx);
-
-    expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
-      `/api/grids/dashboards/by-base/${baseId}`,
-      `/api/grids/dashboards/${dashboardId}/widgets/scanner-1/scan`,
-    ]);
-    expect(calls[2]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
-      code: "gsc_opaque",
-      operationId: "scan-operation-1",
-      expectedRevision: 3,
-    });
-    expect(lines).toEqual([`Queued scanner workflow run ${runId} (succeeded).`]);
-  });
-
-  test("rejects dashboard UUIDs outside the selected base", async () => {
-    const foreignDashboard = { ...dashboard, baseId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" };
-    const { ctx } = createContext(["dashboards", "get", baseId, dashboardId], {}, [jsonResponse(base), jsonResponse(foreignDashboard)]);
-
-    await expect(gridsCli.run(ctx)).rejects.toThrow("Dashboard does not belong to the selected base.");
-  });
 
   test("creates document templates for resolved tables", async () => {
     const { ctx, calls, lines } = createContext(

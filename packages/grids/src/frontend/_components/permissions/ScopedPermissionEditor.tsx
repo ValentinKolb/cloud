@@ -15,8 +15,7 @@ type PermissionScope =
   | { type: "table"; id: string }
   | { type: "view"; id: string }
   | { type: "form"; id: string }
-  | { type: "documentTemplate"; id: string }
-  | { type: "dashboard"; id: string };
+  | { type: "documentTemplate"; id: string };
 
 type Props = {
   scope: PermissionScope;
@@ -51,9 +50,7 @@ const listAccess = async (scope: PermissionScope): Promise<ScopedAccessEntry[]> 
           ? await apiClient.access["by-view"][":viewId"].$get({ param: { viewId: scope.id } })
           : scope.type === "form"
             ? await apiClient.access["by-form"][":formId"].$get({ param: { formId: scope.id } })
-            : scope.type === "documentTemplate"
-              ? await apiClient.access["by-document-template"][":templateId"].$get({ param: { templateId: scope.id } })
-              : await apiClient.access["by-dashboard"][":dashboardId"].$get({ param: { dashboardId: scope.id } });
+            : await apiClient.access["by-document-template"][":templateId"].$get({ param: { templateId: scope.id } });
   if (!res.ok) throw new Error(await errorMessage(res, "Failed to refresh access"));
   return res.json();
 };
@@ -68,15 +65,10 @@ const grantAccess = async (scope: PermissionScope, principal: Principal, permiss
           ? await apiClient.access["by-view"][":viewId"].$post({ param: { viewId: scope.id }, json: { principal, permission } })
           : scope.type === "form"
             ? await apiClient.access["by-form"][":formId"].$post({ param: { formId: scope.id }, json: { principal, permission } })
-            : scope.type === "documentTemplate"
-              ? await apiClient.access["by-document-template"][":templateId"].$post({
-                  param: { templateId: scope.id },
-                  json: { principal, permission },
-                })
-              : await apiClient.access["by-dashboard"][":dashboardId"].$post({
-                  param: { dashboardId: scope.id },
-                  json: { principal, permission },
-                });
+            : await apiClient.access["by-document-template"][":templateId"].$post({
+                param: { templateId: scope.id },
+                json: { principal, permission },
+              });
   if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
   return res.json();
 };

@@ -1,6 +1,25 @@
 import { z } from "zod";
-import { WidgetValueFormatSchema } from "../contracts";
 import { SHORT_ID_REGEX } from "../service/short-id";
+
+export const CustomAppValueFormatSchema = z
+  .object({
+    style: z.enum(["number", "integer", "percent"]),
+    decimalPlaces: z.number().int().min(0).max(20).optional(),
+    unit: z.string().trim().min(1).max(20).optional(),
+    unitPosition: z.enum(["prefix", "suffix"]).optional(),
+  })
+  .superRefine((format, ctx) => {
+    if (format.style === "integer" && format.decimalPlaces !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["decimalPlaces"], message: "integer format cannot set decimal places" });
+    }
+    if (format.style !== "number" && (format.unit !== undefined || format.unitPosition !== undefined)) {
+      ctx.addIssue({ code: "custom", path: ["unit"], message: `${format.style} format cannot set a custom unit` });
+    }
+    if (format.unit === undefined && format.unitPosition !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["unitPosition"], message: "unit position requires a unit" });
+    }
+  });
+export type CustomAppValueFormat = z.infer<typeof CustomAppValueFormatSchema>;
 
 export const CustomAppLocalIdSchema = z
   .string()
@@ -161,7 +180,7 @@ export const CustomAppChartBlockSchema = z
     chartType: z.enum(["donut", "bar", "line", "sparkline", "scatter"]),
     source: CustomAppInsightSourceSchema,
     limit: z.number().int().min(1).max(100).default(100),
-    valueFormat: WidgetValueFormatSchema.optional(),
+    valueFormat: CustomAppValueFormatSchema.optional(),
     xAxisLabel: z.string().trim().min(1).max(60).optional(),
     yAxisLabel: z.string().trim().min(1).max(60).optional(),
   })

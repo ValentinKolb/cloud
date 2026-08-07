@@ -112,13 +112,13 @@ export const validateLauncherConfig = (workflow: GridsWorkflow, config: GridsWor
       }
     }
   }
-  if (config.kind === "dashboard") {
+  if (config.kind === "customApp") {
     for (const name of Object.keys(config.inputBindings ?? {})) {
       if (!inputByName(workflow, name))
         add("launcher.input.unknown", `Unknown workflow input "${name}"`, ["config", "inputBindings", name]);
     }
     if (config.inputMode === "prompt" && Object.keys(config.inputBindings ?? {}).length > 0) {
-      add("launcher.input.mode", "Prompt dashboard launchers do not accept fixed input bindings", ["config", "inputBindings"]);
+      add("launcher.input.mode", "Prompt Custom App launchers do not accept fixed input bindings", ["config", "inputBindings"]);
     }
     if (config.inputMode === "fixed") {
       for (const input of workflow.plan.inputs) {

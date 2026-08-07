@@ -1,4 +1,14 @@
-import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+import {
+  currentMonthDate,
+  field,
+  form,
+  formula,
+  type GridTemplate,
+  launcher,
+  record,
+  table,
+  view,
+} from "./types";
 
 const monthlySpendSource = () =>
   formula(
@@ -12,13 +22,14 @@ const monthlySpendSource = () =>
     field("transactions.amount"),
     ") as monthly_spend\nsort ",
     field("transactions.date"),
-    " asc",
+    " asc"
   );
 
 export const financeTemplate: GridTemplate = {
   id: "finance",
   name: "Personal finance",
-  description: "Track accounts, purchases, budgets, and receipt processing in one place.",
+  description:
+    "Track accounts, purchases, budgets, and receipt processing in one place.",
   highlights: [
     "Transactions, budgets, and a purchase form",
     "Spending, budget, and merchant overview",
@@ -26,7 +37,8 @@ export const financeTemplate: GridTemplate = {
   ],
   icon: "ti ti-wallet",
   baseName: "Personal Finance",
-  baseDescription: "Track personal spending, income, budgets, and recent purchases.",
+  baseDescription:
+    "Track personal spending, income, budgets, and recent purchases.",
   tables: [
     {
       key: "accounts",
@@ -59,10 +71,16 @@ export const financeTemplate: GridTemplate = {
         {
           key: "opening_balance",
           name: "Opening balance",
-          description: "Starting balance before imported or entered transactions.",
+          description:
+            "Starting balance before imported or entered transactions.",
           type: "number",
           icon: "ti ti-currency-euro",
-          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+          config: {
+            precision: 16,
+            decimalPlaces: 2,
+            unit: "EUR",
+            unitPosition: "suffix",
+          },
         },
       ],
     },
@@ -73,7 +91,8 @@ export const financeTemplate: GridTemplate = {
         {
           key: "name",
           name: "Name",
-          description: "Category name shown on merchants, transactions, and budgets.",
+          description:
+            "Category name shown on merchants, transactions, and budgets.",
           type: "text",
           required: true,
           presentable: true,
@@ -118,7 +137,8 @@ export const financeTemplate: GridTemplate = {
         {
           key: "default_category",
           name: "Default category",
-          description: "Category suggested for future transactions from this merchant.",
+          description:
+            "Category suggested for future transactions from this merchant.",
           type: "relation",
           icon: "ti ti-tag",
           config: { targetTableId: table("categories"), cardinality: "single" },
@@ -142,11 +162,23 @@ export const financeTemplate: GridTemplate = {
           name: "Transaction reference",
           description: "Generated monthly reference for this transaction.",
           type: "id",
-          config: { strategy: "date_sequence", prefix: "TX-", period: "month", padding: 4 },
+          config: {
+            strategy: "date_sequence",
+            prefix: "TX-",
+            period: "month",
+            padding: 4,
+          },
           presentable: true,
           icon: "ti ti-id",
         },
-        { key: "date", name: "Date", description: "Transaction date.", type: "date", required: true, icon: "ti ti-calendar" },
+        {
+          key: "date",
+          name: "Date",
+          description: "Transaction date.",
+          type: "date",
+          required: true,
+          icon: "ti ti-calendar",
+        },
         {
           key: "merchant",
           name: "Merchant",
@@ -180,7 +212,10 @@ export const financeTemplate: GridTemplate = {
           description: "Lookup label copied from the related merchant.",
           type: "lookup",
           icon: "ti ti-hierarchy",
-          config: { relationFieldId: field("transactions.merchant"), targetFieldId: field("merchants.name") },
+          config: {
+            relationFieldId: field("transactions.merchant"),
+            targetFieldId: field("merchants.name"),
+          },
         },
         {
           key: "merchant_website",
@@ -188,7 +223,10 @@ export const financeTemplate: GridTemplate = {
           description: "Lookup website copied from the related merchant.",
           type: "lookup",
           icon: "ti ti-qrcode",
-          config: { relationFieldId: field("transactions.merchant"), targetFieldId: field("merchants.website") },
+          config: {
+            relationFieldId: field("transactions.merchant"),
+            targetFieldId: field("merchants.website"),
+          },
         },
         {
           key: "category_name",
@@ -196,12 +234,16 @@ export const financeTemplate: GridTemplate = {
           description: "Lookup label copied from the related category.",
           type: "lookup",
           icon: "ti ti-hierarchy",
-          config: { relationFieldId: field("transactions.category"), targetFieldId: field("categories.name") },
+          config: {
+            relationFieldId: field("transactions.category"),
+            targetFieldId: field("categories.name"),
+          },
         },
         {
           key: "type",
           name: "Type",
-          description: "Transaction direction for income, expense, or transfer reporting.",
+          description:
+            "Transaction direction for income, expense, or transfer reporting.",
           type: "select",
           required: true,
           icon: "ti ti-arrows-exchange",
@@ -220,7 +262,13 @@ export const financeTemplate: GridTemplate = {
           type: "number",
           required: true,
           icon: "ti ti-currency-euro",
-          config: { precision: 16, decimalPlaces: 2, min: "0", unit: "EUR", unitPosition: "suffix" },
+          config: {
+            precision: 16,
+            decimalPlaces: 2,
+            min: "0",
+            unit: "EUR",
+            unitPosition: "suffix",
+          },
         },
         {
           key: "cleared",
@@ -230,7 +278,13 @@ export const financeTemplate: GridTemplate = {
           icon: "ti ti-circle-check",
           defaultValue: false,
         },
-        { key: "notes", name: "Notes", description: "Optional notes about this transaction.", type: "longtext", icon: "ti ti-notes" },
+        {
+          key: "notes",
+          name: "Notes",
+          description: "Optional notes about this transaction.",
+          type: "longtext",
+          icon: "ti ti-notes",
+        },
         {
           key: "receipt_email",
           name: "Receipt email",
@@ -244,7 +298,8 @@ export const financeTemplate: GridTemplate = {
         {
           key: "receipt_sent",
           name: "Receipt sent",
-          description: "Set once the receipt workflow has succeeded, so it is not replayed accidentally.",
+          description:
+            "Set once the receipt workflow has succeeded, so it is not replayed accidentally.",
           type: "boolean",
           icon: "ti ti-mail-check",
           defaultValue: false,
@@ -280,57 +335,142 @@ export const financeTemplate: GridTemplate = {
           type: "number",
           required: true,
           icon: "ti ti-currency-euro",
-          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+          config: {
+            precision: 16,
+            decimalPlaces: 2,
+            unit: "EUR",
+            unitPosition: "suffix",
+          },
         },
       ],
     },
   ],
   records: [
-    { key: "accounts.main", table: "accounts", values: { name: "Main account", kind: ["checking"], opening_balance: "2450.00" } },
-    { key: "accounts.savings", table: "accounts", values: { name: "Savings", kind: ["savings"], opening_balance: "8400.00" } },
-    { key: "accounts.cash", table: "accounts", values: { name: "Cash", kind: ["cash"], opening_balance: "120.00" } },
-    { key: "accounts.card", table: "accounts", values: { name: "Visa", kind: ["credit"], opening_balance: "0.00" } },
-    { key: "categories.salary", table: "categories", values: { name: "Salary", kind: ["income"], fixed: true } },
-    { key: "categories.groceries", table: "categories", values: { name: "Groceries", kind: ["expense"], fixed: false } },
-    { key: "categories.rent", table: "categories", values: { name: "Rent", kind: ["expense"], fixed: true } },
-    { key: "categories.transport", table: "categories", values: { name: "Transport", kind: ["expense"], fixed: false } },
-    { key: "categories.books", table: "categories", values: { name: "Books", kind: ["expense"], fixed: false } },
-    { key: "categories.food", table: "categories", values: { name: "Food & coffee", kind: ["expense"], fixed: false } },
-    { key: "categories.utilities", table: "categories", values: { name: "Utilities", kind: ["expense"], fixed: true } },
+    {
+      key: "accounts.main",
+      table: "accounts",
+      values: {
+        name: "Main account",
+        kind: ["checking"],
+        opening_balance: "2450.00",
+      },
+    },
+    {
+      key: "accounts.savings",
+      table: "accounts",
+      values: {
+        name: "Savings",
+        kind: ["savings"],
+        opening_balance: "8400.00",
+      },
+    },
+    {
+      key: "accounts.cash",
+      table: "accounts",
+      values: { name: "Cash", kind: ["cash"], opening_balance: "120.00" },
+    },
+    {
+      key: "accounts.card",
+      table: "accounts",
+      values: { name: "Visa", kind: ["credit"], opening_balance: "0.00" },
+    },
+    {
+      key: "categories.salary",
+      table: "categories",
+      values: { name: "Salary", kind: ["income"], fixed: true },
+    },
+    {
+      key: "categories.groceries",
+      table: "categories",
+      values: { name: "Groceries", kind: ["expense"], fixed: false },
+    },
+    {
+      key: "categories.rent",
+      table: "categories",
+      values: { name: "Rent", kind: ["expense"], fixed: true },
+    },
+    {
+      key: "categories.transport",
+      table: "categories",
+      values: { name: "Transport", kind: ["expense"], fixed: false },
+    },
+    {
+      key: "categories.books",
+      table: "categories",
+      values: { name: "Books", kind: ["expense"], fixed: false },
+    },
+    {
+      key: "categories.food",
+      table: "categories",
+      values: { name: "Food & coffee", kind: ["expense"], fixed: false },
+    },
+    {
+      key: "categories.utilities",
+      table: "categories",
+      values: { name: "Utilities", kind: ["expense"], fixed: true },
+    },
     {
       key: "merchants.employer",
       table: "merchants",
-      values: { name: "Employer GmbH", default_category: [record("categories.salary")], website: "https://employer.example" },
+      values: {
+        name: "Employer GmbH",
+        default_category: [record("categories.salary")],
+        website: "https://employer.example",
+      },
     },
     {
       key: "merchants.landlord",
       table: "merchants",
-      values: { name: "Landlord", default_category: [record("categories.rent")], website: "https://rent.example" },
+      values: {
+        name: "Landlord",
+        default_category: [record("categories.rent")],
+        website: "https://rent.example",
+      },
     },
     {
       key: "merchants.market",
       table: "merchants",
-      values: { name: "Local Market", default_category: [record("categories.groceries")], website: "https://market.example" },
+      values: {
+        name: "Local Market",
+        default_category: [record("categories.groceries")],
+        website: "https://market.example",
+      },
     },
     {
       key: "merchants.transit",
       table: "merchants",
-      values: { name: "City Transit", default_category: [record("categories.transport")], website: "https://transit.example" },
+      values: {
+        name: "City Transit",
+        default_category: [record("categories.transport")],
+        website: "https://transit.example",
+      },
     },
     {
       key: "merchants.bookshop",
       table: "merchants",
-      values: { name: "Bookshop", default_category: [record("categories.books")], website: "https://bookshop.example" },
+      values: {
+        name: "Bookshop",
+        default_category: [record("categories.books")],
+        website: "https://bookshop.example",
+      },
     },
     {
       key: "merchants.cafe",
       table: "merchants",
-      values: { name: "Corner Cafe", default_category: [record("categories.food")], website: "https://cafe.example" },
+      values: {
+        name: "Corner Cafe",
+        default_category: [record("categories.food")],
+        website: "https://cafe.example",
+      },
     },
     {
       key: "merchants.power",
       table: "merchants",
-      values: { name: "Power Utility", default_category: [record("categories.utilities")], website: "https://power.example" },
+      values: {
+        name: "Power Utility",
+        default_category: [record("categories.utilities")],
+        website: "https://power.example",
+      },
     },
     {
       key: "transactions.salary_apr",
@@ -517,32 +657,56 @@ export const financeTemplate: GridTemplate = {
     {
       key: "budgets.rent",
       table: "budgets",
-      values: { month: currentMonthDate(1), category: [record("categories.rent")], limit: "980.00" },
+      values: {
+        month: currentMonthDate(1),
+        category: [record("categories.rent")],
+        limit: "980.00",
+      },
     },
     {
       key: "budgets.groceries",
       table: "budgets",
-      values: { month: currentMonthDate(1), category: [record("categories.groceries")], limit: "450.00" },
+      values: {
+        month: currentMonthDate(1),
+        category: [record("categories.groceries")],
+        limit: "450.00",
+      },
     },
     {
       key: "budgets.transport",
       table: "budgets",
-      values: { month: currentMonthDate(1), category: [record("categories.transport")], limit: "120.00" },
+      values: {
+        month: currentMonthDate(1),
+        category: [record("categories.transport")],
+        limit: "120.00",
+      },
     },
     {
       key: "budgets.books",
       table: "budgets",
-      values: { month: currentMonthDate(1), category: [record("categories.books")], limit: "80.00" },
+      values: {
+        month: currentMonthDate(1),
+        category: [record("categories.books")],
+        limit: "80.00",
+      },
     },
     {
       key: "budgets.food",
       table: "budgets",
-      values: { month: currentMonthDate(1), category: [record("categories.food")], limit: "160.00" },
+      values: {
+        month: currentMonthDate(1),
+        category: [record("categories.food")],
+        limit: "160.00",
+      },
     },
     {
       key: "budgets.previous_groceries",
       table: "budgets",
-      values: { month: currentMonthDate(1, -1), category: [record("categories.groceries")], limit: "400.00" },
+      values: {
+        month: currentMonthDate(1, -1),
+        category: [record("categories.groceries")],
+        limit: "400.00",
+      },
     },
   ],
   views: [
@@ -572,14 +736,17 @@ export const financeTemplate: GridTemplate = {
         field("transactions.cleared"),
         "\nsort ",
         field("transactions.date"),
-        " desc\nlimit 50",
+        " desc\nlimit 50"
       ),
       ui: {
         columns: [
           { fieldId: field("transactions.transaction_ref") },
           { fieldId: field("transactions.date") },
           { fieldId: field("transactions.merchant") },
-          { fieldId: field("transactions.merchant_website"), label: "Merchant website" },
+          {
+            fieldId: field("transactions.merchant_website"),
+            label: "Merchant website",
+          },
           { fieldId: field("transactions.category") },
           { fieldId: field("transactions.type") },
           { fieldId: field("transactions.amount") },
@@ -607,7 +774,7 @@ export const financeTemplate: GridTemplate = {
         field("transactions.amount"),
         "\nsort ",
         field("transactions.date"),
-        " desc\nlimit 100",
+        " desc\nlimit 100"
       ),
       ui: {
         displayConfig: {
@@ -632,7 +799,7 @@ export const financeTemplate: GridTemplate = {
         field("budgets.limit"),
         "\nsort ",
         field("budgets.limit"),
-        " desc",
+        " desc"
       ),
     },
   ],
@@ -647,7 +814,13 @@ export const financeTemplate: GridTemplate = {
         submitLabel: "Log purchase",
         successMessage: "Expense logged.",
         fields: [
-          { kind: "user_input", fieldId: field("transactions.date"), label: "Date", helpText: "Purchase date.", required: true },
+          {
+            kind: "user_input",
+            fieldId: field("transactions.date"),
+            label: "Date",
+            helpText: "Purchase date.",
+            required: true,
+          },
           {
             kind: "user_input",
             fieldId: field("transactions.merchant"),
@@ -657,8 +830,17 @@ export const financeTemplate: GridTemplate = {
             inlineCreate: {
               enabled: true,
               fields: [
-                { fieldId: field("merchants.name"), label: "Merchant name", helpText: "Shop, vendor, or person.", required: true },
-                { fieldId: field("merchants.website"), label: "Website", helpText: "Optional merchant URL." },
+                {
+                  fieldId: field("merchants.name"),
+                  label: "Merchant name",
+                  helpText: "Shop, vendor, or person.",
+                  required: true,
+                },
+                {
+                  fieldId: field("merchants.website"),
+                  label: "Website",
+                  helpText: "Optional merchant URL.",
+                },
               ],
             },
           },
@@ -676,8 +858,19 @@ export const financeTemplate: GridTemplate = {
             helpText: "Budget or spending category.",
             required: true,
           },
-          { kind: "user_input", fieldId: field("transactions.amount"), label: "Amount", helpText: "Expense amount.", required: true },
-          { kind: "user_input", fieldId: field("transactions.notes"), label: "Notes", helpText: "Receipt details or context." },
+          {
+            kind: "user_input",
+            fieldId: field("transactions.amount"),
+            label: "Amount",
+            helpText: "Expense amount.",
+            required: true,
+          },
+          {
+            kind: "user_input",
+            fieldId: field("transactions.notes"),
+            label: "Notes",
+            helpText: "Receipt details or context.",
+          },
           {
             kind: "user_input",
             fieldId: field("transactions.receipt_email"),
@@ -685,9 +878,21 @@ export const financeTemplate: GridTemplate = {
             helpText: "Recipient used by the receipt workflow.",
             required: true,
           },
-          { kind: "form_value", fieldId: field("transactions.type"), value: ["expense"] },
-          { kind: "form_value", fieldId: field("transactions.cleared"), value: false },
-          { kind: "form_value", fieldId: field("transactions.receipt_sent"), value: false },
+          {
+            kind: "form_value",
+            fieldId: field("transactions.type"),
+            value: ["expense"],
+          },
+          {
+            kind: "form_value",
+            fieldId: field("transactions.cleared"),
+            value: false,
+          },
+          {
+            kind: "form_value",
+            fieldId: field("transactions.receipt_sent"),
+            value: false,
+          },
         ],
       },
     },
@@ -720,7 +925,7 @@ export const financeTemplate: GridTemplate = {
         field("transactions.receipt_sent"),
         ", ",
         field("transactions.notes"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1"
       ),
       enabled: true,
     },
@@ -740,7 +945,9 @@ export const financeTemplate: GridTemplate = {
       sampleData: {
         reference: "TX-2026-0042",
         merchant: "Office Supply GmbH",
-        receipt: { url: "https://cloud.example.org/share/grids/documents/example" },
+        receipt: {
+          url: "https://cloud.example.org/share/grids/documents/example",
+        },
       },
       enabled: true,
     },
@@ -749,7 +956,8 @@ export const financeTemplate: GridTemplate = {
     {
       key: "clear_and_send_receipt",
       name: "Clear and send receipt",
-      description: "Creates a receipt link, emails it, and marks the transaction as cleared.",
+      description:
+        "Creates a receipt link, emails it, and marks the transaction as cleared.",
       source: `inputs:
   transaction:
     type: record
@@ -812,230 +1020,237 @@ steps:
   ],
   workflowLaunchers: [
     {
-      key: "clear_and_send_receipt_dashboard",
+      key: "clear_and_send_receipt_custom_app",
       workflow: "clear_and_send_receipt",
       name: "Choose transaction to process receipt",
-      config: { kind: "dashboard", inputMode: "prompt" },
+      config: { kind: "customApp", inputMode: "prompt" },
       enabled: true,
     },
   ],
-  dashboards: [
+  customApps: [
     {
       key: "overview",
       name: "Finance overview",
-      description: "Current spending, recent purchases, budgets, and receipt processing.",
-      shared: true,
-      config: {
-        rows: [
-          {
-            id: "r_stats",
-            kind: "row",
-            height: "sm",
-            cells: [
-              {
-                id: "w_income",
-                kind: "stat",
-                title: "Income",
-                sub: "all recorded",
-                icon: "ti ti-arrow-up-right",
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("transactions"),
-                    "\nwhere ",
-                    field("transactions.type"),
-                    " = 'income'\naggregate sum(",
-                    field("transactions.amount"),
-                    ") as total_income",
-                  ),
-                },
+      description:
+        "Current spending, recent purchases, budgets, and receipt processing.",
+      rows: [
+        {
+          id: "r_stats",
+          columns: [
+            {
+              id: "w_income",
+              type: "metrics",
+              title: "Income",
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-              {
-                id: "w_spend",
-                kind: "stat",
-                title: "Spend",
-                sub: "all recorded",
-                icon: "ti ti-arrow-down-right",
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("transactions"),
-                    "\nwhere ",
-                    field("transactions.type"),
-                    " = 'expense'\naggregate sum(",
-                    field("transactions.amount"),
-                    ") as total_spend",
-                  ),
-                },
-                trend: {
-                  source: {
-                    kind: "gql",
-                    source: monthlySpendSource(),
-                  },
-                  windowSize: 12,
-                },
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("transactions"),
+                  "\nwhere ",
+                  field("transactions.type"),
+                  " = 'income'\naggregate sum(",
+                  field("transactions.amount"),
+                  ") as total_income"
+                ),
               },
-              {
-                id: "w_tx",
-                kind: "stat",
-                title: "Transactions",
-                icon: "ti ti-receipt",
-                valueFormat: { style: "integer" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula("from table ", table("transactions"), "\naggregate count(*) as transaction_count"),
-                },
+            },
+            {
+              id: "w_spend",
+              type: "metrics",
+              title: "Spend",
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-              {
-                id: "w_budget",
-                kind: "stat",
-                title: "Budget",
-                sub: "this month",
-                icon: "ti ti-chart-pie",
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("budgets"),
-                    "\nwhere YEAR(",
-                    field("budgets.month"),
-                    ") = YEAR(TODAY()) and MONTH(",
-                    field("budgets.month"),
-                    ") = MONTH(TODAY())\naggregate sum(",
-                    field("budgets.limit"),
-                    ") as total_budget",
-                  ),
-                },
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("transactions"),
+                  "\nwhere ",
+                  field("transactions.type"),
+                  " = 'expense'\naggregate sum(",
+                  field("transactions.amount"),
+                  ") as total_spend"
+                ),
               },
-            ],
-          },
-          {
-            id: "r_charts",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_spend_cat",
-                kind: "chart",
-                title: "Spend by category",
-                subtitle: "Expense transactions only",
-                chartType: "donut",
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("transactions"),
-                    "\njoin table ",
-                    table("categories"),
-                    " as category on ",
-                    field("transactions.category"),
-                    " = category.id\nwhere ",
-                    field("transactions.type"),
-                    " = 'expense'\ngroup by category.",
-                    field("categories.name"),
-                    "\naggregate sum(",
-                    field("transactions.amount"),
-                    ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last",
-                  ),
-                },
-                span: 6,
+            },
+            {
+              id: "w_tx",
+              type: "metrics",
+              title: "Transactions",
+              valueFormat: { style: "integer" },
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("transactions"),
+                  "\naggregate count(*) as transaction_count"
+                ),
               },
-              {
-                id: "w_monthly",
-                kind: "chart",
-                title: "Monthly spend",
-                chartType: "bar",
-                source: {
-                  kind: "gql",
-                  source: monthlySpendSource(),
-                },
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                yAxisLabel: "EUR",
-                span: 6,
+            },
+            {
+              id: "w_budget",
+              type: "metrics",
+              title: "Budget",
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-            ],
-          },
-          {
-            id: "r_work",
-            kind: "row",
-            height: "lg",
-            cells: [
-              {
-                id: "w_recent",
-                kind: "view",
-                title: "Recent transactions",
-                source: { kind: "view", viewId: view("recent_transactions") },
-                span: 7,
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("budgets"),
+                  "\nwhere YEAR(",
+                  field("budgets.month"),
+                  ") = YEAR(TODAY()) and MONTH(",
+                  field("budgets.month"),
+                  ") = MONTH(TODAY())\naggregate sum(",
+                  field("budgets.limit"),
+                  ") as total_budget"
+                ),
               },
-              { id: "w_log", kind: "form", title: "Log a purchase", formId: form("log_expense"), span: 5 },
-            ],
-          },
-          {
-            id: "r_budget",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_budgets",
-                kind: "view",
-                title: "Monthly budgets",
-                source: { kind: "view", viewId: view("budgets") },
-                span: 6,
+            },
+          ],
+        },
+        {
+          id: "r_charts",
+          columns: [
+            {
+              id: "w_spend_cat",
+              type: "chart",
+              title: "Spend by category",
+              subtitle: "Expense transactions only",
+              chartType: "donut",
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("transactions"),
+                  "\njoin table ",
+                  table("categories"),
+                  " as category on ",
+                  field("transactions.category"),
+                  " = category.id\nwhere ",
+                  field("transactions.type"),
+                  " = 'expense'\ngroup by category.",
+                  field("categories.name"),
+                  "\naggregate sum(",
+                  field("transactions.amount"),
+                  ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last"
+                ),
               },
-              {
-                id: "w_income_chart",
-                kind: "chart",
-                title: "Monthly income",
-                chartType: "bar",
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("transactions"),
-                    "\nwhere ",
-                    field("transactions.type"),
-                    " = 'income'\ngroup by ",
-                    field("transactions.date"),
-                    " by month\naggregate sum(",
-                    field("transactions.amount"),
-                    ") as monthly_income\nsort ",
-                    field("transactions.date"),
-                    " asc",
-                  ),
-                },
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 6,
+              span: 6,
+            },
+            {
+              id: "w_monthly",
+              type: "chart",
+              title: "Monthly spend",
+              chartType: "bar",
+              source: {
+                kind: "gql",
+                query: monthlySpendSource(),
               },
-            ],
-          },
-          {
-            id: "r_receipts",
-            kind: "row",
-            height: "sm",
-            cells: [
-              {
-                id: "w_send_receipt",
-                kind: "workflow-button",
-                title: "Process a receipt",
-                description: "Choose an expense to send its receipt and mark it cleared.",
-                buttonLabel: "Choose transaction",
-                launcherId: launcher("clear_and_send_receipt_dashboard"),
-                span: 12,
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-            ],
-          },
-        ],
-      },
+              yAxisLabel: "EUR",
+              span: 6,
+            },
+          ],
+        },
+        {
+          id: "r_work",
+          columns: [
+            {
+              id: "w_recent",
+              type: "records",
+              title: "Recent transactions",
+              source: { kind: "view", viewId: view("recent_transactions") },
+              span: 7,
+            },
+            {
+              id: "w_log",
+              type: "form",
+              title: "Log a purchase",
+              formId: form("log_expense"),
+              span: 5,
+            },
+          ],
+        },
+        {
+          id: "r_budget",
+          columns: [
+            {
+              id: "w_budgets",
+              type: "records",
+              title: "Monthly budgets",
+              source: { kind: "view", viewId: view("budgets") },
+              span: 6,
+            },
+            {
+              id: "w_income_chart",
+              type: "chart",
+              title: "Monthly income",
+              chartType: "bar",
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("transactions"),
+                  "\nwhere ",
+                  field("transactions.type"),
+                  " = 'income'\ngroup by ",
+                  field("transactions.date"),
+                  " by month\naggregate sum(",
+                  field("transactions.amount"),
+                  ") as monthly_income\nsort ",
+                  field("transactions.date"),
+                  " asc"
+                ),
+              },
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
+              },
+              span: 6,
+            },
+          ],
+        },
+        {
+          id: "r_receipts",
+          columns: [
+            {
+              id: "w_send_receipt",
+              type: "actions",
+              title: "Process a receipt",
+              buttonLabel: "Choose transaction",
+              launcherId: launcher("clear_and_send_receipt_custom_app"),
+              span: 12,
+            },
+          ],
+        },
+      ],
     },
   ],
-  defaultDashboard: "overview",
 };

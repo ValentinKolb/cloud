@@ -9,7 +9,7 @@ import { validateAccessLevelForResource } from "./access";
 import { currentActorUserId } from "./permissions";
 
 const ScopedAccessEntrySchema = AccessEntrySchema.extend({
-  resourceType: z.enum(["base", "table", "view", "form", "documentTemplate", "dashboard", "workflow"]),
+  resourceType: z.enum(["base", "table", "view", "form", "documentTemplate", "customApp", "workflow"]),
   resourceId: z.string().uuid(),
   resourceName: z.string(),
   tableId: z.string().uuid().nullable(),

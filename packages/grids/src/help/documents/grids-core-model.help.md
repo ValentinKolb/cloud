@@ -11,7 +11,7 @@ The Grids model separates saved facts from the ways people enter, inspect, prese
 
 A **base** is the boundary around one area of work. It contains tables and the resources built around them. Separate bases are useful when subjects have different owners, permissions, or operating rules.
 
-A **table** stores one kind of thing. Customers and invoices belong in different tables because they have different fields and lifecycles. A table is not a page layout; the same table can be shown by several views and dashboards.
+A **table** stores one kind of thing. Customers and invoices belong in different tables because they have different fields and lifecycles. A table is not a page layout; the same table can be shown by several views and Custom Apps.
 
 A **record** is one saved thing in a table. In a Customers table, each customer is a record. Records can be changed, moved to trash, restored, and inspected through their history.
 
@@ -29,11 +29,11 @@ The navigation around tables contains resources that use the saved data:
 
 - A **view** keeps a query and a display mode for repeated work.
 - A **form** creates records through a guided set of inputs.
-- A **dashboard** arranges data and actions for a role or process.
+- A **Custom App** arranges data and actions for a role or process.
 - A **document template** defines a family of generated PDFs for records in one table.
 - A **workflow** defines repeatable actions and how inputs move through them.
 
-Each resource can have its own access rules. Seeing data included inside a readable view or dashboard does not automatically grant access to the original table or to a linked target opened separately.
+Each resource can have its own access rules. Seeing data included inside a readable view or Custom App does not automatically grant access to the original table or to a linked target opened separately.
 
 ## A useful mental check {icon="route"}
 
@@ -43,10 +43,10 @@ When deciding where something belongs, ask:
 - Is this another thing with its own fields? Add a table and relation.
 - Is this the same records shown for a particular task? Add a view.
 - Is this a focused way to create records? Add a form.
-- Is this a working page for a role? Add a dashboard.
+- Is this a working page for a role? Add a Custom App.
 - Is this printed output? Add a document template.
 - Is this a repeatable operation? Add a workflow.
 
 :::note One source of truth
-Store business facts in tables. Views, forms, dashboards, documents, and workflows should use those facts rather than maintain competing copies.
+Store business facts in tables. Views, forms, Custom Apps, documents, and workflows should use those facts rather than maintain competing copies.
 :::

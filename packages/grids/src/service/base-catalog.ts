@@ -8,7 +8,6 @@ import {
   type View,
   ViewUiSettingsSchema,
 } from "../contracts";
-import { listForBase as listDashboardsForBase } from "./dashboards";
 import { type Form, normalizeFormConfig, toRenderableForm } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import { withLookupTargetMetadata } from "./lookup-display";
@@ -19,7 +18,6 @@ type DbRow = Record<string, unknown>;
 type RankedTable = Table & { level: PermissionLevel };
 
 type BaseCatalog = {
-  dashboards: Awaited<ReturnType<typeof listDashboardsForBase>>;
   tables: RankedTable[];
   tableLevels: Record<string, PermissionLevel>;
   fieldsByTable: Record<string, Field[]>;
@@ -205,9 +203,7 @@ export const listForBase = async (params: { baseId: string; userId: string; user
   const baseRanks = resourceRanks("grids.base_access", "ba", "base_id", sql`t.base_id`, principalTiers);
   const tableLevelExpr = sql`COALESCE(${tableRanks[0]}, ${tableRanks[1]}, ${tableRanks[2]}, ${tableRanks[3]}, ${baseRanks[0]}, ${baseRanks[1]}, ${baseRanks[2]}, ${baseRanks[3]}, 0)`;
 
-  const [dashboards, tableRows] = await Promise.all([
-    listDashboardsForBase({ baseId: params.baseId, userId: params.userId, userGroups: params.userGroups }),
-    sql<(DbRow & { level_rank: number })[]>`
+  const tableRows = await sql<(DbRow & { level_rank: number })[]>`
       WITH ranked AS (
         SELECT t.*, ${tableLevelExpr} AS level_rank
         FROM grids.tables t
@@ -218,8 +214,7 @@ export const listForBase = async (params: { baseId: string; userId: string; user
       FROM ranked
       WHERE level_rank >= 1
       ORDER BY position, created_at
-    `,
-  ]);
+    `;
 
   const tables = tableRows.map((row) => ({ ...mapTable(row), level: levelFromRank(row.level_rank) }));
   const tableLevels = Object.fromEntries(tables.map((table) => [table.id, table.level]));
@@ -348,7 +343,6 @@ export const listForBase = async (params: { baseId: string; userId: string; user
   }
 
   return {
-    dashboards,
     tables,
     tableLevels,
     fieldsByTable,

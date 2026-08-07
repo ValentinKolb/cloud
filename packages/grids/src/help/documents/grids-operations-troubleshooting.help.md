@@ -5,7 +5,7 @@ icon: ti ti-bolt
 description: Diagnose common problems without guessing or losing work.
 order: 150
 ---
-When Grids behaves differently than expected, identify the surface first: table, view, form, dashboard, document, workflow, or Combined table. Then check its current query, state, and access before changing the underlying data.
+When Grids behaves differently than expected, identify the surface first: table, view, form, Custom App, document, workflow, or Combined table. Then check its current query, state, and access before changing the underlying data.
 
 Grids rejects ambiguous queries, stale writes, invalid automation, and unauthorized access rather than silently choosing a different result.
 
@@ -13,7 +13,7 @@ Grids rejects ambiguous queries, stale writes, invalid automation, and unauthori
 
 Check that it is not in trash or disabled, then check access on the resource itself. A specific `None` grant can override broader base access. Cloud administrator status does not bypass Grids access on normal app pages.
 
-For a link opened from a dashboard or relation, remember that the target authorizes separately. Seeing included data or a relation label does not guarantee access to the linked resource.
+For a link opened from a Custom App or relation, remember that the target authorizes separately. Seeing included data or a relation label does not guarantee access to the linked resource.
 
 ## Records are missing, duplicated, or out of order {icon="lifebuoy"}
 
@@ -29,7 +29,7 @@ Another user or tab may have saved a newer version. Reload the record, compare t
 
 If the message asks for change context, answer the questions configured under **Table settings → Data integrity**. Protected updates, trash actions, and restores cannot proceed without the required answers.
 
-## A view or dashboard result is wrong {icon="layout-dashboard"}
+## A view or Custom App result is wrong {icon="layout-Custom App"}
 
 Open the source query and verify it before changing presentation:
 
@@ -68,7 +68,7 @@ Open the run detail rather than immediately retrying. Check its revision, mode, 
 
 A `dryRun` records predicted effects but does not perform writes or external requests. An `execute` retry should use a deliberate idempotency key; external HTTP receivers should also handle duplicate requests safely.
 
-For scanner, bulk, and dashboard actions, inspect the saved run option's diagnostics after changing workflow inputs.
+For scanner, bulk, and Custom App actions, inspect the saved run option's diagnostics after changing workflow inputs.
 
 ## A workflow run never appeared {icon="route"}
 

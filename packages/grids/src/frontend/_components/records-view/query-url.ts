@@ -28,7 +28,7 @@
  *   ?cv=<day|week|month|year>&cd=<YYYY-MM-DD> — calendar state
  *   ?cardSize=<small|medium|large>          — card view density
  *
- * Note: `table` / `view` / `dashboard` are not query params — they live
+ * Note: `table` / `view` are not query params — they live
  * in the path.
  */
 
@@ -188,9 +188,9 @@ const parseCardSize = (value: string | null): CardSize =>
  * Reads URLSearchParams and produces a typed RecordsState. Bad / missing
  * params produce empty fragments — never throws.
  *
- * Pure UI state only — the active table / view / dashboard live in the
+ * Pure UI state only — the active table or view lives in the
  * URL path now (path-based routing) and are read at the SSR handler
- * boundary via `c.req.param("tableId" / "viewId" / "dashboardId")`, not
+ * boundary via `c.req.param("tableId" / "viewId")`, not
  * here.
  */
 export const parseRecordsState = (params: URLSearchParams): RecordsState => ({

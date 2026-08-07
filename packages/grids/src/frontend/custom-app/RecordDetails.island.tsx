@@ -1,11 +1,11 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, Placeholder, prompts } from "@k2b/ui";
+import { Button, DescriptionList, Placeholder, prompts } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { DocumentRunSummary, RecordMutationAudit, TableAuditPolicy } from "../../contracts";
 import type { CustomAppBlock } from "../../custom-apps/contracts";
 import { recordAuditRequirementFor } from "../../record-audit-policy";
 import type { Field, GridRecord } from "../../service";
-import { formatFieldValueText } from "../_components/table/field-value-format";
+import { FieldValue } from "../_components/table/FieldValue";
 import { openRecordAuditDialog } from "../_components/records/RecordAuditDialog";
 import { formatRecordRelativeTime } from "../_components/records/RecordHistorySection";
 import { openRecordUpsertDialog } from "../_components/records/RecordUpsertDialog";
@@ -108,22 +108,25 @@ export default function RecordDetails(props: {
           </Button>
         </div>
       </Show>
-      <dl class="divide-y rounded-xl border">
-        {displayedFields.map((field) => (
-          <div class="grid gap-1 px-4 py-3 sm:grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)] sm:gap-4">
-            <dt class="text-sm font-medium text-secondary">{field.name}</dt>
-            <dd class="min-w-0 whitespace-pre-wrap break-words text-sm text-primary">
-              {formatFieldValueText({
-                field,
-                value: record().data[field.id],
-                record: record(),
-                relationLabels: props.relationLabels,
-                dateConfig: props.dateConfig,
-              }) || "—"}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <DescriptionList
+        columns={1}
+        size="sm"
+        items={displayedFields.map((field) => ({
+          term: field.name,
+          description: (
+            <FieldValue
+              field={field}
+              value={record().data[field.id]}
+              record={record()}
+              allFields={props.fields}
+              relationLabels={props.relationLabels}
+              dateConfig={props.dateConfig}
+              mode="detail"
+              empty="—"
+            />
+          ),
+        }))}
+      />
       <Show when={props.block.documents}>
         <section class="rounded-xl border p-4" aria-labelledby={`${props.block.id}-documents`}>
           <h3 id={`${props.block.id}-documents`} class="text-sm font-semibold">

@@ -89,14 +89,14 @@ describe("workflow launcher validation", () => {
     );
   });
 
-  test("requires complete type-safe dashboard input bindings", () => {
-    expect(validateLauncherConfig(workflow, { kind: "dashboard", inputMode: "fixed", inputBindings: { count: "many" } })).toEqual([
+  test("requires complete type-safe Custom App input bindings", () => {
+    expect(validateLauncherConfig(workflow, { kind: "customApp", inputMode: "fixed", inputBindings: { count: "many" } })).toEqual([
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "message" is required' }),
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "count" must be a finite number' }),
     ]);
     expect(
       validateLauncherConfig(workflow, {
-        kind: "dashboard",
+        kind: "customApp",
         inputMode: "fixed",
         inputBindings: { message: "Run", count: 2 },
       }),
@@ -104,6 +104,6 @@ describe("workflow launcher validation", () => {
   });
 
   test("accepts runtime input launchers without fixed values", () => {
-    expect(validateLauncherConfig(workflow, { kind: "dashboard", inputMode: "prompt" })).toEqual([]);
+    expect(validateLauncherConfig(workflow, { kind: "customApp", inputMode: "prompt" })).toEqual([]);
   });
 });

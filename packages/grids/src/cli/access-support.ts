@@ -4,7 +4,7 @@ import type { PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { type RecordScope, RecordScopeSchema } from "../contracts";
 import { resolveCustomApp } from "./custom-apps";
 import { resolveDocumentTemplateFromCommand } from "./documents-support";
-import { resolveDashboardFromCommand, resolveFormFromCommand } from "./forms-dashboards-support";
+import { resolveFormFromCommand } from "./forms-support";
 import { resolveBase, resolveBaseFromCommand, resolveTable } from "./resources";
 import { requireRestArg } from "./runtime";
 import { resolveView } from "./views-gql-support";
@@ -12,7 +12,7 @@ import { resolveWorkflowFromCommand } from "./workflows-support";
 
 export const PERMISSION_LEVELS = ["none", "read", "write", "admin"] as const satisfies readonly PermissionLevel[];
 
-export const ACCESS_RESOURCE_TYPES = ["base", "table", "view", "form", "dashboard", "custom-app", "document-template", "workflow"] as const;
+export const ACCESS_RESOURCE_TYPES = ["base", "table", "view", "form", "custom-app", "document-template", "workflow"] as const;
 
 type AccessResourceType = (typeof ACCESS_RESOURCE_TYPES)[number];
 
@@ -65,7 +65,6 @@ export const accessPermissionsForResource = (type: AccessResourceType): readonly
       return ["read", "admin", "none"];
     case "form":
       return ["write", "none"];
-    case "dashboard":
     case "custom-app":
       return ["read", "none"];
     case "document-template":
@@ -106,10 +105,6 @@ export const resolveAccessResource = async (ctx: CloudCliContext, args: string[]
   if (type === "form") {
     const { form } = await resolveFormFromCommand(ctx, rest, {});
     return { type, id: form.id, label: `${form.name} (${form.shortId || "default"})`, allowed: accessPermissionsForResource(type) };
-  }
-  if (type === "dashboard") {
-    const { dashboard } = await resolveDashboardFromCommand(ctx, rest, undefined);
-    return { type, id: dashboard.id, label: `${dashboard.name} (${dashboard.shortId})`, allowed: accessPermissionsForResource(type) };
   }
   if (type === "custom-app") {
     const { base, rest: appRest } = await resolveBaseFromCommand(ctx, rest, 1);

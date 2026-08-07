@@ -3,13 +3,13 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import type { z } from "zod";
-import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-launcher-invocations";
+import { invokeBulkLauncher, invokeCustomAppLauncher, invokeScannerLauncher } from "../service/workflow-launcher-invocations";
 import { invokeGridsWorkflow } from "../service/workflow-runtime";
 import { GridsWorkflowInvocationRequestSchema, WorkflowInvocationReceiptSchema } from "../workflows/contracts";
 import { uuidParam } from "./route-params";
 import {
   BulkLauncherRequestSchema,
-  DashboardLauncherRequestSchema,
+  CustomAppLauncherRequestSchema,
   ScannerLauncherRequestSchema,
   workflowPrincipal,
 } from "./workflow-api-shared";
@@ -152,10 +152,10 @@ export const createWorkflowTriggerRoutes = () =>
       },
     )
     .post(
-      "/launchers/:launcherId/invoke/dashboard",
+      "/launchers/:launcherId/invoke/custom-app",
       describeRoute({
         tags: ["Grids:Workflow"],
-        summary: "Invoke a dashboard workflow launcher",
+        summary: "Invoke a Custom App workflow launcher",
         responses: {
           200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
@@ -165,12 +165,12 @@ export const createWorkflowTriggerRoutes = () =>
           500: jsonResponse(ErrorResponseSchema, "Invocation failed"),
         },
       }),
-      v("json", DashboardLauncherRequestSchema),
+      v("json", CustomAppLauncherRequestSchema),
       async (c) => {
         const launcherId = uuidParam(c, "launcherId");
         if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
         return respond(c, () =>
-          invokeDashboardLauncher({
+          invokeCustomAppLauncher({
             ...c.req.valid("json"),
             launcherId,
             principal: workflowPrincipal(c),

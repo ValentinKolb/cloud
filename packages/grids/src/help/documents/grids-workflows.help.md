@@ -67,7 +67,7 @@ Everything that starts an execute run is an **event**: something happened, Grids
 
 :::reference
 - **Run requested:** Someone asked for this workflow directly — from the workflow page, the authenticated API, or the CLI.
-- **Run option used:** A scanner, bulk action, or dashboard button started it.
+- **Run option used:** A scanner, bulk action, or Custom App button started it.
 - **Schedule fired:** A scheduled slot came due.
 - **Record changed:** A row was created, updated, or deleted in a table this workflow watches.
 :::
@@ -78,7 +78,7 @@ This is why an occurrence that nothing is listening for produces no run at all r
 
 A **dry run is not an event**. Nothing happened; somebody is asking what would. It is created directly against the workflow's newest published revision and never consults a trigger, which is why a disabled workflow can still be dry-run while its execute runs are refused.
 
-Scanner, bulk, and dashboard run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner maps one input to scanned text or a resolved record and can collect other inputs once before scanning, after every scan, or from fixed values. Bulk supplies one record-list input, and a dashboard option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
+Scanner, bulk, and Custom App run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner maps one input to scanned text or a resolved record and can collect other inputs once before scanning, after every scan, or from fixed values. Bulk supplies one record-list input, and a Custom App option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
 
 ## Understand a run {icon="layout-grid"}
 
@@ -232,12 +232,12 @@ Direct callers can provide every declared input. Run options accept only the inp
 :::reference
 - **Scanner:** Maps exactly one text or record input to the scan. Record scans resolve by generated scan code or a configured unique field. Any other workflow input can be asked once before scanning, asked after every scan, or fixed by the run option.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
-- **Dashboard:** Exposes the workflow as a dashboard action and may save input bindings such as a fixed reporting range.
+- **Custom App:** Exposes the workflow as a Custom App action and may save input bindings such as a fixed reporting range.
 - **Lifecycle:** Each option has its own name, enabled state, validated workflow revision, and diagnostics. Source changes can make an option unavailable until it is reviewed and saved again.
 :::
 
 :::note Outside YAML
-Run options are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or dashboard actions without changing its YAML.
+Run options are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or Custom App actions without changing its YAML.
 :::
 
 ## Step reference {icon="book-2"}
@@ -246,6 +246,7 @@ Run options are configured separately from the workflow source. One workflow can
 | --- | --- | --- | --- |
 | `updateRecord` | `record`, non-empty `set` | `audit` answers keyed by audit-question UUID | Validates and predicts the record update |
 | `createRecord` | `table`, non-empty `values` | `saveAs` | Validates and predicts the new record |
+| `atomicRecords` | 1–100 `locks`, 1–50 `checks`, 1–50 `changes` | Check `message`; update `ifVersion` and `audit` | Evaluates current checks and predicts the bounded record changes without locking or writing |
 | `generateDocument` | `template`, `record` | `filename`, up to 20 `tags`, `saveAs` | Validates access and values; does not generate |
 | `createDocumentLink` | `document` output reference | `expiresIn` (`1d`, `7d`, `30d`, `90d`; default `30d`), `comment`, `saveAs` | Validates the document and access; does not create a link |
 | `sendEmail` | `template`, 1–50 `to` recipients | `data` with up to 200 keys, `saveAs` | Validates template, recipients, data, and access; does not send |
@@ -255,6 +256,57 @@ Run options are configured separately from the workflow source. One workflow can
 | `fail` | `message` | None | Stops planning with the failure that execution would produce |
 
 `updateRecord` and `createRecord` field keys accept readable field names, short ids, or UUIDs when unambiguous. If a table requires change context, `updateRecord.audit` must answer the applicable questions by their question UUID. `generateDocument.template` and `sendEmail.template` accept an enabled template name, short id, or UUID. Ambiguous and inaccessible references are rejected during validation.
+
+### Commit related record changes together
+
+Use `atomicRecords` when a current Grids condition and several record writes must succeed together. It accepts only Grids record work: it cannot send email, call HTTP, generate documents, run another workflow, or contain control flow.
+
+:::reference
+- **locks:** Existing record references acquired in stable order before any check runs. Every competing workflow must lock the same coordination record for the same business decision.
+- **checks:** Each check selects one bound table and 1–20 bound field predicates in `where`. Predicates use `field`, `op`, optional `value`, and optional `caseInsensitive`, and are combined with AND. `assert` is `empty` or `notEmpty`; optional `message` replaces the default failure text.
+- **changes:** An ordered list of `createRecord` or `updateRecord` entries. Create uses `table` and non-empty `values`. Update uses `record`, non-empty `set`, optional `ifVersion`, and optional `audit` answers.
+- **transaction:** Grids rechecks current permissions and row scope, locks every coordination and update record, evaluates every check, then commits records, relations, audit entries, event outbox rows, and the workflow outcome together. A failed check or change rolls all of it back.
+:::
+
+An empty query has no row of its own to lock. For a reservation, lock the shared item (or another stable coordination record), then check that no active reservation references it. If competing workflows lock different records, the transaction cannot serialize that business decision for them.
+
+**Reserve one available item atomically**
+
+```yaml
+inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+steps:
+  - atomicRecords:
+      locks:
+        - inputs.item
+      checks:
+        - table: Movements
+          where:
+            - field: Item
+              op: containsAny
+              value:
+                - ${{ inputs.item.recordId }}
+            - field: Type
+              op: equals
+              value: Active loan
+          assert: empty
+          message: This item is already reserved.
+      changes:
+        - updateRecord:
+            record: inputs.item
+            set:
+              Status: Loaned
+        - createRecord:
+            table: Movements
+            values:
+              Item: ${{ inputs.item }}
+              Type: Active loan
+```
+
+Dry run evaluates the checks and validates every target without locking or mutating records. Its result is advisory: execution repeats the checks while the declared records are locked.
 
 Each `sendEmail.to` item contains exactly one recipient: `email` resolves to an email address and `user` resolves to a Cloud user UUID. `httpRequest.headers` accepts at most 100 entries, each up to 1,000 characters; its URL is limited to 4,000 characters. The JSON request body and text response body are each limited to 64 KiB.
 
@@ -493,7 +545,7 @@ steps:
 :::reference
 - **execute:** Runs the pinned revision, changes records, generates documents, starts email delivery, and sends external requests.
 - **dryRun:** Plans the workflow, checks current references and permissions, and records predicted effects without applying changes or sending external requests.
-- **Channels:** Direct UI, API, and CLI calls use api. Run options use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.
+- **Channels:** Direct UI, API, and CLI calls use `api`. Run options use `customApp`, `scanner`, or `bulk`. Automatic triggers use `schedule` or `recordEvent`.
 - **Run detail:** Inspect revision, channel, mode, input, start and finish times, duration, result message or structured error, each step outcome, and generated documents.
 - **Automatic triggers:** The workflow page shows whether a schedule is reconciled and its next run, or which record event and table are active. A degraded schedule includes a persistent problem description.
 - **Run statistics:** The counts and error rate above the run list cover execute runs in the selected window. Dry-run failures stay visible in run history without making real execution look unhealthy.
@@ -519,7 +571,7 @@ The workflow page covers the runs in this base, which is what a workflow author 
 A run that is interrupted — a restart, a lost connection, a worker replaced mid-step — is resumed from the outcomes already recorded rather than started again. What that means for a step depends on the kind of effect the action performs, and it is the reason a run can end `needs_attention` instead of simply failing.
 
 :::reference
-- **Record changes:** `updateRecord`, `createRecord`, and `createDocumentLink` commit their work and the record of it together. An interruption means the change did not happen, so resuming performs it once.
+- **Record changes:** `updateRecord`, `createRecord`, `atomicRecords`, and `createDocumentLink` commit their work and the record of it together. An interruption means the change did not happen, so resuming performs it once.
 - **Documents and email:** `generateDocument` and `sendEmail` are keyed to the run and the step. Resuming after an interruption does not generate a second document or send a recipient a second copy.
 - **HTTP requests:** `httpRequest` is the one action nothing can verify afterwards. If a request left Grids and no complete response came back, the outcome is genuinely unknown.
 - **Decisions and variables:** `setVariable`, `succeed`, `fail`, and the control-flow steps perform no external effect and are simply re-evaluated.
@@ -532,8 +584,8 @@ Because of that, an `httpRequest` inside a workflow is worth pointing at a recei
 ## Permissions and limits {icon="shield-lock"}
 
 :::reference
-- **Run permission:** Direct calls and standalone run options require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.
-- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard run options run as the user or service account that starts them. Direct calls appear under the api channel.
+- **Run permission:** Direct calls and standalone run options require workflow write access. Custom App block runs use included Custom App authorization; actions still check their target resources.
+- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and Custom App run options run as the user or service account that starts them. Direct calls appear under the api channel.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
 - **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow. The check happens at the moment of the effect, so access revoked while a run was queued refuses that step rather than the original invocation.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.

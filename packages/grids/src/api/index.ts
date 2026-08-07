@@ -6,7 +6,6 @@ import adminRoutes from "./admin";
 import adminSettingsRoutes from "./admin-settings";
 import basesRoutes from "./bases";
 import customAppsRoutes from "./custom-apps";
-import dashboardsRoutes from "./dashboards";
 import documentsRoutes from "./documents";
 import emailTemplateRoutes from "./email-templates";
 import fieldsRoutes from "./fields";
@@ -33,7 +32,6 @@ const app = new Hono()
   .route("/records", recordsRoutes)
   .route("/access", accessRoutes)
   .route("/views", viewsRoutes)
-  .route("/dashboards", dashboardsRoutes)
   .route("/documents", documentsRoutes)
   .route("/email-templates", emailTemplateRoutes)
   .route("/formulas", formulasRoutes)

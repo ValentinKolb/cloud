@@ -4,7 +4,6 @@ import * as baseCatalog from "./base-catalog";
 import * as bases from "./bases";
 import * as combinedAudit from "./combined-audit";
 import * as customApps from "./custom-apps";
-import * as dashboards from "./dashboards";
 import * as documents from "./documents";
 import * as emailTemplates from "./email-templates";
 import * as exporter from "./export";
@@ -48,7 +47,7 @@ import {
   updateWorkflow,
   validateWorkflowSource,
 } from "./workflow-definitions";
-import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-launcher-invocations";
+import { invokeBulkLauncher, invokeCustomAppLauncher, invokeScannerLauncher } from "./workflow-launcher-invocations";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
 import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-record-events";
 import { getWorkflowRun } from "./workflow-runs";
@@ -165,7 +164,6 @@ export const gridsService = {
     listForView: access.listViewAccess,
     listForForm: access.listFormAccess,
     listForDocumentTemplate: access.listDocumentTemplateAccess,
-    listForDashboard: access.listDashboardAccess,
     listForCustomApp: access.listCustomAppAccess,
     listForWorkflow: access.listWorkflowAccess,
     updateLevel: access.updateAccessLevel,
@@ -192,18 +190,6 @@ export const gridsService = {
     update: views.update,
     remove: views.remove,
     restore: views.restore,
-  },
-  dashboard: {
-    listForBase: dashboards.listForBase,
-    listTrashedByBase: dashboards.listTrashedByBase,
-    get: dashboards.get,
-    getByShortId: dashboards.getByShortId,
-    getByIdOrShortId: dashboards.getByIdOrShortId,
-    sourceTableIds: dashboards.sourceTableIds,
-    create: dashboards.create,
-    update: dashboards.update,
-    remove: dashboards.remove,
-    restore: dashboards.restore,
   },
   document: {
     listTemplatesForTable: documents.listTemplatesForTable,
@@ -310,7 +296,7 @@ export const gridsService = {
       remove: removeLauncher,
       invokeScanner: invokeScannerLauncher,
       invokeBulk: invokeBulkLauncher,
-      invokeDashboard: invokeDashboardLauncher,
+      invokeCustomApp: invokeCustomAppLauncher,
     },
     runtime: {
       start: startWorkflowRuntime,
@@ -342,22 +328,8 @@ export const gridsService = {
 
 export type {
   AggregationSpec,
-  ChartWidget,
-  Dashboard,
-  DashboardConfig,
-  DashboardRow,
-  DashboardWidgetSource,
-  FormWidget,
   GroupBySpec,
-  LinkWidget,
-  MarkdownWidget,
-  StatWidget,
   View,
-  ViewStatsWidget,
-  ViewWidget,
-  Widget,
-  WidgetValueFormat,
-  WorkflowButtonWidget,
 } from "../contracts";
 export type { GridsWorkflow as Workflow } from "../workflows/contracts";
 export type { CombinedAuditEntry, CombinedAuditPage, CombinedRecordOrigin } from "./combined-audit";

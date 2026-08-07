@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../service";
+import type { AggregationSpec, Field, GroupBySpec } from "../../contracts";
 import {
   aggKey,
   aggLabel,
@@ -12,7 +12,7 @@ import {
   chartXAxisFormat,
   formatCategoryKey,
   toNumber,
-} from "./widget-chart-data";
+} from "./chart-data";
 
 // =============================================================================
 // widget-chart-data — pure bucket → series transforms.
@@ -255,11 +255,10 @@ describe("chartXAxisFormat", () => {
 // buildChartRenderData — top-level dispatcher used by the renderer
 // =============================================================================
 
+type ChartWidget = { chartType: "donut" | "bar" | "line" | "sparkline" | "scatter" };
+
 const widget = (chartType: ChartWidget["chartType"]): ChartWidget => ({
-  id: "w1",
-  kind: "chart",
   chartType,
-  source: { kind: "view", viewId: "11111111-1111-4111-8111-111111111111" },
 });
 
 const renderInput = (w: ChartWidget, aggs: AggregationSpec[], buckets: typeof sliceBuckets) => ({

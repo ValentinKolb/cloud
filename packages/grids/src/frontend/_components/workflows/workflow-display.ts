@@ -3,7 +3,7 @@ import type { GridsWorkflowChannel, GridsWorkflowRun, GridsWorkflowStepRun } fro
 
 export const channelLabels: Record<GridsWorkflowChannel, string> = {
   api: "API",
-  dashboard: "Dashboard",
+  customApp: "Custom App",
   scanner: "Scanner",
   bulk: "Bulk",
   schedule: "Schedule",

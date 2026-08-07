@@ -40,25 +40,9 @@ export type GridsWorkflowRunEvent = {
   workflowId: string | null;
   run: WorkflowRunEventSummary;
   steps: WorkflowRunStepSummary[];
-  scope: WorkflowRunEventScope;
+  scope: { kind: "workflow" };
 };
-
-export type DashboardWorkflowRunSummary = Omit<WorkflowRunEventSummary, "error" | "resultMessage" | "operatorMessage"> & {
-  operatorMessage: string | null;
-};
-export type DashboardWorkflowRunStepSummary = Omit<WorkflowRunStepSummary, "sourcePath" | "iterationPath" | "outcome">;
-export type DashboardWorkflowRunEvent = Omit<GridsWorkflowRunEvent, "run" | "steps"> & {
-  run: DashboardWorkflowRunSummary;
-  steps: DashboardWorkflowRunStepSummary[];
-};
-
-export type WorkflowRunEventScope = { kind: "workflow" } | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
-
-export const isWorkflowRunEventVisible = (event: GridsWorkflowRunEvent, dashboard?: { id: string; widgetId: string }): boolean =>
-  !dashboard ||
-  (event.scope.kind === "dashboard-widget" &&
-    event.scope.dashboardId === dashboard.id &&
-    event.scope.dashboardWidgetId === dashboard.widgetId);
+export type WorkflowRunEventScope = GridsWorkflowRunEvent["scope"];
 
 export const toWorkflowRunEventSummary = (run: GridsWorkflowRun): WorkflowRunEventSummary => ({
   id: run.id,
@@ -101,37 +85,3 @@ export const toWorkflowRunStepSummary = ({
   startedAt,
   finishedAt,
 });
-
-const operatorMessage = (run: WorkflowRunEventSummary): string | null =>
-  run.error?.code === "WORKFLOW_FAILED" && run.error.message.trim().length > 0 ? run.error.message : null;
-
-export const toDashboardWorkflowRunSummary = ({
-  error: _error,
-  resultMessage: _resultMessage,
-  operatorMessage: _operatorMessage,
-  ...run
-}: WorkflowRunEventSummary): DashboardWorkflowRunSummary => ({
-  ...run,
-  operatorMessage: operatorMessage({ ...run, error: _error, resultMessage: _resultMessage }),
-});
-
-export const toDashboardWorkflowRunStepSummary = ({
-  sourcePath: _sourcePath,
-  iterationPath: _iterationPath,
-  outcome: _outcome,
-  ...step
-}: WorkflowRunStepSummary): DashboardWorkflowRunStepSummary => step;
-
-export const toDashboardWorkflowRunEvent = (event: GridsWorkflowRunEvent): DashboardWorkflowRunEvent => ({
-  ...event,
-  run: toDashboardWorkflowRunSummary(event.run),
-  steps: event.steps.map(toDashboardWorkflowRunStepSummary),
-});
-
-export const projectWorkflowRunEvent = (
-  event: GridsWorkflowRunEvent,
-  dashboard?: { id: string; widgetId: string },
-): GridsWorkflowRunEvent | DashboardWorkflowRunEvent | null => {
-  if (!isWorkflowRunEventVisible(event, dashboard)) return null;
-  return dashboard ? toDashboardWorkflowRunEvent(event) : event;
-};

@@ -24,13 +24,13 @@ Each kind of item usually becomes a table. Each fact needed to answer those ques
 6. **Set access before inviting users.** Give people only the resources and actions they need.
 :::
 
-Do not add a dashboard merely to repeat the table, or a workflow for a process people do not yet understand. Add the next resource when its purpose is concrete:
+Do not add a Custom App merely to repeat the table, or a workflow for a process people do not yet understand. Add the next resource when its purpose is concrete:
 
 | Need | Add |
 | --- | --- |
 | Focused data entry | A form |
 | A reusable subset, report, card board, or calendar | A view |
-| A role-specific operating page | A dashboard |
+| A role-specific operating page | A Custom App |
 | A printable or shareable PDF | A document template |
 | A repeatable multi-step action | A workflow |
 | One governed read-only table across bases | A Combined table |
@@ -40,12 +40,12 @@ Do not add a dashboard merely to repeat the table, or a workflow for a process p
 Open **Base settings** in Edit mode for settings that apply across the base:
 
 - **General** keeps the base name and description understandable in the Grids overview.
-- **Default dashboard** chooses the first working page people open when they enter the base.
+- **Default Custom App** chooses the first working page people open when they enter the base.
 - **Documents** stores the business identity, address, contact, payment, and footer values available to PDF and email templates.
 - **Permissions** controls who can enter the base before more specific resource rules are considered.
-- **Trash** lists deleted tables, fields, forms, and dashboards that can still be restored.
+- **Trash** lists deleted tables, fields, forms, and Custom Apps that can still be restored.
 
-Choose a default dashboard only after it is useful to the base's normal readers. A broken or highly specialized dashboard is a poor entrance even when its individual widgets are correct.
+Choose a default Custom App only after it is useful to the base's normal readers. A broken or highly specialized Custom App is a poor entrance even when its individual widgets are correct.
 
 ## Example: equipment loans {icon="point"}
 
@@ -56,7 +56,7 @@ Then create:
 - an **Available items** view for daily lookup;
 - an **Open loans** view sorted by due date;
 - a **Request loan** form for guided input;
-- an **Inventory overview** dashboard for staff;
+- an **Inventory overview** Custom App for staff;
 - a **Loan agreement** document template;
 - a **Return item** scanner workflow after the return rules are stable.
 

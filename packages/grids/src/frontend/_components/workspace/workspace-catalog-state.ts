@@ -41,7 +41,6 @@ export const loadCatalog = async (baseId: string, user: AuthUser): Promise<Works
     .filter((workflow) => gridsService.permission.hasAtLeast(workflowLevels[workflow.id] ?? "none", "read"))
     .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
   return {
-    dashboards: catalogRaw.dashboards,
     workflows,
     workflowLevels,
     tables,
@@ -61,5 +60,4 @@ export const canUseEditModeForCatalog = (catalog: WorkspaceCatalog, user: AuthUs
   canCreateTables ||
   catalog.tables.some((table) => gridsService.permission.hasAtLeast(catalog.tableLevels[table.id] ?? "none", "admin")) ||
   Object.values(catalog.documentTemplateLevels).some((level) => gridsService.permission.hasAtLeast(level, "admin")) ||
-  catalog.dashboards.some((dashboard) => dashboard.ownerUserId === user.id || (dashboard.ownerUserId === null && canManageBase)) ||
   Object.values(catalog.workflowLevels).some((level) => gridsService.permission.hasAtLeast(level, "admin"));

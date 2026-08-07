@@ -121,6 +121,47 @@ steps:
     expect(await bindGridsWorkflow(ir, catalog())).toEqual(result);
   });
 
+  test("binds every table and field used by an atomic record change", async () => {
+    const source = `inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+steps:
+  - atomicRecords:
+      locks:
+        - inputs.item
+      checks:
+        - table: Items
+          where:
+            - field: Status
+              op: equals
+              value: Ready
+          assert: notEmpty
+      changes:
+        - updateRecord:
+            record: inputs.item
+            set:
+              Status: Reserved
+        - createRecord:
+            table: Archive
+            values:
+              Name: "\${{ inputs.item.Name }}"
+`;
+    const result = await bindGridsWorkflow(await compile(source), catalog());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.bindings).toEqual({
+      "inputs.item.table": ids.items,
+      "steps.0.atomicRecords.changes.0.updateRecord.set.Status.$target": ids.status,
+      "steps.0.atomicRecords.changes.1.createRecord.table": ids.archive,
+      "steps.0.atomicRecords.changes.1.createRecord.values.Name": ids.name,
+      "steps.0.atomicRecords.changes.1.createRecord.values.Name.$target": ids.archivedName,
+      "steps.0.atomicRecords.checks.0.table": ids.items,
+      "steps.0.atomicRecords.checks.0.where.0.field": ids.status,
+    });
+  });
+
   test("reports permission-filtered and ambiguous catalog misses at source locations", async () => {
     const source = `inputs:
   item:

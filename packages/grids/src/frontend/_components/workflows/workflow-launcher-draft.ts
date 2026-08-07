@@ -2,23 +2,23 @@ import type { WorkflowIrInput, WorkflowJsonValue } from "@valentinkolb/cloud/wor
 import type { GridsWorkflowLauncher, GridsWorkflowLauncherConfig, GridsWorkflowLauncherKind } from "../../../workflows/contracts";
 import { workflowInputLabel, workflowInputRequired } from "./workflow-trigger-actions";
 
-export const dashboardLauncherConfigForSave = (
+export const customAppLauncherConfigForSave = (
   launcher?: GridsWorkflowLauncher,
   inputMode: "fixed" | "prompt" = "fixed",
   inputBindings?: Record<string, WorkflowJsonValue>,
-): Extract<GridsWorkflowLauncherConfig, { kind: "dashboard" }> =>
+): Extract<GridsWorkflowLauncherConfig, { kind: "customApp" }> =>
   inputMode === "prompt"
     ? {
-        kind: "dashboard",
-        ...(launcher?.config.kind === "dashboard" && launcher.config.label ? { label: launcher.config.label } : {}),
+        kind: "customApp",
+        ...(launcher?.config.kind === "customApp" && launcher.config.label ? { label: launcher.config.label } : {}),
         inputMode,
       }
     : {
-        kind: "dashboard",
-        ...(launcher?.config.kind === "dashboard" && launcher.config.label ? { label: launcher.config.label } : {}),
+        kind: "customApp",
+        ...(launcher?.config.kind === "customApp" && launcher.config.label ? { label: launcher.config.label } : {}),
         inputMode,
         ...(inputBindings === undefined
-          ? launcher?.config.kind === "dashboard" && launcher.config.inputBindings
+          ? launcher?.config.kind === "customApp" && launcher.config.inputBindings
             ? { inputBindings: launcher.config.inputBindings }
             : {}
           : { inputBindings }),
@@ -29,6 +29,6 @@ export const missingLauncherRequiredInputs = (
   kind: GridsWorkflowLauncherKind,
   controlledInput: string,
 ): string[] =>
-  kind === "dashboard"
+  kind === "customApp"
     ? []
     : inputs.filter((input) => workflowInputRequired(input) && input.name !== controlledInput).map((input) => workflowInputLabel(input));

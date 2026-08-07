@@ -59,8 +59,24 @@ export default function Actions(props: { actions: CustomAppRenderedAction[] }) {
               fallback={
                 <ButtonLink
                   href={(action as Extract<CustomAppRenderedAction, { kind: "navigate" }>).href}
-                  replace={(action as Extract<CustomAppRenderedAction, { kind: "navigate" }>).history === "replace"}
-                  navigation="enhanced"
+                  onClick={(event) => {
+                    const navigateAction = action as Extract<CustomAppRenderedAction, { kind: "navigate" }>;
+                    if (
+                      navigateAction.history !== "replace" ||
+                      event.defaultPrevented ||
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey ||
+                      (event.currentTarget.target && event.currentTarget.target !== "_self") ||
+                      event.currentTarget.hasAttribute("download")
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    window.location.replace(navigateAction.href);
+                  }}
                   variant="secondary"
                   size="sm"
                 >

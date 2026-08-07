@@ -3,7 +3,7 @@ import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { BaseListSchema, BaseSchema, CreateBaseSchema, DashboardSchema, FieldSchema, TableSchema, UpdateBaseSchema } from "../contracts";
+import { BaseListSchema, BaseSchema, CreateBaseSchema, FieldSchema, TableSchema, UpdateBaseSchema } from "../contracts";
 import { gridsService } from "../service";
 import {
   currentActorUser,
@@ -18,7 +18,6 @@ import { requireUuidParam } from "./route-params";
 const TrashResponseSchema = z.object({
   tables: z.array(TableSchema),
   fields: z.array(FieldSchema),
-  dashboards: z.array(DashboardSchema),
   // Forms are returned as opaque records — the FormSchema isn't
   // exported from contracts.ts (it lives in api/forms.ts since the
   // public-facing shape strips fields the trash UI doesn't need).
@@ -185,9 +184,9 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       requireUuidParam("baseId", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
-        summary: "List soft-deleted resources for a base (tables, fields, dashboards, forms)",
+        summary: "List soft-deleted resources for a base (tables, fields, forms)",
         description:
-          "Returns trashed tables, fields, dashboards, and forms grouped by resource type. " +
+          "Returns trashed tables, fields, and forms grouped by resource type. " +
           "Fields/forms whose parent table is itself trashed are excluded — they restore alongside the table.",
         responses: {
           200: jsonResponse(TrashResponseSchema, "Trashed resources"),
@@ -200,16 +199,15 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         // Trash management is a structural / recovery action — base-admin only.
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const [tables, fields, dashboards, forms] = await Promise.all([
+        const [tables, fields, forms] = await Promise.all([
           gridsService.table.listTrashedByBase(baseId),
           gridsService.field.listTrashedByBase(baseId),
-          gridsService.dashboard.listTrashedByBase(baseId),
           // Forms is keyed by tableId, but listTrashedByBase joins
           // through tables for us. Returns full Form objects; the UI
           // only needs id / name / tableId / deletedAt though.
           gridsService.form.listTrashedByBase(baseId),
         ]);
-        return c.json({ tables, fields, dashboards, forms });
+        return c.json({ tables, fields, forms });
       },
     );
 };

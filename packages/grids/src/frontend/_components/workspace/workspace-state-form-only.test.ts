@@ -14,7 +14,6 @@ const base = {
   shortId: "BASE1",
   name: "Forms Base",
   description: null,
-  defaultDashboardId: null,
   deletedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -60,7 +59,6 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
-          dashboards: [],
           tables: [],
           tableLevels: {},
           fieldsByTable: { [formTable.id]: [] },
@@ -73,12 +71,9 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     );
     spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => "none");
-    spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
-    spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
@@ -205,7 +200,6 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
-          dashboards: [],
           tables: [formTable],
           tableLevels: { [formTable.id]: "read" },
           fieldsByTable: { [formTable.id]: [] },

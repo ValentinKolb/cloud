@@ -1,5 +1,5 @@
 /**
- * The six declared Grids actions, driven the way the runtime drives them.
+ * The declared Grids actions, driven the way the runtime drives them.
  *
  * Nothing here is checkable by the type system. An action names a field with
  * `ctx.binding`, writes through a service that speaks SQL, and leaves its
@@ -10,6 +10,7 @@
  */
 import { beforeAll, describe, expect } from "bun:test";
 import { type WorkflowBoundPlan, type WorkflowIrStep, type WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import { createWorkflowRun } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
@@ -127,6 +128,7 @@ const hash = (seed: string): string => new Bun.CryptoHasher("sha256").update(see
 const ACTION_POLICIES = Object.fromEntries(
   gridsWorkflows.manifest.actions.map((descriptor) => [descriptor.kind, { effect: descriptor.effect, dryRun: descriptor.dryRun }]),
 );
+const CURRENT_MANIFEST_HASH = await hashWorkflowJson(gridsWorkflows.manifest);
 
 const actionStep = (index: number, action: string, config: Record<string, WorkflowJsonValue>): WorkflowIrStep => ({
   kind: "action",
@@ -140,7 +142,7 @@ const boundPlan = (steps: WorkflowIrStep[], bindings: Record<string, WorkflowJso
   languageId: "grids",
   languageVersion: 1,
   sourceHash: hash("workflow-actions-integration"),
-  manifestHash: hash("workflow-actions-manifest"),
+  manifestHash: CURRENT_MANIFEST_HASH,
   catalogHash: hash("workflow-actions-catalog"),
   actionPolicies: ACTION_POLICIES,
   inputs: [],
@@ -385,6 +387,251 @@ describe("declared Grids workflow actions", () => {
         workflowRunId: runId,
         workflowId: fixture.workflowId,
         fields: [fixture.nameFieldId],
+      });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("atomicRecords commits its checks, update, create, audits, outbox, and outcome together", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const runId = await queueRun(fixture, {
+        plan: boundPlan(
+          [
+            actionStep(0, "atomicRecords", {
+              locks: ["inputs.record"],
+              checks: [{ table: "Tasks", where: [{ field: "Status", op: "equals", value: "Open" }], assert: "notEmpty" }],
+              changes: [
+                { updateRecord: { record: "inputs.record", set: { Status: "Approved" } } },
+                { createRecord: { table: "Tasks", values: { Name: "Reservation evidence" } } },
+              ],
+            }),
+          ],
+          {
+            "steps.0.atomicRecords.checks.0.table": fixture.tableId,
+            "steps.0.atomicRecords.checks.0.where.0.field": fixture.statusFieldId,
+            "steps.0.atomicRecords.changes.0.updateRecord.set.Status.$target": fixture.statusFieldId,
+            "steps.0.atomicRecords.changes.1.createRecord.table": fixture.tableId,
+            "steps.0.atomicRecords.changes.1.createRecord.values.Name.$target": fixture.nameFieldId,
+          },
+        ),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+
+      expect(await drive(runId)).toBe("succeeded");
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Approved");
+      const created = await sql<Array<{ id: string; data: Record<string, unknown> }>>`
+        SELECT id::text AS id, data
+        FROM grids.records
+        WHERE table_id = ${fixture.tableId}::uuid AND id <> ${fixture.recordId}::uuid
+      `;
+      expect(created).toHaveLength(1);
+      expect(created[0]?.data[fixture.nameFieldId]).toBe("Reservation evidence");
+      const [{ audits = 0 } = {}] = await sql<Array<{ audits: number }>>`
+        SELECT count(*)::int AS audits
+        FROM grids.audit_log
+        WHERE base_id = ${fixture.baseId}::uuid
+          AND action IN ('workflow.record.updated', 'workflow.record.created')
+      `;
+      expect(audits).toBe(2);
+      const [{ events = 0 } = {}] = await sql<Array<{ events: number }>>`
+        SELECT count(*)::int AS events FROM grids.record_event_outbox WHERE base_id = ${fixture.baseId}::uuid
+      `;
+      expect(events).toBe(2);
+      expect((await stepRuns(runId))[0]).toMatchObject({ state: "completed", effect_state: "succeeded" });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("atomicRecords rolls every record, audit, and outbox write back when a later change conflicts", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const runId = await queueRun(fixture, {
+        plan: boundPlan(
+          [
+            actionStep(0, "atomicRecords", {
+              locks: ["inputs.record"],
+              checks: [{ table: "Tasks", where: [{ field: "Status", op: "equals", value: "Open" }], assert: "notEmpty" }],
+              changes: [
+                { createRecord: { table: "Tasks", values: { Name: "Must roll back" } } },
+                { updateRecord: { record: "inputs.record", set: { Status: "Approved" }, ifVersion: 999 } },
+              ],
+            }),
+          ],
+          {
+            "steps.0.atomicRecords.checks.0.table": fixture.tableId,
+            "steps.0.atomicRecords.checks.0.where.0.field": fixture.statusFieldId,
+            "steps.0.atomicRecords.changes.0.createRecord.table": fixture.tableId,
+            "steps.0.atomicRecords.changes.0.createRecord.values.Name.$target": fixture.nameFieldId,
+            "steps.0.atomicRecords.changes.1.updateRecord.set.Status.$target": fixture.statusFieldId,
+          },
+        ),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+
+      expect(await drive(runId)).toBe("failed");
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Open");
+      const [{ records = 0 } = {}] = await sql<Array<{ records: number }>>`
+        SELECT count(*)::int AS records FROM grids.records WHERE table_id = ${fixture.tableId}::uuid
+      `;
+      expect(records).toBe(1);
+      const [{ audits = 0 } = {}] = await sql<Array<{ audits: number }>>`
+        SELECT count(*)::int AS audits FROM grids.audit_log WHERE base_id = ${fixture.baseId}::uuid
+      `;
+      expect(audits).toBe(0);
+      const [{ events = 0 } = {}] = await sql<Array<{ events: number }>>`
+        SELECT count(*)::int AS events FROM grids.record_event_outbox WHERE base_id = ${fixture.baseId}::uuid
+      `;
+      expect(events).toBe(0);
+      expect((await stepRuns(runId))[0]).toMatchObject({ state: "failed", effect_state: null });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("atomicRecords serializes competing reservations on the same coordination record", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const plan = boundPlan(
+        [
+          actionStep(0, "atomicRecords", {
+            locks: ["inputs.record"],
+            checks: [{ table: "Tasks", where: [{ field: "Status", op: "equals", value: "Open" }], assert: "notEmpty" }],
+            changes: [{ updateRecord: { record: "inputs.record", set: { Status: "Reserved" } } }],
+          }),
+        ],
+        {
+          "steps.0.atomicRecords.checks.0.table": fixture.tableId,
+          "steps.0.atomicRecords.checks.0.where.0.field": fixture.statusFieldId,
+          "steps.0.atomicRecords.changes.0.updateRecord.set.Status.$target": fixture.statusFieldId,
+        },
+      );
+      const inputs = { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } } as Record<
+        string,
+        WorkflowJsonValue
+      >;
+      const firstRunId = await queueRun(fixture, { plan, inputs });
+      const secondRunId = await queueRun(fixture, { plan, inputs });
+
+      const states = await Promise.all([drive(firstRunId), drive(secondRunId)]);
+      expect(states.sort()).toEqual(["failed", "succeeded"]);
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Reserved");
+      const failures = await Promise.all([runRow(firstRunId), runRow(secondRunId)]);
+      expect(failures.find((run) => run.state === "failed")?.error).toMatchObject({ code: "ATOMIC_CHECK_FAILED" });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("an atomicRecords dry run evaluates checks without locking or mutating records", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const runId = await queueRun(fixture, {
+        mode: "dryRun",
+        plan: boundPlan(
+          [
+            actionStep(0, "atomicRecords", {
+              locks: ["inputs.record"],
+              checks: [{ table: "Tasks", where: [{ field: "Status", op: "equals", value: "Open" }], assert: "notEmpty" }],
+              changes: [{ updateRecord: { record: "inputs.record", set: { Status: "Approved" } } }],
+            }),
+          ],
+          {
+            "steps.0.atomicRecords.checks.0.table": fixture.tableId,
+            "steps.0.atomicRecords.checks.0.where.0.field": fixture.statusFieldId,
+            "steps.0.atomicRecords.changes.0.updateRecord.set.Status.$target": fixture.statusFieldId,
+          },
+        ),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+
+      expect(await drive(runId, "dryRun")).toBe("succeeded");
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Open");
+      const [step] = await stepRuns(runId);
+      expect(step?.outcome).toMatchObject({ state: "planned" });
+      expect(JSON.stringify(step?.outcome)).toContain("checks run again while locks are held");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("atomicRecords rechecks access after queueing and leaves every record unchanged when it was revoked", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const runId = await queueRun(fixture, {
+        plan: boundPlan(
+          [
+            actionStep(0, "atomicRecords", {
+              locks: ["inputs.record"],
+              checks: [{ table: "Tasks", where: [{ field: "Status", op: "equals", value: "Open" }], assert: "notEmpty" }],
+              changes: [{ updateRecord: { record: "inputs.record", set: { Status: "Approved" } } }],
+            }),
+          ],
+          {
+            "steps.0.atomicRecords.checks.0.table": fixture.tableId,
+            "steps.0.atomicRecords.checks.0.where.0.field": fixture.statusFieldId,
+            "steps.0.atomicRecords.changes.0.updateRecord.set.Status.$target": fixture.statusFieldId,
+          },
+        ),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+      const [denial] = await sql<Array<{ id: string }>>`
+        INSERT INTO auth.access (user_id, permission) VALUES (${fixture.actorId}::uuid, 'none') RETURNING id::text AS id
+      `;
+      if (!denial) throw new Error("Atomic workflow fixture could not revoke table access");
+      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${fixture.tableId}::uuid, ${denial.id}::uuid)`;
+
+      expect(await drive(runId)).toBe("failed");
+      expect((await runRow(runId)).error).toMatchObject({ code: "FORBIDDEN" });
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Open");
+      expect((await stepRuns(runId))[0]).toMatchObject({ state: "failed", effect_state: null });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("an atomicRecords replay returns its journaled outcome without applying its changes again", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const runId = await queueRun(fixture, {
+        plan: boundPlan(
+          [
+            actionStep(0, "atomicRecords", {
+              locks: ["inputs.record"],
+              checks: [{ table: "Tasks", where: [{ field: "Status", op: "equals", value: "Open" }], assert: "notEmpty" }],
+              changes: [{ updateRecord: { record: "inputs.record", set: { Status: "Approved" } } }],
+            }),
+          ],
+          {
+            "steps.0.atomicRecords.checks.0.table": fixture.tableId,
+            "steps.0.atomicRecords.checks.0.where.0.field": fixture.statusFieldId,
+            "steps.0.atomicRecords.changes.0.updateRecord.set.Status.$target": fixture.statusFieldId,
+          },
+        ),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+      expect(await drive(runId)).toBe("succeeded");
+
+      await reopenForReplay(runId);
+      await sql`
+        UPDATE grids.records
+        SET data = jsonb_set(data, ARRAY[${fixture.statusFieldId}], '"Reopened by a person"'::jsonb)
+        WHERE id = ${fixture.recordId}::uuid
+      `;
+
+      expect(await drive(runId)).toBe("succeeded");
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Reopened by a person");
+      expect((await stepRuns(runId))[0]?.outcome).toMatchObject({
+        state: "completed",
+        output: { created: [], updated: [{ kind: "record", tableId: fixture.tableId, recordId: fixture.recordId }] },
       });
     } finally {
       await cleanupFixture(fixture);

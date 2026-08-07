@@ -17,36 +17,7 @@ type WorkflowRunsApi = {
   };
 };
 
-type DashboardWorkflowRunsApi = {
-  [":dashboardId"]: {
-    widgets: {
-      [":widgetId"]: {
-        runs: {
-          [":runId"]: {
-            $get: (input: { param: { dashboardId: string; widgetId: string; runId: string } }) => Promise<Response>;
-          };
-        };
-      };
-    };
-  };
-};
-
 const workflowRunsApi = apiClient.workflows.runs as unknown as WorkflowRunsApi;
-const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWorkflowRunsApi;
-
-type DashboardWorkflowInputContractApi = {
-  [":dashboardId"]: {
-    widgets: {
-      [":widgetId"]: {
-        "input-contract": {
-          $get: (input: { param: { dashboardId: string; widgetId: string } }) => Promise<Response>;
-        };
-      };
-    };
-  };
-};
-
-const dashboardWorkflowInputContractApi = apiClient.dashboards as unknown as DashboardWorkflowInputContractApi;
 
 import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
 import { createWorkflowRunEventsProvider, isTerminalWorkflowRunLiveErrorCode } from "./workflow-run-events-provider";
@@ -70,8 +41,6 @@ export type WorkflowScannerState = {
   expectedRevision: number;
   workflowId: string;
   workflowShortId?: string;
-  dashboardId?: string | null;
-  dashboardWidgetId?: string | null;
   workflowName: string;
   workflowDescription: string | null;
   initialCode: string | null;
@@ -219,7 +188,6 @@ export default function WorkflowScannerSurface(props: Props) {
   const scanStatuses = new Map<string, ScanStatus>();
   let announcementId = 0;
   const scannerTransport: WorkflowScannerTransport = {
-    invokeDashboard: (input) => apiClient.dashboards[":dashboardId"].widgets[":widgetId"].scan.$post(input),
     invokeLauncher: (input) => apiClient.workflows.launchers[":launcherId"].invoke.scanner.$post(input),
   };
 
@@ -248,14 +216,7 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const loadInputContract = async (): Promise<WorkflowScannerInputContract> => {
     if (props.state.inputContract) return props.state.inputContract;
-    if (!props.state.dashboardId || !props.state.dashboardWidgetId) {
-      throw new Error("Scanner input contract is unavailable.");
-    }
-    const res = await dashboardWorkflowInputContractApi[":dashboardId"].widgets[":widgetId"]["input-contract"].$get({
-      param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId },
-    });
-    if (!res.ok) throw new Error(await errorMessage(res, "Scanner inputs could not be loaded"));
-    return (await res.json()) as WorkflowScannerInputContract;
+    throw new Error("Scanner input contract is unavailable.");
   };
 
   const requestSessionInputs = async (changing = false): Promise<boolean> => {
@@ -369,15 +330,6 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const refreshRun = async (logId: string, runId: string) => {
-    if (props.state.dashboardId && props.state.dashboardWidgetId) {
-      const res = await dashboardWorkflowRunsApi[":dashboardId"].widgets[":widgetId"].runs[":runId"].$get({
-        param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId, runId },
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-      const payload = (await res.json()) as { run: WorkflowRunEventSummary; steps: WorkflowRunStepSummary[] };
-      applyRun(logId, payload.run, payload.steps);
-      return;
-    }
     const res = await workflowRunsApi[":runId"].$get({ param: { runId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
     const run = (await res.json()) as WorkflowRunEventSummary;
@@ -452,8 +404,6 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const runEvents = createWorkflowRunEventsProvider({
     workflowId: props.state.workflowId,
-    dashboardId: props.state.dashboardId,
-    dashboardWidgetId: props.state.dashboardWidgetId,
     onReady: () => {
       streamReady = true;
       stopFallback();
@@ -485,8 +435,6 @@ export default function WorkflowScannerSurface(props: Props) {
         scannerTransport,
         {
           launcherId: props.state.launcherId,
-          dashboardId: props.state.dashboardId,
-          dashboardWidgetId: props.state.dashboardWidgetId,
         },
         { operationId: item.id, expectedRevision: props.state.expectedRevision, code: item.code, inputs: item.inputs },
       );

@@ -5,7 +5,7 @@ icon: ti ti-table-share
 description: Publish one governed read-only table across several bases.
 order: 122
 ---
-A Combined table presents records from several stored tables as one governed, read-only table. It is useful when teams should keep operating in separate bases but another audience needs one consistent dataset for audit, reporting, search, dashboards, documents, workflows, or export.
+A Combined table presents records from several stored tables as one governed, read-only table. It is useful when teams should keep operating in separate bases but another audience needs one consistent dataset for audit, reporting, search, Custom Apps, documents, workflows, or export.
 
 For example, regional teams can keep different Inventory bases while an audit base publishes one **All inventory** table. Readers query its canonical Name, Status, and Location fields even when the source tables use different names or select options.
 
@@ -13,12 +13,12 @@ Do not use a Combined table merely to show a subset from one table; use a view f
 
 ## What a Combined table changes {icon="table"}
 
-The Combined table owns its name, canonical fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Search, filters, sorting, pagination, grouping, aggregation, dashboards, and exports work across all published sources as they do for a stored table.
+The Combined table owns its name, canonical fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Search, filters, sorting, pagination, grouping, aggregation, Custom Apps, and exports work across all published sources as they do for a stored table.
 
 :::reference
 - **Canonical fields:** Create the fields readers should see, then map each source field to the matching canonical field. Missing mappings return null for that source.
 - **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, hidden source fields, or editing rights.
-- **Read-only result:** Use the table in GQL, saved views, dashboards, documents, workflows, and exports. Record creation, forms, imports, uploads, edits, and deletes are unavailable.
+- **Read-only result:** Use the table in GQL, saved views, Custom Apps, documents, workflows, and exports. Record creation, forms, imports, uploads, edits, and deletes are unavailable.
 - **Fail-closed publication:** A revoked, deleted, or incompatible source makes the complete published revision unavailable. Grids never returns a silently smaller partial result.
 :::
 
@@ -29,7 +29,7 @@ The Combined table owns its name, canonical fields, views, and permissions. Sour
 2. **Choose sources:** Open Combined data in edit mode. The picker lists only stored tables whose base you may administer.
 3. **Map fields and select options:** Map stable source fields by identity. Select fields also require an explicit mapping for every source option.
 4. **Validate and publish:** Validation reports incomplete or incompatible mappings without changing the active publication. Publish only after every diagnostic is resolved.
-5. **Operate the published table:** Grant target permissions and build views or dashboards normally. Source admins can inspect the exact published field scope and revoke it independently.
+5. **Operate the published table:** Grant target permissions and build views or Custom Apps normally. Source admins can inspect the exact published field scope and revoke it independently.
 :::
 
 :::note Publication authority
@@ -38,7 +38,7 @@ Publishing always requires admin access to the target base. Source-base admin ac
 
 ## Query and downstream behavior {icon="search"}
 
-GQL has no special Combined-table syntax. Autocomplete exposes only the canonical target fields, and the same query can back a records page, saved view, dashboard widget, document source, workflow read, or streaming export.
+GQL has no special Combined-table syntax. Autocomplete exposes only the canonical target fields, and the same query can back a records page, saved view, Custom App block, document source, workflow read, or streaming export.
 
 **Company-wide inventory**
 

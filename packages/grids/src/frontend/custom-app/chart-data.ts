@@ -1,5 +1,5 @@
 import type { BarItem, Point, Series, SliceItem } from "@k2b/stdlib";
-import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../service";
+import type { AggregationSpec, Field, GroupBySpec } from "../../contracts";
 
 /**
  * Transforms `record.group()` buckets into the shapes the platform
@@ -168,7 +168,7 @@ export const bucketsToSparklineData = (buckets: ChartBucket[], primaryAgg: Aggre
  *
  * For numeric groupBys (e.g. a "year" field), the index-as-x makes
  * the line evenly spaced regardless of source spacing — semantically
- * "trend over ordered buckets", which is what dashboard line charts
+ * "trend over ordered buckets", which is what Custom App line charts
  * almost always mean. True numeric x-axes (continuous quantities)
  * can come later with an explicit `xField` knob if a use case shows up.
  */
@@ -255,7 +255,7 @@ type ChartRenderData =
  * itself but now come from the GQL source that the widget points at.
  */
 type ChartRenderInput = {
-  widget: Pick<ChartWidget, "chartType">;
+  widget: { chartType: "donut" | "bar" | "line" | "sparkline" | "scatter" };
   /** The source's groupBy specs (parallel to bucket.keys positions). */
   groupBy: GroupBySpec[];
   /** The source's aggregations (parallel to bucket.values keys). */

@@ -125,14 +125,14 @@ export const WORKFLOW_REFERENCE = {
       query: { limit: 100 },
       inputs: {},
     },
-    dashboard: {
-      operationId: "dashboard-42",
+    customApp: {
+      operationId: "customApp-42",
       mode: "execute",
       expectedRevision: 3,
       inputs: {},
     },
-    dashboardPrompt: {
-      operationId: "dashboard-43",
+    customAppPrompt: {
+      operationId: "customApp-43",
       mode: "execute",
       expectedRevision: 3,
       inputs: { range: "30d" },
@@ -150,14 +150,14 @@ export const WORKFLOW_REFERENCE = {
       enabled: true,
     },
     bulk: { name: "Process selection", config: { kind: "bulk", input: "items" }, enabled: true },
-    dashboard: {
+    customApp: {
       name: "Run report",
-      config: { kind: "dashboard", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
+      config: { kind: "customApp", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
       enabled: true,
     },
-    dashboardPrompt: {
+    customAppPrompt: {
       name: "Run report",
-      config: { kind: "dashboard", label: "Run", inputMode: "prompt" },
+      config: { kind: "customApp", label: "Run", inputMode: "prompt" },
       enabled: true,
     },
   },

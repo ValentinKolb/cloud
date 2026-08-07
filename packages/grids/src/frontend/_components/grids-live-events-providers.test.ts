@@ -51,7 +51,6 @@ const { createWorkflowRunEventsProvider } = await import("./workflows/workflow-r
 
 const TABLE_ID = "011d8753-3ef9-4ebe-b7ed-fab4bb08c8e1";
 const OTHER_TABLE_ID = "111d8753-3ef9-4ebe-b7ed-fab4bb08c8e1";
-const DASHBOARD_ID = "222d8753-3ef9-4ebe-b7ed-fab4bb08c8e1";
 const BASE_ID = "85232148-725f-47af-999a-8379a83ef5f2";
 const OTHER_BASE_ID = "95232148-725f-47af-999a-8379a83ef5f2";
 const WORKFLOW_ID = "11111111-1111-4111-8111-111111111111";
@@ -141,8 +140,8 @@ beforeEach(() => {
 });
 
 describe("Grids record live events adapter", () => {
-  test("subscribes with table, dashboard, cursor, and visible activity", () => {
-    const provider = createGridsRecordEventsProvider({ tableId: TABLE_ID, dashboardId: DASHBOARD_ID, initialCursor: "6-9" });
+  test("subscribes with table, cursor, and visible activity", () => {
+    const provider = createGridsRecordEventsProvider({ tableId: TABLE_ID, initialCursor: "6-9" });
     const call = providerCalls[0]!;
 
     provider.connect();
@@ -152,7 +151,7 @@ describe("Grids record live events adapter", () => {
     expect(call.options.initialCursor).toBe("6-9");
     expect(call.options.subscribe("7-1")).toEqual({
       type: "grids.records.subscribe",
-      payload: { tableId: TABLE_ID, dashboardId: DASHBOARD_ID, fromCursor: "7-1" },
+      payload: { tableId: TABLE_ID, fromCursor: "7-1" },
     });
     expect(call.connectCount).toBe(1);
   });
@@ -201,7 +200,6 @@ describe("Grids record live events adapter", () => {
     const received: Array<{ event: unknown; cursor: string | null }> = [];
     const provider = createGridsRecordEventsProvider({
       tableId: TABLE_ID,
-      dashboardId: DASHBOARD_ID,
       onEvent: (event, cursor) => received.push({ event, cursor }),
     });
     const call = providerCalls[0]!;
@@ -306,12 +304,10 @@ describe("Grids workflow-run live events adapter", () => {
     expect(call.controlCursors).toEqual(["8-9"]);
   });
 
-  test("subscribes with launcher scope and marks accepted events after the callback", () => {
+  test("subscribes to the workflow and marks accepted events after the callback", () => {
     const order: string[] = [];
     createWorkflowRunEventsProvider({
       workflowId: WORKFLOW_ID,
-      dashboardId: DASHBOARD_ID,
-      dashboardWidgetId: "scanner-1",
       onEvent: () => order.push("event"),
     });
     const call = providerCalls[0]!;
@@ -321,8 +317,6 @@ describe("Grids workflow-run live events adapter", () => {
       type: "grids.workflow-runs.subscribe",
       payload: {
         workflowId: WORKFLOW_ID,
-        dashboardId: DASHBOARD_ID,
-        dashboardWidgetId: "scanner-1",
         fromCursor: null,
       },
     });

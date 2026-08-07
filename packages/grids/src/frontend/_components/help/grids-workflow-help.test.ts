@@ -141,7 +141,7 @@ describe("Grids workflow help", () => {
   });
 
   test("keeps launchers and direct invocation out of YAML triggers", () => {
-    for (const legacyTrigger of ["form", "api", "scanner", "bulkSelection", "dashboardButton"]) {
+    for (const legacyTrigger of ["form", "api", "scanner", "bulkSelection"]) {
       expect(helpSource, `legacy YAML trigger ${legacyTrigger}`).not.toContain(`  ${legacyTrigger}:`);
     }
 

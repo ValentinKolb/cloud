@@ -12,7 +12,7 @@ import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, short_id, name, description, document_profile, created_by, default_dashboard_id, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, name, description, document_profile, created_by, deleted_at, created_at, updated_at`;
 
 const mapDocumentProfile = (value: unknown): Base["documentProfile"] => {
   const parsed = DocumentProfileSchema.safeParse(parseJsonbRow(value, {}));
@@ -26,7 +26,6 @@ const mapRow = (row: DbRow): Base => ({
   description: (row.description as string | null) ?? null,
   documentProfile: mapDocumentProfile(row.document_profile),
   createdBy: (row.created_by as string | null) ?? null,
-  defaultDashboardId: (row.default_dashboard_id as string | null) ?? null,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
@@ -235,29 +234,10 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
 
-  // defaultDashboardId is allowed through the same update path (caller
-  // gates with base-admin). Validate that the referenced dashboard
-  // exists, belongs to this base, and is alive — otherwise we'd be
-  // happily writing dangling references.
-  if (input.defaultDashboardId !== undefined && input.defaultDashboardId !== null) {
-    const [row] = await sql<{ exists: boolean }[]>`
-      SELECT EXISTS(
-        SELECT 1 FROM grids.dashboards
-        WHERE id = ${input.defaultDashboardId}::uuid
-          AND base_id = ${id}::uuid
-          AND deleted_at IS NULL
-      ) AS exists
-    `;
-    if (!row?.exists) {
-      return fail(err.badInput("defaultDashboardId must reference an alive dashboard in this base"));
-    }
-  }
-
   const next = {
     name: name ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
     documentProfile: input.documentProfile !== undefined ? input.documentProfile : existing.documentProfile,
-    defaultDashboardId: input.defaultDashboardId !== undefined ? input.defaultDashboardId : existing.defaultDashboardId,
   };
 
   const [row] = await sql<DbRow[]>`
@@ -265,7 +245,6 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
     SET name = ${next.name},
         description = ${next.description},
         document_profile = ${next.documentProfile}::jsonb,
-        default_dashboard_id = ${next.defaultDashboardId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
     RETURNING ${COLS}
@@ -280,12 +259,6 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   }
   if (JSON.stringify(next.documentProfile) !== JSON.stringify(existing.documentProfile)) {
     diff.documentProfile = { old: existing.documentProfile, new: next.documentProfile };
-  }
-  if (next.defaultDashboardId !== existing.defaultDashboardId) {
-    diff.defaultDashboardId = {
-      old: existing.defaultDashboardId,
-      new: next.defaultDashboardId,
-    };
   }
   if (Object.keys(diff).length > 0) {
     await logAudit({ baseId: id, userId: actorId, action: "updated", diff });
@@ -394,7 +367,7 @@ export const adminList = async (params: {
 
   const rows = await sql<DbRow[]>`
     SELECT
-      b.id, b.short_id, b.name, b.description, b.created_by, b.default_dashboard_id, b.deleted_at, b.created_at, b.updated_at,
+      b.id, b.short_id, b.name, b.description, b.document_profile, b.created_by, b.deleted_at, b.created_at, b.updated_at,
       (SELECT COUNT(*)::int FROM grids.tables WHERE base_id = b.id AND deleted_at IS NULL) AS table_count,
       (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = b.id AND t.deleted_at IS NULL AND r.deleted_at IS NULL) AS record_count,
       (SELECT COUNT(*)::int FROM grids.base_access WHERE base_id = b.id) AS access_count

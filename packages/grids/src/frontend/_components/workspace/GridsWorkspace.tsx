@@ -7,7 +7,6 @@ import { workspaceRootClass } from "./workspace-layout";
 import type { OkWorkspaceState, WorkspaceCatalog } from "./workspace-state-model";
 
 const emptyClientCatalog = (): WorkspaceCatalog => ({
-  dashboards: [],
   workflows: [],
   workflowLevels: {},
   tables: [],
@@ -31,13 +30,6 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
       catalog.fieldsByTable = state.catalog.fieldsByTable;
       catalog.viewsByTable = state.catalog.viewsByTable;
       catalog.tableShortIds = state.catalog.tableShortIds;
-      break;
-    case "dashboard":
-      catalog.dashboards = state.catalog.dashboards;
-      catalog.tables = state.catalog.tables;
-      catalog.fieldsByTable = state.catalog.fieldsByTable;
-      catalog.viewsByTable = state.catalog.viewsByTable;
-      catalog.formsByTable = state.catalog.formsByTable;
       break;
     case "workflows":
       catalog.tables = state.catalog.tables;

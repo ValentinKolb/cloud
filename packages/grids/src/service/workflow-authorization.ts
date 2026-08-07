@@ -284,7 +284,6 @@ export const authorizeWorkflowTarget = async (
       viewId: "viewId" in target ? target.viewId : null,
       formId: "formId" in target ? target.formId : null,
       documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
-      dashboardId: "dashboardId" in target ? target.dashboardId : null,
       customAppId: "customAppId" in target ? target.customAppId : null,
       workflowId: "workflowId" in target ? target.workflowId : null,
     },

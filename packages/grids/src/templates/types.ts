@@ -1,7 +1,13 @@
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import type { GridsWorkflowLauncherConfig } from "../workflows/contracts";
 
-type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "dashboard" | "launcher";
+type TemplateRefKind =
+  | "table"
+  | "field"
+  | "record"
+  | "view"
+  | "form"
+  | "launcher";
 
 export type TemplateRef = {
   $ref: TemplateRefKind;
@@ -71,12 +77,31 @@ type TemplateForm = {
   config: Record<string, unknown>;
 };
 
-type TemplateDashboard = {
+type TemplateCustomAppBlock = {
+  id: string;
+  type: "metrics" | "chart" | "records" | "form" | "actions";
+  title?: string;
+  subtitle?: string;
+  chartType?: "donut" | "bar" | "line" | "sparkline" | "scatter";
+  source?: unknown;
+  formId?: TemplateRef;
+  launcherId?: TemplateRef;
+  buttonLabel?: string;
+  valueFormat?: unknown;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  span: number;
+};
+
+type TemplateCustomApp = {
   key: string;
   name: string;
   description?: string | null;
-  shared?: boolean;
-  config: unknown;
+  icon?: string;
+  rows: Array<{
+    id: string;
+    columns: TemplateCustomAppBlock[];
+  }>;
 };
 
 type TemplateDocumentTemplate = {
@@ -127,12 +152,11 @@ export type GridTemplate = {
   records?: TemplateRecord[];
   views?: TemplateView[];
   forms?: TemplateForm[];
-  dashboards?: TemplateDashboard[];
+  customApps?: TemplateCustomApp[];
   documentTemplates?: TemplateDocumentTemplate[];
   emailTemplates?: TemplateEmailTemplate[];
   workflows?: TemplateWorkflow[];
   workflowLaunchers?: TemplateWorkflowLauncher[];
-  defaultDashboard?: string;
 };
 
 export const table = (key: string): TemplateRef => ({ $ref: "table", key });
@@ -140,9 +164,17 @@ export const field = (key: string): TemplateRef => ({ $ref: "field", key });
 export const record = (key: string): TemplateRef => ({ $ref: "record", key });
 export const view = (key: string): TemplateRef => ({ $ref: "view", key });
 export const form = (key: string): TemplateRef => ({ $ref: "form", key });
-export const launcher = (key: string): TemplateRef => ({ $ref: "launcher", key });
-export const formula = (...parts: Array<string | TemplateRef>): TemplateFormulaExpression => ({ $formula: parts });
-export const currentMonthDate = (day: number, monthOffset = 0): TemplateDateExpression => ({
+export const launcher = (key: string): TemplateRef => ({
+  $ref: "launcher",
+  key,
+});
+export const formula = (
+  ...parts: Array<string | TemplateRef>
+): TemplateFormulaExpression => ({ $formula: parts });
+export const currentMonthDate = (
+  day: number,
+  monthOffset = 0
+): TemplateDateExpression => ({
   $date: "current_month",
   day,
   ...(monthOffset === 0 ? {} : { monthOffset }),

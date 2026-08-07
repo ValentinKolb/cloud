@@ -11,7 +11,6 @@ type LiveProviderError = {
 type GridsRecordEventsProviderOptions = {
   tableId: string;
   initialCursor?: string | null;
-  dashboardId?: string;
   onReady?: () => void;
   onEvent?: (event: LiveRecordEvent | null, cursor: string | null) => void;
   onError?: (error: LiveProviderError) => void;
@@ -53,7 +52,6 @@ export const createGridsRecordEventsProvider = (opts: GridsRecordEventsProviderO
       type: gridsWorkspace.wsType.recordsSubscribe,
       payload: {
         tableId: opts.tableId,
-        dashboardId: opts.dashboardId,
         fromCursor: cursor,
       },
     }),

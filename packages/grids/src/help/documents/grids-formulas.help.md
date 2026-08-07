@@ -11,7 +11,7 @@ Create a **Formula field** when the result belongs on every record. Add a **Comp
 
 ## Where formulas run {icon="math-function"}
 
-- **Formula fields** recalculate when records are read and can appear in views, cards, detail panels, dashboards, and documents.
+- **Formula fields** recalculate when records are read and can appear in views, cards, detail panels, Custom Apps, and documents.
 - **Computed columns** are temporary query output and do not add a field to the table.
 - **GQL conditions** use an expression inside `where` or `having`.
 - **GQL output** uses `formula(expression) as alias`.

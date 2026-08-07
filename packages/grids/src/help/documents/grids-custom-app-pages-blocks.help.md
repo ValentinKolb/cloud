@@ -109,7 +109,7 @@ Comments inherit record visibility. They do not introduce a separate audience or
 
 ### Actions
 
-Actions contains buttons that either navigate inside the same Custom App or start an existing enabled Dashboard workflow launcher. A workflow action may bind JSON `LITERAL` values, declared Record `PARAMS`, or the current page `RECORD.id` to compatible workflow inputs. Fixed launchers use their stored bindings and do not accept action inputs.
+Actions contains buttons that either navigate inside the same Custom App or start an existing enabled Custom App workflow launcher. A workflow action may bind JSON `LITERAL` values, declared Record `PARAMS`, or the current page `RECORD.id` to compatible workflow inputs. Fixed launchers use their stored bindings and do not accept action inputs.
 
 The block cannot call arbitrary URLs, update records directly, or invoke a workflow that was not included in the published capability set.
 Starting a workflow is asynchronous: the button reports whether the run was accepted, while the workflow owns its effects and their observable run state. Navigation after a workflow belongs in the workflow or a later page-state transition; Actions does not bind arbitrary workflow results.

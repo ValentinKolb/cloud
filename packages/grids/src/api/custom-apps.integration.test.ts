@@ -9,7 +9,7 @@ import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "../service/access";
 import { apply, publish } from "../service/custom-apps";
-import type { DashboardLauncherInvocation } from "../service/workflow-launcher-invocations";
+import type { CustomAppLauncherInvocation } from "../service/workflow-launcher-invocations";
 import { createCustomAppsApi } from "./custom-apps";
 
 const authenticateAs =
@@ -159,19 +159,19 @@ describe("Custom App Form runtime", () => {
         accessIds.push(result.data.accessId);
       }
 
-      let actionInvocation: DashboardLauncherInvocation | null = null;
+      let actionInvocation: CustomAppLauncherInvocation | null = null;
       const api = new Hono<AuthContext>().route(
         "/apps",
         createCustomAppsApi({
           requireAuthenticated: authenticateAs(userFor(authUser.id)),
-          invokeDashboardLauncher: async (input) => {
-            actionInvocation = input as DashboardLauncherInvocation;
+          invokeCustomAppLauncher: async (input) => {
+            actionInvocation = input as CustomAppLauncherInvocation;
             return ok({
               runId: testUuid(),
               workflowId,
               revision: "1",
               mode: "execute",
-              channel: "dashboard",
+              channel: "customApp",
               created: true,
               status: "queued",
             });

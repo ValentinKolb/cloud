@@ -1,10 +1,21 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+import {
+  currentMonthDate,
+  field,
+  form,
+  formula,
+  type GridTemplate,
+  launcher,
+  record,
+  table,
+  view,
+} from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
   name: "Inventory",
-  description: "Track assets, storage locations, equipment loans, agreements, and repairs.",
+  description:
+    "Track assets, storage locations, equipment loans, agreements, and repairs.",
   highlights: [
     "Assets, kits, locations, and loan requests",
     "Availability and loan workload overview",
@@ -30,7 +41,8 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "description",
           name: "Description",
-          description: "Optional notes that explain what belongs in this category.",
+          description:
+            "Optional notes that explain what belongs in this category.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-align-left",
@@ -50,8 +62,20 @@ export const inventoryTemplate: GridTemplate = {
           presentable: true,
           icon: "ti ti-map-pin",
         },
-        { key: "room", name: "Room", description: "Room or area where this location sits.", type: "text", icon: "ti ti-door" },
-        { key: "shelf", name: "Shelf", description: "Shelf, cabinet, or bin identifier.", type: "text", icon: "ti ti-stack" },
+        {
+          key: "room",
+          name: "Room",
+          description: "Room or area where this location sits.",
+          type: "text",
+          icon: "ti ti-door",
+        },
+        {
+          key: "shelf",
+          name: "Shelf",
+          description: "Shelf, cabinet, or bin identifier.",
+          type: "text",
+          icon: "ti ti-stack",
+        },
         {
           key: "notes",
           name: "Notes",
@@ -130,7 +154,8 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "status",
           name: "Status",
-          description: "Availability state used for filtering and loan planning.",
+          description:
+            "Availability state used for filtering and loan planning.",
           type: "select",
           icon: "ti ti-traffic-lights",
           config: {
@@ -162,7 +187,8 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "serial_no",
           name: "Serial number",
-          description: "Manufacturer serial number or other external identifier.",
+          description:
+            "Manufacturer serial number or other external identifier.",
           type: "text",
           icon: "ti ti-barcode",
         },
@@ -197,13 +223,13 @@ export const inventoryTemplate: GridTemplate = {
           name: "Replacement value",
           description: "Estimated cost to replace one unit.",
           type: "number",
+          icon: "ti ti-currency-euro",
           config: {
             precision: 16,
             decimalPlaces: 2,
             unit: "EUR",
             unitPosition: "suffix",
           },
-          icon: "ti ti-currency-euro",
         },
         {
           key: "total_value",
@@ -211,7 +237,11 @@ export const inventoryTemplate: GridTemplate = {
           description: "Quantity multiplied by replacement value.",
           type: "formula",
           config: {
-            expression: formula(field("items.quantity"), " * ", field("items.replacement_value")),
+            expression: formula(
+              field("items.quantity"),
+              " * ",
+              field("items.replacement_value")
+            ),
             format: {
               kind: "decimal",
               precision: 2,
@@ -265,7 +295,7 @@ export const inventoryTemplate: GridTemplate = {
           type: "text",
           required: true,
           presentable: true,
-          icon: "ti ti-briefcase",
+          icon: "ti ti-tag",
         },
         {
           key: "category",
@@ -280,7 +310,7 @@ export const inventoryTemplate: GridTemplate = {
           name: "Items",
           description: "Inventory items included in this kit.",
           type: "relation",
-          icon: "ti ti-packages",
+          icon: "ti ti-package",
           config: { targetTableId: table("items"), cardinality: "multiple" },
         },
         {
@@ -336,7 +366,12 @@ export const inventoryTemplate: GridTemplate = {
           name: "Loan number",
           description: "Generated loan request number.",
           type: "id",
-          config: { strategy: "date_sequence", prefix: "LOAN-", period: "year", padding: 4 },
+          config: {
+            strategy: "date_sequence",
+            prefix: "LOAN-",
+            period: "year",
+            padding: 4,
+          },
           presentable: true,
           icon: "ti ti-id",
         },
@@ -371,7 +406,7 @@ export const inventoryTemplate: GridTemplate = {
           description: "Kits requested or borrowed in this loan.",
           type: "relation",
           required: true,
-          icon: "ti ti-briefcase",
+          icon: "ti ti-box",
           config: { targetTableId: table("kits"), cardinality: "multiple" },
         },
         {
@@ -379,7 +414,7 @@ export const inventoryTemplate: GridTemplate = {
           name: "Loaned items",
           description: "Specific inventory records handed out under this loan.",
           type: "relation",
-          icon: "ti ti-packages",
+          icon: "ti ti-package",
           config: { targetTableId: table("items"), cardinality: "multiple" },
         },
         {
@@ -401,10 +436,15 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "schedule_valid",
           name: "Schedule valid",
-          description: "Whether the return date is on or after the requested start date.",
+          description:
+            "Whether the return date is on or after the requested start date.",
           type: "formula",
           config: {
-            expression: formula(field("loans.start_date"), " <= ", field("loans.due_date")),
+            expression: formula(
+              field("loans.start_date"),
+              " <= ",
+              field("loans.due_date")
+            ),
           },
           icon: "ti ti-calendar-check",
         },
@@ -436,7 +476,8 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "availability_confirmed",
           name: "Availability confirmed",
-          description: "An admin has checked the selected kits, their items, and the requested dates before approval.",
+          description:
+            "An admin has checked the selected kits, their items, and the requested dates before approval.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-calendar-check",
@@ -444,7 +485,8 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "agreement_sent",
           name: "Agreement sent",
-          description: "Set once the agreement workflow has succeeded, so it is not replayed.",
+          description:
+            "Set once the agreement workflow has succeeded, so it is not replayed.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-mail-check",
@@ -508,7 +550,12 @@ export const inventoryTemplate: GridTemplate = {
         {
           field: "files",
           filename: "sony-a7-body.svg",
-          dataUrl: createMockCover({ icon: "camera", theme: "blue", seed: "inventory:sony-a7-body", label: "Sony A7 body" }).dataUrl,
+          dataUrl: createMockCover({
+            icon: "camera",
+            theme: "blue",
+            seed: "inventory:sony-a7-body",
+            label: "Sony A7 body",
+          }).dataUrl,
         },
       ],
     },
@@ -529,8 +576,12 @@ export const inventoryTemplate: GridTemplate = {
         {
           field: "files",
           filename: "wireless-mic-set.svg",
-          dataUrl: createMockCover({ icon: "microphone", theme: "violet", seed: "inventory:wireless-mic-set", label: "Wireless mic set" })
-            .dataUrl,
+          dataUrl: createMockCover({
+            icon: "microphone",
+            theme: "violet",
+            seed: "inventory:wireless-mic-set",
+            label: "Wireless mic set",
+          }).dataUrl,
         },
       ],
     },
@@ -551,7 +602,12 @@ export const inventoryTemplate: GridTemplate = {
         {
           field: "files",
           filename: "hdmi-cable-5m.svg",
-          dataUrl: createMockCover({ icon: "package", theme: "slate", seed: "inventory:hdmi-cable-5m", label: "HDMI cable 5m" }).dataUrl,
+          dataUrl: createMockCover({
+            icon: "package",
+            theme: "slate",
+            seed: "inventory:hdmi-cable-5m",
+            label: "HDMI cable 5m",
+          }).dataUrl,
         },
       ],
     },
@@ -561,10 +617,15 @@ export const inventoryTemplate: GridTemplate = {
       values: {
         name: "Video interview kit",
         category: [record("categories.cameras")],
-        items: [record("items.camera"), record("items.mic"), record("items.hdmi")],
+        items: [
+          record("items.camera"),
+          record("items.mic"),
+          record("items.hdmi"),
+        ],
         status: ["available"],
         requestable: true,
-        description: "Camera body, wireless mic set, and HDMI cable for interviews.",
+        description:
+          "Camera body, wireless mic set, and HDMI cable for interviews.",
       },
     },
     {
@@ -624,11 +685,15 @@ export const inventoryTemplate: GridTemplate = {
         field("items.total_value"),
         "\nwhere ",
         field("items.status"),
-        " = 'available'",
+        " = 'available'"
       ),
       ui: {
         columns: [
-          { fieldId: field("items.asset_barcode"), label: "Asset ID", format: { kind: "barcode", bcid: "code128", showText: true } },
+          {
+            fieldId: field("items.asset_barcode"),
+            label: "Asset ID",
+            format: { kind: "barcode", bcid: "code128", showText: true },
+          },
           { fieldId: field("items.name") },
           { fieldId: field("items.category") },
           { fieldId: field("items.location") },
@@ -680,7 +745,7 @@ export const inventoryTemplate: GridTemplate = {
         field("loans.status"),
         ", 'requested', 'approved', 'active')\nsort ",
         field("loans.due_date"),
-        " asc",
+        " asc"
       ),
       ui: {
         columns: [
@@ -810,7 +875,8 @@ export const inventoryTemplate: GridTemplate = {
       isPublic: true,
       config: {
         title: "Request kit loan",
-        description: "Choose one or more kits. An admin reviews and approves the request.",
+        description:
+          "Choose one or more kits. An admin reviews and approves the request.",
         submitLabel: "Request loan",
         successMessage: "Loan requested.",
         fields: [
@@ -866,194 +932,194 @@ export const inventoryTemplate: GridTemplate = {
             fieldId: field("loans.status"),
             value: ["requested"],
           },
-          { kind: "form_value", fieldId: field("loans.availability_confirmed"), value: false },
-          { kind: "form_value", fieldId: field("loans.agreement_sent"), value: false },
+          {
+            kind: "form_value",
+            fieldId: field("loans.availability_confirmed"),
+            value: false,
+          },
+          {
+            kind: "form_value",
+            fieldId: field("loans.agreement_sent"),
+            value: false,
+          },
         ],
       },
     },
   ],
-  dashboards: [
+  customApps: [
     {
       key: "overview",
       name: "Inventory overview",
       description: "Inventory value, open loan requests, and quick entry.",
-      shared: true,
-      config: {
-        rows: [
-          {
-            id: "r_stats",
-            kind: "row",
-            height: "sm",
-            cells: [
-              {
-                id: "w_items",
-                kind: "stat",
-                title: "Items",
-                icon: "ti ti-packages",
-                valueFormat: { style: "integer" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula("from table ", table("items"), "\naggregate count(*) as item_count"),
-                },
+      rows: [
+        {
+          id: "r_stats",
+          columns: [
+            {
+              id: "w_items",
+              type: "metrics",
+              title: "Items",
+              valueFormat: { style: "integer" },
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("items"),
+                  "\naggregate count(*) as item_count"
+                ),
               },
-              {
-                id: "w_kits",
-                kind: "stat",
-                title: "Kits",
-                icon: "ti ti-briefcase",
-                valueFormat: { style: "integer" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula("from table ", table("kits"), "\naggregate count(*) as kit_count"),
-                },
+            },
+            {
+              id: "w_kits",
+              type: "metrics",
+              title: "Kits",
+              valueFormat: { style: "integer" },
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("kits"),
+                  "\naggregate count(*) as kit_count"
+                ),
               },
-              {
-                id: "w_open_loans",
-                kind: "stat",
-                title: "Open loans",
-                icon: "ti ti-calendar-due",
-                valueFormat: { style: "integer" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("loans"),
-                    "\nwhere oneof(",
-                    field("loans.status"),
-                    ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count",
-                  ),
-                },
+            },
+            {
+              id: "w_open_loans",
+              type: "metrics",
+              title: "Open loans",
+              valueFormat: { style: "integer" },
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("loans"),
+                  "\nwhere oneof(",
+                  field("loans.status"),
+                  ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count"
+                ),
               },
-              {
-                id: "w_value",
-                kind: "stat",
-                title: "Inventory value",
-                sub: "replacement value",
-                icon: "ti ti-currency-euro",
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 3,
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("items"),
-                    "\naggregate sum(formula(",
-                    field("items.quantity"),
-                    " * ",
-                    field("items.replacement_value"),
-                    ")) as inventory_value",
-                  ),
-                },
+            },
+            {
+              id: "w_value",
+              type: "metrics",
+              title: "Inventory value",
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-            ],
-          },
-          {
-            id: "r_main",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_available",
-                kind: "view",
-                title: "Available items",
-                source: { kind: "view", viewId: view("available_items") },
-                span: 7,
+              span: 3,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("items"),
+                  "\naggregate sum(formula(",
+                  field("items.quantity"),
+                  " * ",
+                  field("items.replacement_value"),
+                  ")) as inventory_value"
+                ),
               },
-              {
-                id: "w_add",
-                kind: "form",
-                title: "Add item",
-                formId: form("add_item"),
-                span: 5,
+            },
+          ],
+        },
+        {
+          id: "r_main",
+          columns: [
+            {
+              id: "w_available",
+              type: "records",
+              title: "Available items",
+              source: { kind: "view", viewId: view("available_items") },
+              span: 7,
+            },
+            {
+              id: "w_add",
+              type: "form",
+              title: "Add item",
+              formId: form("add_item"),
+              span: 5,
+            },
+          ],
+        },
+        {
+          id: "r_stock",
+          columns: [
+            {
+              id: "w_stock_by_category",
+              type: "chart",
+              title: "Stock by category",
+              subtitle: "Available units per category",
+              chartType: "bar",
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("items"),
+                  "\njoin table ",
+                  table("categories"),
+                  " as category on ",
+                  field("items.category"),
+                  " = category.id\nwhere ",
+                  field("items.status"),
+                  " = 'available'\ngroup by category.",
+                  field("categories.name"),
+                  "\naggregate sum(",
+                  field("items.quantity"),
+                  ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last"
+                ),
               },
-            ],
-          },
-          {
-            id: "r_stock",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_stock_by_category",
-                kind: "chart",
-                title: "Stock by category",
-                subtitle: "Available units per category",
-                chartType: "bar",
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("items"),
-                    "\njoin table ",
-                    table("categories"),
-                    " as category on ",
-                    field("items.category"),
-                    " = category.id\nwhere ",
-                    field("items.status"),
-                    " = 'available'\ngroup by category.",
-                    field("categories.name"),
-                    "\naggregate sum(",
-                    field("items.quantity"),
-                    ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last",
-                  ),
-                },
-                span: 12,
-              },
-            ],
-          },
-          {
-            id: "r_bottom",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_open",
-                kind: "view",
-                title: "Open loans",
-                source: { kind: "view", viewId: view("open_loans") },
-                span: 12,
-              },
-            ],
-          },
-          {
-            id: "r_workflows",
-            kind: "row",
-            height: "sm",
-            cells: [
-              {
-                id: "w_send_agreement",
-                kind: "workflow-button",
-                title: "Send an agreement",
-                description: "Choose an approved loan to generate and email its agreement.",
-                buttonLabel: "Choose loan",
-                launcherId: launcher("send_loan_agreement_dashboard"),
-                span: 4,
-              },
-              {
-                id: "w_return_item",
-                kind: "workflow-button",
-                title: "Return loaned items",
-                description: "Choose an active loan, scan each returned item, and assess its condition.",
-                buttonLabel: "Open return scanner",
-                launcherId: launcher("return_loan_item_scanner"),
-                span: 4,
-              },
-              {
-                id: "w_report_defect",
-                kind: "workflow-button",
-                title: "Report a damaged item",
-                description: "Scan the barcode on an inventory label to move the item into maintenance.",
-                buttonLabel: "Open asset scanner",
-                launcherId: launcher("report_item_defect_scanner"),
-                span: 4,
-              },
-            ],
-          },
-        ],
-      },
+              span: 12,
+            },
+          ],
+        },
+        {
+          id: "r_bottom",
+          columns: [
+            {
+              id: "w_open",
+              type: "records",
+              title: "Open loans",
+              source: { kind: "view", viewId: view("open_loans") },
+              span: 12,
+            },
+          ],
+        },
+        {
+          id: "r_workflows",
+          columns: [
+            {
+              id: "w_send_agreement",
+              type: "actions",
+              title: "Send an agreement",
+              buttonLabel: "Choose loan",
+              launcherId: launcher("send_loan_agreement_custom_app"),
+              span: 4,
+            },
+            {
+              id: "w_return_item",
+              type: "actions",
+              title: "Return loaned items",
+              buttonLabel: "Open return scanner",
+              launcherId: launcher("return_loan_item_scanner"),
+              span: 4,
+            },
+            {
+              id: "w_report_defect",
+              type: "actions",
+              title: "Report a damaged item",
+              buttonLabel: "Open asset scanner",
+              launcherId: launcher("report_item_defect_scanner"),
+              span: 4,
+            },
+          ],
+        },
+      ],
     },
   ],
   documentTemplates: [
@@ -1062,7 +1128,8 @@ export const inventoryTemplate: GridTemplate = {
       table: "items",
       starterId: "label",
       name: "Asset label",
-      description: "Printable inventory label used to identify and scan one item.",
+      description:
+        "Printable inventory label used to identify and scan one item.",
       source: formula(
         "from table ",
         table("items"),
@@ -1072,7 +1139,7 @@ export const inventoryTemplate: GridTemplate = {
         field("items.name"),
         ", ",
         field("items.location"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1"
       ),
       enabled: true,
     },
@@ -1107,7 +1174,7 @@ export const inventoryTemplate: GridTemplate = {
         " as return_due",
         ", ",
         field("loans.purpose"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1"
       ),
       enabled: true,
     },
@@ -1116,7 +1183,8 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "loan_agreement_ready",
       name: "Loan agreement ready",
-      description: "Sends a private download link for a generated loan agreement.",
+      description:
+        "Sends a private download link for a generated loan agreement.",
       subject: "Loan agreement {{ data.loanNumber | default: 'ready' }}",
       html: `<main style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;margin:0 auto;padding:32px;">
   <h1 style="font-size:24px;margin:0 0 16px;">Your loan agreement is ready</h1>
@@ -1129,7 +1197,9 @@ export const inventoryTemplate: GridTemplate = {
         requesterName: "Alex Morgan",
         loanNumber: "LOAN-2026-0001",
         dueDate: "31 July 2026",
-        agreement: { url: "https://cloud.example.org/share/grids/documents/example" },
+        agreement: {
+          url: "https://cloud.example.org/share/grids/documents/example",
+        },
       },
       enabled: true,
     },
@@ -1138,7 +1208,8 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "send_loan_agreement",
       name: "Send approved loan agreement",
-      description: "Generates and emails an agreement after an admin has approved the loan and confirmed availability.",
+      description:
+        "Generates and emails an agreement after an admin has approved the loan and confirmed availability.",
       source: `inputs:
   loan:
     type: record
@@ -1215,7 +1286,8 @@ steps:
     {
       key: "report_item_defect",
       name: "Report damaged item",
-      description: "Moves a scanned inventory item into maintenance and marks it as needing repair.",
+      description:
+        "Moves a scanned inventory item into maintenance and marks it as needing repair.",
       source: `inputs:
   item:
     type: record
@@ -1242,7 +1314,8 @@ steps:
     {
       key: "return_loan_item",
       name: "Mark loan item as returned",
-      description: "Uses one selected loan for the scanner session, then records the condition of every scanned item.",
+      description:
+        "Uses one selected loan for the scanner session, then records the condition of every scanned item.",
       source: `inputs:
   loan:
     type: record
@@ -1312,17 +1385,21 @@ steps:
   ],
   workflowLaunchers: [
     {
-      key: "send_loan_agreement_dashboard",
+      key: "send_loan_agreement_custom_app",
       workflow: "send_loan_agreement",
       name: "Choose loan to send agreement",
-      config: { kind: "dashboard", inputMode: "prompt" },
+      config: { kind: "customApp", inputMode: "prompt" },
       enabled: true,
     },
     {
       key: "report_item_defect_scanner",
       workflow: "report_item_defect",
       name: "Scan damaged inventory item",
-      config: { kind: "scanner", input: "item", resolve: { by: "field", field: "Asset ID" } },
+      config: {
+        kind: "scanner",
+        input: "item",
+        resolve: { by: "field", field: "Asset ID" },
+      },
       enabled: true,
     },
     {
@@ -1333,12 +1410,15 @@ steps:
         kind: "scanner",
         inputSources: {
           loan: { kind: "session" },
-          item: { kind: "scan", value: "record", resolve: { by: "field", field: "Asset ID" } },
+          item: {
+            kind: "scan",
+            value: "record",
+            resolve: { by: "field", field: "Asset ID" },
+          },
           condition: { kind: "afterScan" },
         },
       },
       enabled: true,
     },
   ],
-  defaultDashboard: "overview",
 };

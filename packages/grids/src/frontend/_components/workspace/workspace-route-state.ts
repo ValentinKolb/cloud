@@ -1,4 +1,3 @@
-import { loadDashboardState, resolveActiveDashboard } from "./workspace-dashboard-state";
 import { loadDocumentTemplateState } from "./workspace-document-state";
 import { loadQueryState } from "./workspace-query-state";
 import { loadRecordsState } from "./workspace-records-state";
@@ -11,13 +10,6 @@ export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Prom
   const { common } = request;
   const queryWorkspaceRequested = common.chrome.url.pathname.endsWith("/query");
   const workflowWorkspaceRequested = common.chrome.url.pathname.includes("/workflows");
-  const activeDashboard =
-    queryWorkspaceRequested || workflowWorkspaceRequested
-      ? null
-      : await resolveActiveDashboard(common.params, common.base, common.catalog.dashboards);
-  const renderDashboard = activeDashboard
-    ? (common.catalog.dashboards.find((dashboard) => dashboard.id === activeDashboard.id) ?? null)
-    : null;
   const activeTableFromSlug =
     request.requestedViewTable ??
     common.catalog.tables.find((table) => table.id === common.params.activeTableSlug || table.shortId === common.params.activeTableSlug) ??
@@ -34,8 +26,7 @@ export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Prom
     return loadDocumentTemplateState(common, request.requestedDocumentTable, request.requestedDocumentTemplate);
   }
 
-  const activeTable = activeTableFromSlug ? activeTableFromSlug : activeDashboard ? null : (common.catalog.tables[0] ?? null);
-  if (renderDashboard) return loadDashboardState(common, renderDashboard);
+  const activeTable = activeTableFromSlug ?? common.catalog.tables[0] ?? null;
   if (!activeTable) return okState(common, { kind: "empty" });
   return loadRecordsState(common, activeTable, common.params.activeViewSlug);
 };

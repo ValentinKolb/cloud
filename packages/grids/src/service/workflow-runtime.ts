@@ -130,7 +130,7 @@ const errorMessage = (error: unknown): string => (error instanceof Error ? error
  */
 const EVENT_TYPE_BY_CHANNEL: Record<GridsWorkflowChannel, string> = {
   api: GRIDS_EVENT.invoked,
-  dashboard: GRIDS_EVENT.launcherPressed,
+  customApp: GRIDS_EVENT.launcherPressed,
   scanner: GRIDS_EVENT.launcherPressed,
   bulk: GRIDS_EVENT.launcherPressed,
   schedule: GRIDS_EVENT.scheduleTick,
@@ -138,7 +138,7 @@ const EVENT_TYPE_BY_CHANNEL: Record<GridsWorkflowChannel, string> = {
 };
 
 const LAUNCHER_KIND_BY_CHANNEL: Partial<Record<GridsWorkflowChannel, GridsWorkflowLauncherKind>> = {
-  dashboard: "dashboard",
+  customApp: "customApp",
   scanner: "scanner",
   bulk: "bulk",
 };
@@ -175,10 +175,7 @@ const workflowInvocationFingerprint = (input: {
 
 // ─── Announcing a run to whoever is watching it ──────────────────────────────
 
-const eventScope = (authorization: GridsWorkflowAuthorization | undefined): WorkflowRunEventScope =>
-  authorization?.kind === "dashboard-widget"
-    ? { kind: "dashboard-widget", dashboardId: authorization.dashboardId, dashboardWidgetId: authorization.dashboardWidgetId }
-    : { kind: "workflow" };
+const eventScope = (_authorization: GridsWorkflowAuthorization | undefined): WorkflowRunEventScope => ({ kind: "workflow" });
 
 /**
  * Publishes a run transition to the browsers watching it.

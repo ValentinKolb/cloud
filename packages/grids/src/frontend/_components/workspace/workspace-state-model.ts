@@ -13,7 +13,6 @@ import type {
 import type {
   Base,
   CombinedRecordOrigin,
-  Dashboard,
   Field,
   Form,
   GridFile,
@@ -23,7 +22,6 @@ import type {
   View,
   Workflow,
 } from "../../../service";
-import type { WidgetData } from "../../../service/dashboard-widget-data";
 import type {
   GridsWorkflowLauncher,
   GridsWorkflowRun,
@@ -46,7 +44,6 @@ export type WorkspaceGroupBucket = {
 };
 
 export type WorkspaceCatalog = {
-  dashboards: Dashboard[];
   workflows: Workflow[];
   workflowLevels: Record<string, "none" | "read" | "write" | "admin">;
   tables: Table[];
@@ -127,17 +124,6 @@ export type WorkspaceRecordDetail = {
   combinedOrigin: CombinedRecordOrigin | null;
 };
 
-export type WorkspaceDashboardRoute = {
-  kind: "dashboard";
-  dashboard: Dashboard;
-  widgetData: Record<string, WidgetData>;
-  recordLiveTableIds?: string[];
-  activeDashboardAccessEntries: AccessEntry[];
-  canEditActiveDashboard: boolean;
-  isBaseDefault: boolean;
-  dashboardWorkflows: Workflow[];
-};
-
 type WorkspaceEmptyRoute = {
   kind: "empty";
 };
@@ -206,7 +192,6 @@ export type WorkspaceDocumentTemplateRoute = {
 export type GridsWorkspaceRoute =
   | WorkspaceRecordsRoute
   | WorkspaceQueryResultViewRoute
-  | WorkspaceDashboardRoute
   | WorkspaceWorkflowsRoute
   | WorkspaceQueryRoute
   | WorkspaceDocumentTemplateRoute
@@ -242,7 +227,6 @@ export type LoadWorkspaceParams = {
   href: string;
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
-  activeDashboardSlug?: string | null;
   activeWorkflowSlug?: string | null;
   activeDocumentTableSlug?: string | null;
   activeDocumentTemplateSlug?: string | null;

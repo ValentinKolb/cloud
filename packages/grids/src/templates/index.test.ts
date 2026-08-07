@@ -3,13 +3,11 @@ import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import {
   CreateBaseSchema,
-  CreateDashboardSchema,
   CreateDocumentTemplateSchema,
   CreateEmailTemplateSchema,
   CreateFieldSchema,
   CreateTableSchema,
   CreateViewSchema,
-  DashboardConfigSchema,
   FormConfigSchema,
   RecordDisplayConfigSchema,
   ViewUiSettingsSchema,
@@ -55,7 +53,6 @@ type TemplateTestContext = {
   records: Map<string, string>;
   views: Map<string, string>;
   forms: Map<string, string>;
-  dashboards: Map<string, string>;
   launchers: Map<string, string>;
 };
 
@@ -68,7 +65,6 @@ const templateTestContext = (template: GridTemplate): TemplateTestContext => {
   const records = new Map<string, string>();
   const views = new Map<string, string>();
   const forms = new Map<string, string>();
-  const dashboards = new Map<string, string>();
   const launchers = new Map<string, string>();
 
   for (const table of template.tables) {
@@ -78,10 +74,9 @@ const templateTestContext = (template: GridTemplate): TemplateTestContext => {
   for (const record of template.records ?? []) records.set(record.key, testUuid(index++));
   for (const view of template.views ?? []) views.set(view.key, testUuid(index++));
   for (const form of template.forms ?? []) forms.set(form.key, testUuid(index++));
-  for (const dashboard of template.dashboards ?? []) dashboards.set(dashboard.key, testUuid(index++));
   for (const launcher of template.workflowLaunchers ?? []) launchers.set(launcher.key, testUuid(index++));
 
-  return { tables, fields, records, views, forms, dashboards, launchers };
+  return { tables, fields, records, views, forms, launchers };
 };
 
 const resolveTestRef = (ref: TemplateRef, ctx: TemplateTestContext): string => {
@@ -91,7 +86,6 @@ const resolveTestRef = (ref: TemplateRef, ctx: TemplateTestContext): string => {
     record: () => ctx.records.get(ref.key),
     view: () => ctx.views.get(ref.key),
     form: () => ctx.forms.get(ref.key),
-    dashboard: () => ctx.dashboards.get(ref.key),
     launcher: () => ctx.launchers.get(ref.key),
   }[ref.$ref]();
   if (!value) throw new Error(`missing template test ref ${ref.$ref}:${ref.key}`);
@@ -118,24 +112,16 @@ const indexTemplate = (template: GridTemplate) => {
   const records = new Set((template.records ?? []).map((record) => record.key));
   const views = new Set((template.views ?? []).map((view) => view.key));
   const forms = new Set((template.forms ?? []).map((form) => form.key));
-  const dashboards = new Set((template.dashboards ?? []).map((dashboard) => dashboard.key));
   const launchers = new Set((template.workflowLaunchers ?? []).map((launcher) => launcher.key));
-  return { tables, fields, records, views, forms, dashboards, launchers };
+  return { tables, fields, records, views, forms, launchers };
 };
 
 const assertUnique = (values: string[], label: string) => {
   expect(new Set(values).size, `${label} must be unique`).toBe(values.length);
 };
 
-const dashboardCells = (template: GridTemplate) =>
-  (template.dashboards ?? []).flatMap((dashboard) => {
-    const rows = (dashboard.config as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) return [];
-    return rows.flatMap((row) => {
-      const cells = (row as { cells?: unknown }).cells;
-      return Array.isArray(cells) ? (cells as Array<Record<string, unknown>>) : [];
-    });
-  });
+const customAppBlocks = (template: GridTemplate) =>
+  (template.customApps ?? []).flatMap((app) => app.rows.flatMap((row) => row.columns));
 
 const labelsIn = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.flatMap(labelsIn);
@@ -209,22 +195,6 @@ const resolveTemplateGqlValue = (value: unknown, names: ReturnType<typeof templa
     return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveTemplateGqlValue(nested, names)]));
   }
   return value;
-};
-
-const resolveDashboardTestValue = (value: unknown, ctx: TemplateTestContext, names: ReturnType<typeof templateNamesForGql>): unknown => {
-  if (value === undefined) return undefined;
-  if (isRef(value) || isCurrentMonthDate(value)) return resolveTestValue(value, ctx);
-  if (isFormulaExpression(value)) return resolveTestValue(value, ctx);
-  if (Array.isArray(value)) return value.map((item) => resolveDashboardTestValue(item, ctx, names));
-  if (!value || typeof value !== "object") return value;
-
-  const record = value as Record<string, unknown>;
-  return Object.fromEntries(
-    Object.entries(record).map(([key, nested]) => [
-      key,
-      record.kind === "gql" && key === "source" ? resolveTemplateGqlValue(nested, names) : resolveDashboardTestValue(nested, ctx, names),
-    ]),
-  );
 };
 
 const templateFieldForResolver = (
@@ -454,8 +424,8 @@ describe("built-in grid templates", () => {
     expect(workflow).toContain("Replace the sample customer email");
     expect(workflow).toContain("Invoice sent: true");
 
-    const launcher = template.workflowLaunchers?.find((item) => item.key === "send_order_invoice_dashboard");
-    expect(launcher?.config).toEqual({ kind: "dashboard", inputMode: "prompt" });
+    const launcher = template.workflowLaunchers?.find((item) => item.key === "send_order_invoice_custom_app");
+    expect(launcher?.config).toEqual({ kind: "customApp", inputMode: "prompt" });
     const orderNumberColumn = template.views
       ?.flatMap((item) => (item.ui as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [])
       .find((column) => isRef(column.fieldId) && column.fieldId.key === "orders.order_no");
@@ -490,8 +460,8 @@ describe("built-in grid templates", () => {
     expect(workflow).not.toContain("Status: [approved]");
     expect(workflow).toContain("Replace the sample requester email");
 
-    const agreementLauncher = template.workflowLaunchers?.find((item) => item.key === "send_loan_agreement_dashboard");
-    expect(agreementLauncher?.config).toEqual({ kind: "dashboard", inputMode: "prompt" });
+    const agreementLauncher = template.workflowLaunchers?.find((item) => item.key === "send_loan_agreement_custom_app");
+    expect(agreementLauncher?.config).toEqual({ kind: "customApp", inputMode: "prompt" });
     const defectWorkflow = template.workflows?.find((item) => item.key === "report_item_defect")?.source ?? "";
     expect(defectWorkflow).toContain("is already in maintenance");
     expect(defectWorkflow).toContain("Status: [maintenance]");
@@ -509,9 +479,9 @@ describe("built-in grid templates", () => {
       enabled: true,
     });
 
-    const valueWidget = dashboardCells(template).find((cell) => cell.id === "w_value");
+    const valueWidget = customAppBlocks(template).find((cell) => cell.id === "w_value");
     expect(valueWidget).toMatchObject({
-      kind: "stat",
+      type: "metrics",
       title: "Inventory value",
       valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
     });
@@ -546,12 +516,12 @@ describe("built-in grid templates", () => {
     expect(workflow).toContain("Receipts can only be sent for expense transactions");
     expect(workflow).toContain("Receipt sent: true");
     expect(workflow).toContain("Replace the sample receipt email");
-    const launcher = template.workflowLaunchers?.find((item) => item.key === "clear_and_send_receipt_dashboard");
-    expect(launcher?.config).toEqual({ kind: "dashboard", inputMode: "prompt" });
+    const launcher = template.workflowLaunchers?.find((item) => item.key === "clear_and_send_receipt_custom_app");
+    expect(launcher?.config).toEqual({ kind: "customApp", inputMode: "prompt" });
 
-    const budgetWidget = dashboardCells(template).find((cell) => cell.id === "w_budget");
+    const budgetWidget = customAppBlocks(template).find((cell) => cell.id === "w_budget");
     const budgetSource = resolveTemplateGqlValue(
-      (budgetWidget?.source as { source?: unknown } | undefined)?.source,
+      (budgetWidget?.source as { query?: unknown } | undefined)?.query,
       templateNamesForGql(template),
     );
     expect(budgetSource).toContain("YEAR(TODAY())");
@@ -655,14 +625,8 @@ describe("built-in grid templates", () => {
                   ? index.views
                   : ref.$ref === "form"
                     ? index.forms
-                    : ref.$ref === "dashboard"
-                      ? index.dashboards
-                      : index.launchers;
+                    : index.launchers;
         expect(target.has(ref.key), `${template.id} missing ${ref.$ref}:${ref.key}`).toBe(true);
-      }
-
-      if (template.defaultDashboard) {
-        expect(index.dashboards.has(template.defaultDashboard), `${template.id} defaultDashboard`).toBe(true);
       }
 
       assertUnique(
@@ -686,12 +650,12 @@ describe("built-in grid templates", () => {
         `${template.id} form names`,
       );
       assertUnique(
-        (template.dashboards ?? []).map((dashboard) => dashboard.key),
-        `${template.id} dashboard keys`,
+        (template.customApps ?? []).map((app) => app.key),
+        `${template.id} Custom App keys`,
       );
       assertUnique(
-        (template.dashboards ?? []).map((dashboard) => dashboard.name),
-        `${template.id} dashboard names`,
+        (template.customApps ?? []).map((app) => app.name),
+        `${template.id} Custom App names`,
       );
       assertUnique(
         (template.documentTemplates ?? []).map((documentTemplate) => documentTemplate.key),
@@ -800,11 +764,11 @@ describe("built-in grid templates", () => {
     }
   });
 
-  test("each template has meaningful dashboard charts", () => {
+  test("each template has meaningful Custom App charts", () => {
     for (const template of templates) {
       const viewsByKey = new Map((template.views ?? []).map((view) => [view.key, view]));
-      const charts = dashboardCells(template).filter((cell) => cell.kind === "chart");
-      expect(charts.length, `${template.id} dashboard charts`).toBeGreaterThan(0);
+      const charts = customAppBlocks(template).filter((block) => block.type === "chart");
+      expect(charts.length, `${template.id} Custom App charts`).toBeGreaterThan(0);
 
       for (const chart of charts) {
         const source = chart.source;
@@ -820,8 +784,8 @@ describe("built-in grid templates", () => {
           const view = viewsByKey.get(viewId.key);
           expect(view, `${template.id}.${String(chart.id)} chart view exists`).toBeDefined();
           gql = String(resolveTemplateGqlValue(view?.source ?? "", templateNamesForGql(template)));
-        } else if (isGqlSource && "source" in source) {
-          gql = String(resolveTemplateGqlValue(source.source, templateNamesForGql(template)));
+        } else if (isGqlSource && "query" in source) {
+          gql = String(resolveTemplateGqlValue(source.query, templateNamesForGql(template)));
         }
 
         expect(gql, `${template.id}.${String(chart.id)} chart groupBy`).toContain("group by");
@@ -940,40 +904,41 @@ describe("built-in grid templates", () => {
         expect(FormConfigSchema.safeParse(config).success, `${template.id}.${form.key} form config`).toBe(true);
       }
 
-      for (const dashboard of template.dashboards ?? []) {
-        const names = templateNamesForGql(template);
-        const config = resolveDashboardTestValue(dashboard.config, ctx, names);
-        expect(
-          CreateDashboardSchema.safeParse({
-            name: dashboard.name,
-            description: dashboard.description ?? null,
-            config,
-            shared: dashboard.shared,
-          }).success,
-          `${template.id}.${dashboard.key} dashboard payload`,
-        ).toBe(true);
-        expect(DashboardConfigSchema.safeParse(config).success, `${template.id}.${dashboard.key} dashboard config`).toBe(true);
+      for (const app of template.customApps ?? []) {
+        assertUnique(app.rows.map((row) => row.id), `${template.id}.${app.key} Custom App row ids`);
+        assertUnique(
+          app.rows.flatMap((row) => row.columns.map((column) => column.id)),
+          `${template.id}.${app.key} Custom App block ids`,
+        );
+        for (const row of app.rows) {
+          expect(row.columns.reduce((total, column) => total + column.span, 0), `${template.id}.${app.key}.${row.id} spans`).toBeLessThanOrEqual(12);
+          for (const column of row.columns) {
+            expect(column.span, `${template.id}.${app.key}.${column.id} span`).toBeGreaterThanOrEqual(1);
+            expect(column.span, `${template.id}.${app.key}.${column.id} span`).toBeLessThanOrEqual(12);
+            resolveTestValue(column, ctx);
 
-        const directSources = dashboardCells({ ...template, dashboards: [dashboard] })
-          .map((cell) => cell.source)
-          .filter(
-            (source): source is { kind: "gql"; source: unknown } =>
-              typeof source === "object" && source !== null && (source as { kind?: unknown }).kind === "gql" && "source" in source,
-          );
-        for (const [sourceIndex, source] of directSources.entries()) {
-          const gql = resolveTemplateGqlValue(source.source, names);
-          expect(typeof gql, `${template.id}.${dashboard.key}.${sourceIndex} dashboard GQL`).toBe("string");
-          if (typeof gql !== "string") continue;
-          const parsed = parseGridsQueryDsl(gql);
-          expect(parsed.ok, `${template.id}.${dashboard.key}.${sourceIndex} dashboard GQL parses`).toBe(true);
-          if (!parsed.ok) continue;
-          const resolved = resolveDslQueryToQueryPlan(parsed.ast, templateResolverContext(template, template.tables[0]?.key ?? "", ctx));
-          expect(
-            resolved.ok,
-            `${template.id}.${dashboard.key}.${sourceIndex} dashboard GQL resolves: ${
-              resolved.ok ? "" : resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")
-            }`,
-          ).toBe(true);
+            if (column.source && typeof column.source === "object" && (column.source as { kind?: unknown }).kind === "gql") {
+              const gql = resolveTemplateGqlValue(
+                (column.source as { query?: unknown }).query,
+                templateNamesForGql(template),
+              );
+              expect(typeof gql, `${template.id}.${app.key}.${column.id} Custom App GQL`).toBe("string");
+              if (typeof gql !== "string") continue;
+              const parsed = parseGridsQueryDsl(gql);
+              expect(parsed.ok, `${template.id}.${app.key}.${column.id} Custom App GQL parses`).toBe(true);
+              if (!parsed.ok) continue;
+              const resolved = resolveDslQueryToQueryPlan(
+                parsed.ast,
+                templateResolverContext(template, template.tables[0]?.key ?? "", ctx),
+              );
+              expect(
+                resolved.ok,
+                `${template.id}.${app.key}.${column.id} Custom App GQL resolves: ${
+                  resolved.ok ? "" : resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")
+                }`,
+              ).toBe(true);
+            }
+          }
         }
       }
 

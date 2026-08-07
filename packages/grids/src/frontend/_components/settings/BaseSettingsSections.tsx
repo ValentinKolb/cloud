@@ -1,11 +1,11 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, Placeholder, prompts, Select, TextInput } from "@k2b/ui";
+import { Button, Placeholder, prompts, TextInput } from "@k2b/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentProfile } from "../../../contracts";
-import type { Base, Dashboard, Field, Form, Table } from "../../../service";
+import type { Base, Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
@@ -13,7 +13,6 @@ import { errorMessage } from "../utils/api-helpers";
 type TrashResponse = {
   tables: Table[];
   fields: Field[];
-  dashboards: Dashboard[];
   forms: Form[];
 };
 
@@ -182,16 +181,6 @@ export function TrashSection(props: { baseId: string }) {
     refetch();
   };
 
-  const restoreDashboard = async (id: string) => {
-    const res = await apiClient.dashboards[":dashboardId"].restore.$post({ param: { dashboardId: id } });
-    if (!res.ok) {
-      prompts.error(await errorMessage(res, "Failed to restore dashboard"));
-      return;
-    }
-    refetch();
-    refreshCurrentPath();
-  };
-
   const formatDeletedAt = (iso: string | null) => {
     if (!iso) return "";
     const date = new Date(iso);
@@ -203,7 +192,7 @@ export function TrashSection(props: { baseId: string }) {
       <Show
         when={
           trash() &&
-          (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.dashboards.length > 0 || trash()!.forms.length > 0)
+          (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.forms.length > 0)
         }
         fallback={<Placeholder align="left" class="px-0 py-1" description={<>Trash is empty.</>} />}
       >
@@ -224,21 +213,6 @@ export function TrashSection(props: { baseId: string }) {
               <For each={trash()!.fields}>
                 {(f) => (
                   <TrashRow icon="ti-columns" name={f.name} deletedAt={formatDeletedAt(f.deletedAt)} onRestore={() => restoreField(f.id)} />
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={trash()!.dashboards.length > 0}>
-            <div class="flex flex-col gap-1">
-              <p class="text-xs font-medium text-secondary">Dashboards</p>
-              <For each={trash()!.dashboards}>
-                {(dashboard) => (
-                  <TrashRow
-                    icon="ti-layout-dashboard"
-                    name={dashboard.name}
-                    deletedAt={formatDeletedAt(dashboard.deletedAt)}
-                    onRestore={() => restoreDashboard(dashboard.id)}
-                  />
                 )}
               </For>
             </div>
@@ -349,60 +323,6 @@ export function GeneralForm(props: { base: { id: string; name: string; descripti
         </Button>
       </Show>
     </form>
-  );
-}
-
-/**
- * Default-dashboard select. Saves on change (no separate Save button —
- * the select itself is the affordance, like a setting toggle). Empty
- * dashboards list disables the select with a hint to create one first.
- *
- * The "(none)" option is always present so users can clear the
- * default; that PATCHes `defaultDashboardId: null`.
- */
-export function DefaultDashboardSelect(props: { baseId: string; initial: string | null; dashboards: Dashboard[] }) {
-  const [value, setValue] = createSignal<string>(props.initial ?? "");
-
-  const mutation = mutations.create<void, string | null>({
-    mutation: async (next) => {
-      const res = await apiClient.bases[":baseId"].$patch({
-        param: { baseId: props.baseId },
-        json: { defaultDashboardId: next },
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update default dashboard"));
-    },
-    onSuccess: () => {
-      // The base record on the page may be stale — refresh so other
-      // surfaces that read defaultDashboardId (sidebar badge etc.) update.
-      refreshCurrentPath();
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const onChange = (next: string | null) => {
-    if (next === null) return;
-    setValue(next);
-    mutation.mutate(next === "" ? null : next);
-  };
-
-  if (props.dashboards.length === 0) {
-    return (
-      <Placeholder
-        align="left"
-        class="px-0 py-1"
-        description={<>No dashboards on this base yet. Create one from the records sidebar to enable this setting.</>}
-      />
-    );
-  }
-
-  return (
-    <Select
-      label="Default dashboard"
-      value={value}
-      onValueChange={onChange}
-      options={[{ id: "", label: "(none)" }, ...props.dashboards.map((d) => ({ id: d.id, label: d.name }))]}
-      icon="ti ti-layout-dashboard"
-    />
   );
 }
 

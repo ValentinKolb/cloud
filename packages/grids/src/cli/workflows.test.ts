@@ -28,7 +28,7 @@ const workflow = {
   updatedAt: "2026-07-15T00:00:00.000Z",
 };
 
-const launcher = (kind: "scanner" | "bulk" | "dashboard") => ({
+const launcher = (kind: "scanner" | "bulk" | "customApp") => ({
   id: launcherId,
   shortId: "ln001",
   baseId,
@@ -140,14 +140,13 @@ describe("Grids workflow CLI", () => {
     expect(directHelp).toContain("Required stable key");
     expect(directHelp).toContain("--expected-revision <value>");
     expect(directHelp).not.toContain("bulk-selection");
-    expect(directHelp).not.toContain("dashboard-button");
 
     const create = createContext(["workflow-launchers", "create"], { help: true });
     await cli.run(create.ctx);
     const createHelp = create.lines.join("\n");
     expect(createHelp).toContain('"kind":"scanner"');
     expect(createHelp).toContain('"kind":"bulk"');
-    expect(createHelp).toContain('"kind":"dashboard"');
+    expect(createHelp).toContain('"kind":"customApp"');
 
     const invoke = createContext(["workflow-launchers", "invoke"], { help: true });
     await cli.run(invoke.ctx);
@@ -241,10 +240,10 @@ describe("Grids workflow CLI", () => {
     const bodies = {
       scanner: { operationId: "scan-1", mode: "execute", expectedRevision: 3, scannedText: "gsc_opaque", inputs: {} },
       bulk: { operationId: "bulk-1", mode: "dryRun", expectedRevision: 3, recordIds: [baseId], inputs: {} },
-      dashboard: { operationId: "dash-1", mode: "execute", expectedRevision: 3, inputs: { range: "30d" } },
+      customApp: { operationId: "app-1", mode: "execute", expectedRevision: 3, inputs: { range: "30d" } },
     } as const;
 
-    for (const kind of ["scanner", "bulk", "dashboard"] as const) {
+    for (const kind of ["scanner", "bulk", "customApp"] as const) {
       const { ctx, calls } = createContext(
         ["workflow-launchers", "invoke", baseId, workflowId, launcherId],
         { body: JSON.stringify(bodies[kind]) },
@@ -253,7 +252,9 @@ describe("Grids workflow CLI", () => {
 
       await cli.run(ctx);
 
-      expect(calls.at(-1)?.path).toBe(`/api/grids/workflows/launchers/${launcherId}/invoke/${kind}`);
+      expect(calls.at(-1)?.path).toBe(
+        `/api/grids/workflows/launchers/${launcherId}/invoke/${kind === "customApp" ? "custom-app" : kind}`,
+      );
       expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual(bodies[kind]);
     }
   });

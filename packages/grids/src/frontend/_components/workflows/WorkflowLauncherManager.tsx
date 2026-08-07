@@ -27,7 +27,7 @@ import type {
 import { scannerLauncherInputSources } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { WorkflowInputFields } from "./WorkflowInputFields";
-import { dashboardLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
+import { customAppLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
 import {
   buildWorkflowRunInput,
   type WorkflowRunInputDraft,
@@ -59,7 +59,7 @@ type LauncherDraft = CreateGridsWorkflowLauncherInput;
 const launcherKindOptions = [
   { id: "scanner", label: "Scanner" },
   { id: "bulk", label: "Bulk selection" },
-  { id: "dashboard", label: "Dashboard button" },
+  { id: "customApp", label: "Custom App action" },
 ];
 
 const launcherKindLabel = (kind: GridsWorkflowLauncherKind) => launcherKindOptions.find((option) => option.id === kind)?.label ?? kind;
@@ -146,13 +146,13 @@ function LauncherEditor(props: {
       ),
     ),
   );
-  const [dashboardInputMode, setDashboardInputMode] = createSignal<"fixed" | "prompt">(
-    initial.config.kind === "dashboard" ? initial.config.inputMode : "fixed",
+  const [customAppInputMode, setCustomAppInputMode] = createSignal<"fixed" | "prompt">(
+    initial.config.kind === "customApp" ? initial.config.inputMode : "fixed",
   );
-  const [dashboardBindings, setDashboardBindings] = createSignal<WorkflowRunInputDraft>(
+  const [customAppBindings, setCustomAppBindings] = createSignal<WorkflowRunInputDraft>(
     workflowInputDraftFromValues(
       props.workflow.plan.inputs,
-      initial.config.kind === "dashboard" ? initial.config.inputBindings : undefined,
+      initial.config.kind === "customApp" ? initial.config.inputBindings : undefined,
     ),
   );
   const inputOptions = createMemo(() =>
@@ -161,7 +161,7 @@ function LauncherEditor(props: {
       .map((candidate) => ({ id: candidate.name, label: candidate.config.label?.toString() || candidate.name })),
   );
   const missingRequiredInputs = createMemo(() => missingLauncherRequiredInputs(props.workflow.plan.inputs, kind(), input()));
-  const dashboardValidation = createMemo(() => buildWorkflowRunInput(props.workflow.plan.inputs, dashboardBindings()));
+  const customAppValidation = createMemo(() => buildWorkflowRunInput(props.workflow.plan.inputs, customAppBindings()));
   const fixedScannerInputs = createMemo(() =>
     props.workflow.plan.inputs.filter((candidate) => scannerSources()[candidate.name] === "fixed"),
   );
@@ -181,8 +181,8 @@ function LauncherEditor(props: {
   const valid = createMemo(
     () =>
       name().trim().length > 0 &&
-      (kind() === "dashboard"
-        ? dashboardInputMode() === "prompt" || dashboardValidation().ok
+      (kind() === "customApp"
+        ? customAppInputMode() === "prompt" || customAppValidation().ok
         : kind() === "scanner"
           ? scannerScanCount() === 1 &&
             missingScannerInputs().length === 0 &&
@@ -190,18 +190,18 @@ function LauncherEditor(props: {
             (Object.values(scannerSources()).includes("scanRecord") ? resolveBy() !== "field" || field().trim().length > 0 : true)
           : input().length > 0 && missingRequiredInputs().length === 0),
   );
-  const dashboardErrors = () => {
-    const validation = dashboardValidation();
+  const customAppErrors = () => {
+    const validation = customAppValidation();
     return validation.ok ? {} : validation.errors;
   };
-  const setDashboardBinding = (name: string, value: WorkflowRunInputDraftValue) =>
-    setDashboardBindings((current) => ({ ...current, [name]: value }));
+  const setCustomAppBinding = (name: string, value: WorkflowRunInputDraftValue) =>
+    setCustomAppBindings((current) => ({ ...current, [name]: value }));
   const setScannerFixedValue = (name: string, value: WorkflowRunInputDraftValue) =>
     setScannerFixedDraft((current) => ({ ...current, [name]: value }));
 
   const submit = () => {
     if (!valid()) return;
-    const bindings = dashboardValidation();
+    const bindings = customAppValidation();
     const fixedScannerValues = scannerFixedValidation();
     const scannerInputSources = (): Record<string, GridsScannerInputSource> => {
       const entries: Array<[string, GridsScannerInputSource]> = [];
@@ -228,11 +228,11 @@ function LauncherEditor(props: {
       return Object.fromEntries(entries);
     };
     const config: LauncherDraft["config"] =
-      kind() === "dashboard"
-        ? dashboardLauncherConfigForSave(
+      kind() === "customApp"
+        ? customAppLauncherConfigForSave(
             props.launcher,
-            dashboardInputMode(),
-            dashboardInputMode() === "fixed" && bindings.ok ? bindings.input : undefined,
+            customAppInputMode(),
+            customAppInputMode() === "fixed" && bindings.ok ? bindings.input : undefined,
           )
         : kind() === "bulk"
           ? { kind: "bulk", input: input() }
@@ -259,7 +259,7 @@ function LauncherEditor(props: {
             onValueChange={(value) => {
               const next = value as GridsWorkflowLauncherKind;
               setKind(next);
-              if (next !== "dashboard") {
+              if (next !== "customApp") {
                 setInput(
                   props.workflow.plan.inputs.find((candidate) => candidate.type === (next === "scanner" ? "record" : "recordList"))?.name ??
                     "",
@@ -279,7 +279,7 @@ function LauncherEditor(props: {
             <Show when={missingRequiredInputs().length > 0}>
               <NoticeCard tone="danger" icon={false} role="alert">
                 This surface cannot supply the required {missingRequiredInputs().length === 1 ? "input" : "inputs"}:{" "}
-                {missingRequiredInputs().join(", ")}. Use a dashboard run option or make the inputs optional.
+                {missingRequiredInputs().join(", ")}. Use a Custom App run option or make the inputs optional.
               </NoticeCard>
             </Show>
           </Show>
@@ -336,7 +336,7 @@ function LauncherEditor(props: {
               </Show>
             </div>
           </Show>
-          <Show when={kind() === "dashboard"}>
+          <Show when={kind() === "customApp"}>
             <Select
               label="Inputs"
               description="Use fixed values for a one-click action, or ask the user when the button runs."
@@ -345,19 +345,19 @@ function LauncherEditor(props: {
                 { id: "fixed", label: "Fixed values" },
                 { id: "prompt", label: "Ask when run" },
               ]}
-              value={dashboardInputMode}
-              onValueChange={(value) => setDashboardInputMode(value as "fixed" | "prompt")}
+              value={customAppInputMode}
+              onValueChange={(value) => setCustomAppInputMode(value as "fixed" | "prompt")}
             />
-            <Show when={dashboardInputMode() === "fixed"}>
+            <Show when={customAppInputMode() === "fixed"}>
               <WorkflowInputFields
                 workflow={props.workflow}
                 tables={props.tables}
-                draft={dashboardBindings}
-                onValueChange={setDashboardBinding}
-                errors={dashboardErrors}
+                draft={customAppBindings}
+                onValueChange={setCustomAppBinding}
+                errors={customAppErrors}
                 emptyText="This workflow does not need input."
               />
-              <Show when={!dashboardValidation().ok}>
+              <Show when={!customAppValidation().ok}>
                 <NoticeCard tone="danger" icon={false} role="alert">
                   Provide valid fixed values for every required workflow input.
                 </NoticeCard>
@@ -388,7 +388,7 @@ function LauncherEditor(props: {
           </Show>
           <CheckboxCard
             label="Enabled"
-            description="Enabled run options are available on their scanner, table, or dashboard surface."
+            description="Enabled run options are available on their scanner, table, or Custom App surface."
             value={enabled}
             onValueChange={setEnabled}
           />
@@ -492,7 +492,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
       <PanelDialog.Body>
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
-            <p class="text-sm text-dimmed">Make this workflow available as a scanner, bulk action, or dashboard button.</p>
+            <p class="text-sm text-dimmed">Make this workflow available as a scanner, bulk action, or Custom App action.</p>
             <Button variant="primary" size="sm" type="button" disabled={mutationsBlocked()} onClick={() => void edit()}>
               <i class="ti ti-plus" /> Add run option
             </Button>
@@ -523,7 +523,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                     <div class="paper flex items-start gap-3 px-3 py-2">
                       <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
                         <i
-                          class={`ti ${launcher.config.kind === "scanner" ? "ti-barcode" : launcher.config.kind === "bulk" ? "ti-list-check" : "ti-layout-dashboard"}`}
+                          class={`ti ${launcher.config.kind === "scanner" ? "ti-barcode" : launcher.config.kind === "bulk" ? "ti-list-check" : "ti-app-window"}`}
                         />
                       </span>
                       <span class="min-w-0 flex-1">

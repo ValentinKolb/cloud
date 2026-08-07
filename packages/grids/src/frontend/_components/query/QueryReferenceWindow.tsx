@@ -330,7 +330,7 @@ function DataTypesTab() {
     <Doc>
       <DocLead>
         Datatypes are the foundation of a Grids base. They decide validation, display, search, filtering, formulas, relation labels,
-        dashboard widgets, and what a form can collect.
+        Custom App blocks, and what a form can collect.
       </DocLead>
 
       <DocSection title="Data model layers">
@@ -339,7 +339,7 @@ function DataTypesTab() {
             {
               title: "Tables",
               icon: "ti-table",
-              text: "Use a table when records have their own lifecycle, permissions, forms, dashboards, or relations.",
+              text: "Use a table when records have their own lifecycle, permissions, forms, Custom Apps, or relations.",
             },
             {
               title: "Fields",
@@ -637,7 +637,7 @@ function FormulasTab(props: { functionRows: FunctionRow[] }) {
             {
               title: "Formula fields",
               icon: "ti-table",
-              text: "A saved table field. It recalculates whenever a record is read and can be shown in tables, cards, detail panels, views, and dashboards.",
+              text: "A saved table field. It recalculates whenever a record is read and can be shown in tables, cards, detail panels, views, and Custom Apps.",
             },
             {
               title: "Computed columns",

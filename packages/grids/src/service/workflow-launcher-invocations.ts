@@ -39,13 +39,6 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("workflow") }).strict(),
   z
     .object({
-      kind: z.literal("dashboard-widget"),
-      dashboardId: z.string().uuid(),
-      dashboardWidgetId: z.string().min(1),
-    })
-    .strict(),
-  z
-    .object({
       kind: z.literal("custom-app-action"),
       customAppId: z.string().uuid(),
       pageId: z.string().min(1),
@@ -99,13 +92,13 @@ const BulkQueryLauncherInvocationSchema = z
 
 export const BulkLauncherInvocationSchema = z.union([BulkRecordIdsLauncherInvocationSchema, BulkQueryLauncherInvocationSchema]);
 
-export const DashboardLauncherInvocationSchema = z.object(invocationFields).strict();
+export const CustomAppLauncherInvocationSchema = z.object(invocationFields).strict();
 
 const StrictLauncherConfigSchema = GridsWorkflowLauncherConfigSchema;
 
 export type ScannerLauncherInvocation = z.infer<typeof ScannerLauncherInvocationSchema>;
 export type BulkLauncherInvocation = z.infer<typeof BulkLauncherInvocationSchema>;
-export type DashboardLauncherInvocation = z.infer<typeof DashboardLauncherInvocationSchema>;
+export type CustomAppLauncherInvocation = z.infer<typeof CustomAppLauncherInvocationSchema>;
 
 type LauncherKind = GridsWorkflowLauncherConfig["kind"];
 
@@ -175,7 +168,6 @@ const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ workflow
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
   if (
-    authorization?.kind !== "dashboard-widget" &&
     authorization?.kind !== "custom-app-action" &&
     !(await authorizeWorkflowTarget(principal, { baseId: workflow.baseId, workflowId: workflow.id }, "write"))
   ) {
@@ -364,7 +356,7 @@ const loadLauncherContext = async (
   } else {
     const inputNames = new Set(workflow.plan.inputs.map((input) => input.name));
     const unknownBinding = Object.keys(config.data.inputBindings ?? {}).find((name) => !inputNames.has(name));
-    if (unknownBinding) return fail(err.badInput(`dashboard launcher binds unknown workflow input "${unknownBinding}"`));
+    if (unknownBinding) return fail(err.badInput(`Custom App launcher binds unknown workflow input "${unknownBinding}"`));
   }
   return ok({ launcher, workflow, config: config.data, tableId });
 };
@@ -486,16 +478,16 @@ export const invokeBulkLauncher = async (
   return inputs.ok ? invoke(ctx, { ...input.data, inputs: inputs.data }, deps) : inputs;
 };
 
-export const invokeDashboardLauncher = async (
+export const invokeCustomAppLauncher = async (
   rawInput: unknown,
   deps: WorkflowLauncherInvocationDeps = defaultDeps,
 ): Promise<Result<WorkflowInvocationReceipt>> => {
-  const input = DashboardLauncherInvocationSchema.safeParse(rawInput);
-  if (!input.success) return fail(err.badInput(`invalid dashboard launcher invocation: ${formatZodError(input.error)}`));
-  const loaded = await loadLauncherContext(input.data.launcherId, "dashboard", input.data.expectedRevision, deps);
+  const input = CustomAppLauncherInvocationSchema.safeParse(rawInput);
+  if (!input.success) return fail(err.badInput(`invalid Custom App launcher invocation: ${formatZodError(input.error)}`));
+  const loaded = await loadLauncherContext(input.data.launcherId, "customApp", input.data.expectedRevision, deps);
   if (!loaded.ok) return loaded;
   const ctx = loaded.data;
-  if (ctx.config.kind !== "dashboard") return fail(err.internal("dashboard launcher context is invalid"));
+  if (ctx.config.kind !== "customApp") return fail(err.internal("Custom App launcher context is invalid"));
   const authorized = await deps.authorize({
     workflow: ctx.workflow,
     principal: input.data.principal,
@@ -505,7 +497,7 @@ export const invokeDashboardLauncher = async (
   if (!authorized.ok) return authorized;
   const suppliedInputs = input.data.inputs;
   if (ctx.config.inputMode === "fixed" && Object.keys(suppliedInputs).length > 0) {
-    return fail(err.badInput("fixed dashboard launchers do not accept runtime inputs"));
+    return fail(err.badInput("fixed Custom App launchers do not accept runtime inputs"));
   }
   const inputs = ctx.config.inputMode === "fixed" ? (ctx.config.inputBindings ?? {}) : suppliedInputs;
   return invoke(ctx, { ...input.data, inputs }, deps);

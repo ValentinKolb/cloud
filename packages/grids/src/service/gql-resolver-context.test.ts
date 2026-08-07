@@ -48,7 +48,7 @@ const field = (tableId: string, id: string, shortId: string, name: string) => ({
 });
 
 describe("buildTrustedGqlResolverContext", () => {
-  test("exposes all base tables for service-level document and dashboard renderers", async () => {
+  test("exposes all base tables for service-level document and Custom App renderers", async () => {
     const parsed = parseGridsQueryDsl("from table Hidden\nselect Secret");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;

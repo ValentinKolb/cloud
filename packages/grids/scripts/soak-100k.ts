@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 import { sql } from "bun";
-import { resolveWidgetData } from "../src/frontend/_components/dashboard/widget-data";
 import { migrate } from "../src/migrate";
 import { gridsService } from "../src/service";
 import { ensureFieldIndex } from "../src/service/field-indexes";
@@ -313,32 +312,6 @@ const main = async () => {
       });
       assertEqual(result.nextCursor, null, "aggregate-sorted group cursor");
       assertEqual(result.explode, true, "multi-select group explode flag");
-    });
-
-    const activeStatView = must(
-      await gridsService.view.create(
-        {
-          tableId: table.id,
-          name: "Active count stat",
-          source: `from table {${table.id}}\nwhere {${category.id}} = 'active'\naggregate count(*) as active`,
-          ownerUserId: null,
-        },
-        null,
-      ),
-    );
-
-    await time("dashboard stat from GQL aggregate view", async () => {
-      const data = await resolveWidgetData(
-        {
-          id: "active-ratio",
-          kind: "stat",
-          format: "integer",
-          viewId: activeStatView.id,
-        },
-        { userId: null, userGroups: [], isAdmin: true },
-      );
-      if (data.kind !== "stat") throw new Error(`GQL stat failed: ${data.kind}`);
-      assertEqual(asNumber(data.value, "active count stat"), expected.groups.get("active")!.count, "active count stat");
     });
 
     await time("export first 1000 csv", async () => {

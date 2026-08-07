@@ -283,6 +283,20 @@ const bindFieldMap = (
   }
 };
 
+const bindAtomicFieldMap = (
+  value: WorkflowJsonValue | undefined,
+  tableId: string | undefined,
+  path: Array<string | number>,
+  scope: ReadonlyMap<string, ValueInfo>,
+  context: BindingContext,
+): void => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  for (const [field, fieldValue] of Object.entries(value)) {
+    if (tableId) bindField(context, tableId, field, [...path, field, "$target"]);
+    bindValue(fieldValue, [...path, field], scope, context);
+  }
+};
+
 const bindFilterFields = (
   value: WorkflowJsonValue | undefined,
   tableId: string | undefined,
@@ -337,6 +351,62 @@ const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Ma
         : null;
     bindFieldMap(config.values, table?.id, [...path, "values"], scope, context);
     output = { ...recordValue, ...(table ? { tableId: table.id } : {}) };
+  } else if (step.action === "atomicRecords") {
+    if (Array.isArray(config.locks)) {
+      config.locks.forEach((record, index) => {
+        expectReference(record, "grids.record", "lock", [...path, "locks", index], scope, context);
+      });
+    }
+    if (Array.isArray(config.checks)) {
+      config.checks.forEach((rawCheck, checkIndex) => {
+        if (!rawCheck || typeof rawCheck !== "object" || Array.isArray(rawCheck)) return;
+        const check = rawCheck as Record<string, WorkflowJsonValue>;
+        const table =
+          typeof check.table === "string"
+            ? resolveCatalogRef(context, context.catalog.tables, check.table, "table", [...path, "checks", checkIndex, "table"])
+            : null;
+        if (!Array.isArray(check.where)) return;
+        check.where.forEach((rawPredicate, predicateIndex) => {
+          if (!rawPredicate || typeof rawPredicate !== "object" || Array.isArray(rawPredicate)) return;
+          const predicate = rawPredicate as Record<string, WorkflowJsonValue>;
+          if (table && typeof predicate.field === "string") {
+            bindField(context, table.id, predicate.field, [...path, "checks", checkIndex, "where", predicateIndex, "field"]);
+          }
+          if (predicate.value !== undefined) {
+            bindValue(predicate.value, [...path, "checks", checkIndex, "where", predicateIndex, "value"], scope, context);
+          }
+        });
+      });
+    }
+    if (Array.isArray(config.changes)) {
+      config.changes.forEach((rawChange, changeIndex) => {
+        if (!rawChange || typeof rawChange !== "object" || Array.isArray(rawChange)) return;
+        const change = rawChange as Record<string, WorkflowJsonValue>;
+        const basePath = [...path, "changes", changeIndex];
+        if (change.createRecord && typeof change.createRecord === "object" && !Array.isArray(change.createRecord)) {
+          const create = change.createRecord as Record<string, WorkflowJsonValue>;
+          const table =
+            typeof create.table === "string"
+              ? resolveCatalogRef(context, context.catalog.tables, create.table, "table", [...basePath, "createRecord", "table"])
+              : null;
+          bindAtomicFieldMap(create.values, table?.id, [...basePath, "createRecord", "values"], scope, context);
+        }
+        if (change.updateRecord && typeof change.updateRecord === "object" && !Array.isArray(change.updateRecord)) {
+          const update = change.updateRecord as Record<string, WorkflowJsonValue>;
+          const record = expectReference(
+            update.record,
+            "grids.record",
+            "record",
+            [...basePath, "updateRecord", "record"],
+            scope,
+            context,
+          );
+          bindAtomicFieldMap(update.set, record?.tableId, [...basePath, "updateRecord", "set"], scope, context);
+          if (update.ifVersion !== undefined) bindValue(update.ifVersion, [...basePath, "updateRecord", "ifVersion"], scope, context);
+          if (update.audit !== undefined) bindValue(update.audit, [...basePath, "updateRecord", "audit"], scope, context);
+        }
+      });
+    }
   } else if (step.action === "generateDocument") {
     const template =
       typeof config.template === "string"

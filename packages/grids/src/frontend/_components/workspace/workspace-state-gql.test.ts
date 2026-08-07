@@ -17,7 +17,6 @@ const base = {
   shortId: "BASE1",
   name: "GQL Base",
   description: null,
-  defaultDashboardId: null,
   deletedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -116,7 +115,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
-          dashboards: [],
           tables: catalogTables,
           tableLevels: catalogTableLevels,
           fieldsByTable: catalogFieldsByTable,
@@ -133,8 +131,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
       const level = "viewId" in target ? viewLevel : baseLevel;
       return { level, recordAccess: level === "none" ? null : ALL_RECORD_ACCESS };
     });
-    spyOn(gridsService.dashboard, "getByIdOrShortId").mockImplementation(async () => null);
-    spyOn(gridsService.dashboard, "get").mockImplementation(async () => null);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
       async (_baseId, idOrSlug) =>
         (lookupTable && (lookupTable.id === idOrSlug || lookupTable.shortId === idOrSlug) ? lookupTable : null) as never,
@@ -144,7 +140,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
         (lookupView && (lookupView.id === idOrSlug || lookupView.shortId === idOrSlug) ? lookupView : null) as never,
     );
     spyOn(gridsService.field, "listByTable").mockImplementation(async () => [statusField] as never);
-    spyOn(gridsService.access, "listForDashboard").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
     spyOn(gridsService.access, "listForView").mockImplementation(async () => []);

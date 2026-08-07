@@ -6,23 +6,23 @@ import * as fields from "./fields";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import type { Field } from "./types";
 
-type CompiledDashboardWidgetQuery = {
+type CompiledCustomAppQuery = {
   plan: DslResolvedSqlQueryPlan;
   fieldsByTableId: Record<string, Field[]>;
   tableShortIds: Record<string, string>;
 };
 
-type CompileDashboardWidgetQueryResult = { ok: true; data: CompiledDashboardWidgetQuery } | { ok: false; error: string };
+type CompileCustomAppQueryResult = { ok: true; data: CompiledCustomAppQuery } | { ok: false; error: string };
 
 const diagnosticMessage = (diagnostics: Array<{ message: string }>, fallback: string) =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || fallback;
 
-export const compileDashboardWidgetQuery = async (params: {
+export const compileCustomAppQuery = async (params: {
   baseId: string;
   source: string;
   currentTableId?: string;
   parameters?: DslQueryParameters;
-}): Promise<CompileDashboardWidgetQueryResult> => {
+}): Promise<CompileCustomAppQueryResult> => {
   const parsed = parseGridsQueryDsl(params.source);
   if (!parsed.ok) return { ok: false, error: diagnosticMessage(parsed.diagnostics, "invalid GQL source") };
   const bound = bindDslQueryParameters(parsed.ast, params.parameters ?? {});
@@ -32,7 +32,7 @@ export const compileDashboardWidgetQuery = async (params: {
     baseId: params.baseId,
     ...(params.currentTableId ? { currentTableId: params.currentTableId } : {}),
     ast: bound.ast,
-    purpose: "dashboard-widget-render",
+    purpose: "custom-app-render",
   });
   const resolved = resolveDslQueryToQueryPlan(bound.ast, context);
   if (!resolved.ok) return { ok: false, error: diagnosticMessage(resolved.diagnostics, "invalid GQL source") };

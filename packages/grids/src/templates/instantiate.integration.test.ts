@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { DashboardConfigSchema, type Widget } from "../contracts";
+import { CustomAppCapabilitiesSchema, CustomAppDefinitionSchema } from "../custom-apps/contracts";
 import { migrate } from "../migrate";
-import { previewDslQuery } from "../query-dsl/preview";
-import { resolveWidgetData } from "../service/dashboard-widget-data";
-import { compileDashboardWidgetQuery } from "../service/dashboard-widget-query";
 import { buildLiveRenderData, renderDocumentHtml } from "../service/document-rendering";
 import { getTemplate as getDocumentTemplate } from "../service/document-templates";
 import { get as getRecord } from "../service/records";
@@ -14,51 +11,19 @@ import { deleteTestWorkflowScope } from "../service/workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
-type DashboardRow = { config: unknown };
-type ViewRow = { table_id: string; name: string; source: string };
+type CustomAppRow = { published_definition: unknown; published_capabilities: unknown };
 type DocumentTemplateRow = { id: string; table_id: string; name: string };
 
-const widgetsOf = (config: unknown): Widget[] => DashboardConfigSchema.parse(config).rows.flatMap((row) => row.cells);
-
 const verifyRuntimeSurfaces = async (baseId: string, withSampleData: boolean) => {
-  const [dashboard] = await sql<DashboardRow[]>`
-    SELECT config
-    FROM grids.dashboards
+  const apps = await sql<CustomAppRow[]>`
+    SELECT published_definition, published_capabilities
+    FROM grids.custom_apps
     WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
   `;
-  expect(dashboard).toBeDefined();
-
-  for (const widget of widgetsOf(dashboard?.config ?? { rows: [] })) {
-    const data = await resolveWidgetData(widget, { userId: null, userGroups: [], isAdmin: true }, { baseId });
-    expect(data.kind, `dashboard widget ${widget.id}`).not.toBe("error");
-    if (!withSampleData) {
-      if (data.kind === "view") expect(data.queryResult.rows).toHaveLength(0);
-      if (data.kind === "chart") expect(data.buckets).toHaveLength(0);
-    }
-  }
-
-  const views = await sql<ViewRow[]>`
-    SELECT v.table_id::text AS table_id, v.name, v.source
-    FROM grids.views v
-    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
-    WHERE t.base_id = ${baseId}::uuid AND v.deleted_at IS NULL
-    ORDER BY v.created_at, v.id
-  `;
-  for (const view of views) {
-    const compiled = await compileDashboardWidgetQuery({
-      baseId,
-      currentTableId: view.table_id,
-      source: view.source,
-    });
-    expect(compiled.ok, `compile view ${view.name}`).toBe(true);
-    if (!compiled.ok) continue;
-    const preview = await previewDslQuery(compiled.data.plan, {
-      fieldsByTableId: compiled.data.fieldsByTableId,
-      maxRows: 100,
-      viewer: { userId: null, userGroups: [], isAdmin: true },
-    });
-    expect(preview.ok, `preview view ${view.name}`).toBe(true);
-    if (preview.ok && !withSampleData) expect(preview.data.rows).toHaveLength(0);
+  expect(apps.length).toBeGreaterThan(0);
+  for (const app of apps) {
+    expect(CustomAppDefinitionSchema.safeParse(app.published_definition).success).toBe(true);
+    expect(CustomAppCapabilitiesSchema.safeParse(app.published_capabilities).success).toBe(true);
   }
 
   if (!withSampleData) return;
@@ -170,11 +135,9 @@ describe("built-in template instantiation", () => {
             FROM grids.workflow_launchers
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
           `;
-          const [dashboard] = await sql<
-            Array<{ config: { rows?: Array<{ cells?: Array<{ kind?: string; source?: { kind?: string } }> }> } }>
-          >`
-            SELECT config
-            FROM grids.dashboards
+          const [customApp] = await sql<Array<{ published_definition: unknown; published_capabilities: unknown }>>`
+            SELECT published_definition, published_capabilities
+            FROM grids.custom_apps
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
           `;
           const [documentAudit] = await sql<Array<{ action: string }>>`
@@ -189,7 +152,11 @@ describe("built-in template instantiation", () => {
             WHERE t.base_id = ${created.data.id}::uuid AND r.deleted_at IS NULL
           `;
 
-          const widgets = dashboard?.config.rows?.flatMap((row) => row.cells ?? []) ?? [];
+          const definition = CustomAppDefinitionSchema.parse(customApp?.published_definition);
+          const capabilities = CustomAppCapabilitiesSchema.parse(customApp?.published_capabilities);
+          const blocks = definition.pages.flatMap((page) =>
+            page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)),
+          );
           expect(sampleData?.record_count).toBeGreaterThan(0);
           expect(documentTemplates.map((item) => item.name).sort()).toEqual([...expected.documentNames].sort());
           for (const documentTemplate of documentTemplates) {
@@ -213,13 +180,13 @@ describe("built-in template instantiation", () => {
             });
           }
           expect(
-            widgets.some((widget) => widget.source?.kind === "gql"),
-            `${expected.templateId} direct GQL widget`,
+            blocks.some((block) => "source" in block && block.source?.kind === "gql"),
+            `${expected.templateId} direct Custom App GQL block`,
           ).toBe(true);
           expect(
-            widgets.some((widget) => widget.kind === "workflow-button"),
-            `${expected.templateId} workflow widget`,
-          ).toBe(true);
+            capabilities.workflowLaunchers.length,
+            `${expected.templateId} Custom App workflow action`,
+          ).toBeGreaterThan(0);
           expect(documentAudit?.action).toBe("document_template.created");
           await verifyRuntimeSurfaces(created.data.id, true);
         } finally {

@@ -134,7 +134,6 @@ export type UpdateBaseInput = {
   name?: string;
   description?: string | null;
   documentProfile?: DocumentProfile;
-  defaultDashboardId?: string | null;
 };
 
 export type CreateTableInput = {

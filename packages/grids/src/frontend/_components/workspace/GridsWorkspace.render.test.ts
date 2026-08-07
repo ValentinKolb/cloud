@@ -15,7 +15,6 @@ const workspaceState = (): OkWorkspaceState => ({
     description: null,
     documentProfile: {},
     createdBy: null,
-    defaultDashboardId: null,
     deletedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -32,7 +31,6 @@ const workspaceState = (): OkWorkspaceState => ({
   metadataEventCursor: null,
   recordEventCursor: null,
   catalog: {
-    dashboards: [],
     workflows: [],
     workflowLevels: {},
     tables: [],

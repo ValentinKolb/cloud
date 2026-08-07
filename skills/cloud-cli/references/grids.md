@@ -1,6 +1,6 @@
 # Grids CLI
 
-Grids stores structured operational data in bases made of tables, fields, records, views, forms, Custom Apps, dashboards, documents, and workflows. Use `cld grids` to inspect and change the Grids resources available to the signed-in user through the same permission-checked HTTP API used by the app.
+Grids stores structured operational data in bases made of tables, fields, records, views, forms, Custom Apps, documents, and workflows. Use `cld grids` to inspect and change the Grids resources available to the signed-in user through the same permission-checked HTTP API used by the app.
 
 ## Contents
 
@@ -10,7 +10,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - [Build schema and records](#build-schema-and-records)
 - [Publish Combined tables](#publish-combined-tables)
 - [Query data with GQL](#query-data-with-gql)
-- [Create views, forms, and dashboards](#create-views-forms-and-dashboards)
+- [Create views and forms](#create-views-and-forms)
 - [Publish a Custom App](#publish-a-custom-app)
 - [Generate documents](#generate-documents)
 - [Manage access](#manage-access)
@@ -26,10 +26,9 @@ Grids stores structured operational data in bases made of tables, fields, record
 - A **record** is a versioned row. Relations store target record UUIDs. Computed and system fields are read-only.
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
-- A **dashboard** contains configured widgets that reference resources by UUID.
 - A **Custom App** is an independently shared, base-owned page collection compiled from Markdown, saved-view records, forms, record details, and record comments.
 - A **document template** renders GQL data through Liquid HTML and Gotenberg. A generated document keeps a recursive record snapshot.
-- A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and dashboard
+- A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and Custom App
   interactions. Grids contributes the actions and the events; the runs themselves live in Cloud's shared workflow kernel, so
   `cld grids workflow-runs` reads one base while `cld admin workflows` reads every app.
 
@@ -88,7 +87,7 @@ cld grids use Bookshop
 cld grids tables list --json
 ```
 
-A base reference can be a UUID, short id, or exact name. Table, field, view, form, dashboard, document-template, workflow, and launcher commands likewise resolve documented id, short-id, or exact-name references inside their parent scope. Prefer UUIDs from JSON output in unattended automation.
+A base reference can be a UUID, short id, or exact name. Table, field, view, form, Custom App, document-template, workflow, and launcher commands likewise resolve documented id, short-id, or exact-name references inside their parent scope. Prefer UUIDs from JSON output in unattended automation.
 
 ### Structured input
 
@@ -106,7 +105,7 @@ Use `--json` whenever another command or agent will consume the result. Normal t
 
 CLI requests use the Cloud instance's `app.timezone` for date grouping, relative date filters, generated date sequences, and document
 dates. Browser requests may use the user's timezone cookie instead. Workflow schedules use the IANA timezone declared in their YAML and
-default to UTC. Grids uses the platform English locale for server-rendered number and date output; dashboard `valueFormat` controls
+default to UTC. Grids uses the platform English locale for server-rendered number and date output; Custom App `valueFormat` controls
 numeric style and precision, not locale or query values.
 
 ## Build schema and records
@@ -121,7 +120,7 @@ cld grids tables create --name Authors --description "People who wrote books" --
 cld grids tables get Authors --json
 ```
 
-Built-in templates create complete example bases with schema, views, dashboards, documents, workflows, and optional sample records. Sample
+Built-in templates create complete example bases with schema, views, Custom Apps, documents, workflows, and optional sample records. Sample
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
@@ -130,7 +129,7 @@ Base commands are `list`, `use`, `current`, and `bases list|get|create|update|de
 Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
 
 `bases restore`, `tables restore`, and the other restore commands require the deleted resource UUID rather than a name lookup. Base
-admins can discover deleted table, field, dashboard, and form UUIDs with `cld grids bases trash <base> --json`. A deleted table owns its
+admins can discover deleted table, field, and form UUIDs with `cld grids bases trash <base> --json`. A deleted table owns its
 deleted fields and forms, so those nested resources are restored with the table rather than duplicated in the trash response.
 
 ### Field types
@@ -226,7 +225,7 @@ cld grids snapshots list Assets <record-uuid> --json
 
 A Combined table exposes one canonical, read-only table over stored source tables from one or more bases. Readers need permission only on
 the Combined target. They do not gain source-base navigation, raw source schema, non-published field history, or mutation rights. Queries,
-saved views, dashboards, documents, workflow reads, exports, and the canonical Combined audit trail use normal Grids behavior.
+saved views, Custom Apps, documents, workflow reads, exports, and the canonical Combined audit trail use normal Grids behavior.
 
 Publication is fail-closed. Revocation, source deletion, or incompatible schema drift makes the complete published revision unavailable;
 Grids does not return a silently smaller partial union. One Combined table supports at most 50 stored sources and 200 canonical fields.
@@ -511,7 +510,7 @@ returns `to - from`, rounded down to whole units.
 
 The GQL command set is `gql reference|run|preview|compile-view|autocomplete|skill|context`. Formula commands are `formulas reference|check`.
 
-## Create views, forms, and dashboards
+## Create views and forms
 
 ### Views
 
@@ -546,48 +545,11 @@ cld grids forms submit Orders Checkout --body-file submission.json --json
 
 Commands are `forms list|default|get|create|update|delete|restore|submit`. `--public` creates or retains a public submit token; `--private` removes it. Public form links allow form submission, not unrestricted table access.
 
-### Dashboards
-
-Read the machine-readable reference before creating nested dashboard JSON:
-
-```bash
-cld grids dashboards reference --json
-```
-
-Dashboard config is a `{ "rows": [...] }` object. Each row has `id`, `kind: "row"`, `height: "sm"|"md"|"lg"`, and up to 12 cells.
-Each cell may set `span` from 1 to 12. Data widgets use either a saved view source or dashboard-local GQL:
-
-```json
-{ "kind": "view", "viewId": "<view-uuid>" }
-{ "kind": "gql", "source": "from table Orders\naggregate sum(Total) as revenue" }
-```
-
-Widget kinds are `stat`, `chart`, `view`, `view-stats`, `form`, `markdown`, `link`, and `workflow-button`. The JSON reference lists every
-kind's required and optional properties, link-target shapes, chart source requirements, and a schema-valid example. Stat and chart values
-may use an explicit `valueFormat` with style `number`, `integer`, or `percent`. `number` may add `decimalPlaces`, `unit`, and
-`unitPosition`; `integer` cannot set decimal places; `percent` expects a fraction, so `0.19` renders as `19%`. Formatting never changes
-canonical data.
-
-```bash
-cld grids dashboards create \
-  --name Overview \
-  --shared \
-  --config '{"rows":[]}' \
-  --json
-```
-
-Commands are `dashboards reference|list|get|create|update|delete|restore` and `dashboards widgets resolve|run|scan`. `widgets resolve`
-resolves a widget configuration you supply as JSON (`--body`, `--body-file`, or `--stdin`) against one dashboard — it does not look an
-existing widget up by id. `widgets run` executes a workflow-button widget and `widgets scan --code <value>` drives its scanner flow; both
-take the stored widget's id.
-Scanner retries should reuse `--operation-id`; when omitted, the CLI generates a new idempotency id. Pass `--expected-revision` when a
-caller must reject a launcher that was revalidated against a different workflow revision. Otherwise, the server uses the launcher's
-current validated revision without requiring direct workflow access from the dashboard reader.
-
 ## Publish a Custom App
 
 Custom Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
-columns plus Markdown, saved-view Records, Record, Form, and Comments blocks. A Records block can navigate its row id into one required
+columns plus Markdown, Records, Metric, Chart, Record, Form, Comments, and Actions blocks. Records and insight blocks can use a saved view
+or bounded GQL. A Records block can navigate its row id into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist and
 Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted fixed values from declared
 page parameters. Run the live reference before authoring a definition:
@@ -678,7 +640,6 @@ Supported resource references are:
 - `table <base> <table>`: `read`, `write`, or `none`.
 - `view <base> <table> <view>`: `read`, `admin`, or `none`.
 - `form <base> <table> <form>`: `write` or `none`.
-- `dashboard <base> <dashboard>`: `read` or `none`.
 - `custom-app <base> <app>`: `read` or `none`; signed-in principals only.
 - `document-template <base> <table> <template>`: `read`, `write`, `admin`, or `none`.
 - `workflow <base> <workflow>`: `read`, `write`, `admin`, or `none`.
@@ -693,7 +654,7 @@ Workflow YAML stores `inputs`, optional `triggers`, and `steps`; name and descri
 cld grids workflows reference --json
 ```
 
-The shipped inputs are `record`, `recordList`, `text`, `number`, `boolean`, `date`, `dateTime`, and `select`. Triggers are `schedule` and `recordEvent`. Actions are `updateRecord`, `createRecord`, `generateDocument`, `createDocumentLink`, `sendEmail`, `httpRequest`, `setVariable`, `fail`, and `succeed`. Control flow supports `if/then/else`, `switch/cases/default`, and `forEach/as/do`.
+The shipped inputs are `record`, `recordList`, `text`, `number`, `boolean`, `date`, `dateTime`, and `select`. Triggers are `schedule` and `recordEvent`. Actions are `updateRecord`, `createRecord`, `atomicRecords`, `generateDocument`, `createDocumentLink`, `sendEmail`, `httpRequest`, `setVariable`, `fail`, and `succeed`. Control flow supports `if/then/else`, `switch/cases/default`, and `forEach/as/do`.
 
 `schedule` and `recordEvent` are the only triggers written in YAML. A direct invocation and a launcher press are API and CLI operations, not
 YAML — but they are still events, and a workflow is always listening for them, so nothing has to be declared to make it invocable.
@@ -744,6 +705,7 @@ Action fields are:
 | --- | --- | --- | --- |
 | `updateRecord` | `record`, non-empty `set` | `audit` answers by question UUID | none |
 | `createRecord` | `table`, non-empty `values` | `saveAs` | created record |
+| `atomicRecords` | 1–100 `locks`, 1–50 `checks`, 1–50 `changes` | check `message`; update `ifVersion` and `audit` | none |
 | `generateDocument` | `template`, `record` | `filename`, up to 20 `tags`, `saveAs` | document |
 | `createDocumentLink` | `document` | `expiresIn: 1d|7d|30d|90d` default `30d`, `comment`, `saveAs` | public link |
 | `sendEmail` | `template`, `to` with 1–50 recipients | `data` with at most 200 keys, `saveAs` | email result |
@@ -754,6 +716,50 @@ Action fields are:
 
 `sendEmail.to` entries contain exactly one of `email` or `user`. HTTP methods are `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`; requests
 carry optional JSON only. Field, table, document-template, and email-template references accept an unambiguous name, short id, or UUID.
+
+`atomicRecords` is a bounded Grids-only transaction. `locks` contains existing record references acquired in stable order. Each `checks`
+entry selects a bound `table`, has 1–20 `where` predicates combined with AND, and uses `assert: empty|notEmpty`; predicates contain
+`field`, `op`, optional `value`, and optional `caseInsensitive`. Optional `message` controls the failed-check text. `changes` contains only
+`createRecord` entries (`table`, non-empty `values`) or `updateRecord` entries (`record`, non-empty `set`, optional `ifVersion`, optional
+`audit`). Grids rechecks current permissions and row scope and commits the writes, relations, audit rows, event outbox, and step outcome
+together. A failure rolls back all of them. Dry run validates and evaluates but neither locks nor writes.
+
+An empty query has no row to lock. Competing reservation workflows must therefore name the same stable coordination record in `locks`, then
+check for the absence of an active relation while that record is locked:
+
+```yaml
+inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+steps:
+  - atomicRecords:
+      locks:
+        - inputs.item
+      checks:
+        - table: Movements
+          where:
+            - field: Item
+              op: containsAny
+              value:
+                - ${{ inputs.item.recordId }}
+            - field: Type
+              op: equals
+              value: Active loan
+          assert: empty
+          message: This item is already reserved.
+      changes:
+        - updateRecord:
+            record: inputs.item
+            set:
+              Status: Loaned
+        - createRecord:
+            table: Movements
+            values:
+              Item: ${{ inputs.item }}
+              Type: Active loan
+```
 
 `httpRequest` reaches public addresses only. A URL whose host is `localhost`, ends in `.localhost` or `.internal`, or resolves to a
 loopback, private, carrier-NAT, link-local, multicast, or reserved address is rejected — every DNS answer is checked, not only the one
@@ -826,7 +832,7 @@ Saved document outputs expose `id`, `shortId`, `templateId`, `workflowRunId`, `s
 and `status`. HTTP outputs expose `status`, `ok`, and `body`.
 
 Limits are 100 inputs, 1,000 total steps, nesting depth 20, 1,000 conditions, condition depth 20, 10,000 loop or record-list items, and
-200,000 YAML characters. Run modes are `execute` and `dryRun`. Invocation channels are `api`, `dashboard`, `scanner`, `bulk`, `schedule`,
+200,000 YAML characters. Run modes are `execute` and `dryRun`. Invocation channels are `api`, `customApp`, `scanner`, `bulk`, `schedule`,
 and `recordEvent`.
 
 A run and a step do not share a vocabulary, and reading one as the other is how a finished step gets reported as still going:
@@ -877,7 +883,7 @@ Restore copies the selected definition into a new current revision. It uses the 
 
 ### Invoke and inspect runs
 
-Everything that starts a run is an event. A direct invocation records `grids.invoked`, a scanner, bulk, or dashboard launcher records
+Everything that starts a run is an event. A direct invocation records `grids.invoked`; a scanner, bulk, or Custom App launcher records
 `grids.launcherPressed`, a schedule slot records `grids.scheduleTick`, and a watched row records `grids.recordChanged`. The kernel matches
 the event against the workflow's activations and materializes the run, so a run has an inspectable cause rather than only a channel label.
 A dry run is deliberately not an event: nothing happened, somebody is asking what would, so it is created directly against the workflow's
@@ -934,7 +940,7 @@ happened. Run commands are `workflow-runs list|get|cancel|steps|documents|downlo
 
 ### Run options and email templates
 
-Run options expose a workflow as a scanner, bulk, or dashboard interaction. The API and CLI call these resources launchers. A dashboard option uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed options reject runtime inputs; prompt options do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
+Run options expose a workflow as a scanner, bulk, or Custom App interaction. The API and CLI call these resources launchers. A Custom App option uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed options reject runtime inputs; prompt options do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
 
 ```bash
 cld grids workflow-launchers create "Check in" --body-file scanner-launcher.json --json
@@ -974,8 +980,6 @@ gql reference|run|preview|compile-view|autocomplete|skill|context
 formulas reference|check
 views list|get|create|update|delete|restore
 forms list|default|get|create|update|delete|restore|submit
-dashboards reference|list|get|create|update|delete|restore
-dashboards widgets resolve|run|scan
 apps reference|list|get|validate|plan|apply|export|publish
 document-templates reference|list|get|create|update|delete
 document-templates preview-data|preview-pdf|preview-draft-data|preview-draft-pdf

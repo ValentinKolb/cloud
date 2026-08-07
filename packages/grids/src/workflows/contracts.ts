@@ -8,7 +8,7 @@ import type {
 } from "@valentinkolb/cloud/workflows";
 import { z } from "zod";
 
-export const GRIDS_WORKFLOW_CHANNELS = ["api", "dashboard", "scanner", "bulk", "schedule", "recordEvent"] as const;
+export const GRIDS_WORKFLOW_CHANNELS = ["api", "customApp", "scanner", "bulk", "schedule", "recordEvent"] as const;
 
 export type GridsWorkflowChannel = (typeof GRIDS_WORKFLOW_CHANNELS)[number];
 
@@ -59,7 +59,7 @@ export const WORKFLOW_REVISION_HEADER = "X-Workflow-Revision";
 
 export const toWorkflowRevision = (revision: number): WorkflowRevision => String(revision);
 
-export const GRIDS_WORKFLOW_LAUNCHER_KINDS = ["scanner", "bulk", "dashboard"] as const;
+export const GRIDS_WORKFLOW_LAUNCHER_KINDS = ["scanner", "bulk", "customApp"] as const;
 
 export type GridsWorkflowLauncherKind = (typeof GRIDS_WORKFLOW_LAUNCHER_KINDS)[number];
 
@@ -159,7 +159,7 @@ export type GridsWorkflowLauncherConfig =
   | GridsScannerLauncherConfig
   | { kind: "bulk"; input: string }
   | {
-      kind: "dashboard";
+      kind: "customApp";
       label?: string;
       inputMode: "fixed" | "prompt";
       inputBindings?: Record<string, WorkflowJsonValue>;
@@ -404,9 +404,9 @@ const BulkLauncherConfigSchema = z
   })
   .strict();
 
-const DashboardLauncherConfigSchema = z
+const CustomAppLauncherConfigSchema = z
   .object({
-    kind: z.literal("dashboard"),
+    kind: z.literal("customApp"),
     label: z.string().trim().min(1).max(80).optional(),
     inputMode: z.enum(["fixed", "prompt"]).default("fixed"),
     inputBindings: z.record(z.string(), z.json()).optional(),
@@ -417,7 +417,7 @@ const DashboardLauncherConfigSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["inputBindings"],
-        message: "prompt dashboard launchers do not accept fixed input bindings",
+        message: "prompt Custom App launchers do not accept fixed input bindings",
       });
     }
   });
@@ -425,7 +425,7 @@ const DashboardLauncherConfigSchema = z
 export const GridsWorkflowLauncherConfigSchema = z.union([
   ScannerLauncherConfigSchema,
   BulkLauncherConfigSchema,
-  DashboardLauncherConfigSchema,
+  CustomAppLauncherConfigSchema,
 ]);
 
 export const CreateGridsWorkflowLauncherSchema = z.object({

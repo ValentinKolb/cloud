@@ -4,7 +4,7 @@ import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { listForBase as listBaseCatalog } from "./base-catalog";
 import { listVisible as listVisibleBases } from "./bases";
-import { listForBase as listDashboardsForBase } from "./dashboards";
+import { loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { listForTable as listViewsForTable } from "./views";
 
 beforeAll(async () => {
@@ -20,7 +20,7 @@ describe("authorization projections", () => {
     const baseId = testUuid();
     const tableId = testUuid();
     const viewId = testUuid();
-    const dashboardId = testUuid();
+    const customAppId = testUuid();
     const accessIds = [testUuid(), testUuid(), testUuid()];
 
     try {
@@ -49,8 +49,8 @@ describe("authorization projections", () => {
         VALUES (${viewId}::uuid, ${testShortId("V")}, ${tableId}::uuid, 'Nested view', 'from table "Nested table"', ${outsideUserId}::uuid)
       `;
       await sql`
-        INSERT INTO grids.dashboards (id, short_id, base_id, name, owner_user_id)
-        VALUES (${dashboardId}::uuid, ${testShortId("D")}, ${baseId}::uuid, 'Nested dashboard', ${outsideUserId}::uuid)
+        INSERT INTO grids.custom_apps (id, short_id, base_id, name, owner_user_id, draft_definition, draft_capabilities)
+        VALUES (${customAppId}::uuid, ${testShortId("C")}, ${baseId}::uuid, 'Nested app', ${outsideUserId}::uuid, '{}'::jsonb, '{"views":[]}'::jsonb)
       `;
       await sql`
         INSERT INTO auth.access (id, group_id, permission) VALUES
@@ -60,15 +60,18 @@ describe("authorization projections", () => {
       `;
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessIds[0]}::uuid)`;
       await sql`INSERT INTO grids.view_access (view_id, access_id) VALUES (${viewId}::uuid, ${accessIds[1]}::uuid)`;
-      await sql`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${dashboardId}::uuid, ${accessIds[2]}::uuid)`;
+      await sql`INSERT INTO grids.custom_app_access (custom_app_id, access_id) VALUES (${customAppId}::uuid, ${accessIds[2]}::uuid)`;
 
       const nestedBases = await listVisibleBases({ userId: nestedUserId, userGroups: [] });
       expect(nestedBases.items.map((base) => base.id)).toContain(baseId);
       expect((await listBaseCatalog({ baseId, userId: nestedUserId, userGroups: [] })).tables.map((table) => table.id)).toContain(tableId);
       expect((await listViewsForTable({ tableId, userId: nestedUserId, userGroups: [] })).map((view) => view.id)).toContain(viewId);
-      expect((await listDashboardsForBase({ baseId, userId: nestedUserId, userGroups: [] })).map((dashboard) => dashboard.id)).toContain(
-        dashboardId,
-      );
+      expect(
+        resolveEffectivePermission(await loadGrantsForUser({ baseId, customAppId, userId: nestedUserId, userGroups: [] }), {
+          baseId,
+          customAppId,
+        }),
+      ).toBe("read");
 
       expect((await listVisibleBases({ userId: outsideUserId, userGroups: [parentGroupId] })).items.map((base) => base.id)).not.toContain(
         baseId,

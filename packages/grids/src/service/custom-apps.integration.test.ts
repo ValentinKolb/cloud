@@ -122,7 +122,7 @@ describe("Custom App lifecycle", () => {
       if (!workflow) throw new Error("Custom App workflow fixture is missing");
       const launcherResult = await createLauncher(
         workflow,
-        { name: "Approve request", config: { kind: "dashboard", inputMode: "prompt" }, enabled: true },
+        { name: "Approve request", config: { kind: "customApp", inputMode: "prompt" }, enabled: true },
         null,
       );
       if (!launcherResult.ok) throw new Error(launcherResult.error.message);

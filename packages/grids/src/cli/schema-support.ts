@@ -265,7 +265,7 @@ export const printRecordShape = (ctx: CloudCliContext, shape: ReturnType<typeof 
   if (printStructured(ctx, shape)) return;
   ctx.print(`Record payload for ${shape.table.name} (${shape.table.shortId})`);
   if (shape.table.kind === "federated") {
-    ctx.print("Combined tables are read-only. Use GQL, views, dashboards, documents, workflows, or export to consume their data.");
+    ctx.print("Combined tables are read-only. Use GQL, views, Custom Apps, documents, workflows, or export to consume their data.");
     ctx.print("");
   }
   if (shape.table.kind === "stored") ctx.print("Use field UUID keys. Field names and short ids are only lookup aids.");

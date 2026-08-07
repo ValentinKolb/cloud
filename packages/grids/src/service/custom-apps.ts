@@ -14,7 +14,7 @@ import { isRecordWritableFieldType } from "../field-types";
 import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
 import { collectDslPlanTableIds } from "../query-dsl/source-plan";
 import { logAudit, type SqlClient } from "./audit";
-import { compileDashboardWidgetQuery } from "./dashboard-widget-query";
+import { compileCustomAppQuery } from "./custom-app-query";
 import { normalizeFormConfig } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
@@ -248,7 +248,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       diagnostics.push({ path: ["blocks", block.id, "source", "viewId"], message: "View is missing or belongs to another base" });
       continue;
     }
-    const compiled = await compileDashboardWidgetQuery({
+    const compiled = await compileCustomAppQuery({
       baseId: definition.baseId,
       source: source.query,
       ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
@@ -325,7 +325,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       });
       continue;
     }
-    const compiled = await compileDashboardWidgetQuery({
+    const compiled = await compileCustomAppQuery({
       baseId: definition.baseId,
       source: source.query,
       ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
@@ -504,7 +504,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         launcher.deletedAt !== null ||
         !launcher.enabled ||
         launcher.diagnostics.some((item) => item.severity === "error") ||
-        launcher.config.kind !== "dashboard"
+        launcher.config.kind !== "customApp"
       ) {
         diagnostics.push({
           path: ["pages", page.id, "blocks", block.id, "actions", action.id, "launcherId"],

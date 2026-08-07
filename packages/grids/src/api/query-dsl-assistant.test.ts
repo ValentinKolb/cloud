@@ -32,7 +32,6 @@ const base = {
   name: "Assistant Base",
   description: "Visible schema.",
   createdBy: user.id,
-  defaultDashboardId: null,
   deletedAt: null,
   createdAt: "2026-06-01T00:00:00.000Z",
   updatedAt: "2026-06-01T00:00:00.000Z",

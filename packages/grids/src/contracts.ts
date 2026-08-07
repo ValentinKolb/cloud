@@ -211,12 +211,6 @@ export const BaseSchema = z.object({
   description: z.string().nullable(),
   documentProfile: DocumentProfileSchema,
   createdBy: z.string().uuid().nullable(),
-  /** When set, opening `/grids/<base>` with no ?table or ?dashboard query
-   *  param renders this dashboard. Service layer treats stale ids
-   *  (referenced dashboard soft-deleted) as null. Settable via the
-   *  base settings page; surfaced as a read-only "Currently base default"
-   *  badge on the dashboard render/edit pages. */
-  defaultDashboardId: z.string().uuid().nullable(),
   deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -232,9 +226,6 @@ export const UpdateBaseSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
   documentProfile: DocumentProfileSchema.optional(),
-  /** Set/unset the default dashboard for this base. Pass null to clear.
-   *  Caller must hold base-admin (gate enforced in api/bases.ts). */
-  defaultDashboardId: z.string().uuid().nullable().optional(),
 });
 
 // ── Table ─────────────────────────────────────────────────────────────────
@@ -667,7 +658,7 @@ export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
 
 /**
  * Group-by dimension. Stored in RecordQuery so saved views, URL state,
- * dashboard charts, and exports use the same query contract.
+ * Custom App charts and exports use the same query contract.
  */
 const GroupBySpecSchema = z.object({
   fieldId: z.string().uuid(),
@@ -882,7 +873,7 @@ const DslQueryCurrentSourceSchema = z
   .optional();
 
 const DslQuerySurfaceSchema = z
-  .enum(["api", "cli", "dashboard", "document", "query-explorer", "records-view", "ssr", "workflow"])
+  .enum(["api", "cli", "custom-app", "document", "query-explorer", "records-view", "ssr", "workflow"])
   .optional();
 export type DslQuerySurface = z.infer<typeof DslQuerySurfaceSchema>;
 
@@ -1434,318 +1425,6 @@ export const FormConfigSchema = z.object({
   // dimensions before emitting; the server still enforces a hard cap.
   titleImage: z.string().max(1_000_000).optional(),
 });
-
-// ── Dashboards ────────────────────────────────────────────────────────────
-//
-// A dashboard is a per-base composition of widgets that pull data from
-// any table in the base. Widget kinds:
-//
-//   - "stat"  : single number from a saved View's GQL result — e.g.
-//               "1,247 orders this month". The view owns the query.
-//   - "chart" : multi-bucket data from a grouped saved View.
-//   - "view"  : embedded saved View — mounts records from a fixed
-//               view id with pagesize 25.
-//   - "view-stats": derives compact stat cells from a saved View.
-//   - "form"  : embeds a saved Form for inline record creation.
-//   - "workflow-button": runs one workflow dashboard button trigger.
-//
-// Dashboard widgets do not carry filter/sort/aggregate semantics.
-// Query semantics live in one explicit widget source. A widget may reuse a
-// saved View or own a dashboard-local GQL source. Widget kinds only describe
-// presentation; they never duplicate filter, grouping, or aggregate fields.
-//
-// Layout: `rows × cells` on a 12-column grid. Each widget owns a
-// `span` (1..12), so editors can make a chart wider than a stat
-// without introducing a freeform pixel canvas.
-
-/**
- * Presentation for numeric dashboard values. Query results remain canonical;
- * this metadata only controls user-visible rendering.
- */
-export const WidgetValueFormatSchema = z
-  .object({
-    style: z.enum(["number", "integer", "percent"]),
-    decimalPlaces: z.number().int().min(0).max(20).optional(),
-    unit: z.string().trim().min(1).max(20).optional(),
-    unitPosition: z.enum(["prefix", "suffix"]).optional(),
-  })
-  .superRefine((format, ctx) => {
-    if (format.style === "integer" && format.decimalPlaces !== undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["decimalPlaces"], message: "integer format cannot set decimal places" });
-    }
-    if (format.style !== "number" && (format.unit !== undefined || format.unitPosition !== undefined)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unit"], message: `${format.style} format cannot set a custom unit` });
-    }
-    if (format.unit === undefined && format.unitPosition !== undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitPosition"], message: "unit position requires a unit" });
-    }
-  });
-export type WidgetValueFormat = z.infer<typeof WidgetValueFormatSchema>;
-
-const StatToneSchema = z.enum(["neutral", "blue", "green", "amber", "red"]);
-
-export const DashboardWidgetSourceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("view"), viewId: z.string().uuid() }),
-  z.object({ kind: z.literal("gql"), source: z.string().trim().min(1).max(20_000) }),
-]);
-export type DashboardWidgetSource = z.infer<typeof DashboardWidgetSourceSchema>;
-
-/**
- * Optional grouped source attached to a stat widget. The first aggregate
- * column of each bucket becomes the sparkline value. Query semantics stay
- * in the source instead of being duplicated by the widget.
- */
-const StatTrendSchema = z.object({
-  source: DashboardWidgetSourceSchema,
-  windowSize: z.number().int().min(2).max(60).default(12),
-});
-
-// Per-kind widget schemas. `id` is client-generated so DnD can track
-// widgets across reorders without server round-trips. `span` is the
-// widget's width in the dashboard's 12-column layout; when omitted, the
-// renderer falls back to equal-width cells.
-const StatWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("stat"),
-  span: z.number().int().min(1).max(12).optional(),
-  title: z.string().max(200).optional(),
-  /** Saved view or dashboard-local GQL source. The first aggregate column
-   *  from its result is rendered. */
-  source: DashboardWidgetSourceSchema,
-  /** Optional inline trend — see {@link StatTrendSchema}. */
-  trend: StatTrendSchema.optional(),
-  icon: z.string().max(60).optional(),
-  valueFormat: WidgetValueFormatSchema.optional(),
-  /** Pure presentation hint for the value colour. No KPI semantics. */
-  tone: StatToneSchema.optional(),
-  /** Optional small-text sub-line under the value. Mirrors the
-   *  compact small-grid reference (`9·12 admin`, `last 24h`,
-   *  `providers`). Plain text only, no icons. */
-  sub: z.string().max(60).optional(),
-});
-
-/**
- * Chart widget — visualizes a GQL source's bucketed output as a
- * donut, bar, line, sparkline, or scatter SVG via the `<Chart>` primitive from
- * `@k2b/ui`.
- *
- * **Source:** either a saved view or GQL stored directly in the widget.
- * It supplies the filter, sort, groupBy (with optional granularity),
- * and aggregations. The widget only controls presentation. A saved
- * view can be reused across widgets; local GQL keeps dashboard-only
- * queries out of the navigation.
- *
- * **chartType → expected source shape:**
- *  - `donut`/`bar`: 1 groupBy + ≥1 aggregation (first wins).
- *  - `line`:        1 groupBy + N aggregations (one series each).
- *  - `sparkline`:   1 groupBy + ≥1 aggregation (first wins).
- *  - `scatter`:     1 groupBy + ≥2 aggregations (agg1=x, agg2=y).
- *
- * **`limit`** caps the most-recent N buckets — handy when a source holds
- * a long history but the chart should only show e.g. "last 12 months".
- * Applied after the source's own filter/sort, so it's a renderer trim,
- * not a query change.
- */
-const ChartWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("chart"),
-  span: z.number().int().min(1).max(12).optional(),
-  title: z.string().max(200).optional(),
-  /** Small grey line under the title in the chart frame. */
-  subtitle: z.string().max(200).optional(),
-  chartType: z.enum(["donut", "bar", "line", "sparkline", "scatter"]),
-  /** Saved view or dashboard-local GQL source that supplies the buckets. */
-  source: DashboardWidgetSourceSchema,
-  /** Optional cap on bucket count — keeps the most-recent N. */
-  limit: z.number().int().min(1).max(1000).optional(),
-  /** Y-axis / value presentation. Source values remain unchanged. */
-  valueFormat: WidgetValueFormatSchema.optional(),
-  /** Optional axis labels — passed through to the chart renderer. */
-  xAxisLabel: z.string().max(60).optional(),
-  yAxisLabel: z.string().max(60).optional(),
-});
-
-/**
- * View-stats widget — derives a tiny 2×N stat-grid from a GQL source's
- * first row (ungrouped) or first bucket (grouped). It lives as a cell
- * inside a unified row, so it can sit next to other cell kinds in a
- * single horizontal strip.
- *
- * Internal layout: when the cell renders, the auto-derived stats are
- * arranged as a 2-column hairline grid within the cell's paper slot.
- * Width comes from the widget's optional 12-column span; height fits
- * the row slot.
- */
-const ViewStatsWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("view-stats"),
-  span: z.number().int().min(1).max(12).optional(),
-  source: DashboardWidgetSourceSchema,
-  title: z.string().max(200).optional(),
-});
-
-/**
- * Form widget — embeds a form for inline data entry on the dashboard.
- * The form's submit POSTs through the existing form-submission path
- * and invalidates the dashboard so every other widget re-resolves
- * with the freshly written record. No optimistic widget math in v1:
- * SQL remains the source of truth for stats, charts, and views.
- *
- * Permission: when the viewer can't submit the form, the cell renders
- * a dimmed "no access" placeholder so the dashboard layout stays
- * stable across users with different permission sets.
- */
-const FormWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("form"),
-  span: z.number().int().min(1).max(12).optional(),
-  formId: z.string().uuid(),
-  title: z.string().max(200).optional(),
-});
-
-/**
- * Markdown widget — static dashboard content for instructions,
- * explanations, checklists, or lightweight documentation.
- */
-const MarkdownWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("markdown"),
-  span: z.number().int().min(1).max(12).optional(),
-  title: z.string().max(200).optional(),
-  markdown: z.string().max(20_000).default(""),
-});
-
-const LinkWidgetTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("dashboard"), dashboardId: z.string().uuid() }),
-  z.object({ kind: z.literal("table"), tableId: z.string().uuid() }),
-  z.object({ kind: z.literal("view"), viewId: z.string().uuid() }),
-  z.object({ kind: z.literal("form"), formId: z.string().uuid() }),
-  z.object({ kind: z.literal("url"), url: z.string().trim().url().max(2000) }),
-]);
-
-const LinkWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("link"),
-  span: z.number().int().min(1).max(12).optional(),
-  title: z.string().max(200).optional(),
-  description: z.string().max(1000).optional(),
-  icon: z.string().max(200).optional(),
-  target: LinkWidgetTargetSchema,
-});
-
-/**
- * Workflow button widget — explicit dashboard-scoped capability to
- * trigger one saved workflow launcher. Dashboard readers may press this button, but
- * this does not grant general workflow list/edit/run access. The
- * backend re-checks the saved dashboard config before each run.
- */
-const WorkflowButtonWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("workflow-button"),
-  span: z.number().int().min(1).max(12).optional(),
-  launcherId: z.string().uuid(),
-  title: z.string().max(200).optional(),
-  description: z.string().max(1000).optional(),
-  buttonLabel: z.string().max(80).optional(),
-});
-
-const ViewWidgetSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("view"),
-  span: z.number().int().min(1).max(12).optional(),
-  source: DashboardWidgetSourceSchema,
-  title: z.string().max(200).optional(),
-});
-
-export const WidgetSchema = z.discriminatedUnion("kind", [
-  StatWidgetSchema,
-  ChartWidgetSchema,
-  ViewWidgetSchema,
-  ViewStatsWidgetSchema,
-  FormWidgetSchema,
-  MarkdownWidgetSchema,
-  LinkWidgetSchema,
-  WorkflowButtonWidgetSchema,
-]);
-export type Widget = z.infer<typeof WidgetSchema>;
-export type StatWidget = z.infer<typeof StatWidgetSchema>;
-export type ChartWidget = z.infer<typeof ChartWidgetSchema>;
-export type ViewWidget = z.infer<typeof ViewWidgetSchema>;
-export type ViewStatsWidget = z.infer<typeof ViewStatsWidgetSchema>;
-export type FormWidget = z.infer<typeof FormWidgetSchema>;
-export type MarkdownWidget = z.infer<typeof MarkdownWidgetSchema>;
-export type LinkWidget = z.infer<typeof LinkWidgetSchema>;
-export type WorkflowButtonWidget = z.infer<typeof WorkflowButtonWidgetSchema>;
-
-// Unified row — one type with any mix of cell kinds. Replaces the
-// previous three-row-type discriminated union (stats / view-stats /
-// widgets) that forced a user to pick a row type up-front.
-//
-// Layout rules (applied by the renderer, not the schema):
-//
-//   - All cells of kind="stat" → render the row as one paper with
-//     hairline dividers between cells (the dense "small grid"
-//     pattern). Stats belong together visually.
-//   - Anything else (mixed, or pure view/chart/view-stats/form) →
-//     each cell renders as its own paper-card; the row's `height`
-//     tier dictates the slot height; cells stretch to fill.
-//   - view-stats cells render as an internal 2-column hairline grid
-//     within their single paper slot.
-//   - Form cells render the form; viewer without submit perm sees a
-//     dimmed "no access" placeholder.
-//
-// A row may be empty while editing so it can act as a drop target.
-// Read-only rendering skips empty rows.
-const DashboardRowSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("row"),
-  height: z.enum(["sm", "md", "lg"]),
-  cells: z.array(WidgetSchema).max(12),
-});
-export type DashboardRow = z.infer<typeof DashboardRowSchema>;
-
-export const DashboardConfigSchema = z.object({
-  rows: z.array(DashboardRowSchema),
-});
-export type DashboardConfig = z.infer<typeof DashboardConfigSchema>;
-
-// Dashboard entity — same row shape as views, scoped per-base.
-export const DashboardSchema = z.object({
-  id: z.string().uuid(),
-  shortId: ShortIdSchema,
-  baseId: z.string().uuid(),
-  name: z.string(),
-  description: z.string().nullable(),
-  icon: IconNameSchema,
-  config: DashboardConfigSchema,
-  /** null = shared (visible to anyone with base-read); else owner's
-   *  user id. Same model as views. */
-  ownerUserId: z.string().uuid().nullable(),
-  position: z.number().int(),
-  deletedAt: z.string().datetime().nullable(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-export type Dashboard = z.infer<typeof DashboardSchema>;
-
-export const CreateDashboardSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().max(1000).nullable().optional(),
-  icon: IconNameSchema,
-  config: DashboardConfigSchema.optional(),
-  shared: z.boolean().optional(),
-});
-
-export const UpdateDashboardSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(1000).nullable().optional(),
-  icon: IconNameSchema,
-  config: DashboardConfigSchema.optional(),
-  position: z.number().int().optional(),
-  shared: z.boolean().optional(),
-});
-
-export const DashboardListSchema = z.array(DashboardSchema);
 
 // ── Lists ─────────────────────────────────────────────────────────────────
 export const BaseListSchema = z.object({

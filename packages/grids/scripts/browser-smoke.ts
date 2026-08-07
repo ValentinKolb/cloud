@@ -23,12 +23,9 @@ type Fixture = {
   base: { id: string; shortId: string };
   table: { id: string; shortId: string };
   view: { id: string; shortId: string };
-  chartView: { id: string; shortId: string };
   statView: { id: string; shortId: string };
   pagedView: { id: string; shortId: string };
   form: { id: string; publicToken: string };
-  dashboard: { id: string; shortId: string };
-  emptyDashboard: { id: string; shortId: string };
   records: {
     first: string;
   };
@@ -198,17 +195,6 @@ const createFixture = async (): Promise<Fixture> => {
     sessionToken,
     201,
   );
-  const chartView = await api<{ id: string; shortId: string }>(
-    "POST",
-    `/api/grids/views/by-table/${table.id}`,
-    {
-      name: "Amount by status",
-      shared: true,
-      source: `from table {${table.id}}\ngroup by {${status.id}}\naggregate sum({${amount.id}}) as total_amount`,
-    },
-    sessionToken,
-    201,
-  );
   const statView = await api<{ id: string; shortId: string }>(
     "POST",
     `/api/grids/views/by-table/${table.id}`,
@@ -255,117 +241,15 @@ const createFixture = async (): Promise<Fixture> => {
   );
   if (!form.publicToken) fail("public form was created without a public token");
 
-  const dashboard = await api<{ id: string; shortId: string }>(
-    "POST",
-    `/api/grids/dashboards/by-base/${base.id}`,
-    {
-      name: "Operations dashboard",
-      description: "Browser smoke dashboard",
-      shared: true,
-      icon: "ti ti-layout-dashboard",
-      config: {
-        rows: [
-          {
-            id: "row-stats",
-            kind: "row",
-            height: "sm",
-            cells: [
-              {
-                id: "stat-total",
-                kind: "stat",
-                span: 6,
-                title: "Total amount",
-                format: "currency",
-                tone: "blue",
-                source: { kind: "view", viewId: statView.id },
-              },
-              {
-                id: "link-table",
-                kind: "link",
-                span: 6,
-                title: "Open tasks table",
-                description: "Jump to the task table.",
-                target: { kind: "table", tableId: table.id },
-              },
-            ],
-          },
-          {
-            id: "row-content",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "md-help",
-                kind: "markdown",
-                span: 6,
-                title: "Dashboard notes",
-                markdown: "Use this dashboard to review **open tasks**.",
-              },
-              {
-                id: "view-open",
-                kind: "view",
-                span: 6,
-                title: "Open task amounts",
-                source: { kind: "view", viewId: view.id },
-              },
-            ],
-          },
-          {
-            id: "row-chart",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "view-stats-open",
-                kind: "view-stats",
-                span: 6,
-                title: "Status summary",
-                source: { kind: "view", viewId: chartView.id },
-              },
-              {
-                id: "chart-status",
-                kind: "chart",
-                span: 6,
-                title: "Amount by status",
-                chartType: "bar",
-                source: { kind: "view", viewId: chartView.id },
-                format: "currency",
-              },
-            ],
-          },
-          {
-            id: "row-form",
-            kind: "row",
-            height: "md",
-            cells: [{ id: "form-intake", kind: "form", span: 12, title: "Task intake", formId: form.id }],
-          },
-        ],
-      },
-    },
-    sessionToken,
-    201,
-  );
-
-  const emptyDashboard = await api<{ id: string; shortId: string }>(
-    "POST",
-    `/api/grids/dashboards/by-base/${base.id}`,
-    { name: "Empty dashboard", config: { rows: [] } },
-    sessionToken,
-    201,
-  );
-
   ok("fixture created");
   return {
     sessionToken,
     base,
     table,
     view,
-    chartView,
     statView,
     pagedView,
     form: { id: form.id, publicToken: form.publicToken },
-    dashboard,
-    emptyDashboard,
     records: { first: firstRecord.id },
     fields: { title: title.id, amount: amount.id, status: status.id, notes: notes.id, due: due.id },
   };
@@ -445,33 +329,6 @@ const waitForVisibleText = (page: Page, expectation: VisibleTextExpectation) =>
 
 const expectVisibleText = async (page: Page, text: string, label = text) => {
   await waitForVisibleText(page, { value: text, pattern: false, present: true });
-  ok(label);
-};
-
-const expectFocusedLabel = async (page: Page, label: string) => {
-  await page
-    .waitForFunction((expected) => document.activeElement?.getAttribute("aria-label") === expected, label, { timeout: TIMEOUT })
-    .catch(async () => {
-      const state = await page.evaluate(() => ({
-        active: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? null,
-        controls: Array.from(document.querySelectorAll<HTMLElement>("[data-dashboard-control]"))
-          .filter((element) => element.getAttribute("aria-label")?.includes("Total amount"))
-          .map((element) => ({
-            label: element.getAttribute("aria-label"),
-            disabled: element instanceof HTMLButtonElement && element.disabled,
-          })),
-      }));
-      fail(`expected focus on ${label}: ${JSON.stringify(state)}`);
-    });
-};
-
-const expectVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
-  await waitForVisibleText(page, { value: pattern.source, pattern: true, present: true });
-  ok(label);
-};
-
-const expectNoVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
-  await waitForVisibleText(page, { value: pattern.source, pattern: true, present: false });
   ok(label);
 };
 
@@ -582,81 +439,6 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
   });
   await expectNoVisibleText(pageB, updatedTitle, "live delete removes record from second tab");
 
-  await pageB.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
-  await expectVisibleText(pageB, "Total amount", "live dashboard route renders stat widget");
-  await expectVisibleText(pageB, "Amount by status", "live dashboard route renders chart widget");
-  await expectVisibleText(pageB, "Status summary", "live dashboard route renders view-stats widget");
-  await expectNoVisibleTextPattern(pageB, /12[,.]000/, "live dashboard chart starts before large event value");
-  const dashboardTitle = `Live dashboard ${suffix}`;
-  await browserMutation(pageA, {
-    method: "POST",
-    path: `/api/grids/records/by-table/${fixture.table.id}`,
-    expected: 201,
-    body: {
-      [fixture.fields.title]: dashboardTitle,
-      [fixture.fields.amount]: "12345.67",
-      [fixture.fields.status]: ["open"],
-      [fixture.fields.notes]: "Dashboard live smoke",
-      [fixture.fields.due]: "2026-05-29",
-    },
-  });
-  await expectVisibleText(pageB, dashboardTitle, "live dashboard embedded view refreshes from record event");
-  await expectVisibleTextPattern(pageB, /12[,.]596[,.]66/, "live dashboard stat refreshes from record event");
-  await expectVisibleTextPattern(pageB, /12[,.]000/, "live dashboard chart refreshes from record event");
-
-  await pageB.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}?edit=true`, {
-    waitUntil: "domcontentloaded",
-  });
-  await expectVisibleText(pageB, "Done editing", "live dashboard edit mode renders");
-  const editDashboardTitle = `Live dashboard edit ${suffix}`;
-  await browserMutation(pageA, {
-    method: "POST",
-    path: `/api/grids/records/by-table/${fixture.table.id}`,
-    expected: 201,
-    body: {
-      [fixture.fields.title]: editDashboardTitle,
-      [fixture.fields.amount]: "22222.22",
-      [fixture.fields.status]: ["open"],
-      [fixture.fields.notes]: "Dashboard edit live smoke",
-      [fixture.fields.due]: "2026-05-30",
-    },
-  });
-  await expectVisibleText(pageB, editDashboardTitle, "live dashboard edit embedded view refreshes from record event");
-  await expectVisibleTextPattern(pageB, /34[,.]818[,.]88/, "live dashboard edit stat refreshes from record event");
-
-  await pageB.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await expectVisibleText(pageB, "Task title", "dashboard form submit fields render");
-  await pageB.locator('[data-grids-dashboard-form-ready="true"]').waitFor({ state: "attached", timeout: TIMEOUT });
-  const dashboardTitleInput = pageB.getByLabel(/task title/i).first();
-  const inlineDashboardTitle = `Inline dashboard ${suffix}`;
-  await dashboardTitleInput.fill(inlineDashboardTitle);
-  if ((await dashboardTitleInput.inputValue()) !== inlineDashboardTitle) fail("dashboard form title input was not filled");
-  const dashboardBudget = pageB.getByLabel(/budget/i).first();
-  if (await dashboardBudget.count()) await dashboardBudget.fill("33333.33");
-  await pageB.waitForTimeout(100);
-  const submitResponse = pageB.waitForResponse(
-    (response) => response.url().includes(`/api/grids/forms/${fixture.form.id}/submit`) && response.request().method() === "POST",
-    { timeout: TIMEOUT },
-  );
-  await pageB.getByRole("button", { name: /send task/i }).click();
-  const submitted = await submitResponse;
-  if (!submitted.ok()) {
-    const formInputs = await pageB.getByLabel(/task title/i).evaluateAll((elements) =>
-      elements.map((element) => ({
-        tag: element.tagName,
-        value: element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value : null,
-        disabled: element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.disabled : null,
-      })),
-    );
-    fail(
-      `dashboard form submit failed with ${submitted.status()}: ${(await submitted.text()).slice(0, 400)}; request=${submitted.request().postData()}; inputs=${JSON.stringify(formInputs)}`,
-    );
-  }
-  await expectVisibleText(pageB, inlineDashboardTitle, "dashboard form submit refreshes embedded view");
-  await expectVisibleTextPattern(pageB, /68[,.]152[,.]21/, "dashboard form submit refreshes stat widget");
-
   if (requests.some((url) => /events\/by-table|text\/event-stream/i.test(url))) fail("live smoke observed legacy SSE request");
   assertNoBrowserErrors(errors);
   ok("websocket live refresh create/update/delete flow works");
@@ -699,27 +481,11 @@ const smokeTableWorkbench = async (page: Page, fixture: Fixture) => {
 
 const smokeEnhancedNavigation = async (page: Page, fixture: Fixture) => {
   const navigationCountBeforeEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
-  const sidebarScrollBeforeDashboard = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => {
+  const sidebarScrollBeforeView = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => {
     const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
     el.scrollTop = Math.min(32, maxScroll);
     return el.scrollTop;
   });
-  await page.locator('[data-scroll-preserve="grids-sidebar"] a', { hasText: "Operations dashboard" }).first().click();
-  await expectVisibleText(page, "Operations dashboard", "enhanced dashboard sidebar navigation renders");
-  const dashboardUrl = new URL(page.url());
-  if (!dashboardUrl.pathname.endsWith(`/dashboard/${fixture.dashboard.shortId}`)) {
-    fail(`enhanced dashboard navigation wrote wrong URL: ${dashboardUrl.pathname}`);
-  }
-  const sidebarScrollAfterDashboard = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => el.scrollTop);
-  if (sidebarScrollBeforeDashboard > 0 && sidebarScrollAfterDashboard !== sidebarScrollBeforeDashboard) {
-    fail(`sidebar scroll was not preserved after enhanced navigation: ${sidebarScrollAfterDashboard}`);
-  }
-  const navigationCountAfterEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
-  if (navigationCountAfterEnhanced !== navigationCountBeforeEnhanced) {
-    fail("enhanced sidebar navigation performed a document navigation");
-  }
-  ok("enhanced dashboard sidebar navigation preserves scroll");
-
   await page
     .locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}/view/${fixture.view.shortId}"]`)
     .first()
@@ -732,7 +498,15 @@ const smokeEnhancedNavigation = async (page: Page, fixture: Fixture) => {
   if (!viewUrl.pathname.endsWith(`/table/${fixture.table.shortId}/view/${fixture.view.shortId}`)) {
     fail(`enhanced view navigation wrote wrong URL: ${viewUrl.pathname}`);
   }
-  ok("enhanced view sidebar navigation updates URL");
+  const sidebarScrollAfterView = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => el.scrollTop);
+  if (sidebarScrollBeforeView > 0 && sidebarScrollAfterView !== sidebarScrollBeforeView) {
+    fail(`sidebar scroll was not preserved after enhanced navigation: ${sidebarScrollAfterView}`);
+  }
+  const navigationCountAfterEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
+  if (navigationCountAfterEnhanced !== navigationCountBeforeEnhanced) {
+    fail("enhanced sidebar navigation performed a document navigation");
+  }
+  ok("enhanced view sidebar navigation updates URL and preserves scroll");
 
   await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}"]`).first().click();
   await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { timeout: TIMEOUT });
@@ -826,106 +600,6 @@ const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
   await expectVisibleText(page, "249.99", "aggregate-only view result renders");
 };
 
-const smokeDashboards = async (page: Page, fixture: Fixture) => {
-  await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
-  await expectVisibleText(page, "Operations dashboard", "dashboard route renders");
-  await expectVisibleText(page, "Dashboard notes", "markdown widget renders");
-  await expectVisibleText(page, "Open tasks table", "link widget renders");
-  await expectVisibleText(page, "Task intake", "form widget renders");
-
-  await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.emptyDashboard.shortId}?edit=true`, {
-    waitUntil: "domcontentloaded",
-  });
-  await expectVisibleText(page, "Nothing here yet", "empty dashboard explains its state");
-  const addFirstWidget = page.getByRole("button", { name: "Add first widget" });
-  const widgetChooser = page.getByRole("dialog");
-  const hydrationDeadline = Date.now() + TIMEOUT;
-  do {
-    await addFirstWidget.click();
-    await page.waitForTimeout(100);
-    if ((await widgetChooser.count()) > 0) break;
-  } while (Date.now() < hydrationDeadline);
-  if ((await widgetChooser.count()) === 0) fail("empty dashboard first-widget action did not hydrate");
-  const textWidget = widgetChooser.getByRole("button").filter({ hasText: "Text" }).first();
-  await textWidget.click();
-  const firstWidgetSaved = page.waitForResponse(
-    (response) =>
-      response.request().method() === "PATCH" &&
-      new URL(response.url()).pathname.endsWith(`/api/grids/dashboards/${fixture.emptyDashboard.id}`),
-    { timeout: TIMEOUT },
-  );
-  await page.getByRole("button", { name: "Add widget" }).click();
-  if (!(await firstWidgetSaved).ok()) fail("first dashboard widget save failed");
-  await expectVisibleText(page, "Notes", "first dashboard widget renders after save");
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expectVisibleText(page, "Notes", "first dashboard widget persists after reload");
-
-  const dashboardSettings = page.getByRole("button", { name: "Dashboard settings" });
-  const settingsDialog = page.getByRole("dialog").filter({ hasText: "Dashboard settings — Empty dashboard" });
-  const settingsHydrationDeadline = Date.now() + TIMEOUT;
-  do {
-    await dashboardSettings.click();
-    await page.waitForTimeout(100);
-    if ((await settingsDialog.count()) > 0) break;
-  } while (Date.now() < settingsHydrationDeadline);
-  if ((await settingsDialog.count()) === 0) fail("dashboard settings action did not hydrate");
-  await settingsDialog.getByRole("button", { name: "Duplicate dashboard" }).click();
-  const duplicateDialog = page.getByRole("dialog").last();
-  await duplicateDialog.getByRole("textbox", { name: "Name" }).fill("Duplicated dashboard");
-  const duplicateSaved = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" && new URL(response.url()).pathname === `/api/grids/dashboards/by-base/${fixture.base.id}`,
-    { timeout: TIMEOUT },
-  );
-  await duplicateDialog.getByRole("button", { name: "Duplicate", exact: true }).click();
-  const duplicateResponse = await duplicateSaved;
-  if (duplicateResponse.status() !== 201) fail("dashboard duplicate request failed");
-  const duplicatedDashboard = (await duplicateResponse.json()) as { ownerUserId: string | null };
-  if (duplicatedDashboard.ownerUserId === null) fail("dashboard duplicate was shared without explicit consent");
-  await page.waitForURL(/\/dashboard\/[^/?]+\?edit=true$/, { timeout: TIMEOUT });
-  await expectVisibleText(page, "Duplicated dashboard", "duplicated dashboard opens in edit mode");
-  await expectVisibleText(page, "Notes", "duplicated dashboard keeps its widgets");
-
-  await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}?edit=true`, {
-    waitUntil: "domcontentloaded",
-  });
-  const moveTotalRight = page.getByRole("button", { name: "Move Total amount in row 1, position 1 right" });
-  const moveTotalLeft = page.getByRole("button", { name: "Move Total amount in row 1, position 2 left" });
-  const waitForDashboardSave = () =>
-    page.waitForResponse(
-      (response) =>
-        response.request().method() === "PATCH" &&
-        new URL(response.url()).pathname.endsWith(`/api/grids/dashboards/${fixture.dashboard.id}`),
-      { timeout: TIMEOUT },
-    );
-  const moveRightSaved = waitForDashboardSave();
-  const dashboardHydrationDeadline = Date.now() + TIMEOUT;
-  let movedRight = false;
-  do {
-    await moveTotalRight.click();
-    await page.waitForTimeout(100);
-    if ((await moveTotalLeft.count()) > 0 && (await moveTotalLeft.isEnabled())) {
-      movedRight = true;
-      break;
-    }
-  } while (Date.now() < dashboardHydrationDeadline);
-  if (!movedRight) fail("dashboard move-right control did not hydrate");
-  if (!(await moveRightSaved).ok()) fail("dashboard move-right save failed");
-  await expectFocusedLabel(page, "Move Total amount in row 1, position 2 left");
-  const moveLeftSaved = waitForDashboardSave();
-  await moveTotalLeft.click();
-  if (!(await moveLeftSaved).ok()) fail("dashboard move-left save failed");
-  await expectFocusedLabel(page, "Move Total amount in row 1, position 1 right");
-  await page.reload({ waitUntil: "domcontentloaded" });
-  const persistedMoveRight = page.getByRole("button", { name: "Move Total amount in row 1, position 1 right" });
-  const persistedMoveLeft = page.getByRole("button", { name: "Move Total amount in row 1, position 1 left" });
-  await persistedMoveRight.waitFor({ state: "visible", timeout: TIMEOUT });
-  if (!(await persistedMoveRight.isEnabled()) || (await persistedMoveLeft.isEnabled())) {
-    fail("dashboard keyboard moves were not persisted in request order");
-  }
-  ok("dashboard keyboard moves retain focus and persist in request order");
-};
-
 const smokeExport = async (page: Page, fixture: Fixture) => {
   const exportResult = await page.evaluate(
     async ({ tableId, titleFieldId }) => {
@@ -963,7 +637,6 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await smokeTableWorkbench(page, fixture);
   await smokeEnhancedNavigation(page, fixture);
   await smokeRecordAndViews(page, fixture);
-  await smokeDashboards(page, fixture);
   await smokeExport(page, fixture);
   assertNoBrowserErrors(errors);
   await context.close();
@@ -1033,9 +706,9 @@ const runResponsive = async (browser: Browser, fixture: Fixture) => {
   });
   if (!page) throw new Error("Could not create browser page");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
-  await expectVisibleText(page, "Operations dashboard", "mobile dashboard route renders");
-  await expectVisibleText(page, "Dashboard notes", "mobile dashboard content renders");
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
+  await expectVisibleText(page, "Tasks", "mobile table route renders");
+  await expectVisibleText(page, "Review invoices", "mobile table content renders");
   assertNoBrowserErrors(errors);
   await context.close();
 };

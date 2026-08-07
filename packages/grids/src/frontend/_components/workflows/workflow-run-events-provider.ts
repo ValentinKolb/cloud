@@ -6,8 +6,6 @@ type ProviderError = { code: string; message: string };
 
 type WorkflowRunEventsProviderOptions = {
   workflowId: string;
-  dashboardId?: string | null;
-  dashboardWidgetId?: string | null;
   onReady?: () => void;
   onEvent?: (event: GridsWorkflowRunEvent, cursor: string | null) => void;
   onError?: (error: ProviderError) => void;
@@ -53,9 +51,6 @@ export const createWorkflowRunEventsProvider = (options: WorkflowRunEventsProvid
       type: gridsWorkspace.wsType.workflowRunsSubscribe,
       payload: {
         workflowId: options.workflowId,
-        ...(options.dashboardId && options.dashboardWidgetId
-          ? { dashboardId: options.dashboardId, dashboardWidgetId: options.dashboardWidgetId }
-          : {}),
         fromCursor: cursor,
       },
     }),

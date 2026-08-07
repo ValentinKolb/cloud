@@ -9,13 +9,6 @@ export type WorkflowScannerRequest = {
 
 export type WorkflowScannerRequestTarget = {
   launcherId: string;
-  dashboardId?: string | null;
-  dashboardWidgetId?: string | null;
-};
-
-type DashboardRequestInput = {
-  param: { dashboardId: string; widgetId: string };
-  json: WorkflowScannerRequest;
 };
 
 type LauncherRequestInput = {
@@ -30,7 +23,6 @@ type LauncherRequestInput = {
 };
 
 export type WorkflowScannerTransport = {
-  invokeDashboard: (input: DashboardRequestInput) => Promise<Response>;
   invokeLauncher: (input: LauncherRequestInput) => Promise<Response>;
 };
 
@@ -39,12 +31,6 @@ export const invokeWorkflowScannerRequest = (
   target: WorkflowScannerRequestTarget,
   request: WorkflowScannerRequest,
 ): Promise<Response> => {
-  if (target.dashboardId && target.dashboardWidgetId) {
-    return transport.invokeDashboard({
-      param: { dashboardId: target.dashboardId, widgetId: target.dashboardWidgetId },
-      json: request,
-    });
-  }
   return transport.invokeLauncher({
     param: { launcherId: target.launcherId },
     json: {

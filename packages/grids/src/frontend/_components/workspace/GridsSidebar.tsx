@@ -1,6 +1,5 @@
 import { AppWorkspace } from "@k2b/ui";
 import BaseSettingsButton from "../sidebar/BaseSettingsButton.island";
-import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
 import CreateWorkflowButton from "../sidebar/CreateWorkflowButton.island";
 import EmailTemplatesButton from "../sidebar/EmailTemplatesButton.island";
@@ -47,33 +46,6 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
 
   const renderNavigationSections = () => (
     <>
-      {(state.catalog.dashboards.length > 0 || canCreateStructure) && (
-        <AppWorkspace.SidebarSection title="Dashboards">
-          {[...state.catalog.dashboards]
-            .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
-            .map((dashboard) => {
-              const active = route.kind === "dashboard" && route.dashboard.id === dashboard.id;
-              return (
-                <SidebarLink
-                  href={keepEdit(`/app/grids/${state.base.shortId}/dashboard/${dashboard.shortId}`, state.adminModeRequested)}
-                  active={active}
-                  class={itemClass(active, state.adminModeRequested)}
-                  title={dashboard.name}
-                >
-                  <AppWorkspace.SidebarItemIcon icon={dashboard.icon ?? "ti ti-layout-dashboard"} />
-                  <AppWorkspace.SidebarItemLabel>{dashboard.name}</AppWorkspace.SidebarItemLabel>
-                  {state.base.defaultDashboardId === dashboard.id && (
-                    <AppWorkspace.SidebarItemMeta>
-                      <span class="text-[9px] uppercase tracking-wider">default</span>
-                    </AppWorkspace.SidebarItemMeta>
-                  )}
-                </SidebarLink>
-              );
-            })}
-          {canCreateStructure && <CreateDashboardButton baseId={state.base.id} baseShortId={state.base.shortId} />}
-        </AppWorkspace.SidebarSection>
-      )}
-
       <AppWorkspace.SidebarSection title="Tables">
         {state.catalog.tables.length === 0 ? (
           <p class="px-2 py-1 text-xs text-dimmed">

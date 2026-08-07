@@ -12,7 +12,7 @@ const LEVEL_RANK: Record<PermissionLevel, number> = {
 
 const LEVEL_BY_RANK: PermissionLevel[] = ["none", "read", "write", "admin"];
 
-export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard" | "customApp" | "workflow";
+export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "customApp" | "workflow";
 
 /**
  * Principal tier — captures HOW the loaded grant matched the user.
@@ -39,7 +39,6 @@ export type ResolveTarget =
   | { baseId: string; tableId: string; viewId: string }
   | { baseId: string; tableId: string; formId: string }
   | { baseId: string; tableId: string; documentTemplateId: string }
-  | { baseId: string; dashboardId: string }
   | { baseId: string; customAppId: string }
   | { baseId: string; workflowId: string };
 
@@ -55,7 +54,7 @@ const PRINCIPAL_TIERS: PrincipalTier[] = ["serviceAccount", "user", "group", "au
  * resource-default visibility).
  *
  * This mirrors the SQL `bool_or(permission='none')` shape used by
- * views.listForTable and dashboards.listForBase, so the central
+ * views and Custom Apps use the same grant resolution, so the central
  * resolver and the visibility-list queries cannot drift apart.
  */
 const resolveResourceLevel = (grants: Grant[]): PermissionLevel | null => {
@@ -86,7 +85,6 @@ const resolveResourceDecision = (grants: Grant[]): ResourceDecision | null => {
 };
 
 const targetScopes = (target: ResolveTarget): Array<[ResourceType, string]> => [
-  ...("dashboardId" in target ? [["dashboard", target.dashboardId] as [ResourceType, string]] : []),
   ...("customAppId" in target ? [["customApp", target.customAppId] as [ResourceType, string]] : []),
   ...("workflowId" in target ? [["workflow", target.workflowId] as [ResourceType, string]] : []),
   ...("documentTemplateId" in target ? [["documentTemplate", target.documentTemplateId] as [ResourceType, string]] : []),
@@ -138,7 +136,7 @@ export const resolveAuthorizedRecordAccess = (
 };
 
 /**
- * Most-specific-RESOURCE-wins: walk dashboard / view / form / table /
+ * Most-specific-RESOURCE-wins: walk custom app / view / form / table /
  * base and return the first scope that has any grants visible to the
  * user. Within that scope, principal-tier deny-overrides apply (see
  * resolveResourceLevel). When no resource scope has grants, returns
@@ -146,11 +144,6 @@ export const resolveAuthorizedRecordAccess = (
  * visibility for personal-vs-shared resources (handled in the listing
  * queries directly).
  *
- * Note on dashboards: this resolver returns whatever level the grants
- * resolve to. The API gate decides what that level allows for a
- * dashboard. Dashboard write policy is intentionally applied by the
- * API gate: writing a dashboard requires `admin`; this resolver only
- * returns the effective ACL level.
  */
 export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarget): PermissionLevel => {
   return resolvePermissionDecision(grants, target).level;
@@ -192,7 +185,6 @@ type LoadGrantTargets = {
   viewId?: string | null;
   formId?: string | null;
   documentTemplateId?: string | null;
-  dashboardId?: string | null;
   customAppId?: string | null;
   workflowId?: string | null;
 };
@@ -205,7 +197,6 @@ export const loadGrantsForSubject = async (
   const viewId = params.viewId ?? null;
   const formId = params.formId ?? null;
   const documentTemplateId = params.documentTemplateId ?? null;
-  const dashboardId = params.dashboardId ?? null;
   const customAppId = params.customAppId ?? null;
   const workflowId = params.workflowId ?? null;
 
@@ -264,13 +255,6 @@ export const loadGrantsForSubject = async (
     FROM grids.document_template_access dta
     JOIN auth.access a ON a.id = dta.access_id
     WHERE dta.template_id = ${documentTemplateId}::uuid AND ${principalMatch}
-
-    UNION ALL
-
-    SELECT 'dashboard'::text, da.dashboard_id::text, a.permission, ${tierExpr}, '{"kind":"all"}'::jsonb
-    FROM grids.dashboard_access da
-    JOIN auth.access a ON a.id = da.access_id
-    WHERE da.dashboard_id = ${dashboardId}::uuid AND ${principalMatch}
 
     UNION ALL
 

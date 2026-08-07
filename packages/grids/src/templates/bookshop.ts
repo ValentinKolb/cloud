@@ -1,11 +1,26 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+import {
+  currentMonthDate,
+  field,
+  form,
+  formula,
+  type GridTemplate,
+  launcher,
+  record,
+  table,
+  view,
+} from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
   name: "Bookshop",
-  description: "Manage a book catalog, customers, orders, fulfillment, and invoice delivery.",
-  highlights: ["Relational catalog and order tracking", "Sales and fulfillment overview", "Guided invoice generation and email delivery"],
+  description:
+    "Manage a book catalog, customers, orders, fulfillment, and invoice delivery.",
+  highlights: [
+    "Relational catalog and order tracking",
+    "Sales and fulfillment overview",
+    "Guided invoice generation and email delivery",
+  ],
   icon: "ti ti-books",
   baseName: "Bookshop",
   baseDescription: "Inventory and order tracking for a small bookshop.",
@@ -75,7 +90,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "description",
           name: "Description",
-          description: "Optional notes that explain what belongs in this genre.",
+          description:
+            "Optional notes that explain what belongs in this genre.",
           type: "longtext",
           icon: "ti ti-align-left",
         },
@@ -89,7 +105,13 @@ export const bookshopTemplate: GridTemplate = {
         mode: "cards",
         cards: {
           imageFieldId: field("books.cover"),
-          fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.in_stock")],
+          fieldIds: [
+            field("books.title"),
+            field("books.author"),
+            field("books.genre"),
+            field("books.price"),
+            field("books.in_stock"),
+          ],
         },
       },
       fields: [
@@ -140,7 +162,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "isbn",
           name: "ISBN",
-          description: "International identifier used for book orders and barcode scans.",
+          description:
+            "International identifier used for book orders and barcode scans.",
           type: "text",
           config: { regex: "^97[89]-[0-9]-[0-9]{2,5}-[0-9]{3,7}-[0-9X]$" },
           icon: "ti ti-barcode",
@@ -159,13 +182,13 @@ export const bookshopTemplate: GridTemplate = {
           description: "Selling price for one copy.",
           type: "number",
           required: true,
+          icon: "ti ti-currency-euro",
           config: {
             precision: 16,
             decimalPlaces: 2,
             unit: "EUR",
             unitPosition: "suffix",
           },
-          icon: "ti ti-currency-euro",
         },
         {
           key: "published",
@@ -185,7 +208,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "tags",
           name: "Tags",
-          description: "Optional catalog labels for merchandising and filtering.",
+          description:
+            "Optional catalog labels for merchandising and filtering.",
           type: "select",
           icon: "ti ti-tags",
           config: {
@@ -298,7 +322,12 @@ export const bookshopTemplate: GridTemplate = {
           name: "Order number",
           description: "Automatically assigned order number.",
           type: "id",
-          config: { strategy: "date_sequence", prefix: "ORD-", period: "year", padding: 4 },
+          config: {
+            strategy: "date_sequence",
+            prefix: "ORD-",
+            period: "year",
+            padding: 4,
+          },
           presentable: true,
           icon: "ti ti-hash",
         },
@@ -338,7 +367,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "invoice_ready",
           name: "Ready to invoice",
-          description: "Confirm that all order lines are complete before the invoice workflow can run.",
+          description:
+            "Confirm that all order lines are complete before the invoice workflow can run.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-file-check",
@@ -346,7 +376,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "invoice_sent",
           name: "Invoice sent",
-          description: "Set once the invoice workflow has succeeded, so it is not replayed accidentally.",
+          description:
+            "Set once the invoice workflow has succeeded, so it is not replayed accidentally.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-mail-check",
@@ -420,9 +451,11 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "unit_price",
           name: "Unit price",
-          description: "Price captured when the order is placed; later catalog price changes do not alter the invoice.",
+          description:
+            "Price captured when the order is placed; later catalog price changes do not alter the invoice.",
           type: "number",
           required: true,
+          icon: "ti ti-currency-euro",
           config: {
             precision: 16,
             decimalPlaces: 2,
@@ -430,7 +463,6 @@ export const bookshopTemplate: GridTemplate = {
             unit: "EUR",
             unitPosition: "suffix",
           },
-          icon: "ti ti-currency-euro",
         },
         {
           key: "line_total",
@@ -438,7 +470,11 @@ export const bookshopTemplate: GridTemplate = {
           description: "Quantity multiplied by the captured unit price.",
           type: "formula",
           config: {
-            expression: formula(field("order_lines.quantity"), " * ", field("order_lines.unit_price")),
+            expression: formula(
+              field("order_lines.quantity"),
+              " * ",
+              field("order_lines.unit_price")
+            ),
             format: { kind: "decimal", precision: 2, thousandsSeparator: true },
           },
           icon: "ti ti-calculator",
@@ -526,7 +562,12 @@ export const bookshopTemplate: GridTemplate = {
         {
           field: "cover",
           filename: "the-hobbit-cover.svg",
-          dataUrl: createMockCover({ icon: "book", theme: "emerald", seed: "bookshop:the-hobbit", label: "The Hobbit" }).dataUrl,
+          dataUrl: createMockCover({
+            icon: "book",
+            theme: "emerald",
+            seed: "bookshop:the-hobbit",
+            label: "The Hobbit",
+          }).dataUrl,
         },
       ],
     },
@@ -549,8 +590,12 @@ export const bookshopTemplate: GridTemplate = {
         {
           field: "cover",
           filename: "left-hand-of-darkness-cover.svg",
-          dataUrl: createMockCover({ icon: "book", theme: "violet", seed: "bookshop:left-hand", label: "The Left Hand of Darkness" })
-            .dataUrl,
+          dataUrl: createMockCover({
+            icon: "book",
+            theme: "violet",
+            seed: "bookshop:left-hand",
+            label: "The Left Hand of Darkness",
+          }).dataUrl,
         },
       ],
     },
@@ -573,7 +618,12 @@ export const bookshopTemplate: GridTemplate = {
         {
           field: "cover",
           filename: "abc-murders-cover.svg",
-          dataUrl: createMockCover({ icon: "book", theme: "amber", seed: "bookshop:abc", label: "The ABC Murders" }).dataUrl,
+          dataUrl: createMockCover({
+            icon: "book",
+            theme: "amber",
+            seed: "bookshop:abc",
+            label: "The ABC Murders",
+          }).dataUrl,
         },
       ],
     },
@@ -705,12 +755,15 @@ export const bookshopTemplate: GridTemplate = {
         field("books.published"),
         "\nsort ",
         field("books.published"),
-        " desc\nlimit 20",
+        " desc\nlimit 20"
       ),
       ui: {
         columns: [
           { fieldId: field("books.title") },
-          { fieldId: field("books.isbn"), format: { kind: "barcode", bcid: "isbn", showText: true } },
+          {
+            fieldId: field("books.isbn"),
+            format: { kind: "barcode", bcid: "isbn", showText: true },
+          },
           { fieldId: field("books.author") },
           { fieldId: field("books.price") },
           { fieldId: field("books.published") },
@@ -719,7 +772,13 @@ export const bookshopTemplate: GridTemplate = {
           mode: "cards",
           cards: {
             imageFieldId: field("books.cover"),
-            fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.published")],
+            fieldIds: [
+              field("books.title"),
+              field("books.author"),
+              field("books.genre"),
+              field("books.price"),
+              field("books.published"),
+            ],
           },
         },
       },
@@ -746,7 +805,7 @@ export const bookshopTemplate: GridTemplate = {
         field("orders.invoice_sent"),
         "\nsort ",
         field("orders.ordered_at"),
-        " asc\nlimit 100",
+        " asc\nlimit 100"
       ),
       ui: {
         columns: [
@@ -929,8 +988,16 @@ export const bookshopTemplate: GridTemplate = {
             fieldId: field("orders.status"),
             value: ["new"],
           },
-          { kind: "form_value", fieldId: field("orders.invoice_ready"), value: false },
-          { kind: "form_value", fieldId: field("orders.invoice_sent"), value: false },
+          {
+            kind: "form_value",
+            fieldId: field("orders.invoice_ready"),
+            value: false,
+          },
+          {
+            kind: "form_value",
+            fieldId: field("orders.invoice_sent"),
+            value: false,
+          },
         ],
       },
     },
@@ -940,7 +1007,8 @@ export const bookshopTemplate: GridTemplate = {
       name: "Add order line",
       config: {
         title: "Add order line",
-        description: "Add a book and capture the sale price used on the invoice.",
+        description:
+          "Add a book and capture the sale price used on the invoice.",
         submitLabel: "Add line",
         successMessage: "Order line added.",
         fields: [
@@ -970,7 +1038,8 @@ export const bookshopTemplate: GridTemplate = {
             kind: "user_input",
             fieldId: field("order_lines.unit_price"),
             label: "Unit price",
-            helpText: "Capture the agreed sale price; the line total is calculated automatically.",
+            helpText:
+              "Capture the agreed sale price; the line total is calculated automatically.",
             required: true,
           },
         ],
@@ -1023,7 +1092,7 @@ export const bookshopTemplate: GridTemplate = {
         field("order_lines.order"),
         " = '{{ record.id }}'\nsort line.",
         field("order_lines.line_no"),
-        " asc",
+        " asc"
       ),
       enabled: true,
     },
@@ -1044,7 +1113,9 @@ export const bookshopTemplate: GridTemplate = {
       sampleData: {
         customerName: "Ada Lovelace",
         orderNumber: "ORD-2026-0042",
-        invoice: { url: "https://cloud.example.org/share/grids/documents/example" },
+        invoice: {
+          url: "https://cloud.example.org/share/grids/documents/example",
+        },
       },
       enabled: true,
     },
@@ -1053,7 +1124,8 @@ export const bookshopTemplate: GridTemplate = {
     {
       key: "send_order_invoice",
       name: "Send order invoice",
-      description: "Generates an invoice, creates a private link, and emails it to the customer.",
+      description:
+        "Generates an invoice, creates a private link, and emails it to the customer.",
       source: `inputs:
   order:
     type: record
@@ -1116,219 +1188,203 @@ steps:
   ],
   workflowLaunchers: [
     {
-      key: "send_order_invoice_dashboard",
+      key: "send_order_invoice_custom_app",
       workflow: "send_order_invoice",
       name: "Choose order to send invoice",
-      config: { kind: "dashboard", inputMode: "prompt" },
+      config: { kind: "customApp", inputMode: "prompt" },
       enabled: true,
     },
   ],
-  dashboards: [
+  customApps: [
     {
       key: "sales",
       name: "Bookshop overview",
-      description: "Revenue, fulfillment, catalog maintenance, and recent books.",
-      shared: true,
-      config: {
-        rows: [
-          {
-            id: "r_stats",
-            kind: "row",
-            height: "sm",
-            cells: [
-              {
-                id: "w_orders",
-                kind: "stat",
-                title: "Orders",
-                icon: "ti ti-shopping-cart",
-                valueFormat: { style: "integer" },
-                span: 4,
-                source: {
-                  kind: "gql",
-                  source: formula("from table ", table("orders"), "\naggregate count(*) as order_count"),
-                },
+      description:
+        "Revenue, fulfillment, catalog maintenance, and recent books.",
+      rows: [
+        {
+          id: "r_stats",
+          columns: [
+            {
+              id: "w_orders",
+              type: "metrics",
+              title: "Orders",
+              valueFormat: { style: "integer" },
+              span: 4,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("orders"),
+                  "\naggregate count(*) as order_count"
+                ),
               },
-              {
-                id: "w_revenue",
-                kind: "stat",
-                title: "Total revenue",
-                icon: "ti ti-currency-euro",
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 4,
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("order_lines"),
-                    "\naggregate sum(formula(",
-                    field("order_lines.quantity"),
-                    " * ",
-                    field("order_lines.unit_price"),
-                    ")) as total_revenue",
-                  ),
-                },
-                trend: {
-                  source: {
-                    kind: "gql",
-                    source: formula(
-                      "from table ",
-                      table("order_lines"),
-                      " as line\njoin table ",
-                      table("orders"),
-                      " as order on line.",
-                      field("order_lines.order"),
-                      " = order.id\ngroup by order.",
-                      field("orders.ordered_at"),
-                      " by month\naggregate sum(formula(",
-                      "line.",
-                      field("order_lines.quantity"),
-                      " * line.",
-                      field("order_lines.unit_price"),
-                      ")) as monthly_revenue\nsort order.",
-                      field("orders.ordered_at"),
-                      " asc",
-                    ),
-                  },
-                  windowSize: 12,
-                },
+            },
+            {
+              id: "w_revenue",
+              type: "metrics",
+              title: "Total revenue",
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-              {
-                id: "w_books",
-                kind: "stat",
-                title: "Books",
-                icon: "ti ti-books",
-                valueFormat: { style: "integer" },
-                span: 4,
-                source: {
-                  kind: "gql",
-                  source: formula("from table ", table("books"), "\naggregate count(*) as book_count"),
-                },
+              span: 4,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("order_lines"),
+                  "\naggregate sum(formula(",
+                  field("order_lines.quantity"),
+                  " * ",
+                  field("order_lines.unit_price"),
+                  ")) as total_revenue"
+                ),
               },
-            ],
-          },
-          {
-            id: "r_main",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_chart",
-                kind: "chart",
-                title: "Monthly revenue",
-                chartType: "line",
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("order_lines"),
-                    " as line\njoin table ",
-                    table("orders"),
-                    " as order on line.",
-                    field("order_lines.order"),
-                    " = order.id\ngroup by order.",
-                    field("orders.ordered_at"),
-                    " by month\naggregate sum(formula(",
-                    "line.",
-                    field("order_lines.quantity"),
-                    " * line.",
-                    field("order_lines.unit_price"),
-                    ")) as monthly_revenue, count(*) as order_line_count\nsort ",
-                    "order.",
-                    field("orders.ordered_at"),
-                    " asc",
-                  ),
-                },
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 6,
+            },
+            {
+              id: "w_books",
+              type: "metrics",
+              title: "Books",
+              valueFormat: { style: "integer" },
+              span: 4,
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("books"),
+                  "\naggregate count(*) as book_count"
+                ),
               },
-              {
-                id: "w_new_order",
-                kind: "form",
-                title: "New order",
-                formId: form("new_order"),
-                span: 3,
+            },
+          ],
+        },
+        {
+          id: "r_main",
+          columns: [
+            {
+              id: "w_chart",
+              type: "chart",
+              title: "Monthly revenue",
+              chartType: "line",
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("order_lines"),
+                  " as line\njoin table ",
+                  table("orders"),
+                  " as order on line.",
+                  field("order_lines.order"),
+                  " = order.id\ngroup by order.",
+                  field("orders.ordered_at"),
+                  " by month\naggregate sum(formula(",
+                  "line.",
+                  field("order_lines.quantity"),
+                  " * line.",
+                  field("order_lines.unit_price"),
+                  ")) as monthly_revenue, count(*) as order_line_count\nsort ",
+                  "order.",
+                  field("orders.ordered_at"),
+                  " asc"
+                ),
               },
-              {
-                id: "w_add_order_line",
-                kind: "form",
-                title: "Add order line",
-                formId: form("add_order_line"),
-                span: 3,
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-            ],
-          },
-          {
-            id: "r_views",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_add_book",
-                kind: "form",
-                title: "Add book",
-                formId: form("add_book"),
-                span: 6,
+              span: 6,
+            },
+            {
+              id: "w_new_order",
+              type: "form",
+              title: "New order",
+              formId: form("new_order"),
+              span: 3,
+            },
+            {
+              id: "w_add_order_line",
+              type: "form",
+              title: "Add order line",
+              formId: form("add_order_line"),
+              span: 3,
+            },
+          ],
+        },
+        {
+          id: "r_views",
+          columns: [
+            {
+              id: "w_add_book",
+              type: "form",
+              title: "Add book",
+              formId: form("add_book"),
+              span: 6,
+            },
+            {
+              id: "w_recent",
+              type: "records",
+              title: "Recent books",
+              source: { kind: "view", viewId: view("recent_books") },
+              span: 6,
+            },
+          ],
+        },
+        {
+          id: "r_fulfillment",
+          columns: [
+            {
+              id: "w_revenue_by_customer",
+              type: "chart",
+              title: "Revenue by customer",
+              subtitle: "Joined directly from orders and customers",
+              chartType: "bar",
+              source: {
+                kind: "gql",
+                query: formula(
+                  "from table ",
+                  table("order_lines"),
+                  " as line\njoin table ",
+                  table("orders"),
+                  " as order on line.",
+                  field("order_lines.order"),
+                  " = order.id\njoin table ",
+                  table("customers"),
+                  " as customer on order.",
+                  field("orders.customer"),
+                  " = customer.id\ngroup by customer.",
+                  field("customers.name"),
+                  "\naggregate sum(formula(",
+                  "line.",
+                  field("order_lines.quantity"),
+                  " * line.",
+                  field("order_lines.unit_price"),
+                  ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8"
+                ),
               },
-              {
-                id: "w_recent",
-                kind: "view",
-                title: "Recent books",
-                source: { kind: "view", viewId: view("recent_books") },
-                span: 6,
+              valueFormat: {
+                style: "number",
+                decimalPlaces: 2,
+                unit: "EUR",
+                unitPosition: "suffix",
               },
-            ],
-          },
-          {
-            id: "r_fulfillment",
-            kind: "row",
-            height: "md",
-            cells: [
-              {
-                id: "w_revenue_by_customer",
-                kind: "chart",
-                title: "Revenue by customer",
-                subtitle: "Joined directly from orders and customers",
-                chartType: "bar",
-                source: {
-                  kind: "gql",
-                  source: formula(
-                    "from table ",
-                    table("order_lines"),
-                    " as line\njoin table ",
-                    table("orders"),
-                    " as order on line.",
-                    field("order_lines.order"),
-                    " = order.id\njoin table ",
-                    table("customers"),
-                    " as customer on order.",
-                    field("orders.customer"),
-                    " = customer.id\ngroup by customer.",
-                    field("customers.name"),
-                    "\naggregate sum(formula(",
-                    "line.",
-                    field("order_lines.quantity"),
-                    " * line.",
-                    field("order_lines.unit_price"),
-                    ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
-                  ),
-                },
-                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
-                span: 7,
-              },
-              {
-                id: "w_send_invoice",
-                kind: "workflow-button",
-                title: "Send an invoice",
-                description: "Choose a ready order to generate and email its invoice.",
-                buttonLabel: "Choose order",
-                launcherId: launcher("send_order_invoice_dashboard"),
-                span: 5,
-              },
-            ],
-          },
-        ],
-      },
+              span: 7,
+            },
+            {
+              id: "w_send_invoice",
+              type: "actions",
+              title: "Send an invoice",
+              buttonLabel: "Choose order",
+              launcherId: launcher("send_order_invoice_custom_app"),
+              span: 5,
+            },
+          ],
+        },
+      ],
     },
   ],
-  defaultDashboard: "sales",
 };

@@ -23,7 +23,7 @@ const expectedTopics = [
   "grids-combined-tables",
   "grids-gql",
   "grids-formulas",
-  "grids-forms-dashboards",
+  "grids-forms",
   "grids-documents-pdfs",
   "grids-custom-apps",
   "grids-workflows",
@@ -89,16 +89,9 @@ describe("grids help", () => {
       expect(tables, `missing field type ${fieldType}`).toContain(fieldType);
     }
 
-    const formsDashboards = gridsHelp.getMarkdown("grids-forms-dashboards")!;
-    for (const capability of ["Public form", "Number", "Records", "Chart", "Summary", "Form", "Text", "Link", "Workflow"]) {
-      expect(formsDashboards, `missing forms or dashboard capability ${capability}`).toContain(capability);
-    }
-    expect(formsDashboards).toContain("saved view");
-    expect(formsDashboards).toContain("Query");
-    expect(formsDashboards).toContain("stored directly in the widget");
-    expect(formsDashboards).toContain("only the exact enabled workflow or scanner launcher");
-    for (const chartType of ["Donut", "bar", "Line", "Sparkline", "Scatter"]) {
-      expect(formsDashboards, `missing dashboard chart type ${chartType}`).toContain(chartType);
+    const forms = gridsHelp.getMarkdown("grids-forms")!;
+    for (const capability of ["Public form", "required inputs", "hidden values", "redirect", "Custom App"]) {
+      expect(forms, `missing form capability ${capability}`).toContain(capability);
     }
 
     const customApps = gridsHelp.getMarkdown("grids-custom-apps")!;
@@ -135,14 +128,13 @@ describe("grids help", () => {
     const permissions = gridsHelp.getMarkdown("grids-permissions")!;
     expect(permissions).toContain("Cloud administrators are not automatic Grids superusers");
     expect(permissions).toContain("Saved views and document templates are deliberate included-data boundaries");
-    expect(permissions).toContain("only the exact enabled launcher saved in a readable dashboard widget");
+    expect(permissions).toContain("exact enabled launcher saved in a readable Custom App block");
     for (const resource of [
       "Base",
       "Stored table",
       "Combined table",
       "View",
       "Form",
-      "Dashboard",
       "Custom App",
       "Document template",
       "Workflow",

@@ -4,35 +4,9 @@ import { invokeWorkflowScannerRequest, type WorkflowScannerTransport, workflowSc
 const accepted = () => new Response(null, { status: 200 });
 
 describe("workflow scanner requests", () => {
-  test("passes stable operation and revision data through dashboard retries", async () => {
-    const invokeDashboard = mock(async (_input: Parameters<WorkflowScannerTransport["invokeDashboard"]>[0]) => accepted());
-    const transport: WorkflowScannerTransport = {
-      invokeDashboard,
-      invokeLauncher: mock(async (_input: Parameters<WorkflowScannerTransport["invokeLauncher"]>[0]) => accepted()),
-    };
-    const target = { launcherId: "launcher-1", dashboardId: "dashboard-1", dashboardWidgetId: "widget-1" };
-    const request = { operationId: "scan-1", expectedRevision: 7, code: "asset-42" };
-
-    await invokeWorkflowScannerRequest(transport, target, request);
-    await invokeWorkflowScannerRequest(transport, target, request);
-
-    expect(invokeDashboard).toHaveBeenCalledTimes(2);
-    expect(invokeDashboard.mock.calls.map(([input]) => input)).toEqual([
-      {
-        param: { dashboardId: "dashboard-1", widgetId: "widget-1" },
-        json: request,
-      },
-      {
-        param: { dashboardId: "dashboard-1", widgetId: "widget-1" },
-        json: request,
-      },
-    ]);
-  });
-
   test("maps standalone scans to the launcher request contract", async () => {
     const invokeLauncher = mock(async (_input: Parameters<WorkflowScannerTransport["invokeLauncher"]>[0]) => accepted());
     const transport: WorkflowScannerTransport = {
-      invokeDashboard: mock(async (_input: Parameters<WorkflowScannerTransport["invokeDashboard"]>[0]) => accepted()),
       invokeLauncher,
     };
 

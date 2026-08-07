@@ -218,7 +218,7 @@ export const workflowCommands = [
           "",
           "Workflow name and description are resource fields. YAML defines inputs, optional automatic triggers, and steps.",
           "Everything that starts a run is an event: grids.invoked for a direct invocation, grids.launcherPressed for a",
-          "scanner, bulk, or dashboard launcher, grids.scheduleTick and grids.recordChanged for the YAML triggers below.",
+          "scanner, bulk, or customApp launcher, grids.scheduleTick and grids.recordChanged for the YAML triggers below.",
           "Only schedule and recordEvent are written in YAML; direct and launcher invocation are API/CLI operations.",
           "A dry run is not an event: it is created against the workflow's newest version and plans its effects",
           "instead of performing them.",
@@ -263,10 +263,10 @@ export const workflowCommands = [
           `  ${prettyJson(WORKFLOW_REFERENCE.launchers.scannerByField).replace(/\n/g, "\n  ")}`,
           "  bulk: maps explicit recordIds or a Grids record query to one recordList input",
           `  ${prettyJson(WORKFLOW_REFERENCE.launchers.bulk).replace(/\n/g, "\n  ")}`,
-          "  dashboard fixed: runs with saved inputBindings and rejects runtime inputs",
-          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.dashboard).replace(/\n/g, "\n  ")}`,
-          "  dashboard prompt: asks for and accepts runtime inputs",
-          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.dashboardPrompt).replace(/\n/g, "\n  ")}`,
+          "  customApp fixed: runs with saved inputBindings and rejects runtime inputs",
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.customApp).replace(/\n/g, "\n  ")}`,
+          "  customApp prompt: asks for and accepts runtime inputs",
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.customAppPrompt).replace(/\n/g, "\n  ")}`,
           "",
           "Launcher invocation JSON:",
           "  scanner:",
@@ -275,10 +275,10 @@ export const workflowCommands = [
           `  ${prettyJson(WORKFLOW_REFERENCE.invocation.bulkRecordIds).replace(/\n/g, "\n  ")}`,
           "  bulk with query:",
           `  ${prettyJson(WORKFLOW_REFERENCE.invocation.bulkQuery).replace(/\n/g, "\n  ")}`,
-          "  dashboard:",
-          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.dashboard).replace(/\n/g, "\n  ")}`,
-          "  dashboard prompt:",
-          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.dashboardPrompt).replace(/\n/g, "\n  ")}`,
+          "  customApp:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.customApp).replace(/\n/g, "\n  ")}`,
+          "  customApp prompt:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.customAppPrompt).replace(/\n/g, "\n  ")}`,
           "",
           "Workflow YAML example:",
           `  ${WORKFLOW_REFERENCE.example.replace(/\n/g, "\n  ")}`,
@@ -562,7 +562,7 @@ export const workflowCommands = [
   command("workflow-launchers create", {
     summary: "Create and validate a workflow launcher",
     description:
-      'Pass one JSON object: scanner {"name":"Scan","config":{"kind":"scanner","input":"item","resolve":{"by":"scanCode"}},"enabled":true}; bulk {"name":"Bulk","config":{"kind":"bulk","input":"items"}}; fixed dashboard {"name":"Refresh","config":{"kind":"dashboard","inputMode":"fixed","inputBindings":{"range":"30d"}}}; prompt dashboard {"name":"Run","config":{"kind":"dashboard","inputMode":"prompt"}}. Run `cld grids workflows reference` for all shapes.',
+      'Pass one JSON object: scanner {"name":"Scan","config":{"kind":"scanner","input":"item","resolve":{"by":"scanCode"}},"enabled":true}; bulk {"name":"Bulk","config":{"kind":"bulk","input":"items"}}; fixed customApp {"name":"Refresh","config":{"kind":"customApp","inputMode":"fixed","inputBindings":{"range":"30d"}}}; prompt customApp {"name":"Run","config":{"kind":"customApp","inputMode":"prompt"}}. Run `cld grids workflows reference` for all shapes.',
     args: baseArgs,
     flags: { ...baseFlag, ...workflowFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
     examples: ["cld grids workflow-launchers create Bookshop 'Check in' --body-file launcher.json"],
@@ -574,7 +574,7 @@ export const workflowCommands = [
         `/workflows/${encodeURIComponent(workflow.id)}/launchers`,
         jsonRequest("POST", body),
       );
-      printJsonOrMessage(ctx, launcher, `Created ${launcher.config.kind} launcher ${launcher.name} (${launcher.shortId}).`);
+      printJsonOrMessage(ctx, launcher, `Created ${launcher.config.kind === "customApp" ? "custom-app" : launcher.config.kind} launcher ${launcher.name} (${launcher.shortId}).`);
     },
   }),
   command("workflow-launchers update", {
@@ -612,9 +612,9 @@ export const workflowCommands = [
     },
   }),
   command("workflow-launchers invoke", {
-    summary: "Invoke a scanner, bulk, or dashboard launcher",
+    summary: "Invoke a scanner, bulk, or customApp launcher",
     description:
-      'The saved launcher kind selects the endpoint. Pass the exact JSON body: scanner {"operationId":"scan-42","mode":"execute","expectedRevision":3,"scannedText":"gsc_opaque","inputs":{}}; bulk uses either "recordIds":[uuid,...] or "query":{...}; dashboard uses {"operationId":"dashboard-42","mode":"execute","expectedRevision":3,"inputs":{...}}. Run `cld grids workflows reference` for complete shapes.',
+      'The saved launcher kind selects the endpoint. Pass the exact JSON body: scanner {"operationId":"scan-42","mode":"execute","expectedRevision":3,"scannedText":"gsc_opaque","inputs":{}}; bulk uses either "recordIds":[uuid,...] or "query":{...}; customApp uses {"operationId":"customApp-42","mode":"execute","expectedRevision":3,"inputs":{...}}. Run `cld grids workflows reference` for complete shapes.',
     args: baseArgs,
     flags: { ...baseFlag, ...workflowFlag, ...workflowLauncherFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
     examples: ["cld grids workflow-launchers invoke Bookshop 'Check in' Scanner --body-file invocation.json"],
@@ -623,13 +623,13 @@ export const workflowCommands = [
       const body = await readJsonInput<Record<string, unknown>>(flags.body, "workflow launcher invocation JSON", true);
       const receipt = await readApi<WorkflowInvocationReceipt>(
         ctx,
-        `/workflows/launchers/${encodeURIComponent(launcher.id)}/invoke/${launcher.config.kind}`,
+        `/workflows/launchers/${encodeURIComponent(launcher.id)}/invoke/${launcher.config.kind === "customApp" ? "custom-app" : launcher.config.kind}`,
         jsonRequest("POST", body),
       );
       printJsonOrMessage(
         ctx,
         receipt,
-        `${receipt.created ? "Created" : "Reused"} ${launcher.config.kind} workflow run ${receipt.runId} (${receipt.status}).`,
+        `${receipt.created ? "Created" : "Reused"} ${launcher.config.kind === "customApp" ? "custom-app" : launcher.config.kind} workflow run ${receipt.runId} (${receipt.status}).`,
       );
     },
   }),
@@ -647,7 +647,7 @@ export const workflowRunCommands = [
       status: flag.enum(["queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"] as const, {
         description: "Run state",
       }),
-      channel: flag.enum(["api", "dashboard", "scanner", "bulk", "schedule", "recordEvent"] as const, {
+      channel: flag.enum(["api", "customApp", "scanner", "bulk", "schedule", "recordEvent"] as const, {
         description: "What asked for the run",
       }),
       mode: flag.enum(["execute", "dryRun"] as const, { description: "execute performs the run; dryRun plans it" }),

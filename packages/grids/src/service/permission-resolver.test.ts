@@ -12,7 +12,6 @@ const baseId = "base-1";
 const tableId = "table-1";
 const viewId = "view-1";
 const documentTemplateId = "template-1";
-const dashboardId = "dash-1";
 const customAppId = "app-1";
 const workflowId = "workflow-1";
 
@@ -96,24 +95,6 @@ describe("resolveEffectivePermission — resource scope", () => {
       u({ resourceType: "view", resourceId: "other-view", level: "none" }),
     ];
     expect(resolveEffectivePermission(grants, { baseId, tableId, viewId })).toBe("read");
-  });
-});
-
-describe("resolveEffectivePermission — dashboard target", () => {
-  test("dashboard-read at dashboard scope", () => {
-    const grants: Grant[] = [u({ resourceType: "dashboard", resourceId: dashboardId, level: "read" })];
-    expect(resolveEffectivePermission(grants, { baseId, dashboardId })).toBe("read");
-  });
-
-  test("dashboard ACL is independent of table/view ACLs", () => {
-    // table-write does NOT cascade to dashboard; dashboard ACL is its own thing.
-    const grants: Grant[] = [u({ resourceType: "table", resourceId: tableId, level: "write" })];
-    expect(resolveEffectivePermission(grants, { baseId, dashboardId })).toBe("none");
-  });
-
-  test("dashboard inherits from base when no dashboard grant", () => {
-    const grants: Grant[] = [u({ resourceType: "base", resourceId: baseId, level: "admin" })];
-    expect(resolveEffectivePermission(grants, { baseId, dashboardId })).toBe("admin");
   });
 });
 

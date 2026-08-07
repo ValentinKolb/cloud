@@ -221,7 +221,7 @@ describe("cloud CLI OAuth session handling", () => {
     const configPath = join(dir, "config.json");
     const [accounts, grids, mail, tools] = await Promise.all([
       runCli(configPath, ["accounts", "help"]),
-      runCli(configPath, ["grids", "dashboards", "help"]),
+      runCli(configPath, ["grids", "apps", "help"]),
       runCli(configPath, ["mail", "admin", "security", "help"]),
       runCli(configPath, ["tools", "help"]),
     ]);
@@ -232,7 +232,7 @@ describe("cloud CLI OAuth session handling", () => {
       expect(result.stdout).not.toMatch(/^\s+\S+\s+Commands$/m);
     }
     expect(accounts.stdout).toContain("groups         Create, inspect, and manage groups");
-    expect(grids.stdout).toContain("widgets        Resolve and run dashboard widgets");
+    expect(grids.stdout).toMatch(/apply\s+Create or update a Custom App draft/);
     expect(mail.stdout).toContain("identity       Manage protected sender identities");
     expect(tools.stdout).toContain("password       Generate passwords and estimate password strength");
   });
