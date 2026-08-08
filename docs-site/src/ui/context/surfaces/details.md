@@ -4,7 +4,10 @@
 
 ## Use DescriptionList
 
-Use it for metadata, summaries, and compact detail panels. Do not use it for editable form fields or arbitrary card layouts.
+Use it for metadata, summaries, and compact detail panels. In `layout="rows"`, a
+value may contain one compact control such as a status or assignee picker when
+that control has its own accessible name. Use a normal form layout for broader
+editing, and do not use the component for arbitrary card layouts.
 
 ## Import
 
@@ -14,7 +17,7 @@ import { Button, DescriptionList } from "@k2b/ui";
 
 ## Layout
 
-`columns` controls the wide-screen grid and collapses to one column on narrow screens. An item may provide one short action directly related to its value.
+`columns` controls the wide-screen grid and collapses to one column on narrow screens. Set `layout="rows"` for a compact inspector-style label/value list. An item may provide one short action directly related to its value.
 
 ## Accessibility
 

@@ -45,6 +45,7 @@ import inputTags from "./input/tags.md" with { type: "text" };
 import inputTagEditor from "./input/tag-editor.md" with { type: "text" };
 import inputText from "./input/text.md" with { type: "text" };
 import layoutFloatingWindow from "./layout/floating-window.md" with { type: "text" };
+import layoutDetailPanel from "./layout/detail-panel.md" with { type: "text" };
 import layoutOverview from "./layout/overview.md" with { type: "text" };
 import layoutPanelDialog from "./layout/panel-dialog.md" with { type: "text" };
 import layoutPanes from "./layout/panes.md" with { type: "text" };
@@ -92,6 +93,7 @@ const catalogContextSources = {
   "actions/toolbar": { file: "actions/toolbar.md", content: actionToolbar },
   "actions/spotlight": { file: "actions/spotlight.md", content: actionSpotlight },
   "layout/workspace": { file: "layout/workspace.md", content: layoutWorkspace },
+  "layout/detail-panel": { file: "layout/detail-panel.md", content: layoutDetailPanel },
   "layout/panes": { file: "layout/panes.md", content: layoutPanes },
   "layout/overview": { file: "layout/overview.md", content: layoutOverview },
   "layout/settings-modal": { file: "layout/settings-modal.md", content: layoutSettingsModal },

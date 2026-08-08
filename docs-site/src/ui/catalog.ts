@@ -102,6 +102,7 @@ const portableSections = [
     icon: "ti ti-layout",
     pages: [
       page("workspace", "AppWorkspace", "ti ti-layout-sidebar", "Responsive application frame with navigation, work, detail, and drawer regions."),
+      page("detail-panel", "DetailPanel", "ti ti-layout-sidebar-right", "Quiet contextual inspectors with compact identity, flat sections, and one scroll owner."),
       page("panes", "Panes", "ti ti-columns", "Controlled serializable tabs and nested split layouts."),
       page("overview", "AppOverview", "ti ti-home", "Application landing page with primary and supporting panels."),
       page("settings-modal", "Settings", "ti ti-settings", "Accessible settings tabs, fields, and save state."),
@@ -233,7 +234,7 @@ const cloudEntries = cloudPages.map((page, pageIndex) =>
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 97;
+export const portableUiComponentCount = 98;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({

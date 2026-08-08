@@ -581,11 +581,19 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     });
 
     test("keeps workspace geometry transparent across Solid island wrappers", () => {
-      expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__content/);
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__sidebar/);
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__detail:not\(\[hidden\]\)/);
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__resize\[data-app-workspace-resize=detail\]/);
       expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__resize\[data-app-workspace-resize=drawer\]/);
+    });
+
+    test("creates a desktop sidebar track only when a sidebar exists", () => {
+      expect(layoutSource).toContain(
+        ".k2b-app-workspace:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar)",
+      );
+      expect(layoutSource).not.toContain(
+        ".k2b-app-workspace:has(> .k2b-app-workspace__content, > :is(solid-island, solid-client) > .k2b-app-workspace__content)",
+      );
     });
 
     test("limits mobile pane selection to the mobile breakpoint", () => {

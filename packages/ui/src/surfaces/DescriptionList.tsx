@@ -9,6 +9,7 @@ export type DescriptionListItem = {
 export type DescriptionListProps = {
   items: readonly DescriptionListItem[];
   columns?: 1 | 2 | 3;
+  layout?: "grid" | "rows";
   size?: "sm" | "md";
   class?: string;
 };
@@ -17,7 +18,12 @@ export type DescriptionListProps = {
 export function DescriptionList(props: DescriptionListProps): JSX.Element {
   const columns = () => Math.max(1, Math.min(3, props.columns ?? 1));
   return (
-    <dl class={`k2b-description-list ${props.class ?? ""}`} data-columns={columns()} data-size={props.size ?? "md"}>
+    <dl
+      class={`k2b-description-list ${props.class ?? ""}`}
+      data-columns={columns()}
+      data-layout={props.layout ?? "grid"}
+      data-size={props.size ?? "md"}
+    >
       <For each={props.items}>
         {(item) => (
           <div class="k2b-description-list__item">

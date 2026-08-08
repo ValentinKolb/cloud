@@ -25,6 +25,16 @@ export { default as AppOverview } from "./AppOverview";
 export type { DataPanelProps } from "./DataPanel";
 export { DataPanel } from "./DataPanel";
 export type {
+  DetailPanelActionButtonProps,
+  DetailPanelActionLinkProps,
+  DetailPanelActionProps,
+  DetailPanelBodyProps,
+  DetailPanelHeaderProps,
+  DetailPanelProps,
+  DetailPanelSectionProps,
+} from "./DetailPanel";
+export { default as DetailPanel } from "./DetailPanel";
+export type {
   PanelDialogBodyProps,
   PanelDialogFooterProps,
   PanelDialogHeaderProps,

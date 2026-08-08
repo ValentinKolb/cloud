@@ -861,11 +861,10 @@
     flex: 0 0 24rem;
   }
 
-  /* Solid islands render a custom-element wrapper around their root. The
-     wrapper is `display: contents`, but selectors still see it in the DOM.
-     Treat the direct and island-wrapped compound parts as the same workspace
-     structure so SSR and hydrated layouts use identical grid tracks. */
-  .k2b-ui .k2b-app-workspace:has(> .k2b-app-workspace__content, > :is(solid-island, solid-client) > .k2b-app-workspace__content) {
+  /* Only a real sidebar creates the desktop sidebar track. Solid islands
+     render a transparent custom-element wrapper around compound parts, so
+     direct and island-wrapped sidebars must select the same grid. */
+  .k2b-ui .k2b-app-workspace:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar) {
     grid-template-areas:
       "sidebar content"
       "sidebar drawer";

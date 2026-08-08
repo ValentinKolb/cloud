@@ -44,6 +44,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     const list = renderToString(() =>
       createComponent(DescriptionList, {
         columns: 2,
+        layout: "rows",
         items: [
           { term: "Owner", description: "Platform team", action: "Open" },
           { term: "Status", description: "Ready" },
@@ -57,6 +58,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(list).toContain("<dt>Owner</dt>");
     expect(list).toContain("<dd>Platform team</dd>");
     expect(list).toContain('data-columns="2"');
+    expect(list).toContain('data-layout="rows"');
   });
 
   test("keeps Avatar portable while LinkCard exposes the Cloud color contract", () => {
