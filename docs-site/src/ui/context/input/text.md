@@ -42,6 +42,11 @@ disables the input and its controls.
 
 `spellcheck` and `maxLength` pass through in every mode, including markdown. `autocomplete` and `autocapitalize` reach the native input and textarea only, not the markdown editor. `inputMode` applies to the single-line input.
 
+Browser autofill remains enabled for native single-line inputs. While the
+browser reports an autofilled value, `TextInput` extends one semantic surface
+across the input, leading icon, affixes, and clear or password control. Editing
+the value returns the field to its regular visual state.
+
 ## Accessibility
 
 Prefer a visible `label`. When the surrounding layout cannot render one, pass

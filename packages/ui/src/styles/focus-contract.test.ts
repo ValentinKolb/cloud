@@ -143,6 +143,17 @@ describe("@k2b/ui focus and color contract", () => {
     }
   });
 
+  test("keeps browser autofill inside the TextInput visual shell", () => {
+    const shell = rules.find((rule) => rule.selector === ".k2b-ui .k2b-text-input:has(> .k2b-input:autofill)");
+    const input = rules.find((rule) => rule.selector === ".k2b-ui .k2b-text-input > .k2b-input:autofill");
+    const focus = rules.find((rule) => rule.selector === ".k2b-ui .k2b-input-shell:focus-within");
+
+    expect(shell?.body).toContain("background: var(--k2b-info-surface)");
+    expect(input?.body).toContain("box-shadow: inset 0 0 0 1000px var(--k2b-info-surface)");
+    expect(input?.body).toContain("-webkit-text-fill-color: var(--k2b-text)");
+    expect(focus?.body).toContain("background: var(--k2b-surface)");
+  });
+
   test("keeps the tags editor geometry stable while its markup changes on focus", () => {
     const selector = ".k2b-ui .k2b-tags-input > input";
     const editableCss = rules
