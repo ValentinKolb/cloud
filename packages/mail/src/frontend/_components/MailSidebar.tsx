@@ -216,15 +216,12 @@ export default function MailSidebar(props: {
               icon: "ti ti-route",
               action: () => documentNavigate(`/app/mail/${props.mailboxId}/automations`),
             },
-            ...(props.canAdmin
-              ? [{ label: "Incoming mail", icon: "ti ti-mailbox", href: `/app/mail/${props.mailboxId}/automations/incoming` }]
-              : []),
           ],
         },
         {
           sectionLabel: "Manage",
           items: [
-            ...(props.canAdmin ? [{ label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` }] : []),
+            { label: "Mailing lists", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` },
             { label: "Remote images", icon: "ti ti-photo-shield", action: props.onOpenRemoteContent },
             ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
           ],

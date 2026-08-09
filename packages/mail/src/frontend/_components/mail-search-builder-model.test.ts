@@ -5,6 +5,7 @@ import {
   countMailSearchNodes,
   ensureMailSearchRootGroup,
   mailSearchExpressionDepth,
+  mailSearchFieldOptionsFor,
   normalizeMailSearchExpression,
   removeMailSearchExpression,
   summarizeMailSearchExpression,
@@ -27,6 +28,13 @@ const root: MailSearchExpression = {
 };
 
 describe("Mail search builder model", () => {
+  test("hides provider keywords from new conditions but preserves existing searches", () => {
+    expect(mailSearchFieldOptionsFor({ type: "all" }).map((option) => option.id)).not.toContain("text:keyword");
+    const keywordSearch: MailSearchExpression = { type: "text", field: "keyword", query: "Legacy", match: "words" };
+    expect(mailSearchFieldOptionsFor(keywordSearch).map((option) => option.id)).toContain("text:keyword");
+    expect(summarizeMailSearchExpression(keywordSearch)).toBe("Provider keyword words “Legacy”");
+  });
+
   test("updates nested nodes without mutating siblings", () => {
     const updated = updateMailSearchExpression(root, [1, 0], () => ({
       type: "work_status",

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
+import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { applyMailingListDisposition, listSubscriptions, requestUnsubscribe } from "./list-subscriptions";
 import { createMailbox } from "./mailboxes";
@@ -35,6 +36,7 @@ suite("mailing-list subscriptions", () => {
   const userIds: string[] = [];
   let mailboxId = "";
   let ownerContext: MailRequestContext;
+  let readerContext: MailRequestContext;
   let outsiderContext: MailRequestContext;
 
   beforeAll(async () => {
@@ -51,10 +53,19 @@ suite("mailing-list subscriptions", () => {
       return { id: user.id, uid };
     };
     ownerContext = contextFor(await createUser("owner"));
+    const reader = await createUser("reader");
+    readerContext = contextFor(reader);
     outsiderContext = contextFor(await createUser("outsider"));
     const mailbox = await createMailbox(ownerContext, { name: `Lists ${suffix}` });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
+    const access = await grantMailboxAccess({
+      context: ownerContext,
+      mailboxId,
+      principal: { type: "user", userId: reader.id },
+      permission: "read",
+    });
+    if (!access.ok) throw new Error(access.error.message);
 
     for (const [index, listId] of ["Updates <updates.example.test>", "Alerts <alerts.example.test>"].entries()) {
       const protocolFacts = {
@@ -165,6 +176,35 @@ suite("mailing-list subscriptions", () => {
     expect(second.ok).toBe(true);
     expect(requestCount).toBe(1);
     if (first.ok && second.ok) expect(second.data.requestedAt).toBe(first.data.requestedAt);
+  });
+
+  test("lets readers inspect lists but not change subscriptions or messages", async () => {
+    const visible = await listSubscriptions({ context: readerContext, mailboxId });
+    expect(visible.ok).toBe(true);
+    if (!visible.ok) return;
+    const subscription = visible.data.items[0];
+    expect(subscription).toBeDefined();
+    if (!subscription?.unsubscribe) return;
+
+    const unsubscribe = await requestUnsubscribe({
+      context: readerContext,
+      mailboxId,
+      input: { listKey: subscription.listKey, href: subscription.unsubscribe.href },
+    });
+    expect(unsubscribe.ok).toBe(false);
+    if (!unsubscribe.ok) expect(unsubscribe.error.status).toBe(403);
+
+    const disposition = await applyMailingListDisposition({
+      context: readerContext,
+      mailboxId,
+      input: {
+        listKey: subscription.listKey,
+        disposition: "archive",
+        idempotencyKey: crypto.randomUUID(),
+      },
+    });
+    expect(disposition.ok).toBe(false);
+    if (!disposition.ok) expect(disposition.error.status).toBe(403);
   });
 
   test("requires write access before selecting disposition targets", async () => {

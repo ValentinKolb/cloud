@@ -84,9 +84,7 @@ An approval applies only to that saved draft revision. Editing the draft after a
 
 ## Reuse a message safely {icon="copy"}
 
-Open a message's actions menu and choose **Edit as new** to create an independent draft from its recipients, subject, and content. You can choose the sending identity and whether to copy attachments. The original message and conversation are never changed.
-
-For a message previously sent by this mailbox, **Resend as a new draft** creates the same kind of independent, reviewable draft. Nothing is sent immediately: review the identity, recipients, content, and attachments, then send through the normal delivery flow. Retries of the same create request return the same draft instead of creating duplicates.
+Open a message's actions menu and choose **Use as new message** to create an independent draft from its recipients, subject, and content. You can choose the sending identity and whether to copy attachments. The original message and conversation are never changed, and nothing is sent immediately: review the identity, recipients, content, and attachments, then send through the normal delivery flow. Retries of the same create request return the same draft instead of creating duplicates.
 
 ## Send now, undo, or schedule delivery {icon="send"}
 

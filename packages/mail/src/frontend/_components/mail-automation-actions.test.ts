@@ -23,6 +23,13 @@ describe("mail automation action editor model", () => {
     const actions: MailAutomationAction[] = [{ kind: "mark_read" }];
     expect(mailAutomationActionKindsFor({ actions, catalog })).toEqual(["add_local_tag", "assign_user", "set_status"]);
     expect(mailAutomationActionKindsFor({ actions, catalog, index: 0 })).toContain("move_to_folder");
+    expect(mailAutomationActionKindsFor({ actions: [], catalog })).not.toContain("add_keyword");
+  });
+
+  test("preserves an existing provider keyword action without offering a new one", () => {
+    const actions: MailAutomationAction[] = [{ kind: "add_keyword", keyword: "Legacy" }];
+    expect(mailAutomationActionKindsFor({ actions, catalog, index: 0 })).toContain("add_keyword");
+    expect(mailAutomationActionLabel(actions[0]!, catalog)).toBe("Add keyword Legacy");
   });
 
   test("uses only general destinations and consumes unique catalog values", () => {

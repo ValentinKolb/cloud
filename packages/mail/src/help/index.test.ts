@@ -202,6 +202,8 @@ describe("mailHelp", () => {
     expect(work).toContain("Spam diagnostics");
     expect(work).toContain("Cloud does not calculate or infer its own spam score");
     expect(work).toContain("Provider keywords");
+    expect(work).toContain("Use local tags for normal labeling");
+    expect(work).toContain("does not offer provider-keyword editing");
   });
 
   test("documents safe HTML reading and the personal plain-text alternative", () => {
@@ -246,6 +248,12 @@ describe("mailHelp", () => {
     expect(work).toContain("Mark all as read");
     expect(work).toContain("at most 100 unread matching messages");
     expect(work).toContain("Manage unsubscribe");
+    expect(work).toContain("Mailbox tools > Mailing lists");
+    expect(work).toContain("Every mailbox reader");
+    expect(work).toContain("Unsubscribe and cleanup actions require Write or Admin access");
+    expect(work).toContain("Use as new message");
+    expect(work).toContain("Start new conversation from this message");
+    expect(automation).toContain("no longer offers `add_keyword` for new steps");
   });
 
   test("documents every incoming-automation schema term and structural limit in Help and the CLI skill", () => {

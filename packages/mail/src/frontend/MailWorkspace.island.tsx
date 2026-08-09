@@ -1449,7 +1449,6 @@ export default function MailWorkspace(props: {
                   selectionKey={data.selectedMessageId ?? data.selectedConversationId}
                   selectedConversationId={data.selectedConversationId}
                   selectedMessageId={data.selectedMessageId}
-                  sourceFolderId={selectedListItem()?.sourceFolderId ?? data.folderId ?? data.detailMessages.at(-1)?.folderId ?? null}
                   unread={selectedUnread()}
                   flagged={selectedFlagged()}
                   inJunk={selectedInJunk()}
@@ -1545,7 +1544,6 @@ export default function MailWorkspace(props: {
               detailErrors={data.detailErrors}
               messages={data.detailMessages}
               subject={data.selectedSubject}
-              flagged={selectedFlagged()}
               dateConfig={props.dateConfig}
               onCollaborationChange={applyCollaborationState}
               onConversationTagsChange={applyConversationTags}

@@ -4,27 +4,22 @@ import { resolveMailMessageActionVisibility } from "./mail-message-action-visibi
 const base = {
   hasSender: true,
   hasMailingListUnsubscribe: true,
-  hasProviderPlacement: true,
   hasConversation: true,
-  hasConversationSourceFolder: true,
   totalMessageCount: 2,
   canWrite: true,
   canAdmin: true,
 };
 
 describe("resolveMailMessageActionVisibility", () => {
-  test("shows inbound sender actions and hides resend", () => {
+  test("shows inbound sender actions and message reuse", () => {
     expect(resolveMailMessageActionVisibility({ ...base, outgoing: false })).toEqual({
       findSender: true,
       createIncomingAutomation: true,
       markSenderRead: true,
       blockSender: true,
       manageUnsubscribe: true,
-      providerKeywords: true,
-      conversationKeyword: true,
       conversationRepair: true,
       editAsNew: true,
-      resend: false,
     });
   });
 
@@ -35,11 +30,8 @@ describe("resolveMailMessageActionVisibility", () => {
       markSenderRead: false,
       blockSender: false,
       manageUnsubscribe: false,
-      providerKeywords: true,
-      conversationKeyword: true,
       conversationRepair: true,
       editAsNew: true,
-      resend: true,
     });
   });
 
@@ -57,24 +49,17 @@ describe("resolveMailMessageActionVisibility", () => {
       markSenderRead: false,
       blockSender: false,
       manageUnsubscribe: false,
-      providerKeywords: false,
-      conversationKeyword: false,
       conversationRepair: false,
       editAsNew: false,
-      resend: false,
     });
   });
 
-  test("requires concrete provider and conversation targets", () => {
+  test("requires a multi-message conversation for repair actions", () => {
     const visibility = resolveMailMessageActionVisibility({
       ...base,
       outgoing: false,
-      hasProviderPlacement: false,
       hasConversation: false,
-      hasConversationSourceFolder: false,
     });
-    expect(visibility.providerKeywords).toBe(false);
-    expect(visibility.conversationKeyword).toBe(false);
     expect(visibility.conversationRepair).toBe(false);
   });
 });

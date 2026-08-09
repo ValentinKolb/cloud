@@ -28,7 +28,7 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Start", href: "/" },
         { title: "Mail", href: "/app/mail" },
         { title: result.data.mailbox.name, href: `/app/mail/${mailboxId}` },
-        { title: "Subscriptions" },
+        { title: "Mailing lists" },
       ]}
     >
       <MailSubscriptionWorkspace data={result.data} initialListKey={initialListKey} />

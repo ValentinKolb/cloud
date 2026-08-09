@@ -24,6 +24,7 @@ context such as assignments, comments, local tags, reminders, and work status.
   add local tags, and track whether work needs action or is waiting for a reply.
 - Continue the newest unfinished conversation draft directly from the reader.
 - Compose and schedule messages through verified sender identities.
+- Review detected mailing lists and safely request unsubscribe or clean up existing messages when permitted.
 - Use incoming automations, automatic replies, or reviewed workflows for
   recurring mailbox work.
 

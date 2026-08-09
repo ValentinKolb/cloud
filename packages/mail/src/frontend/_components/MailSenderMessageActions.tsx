@@ -22,7 +22,6 @@ export default function MailSenderMessageActions(props: {
   canAdmin: boolean;
   selectionKey: string | null;
   selectedConversationId: string | null;
-  sourceFolderId: string | null;
   message: MessageDetail;
   totalMessageCount: number;
   identities: SenderIdentity[];
@@ -55,115 +54,6 @@ export default function MailSenderMessageActions(props: {
       onSaved: () => undefined,
     });
   };
-
-  const messageKeywords = mutation.create<boolean, SelectionContext>({
-    mutation: async (_, { abortSignal }) => {
-      const message = props.message;
-      const folderId = message.folderId;
-      if (!message.remoteMessageRefId || !folderId) {
-        await prompts.error("This message has no active provider placement.", { title: "Provider keywords unavailable" });
-        return false;
-      }
-      const values = await prompts.form({
-        title: "Edit provider keywords",
-        icon: "ti ti-tags",
-        fields: {
-          keywords: {
-            type: "tags",
-            label: "Provider keywords",
-            description: "These values sync through IMAP and are separate from Cloud tags.",
-            default: message.keywords,
-            maxTags: 100,
-          },
-        },
-        confirmText: "Apply",
-      });
-      if (!values || abortSignal.aborted) return false;
-      const next = [...new Set((values.keywords ?? []).map((keyword) => keyword.trim()).filter(Boolean))];
-      const current = new Set(message.keywords.map((keyword) => keyword.toLowerCase()));
-      const desired = new Set(next.map((keyword) => keyword.toLowerCase()));
-      const addKeywords = next.filter((keyword) => !current.has(keyword.toLowerCase()));
-      const removeKeywords = message.keywords.filter((keyword) => !desired.has(keyword.toLowerCase()));
-      if (addKeywords.length === 0 && removeKeywords.length === 0) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
-        {
-          param: { mailboxId: props.mailboxId },
-          json: {
-            kind: "change_message_state",
-            remoteMessageRefId: message.remoteMessageRefId,
-            folderId,
-            change: { addFlags: [], removeFlags: [], addKeywords, removeKeywords },
-            idempotencyKey: crypto.randomUUID(),
-          },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not update provider keywords"));
-      return true;
-    },
-    onSuccess: (changed) => {
-      if (changed) toast.success("Provider keyword update queued");
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const conversationKeyword = mutation.create<boolean, SelectionContext, SelectionContext>({
-    mutation: async (_, { abortSignal }) => {
-      const conversationId = props.selectedConversationId;
-      const sourceFolderId = props.sourceFolderId ?? props.message.folderId;
-      if (!conversationId || !sourceFolderId) return false;
-      const values = await prompts.form({
-        title: "Change conversation provider keyword",
-        icon: "ti ti-tags",
-        fields: {
-          operation: {
-            type: "select",
-            label: "Change",
-            options: [
-              { id: "add", label: "Add keyword" },
-              { id: "remove", label: "Remove keyword" },
-            ],
-            default: "add",
-            required: true,
-          },
-          keyword: {
-            type: "text",
-            label: "Provider keyword",
-            description: "Applied to every message in this conversation's current provider folder.",
-            required: true,
-          },
-        },
-        confirmText: "Queue change",
-      });
-      const keyword = values?.keyword.trim();
-      if (!values || !keyword || abortSignal.aborted) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post(
-        {
-          param: { mailboxId: props.mailboxId, conversationId },
-          json: {
-            kind: "change_state",
-            sourceFolderId,
-            change:
-              values.operation === "remove"
-                ? { addFlags: [], removeFlags: [], addKeywords: [], removeKeywords: [keyword] }
-                : { addFlags: [], removeFlags: [], addKeywords: [keyword], removeKeywords: [] },
-            idempotencyKey: crypto.randomUUID(),
-            correlationId: crypto.randomUUID(),
-          },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not queue the conversation keyword change"));
-      return true;
-    },
-    onBefore: (context) => context,
-    onSuccess: async (changed, context) => {
-      if (!changed) return;
-      toast.success("Conversation keyword change queued");
-      if (context?.selectionKey === props.selectionKey) await props.onReconcile();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
 
   const markSenderRead = mutation.create<boolean, { address: string; selectionKey: string | null }, SelectionContext>({
     mutation: async ({ address }, { abortSignal }) => {
@@ -241,7 +131,7 @@ export default function MailSenderMessageActions(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const pending = () => messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading() || reportPhishing.loading();
+  const pending = () => markSenderRead.loading() || reportPhishing.loading();
   const sender = () => props.message.from[0] ?? null;
   const findSenderHref = () => (sender() ? buildExactSenderSearchHref(new URL(props.requestUrl), sender()!.address) : null);
   const actionVisibility = () =>
@@ -249,9 +139,7 @@ export default function MailSenderMessageActions(props: {
       outgoing: isOutgoingMessage(props.message, props.identities),
       hasSender: Boolean(sender()),
       hasMailingListUnsubscribe: Boolean(props.message.mailingList?.unsubscribe),
-      hasProviderPlacement: Boolean(props.message.remoteMessageRefId && props.message.folderId),
       hasConversation: Boolean(props.selectedConversationId),
-      hasConversationSourceFolder: Boolean(props.sourceFolderId ?? props.message.folderId),
       totalMessageCount: props.totalMessageCount,
       canWrite: props.canWrite,
       canAdmin: props.canAdmin,
@@ -261,8 +149,6 @@ export default function MailSenderMessageActions(props: {
     on(
       () => props.selectionKey,
       () => {
-        messageKeywords.abort();
-        conversationKeyword.abort();
         markSenderRead.abort();
         reportPhishing.abort();
       },
@@ -270,8 +156,6 @@ export default function MailSenderMessageActions(props: {
     ),
   );
   onCleanup(() => {
-    messageKeywords.abort();
-    conversationKeyword.abort();
     markSenderRead.abort();
     reportPhishing.abort();
   });
@@ -347,47 +231,20 @@ export default function MailSenderMessageActions(props: {
               },
             ]
           : []),
-        ...(props.canWrite || actionVisibility().providerKeywords
-          ? [
-              {
-                sectionLabel: "Message",
-                items: [
-                  ...(actionVisibility().providerKeywords
-                    ? [
-                        {
-                          label: "Provider keywords",
-                          icon: "ti ti-tags",
-                          action: () => void messageKeywords.mutate({ selectionKey: props.selectionKey }),
-                        },
-                      ]
-                    : []),
-                ],
-              },
-            ]
-          : []),
-        ...(actionVisibility().conversationKeyword || actionVisibility().conversationRepair
+        ...(actionVisibility().conversationRepair
           ? [
               {
                 sectionLabel: "Conversation",
                 items: [
-                  ...(actionVisibility().conversationKeyword
-                    ? [
-                        {
-                          label: "Conversation provider keyword",
-                          icon: "ti ti-tags",
-                          action: () => void conversationKeyword.mutate({ selectionKey: props.selectionKey }),
-                        },
-                      ]
-                    : []),
                   ...(actionVisibility().conversationRepair
                     ? [
                         {
-                          label: "Move to another conversation",
+                          label: "Move message to another conversation",
                           icon: "ti ti-message-forward",
                           action: () => props.onReassignMessage(props.message.id),
                         },
                         {
-                          label: "Start a new conversation",
+                          label: "Start new conversation from this message",
                           icon: "ti ti-arrows-split-2",
                           action: () => props.onSplitMessage(props.message.id),
                         },
@@ -400,18 +257,9 @@ export default function MailSenderMessageActions(props: {
         ...(actionVisibility().editAsNew
           ? [
               {
-                label: "Edit as new",
+                label: "Use as new message",
                 icon: "ti ti-copy",
                 action: () => props.onDeriveMessage("edit_as_new", props.message),
-              },
-            ]
-          : []),
-        ...(actionVisibility().resend
-          ? [
-              {
-                label: "Resend as a new draft",
-                icon: "ti ti-repeat",
-                action: () => props.onDeriveMessage("resend", props.message),
               },
             ]
           : []),

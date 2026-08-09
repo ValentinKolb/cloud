@@ -25,7 +25,7 @@ Mailbox admins create one guided flow under **Automations > Incoming mail** or s
 
 Add steps in the order they should run. A flow can freely mix:
 
-- **Mail action** to move, mark, label, tag, assign, or change conversation status.
+- **Mail action** to move, mark, add a local tag, assign, or change conversation status.
 - **AI generate text** to produce bounded text for later steps.
 - **AI classify** to produce exactly one configured category.
 - **AI classify many** to produce up to the configured maximum of matching categories.
@@ -40,7 +40,7 @@ The guided editor and the CLI use the same strict definition. Unknown fields are
 
 - `scope.mode: all` needs no conditions. `scope.mode: matching` requires `conditions.mode: all|any` and 1–8 unique condition items. Fields are `sender_address`, `sender_domain`, `subject`, `body_text`, and `attachment_presence`. Sender address and domain use `operator: is`; subject and body accept `is`, `contains`, `starts_with`, or `ends_with`; attachment presence uses `is` with a boolean `value`. Address values accept 1–320 characters, domains 1–253, and subject or body values 1–1,000.
 - Every step has a unique UUID in `id`. Step kinds are `mail_action`, `ai_generate_text`, `ai_classify`, `ai_classify_many`, `create_reply_draft`, `add_comment`, `set_summary`, and `if`.
-- A `mail_action` is `junk`, `trash`, `mark_read`, `add_keyword`, `move_to_folder`, `add_local_tag`, `assign_user`, or `set_status`. Catalog-backed actions use `folderId`, `tagId`, or `userId`; status is `needs_action`, `waiting`, or `done`. A keyword accepts 1–100 characters and must use valid provider-keyword syntax.
+- A `mail_action` is `junk`, `trash`, `mark_read`, `add_keyword`, `move_to_folder`, `add_local_tag`, `assign_user`, or `set_status`. Catalog-backed actions use `folderId`, `tagId`, or `userId`; status is `needs_action`, `waiting`, or `done`. The guided editor recommends local tags and no longer offers `add_keyword` for new steps. Existing definitions containing it remain editable, and CLI or advanced workflow callers can still use it for provider interoperability; a keyword accepts 1–100 characters and must use valid provider-keyword syntax.
 - `ai_generate_text.instructions` accepts 1–4,000 characters and `maxOutputChars` is 200–10,000. `ai_classify` and `ai_classify_many` accept 2–10 choices with case-insensitively unique names; a choice name accepts 1–80 characters and its description 1–500. `ai_classify_many.maxChoices` is from 1 to the number of choices.
 - `create_reply_draft`, `add_comment`, and `set_summary` use `body: { kind: custom, value: ... }` with 1–50,000 characters or `body: { kind: step_output, sourceStepId: ... }` for an earlier text-producing AI step. A multi-choice result is not a text source. Reply drafts additionally require a catalog `senderIdentityId`.
 - An `if` condition references an earlier AI `sourceStepId`. Use `equals` for generated text or one classification and `includes` for multi-classification; `value` accepts 1–500 characters and must name a declared choice for classification. Both `then` and `else` contain at most 12 steps.

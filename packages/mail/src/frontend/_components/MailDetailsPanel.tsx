@@ -29,7 +29,6 @@ import type { MailDetailErrors } from "../../service/workspace";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
 import { openMailMessageInspector } from "./MailMessageInspectorDialog";
-import { getMailAction } from "./mail-actions";
 import { presentMailActivity } from "./mail-activity-presentation";
 import { listUnavailableMailDetailSections } from "./mail-detail-availability";
 import {
@@ -70,7 +69,6 @@ export default function MailDetailsPanel(props: {
   detailErrors: MailDetailErrors;
   messages: MessageDetail[];
   subject: string;
-  flagged: boolean;
   dateConfig: DateContext;
   onCollaborationChange: (state: ConversationCollaboration) => void;
   onConversationTagsChange: (state: ConversationLocalTags) => void;
@@ -529,12 +527,7 @@ export default function MailDetailsPanel(props: {
         </section>
 
         <section class="detail-section">
-          <div class="mb-3 flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Workflow</h3>
-            <Show when={props.flagged}>
-              <StatusBadge tone="warning" label="Flagged" icon={getMailAction("flag").icon} />
-            </Show>
-          </div>
+          <h3 class="detail-section-label">Work</h3>
           <div class="flex flex-col gap-2">
             <Select
               label="Assignee"
@@ -571,29 +564,33 @@ export default function MailDetailsPanel(props: {
               dateConfig={props.dateConfig}
               disabled={!props.canWrite || state().workStatus === "done"}
             />
-            <div class="flex items-end gap-2">
-              <div class="min-w-0 flex-1">
-                <DateTimePicker
-                  label="Personal reminder"
-                  value={reminderDueAt}
-                  onValueChange={(value) => value && updateReminder(value)}
-                  dateConfig={props.dateConfig}
-                  disabled={Boolean(props.detailErrors.reminder)}
-                />
-              </div>
-              <Show when={reminderDueAt()}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  class="mb-0.5"
-                  disabled={Boolean(props.detailErrors.reminder)}
-                  onClick={clearReminder}
-                >
-                  Clear
-                </Button>
-              </Show>
+          </div>
+        </section>
+
+        <section class="detail-section">
+          <h3 class="detail-section-label">For me</h3>
+          <div class="flex items-end gap-2">
+            <div class="min-w-0 flex-1">
+              <DateTimePicker
+                label="Personal reminder"
+                value={reminderDueAt}
+                onValueChange={(value) => value && updateReminder(value)}
+                dateConfig={props.dateConfig}
+                disabled={Boolean(props.detailErrors.reminder)}
+              />
             </div>
+            <Show when={reminderDueAt()}>
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                class="mb-0.5"
+                disabled={Boolean(props.detailErrors.reminder)}
+                onClick={clearReminder}
+              >
+                Clear
+              </Button>
+            </Show>
           </div>
         </section>
 

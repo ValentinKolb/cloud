@@ -31,7 +31,6 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "text:reference", label: "Reference number", icon: "ti ti-hash" },
   { id: "text:folder", label: "Folder name", icon: "ti ti-folder" },
   { id: "text:tag", label: "Tag", icon: "ti ti-tag" },
-  { id: "text:keyword", label: "Provider keyword", icon: "ti ti-key" },
   { id: "date:internal_date", label: "Received date", icon: "ti ti-calendar-down" },
   { id: "date:sent_at", label: "Sent date", icon: "ti ti-calendar-up" },
   { id: "size:message", label: "Message size", icon: "ti ti-file" },
@@ -43,6 +42,15 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "assigned_to_me", label: "Assigned to me", icon: "ti ti-user-pin" },
   { id: "all", label: "All conversations", icon: "ti ti-mail" },
 ];
+
+const LEGACY_PROVIDER_KEYWORD_OPTION = { id: "text:keyword", label: "Provider keyword", icon: "ti ti-key" } as const;
+
+export const mailSearchFieldOptionsFor = (
+  expression: MailSearchExpression,
+): Array<{ id: MailSearchFieldKey; label: string; icon: string }> =>
+  mailSearchFieldKey(expression) === "text:keyword"
+    ? [...MAIL_SEARCH_FIELD_OPTIONS, LEGACY_PROVIDER_KEYWORD_OPTION]
+    : MAIL_SEARCH_FIELD_OPTIONS;
 
 export const unwrapMailSearchNot = (
   expression: MailSearchExpression,
@@ -182,7 +190,9 @@ export const mailSearchExpressionDepth = (expression: MailSearchExpression): num
 };
 
 const textFieldLabel = (field: MailSearchField): string =>
-  MAIL_SEARCH_FIELD_OPTIONS.find((option) => option.id === `text:${field}`)?.label ?? field;
+  field === "keyword"
+    ? LEGACY_PROVIDER_KEYWORD_OPTION.label
+    : (MAIL_SEARCH_FIELD_OPTIONS.find((option) => option.id === `text:${field}`)?.label ?? field);
 
 const sizeLabel = (bytes: number): string => {
   const megabytes = bytes / (1024 * 1024);

@@ -1,7 +1,7 @@
-import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { AppWorkspace, Button, ButtonLink, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
 import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppWorkspace, Button, ButtonLink, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
+import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type {
@@ -298,7 +298,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   return (
     <AppWorkspace>
       <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarMobileTrigger label="Subscriptions" />
+        <AppWorkspace.SidebarMobileTrigger label="Mailing lists" />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
             <AppWorkspace.SidebarItem href={`/app/mail/${props.data.mailbox.id}`} icon="ti ti-inbox">
@@ -308,7 +308,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
           <AppWorkspace.SidebarMobileBody>
             <AppWorkspace.SidebarSection title="Mailbox tools">
               <AppWorkspace.SidebarItem icon="ti ti-news" active>
-                Subscriptions
+                Mailing lists
               </AppWorkspace.SidebarItem>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarMobileBody>
@@ -317,7 +317,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
           <AppWorkspace.SidebarBody>
             <AppWorkspace.SidebarSection title="Mailbox tools">
               <AppWorkspace.SidebarItem icon="ti ti-news" active>
-                Subscriptions
+                Mailing lists
               </AppWorkspace.SidebarItem>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
@@ -334,7 +334,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
           <div class="min-h-0 flex-1 overflow-y-auto" style="scrollbar-gutter: stable">
             <div class="mx-auto flex w-full max-w-5xl flex-col gap-2">
               <header>
-                <h1 class="text-base font-semibold text-primary">Subscriptions</h1>
+                <h1 class="text-base font-semibold text-primary">Mailing lists</h1>
                 <p class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-dimmed">
                   <span>Mailing lists detected from their messages. Unsubscribing never deletes existing mail.</span>
                   <Show when={liveDegraded()}>

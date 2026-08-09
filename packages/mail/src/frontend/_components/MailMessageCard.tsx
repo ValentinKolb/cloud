@@ -28,7 +28,6 @@ type MailMessageCardContext = {
   canAdmin: boolean;
   selectionKey: string | null;
   selectedConversationId: string | null;
-  sourceFolderId: string | null;
   totalMessageCount: number;
   identities: SenderIdentity[];
   dateConfig: DateContext;
@@ -233,7 +232,6 @@ export default function MailMessageCard(props: {
             canAdmin={props.context.canAdmin}
             selectionKey={props.context.selectionKey}
             selectedConversationId={props.context.selectedConversationId}
-            sourceFolderId={props.context.sourceFolderId}
             message={props.message}
             totalMessageCount={props.context.totalMessageCount}
             identities={props.context.identities}

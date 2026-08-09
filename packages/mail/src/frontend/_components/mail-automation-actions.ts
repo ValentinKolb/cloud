@@ -73,16 +73,8 @@ export const mailAutomationActionKindsFor = (params: {
   const usedTagIds = new Set(others.flatMap((action) => (action.kind === "add_local_tag" ? [action.tagId] : [])));
   const catalog = params.catalog;
   if (!catalog) return current ? [current.kind] : [];
-  const available: AutomationActionKind[] = [
-    "junk",
-    "trash",
-    "move_to_folder",
-    "mark_read",
-    "add_keyword",
-    "add_local_tag",
-    "assign_user",
-    "set_status",
-  ];
+  const available: AutomationActionKind[] = ["junk", "trash", "move_to_folder", "mark_read", "add_local_tag", "assign_user", "set_status"];
+  if (current?.kind === "add_keyword") available.push("add_keyword");
   return available.filter((kind) => {
     if (kind === current?.kind) return true;
     if (PROVIDER_ACTION_KINDS.has(kind) && providerTaken) return false;

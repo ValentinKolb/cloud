@@ -6,7 +6,7 @@ description: Assign work, coordinate replies, comment internally, and understand
 order: 40
 ---
 
-Cloud collaboration stays attached to a conversation while the underlying email remains normal provider mail. Open **Conversation details** to see team context and change collaboration state.
+Cloud collaboration stays attached to a conversation while the underlying email remains normal provider mail. Open **Conversation details** to see shared **Work** state separately from your private **For me** reminder.
 
 ## Use ownership and status consistently {icon="route"}
 

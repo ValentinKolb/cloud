@@ -25,9 +25,10 @@ The filter dialog can search:
 - Conversation reference
 - Folder
 - Local tag
-- Provider keyword
 
 Choose **Any condition** to match at least one filled field, or **All conditions** to require every filled field. Search filters stay in the page URL, so reloading or sharing the URL preserves the current result. Use **Clear search** to return to the unfiltered view.
+
+Provider keywords are advanced synchronized metadata rather than a normal labeling system. Existing keyword search URLs continue to work and remain editable, but new filters use local tags for human-facing labels.
 
 Search results are permission-checked and use the synchronized Cloud copy. During an initial sync, older messages or bodies can become searchable later as synchronization and body hydration continue.
 
@@ -84,7 +85,6 @@ Open an individual message's **Message organization actions** for sender-scoped 
 - **Create rule from sender**, **Block sender**, and **Block sender domain** open the guided rule editor with the sender already filled in.
 - **Mark all as read** confirms and queues at most 100 unread matching messages through the durable command outbox. Repeat it with a new action only if Mail reports that the limit was reached; retries with the same idempotency key return the original batch.
 - **Manage unsubscribe** appears only when the message supplies standard mailing-list unsubscribe information.
-- **Provider keywords** edits IMAP keywords for the message's active provider placement. In a multi-message thread, **Conversation provider keyword** adds or removes one keyword from every message in the current provider folder. They are separate from Cloud-local tags and may be rejected when the provider does not support custom keywords in that folder.
 
 ## Inspect an individual message {icon="file-search"}
 
@@ -97,13 +97,15 @@ Open **Conversation details**, expand **Mail details**, and choose **Headers** o
 
 An `.eml` file is useful when transferring one message to another mail client, reporting a delivery problem, or preserving the original message for investigation. Opening the inspector does not change the message or its provider state.
 
+Provider keywords remain visible in the inspector for interoperability and diagnostics. Use local tags for normal labeling; Mail does not offer provider-keyword editing in the message or conversation menus.
+
 Raw headers and `.eml` files can contain private addresses, server names, routing details, authentication results, and the complete message body. Review them before sharing. For older or partially synchronized messages, Mail may have the readable content without the exact original source; in that case the inspector explains that source and `.eml` download are unavailable.
 
 ## Manage mailing lists {icon="news"}
 
-Mail recognizes mailing lists from the standard list information included in received messages. Open **Mailbox tools > Subscriptions** to see each detected list, its recent volume, its latest message, and the actions advertised by the list.
+Mail recognizes mailing lists from the standard list information included in received messages. Every mailbox reader can open **Mailbox tools > Mailing lists** to see each detected list, its recent volume, its latest message, and the actions advertised by the list.
 
-The available actions depend on the information supplied by the sender:
+The available actions depend on the information supplied by the sender. Unsubscribe and cleanup actions require Write or Admin access; readers can inspect lists and follow their advertised help, archive, or posting links.
 
 - **Unsubscribe** asks the list to stop sending mail. Mail uses a protected one-click request when the list supports it. Otherwise Mail opens the list's unsubscribe page or prepares the advertised unsubscribe email.
 - **Write to list** opens the address supplied for new list messages.
@@ -112,7 +114,7 @@ The available actions depend on the information supplied by the sender:
 
 Confirm the list name before unsubscribing. The request affects future delivery for this mailbox and may be difficult to reverse. It does not delete existing messages, and Mail cannot guarantee when an external list provider will stop delivery.
 
-Mail never opens an unsubscribe link merely because you preview or read a message. Lists without standard list information do not appear in **Subscriptions**.
+Mail never opens an unsubscribe link merely because you preview or read a message. Lists without standard list information do not appear in **Mailing lists**.
 
 ## Open attachments and reply to a message {icon="paperclip"}
 
@@ -139,8 +141,7 @@ Under an expanded message, choose:
 - **Reply** to answer the sender.
 - **Reply all** to include the original recipients.
 - **Forward** to start a forwarded message. You can decide whether to include the original attachments before the draft is created.
-- **Edit as new** to copy one message into an independent draft without changing its conversation.
-- **Resend as a new draft** for a message previously sent by this mailbox. Review the resulting draft before sending.
+- **Use as new message** to copy one message into an independent, reviewable draft without changing its conversation or sending immediately.
 - **Quote selection** after selecting text in the message body. Mail inserts the selected lines as a quoted reply so you can answer directly below them.
 
 For composing, drafts, attachments, signatures, and delivery options, see [Write and send messages](/app/mail/help/mail-compose).
@@ -154,3 +155,7 @@ Open **Settings > Organization** to create a saved view from folder and collabor
 - Visibility is fixed after creation. Create a replacement view if you need a different visibility.
 
 Local tags are mailbox labels used by people, search, and automations. They are not IMAP folders or provider keywords and do not appear in other clients. Deleting a local tag removes it from every conversation in that mailbox.
+
+## Correct conversation grouping {icon="arrows-split-2"}
+
+Use **Merge with another conversation** when two Cloud conversations belong together. On an individual message, use **Start new conversation from this message** when a reply introduces a new topic, or **Move message to another conversation** when it belongs in an existing thread. These actions require write access and change Cloud's conversation grouping without changing the message content.

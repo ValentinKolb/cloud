@@ -72,7 +72,6 @@ export default function MailConversationReader(props: {
   selectionKey: string | null;
   selectedConversationId: string | null;
   selectedMessageId: string | null;
-  sourceFolderId: string | null;
   unread: boolean;
   flagged: boolean;
   inJunk: boolean;
@@ -502,9 +501,7 @@ export default function MailConversationReader(props: {
         return (
           <div class="flex flex-col gap-3">
             <p class="text-sm text-secondary">
-              {kind === "resend"
-                ? "Create an independent draft with the original recipients and content. Nothing is sent until you review it."
-                : "Create an independent draft from this message. The original message and conversation stay unchanged."}
+              Create an independent draft from this message. The original message and conversation stay unchanged.
             </p>
             <Select
               label="Send from"
@@ -541,8 +538,8 @@ export default function MailConversationReader(props: {
         );
       },
       {
-        title: kind === "resend" ? "Resend as a new draft" : "Edit as new",
-        icon: kind === "resend" ? "ti ti-repeat" : "ti ti-copy",
+        title: "Use as new message",
+        icon: "ti ti-copy",
         size: "small",
       },
     );
@@ -705,7 +702,7 @@ export default function MailConversationReader(props: {
       if (!message || !canSplitConversation()) return null;
       return {
         id,
-        label: "Split conversation from latest message",
+        label: "Start new conversation from latest message",
         icon: "ti ti-arrows-split-2",
         disabled: props.actionPending,
         action: () => void props.onSplitMessage(message.id),
@@ -858,7 +855,7 @@ export default function MailConversationReader(props: {
           ...(canSplitConversation() && latestMessage()
             ? [
                 {
-                  label: "Split conversation from latest message",
+                  label: "Start new conversation from latest message",
                   icon: "ti ti-arrows-split-2",
                   action: () => {
                     const message = latestMessage();
@@ -1061,11 +1058,7 @@ export default function MailConversationReader(props: {
           >
             <Show when={props.conversationSummary?.summary}>
               {(summary) => (
-                <section
-                  class="mx-auto w-full max-w-4xl py-3"
-                  aria-label="Conversation summary"
-                  data-mail-conversation-summary
-                >
+                <section class="mx-auto w-full max-w-4xl py-3" aria-label="Conversation summary" data-mail-conversation-summary>
                   <p class="mb-1 text-[11px] font-medium leading-4 text-secondary">Summary</p>
                   <p
                     class="whitespace-pre-line text-sm leading-5 text-dimmed"
@@ -1075,13 +1068,7 @@ export default function MailConversationReader(props: {
                     {summary()}
                   </p>
                   <Show when={summary().length > 280}>
-                    <Button
-                      type="button"
-                      variant="text"
-                      size="xs"
-                      class="mt-1"
-                      onClick={() => setSummaryExpanded((expanded) => !expanded)}
-                    >
+                    <Button type="button" variant="text" size="xs" class="mt-1" onClick={() => setSummaryExpanded((expanded) => !expanded)}>
                       {summaryExpanded() ? "Show less" : "More"}
                     </Button>
                   </Show>
@@ -1103,7 +1090,6 @@ export default function MailConversationReader(props: {
                       canAdmin: props.canAdmin,
                       selectionKey: props.selectionKey,
                       selectedConversationId: props.selectedConversationId,
-                      sourceFolderId: props.sourceFolderId,
                       totalMessageCount: props.totalMessageCount,
                       identities: props.identities,
                       dateConfig: props.dateConfig,

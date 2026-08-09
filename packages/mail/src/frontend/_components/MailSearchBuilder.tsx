@@ -1,7 +1,9 @@
 import {
-  NoticeCard,
+  Button,
   DateTimePicker,
   dialogCore,
+  IconButton,
+  NoticeCard,
   NumberInput,
   PanelDialog,
   panelDialogFixedOptions,
@@ -10,8 +12,6 @@ import {
   Select,
   TextInput,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
 import { createMemo, createSignal, Index, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -25,11 +25,11 @@ import {
   countMailSearchNodes,
   createMailSearchCondition,
   ensureMailSearchRootGroup,
-  MAIL_SEARCH_FIELD_OPTIONS,
   type MailSearchFieldKey,
   type MailSearchNodePath,
   mailSearchExpressionDepth,
   mailSearchFieldKey,
+  mailSearchFieldOptionsFor,
   normalizeMailSearchExpression,
   removeMailSearchExpression,
   toggleMailSearchNegation,
@@ -128,7 +128,7 @@ function MailSearchConditionEditor(props: {
                       applyMailSearchNegation(createMailSearchCondition(value as MailSearchFieldKey), state().negated),
                     )
                   }
-                  options={MAIL_SEARCH_FIELD_OPTIONS}
+                  options={mailSearchFieldOptionsFor(props.expression)}
                 />
                 <SearchConditionValue
                   expression={props.expression}
