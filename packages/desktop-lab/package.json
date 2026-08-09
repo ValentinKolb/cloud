@@ -16,7 +16,7 @@
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@k2b/ui": "workspace:*",
-    "@k2b/stdlib": "0.17.1",
+    "@k2b/stdlib": "0.18.0",
     "solid-js": "^1.9.10"
   },
   "devDependencies": {

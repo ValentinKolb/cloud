@@ -10,7 +10,7 @@
   "dependencies": {
     "@k2b/ui": "workspace:*",
     "@valentinkolb/cloud": "workspace:*",
-    "@k2b/stdlib": "0.17.1",
+    "@k2b/stdlib": "0.18.0",
     "@k2b/sync": "5.9.1",
     "@k2b/ssr": "0.12.0",
     "hono": "^4.11.1",
