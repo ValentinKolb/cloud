@@ -174,9 +174,15 @@ const MenusDemo = () => (
       { kind: "component", name: "Dropdown", from: "@k2b/ui" },
       { kind: "component", name: "ContextMenu", from: "@k2b/ui" },
     ]}
-    description="Top-layer menus with keyboard navigation, focus restoration, viewport clamping, and light dismiss. `width` is a CSS length, not a class name, and defaults to 12rem."
+    description="Top-layer menus with keyboard navigation, focus restoration, viewport clamping, and light dismiss. Icon-only triggers default to the quiet ghost variant; `width` is a CSS length and defaults to 12rem."
     code={`<Dropdown.Root items={[{ label: "Duplicate", action: duplicate }]}>
   <Dropdown.Trigger variant="secondary">Actions</Dropdown.Trigger>
+</Dropdown.Root>
+
+<Dropdown.Root items={items}>
+  <Dropdown.Trigger iconOnly label="More actions">
+    <i class="ti ti-dots" aria-hidden="true" />
+  </Dropdown.Trigger>
 </Dropdown.Root>
 
 {/* width is a CSS length */}
@@ -197,6 +203,11 @@ const MenusDemo = () => (
         ]}
       >
         <Dropdown.Trigger variant="secondary">Actions</Dropdown.Trigger>
+      </Dropdown.Root>
+      <Dropdown.Root items={[{ label: "Duplicate", icon: "ti ti-copy", action: () => {} }]}>
+        <Dropdown.Trigger iconOnly label="More actions">
+          <i class="ti ti-dots" aria-hidden="true" />
+        </Dropdown.Trigger>
       </Dropdown.Root>
       <Dropdown.Root
         width="18rem"

@@ -179,24 +179,32 @@ describe("@k2b/ui complete action migrations", () => {
   });
 
   test("renders a split button as separate primary and menu actions", () => {
-    const html = renderToString(() =>
+    const explicit = renderToString(() =>
       createComponent(SplitButton, {
         items: [{ label: "Save as draft", action: () => {} }],
         menuLabel: "More send options",
         size: "sm",
-        variant: "primary",
+        variant: "secondary",
+        children: "Send",
+      }),
+    );
+    const implicit = renderToString(() =>
+      createComponent(SplitButton, {
+        items: [{ label: "Save as draft", action: () => {} }],
+        menuLabel: "More send options",
         children: "Send",
       }),
     );
 
-    expect(html.match(/<button/g)).toHaveLength(3);
-    expect(html).toContain("k2b-split-button__primary");
-    expect(html).toContain("k2b-split-button__menu-trigger");
-    expect(html).toContain('aria-label="More send options"');
-    expect(html).toContain('aria-haspopup="menu"');
-    expect(html).toContain('data-size="sm"');
-    expect(html).toContain('data-variant="primary"');
-    expect(html).toContain("Save as draft");
+    expect(explicit.match(/<button/g)).toHaveLength(3);
+    expect(explicit).toContain("k2b-split-button__primary");
+    expect(explicit).toContain("k2b-split-button__menu-trigger");
+    expect(explicit).toContain('aria-label="More send options"');
+    expect(explicit).toContain('aria-haspopup="menu"');
+    expect(explicit).toContain('data-size="sm"');
+    expect(explicit.match(/data-variant="secondary"/g)).toHaveLength(2);
+    expect(implicit.match(/data-variant="primary"/g)).toHaveLength(2);
+    expect(explicit).toContain("Save as draft");
     expect(rule(".k2b-ui .k2b-dropdown.k2b-split-button")).toContain("gap: 0");
   });
 
@@ -292,6 +300,43 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls="k2b-dropdown-');
+  });
+
+  test("keeps icon-only dropdown triggers quiet unless a variant is explicit", () => {
+    const iconOnly = renderToString(() =>
+      createComponent(Dropdown.Root, {
+        items: [{ label: "Rename", action: () => {} }],
+        get children() {
+          return createComponent(Dropdown.Trigger, { iconOnly: true, label: "Project actions", children: "A" });
+        },
+      }),
+    );
+    const labelled = renderToString(() =>
+      createComponent(Dropdown.Root, {
+        items: [{ label: "Rename", action: () => {} }],
+        get children() {
+          return createComponent(Dropdown.Trigger, { children: "Actions" });
+        },
+      }),
+    );
+    const explicit = renderToString(() =>
+      createComponent(Dropdown.Root, {
+        items: [{ label: "Create", action: () => {} }],
+        get children() {
+          return createComponent(Dropdown.Trigger, {
+            iconOnly: true,
+            label: "Create",
+            variant: "primary",
+            children: "+",
+          });
+        },
+      }),
+    );
+
+    expect(iconOnly).toContain("k2b-icon-button");
+    expect(iconOnly).toContain('data-variant="ghost"');
+    expect(labelled).toContain('data-variant="primary"');
+    expect(explicit).toContain('data-variant="primary"');
   });
 
   test("clamps every dropdown position to the viewport", () => {

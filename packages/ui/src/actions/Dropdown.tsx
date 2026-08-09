@@ -359,7 +359,7 @@ function DropdownTrigger(props: DropdownTriggerProps): JSX.Element {
         type={local.type ?? "button"}
         class={`${local.iconOnly ? "k2b-icon-button" : ""} k2b-dropdown__trigger ${local.class ?? ""}`}
         size={local.size}
-        variant={local.variant}
+        variant={local.variant ?? (local.iconOnly ? "ghost" : undefined)}
         tooltip={local.tooltip}
         tooltipDelay={local.tooltipDelay}
         tooltipPlacement={local.tooltipPlacement}

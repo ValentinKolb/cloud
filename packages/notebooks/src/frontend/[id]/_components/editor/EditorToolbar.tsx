@@ -182,7 +182,6 @@ export default function EditorToolbar(props: Props) {
         >
           <Dropdown.Trigger iconOnly label="Insert content" size="xs" class="text-dimmed" tooltip="Insert content">
             <i class="ti ti-layout-grid-add text-sm" />
-            <i class="ti ti-chevron-down text-[10px]" />
           </Dropdown.Trigger>
         </Dropdown.Root>
       </div>

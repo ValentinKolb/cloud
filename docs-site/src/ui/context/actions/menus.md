@@ -52,6 +52,9 @@ or `FilterChip` when the interaction edits a value or filter.
 `Dropdown.Trigger` owns the native button and its SSR-visible menu semantics.
 Use its normal button appearance by default. Set `appearance="plain"` only
 when a specialized component class owns the complete visual treatment.
+An `iconOnly` trigger defaults to the quiet `ghost` variant, matching
+`IconButton`; pass another variant explicitly when the icon action should be
+emphasized.
 
 `width` is a **CSS length string**, not a class name. It sets the menu's `--k2b-dropdown-width` and defaults to `12rem`:
 
@@ -105,7 +108,7 @@ const actions: DropdownItem[] = [
 ];
 
 <Dropdown.Root items={actions}>
-  <Dropdown.Trigger iconOnly label="Actions" variant="ghost">
+  <Dropdown.Trigger iconOnly label="Actions">
     <i class="ti ti-dots" aria-hidden="true" />
   </Dropdown.Trigger>
 </Dropdown.Root>;

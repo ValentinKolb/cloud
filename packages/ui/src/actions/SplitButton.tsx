@@ -42,7 +42,7 @@ export function SplitButton(props: SplitButtonProps): JSX.Element {
         disabled={local.disabled}
         loading={local.loading}
         size={local.size}
-        variant={local.variant}
+        variant={local.variant ?? "primary"}
       >
         {local.children}
       </Button>
@@ -53,7 +53,7 @@ export function SplitButton(props: SplitButtonProps): JSX.Element {
         label={local.menuLabel}
         size={local.size}
         title={local.menuLabel}
-        variant={local.variant}
+        variant={local.variant ?? "primary"}
       >
         <i class="ti ti-chevron-down" aria-hidden="true" />
       </Dropdown.Trigger>
