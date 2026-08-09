@@ -1,0 +1,139 @@
+import { describe, expect, test } from "bun:test";
+import { renderToString } from "solid-js/web";
+import type { NamedBlockSummary } from "../../../../lib/named-blocks";
+import type { Backlink } from "../../../../service/links";
+import type { Attachment } from "../editor/attachments-client";
+import type { TaskProgress } from "./tasks";
+import type { TocItem } from "./toc";
+import "./ssr-test-plugin";
+
+const { default: NotebookDetailPanel } = await import("./NotebookDetailPanel.island.tsx");
+
+const now = "2026-08-09T10:00:00.000Z";
+const tocItems: TocItem[] = [
+  { id: "overview", level: 1, text: "Overview" },
+  { id: "details", level: 2, text: "Details" },
+];
+const taskProgress: TaskProgress = { done: 2, total: 3 };
+const namedBlocks: NamedBlockSummary[] = [{ name: "inventory", type: "table", line: 8 }];
+const attachments: Attachment[] = [
+  {
+    id: "attachment-id",
+    shortId: "attach",
+    kind: "file",
+    filename: "plan.pdf",
+    notebookId: "notebook-id",
+    mimeType: "application/pdf",
+    sizeBytes: 4096,
+    createdBy: "user-id",
+    createdAt: now,
+  },
+];
+const backlinks: Backlink[] = [
+  {
+    noteId: "source-note-id",
+    noteShortId: "source",
+    title: "Source note",
+    notebookId: "other-notebook-id",
+    notebookShortId: "other",
+    notebookName: "Other notebook",
+    updatedAt: now,
+  },
+];
+
+const renderPanel = (overrides: Partial<Parameters<typeof NotebookDetailPanel>[0]> = {}) =>
+  renderToString(() => (
+    <NotebookDetailPanel
+      mode="edit"
+      initiallyOpen
+      tocItems={tocItems}
+      taskProgress={taskProgress}
+      attachments={attachments}
+      backlinks={backlinks}
+      namedBlocks={namedBlocks}
+      currentNotebookId="notebook"
+      notebookId="notebook"
+      noteId="note"
+      noteTitle="Migration plan"
+      contentMd="# Migration plan"
+      createdAt={now}
+      updatedAt={now}
+      lockedAt={null}
+      isLocked={false}
+      {...overrides}
+    />
+  ));
+
+const legacyDetailClasses = [
+  'class="detail-header',
+  'class="detail-stack',
+  'class="detail-section',
+  'class="detail-row',
+  'class="detail-facts',
+];
+
+describe("Notebook note detail panel", () => {
+  test("composes note context through the grouped shared detail panel contract", () => {
+    const html = renderPanel();
+
+    expect(html).toContain('class="k2b-detail-panel"');
+    expect(html).toContain("<h2>Migration plan</h2>");
+    expect(html).toContain('class="k2b-detail-panel__header-icon"');
+    expect(html).toContain('aria-label="Note actions"');
+    expect(html).toContain('class="k2b-detail-panel__summary"');
+    expect(html).toContain("Task progress");
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-label="Completed note tasks"');
+    expect(html).toContain('aria-label="Note structure"');
+    expect(html).toContain('aria-label="Related content"');
+    expect(html).toContain('aria-label="Note context"');
+    expect(html).toContain('style="padding-left: 0.75rem"');
+    expect(html.match(/<details class="k2b-detail-panel__section" open/g)).toHaveLength(4);
+    expect(html).toContain('data-layout="rows"');
+    expect(html).toContain('data-size="sm"');
+    expect(html).toContain('data-scroll-preserve="notebook-detail"');
+    expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);
+    expect(html).toContain("notebook-detail-panel-header");
+    for (const className of legacyDetailClasses) expect(html).not.toContain(className);
+  });
+
+  test("preserves note commands and destination links", () => {
+    const html = renderPanel();
+
+    expect(html).toContain('aria-label="Show Markdown source"');
+    expect(html).toContain('aria-label="Copy note content"');
+    expect(html).toContain('aria-label="Download note as Markdown"');
+    expect(html).toContain('href="/app/notebooks/notebook/notes/note?mode=versions"');
+    expect(html).toContain('href="/app/notebooks/notebook?mode=graph&amp;note=note"');
+    expect(html).toContain('href="#overview"');
+    expect(html).toContain('aria-label="Copy script snippet for inventory"');
+    expect(html).toContain("plan.pdf");
+    expect(html).toContain('href="/app/notebooks/other/notes/source"');
+    expect(html).toContain('aria-label="Close note details"');
+  });
+
+  test("keeps sparse read-only notes sparse and omits editor-only controls", () => {
+    const html = renderPanel({
+      mode: "read",
+      tocItems: [],
+      taskProgress: { done: 0, total: 0 },
+      attachments: [],
+      backlinks: [],
+      namedBlocks: [],
+      lockedAt: now,
+      isLocked: true,
+    });
+
+    expect(html).toContain("Locked note");
+    expect(html).not.toContain("Task progress");
+    expect(html).not.toContain('aria-label="Note structure"');
+    expect(html).not.toContain('aria-label="Related content"');
+    expect(html).toContain('aria-label="Note context"');
+    expect(html).not.toContain('aria-label="Show Markdown source"');
+    expect(html).toContain('aria-label="Copy note content"');
+    expect(html).toContain('aria-label="Download note as Markdown"');
+    expect(html).toContain("Info");
+    expect(html).toContain("Locked");
+    expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);
+  });
+});

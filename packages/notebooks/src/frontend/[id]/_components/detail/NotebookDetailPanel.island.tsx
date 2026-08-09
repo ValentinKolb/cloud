@@ -1,6 +1,6 @@
 import { dates, fileIcons } from "@k2b/stdlib";
 import { clipboard, files } from "@k2b/stdlib/browser";
-import { AppWorkspace, Avatar, Button, IconButton, IconButtonLink, Tooltip, toast } from "@k2b/ui";
+import { AppWorkspace, Avatar, DescriptionList, DetailPanel, IconButton, IconButtonLink, ProgressBar, Tooltip, toast } from "@k2b/ui";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -86,9 +86,8 @@ const namedBlockSnippet = (block: NamedBlockSummary): string => {
 
 /**
  * Right-side detail panel — outline + backlinks + (edit-mode) online users +
- * actions + note metadata. Single island so the inner sections stay direct
- * children of the same `detail-stack` container; the stack owns inter-section
- * spacing so per-section wrappers do not fight margins.
+ * actions + note metadata. Single island keeps editor bridge state and panel
+ * interactions together while `DetailPanel.Body` remains the only scroll owner.
  *
  * Visibility is controlled via the toolbar's panel-toggle button and the
  * mobile-only "Close panel" action inside the panel.
@@ -291,89 +290,55 @@ export default function NotebookDetailPanel(props: Props) {
 
   return (
     <AppWorkspace.Detail id="notebook-detail" open={open()}>
-      <div class="flex h-full min-h-0 flex-col">
-        <header class="detail-header" style="view-transition-name: notebook-detail-panel">
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-xs font-semibold text-secondary">Note details</span>
-            <Tooltip.Anchor content="Close details">
-              <IconButton label="Close note details" size="sm" onClick={closePanel}>
-                <i class="ti ti-x" />
-              </IconButton>
-            </Tooltip.Anchor>
-          </div>
-
-          <div class="mt-4 flex min-w-0 items-start gap-3">
-            <div class="app-accent-text flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
-              <i class={`ti ${lockedAt() ? "ti-lock" : "ti-file-text"} text-base`} />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h2 class="truncate text-base font-semibold leading-5 text-primary">{noteTitle() || "Untitled"}</h2>
-              <p class="mt-1 truncate text-xs text-dimmed">
-                {lockedAt() ? "Locked note" : props.mode === "edit" ? "Collaborative note" : "Read-only note"}
-              </p>
-            </div>
-          </div>
-
-          <div class="mt-3 flex flex-wrap items-center gap-1">
-            <Show when={props.mode === "edit"}>
-              <Tooltip.Anchor content={isRich() ? "Show Markdown source" : "Show rich text"}>
-                <IconButton label={isRich() ? "Show Markdown source" : "Show rich text"} size="sm" onClick={toggleRichMode}>
-                  <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} />
+      <DetailPanel>
+        <DetailPanel.Header
+          class="notebook-detail-panel-header"
+          icon={`ti ${lockedAt() ? "ti-lock" : "ti-file-text"}`}
+          title={noteTitle() || "Untitled"}
+          subtitle={lockedAt() ? "Locked note" : props.mode === "edit" ? "Collaborative note" : "Read-only note"}
+          primaryActions={
+            <nav aria-label="Note actions" class="flex flex-wrap items-center gap-1">
+              <Show when={props.mode === "edit"}>
+                <Tooltip.Anchor content={isRich() ? "Show Markdown source" : "Show rich text"}>
+                  <IconButton label={isRich() ? "Show Markdown source" : "Show rich text"} size="sm" onClick={toggleRichMode}>
+                    <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} aria-hidden="true" />
+                  </IconButton>
+                </Tooltip.Anchor>
+              </Show>
+              <Tooltip.Anchor content="Copy content">
+                <IconButton label="Copy note content" size="sm" onClick={copyContent}>
+                  <i class="ti ti-copy" aria-hidden="true" />
                 </IconButton>
               </Tooltip.Anchor>
-            </Show>
-            <Tooltip.Anchor content="Copy content">
-              <IconButton label="Copy note content" size="sm" onClick={copyContent}>
-                <i class="ti ti-copy" />
+              <Tooltip.Anchor content="Download Markdown">
+                <IconButton label="Download note as Markdown" size="sm" onClick={downloadContent}>
+                  <i class="ti ti-download" aria-hidden="true" />
+                </IconButton>
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Version history">
+                <IconButtonLink href={buildVersionsUrl(props.notebookId, noteId())} size="sm" label="Open version history">
+                  <i class="ti ti-history" aria-hidden="true" />
+                </IconButtonLink>
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Graph view">
+                <IconButtonLink href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} size="sm" label="Open graph view">
+                  <i class="ti ti-affiliate" aria-hidden="true" />
+                </IconButtonLink>
+              </Tooltip.Anchor>
+            </nav>
+          }
+          actions={
+            <Tooltip.Anchor content="Close details">
+              <IconButton label="Close note details" size="sm" onClick={closePanel}>
+                <i class="ti ti-x" aria-hidden="true" />
               </IconButton>
             </Tooltip.Anchor>
-            <Tooltip.Anchor content="Download Markdown">
-              <IconButton label="Download note as Markdown" size="sm" onClick={downloadContent}>
-                <i class="ti ti-download" />
-              </IconButton>
-            </Tooltip.Anchor>
-            <Tooltip.Anchor content="Version history">
-              <IconButtonLink href={buildVersionsUrl(props.notebookId, noteId())} size="sm" label="Open version history">
-                <i class="ti ti-history" />
-              </IconButtonLink>
-            </Tooltip.Anchor>
-            <Tooltip.Anchor content="Graph view">
-              <IconButtonLink href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} size="sm" label="Open graph view">
-                <i class="ti ti-affiliate" />
-              </IconButtonLink>
-            </Tooltip.Anchor>
-          </div>
-        </header>
+          }
+        />
 
-        <div class="detail-stack">
-          {/* Contents */}
-          <Show when={tocItems().length >= 1}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">Contents</h3>
-              <ul class="flex flex-col">
-                <For each={tocItems()}>
-                  {(item) => (
-                    <li>
-                      <a
-                        href={`#${item.id}`}
-                        class="detail-row hover:text-blue-500 truncate"
-                        style={`padding-left:${(item.level - 1) * 0.75}rem`}
-                        onClick={(event) => onTocItemClick(event, item.id)}
-                      >
-                        <span class="shrink-0 text-dimmed font-mono text-[10px]">H{item.level}</span>
-                        <span class="truncate">{item.text || "Untitled"}</span>
-                      </a>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </section>
-          </Show>
-
-          {/* Tasks — checklist progress, hidden when the note has no tasks. */}
+        <DetailPanel.Body scrollPreserveKey="notebook-detail">
           <Show when={tasks().total > 0}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">Tasks</h3>
+            <DetailPanel.Summary title="Task progress">
               <div class="flex items-center justify-between text-xs">
                 <span>
                   <span class="text-primary tabular-nums">{tasks().done}</span>
@@ -383,156 +348,173 @@ export default function NotebookDetailPanel(props: Props) {
                 </span>
                 <span class="text-dimmed tabular-nums">{Math.round((tasks().done / Math.max(1, tasks().total)) * 100)}%</span>
               </div>
-              <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-                <div
-                  class="h-full bg-emerald-500 dark:bg-emerald-400 transition-[width] duration-200"
-                  style={`width: ${(tasks().done / Math.max(1, tasks().total)) * 100}%`}
-                />
-              </div>
-            </section>
+              <ProgressBar
+                class="mt-2"
+                label="Completed note tasks"
+                size="xs"
+                tone="success"
+                value={(tasks().done / Math.max(1, tasks().total)) * 100}
+              />
+            </DetailPanel.Summary>
           </Show>
 
-          {/* References */}
-          <Show when={namedBlocks().length > 0}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">References</h3>
-              <ul class="flex flex-col gap-1">
-                <For each={namedBlocks()}>
-                  {(block) => (
-                    <li class="group flex items-center gap-1 text-xs">
-                      <button
-                        type="button"
-                        class="detail-row min-w-0 flex-1 justify-between hover:text-blue-500"
-                        onClick={() => scrollToNamedBlock(block)}
-                        title={`Jump to @${block.name}`}
-                      >
-                        <span class="inline-flex min-w-0 items-center gap-1">
-                          <i class="ti ti-at detail-row-icon" />
-                          <code class="truncate">{block.name}</code>
-                        </span>
-                        <span class="text-dimmed capitalize">{block.type}</span>
-                      </button>
-                      <Tooltip.Anchor content={`Copy script snippet for @${block.name}`} class="shrink-0">
-                        <IconButton
-                          label={`Copy script snippet for ${block.name}`}
-                          size="xs"
-                          class="shrink-0 text-dimmed opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
-                          onClick={(event) => void copyNamedBlockSnippet(event, block)}
-                        >
-                          <i class="ti ti-copy text-xs" />
-                        </IconButton>
-                      </Tooltip.Anchor>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </section>
+          <Show when={tocItems().length > 0 || namedBlocks().length > 0}>
+            <DetailPanel.Group label="Note structure">
+              <Show when={tocItems().length > 0}>
+                <DetailPanel.Section title="Contents" icon="ti ti-list" tone="accent">
+                  <div class="flex flex-col gap-1">
+                    <For each={tocItems()}>
+                      {(item) => (
+                        <div style={`padding-left: ${Math.max(0, item.level - 1) * 0.75}rem`}>
+                          <DetailPanel.Action
+                            href={`#${item.id}`}
+                            onClick={(event) => onTocItemClick(event, item.id)}
+                            leading={<span class="font-mono text-[10px] text-dimmed">H{item.level}</span>}
+                            title={item.text || "Untitled"}
+                          />
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </DetailPanel.Section>
+              </Show>
+
+              <Show when={namedBlocks().length > 0}>
+                <DetailPanel.Section title="References" icon="ti ti-at" tone="neutral" collapsible defaultOpen>
+                  <ul class="flex flex-col gap-1">
+                    <For each={namedBlocks()}>
+                      {(block) => (
+                        <li class="group flex items-center gap-1 text-xs">
+                          <DetailPanel.Action
+                            type="button"
+                            class="min-w-0 flex-1"
+                            onClick={() => scrollToNamedBlock(block)}
+                            leading={<i class="ti ti-at" aria-hidden="true" />}
+                            title={<code class="truncate">{block.name}</code>}
+                            description={block.type}
+                          />
+                          <Tooltip.Anchor content={`Copy script snippet for @${block.name}`} class="shrink-0">
+                            <IconButton
+                              label={`Copy script snippet for ${block.name}`}
+                              size="xs"
+                              class="shrink-0 text-dimmed opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
+                              onClick={(event) => void copyNamedBlockSnippet(event, block)}
+                            >
+                              <i class="ti ti-copy text-xs" aria-hidden="true" />
+                            </IconButton>
+                          </Tooltip.Anchor>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </DetailPanel.Section>
+              </Show>
+            </DetailPanel.Group>
           </Show>
 
-          {/* Attachments — files & images referenced from this note. Click a
-          row → download confirm modal. Deletion lives on the dedicated
-          attachments overview page. */}
-          <Show when={visibleAttachments().length > 0}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">Attachments</h3>
-              <ul class="flex flex-col">
-                <For each={visibleAttachments()}>
-                  {(att) => (
-                    <li>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
-                        class="w-full justify-start text-left"
-                        title={att.filename}
-                      >
-                        <i
-                          class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`}
+          <Show when={visibleAttachments().length > 0 || backlinks().length > 0}>
+            <DetailPanel.Group label="Related content">
+              <Show when={visibleAttachments().length > 0}>
+                <DetailPanel.Section
+                  title="Attachments"
+                  icon="ti ti-paperclip"
+                  tone="neutral"
+                  meta={visibleAttachments().length}
+                  collapsible
+                  defaultOpen
+                >
+                  <div class="flex flex-col gap-1">
+                    <For each={visibleAttachments()}>
+                      {(att) => (
+                        <DetailPanel.Action
+                          type="button"
+                          onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
+                          leading={
+                            <i
+                              class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })}`}
+                              aria-hidden="true"
+                            />
+                          }
+                          title={att.filename}
+                          description={formatBytes(att.sizeBytes)}
                         />
-                        <span class="flex-1 truncate">{att.filename}</span>
-                        <span class="text-dimmed tabular-nums shrink-0">{formatBytes(att.sizeBytes)}</span>
-                      </Button>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </section>
+                      )}
+                    </For>
+                  </div>
+                </DetailPanel.Section>
+              </Show>
+
+              <Show when={backlinks().length > 0}>
+                <DetailPanel.Section title="Linked by" icon="ti ti-link" tone="accent" meta={backlinks().length} collapsible defaultOpen>
+                  <div class="flex flex-col gap-1">
+                    <For each={backlinks()}>
+                      {(bl) => {
+                        const showNotebook = bl.notebookShortId !== props.currentNotebookId;
+                        return (
+                          <DetailPanel.Action
+                            href={`/app/notebooks/${bl.notebookShortId}/notes/${bl.noteShortId}`}
+                            leading={<i class="ti ti-file-text" aria-hidden="true" />}
+                            title={bl.title || "Untitled"}
+                            description={showNotebook ? bl.notebookName : undefined}
+                            trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                          />
+                        );
+                      }}
+                    </For>
+                  </div>
+                </DetailPanel.Section>
+              </Show>
+            </DetailPanel.Group>
           </Show>
 
-          {/* Backlinks */}
-          <Show when={backlinks().length > 0}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">Linked by</h3>
-              <ul class="flex flex-col">
-                <For each={backlinks()}>
-                  {(bl) => {
-                    const showNotebook = bl.notebookShortId !== props.currentNotebookId;
-                    return (
-                      <li>
-                        <a href={`/app/notebooks/${bl.notebookShortId}/notes/${bl.noteShortId}`} class="detail-row hover:text-blue-500">
-                          <i class="ti ti-file-text detail-row-icon" />
-                          <span class="truncate">{bl.title || "Untitled"}</span>
-                          {showNotebook && (
-                            <span class="text-dimmed text-[11px] ml-auto truncate flex items-center gap-1">
-                              <i class="ti ti-notebook" />
-                              {bl.notebookName}
-                            </span>
-                          )}
-                        </a>
+          <DetailPanel.Group label="Note context">
+            <Show when={props.mode === "edit" && participants().length > 0}>
+              <DetailPanel.Section title="Online" icon="ti ti-users" tone="success" meta={participants().length}>
+                <ul class="flex flex-col gap-1">
+                  <For each={participants()}>
+                    {(p) => (
+                      <li class="flex items-center gap-3 px-2 py-1.5 text-sm text-primary">
+                        <Avatar
+                          name={p.displayName}
+                          fallback={(p.displayName.trim() || "?").slice(0, 2).toUpperCase()}
+                          src={
+                            p.userId && p.avatarHash
+                              ? `/api/accounts/users/${encodeURIComponent(p.userId)}/avatar?rev=${encodeURIComponent(p.avatarHash)}`
+                              : undefined
+                          }
+                          size="xs"
+                          style={`outline: 2px solid ${p.color}; outline-offset: 1px`}
+                        />
+                        <span class="truncate">{p.displayName}</span>
+                        {p.peerCount > 1 && <span class="ml-auto text-[11px] text-dimmed">{p.peerCount} tabs</span>}
                       </li>
-                    );
-                  }}
-                </For>
-              </ul>
-            </section>
-          </Show>
+                    )}
+                  </For>
+                </ul>
+              </DetailPanel.Section>
+            </Show>
 
-          {/* Online (edit mode only — readonly rendering has no presence connection) */}
-          <Show when={props.mode === "edit" && participants().length > 0}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">Online · {participants().length}</h3>
-              <ul class="flex flex-col">
-                <For each={participants()}>
-                  {(p) => (
-                    <li class="detail-row items-center gap-3">
-                      <Avatar
-                        name={p.displayName}
-                        fallback={(p.displayName.trim() || "?").slice(0, 2).toUpperCase()}
-                        src={
-                          p.userId && p.avatarHash
-                            ? `/api/accounts/users/${encodeURIComponent(p.userId)}/avatar?rev=${encodeURIComponent(p.avatarHash)}`
-                            : undefined
-                        }
-                        size="xs"
-                        style={`outline: 2px solid ${p.color}; outline-offset: 1px`}
-                      />
-                      <span class="truncate">{p.displayName}</span>
-                      {p.peerCount > 1 && <span class="text-dimmed text-[11px] ml-auto">{p.peerCount} tabs</span>}
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </section>
-          </Show>
-
-          {/* Info — always renders (a note always has created/updated). */}
-          <section class="detail-section">
-            <h3 class="detail-section-label">Info</h3>
-            <dl class="detail-facts">
-              <dt class="detail-fact-key">Created</dt>
-              <dd>{dates.formatDateTimeRelative(createdAt())}</dd>
-              <dt class="detail-fact-key">Updated</dt>
-              <dd>{dates.formatDateTimeRelative(updatedAt())}</dd>
-              {lockedAt() && (
-                <>
-                  <dt class="detail-fact-key">Locked</dt>
-                  <dd class="text-amber-600 dark:text-amber-400">{dates.formatDateTimeRelative(lockedAt()!)}</dd>
-                </>
-              )}
-            </dl>
-          </section>
-        </div>
-      </div>
+            <DetailPanel.Section title="Info" icon="ti ti-info-circle" tone="neutral" collapsible defaultOpen>
+              <DescriptionList
+                layout="rows"
+                size="sm"
+                items={[
+                  { term: "Created", description: dates.formatDateTimeRelative(createdAt()) },
+                  { term: "Updated", description: dates.formatDateTimeRelative(updatedAt()) },
+                  ...(lockedAt()
+                    ? [
+                        {
+                          term: "Locked",
+                          description: <span class="text-amber-600 dark:text-amber-400">{dates.formatDateTimeRelative(lockedAt()!)}</span>,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </DetailPanel.Section>
+          </DetailPanel.Group>
+        </DetailPanel.Body>
+      </DetailPanel>
     </AppWorkspace.Detail>
   );
 }

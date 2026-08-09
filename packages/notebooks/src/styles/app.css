@@ -6,6 +6,10 @@
 @source "../**/*.{ts,tsx}";
 @custom-variant dark (&:where(.dark, .dark *));
 
+.notebook-detail-panel-header {
+  view-transition-name: notebook-detail-panel;
+}
+
 /* ── Slash-command autocomplete palette ─────────────────────────────────
    The CodeMirror autocomplete tooltip is portaled outside the editor
    surface AND its theme is injected as a runtime `<style>` after this file
