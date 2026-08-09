@@ -39,6 +39,12 @@ export const buildMailSelectionHref = (requestUrl: URL, item: MailListItem): str
   return `${next.pathname}${next.search}`;
 };
 
+export const buildMailingListHref = (requestUrl: URL, listKey: string): string => {
+  const next = new URL(requestUrl);
+  next.searchParams.set("mailingList", listKey);
+  return `${next.pathname}${next.search}`;
+};
+
 export const senderDomainFromAddress = (address: string): string | null => {
   const separator = address.lastIndexOf("@");
   const domain =

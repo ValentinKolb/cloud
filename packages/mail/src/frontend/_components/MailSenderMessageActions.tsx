@@ -9,7 +9,7 @@ import { openIncomingAutomationEditor } from "./MailIncomingAutomationSettings";
 import type { AutomationActionKind } from "./mail-automation-actions";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import { resolveMailMessageActionVisibility } from "./mail-message-action-visibility";
-import { buildExactSenderSearchHref, senderDomainFromAddress } from "./mail-navigation";
+import { buildExactSenderSearchHref, buildMailingListHref, senderDomainFromAddress } from "./mail-navigation";
 
 type SelectionContext = {
   selectionKey: string | null;
@@ -218,7 +218,7 @@ export default function MailSenderMessageActions(props: {
                         {
                           label: "Manage unsubscribe",
                           icon: "ti ti-mail-off",
-                          href: `/app/mail/${props.mailboxId}/subscriptions?list=${encodeURIComponent(props.message.mailingList.listKey)}`,
+                          href: buildMailingListHref(new URL(props.requestUrl), props.message.mailingList.listKey),
                         },
                       ]
                     : []),

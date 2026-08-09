@@ -105,11 +105,11 @@ Raw headers and `.eml` files can contain private addresses, server names, routin
 
 Mail recognizes mailing lists from the standard list information included in received messages. Every mailbox reader can open **Mailbox tools > Mailing lists** to see each detected list, its recent volume, its latest message, and the actions advertised by the list.
 
-The available actions depend on the information supplied by the sender. Unsubscribe and cleanup actions require Write or Admin access; readers can inspect lists and follow their advertised help, archive, or posting links.
+The available actions depend on the information supplied by the sender. Unsubscribe and cleanup actions require Write or Admin access; readers can inspect lists and follow their advertised archive or posting links.
 
 - **Unsubscribe** asks the list to stop sending mail. Mail uses a protected one-click request when the list supports it. Otherwise Mail opens the list's unsubscribe page or prepares the advertised unsubscribe email.
 - **Write to list** opens the address supplied for new list messages.
-- **List help** and **List archive** open the pages advertised by the list.
+- **List archive** opens the archive advertised by the list.
 - After a one-click unsubscribe request, **Archive existing** or **Move existing to Trash** can move up to 500 already synchronized messages at a time. Repeat the action if Mail reports that more messages remain.
 
 Confirm the list name before unsubscribing. The request affects future delivery for this mailbox and may be difficult to reverse. It does not delete existing messages, and Mail cannot guarantee when an external list provider will stop delivery.

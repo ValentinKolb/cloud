@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { MAIL_SEARCH_PARAMETER, parseMailSearchState, serializeMailSearchState } from "../../search-state";
 import {
   buildExactSenderSearchHref,
+  buildMailingListHref,
   buildMailListHref,
   buildMailSelectionHref,
   isMailListItemActive,
@@ -104,4 +105,12 @@ describe("Mail search navigation", () => {
     expect(senderDomainFromAddress("Sender+news@Sub.Example.com")).toBe("sub.example.com");
     expect(senderDomainFromAddress("invalid")).toBeNull();
   });
+});
+
+test("adds a focused mailing list without dropping the mailbox context", () => {
+  const href = buildMailingListHref(
+    new URL("https://cloud.example/app/mail/mailbox-1?folder=inbox&conversation=conversation-1"),
+    "list one&two",
+  );
+  expect(href).toBe("/app/mail/mailbox-1?folder=inbox&conversation=conversation-1&mailingList=list+one%26two");
 });

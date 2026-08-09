@@ -53,8 +53,8 @@ The left navigation contains:
 - **Folders** for custom provider folders and their nested hierarchy. Mailbox administrators can hide folders here without deleting or unsubscribing them.
 - **Saved views** created from reusable mailbox and collaboration filters. This section appears only when at least one view exists.
 - **More** for Unassigned, Recent activity, Archive, Trash, and Junk. It opens automatically when one of these destinations is active.
-- **Automations** for out-of-office replies, acknowledgements, and advanced mailbox workflows with inline response windows.
-- **Sync mailbox** and **Settings** at the bottom when your permission allows them.
+- **Mailbox tools** for synchronization, health, automations, mailing lists, remote images, shared links, and browser email-link handling. Available tools depend on your permission.
+- **Settings** at the bottom when your permission allows it.
 
 The center list shows one row per conversation. The reader groups the messages in that conversation. Use the **Conversation details** button to open team context, local tags, ownership, comments, reminders, and recent activity. You can hide the conversation list when you need more reading space.
 

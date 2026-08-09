@@ -6,7 +6,7 @@ description: Configure automatic replies, incoming-mail processing, and safe wor
 order: 60
 ---
 
-Open **Automations** in the mailbox navigation. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Incoming mail** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
+Open **Mailbox tools > Automations**. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Incoming mail** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
 
 ## Choose the right automation tool {icon="route"}
 

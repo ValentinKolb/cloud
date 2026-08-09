@@ -8,7 +8,6 @@ import workflowsPage from "./[mailboxId]/automations/workflows/page";
 import draftComposePage from "./[mailboxId]/compose/[draftId]/page";
 import draftSeedComposePage from "./[mailboxId]/compose/local/[seedId]/page";
 import mailboxPage from "./[mailboxId]/page";
-import subscriptionsPage from "./[mailboxId]/subscriptions/page";
 import composePage from "./compose/page";
 import page from "./page";
 
@@ -22,5 +21,4 @@ export default new Hono<AuthContext>()
   .get("/:mailboxId/automations/incoming", auth.requireRole("user", auth.redirectToLogin), ...incomingAutomationsPage)
   .get("/:mailboxId/automations/activity", auth.requireRole("user", auth.redirectToLogin), ...automationActivityPage)
   .get("/:mailboxId/automations/workflows", auth.requireRole("user", auth.redirectToLogin), ...workflowsPage)
-  .get("/:mailboxId/subscriptions", auth.requireRole("user", auth.redirectToLogin), ...subscriptionsPage)
   .get("/:mailboxId", auth.requireRole("user", auth.redirectToLogin), ...mailboxPage);

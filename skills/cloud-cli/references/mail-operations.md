@@ -234,6 +234,8 @@ cld --json mail message keyword remove \
   --wait
 ```
 
+The Mail UI calls the standard `\Flagged` state **Flag**. The CLI uses `star` and `unstar` for the same state. Both commands change only that flag and preserve unrelated provider flags.
+
 `message flags` remains available as a low-level exact replacement for diagnostics. It replaces the complete provider flag set, so prefer additive commands for normal operation:
 
 ```bash

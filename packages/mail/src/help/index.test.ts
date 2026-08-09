@@ -256,6 +256,21 @@ describe("mailHelp", () => {
     expect(automation).toContain("no longer offers `add_keyword` for new steps");
   });
 
+  test("keeps recent Mail navigation and mailing-list actions aligned", () => {
+    const start = mailHelp.getMarkdown("mail-start");
+    const admin = mailHelp.getMarkdown("mail-admin");
+    const automation = mailHelp.getMarkdown("mail-automation");
+    const work = mailHelp.getMarkdown("mail-work");
+
+    expect(start).toContain("**Mailbox tools** for synchronization, health, automations");
+    expect(start).not.toContain("- **Automations** for");
+    expect(admin).toContain("Open **Mailbox tools > Automations**");
+    expect(automation).toContain("Open **Mailbox tools > Automations**");
+    expect(work).not.toContain("List help");
+    expect(work).not.toContain("advertised help");
+    expect(work).toContain("**List archive** opens the archive advertised by the list");
+  });
+
   test("documents every incoming-automation schema term and structural limit in Help and the CLI skill", () => {
     const references = [
       ["Help", mailHelp.getMarkdown("mail-automation")],
@@ -406,5 +421,11 @@ describe("mailHelp", () => {
     const jsonExamples = [...reference.matchAll(/```json\n([\s\S]*?)```/g)].map((match) => match[1]!);
     expect(jsonExamples.length).toBeGreaterThanOrEqual(2);
     for (const example of jsonExamples) expect(() => JSON.parse(example)).not.toThrow();
+
+    expect(reference).toContain("The Mail UI calls the standard `\\Flagged` state **Flag**");
+    expect(commands.get("message star")).toContain("Add the standard Flag");
+    expect(commands.get("message unstar")).toContain("Remove the standard Flag");
+    expect(commands.get("conversation star")).toContain("Add the standard Flag");
+    expect(commands.get("conversation unstar")).toContain("Remove the standard Flag");
   });
 });

@@ -76,11 +76,12 @@ export default function MailSidebar(props: {
   viewCounts: ConversationViewCounts;
   canWrite: boolean;
   canAdmin: boolean;
-  managementOpening: "health" | "links" | "remote-content" | null;
+  managementOpening: "health" | "links" | "remote-content" | "subscriptions" | null;
   settingsOpening: boolean;
   onOpenHealth: () => void;
   onOpenSharedLinks: () => void;
   onOpenRemoteContent: () => void;
+  onOpenSubscriptions: () => void;
   onOpenSettings: () => void;
   onMoveConversation: (input: { conversationId: string; sourceFolderId: string; destinationFolderId: string }) => void | Promise<void>;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
@@ -193,24 +194,19 @@ export default function MailSidebar(props: {
   const mailboxTools = () => (
     <Dropdown.Root
       items={[
-        ...(props.canAdmin
-          ? [
-              {
-                sectionLabel: "Mailbox",
-                items: [
+        {
+          sectionLabel: "Mailbox",
+          items: [
+            ...(props.canAdmin
+              ? [
                   {
                     label: props.syncEnabled ? "Sync mailbox" : "Mailbox paused",
                     icon: props.syncEnabled ? "ti ti-refresh" : "ti ti-player-play",
                     action: props.syncEnabled ? () => sync.mutate() : props.onOpenHealth,
                   },
                   { label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth },
-                ],
-              },
-            ]
-          : []),
-        {
-          sectionLabel: "Automation",
-          items: [
+                ]
+              : []),
             {
               label: "Automations",
               icon: "ti ti-route",
@@ -221,7 +217,7 @@ export default function MailSidebar(props: {
         {
           sectionLabel: "Manage",
           items: [
-            { label: "Mailing lists", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` },
+            { label: "Mailing lists", icon: "ti ti-news", action: props.onOpenSubscriptions },
             { label: "Remote images", icon: "ti ti-photo-shield", action: props.onOpenRemoteContent },
             ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
           ],

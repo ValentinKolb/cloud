@@ -1,6 +1,18 @@
 import { type DateContext, dates, text } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, IconButton, NoticeCard, Placeholder, ProgressBar, prompts, StatusBadge, type StatusTone, toast } from "@k2b/ui";
+import {
+  Button,
+  DataTable,
+  type DataTableColumn,
+  IconButton,
+  NoticeCard,
+  Placeholder,
+  ProgressBar,
+  prompts,
+  StatusBadge,
+  type StatusTone,
+  toast,
+} from "@k2b/ui";
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
@@ -88,6 +100,16 @@ const errorLabel = (code: string): string => {
   const label = code.toLowerCase().replaceAll("_", " ");
   return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
 };
+
+const recentActivityColumns: DataTableColumn<RedactedOperatorCommand>[] = [
+  { id: "activity", header: "Activity", value: (row) => activityLabel(row.kind) },
+  {
+    id: "detail",
+    header: "Details",
+    value: (row) => (row.errorCode ? `Error ${row.errorCode}` : row.attempt > 1 ? `Attempt ${row.attempt}` : ""),
+  },
+  { id: "updatedAt", header: "Updated", value: "updatedAt", class: "w-36" },
+];
 
 export default function MailOperationalSettings(props: {
   mailbox: Mailbox;
@@ -451,44 +473,55 @@ export default function MailOperationalSettings(props: {
               <h3 class="text-sm font-semibold text-primary">Recent activity</h3>
               <p class="mt-1 text-xs text-dimmed">Synchronization, discovery, and repair work for this mailbox.</p>
             </div>
-            <div class="flex flex-col rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1">
-              <For each={status().recentCommands}>
-                {(item) => {
-                  const state = activityState(item.state);
-                  const detail = item.errorCode ? `Error ${item.errorCode}` : item.attempt > 1 ? `Attempt ${item.attempt}` : null;
+            <DataTable
+              rows={status().recentCommands}
+              columns={recentActivityColumns}
+              getRowId={(row) => row.id}
+              density="compact"
+              surface="paper"
+              stickyHeader={false}
+              ariaLabel="Recent mailbox activity"
+              empty={
+                status().sync.lastAt ? (
+                  <span class="inline-flex items-center gap-2">
+                    <i class="ti ti-circle-check" aria-hidden="true" />
+                    Mailbox synchronized
+                    <time class="text-dimmed" datetime={status().sync.lastAt!}>
+                      {dates.formatDateTimeRelative(status().sync.lastAt!, props.dateConfig)}
+                    </time>
+                  </span>
+                ) : (
+                  "No maintenance activity yet."
+                )
+              }
+              renderCell={({ row, col, render }) => {
+                if (col.id === "activity") {
+                  const state = activityState(row.state);
+                  const completed = row.state === "confirmed" || row.state === "reconciled";
                   return (
-                    <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5">
-                      <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center">
-                        <i class={`ti ${state.icon}`} aria-hidden="true" />
-                      </span>
-                      <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-medium text-primary">{activityLabel(item.kind)}</span>
-                        <Show when={detail}>{(value) => <span class="block truncate text-xs text-dimmed">{value()}</span>}</Show>
-                      </span>
-                      <StatusBadge tone={state.tone} label={state.label} />
-                      <time class="shrink-0 text-xs text-dimmed" datetime={item.updatedAt}>
-                        {dates.formatDateTimeRelative(item.updatedAt, props.dateConfig)}
-                      </time>
-                    </div>
+                    <span class="flex min-w-0 items-center gap-2">
+                      <i class={`ti ${state.icon} shrink-0`} aria-hidden="true" />
+                      <span class="truncate font-medium text-primary">{activityLabel(row.kind)}</span>
+                      <Show when={!completed}>
+                        <StatusBadge tone={state.tone} label={state.label} />
+                      </Show>
+                    </span>
                   );
-                }}
-              </For>
-              <Show when={status().recentCommands.length === 0}>
-                <Show when={status().sync.lastAt} fallback={<Placeholder align="left" description="No maintenance activity yet." />}>
-                  {(lastAt) => (
-                    <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5">
-                      <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center">
-                        <i class="ti ti-circle-check" aria-hidden="true" />
-                      </span>
-                      <span class="min-w-0 flex-1 text-sm font-medium text-primary">Mailbox synchronized</span>
-                      <time class="shrink-0 text-xs text-dimmed" datetime={lastAt()}>
-                        {dates.formatDateTimeRelative(lastAt(), props.dateConfig)}
-                      </time>
-                    </div>
-                  )}
-                </Show>
-              </Show>
-            </div>
+                }
+                if (col.id === "detail") {
+                  const detail = row.errorCode ? `Error ${row.errorCode}` : row.attempt > 1 ? `Attempt ${row.attempt}` : null;
+                  return detail ? <span class="text-secondary">{detail}</span> : <span class="text-dimmed">—</span>;
+                }
+                if (col.id === "updatedAt") {
+                  return (
+                    <time class="whitespace-nowrap text-dimmed" datetime={row.updatedAt}>
+                      {dates.formatDateTimeRelative(row.updatedAt, props.dateConfig)}
+                    </time>
+                  );
+                }
+                return render(row.updatedAt);
+              }}
+            />
           </section>
         )}
       </Show>

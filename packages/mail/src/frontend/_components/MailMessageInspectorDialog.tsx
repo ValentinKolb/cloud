@@ -1,17 +1,17 @@
+import { mutation } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
+  Button,
+  ButtonLink,
   dialogCore,
   formatFileViewSize,
+  IconButtonLink,
+  NoticeCard,
   PanelDialog,
   Placeholder,
   panelDialogWorkspaceOptions,
   Select,
   Tooltip,
-  Button,
-  ButtonLink,
-  IconButtonLink,
 } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { type MessageInspector, type MessageSourcePreview, messageInspectorSchema, messageSourcePreviewSchema } from "../../contracts";
@@ -31,7 +31,7 @@ const messageOptionLabel = (message: MessageDetail, index: number): string => `$
 const sourceHref = (mailboxId: string, messageId: string): string => `/api/mail/mailboxes/${mailboxId}/messages/${messageId}/source`;
 
 const subscriptionsHref = (mailboxId: string, listKey: string): string =>
-  `/app/mail/${mailboxId}/subscriptions?list=${encodeURIComponent(listKey)}`;
+  `/app/mail/${mailboxId}?mailingList=${encodeURIComponent(listKey)}`;
 
 function MailMessageInspectorDialog(props: {
   mailboxId: string;
@@ -237,12 +237,6 @@ function MailMessageInspectorDialog(props: {
                             <ButtonLink variant="ghost" size="sm" href={list().postHref!}>
                               <i class="ti ti-send" aria-hidden="true" />
                               Write to list
-                            </ButtonLink>
-                          </Show>
-                          <Show when={list().helpHref}>
-                            <ButtonLink variant="ghost" size="sm" href={list().helpHref!} target="_blank" rel="noopener noreferrer">
-                              <i class="ti ti-help" aria-hidden="true" />
-                              List help
                             </ButtonLink>
                           </Show>
                           <Show when={list().archiveHref}>

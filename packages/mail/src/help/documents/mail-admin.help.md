@@ -165,7 +165,7 @@ Markdown messages always receive the built-in readable email design. **Email des
 
 ## Configure automatic responses and references {icon="settings"}
 
-Open **Automations** near the bottom of the mailbox navigation:
+Open **Mailbox tools > Automations**:
 
 :::steps
 1. **Overview** shows what is active and opens the exact setup task.

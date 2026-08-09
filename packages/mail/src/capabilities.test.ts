@@ -403,10 +403,7 @@ describe("mail capabilities", () => {
     expect(result).toMatchObject({
       ok: true,
       data: {
-        data: [
-          { links: [{ rel: "open", href: `/app/mail/${mailboxId}/subscriptions?list=list%20one%26two` }] },
-          { listKey: "x".repeat(4096) },
-        ],
+        data: [{ links: [{ rel: "open", href: `/app/mail/${mailboxId}?mailingList=list%20one%26two` }] }, { listKey: "x".repeat(4096) }],
       },
     });
     if (!result.ok) throw new Error("Expected subscription list success");

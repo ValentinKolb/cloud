@@ -47,7 +47,6 @@ import * as senderIdentities from "./sender-identities";
 import * as senderIdentityTransports from "./sender-identity-transports";
 import * as settingsContext from "./settings-context";
 import * as storageObservability from "./storage-observability";
-import * as subscriptionWorkspace from "./subscription-workspace";
 import { enqueueMailboxSync, mailRuntime as scheduledMailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
 import { workflowRuntime } from "./workflow-runtime";
@@ -120,7 +119,6 @@ export {
   senderIdentityTransports,
   settingsContext,
   storageObservability,
-  subscriptionWorkspace,
   triage,
   workflowRuntime,
   workflows,
@@ -149,7 +147,6 @@ export const mailService = {
   incomingAutomations,
   localTags,
   listSubscriptions,
-  subscriptionWorkspace,
   folders,
   hydration,
   mailboxes,

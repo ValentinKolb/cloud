@@ -129,7 +129,7 @@ const messageHref = (mailboxId: string, messageId: string): string => `${mailbox
 const draftHref = (mailboxId: string, draftId: string): string => `${mailboxHref(mailboxId)}/compose/${encodeURIComponent(draftId)}`;
 const scheduledHref = (mailboxId: string): string => `${mailboxHref(mailboxId)}?scheduled=1`;
 const subscriptionHref = (mailboxId: string, listKey: string): string | null => {
-  const href = `${mailboxHref(mailboxId)}/subscriptions?list=${encodeURIComponent(listKey)}`;
+  const href = `${mailboxHref(mailboxId)}?mailingList=${encodeURIComponent(listKey)}`;
   return href.length <= 2048 ? href : null;
 };
 const openLink = (href: string): CapabilitySemanticLink => ({ rel: "open", href });

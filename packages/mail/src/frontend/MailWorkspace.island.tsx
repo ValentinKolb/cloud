@@ -23,6 +23,7 @@ import { openMailRemoteContentRulesDialog } from "./_components/MailRemoteConten
 import MailScheduledView from "./_components/MailScheduledView";
 import { observeMailUserPreferences } from "./_components/MailSettingsStore";
 import MailSidebar from "./_components/MailSidebar";
+import { openMailSubscriptionDialog } from "./_components/MailSubscriptionDialog";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
 import type { MailBulkTarget } from "./_components/mail-bulk-actions";
 import {
@@ -87,7 +88,7 @@ export default function MailWorkspace(props: {
     participants: [],
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
-  const [managementOpening, setManagementOpening] = createSignal<"health" | "links" | "remote-content" | null>(null);
+  const [managementOpening, setManagementOpening] = createSignal<"health" | "links" | "remote-content" | "subscriptions" | null>(null);
   const [liveTransportDegraded, setLiveTransportDegraded] = createSignal(false);
   const [liveSnapshotDegraded, setLiveSnapshotDegraded] = createSignal(false);
   const liveDegraded = createMemo(() => liveTransportDegraded() || liveSnapshotDegraded());
@@ -112,6 +113,8 @@ export default function MailWorkspace(props: {
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
+  const canWrite = createMemo(() => rank(data.permission) >= 2);
+  const canAdmin = createMemo(() => rank(data.permission) >= 3);
   const workspaceRefreshBlocked = () => settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
 
   onMount(() => {
@@ -488,6 +491,35 @@ export default function MailWorkspace(props: {
     }
   };
 
+  const openSubscriptions = async (initialListKey: string | null = null) => {
+    if (disposed || managementOpening()) return;
+    setManagementOpening("subscriptions");
+    try {
+      await openMailSubscriptionDialog({ mailboxId: data.mailbox.id, canWrite: canWrite(), initialListKey });
+    } finally {
+      if (!disposed) setManagementOpening(null);
+      if (!initialListKey || disposed) return;
+      const current = new URL(window.location.href);
+      const currentListKey = current.searchParams.get("mailingList")?.trim().toLowerCase().slice(0, 4096) || null;
+      if (currentListKey !== initialListKey) return;
+      current.searchParams.delete("mailingList");
+      window.history.replaceState(window.history.state, "", `${current.pathname}${current.search}${current.hash}`);
+      setRequestUrl(current.toString());
+    }
+  };
+
+  let openedMailingListKey: string | null = null;
+  createEffect(() => {
+    const key = new URL(requestUrl()).searchParams.get("mailingList")?.trim().toLowerCase().slice(0, 4096) || null;
+    if (!key) {
+      openedMailingListKey = null;
+      return;
+    }
+    if (key === openedMailingListKey || managementOpening()) return;
+    openedMailingListKey = key;
+    void openSubscriptions(key);
+  });
+
   onMount(() => {
     setRequestUrl(window.location.href);
     const oauthUrl = new URL(window.location.href);
@@ -634,8 +666,6 @@ export default function MailWorkspace(props: {
     focusFrames.clear();
   });
 
-  const canWrite = createMemo(() => rank(data.permission) >= 2);
-  const canAdmin = createMemo(() => rank(data.permission) >= 3);
   const reserveWorkspaceAction = (): AbortController | null => {
     if (!canWrite() || actionPending() || disposed) return null;
     const controller = new AbortController();
@@ -1364,6 +1394,7 @@ export default function MailWorkspace(props: {
         onOpenHealth={() => void openHealth()}
         onOpenSharedLinks={() => void openSharedLinks()}
         onOpenRemoteContent={() => void openRemoteContent()}
+        onOpenSubscriptions={() => void openSubscriptions()}
         onOpenSettings={() => void openSettings()}
         onMoveConversation={(input) =>
           runAction("move", {

@@ -3434,8 +3434,10 @@ export default defineCliCommands({
     }),
     messageStateCommand("message read", "Mark one remote message as read without replacing other flags", { addFlags: ["seen"] }),
     messageStateCommand("message unread", "Mark one remote message as unread without replacing other flags", { removeFlags: ["seen"] }),
-    messageStateCommand("message star", "Star one remote message without replacing other flags", { addFlags: ["flagged"] }),
-    messageStateCommand("message unstar", "Remove the star from one remote message without replacing other flags", {
+    messageStateCommand("message star", "Add the standard Flag to one remote message without replacing other flags", {
+      addFlags: ["flagged"],
+    }),
+    messageStateCommand("message unstar", "Remove the standard Flag from one remote message without replacing other flags", {
       removeFlags: ["flagged"],
     }),
     messageKeywordCommand("message keyword add", "Add one IMAP keyword without replacing other message state", "add"),
@@ -4434,11 +4436,11 @@ export default defineCliCommands({
       kind: "change_state",
       change: { removeFlags: ["seen"] },
     }),
-    conversationActionCommand("conversation star", "Star every message in a conversation folder placement", {
+    conversationActionCommand("conversation star", "Add the standard Flag to every message in a conversation folder placement", {
       kind: "change_state",
       change: { addFlags: ["flagged"] },
     }),
-    conversationActionCommand("conversation unstar", "Remove stars from every message in a conversation folder placement", {
+    conversationActionCommand("conversation unstar", "Remove the standard Flag from every message in a conversation folder placement", {
       kind: "change_state",
       change: { removeFlags: ["flagged"] },
     }),
