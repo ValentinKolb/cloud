@@ -22,7 +22,7 @@ export const mailDraftSeedHref = (mailboxId: string, seedId: string, returnHref:
 
 export const mailtoHandlerTemplate = (origin: string): string => `${origin.replace(/\/+$/, "")}/app/mail/compose?mailto=%s`;
 
-type MailtoRegistrationResult = { kind: "registered" } | { kind: "unsupported" } | { kind: "failed"; message: string };
+type MailtoRegistrationResult = { kind: "requested" } | { kind: "unsupported" } | { kind: "failed"; message: string };
 
 export const registerMailtoHandler = (
   navigatorValue: Pick<Navigator, "registerProtocolHandler"> | Record<string, never>,
@@ -33,7 +33,7 @@ export const registerMailtoHandler = (
   }
   try {
     navigatorValue.registerProtocolHandler("mailto", mailtoHandlerTemplate(origin));
-    return { kind: "registered" };
+    return { kind: "requested" };
   } catch (error) {
     return {
       kind: "failed",

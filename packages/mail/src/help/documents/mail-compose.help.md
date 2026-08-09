@@ -14,9 +14,11 @@ Choose a verified sender in **From**, add recipients, and enter a subject and bo
 
 The composer is separate from the mailbox workspace. Use **Back to mailbox** to save the latest changes, release the editing lease, and return. **Open in new window** moves the same draft to a dedicated browser window; it never creates a second draft.
 
-## Open email links with Cloud Mail {icon="link"}
+## Use Cloud Mail for email links {icon="link"}
 
-Open **Mailbox tools > Open email links with Cloud Mail** to ask the current browser to use Cloud Mail for standard `mailto:` links. Confirm the browser prompt when one appears. This association belongs to the browser or operating system, not to a mailbox or Cloud account, so Cloud does not display a permanent default-app switch.
+Open **Mailbox tools > Email link setup** to ask the current browser to use Cloud Mail for standard `mailto:` links. Confirm the browser prompt when it appears. This association belongs to the browser or operating system, not to a mailbox or Cloud account, so Cloud does not display a permanent default-app switch.
+
+Browsers can remember a previous rejection and suppress the prompt. If no prompt appears, open the site controls next to the address, go to **Site settings**, reset **Protocol handlers** for this site, and choose **Email link setup** again.
 
 An email link can supply To, Cc, Bcc, Subject, and plain-text Body. Cloud shows the writable mailbox and verified sender before creating the draft. Links cannot choose a hidden sender, attach local files, or send automatically. Browsers without protocol-handler support can still use **Compose** normally.
 

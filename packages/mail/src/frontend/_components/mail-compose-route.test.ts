@@ -42,7 +42,7 @@ describe("Mail compose routes", () => {
         },
         "https://cloud.example/",
       ),
-    ).toEqual({ kind: "registered" });
+    ).toEqual({ kind: "requested" });
     expect(calls).toEqual([["mailto", "https://cloud.example/app/mail/compose?mailto=%s"]]);
     expect(mailtoHandlerTemplate("https://cloud.example")).toBe("https://cloud.example/app/mail/compose?mailto=%s");
     expect(registerMailtoHandler({}, "https://cloud.example")).toEqual({

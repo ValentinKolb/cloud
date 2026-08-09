@@ -6,9 +6,13 @@ import {
   ButtonLink,
   ColorInput,
   DateTimePicker,
+  DescriptionList,
+  DetailPanel,
+  Discussion,
   formatFileViewSize,
   IconButton,
   MarkdownEditor,
+  MarkdownView,
   MultiSelectInput,
   Placeholder,
   prompts,
@@ -90,7 +94,10 @@ export default function MailDetailsPanel(props: {
   let disposed = false;
   let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
   const latestMessage = () => props.messages.at(-1);
-  const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
+  const attachments = createMemo(() =>
+    props.messages.flatMap((message) => message.attachments.map((attachment) => ({ ...attachment, messageId: message.id }))),
+  );
+  const attachmentCount = () => attachments().length;
   const activityItems = createMemo(() => presentMailActivity(props.activity));
   const unavailableSections = createMemo(() => listUnavailableMailDetailSections(props.detailErrors));
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
@@ -456,393 +463,447 @@ export default function MailDetailsPanel(props: {
   });
 
   return (
-    <div class="flex h-full min-h-0 flex-col">
-      <div class="detail-stack focus:outline-none" data-mail-details-heading tabIndex={-1}>
-        <Show when={unavailableSections().length > 0}>
-          <section class="detail-section">
-            <Placeholder
-              state="error"
-              variant="compact"
-              align="left"
-              title="Some conversation details are temporarily unavailable"
-              description={`Could not refresh ${unavailableSections().join(", ")}. Previously loaded values remain visible where available.`}
-              action={
-                <Button variant="secondary" size="sm" type="button" onClick={() => void props.onReconcile()}>
-                  <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                </Button>
-              }
-            />
-          </section>
-        </Show>
-        <Show when={props.presence.length > 0}>
-          <section class="detail-section">
-            <h3 class="detail-section-label">Here now</h3>
-            <div class="flex flex-col gap-2">
-              <For each={props.presence}>
-                {(participant) => (
-                  <div class="flex items-center gap-2">
-                    <Avatar name={participant.displayName} src={avatarSource(participant.userId, participant.avatarHash)} size="sm" />
-                    <span class="min-w-0 flex-1 truncate text-sm text-primary">{participant.displayName}</span>
-                    <StatusBadge
-                      tone={participant.mode === "composing" ? "running" : "neutral"}
-                      label={participant.mode === "composing" ? "Composing" : "Viewing"}
-                      icon={participant.mode === "composing" ? "ti ti-pencil" : "ti ti-eye"}
-                    />
-                  </div>
-                )}
-              </For>
-            </div>
-          </section>
-        </Show>
-        <section class="detail-section">
-          <div class="mb-3 flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Tags</h3>
-            <Tooltip.Anchor content="Create tag">
-              <IconButton type="button" label="Create tag" disabled={!props.canWrite} onClick={() => void createTag()}>
-                <i class="ti ti-tag-plus" aria-hidden="true" />
-              </IconButton>
-            </Tooltip.Anchor>
-          </div>
-          <MultiSelectInput
-            value={() => tagState().tags.map((tag) => tag.id)}
-            onValueChange={updateConversationTags}
-            options={availableTags().map((tag) => ({
-              id: tag.id,
-              label: tag.name,
-              icon: "ti ti-tag",
-              color: tag.color,
-            }))}
-            selectedOptions={() =>
-              tagState().tags.map((tag) => ({
-                id: tag.id,
-                label: tag.name,
-                icon: "ti ti-tag",
-                color: tag.color,
-              }))
-            }
-            placeholder="Select tags"
-            clearable
-            disabled={!props.canWrite}
-          />
-        </section>
-
-        <section class="detail-section">
-          <h3 class="detail-section-label">Work</h3>
-          <div class="flex flex-col gap-2">
-            <Select
-              label="Assignee"
-              value={() => state().assignee?.id ?? null}
-              selectedLabel={() => state().assignee?.displayName}
-              onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
-              options={props.assignableUsers.map((user) => ({
-                id: user.id,
-                label: user.displayName,
-                description: user.description,
-              }))}
-              clearable
-              disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
-            />
-            <Select
-              label="Status"
-              value={() => state().workStatus}
-              onValueChange={(workStatus) =>
-                updateCollaboration({
-                  workStatus: workStatus as MailCollaborationPatch["workStatus"],
-                })
-              }
-              options={[
-                { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
-                { id: "waiting", label: "Waiting for reply", icon: "ti ti-hourglass" },
-                { id: "done", label: "Done", icon: "ti ti-circle-check" },
-              ]}
-              disabled={!props.canWrite}
-            />
-            <DateTimePicker
-              label="Snooze until"
-              value={() => state().snoozedUntil}
-              onValueChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
-              dateConfig={props.dateConfig}
-              disabled={!props.canWrite || state().workStatus === "done"}
-            />
-          </div>
-        </section>
-
-        <section class="detail-section">
-          <h3 class="detail-section-label">For me</h3>
-          <div class="flex items-end gap-2">
-            <div class="min-w-0 flex-1">
-              <DateTimePicker
-                label="Personal reminder"
-                value={reminderDueAt}
-                onValueChange={(value) => value && updateReminder(value)}
-                dateConfig={props.dateConfig}
-                disabled={Boolean(props.detailErrors.reminder)}
-              />
-            </div>
-            <Show when={reminderDueAt()}>
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                class="mb-0.5"
-                disabled={Boolean(props.detailErrors.reminder)}
-                onClick={clearReminder}
-              >
-                Clear
-              </Button>
-            </Show>
-          </div>
-        </section>
-
-        <MailConversationContext
-          mailboxId={props.mailboxId}
-          conversationId={props.conversationId}
-          active={props.active}
-          onOpenHref={props.onOpenHref}
+    <div class="flex h-full min-h-0 flex-col focus:outline-none" data-mail-details-heading tabIndex={-1}>
+      <DetailPanel>
+        <DetailPanel.Header
+          icon="ti ti-mail"
+          title={props.subject || "(no subject)"}
+          subtitle={addressList(latestMessage()?.from ?? []) || "Unknown sender"}
         />
 
-        <section class="detail-section">
-          <h3 class="detail-section-label">Team notes</h3>
-          <Show
-            when={comments().length > 0}
-            fallback={
-              <Show when={!props.detailErrors.comments}>
-                <Placeholder title="No team notes" description="Add context for everyone with mailbox access." icon="ti ti-messages" />
-              </Show>
+        <DetailPanel.Body scrollPreserveKey="mail-conversation-detail">
+          <Show when={unavailableSections().length > 0}>
+            <DetailPanel.Section title="Detail availability" icon="ti ti-alert-circle" tone="danger">
+              <Placeholder
+                state="error"
+                variant="compact"
+                align="left"
+                title="Some conversation details are temporarily unavailable"
+                description={`Could not refresh ${unavailableSections().join(", ")}. Previously loaded values remain visible where available.`}
+                action={
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void props.onReconcile()}>
+                    <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                  </Button>
+                }
+              />
+            </DetailPanel.Section>
+          </Show>
+
+          <DetailPanel.Summary
+            title="Workflow"
+            actions={
+              <Tooltip.Anchor content="Create tag">
+                <IconButton type="button" label="Create tag" size="xs" disabled={!props.canWrite} onClick={() => void createTag()}>
+                  <i class="ti ti-tag-plus" aria-hidden="true" />
+                </IconButton>
+              </Tooltip.Anchor>
             }
           >
-            <div class="mb-3 flex flex-col gap-3">
-              <For each={comments()}>
-                {(comment) => {
-                  const parent = () => comments().find((candidate) => candidate.id === comment.parentCommentId);
-                  const canModerate = () =>
-                    !comment.deletedAt && (props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId));
-                  return (
-                    <article class="group flex min-w-0 flex-col gap-1.5">
-                      <div class="flex min-w-0 items-center gap-2">
-                        <Avatar
-                          name={comment.author.displayName}
-                          src={avatarSource(comment.author.kind === "user" ? comment.author.id : undefined, comment.author.avatarHash)}
-                          size="xs"
-                        />
-                        <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
-                        <time
-                          class="shrink-0 text-[11px] text-dimmed"
-                          dateTime={comment.createdAt}
-                          title={dates.formatDateTime(comment.createdAt, props.dateConfig)}
-                        >
-                          {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
-                        </time>
-                        <span class="ml-auto flex shrink-0 items-center gap-0.5">
-                          <Show when={canModerate()}>
-                            <span class="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                              <Tooltip.Anchor content="Edit comment">
-                                <IconButton type="button" label="Edit comment" onClick={() => editComment.mutate(comment)}>
-                                  <i class="ti ti-edit" aria-hidden="true" />
-                                </IconButton>
-                              </Tooltip.Anchor>
-                              <Tooltip.Anchor content="Delete comment">
-                                <IconButton type="button" label="Delete comment" onClick={() => removeComment.mutate(comment)}>
-                                  <i class="ti ti-trash" aria-hidden="true" />
-                                </IconButton>
-                              </Tooltip.Anchor>
-                            </span>
-                          </Show>
-                          <Show when={!comment.deletedAt}>
-                            <Tooltip.Anchor content={`Reply to ${comment.author.displayName}`}>
-                              <IconButton
-                                type="button"
-                                label={`Reply to ${comment.author.displayName}`}
-                                onClick={() => {
-                                  setReplyingTo(comment);
-                                  setCommentBody("");
-                                }}
-                              >
-                                <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                              </IconButton>
-                            </Tooltip.Anchor>
-                          </Show>
-                        </span>
-                      </div>
-                      <Show when={comment.parentCommentId}>
-                        <p class="truncate text-[11px] text-dimmed">
-                          <i class="ti ti-arrow-back-up mr-1" aria-hidden="true" />
-                          Reply to {parent()?.author.displayName ?? "an earlier comment"}
-                        </p>
-                      </Show>
-                      <p class={`whitespace-pre-wrap break-words text-sm ${comment.deletedAt ? "italic text-dimmed" : "text-primary"}`}>
-                        {comment.deletedAt ? "Comment deleted" : comment.body}
-                      </p>
-                    </article>
-                  );
-                }}
-              </For>
-            </div>
-          </Show>
-          <Show when={!props.detailErrors.comments}>
-            <Show when={replyingTo()}>
-              {(comment) => (
-                <div class="mb-2 flex items-center gap-2 text-xs text-dimmed">
-                  <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                  <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
-                  <Tooltip.Anchor content="Cancel reply">
-                    <IconButton type="button" label="Cancel reply" onClick={() => setReplyingTo(null)}>
-                      <i class="ti ti-x" aria-hidden="true" />
-                    </IconButton>
-                  </Tooltip.Anchor>
+            <div class="flex flex-col gap-2.5">
+              <MultiSelectInput
+                label="Tags"
+                value={() => tagState().tags.map((tag) => tag.id)}
+                onValueChange={updateConversationTags}
+                options={availableTags().map((tag) => ({
+                  id: tag.id,
+                  label: tag.name,
+                  icon: "ti ti-tag",
+                  color: tag.color,
+                }))}
+                selectedOptions={() =>
+                  tagState().tags.map((tag) => ({
+                    id: tag.id,
+                    label: tag.name,
+                    icon: "ti ti-tag",
+                    color: tag.color,
+                  }))
+                }
+                placeholder="Select tags"
+                clearable
+                disabled={!props.canWrite}
+              />
+              <div class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                <Select
+                  label="Assignee"
+                  value={() => state().assignee?.id ?? null}
+                  selectedLabel={() => state().assignee?.displayName}
+                  onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
+                  options={props.assignableUsers.map((user) => ({
+                    id: user.id,
+                    label: user.displayName,
+                    description: user.description,
+                  }))}
+                  clearable
+                  disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
+                />
+                <Select
+                  label="Status"
+                  value={() => state().workStatus}
+                  onValueChange={(workStatus) =>
+                    updateCollaboration({
+                      workStatus: workStatus as MailCollaborationPatch["workStatus"],
+                    })
+                  }
+                  options={[
+                    { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
+                    { id: "waiting", label: "Waiting for reply", icon: "ti ti-hourglass" },
+                    { id: "done", label: "Done", icon: "ti ti-circle-check" },
+                  ]}
+                  disabled={!props.canWrite}
+                />
+              </div>
+              <DateTimePicker
+                label="Snooze until"
+                value={() => state().snoozedUntil}
+                onValueChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
+                dateConfig={props.dateConfig}
+                disabled={!props.canWrite || state().workStatus === "done"}
+              />
+              <div class="flex items-end gap-2">
+                <div class="min-w-0 flex-1">
+                  <DateTimePicker
+                    label="Personal reminder"
+                    value={reminderDueAt}
+                    onValueChange={(value) => value && updateReminder(value)}
+                    dateConfig={props.dateConfig}
+                    disabled={Boolean(props.detailErrors.reminder)}
+                  />
                 </div>
-              )}
-            </Show>
-            <MarkdownEditor
-              value={commentBody}
-              onValueChange={setCommentBody}
-              onSubmit={() => addComment.mutate()}
-              placeholder="Add internal comment"
-              aria-label="Internal comment"
-              lines={4}
-              noToolbar
-              showStats={false}
-              error={Boolean(commentError())}
-              disabled={addComment.loading()}
-            />
-            <div class="mt-2 flex items-center justify-between gap-2">
-              <p class="text-xs text-red-600 dark:text-red-300" role="alert">
-                {commentError()}
-              </p>
-              <Button variant="secondary" size="sm" type="button" disabled={addComment.loading()} onClick={() => addComment.mutate()}>
-                <i class="ti ti-send" aria-hidden="true" /> Comment
-              </Button>
-            </div>
-          </Show>
-        </section>
-
-        <Show when={props.activity.length > 0}>
-          <details class="detail-section group/recent-activity">
-            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
-              <span class="detail-section-label mb-0">Recent activity</span>
-              <i class="ti ti-chevron-down text-dimmed transition-transform group-open/recent-activity:rotate-180" aria-hidden="true" />
-            </summary>
-            <div class="mt-3 flex max-h-56 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
-              <For each={activityItems()}>
-                {(event) => (
-                  <div class="flex min-w-0 items-center gap-2 text-xs">
-                    <i
-                      class={`ti ${event.outcome === "failed" ? "ti-alert-circle text-red-500" : "ti-circle-check text-dimmed"}`}
-                      aria-hidden="true"
-                    />
-                    <span class="min-w-0 flex-1 truncate text-secondary">
-                      <span class="font-medium text-primary">{event.actor.displayName}</span> {event.label}
-                      <Show when={event.count > 1}> ({event.count})</Show>
-                    </span>
-                    <time class="shrink-0 text-xs text-dimmed" dateTime={event.createdAt}>
-                      {dates.formatDateTimeRelative(event.createdAt, props.dateConfig)}
-                    </time>
-                  </div>
-                )}
-              </For>
-            </div>
-          </details>
-        </Show>
-
-        <details class="detail-section group/mail-details">
-          <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
-            <span class="detail-section-label mb-0">Mail details</span>
-            <i class="ti ti-chevron-down text-dimmed transition-transform group-open/mail-details:rotate-180" aria-hidden="true" />
-          </summary>
-          <dl class="mt-3 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-2 text-xs">
-            <dt class="text-dimmed">Subject</dt>
-            <dd class="truncate text-primary" title={props.subject}>
-              {props.subject || "(no subject)"}
-            </dd>
-            <dt class="text-dimmed">From</dt>
-            <dd class="truncate text-primary" title={addressList(latestMessage()?.from ?? [])}>
-              {addressList(latestMessage()?.from ?? []) || "Unknown"}
-            </dd>
-            <dt class="text-dimmed">To</dt>
-            <dd class="truncate text-primary" title={addressList(latestMessage()?.to ?? [])}>
-              {addressList(latestMessage()?.to ?? []) || "Undisclosed"}
-            </dd>
-            <dt class="text-dimmed">Thread</dt>
-            <dd class="text-primary">
-              {props.messages.length} message
-              {props.messages.length === 1 ? "" : "s"}
-            </dd>
-            <Show when={attachmentCount() > 0}>
-              <dt class="text-dimmed">Files</dt>
-              <dd class="text-primary">
-                {attachmentCount()} attachment
-                {attachmentCount() === 1 ? "" : "s"}
-              </dd>
-            </Show>
-            <Show when={latestMessage()?.messageId}>
-              <dt class="text-dimmed">Message ID</dt>
-              <dd class="truncate font-mono text-xs text-secondary" title={latestMessage()?.messageId ?? undefined}>
-                {latestMessage()?.messageId}
-              </dd>
-            </Show>
-            <Show when={latestMessage()}>
-              {(message) => (
-                <>
-                  <dt class="text-dimmed">Size</dt>
-                  <dd class="text-primary">{formatFileViewSize(message().sizeBytes)}</dd>
-                  <dt class="text-dimmed">Content</dt>
-                  <dd class="truncate text-primary" title={message().contentType ?? undefined}>
-                    {message().contentType ?? "Unavailable"}
-                  </dd>
-                  <dt class="text-dimmed">Mirror</dt>
-                  <dd class="text-primary">{message().hydrationStatus}</dd>
-                </>
-              )}
-            </Show>
-          </dl>
-          <Show when={latestMessage()}>
-            {(message) => (
-              <div class="mt-3 flex flex-wrap items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() =>
-                    void openMailMessageInspector({
-                      mailboxId: props.mailboxId,
-                      messages: props.messages,
-                      initialMessageId: message().id,
-                      initialTab: "headers",
-                    })
-                  }
-                >
-                  <i class="ti ti-list-details" aria-hidden="true" /> Headers
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() =>
-                    void openMailMessageInspector({
-                      mailboxId: props.mailboxId,
-                      messages: props.messages,
-                      initialMessageId: message().id,
-                      initialTab: "source",
-                    })
-                  }
-                >
-                  <i class="ti ti-code" aria-hidden="true" /> Source
-                </Button>
-                <Show when={message().sourceAvailable}>
-                  <ButtonLink
+                <Show when={reminderDueAt()}>
+                  <Button
                     variant="secondary"
                     size="sm"
-                    href={`/api/mail/mailboxes/${props.mailboxId}/messages/${message().id}/source`}
-                    download={`${message().subject.trim() || "message"}.eml`}
+                    type="button"
+                    class="mb-0.5"
+                    disabled={Boolean(props.detailErrors.reminder)}
+                    onClick={clearReminder}
                   >
-                    <i class="ti ti-download" aria-hidden="true" /> Download .eml
-                  </ButtonLink>
+                    Clear
+                  </Button>
                 </Show>
               </div>
-            )}
-          </Show>
-        </details>
-      </div>
+            </div>
+          </DetailPanel.Summary>
+
+          <DetailPanel.Group label="Conversation context">
+            <Show when={props.presence.length > 0}>
+              <DetailPanel.Section title="Active collaborators" icon="ti ti-users" tone="success" meta={props.presence.length}>
+                <div class="flex flex-col gap-2">
+                  <For each={props.presence}>
+                    {(participant) => (
+                      <div class="flex items-center gap-2">
+                        <Avatar name={participant.displayName} src={avatarSource(participant.userId, participant.avatarHash)} size="xs" />
+                        <span class="min-w-0 flex-1 truncate text-sm text-primary">{participant.displayName}</span>
+                        <StatusBadge
+                          tone={participant.mode === "composing" ? "running" : "neutral"}
+                          label={participant.mode === "composing" ? "Composing" : "Viewing"}
+                          icon={participant.mode === "composing" ? "ti ti-pencil" : "ti ti-eye"}
+                        />
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </DetailPanel.Section>
+            </Show>
+
+            <DetailPanel.Section title="Contacts" icon="ti ti-address-book" tone="accent">
+              <MailConversationContext
+                mailboxId={props.mailboxId}
+                conversationId={props.conversationId}
+                active={props.active}
+                onOpenHref={props.onOpenHref}
+              />
+            </DetailPanel.Section>
+
+            <Show when={attachments().length > 0}>
+              <DetailPanel.Section title="Attachments" icon="ti ti-paperclip" tone="neutral" meta={attachments().length}>
+                <div class="flex flex-col gap-1">
+                  <For each={attachments()}>
+                    {(attachment) => (
+                      <DetailPanel.Action
+                        href={`/api/mail/mailboxes/${props.mailboxId}/messages/${attachment.messageId}/attachments/${attachment.id}`}
+                        download={attachment.filename ?? "attachment"}
+                        leading={<i class="ti ti-paperclip" aria-hidden="true" />}
+                        title={attachment.filename ?? attachment.contentType}
+                        description={`${attachment.contentType} · ${formatFileViewSize(attachment.sizeBytes)}`}
+                        trailing={<i class="ti ti-download" aria-hidden="true" />}
+                      />
+                    )}
+                  </For>
+                </div>
+              </DetailPanel.Section>
+            </Show>
+          </DetailPanel.Group>
+
+          <Discussion label="Team notes" icon="ti ti-messages" count={`${comments().length} ${comments().length === 1 ? "note" : "notes"}`}>
+            <Show
+              when={comments().length > 0}
+              fallback={
+                <Show when={!props.detailErrors.comments}>
+                  <Placeholder align="left" class="px-0 py-2" description="No team notes yet." />
+                </Show>
+              }
+            >
+              <Discussion.List>
+                <For each={comments()}>
+                  {(comment) => {
+                    const parent = () => comments().find((candidate) => candidate.id === comment.parentCommentId);
+                    const canModerate = () =>
+                      !comment.deletedAt &&
+                      (props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId));
+                    return (
+                      <Discussion.Item
+                        avatar={
+                          <Avatar
+                            name={comment.author.displayName}
+                            src={avatarSource(comment.author.kind === "user" ? comment.author.id : undefined, comment.author.avatarHash)}
+                            size="xs"
+                          />
+                        }
+                        author={comment.author.displayName}
+                        timestamp={
+                          <time dateTime={comment.createdAt} title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                            {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
+                          </time>
+                        }
+                        replyContext={
+                          comment.parentCommentId ? (
+                            <>
+                              <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                              <span class="truncate">Reply to {parent()?.author.displayName ?? "an earlier comment"}</span>
+                            </>
+                          ) : undefined
+                        }
+                        actions={
+                          <>
+                            <Show when={canModerate()}>
+                              <>
+                                <Tooltip.Anchor content="Edit comment">
+                                  <IconButton type="button" label="Edit comment" size="xs" onClick={() => editComment.mutate(comment)}>
+                                    <i class="ti ti-edit" aria-hidden="true" />
+                                  </IconButton>
+                                </Tooltip.Anchor>
+                                <Tooltip.Anchor content="Delete comment">
+                                  <IconButton type="button" label="Delete comment" size="xs" onClick={() => removeComment.mutate(comment)}>
+                                    <i class="ti ti-trash" aria-hidden="true" />
+                                  </IconButton>
+                                </Tooltip.Anchor>
+                              </>
+                            </Show>
+                            <Show when={!comment.deletedAt}>
+                              <Tooltip.Anchor content={`Reply to ${comment.author.displayName}`}>
+                                <IconButton
+                                  type="button"
+                                  label={`Reply to ${comment.author.displayName}`}
+                                  size="xs"
+                                  onClick={() => {
+                                    setReplyingTo(comment);
+                                    setCommentBody("");
+                                  }}
+                                >
+                                  <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                                </IconButton>
+                              </Tooltip.Anchor>
+                            </Show>
+                          </>
+                        }
+                      >
+                        <Show
+                          when={!comment.deletedAt && comment.body}
+                          fallback={<p class="text-sm italic text-dimmed">Comment deleted</p>}
+                        >
+                          {(body) => <MarkdownView markdown={body()} smallHeadings />}
+                        </Show>
+                      </Discussion.Item>
+                    );
+                  }}
+                </For>
+              </Discussion.List>
+            </Show>
+
+            <Show when={!props.detailErrors.comments}>
+              <Show when={replyingTo()}>
+                {(comment) => (
+                  <div class="flex items-center gap-2 text-xs text-dimmed">
+                    <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                    <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
+                    <Tooltip.Anchor content="Cancel reply">
+                      <IconButton type="button" label="Cancel reply" size="xs" onClick={() => setReplyingTo(null)}>
+                        <i class="ti ti-x" aria-hidden="true" />
+                      </IconButton>
+                    </Tooltip.Anchor>
+                  </div>
+                )}
+              </Show>
+              <Discussion.Composer
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  addComment.mutate();
+                }}
+                actions={
+                  <>
+                    <Show when={commentError()}>
+                      {(error) => (
+                        <p class="mr-auto text-xs text-red-600 dark:text-red-300" role="alert">
+                          {error()}
+                        </p>
+                      )}
+                    </Show>
+                    <Button size="xs" type="submit" disabled={addComment.loading()}>
+                      <i class="ti ti-send" aria-hidden="true" /> Comment
+                    </Button>
+                  </>
+                }
+              >
+                <MarkdownEditor
+                  value={commentBody}
+                  onValueChange={setCommentBody}
+                  onSubmit={() => addComment.mutate()}
+                  placeholder="Add internal comment"
+                  aria-label="Internal comment"
+                  lines={4}
+                  noToolbar
+                  showStats={false}
+                  error={Boolean(commentError())}
+                  disabled={addComment.loading()}
+                />
+              </Discussion.Composer>
+            </Show>
+          </Discussion>
+
+          <DetailPanel.Group label="Conversation history">
+            <Show when={props.activity.length > 0}>
+              <DetailPanel.Section title="Recent activity" icon="ti ti-history" tone="neutral" meta={activityItems().length} collapsible>
+                <div class="flex flex-col gap-2">
+                  <For each={activityItems()}>
+                    {(event) => (
+                      <div class="flex min-w-0 items-center gap-2 text-xs">
+                        <i
+                          class={`ti ${event.outcome === "failed" ? "ti-alert-circle text-red-500" : "ti-circle-check text-dimmed"}`}
+                          aria-hidden="true"
+                        />
+                        <span class="min-w-0 flex-1 truncate text-secondary">
+                          <span class="font-medium text-primary">{event.actor.displayName}</span> {event.label}
+                          <Show when={event.count > 1}> ({event.count})</Show>
+                        </span>
+                        <time class="shrink-0 text-xs text-dimmed" dateTime={event.createdAt}>
+                          {dates.formatDateTimeRelative(event.createdAt, props.dateConfig)}
+                        </time>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </DetailPanel.Section>
+            </Show>
+
+            <DetailPanel.Section title="Mail details" icon="ti ti-code" tone="neutral" collapsible>
+              <DescriptionList
+                layout="rows"
+                size="sm"
+                items={[
+                  {
+                    term: "Subject",
+                    description: (
+                      <span class="block truncate" title={props.subject}>
+                        {props.subject || "(no subject)"}
+                      </span>
+                    ),
+                  },
+                  {
+                    term: "From",
+                    description: (
+                      <span class="block truncate" title={addressList(latestMessage()?.from ?? [])}>
+                        {addressList(latestMessage()?.from ?? []) || "Unknown"}
+                      </span>
+                    ),
+                  },
+                  {
+                    term: "To",
+                    description: (
+                      <span class="block truncate" title={addressList(latestMessage()?.to ?? [])}>
+                        {addressList(latestMessage()?.to ?? []) || "Undisclosed"}
+                      </span>
+                    ),
+                  },
+                  {
+                    term: "Thread",
+                    description: `${props.messages.length} message${props.messages.length === 1 ? "" : "s"}`,
+                  },
+                  ...(attachmentCount() > 0
+                    ? [
+                        {
+                          term: "Files",
+                          description: `${attachmentCount()} attachment${attachmentCount() === 1 ? "" : "s"}`,
+                        },
+                      ]
+                    : []),
+                  ...(latestMessage()?.messageId
+                    ? [
+                        {
+                          term: "Message ID",
+                          description: <span class="block truncate font-mono text-xs">{latestMessage()?.messageId}</span>,
+                        },
+                      ]
+                    : []),
+                  ...(latestMessage()
+                    ? [
+                        { term: "Size", description: formatFileViewSize(latestMessage()!.sizeBytes) },
+                        { term: "Content", description: latestMessage()!.contentType ?? "Unavailable" },
+                        { term: "Mirror", description: latestMessage()!.hydrationStatus },
+                      ]
+                    : []),
+                ]}
+              />
+              <Show when={latestMessage()}>
+                {(message) => (
+                  <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() =>
+                        void openMailMessageInspector({
+                          mailboxId: props.mailboxId,
+                          messages: props.messages,
+                          initialMessageId: message().id,
+                          initialTab: "headers",
+                        })
+                      }
+                    >
+                      <i class="ti ti-list-details" aria-hidden="true" /> Headers
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() =>
+                        void openMailMessageInspector({
+                          mailboxId: props.mailboxId,
+                          messages: props.messages,
+                          initialMessageId: message().id,
+                          initialTab: "source",
+                        })
+                      }
+                    >
+                      <i class="ti ti-code" aria-hidden="true" /> Source
+                    </Button>
+                    <Show when={message().sourceAvailable}>
+                      <ButtonLink
+                        variant="secondary"
+                        size="sm"
+                        href={`/api/mail/mailboxes/${props.mailboxId}/messages/${message().id}/source`}
+                        download={`${message().subject.trim() || "message"}.eml`}
+                      >
+                        <i class="ti ti-download" aria-hidden="true" /> Download .eml
+                      </ButtonLink>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+            </DetailPanel.Section>
+          </DetailPanel.Group>
+        </DetailPanel.Body>
+      </DetailPanel>
     </div>
   );
 }

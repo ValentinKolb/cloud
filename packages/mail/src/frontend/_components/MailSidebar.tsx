@@ -120,10 +120,10 @@ export default function MailSidebar(props: {
 
   const registerEmailLinks = async () => {
     const result = registerMailtoHandler(navigator, window.location.origin);
-    if (result.kind === "registered") {
+    if (result.kind === "requested") {
       await prompts.alert(
-        "Your browser has been asked to open email links with Cloud Mail. Confirm the browser prompt if one appears. This choice belongs to this browser or device, not to the mailbox.",
-        { title: "Email link registration requested" },
+        "Confirm the browser prompt if it appears. No prompt? Open the site controls next to the address, go to Site settings, reset Protocol handlers for this site, then choose Email link setup again.",
+        { title: "Check your browser" },
       );
       return;
     }
@@ -224,7 +224,7 @@ export default function MailSidebar(props: {
         },
         {
           sectionLabel: "This browser",
-          items: [{ label: "Open email links with Cloud Mail", icon: "ti ti-link", action: () => void registerEmailLinks() }],
+          items: [{ label: "Email link setup", icon: "ti ti-link", action: () => void registerEmailLinks() }],
         },
       ]}
       position="top-right"

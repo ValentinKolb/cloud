@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Placeholder, prompts, Button } from "@k2b/ui";
+import { Button, DetailPanel, Placeholder, prompts } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { contactOpenHref } from "../../app-integration-contracts";
@@ -77,9 +77,7 @@ function RelatedMail(props: {
 
   return (
     <div class="mt-2">
-      <Button
-        variant="ghost"
-        size="sm"
+      <DetailPanel.Action
         type="button"
         aria-expanded={open()}
         onClick={() => {
@@ -87,9 +85,10 @@ function RelatedMail(props: {
           setOpen(next);
           if (next && page().items.length === 0) void load();
         }}
-      >
-        <i class={`ti ${open() ? "ti-chevron-up" : "ti-history"}`} aria-hidden="true" /> Related Mail
-      </Button>
+        leading={<i class="ti ti-history" aria-hidden="true" />}
+        title="Related Mail"
+        trailing={<i class={`ti ${open() ? "ti-chevron-up" : "ti-chevron-down"}`} aria-hidden="true" />}
+      />
       <Show when={open()}>
         <Show when={!error()} fallback={<p class="mt-2 text-xs text-red-600 dark:text-red-300">{error()}</p>}>
           <Show
@@ -99,14 +98,14 @@ function RelatedMail(props: {
             <div class="mt-2 flex flex-col gap-1">
               <For each={page().items}>
                 {(item) => (
-                  <button
+                  <DetailPanel.Action
                     type="button"
-                    class="py-2 text-left text-xs hover:text-primary"
                     onClick={() => void props.onOpenHref(conversationHref(props.mailboxId, item.id))}
-                  >
-                    <span class="block truncate font-medium text-primary">{item.subject || "(no subject)"}</span>
-                    <span class="block truncate text-dimmed">{item.participantSummary}</span>
-                  </button>
+                    leading={<i class="ti ti-mail" aria-hidden="true" />}
+                    title={item.subject || "(no subject)"}
+                    description={item.participantSummary}
+                    trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                  />
                 )}
               </For>
             </div>
@@ -114,7 +113,7 @@ function RelatedMail(props: {
           <Show when={page().nextCursor}>
             <Button
               variant="ghost"
-              size="sm"
+              size="xs"
               type="button"
               class="mt-2"
               disabled={loading()}
@@ -295,8 +294,7 @@ export default function MailConversationContext(props: {
   onCleanup(() => createParticipantContact.abort());
 
   return (
-    <section class="detail-section">
-      <h3 class="detail-section-label">Contacts</h3>
+    <div class="min-w-0">
       <Show when={loaded()} fallback={<Placeholder state="loading" align="left" title="Loading contacts..." />}>
         <Show
           when={!error()}
@@ -313,78 +311,103 @@ export default function MailConversationContext(props: {
             }
           >
             <Show when={participantRows().length > 0} fallback={<Placeholder title="No external participants" icon="ti ti-user-off" />}>
-              <div class="flex flex-col gap-4">
+              <div class="flex flex-col gap-2">
                 <For each={participantRows()}>
                   {(participant) => (
                     <article class="min-w-0">
-                      <div class="flex min-w-0 items-start gap-2">
-                        <i class="ti ti-user mt-0.5 text-dimmed" aria-hidden="true" />
-                        <div class="min-w-0 flex-1">
-                          <p class="truncate text-sm font-medium text-primary">{participant.displayName || participant.email}</p>
-                          <Show when={participant.displayName}>
-                            <p class="truncate text-xs text-secondary" title={participant.email}>
-                              {participant.email}
-                            </p>
-                          </Show>
-
+                      <Show
+                        when={participant.contacts.length > 0}
+                        fallback={
                           <Show
-                            when={participant.contacts.length > 0}
+                            when={!participant.hasMatch}
                             fallback={
-                              <Show
-                                when={!participant.hasMatch}
-                                fallback={<p class="mt-2 text-xs text-dimmed">Matching contact available. Load more to view it.</p>}
-                              >
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  type="button"
-                                  class="mt-2 w-full justify-center"
-                                  disabled={createParticipantContact.loading()}
-                                  onClick={() => void chooseBookAndCreate(participant)}
-                                >
-                                  <i class="ti ti-user-plus" aria-hidden="true" /> Create contact
-                                </Button>
-                              </Show>
+                              <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
+                                <i class="ti ti-user mt-0.5 text-dimmed" aria-hidden="true" />
+                                <div class="min-w-0 flex-1">
+                                  <p class="truncate text-sm font-medium text-primary">{participant.displayName || participant.email}</p>
+                                  <p class="truncate text-xs text-dimmed">Matching contact available. Load more to view it.</p>
+                                </div>
+                              </div>
                             }
                           >
-                            <div class="mt-2 flex flex-col gap-3">
-                              <For each={participant.contacts}>
-                                {(contact) => (
-                                  <div class="min-w-0">
-                                    <Show
-                                      when={contact.openHref}
-                                      fallback={<p class="truncate text-sm font-medium text-primary">{contact.displayName}</p>}
-                                    >
-                                      {(href) => (
-                                        <a class="block truncate text-sm font-medium text-primary hover:underline" href={href()}>
-                                          {contact.displayName}
-                                        </a>
-                                      )}
-                                    </Show>
-                                    <p class="truncate text-xs text-dimmed">
-                                      {[contact.jobTitle, contact.companyName, contact.bookName].filter(Boolean).join(" · ")}
-                                    </p>
-                                    <Show when={contact.phones[0]}>
-                                      {(phone) => (
-                                        <a class="text-xs text-secondary hover:text-primary" href={`tel:${phone().phone}`}>
-                                          {phone().phone}
-                                        </a>
-                                      )}
-                                    </Show>
-                                    <RelatedMail
-                                      mailboxId={props.mailboxId}
-                                      conversationId={props.conversationId}
-                                      bookId={contact.bookId}
-                                      contactId={contact.contactId}
-                                      onOpenHref={props.onOpenHref}
-                                    />
-                                  </div>
-                                )}
-                              </For>
-                            </div>
+                            <DetailPanel.Action
+                              type="button"
+                              disabled={createParticipantContact.loading()}
+                              onClick={() => void chooseBookAndCreate(participant)}
+                              leading={<i class="ti ti-user" aria-hidden="true" />}
+                              title={participant.displayName || participant.email}
+                              description={participant.displayName ? participant.email : undefined}
+                              trailing={
+                                <span class="flex items-center gap-1 text-xs">
+                                  <i class="ti ti-user-plus" aria-hidden="true" /> Create
+                                </span>
+                              }
+                            />
                           </Show>
+                        }
+                      >
+                        <div class="flex flex-col gap-1">
+                          <div class="px-2 py-1">
+                            <p class="truncate text-xs font-medium text-secondary">{participant.displayName || participant.email}</p>
+                            <Show when={participant.displayName}>
+                              <p class="truncate text-xs text-dimmed" title={participant.email}>
+                                {participant.email}
+                              </p>
+                            </Show>
+                          </div>
+                          <For each={participant.contacts}>
+                            {(contact) => {
+                              const description = () =>
+                                [contact.jobTitle, contact.companyName, contact.bookName].filter(Boolean).join(" · ");
+                              return (
+                                <div class="min-w-0">
+                                  <Show
+                                    when={contact.openHref}
+                                    fallback={
+                                      <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
+                                        <i class="ti ti-address-book mt-0.5 text-dimmed" aria-hidden="true" />
+                                        <div class="min-w-0 flex-1">
+                                          <p class="truncate text-sm font-medium text-primary">{contact.displayName}</p>
+                                          <Show when={description()}>
+                                            <p class="truncate text-xs text-dimmed">{description()}</p>
+                                          </Show>
+                                        </div>
+                                      </div>
+                                    }
+                                  >
+                                    {(href) => (
+                                      <DetailPanel.Action
+                                        href={href()}
+                                        leading={<i class="ti ti-address-book" aria-hidden="true" />}
+                                        title={contact.displayName}
+                                        description={description() || undefined}
+                                        trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                                      />
+                                    )}
+                                  </Show>
+                                  <Show when={contact.phones[0]}>
+                                    {(phone) => (
+                                      <DetailPanel.Action
+                                        href={`tel:${phone().phone}`}
+                                        leading={<i class="ti ti-phone" aria-hidden="true" />}
+                                        title={phone().phone}
+                                        description="Phone"
+                                      />
+                                    )}
+                                  </Show>
+                                  <RelatedMail
+                                    mailboxId={props.mailboxId}
+                                    conversationId={props.conversationId}
+                                    bookId={contact.bookId}
+                                    contactId={contact.contactId}
+                                    onOpenHref={props.onOpenHref}
+                                  />
+                                </div>
+                              );
+                            }}
+                          </For>
                         </div>
-                      </div>
+                      </Show>
                     </article>
                   )}
                 </For>
@@ -407,6 +430,6 @@ export default function MailConversationContext(props: {
           </Show>
         </Show>
       </Show>
-    </section>
+    </div>
   );
 }
