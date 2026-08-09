@@ -6,8 +6,7 @@ export type DetailPanelProps = {
   class?: string;
 };
 
-export type DetailPanelHeaderProps = {
-  leading?: JSX.Element;
+type DetailPanelHeaderBaseProps = {
   title: JSX.Element;
   subtitle?: JSX.Element;
   meta?: JSX.Element;
@@ -15,6 +14,18 @@ export type DetailPanelHeaderProps = {
   primaryActions?: JSX.Element;
   class?: string;
 };
+
+export type DetailPanelHeaderProps = DetailPanelHeaderBaseProps &
+  (
+    | {
+        leading?: JSX.Element;
+        icon?: never;
+      }
+    | {
+        leading?: never;
+        icon?: string;
+      }
+  );
 
 export type DetailPanelBodyProps = {
   children: JSX.Element;
@@ -29,8 +40,18 @@ export type DetailPanelSummaryProps = {
   class?: string;
 };
 
+export type DetailPanelGroupProps = {
+  children: JSX.Element;
+  label?: string;
+  class?: string;
+};
+
+export type DetailPanelTone = "accent" | "neutral" | "success" | "warning" | "danger";
+
 type DetailPanelSectionBaseProps = {
   title: JSX.Element;
+  icon?: string;
+  tone?: DetailPanelTone;
   description?: JSX.Element;
   meta?: JSX.Element;
   class?: string;
@@ -76,6 +97,7 @@ type DetailPanelComponent = ((props: DetailPanelProps) => JSX.Element) & {
   Header: (props: DetailPanelHeaderProps) => JSX.Element;
   Body: (props: DetailPanelBodyProps) => JSX.Element;
   Summary: (props: DetailPanelSummaryProps) => JSX.Element;
+  Group: (props: DetailPanelGroupProps) => JSX.Element;
   Section: (props: DetailPanelSectionProps) => JSX.Element;
   Action: (props: DetailPanelActionProps) => JSX.Element;
 };
@@ -85,6 +107,13 @@ const classNames = (base: string, extra?: string): string => (extra ? `${base} $
 const DetailPanelHeader = (props: DetailPanelHeaderProps): JSX.Element => (
   <header class={classNames("k2b-detail-panel__header", props.class)}>
     <div class="k2b-detail-panel__header-main">
+      <Show when={props.icon}>
+        {(icon) => (
+          <span class="k2b-detail-panel__header-icon" aria-hidden="true">
+            <i class={icon()} />
+          </span>
+        )}
+      </Show>
       <Show when={props.leading}>
         <div class="k2b-detail-panel__header-leading">{props.leading}</div>
       </Show>
@@ -132,6 +161,22 @@ const DetailPanelSummary = (props: DetailPanelSummaryProps): JSX.Element => {
     </section>
   );
 };
+
+const DetailPanelGroup = (props: DetailPanelGroupProps): JSX.Element => (
+  <div class={classNames("k2b-detail-panel__group", props.class)} role="group" aria-label={props.label}>
+    {props.children}
+  </div>
+);
+
+const DetailPanelSectionIcon = (props: Pick<DetailPanelSectionBaseProps, "icon" | "tone">): JSX.Element => (
+  <Show when={props.icon}>
+    {(icon) => (
+      <span class="k2b-detail-panel__section-icon" data-tone={props.tone ?? "neutral"} aria-hidden="true">
+        <i class={icon()} />
+      </span>
+    )}
+  </Show>
+);
 
 const DetailPanelActionContent = (props: DetailPanelActionBaseProps): JSX.Element => (
   <>
@@ -194,6 +239,7 @@ const DetailPanelSection = (props: DetailPanelSectionProps): JSX.Element => {
       fallback={
         <section class={className()} aria-labelledby={headingId}>
           <header class="k2b-detail-panel__section-header">
+            <DetailPanelSectionIcon icon={props.icon} tone={props.tone} />
             <div class="k2b-detail-panel__section-copy">
               <h3 id={headingId}>{props.title}</h3>
               <Show when={props.description}>
@@ -215,6 +261,7 @@ const DetailPanelSection = (props: DetailPanelSectionProps): JSX.Element => {
     >
       <details class={className()} open={props.defaultOpen}>
         <summary class="k2b-detail-panel__section-summary">
+          <DetailPanelSectionIcon icon={props.icon} tone={props.tone} />
           <span class="k2b-detail-panel__section-copy">
             <span id={headingId} class="k2b-detail-panel__section-title">
               {props.title}
@@ -241,6 +288,7 @@ const DetailPanel = ((props: DetailPanelProps): JSX.Element => (
 DetailPanel.Header = DetailPanelHeader;
 DetailPanel.Body = DetailPanelBody;
 DetailPanel.Summary = DetailPanelSummary;
+DetailPanel.Group = DetailPanelGroup;
 DetailPanel.Section = DetailPanelSection;
 DetailPanel.Action = DetailPanelAction;
 

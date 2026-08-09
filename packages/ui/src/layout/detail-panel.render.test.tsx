@@ -77,6 +77,7 @@ describe("DetailPanel", () => {
   test("keeps the panel and its sections free of card-per-group styling", async () => {
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
     const panelRule = css.match(/\.k2b-ui \.k2b-detail-panel \{([^}]*)\}/)?.[1];
+    const headerRule = css.match(/\.k2b-ui \.k2b-detail-panel__header \{([^}]*)\}/)?.[1];
     const sectionRule = css.match(/\.k2b-ui section\.k2b-detail-panel__section \{([^}]*)\}/)?.[1];
     const summaryRule = css.match(/\.k2b-ui \.k2b-detail-panel__summary \{([^}]*)\}/)?.[1];
     const bodyRule = css.match(/\.k2b-ui \.k2b-detail-panel__body \{([^}]*)\}/)?.[1];
@@ -85,10 +86,66 @@ describe("DetailPanel", () => {
     expect(sectionRule).not.toContain("border");
     expect(sectionRule).not.toContain("background");
     expect(sectionRule).not.toContain("box-shadow");
-    expect(summaryRule).toContain("--k2b-detail-panel-accent");
-    expect(summaryRule).toContain("var(--k2b-surface-muted)");
+    expect(summaryRule).toContain("background: var(--k2b-surface)");
     expect(summaryRule).not.toContain("box-shadow");
+    expect(headerRule).toContain("padding: 0.875rem 0 0.75rem");
     expect(bodyRule).toContain("overflow-y: auto");
+    expect(bodyRule).toContain("padding: 0.5rem 0 1rem");
+  });
+
+  test("groups related sections and keeps semantic section icons color-only", async () => {
+    const html = renderToString(() =>
+      createComponent(DetailPanel, {
+        get children() {
+          return [
+            createComponent(DetailPanel.Header, {
+              icon: "ti ti-notes",
+              title: "Welcome",
+            }),
+            createComponent(DetailPanel.Body, {
+              get children() {
+                return createComponent(DetailPanel.Group, {
+                  label: "Document context",
+                  get children() {
+                    return [
+                      createComponent(DetailPanel.Section, {
+                        title: "Contents",
+                        icon: "ti ti-list-tree",
+                        tone: "accent",
+                        children: "Outline",
+                      }),
+                      createComponent(DetailPanel.Section, {
+                        title: "Versions",
+                        icon: "ti ti-history",
+                        tone: "warning",
+                        meta: "12",
+                        collapsible: true,
+                        children: "History",
+                      }),
+                    ];
+                  },
+                });
+              },
+            }),
+          ];
+        },
+      }),
+    );
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const groupRule = css.match(/\.k2b-ui \.k2b-detail-panel__group \{([^}]*)\}/)?.[1];
+    const groupedSectionRule = css.match(/\.k2b-ui \.k2b-detail-panel__group > \.k2b-detail-panel__section \{([^}]*)\}/)?.[1];
+    const summaryRule = css.match(/\.k2b-ui \.k2b-detail-panel__summary \{([^}]*)\}/)?.[1];
+    const sectionIconRule = css.match(/\.k2b-ui \.k2b-detail-panel__section-icon \{([^}]*)\}/)?.[1];
+
+    expect(html).toContain('class="k2b-detail-panel__header-icon"');
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Document context"');
+    expect(html).toContain('class="k2b-detail-panel__section-icon" data-tone="accent"');
+    expect(html).toContain('class="k2b-detail-panel__section-icon" data-tone="warning"');
+    expect(groupRule).toContain("gap: 1px");
+    expect(groupRule).toContain("border: 1px solid var(--k2b-border)");
+    expect(groupedSectionRule).toContain("background: var(--k2b-surface)");
+    expect(groupedSectionRule?.match(/background: ([^;]+);/)?.[1]).toBe(summaryRule?.match(/background: ([^;]+);/)?.[1]);
+    expect(sectionIconRule).not.toContain("background");
   });
 
   test("renders shared actions with native link and button semantics", () => {

@@ -1,4 +1,4 @@
-import { Button } from "@k2b/ui";
+import { Button, DetailPanel } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import type { ContactTree, ContactTreeNode } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -61,7 +61,7 @@ function ContactOrgTreeNode(props: {
               title={`${props.node.children.length} direct report${props.node.children.length === 1 ? "" : "s"}`}
             >
               {props.node.children.length}
-              <i class="ti ti-users text-[10px]" />
+              <i class="ti ti-users text-[10px]" aria-hidden="true" />
             </span>
           </Show>
         </button>
@@ -90,32 +90,33 @@ function ContactOrgTreeNode(props: {
 
 export default function ContactOrgTreeView(props: Props) {
   return (
-    <div class="flex h-full min-h-0 flex-col" style="view-transition-name: contacts-org-tree-panel">
-      <header class="detail-header">
-        <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <h2 class="truncate text-lg font-semibold leading-tight text-primary">Org Tree</h2>
-            <p class="mt-1 text-xs text-dimmed">Hierarchy of this contact.</p>
-          </div>
+    <DetailPanel>
+      <DetailPanel.Header
+        icon="ti ti-hierarchy"
+        title="Org tree"
+        subtitle="Hierarchy of this contact"
+        actions={
           <Button type="button" variant="secondary" size="sm" onClick={props.onBack}>
-            <i class="ti ti-arrow-left" /> Details
+            <i class="ti ti-arrow-left" aria-hidden="true" /> Details
           </Button>
-        </div>
-      </header>
-      <div class="detail-stack">
-        <section class="detail-section">
-          <ul class="flex flex-col gap-1">
-            <ContactOrgTreeNode
-              node={props.tree.root}
-              selectedId={props.tree.selectedId}
-              depth={0}
-              isFirst={true}
-              isLast={true}
-              onSelect={props.onSelect}
-            />
-          </ul>
-        </section>
-      </div>
-    </div>
+        }
+      />
+      <DetailPanel.Body scrollPreserveKey="contacts-org-tree">
+        <DetailPanel.Group label="Organization context">
+          <DetailPanel.Section title="Hierarchy" icon="ti ti-sitemap" tone="accent">
+            <ul class="flex flex-col gap-1">
+              <ContactOrgTreeNode
+                node={props.tree.root}
+                selectedId={props.tree.selectedId}
+                depth={0}
+                isFirst={true}
+                isLast={true}
+                onSelect={props.onSelect}
+              />
+            </ul>
+          </DetailPanel.Section>
+        </DetailPanel.Group>
+      </DetailPanel.Body>
+    </DetailPanel>
   );
 }

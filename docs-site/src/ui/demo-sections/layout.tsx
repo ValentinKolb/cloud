@@ -7,8 +7,11 @@ import {
   DataPanel,
   DescriptionList,
   DetailPanel,
+  Discussion,
   FloatingWindow,
   IconButton,
+  MarkdownEditor,
+  MarkdownView,
   Pagination,
   PanelDialog,
   PanelHeader,
@@ -460,6 +463,150 @@ const PanelDemo = () => {
   );
 };
 
+const DiscussionProposalDemo = () => {
+  const [composerOpen, setComposerOpen] = createSignal(false);
+  const [draft, setDraft] = createSignal("");
+
+  const closeComposer = () => {
+    setDraft("");
+    setComposerOpen(false);
+  };
+
+  return (
+    <DemoCard
+      id="discussion-proposal"
+      chip={{ kind: "component", name: "Discussion", from: "@k2b/ui" }}
+      description="A shared notes/comments rhythm without shared domain behavior: compact authorship, optional reply context, progressive item actions, and a small Markdown composer that expands only when needed."
+      code={`const [draft, setDraft] = createSignal("");
+
+<Discussion label="Notes" count={3}>
+  <Discussion.Composer
+    onSubmit={postNote}
+    actions={<><Button>Cancel</Button><Button>Post note</Button></>}
+  >
+    <MarkdownEditor value={draft()} onValueChange={setDraft} noToolbar showStats={false} />
+  </Discussion.Composer>
+  <Discussion.List>
+    <Discussion.Item
+      author="Mara Klein"
+      avatar={<Avatar name="Mara Klein" size="xs" />}
+      timestamp={<time dateTime="2026-08-09T15:42:00Z">18 min ago</time>}
+      actions={<IconButton label="Note actions">…</IconButton>}
+    >
+      <MarkdownView markdown="Purchase order requested from the customer." />
+    </Discussion.Item>
+    <Discussion.Item author="Valentin Kolb" timestamp={…} replyContext="Reply to Mara Klein">
+      <MarkdownView markdown="I will follow up before the payment deadline." />
+    </Discussion.Item>
+  </Discussion.List>
+</Discussion>`}
+    >
+      <div class="ui-discussion-proposal">
+        <Discussion
+          label="Notes"
+          icon="ti ti-note"
+          count="3 notes"
+          actions={
+            <Show when={!composerOpen()}>
+              <Button variant="ghost" size="xs" onClick={() => setComposerOpen(true)}>
+                <i class="ti ti-plus" aria-hidden="true" /> Add note
+              </Button>
+            </Show>
+          }
+        >
+          <Show when={composerOpen()}>
+            <Discussion.Composer
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!draft().trim()) return;
+                closeComposer();
+              }}
+              actions={
+                <>
+                  <Button type="button" variant="ghost" size="xs" onClick={closeComposer}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="xs" disabled={!draft().trim()}>
+                    <i class="ti ti-send" aria-hidden="true" /> Post note
+                  </Button>
+                </>
+              }
+            >
+              <MarkdownEditor
+                value={draft}
+                onValueChange={setDraft}
+                onSubmit={() => {
+                  if (draft().trim()) closeComposer();
+                }}
+                aria-label="Add internal note"
+                placeholder="Add context for everyone with access…"
+                lines={3}
+                noToolbar
+                showStats={false}
+              />
+            </Discussion.Composer>
+          </Show>
+
+          <Discussion.List>
+            <Discussion.Item
+              avatar={<Avatar name="Mara Klein" size="xs" />}
+              author="Mara Klein"
+              timestamp={<time dateTime="2026-08-09T15:42:00Z">18 min ago</time>}
+              actions={
+                <>
+                  <IconButton variant="ghost" size="xs" label="Reply to Mara Klein">
+                    <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                  </IconButton>
+                  <IconButton variant="ghost" size="xs" label="Mara Klein note actions">
+                    <i class="ti ti-dots" aria-hidden="true" />
+                  </IconButton>
+                </>
+              }
+            >
+              <MarkdownView
+                markdown="Purchase order requested from the customer. I added the reference to the invoice record."
+                smallHeadings
+              />
+            </Discussion.Item>
+
+            <Discussion.Item
+              avatar={<Avatar name="Valentin Kolb" size="xs" />}
+              author="Valentin Kolb"
+              timestamp={<time dateTime="2026-08-09T15:56:00Z">4 min ago</time>}
+              meta="edited"
+              actions={
+                <IconButton variant="ghost" size="xs" label="Valentin Kolb note actions">
+                  <i class="ti ti-dots" aria-hidden="true" />
+                </IconButton>
+              }
+              replyContext={
+                <>
+                  <i class="ti ti-arrow-back-up" aria-hidden="true" /> Reply to Mara Klein
+                </>
+              }
+            >
+              <MarkdownView markdown="I will follow up before the payment deadline." smallHeadings />
+            </Discussion.Item>
+
+            <Discussion.Item
+              avatar={<Avatar name="Alex Smith" size="xs" />}
+              author="Alex Smith"
+              timestamp={<time dateTime="2026-08-09T15:58:00Z">2 min ago</time>}
+              actions={
+                <IconButton variant="ghost" size="xs" label="Alex Smith note actions">
+                  <i class="ti ti-dots" aria-hidden="true" />
+                </IconButton>
+              }
+            >
+              <MarkdownView markdown="The customer confirmed that the billing address is correct." smallHeadings />
+            </Discussion.Item>
+          </Discussion.List>
+        </Discussion>
+      </div>
+    </DemoCard>
+  );
+};
+
 const DetailPanelDemo = () => {
   const [assignee, setAssignee] = createSignal("valentin");
   const [status, setStatus] = createSignal("needs-action");
@@ -863,17 +1010,13 @@ const DetailPanelGroupedDemo = () => {
         { kind: "component", name: "DescriptionList", from: "@k2b/ui" },
       ]}
       description="Entity groups merge related sections into one surface. A group-owned 1px gap separates its subsections, while app accent and semantic tones give identity, status, and outcomes distinct visual roles."
-      code={`<div class="ui-detail-panel-grouped__group" role="group" aria-label="Customer context">
-  <section class="ui-detail-panel-grouped__section" aria-labelledby="company-title">
-    <header>
-      <span class="ui-detail-panel-grouped__icon" data-tone="accent">…</span>
-      <h3 id="company-title">Company</h3>
-    </header>
+      code={`<DetailPanel.Group label="Customer context">
+  <DetailPanel.Section title="Company" icon="ti ti-building" tone="accent">
     <DescriptionList layout="rows" size="sm" items={companyItems} />
-  </section>
-  <section class="ui-detail-panel-grouped__section" aria-labelledby="contact-title">…</section>
-  <section class="ui-detail-panel-grouped__section" aria-labelledby="threads-title">…</section>
-</div>`}
+  </DetailPanel.Section>
+  <DetailPanel.Section title="Contact" icon="ti ti-user" tone="warning">…</DetailPanel.Section>
+  <DetailPanel.Section title="Recent threads" icon="ti ti-history" tone="success">…</DetailPanel.Section>
+</DetailPanel.Group>`}
     >
       <div class="ui-detail-panel-patterns">
         <article class="ui-detail-panel-pattern">
@@ -893,14 +1036,8 @@ const DetailPanelGroupedDemo = () => {
                 }
               />
               <DetailPanel.Body>
-                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Request context">
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-workflow">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="accent" aria-hidden="true">
-                        <i class="ti ti-route" />
-                      </span>
-                      <h3 id="grouped-request-workflow">Workflow</h3>
-                    </header>
+                <DetailPanel.Group label="Request context">
+                  <DetailPanel.Section title="Workflow" icon="ti ti-route" tone="accent">
                     <DescriptionList
                       layout="rows"
                       size="sm"
@@ -940,16 +1077,9 @@ const DetailPanelGroupedDemo = () => {
                         { term: "Thread tier", description: "Growth" },
                       ]}
                     />
-                  </section>
+                  </DetailPanel.Section>
 
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-links">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="neutral" aria-hidden="true">
-                        <i class="ti ti-link" />
-                      </span>
-                      <h3 id="grouped-request-links">Links</h3>
-                      <span class="ui-detail-panel-grouped__meta">0</span>
-                    </header>
+                  <DetailPanel.Section title="Links" icon="ti ti-link" tone="neutral" meta="0">
                     <div class="ui-detail-panel-grouped__empty-actions">
                       <Button variant="ghost" size="xs">
                         <i class="ti ti-message-circle" aria-hidden="true" /> Discussions
@@ -958,20 +1088,20 @@ const DetailPanelGroupedDemo = () => {
                         <i class="ti ti-link-plus" aria-hidden="true" /> Thread links
                       </Button>
                     </div>
-                  </section>
-                </div>
+                  </DetailPanel.Section>
+                </DetailPanel.Group>
 
-                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Customer context">
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-company">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="accent" aria-hidden="true">
-                        <i class="ti ti-building" />
-                      </span>
-                      <h3 id="grouped-request-company">content-mobbin</h3>
+                <DetailPanel.Group label="Customer context">
+                  <DetailPanel.Section
+                    title="content-mobbin"
+                    icon="ti ti-building"
+                    tone="accent"
+                    actions={
                       <IconButton variant="ghost" size="xs" label="Company actions">
                         <i class="ti ti-dots" aria-hidden="true" />
                       </IconButton>
-                    </header>
+                    }
+                  >
                     <DescriptionList
                       layout="rows"
                       size="sm"
@@ -981,18 +1111,18 @@ const DetailPanelGroupedDemo = () => {
                         { term: "Domain", description: "content-mobbin.com" },
                       ]}
                     />
-                  </section>
+                  </DetailPanel.Section>
 
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-contact">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="warning" aria-hidden="true">
-                        <i class="ti ti-user" />
-                      </span>
-                      <h3 id="grouped-request-contact">alexsmith</h3>
+                  <DetailPanel.Section
+                    title="alexsmith"
+                    icon="ti ti-user"
+                    tone="warning"
+                    actions={
                       <IconButton variant="ghost" size="xs" label="Contact actions">
                         <i class="ti ti-dots" aria-hidden="true" />
                       </IconButton>
-                    </header>
+                    }
+                  >
                     <DescriptionList
                       layout="rows"
                       size="sm"
@@ -1001,15 +1131,9 @@ const DetailPanelGroupedDemo = () => {
                         { term: "Groups", description: "Not assigned" },
                       ]}
                     />
-                  </section>
+                  </DetailPanel.Section>
 
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-threads">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="success" aria-hidden="true">
-                        <i class="ti ti-history" />
-                      </span>
-                      <h3 id="grouped-request-threads">Recent threads</h3>
-                    </header>
+                  <DetailPanel.Section title="Recent threads" icon="ti ti-history" tone="success">
                     <div class="ui-detail-panel-grouped__threads">
                       {[
                         ["Bug report", "1h ago"],
@@ -1023,22 +1147,21 @@ const DetailPanelGroupedDemo = () => {
                         </button>
                       ))}
                     </div>
-                  </section>
-                </div>
+                  </DetailPanel.Section>
+                </DetailPanel.Group>
 
-                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Subscription context">
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-subscription">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="danger" aria-hidden="true">
-                        <i class="ti ti-alert-triangle" />
-                      </span>
-                      <h3 id="grouped-request-subscription">Subscription plan details</h3>
+                <DetailPanel.Group label="Subscription context">
+                  <DetailPanel.Section
+                    title="Subscription plan details"
+                    icon="ti ti-alert-triangle"
+                    tone="danger"
+                    actions={
                       <IconButton variant="ghost" size="xs" label="Retry subscription sync">
                         <i class="ti ti-refresh" aria-hidden="true" />
                       </IconButton>
-                    </header>
-                  </section>
-                </div>
+                    }
+                  />
+                </DetailPanel.Group>
               </DetailPanel.Body>
             </DetailPanel>
           </div>
@@ -1052,11 +1175,7 @@ const DetailPanelGroupedDemo = () => {
           <div class="ui-detail-panel-pattern__frame">
             <DetailPanel class="ui-detail-panel-grouped">
               <DetailPanel.Header
-                leading={
-                  <span class="ui-detail-panel-grouped__hero-icon" aria-hidden="true">
-                    <i class="ti ti-notes" />
-                  </span>
-                }
+                icon="ti ti-notes"
                 title="Welcome!"
                 subtitle="Collaborative note"
                 primaryActions={
@@ -1079,14 +1198,8 @@ const DetailPanelGroupedDemo = () => {
                 }
               />
               <DetailPanel.Body>
-                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Document context">
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-contents">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="accent" aria-hidden="true">
-                        <i class="ti ti-list-tree" />
-                      </span>
-                      <h3 id="grouped-note-contents">Contents</h3>
-                    </header>
+                <DetailPanel.Group label="Document context">
+                  <DetailPanel.Section title="Contents" icon="ti ti-list-tree" tone="accent">
                     <ol class="ui-detail-panel-grouped__contents">
                       {[
                         ["H1", "Welcome!"],
@@ -1103,30 +1216,18 @@ const DetailPanelGroupedDemo = () => {
                         </li>
                       ))}
                     </ol>
-                  </section>
-                </div>
+                  </DetailPanel.Section>
+                </DetailPanel.Group>
 
-                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Collaboration context">
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-online">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="success" aria-hidden="true">
-                        <i class="ti ti-users" />
-                      </span>
-                      <h3 id="grouped-note-online">Online · 1</h3>
-                    </header>
+                <DetailPanel.Group label="Collaboration context">
+                  <DetailPanel.Section title="Online · 1" icon="ti ti-users" tone="success">
                     <div class="ui-detail-panel-grouped__person">
                       <Avatar name="Valentin Kolb" size="xs" />
                       <span>Valentin Kolb</span>
                     </div>
-                  </section>
+                  </DetailPanel.Section>
 
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-info">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="neutral" aria-hidden="true">
-                        <i class="ti ti-info-circle" />
-                      </span>
-                      <h3 id="grouped-note-info">Info</h3>
-                    </header>
+                  <DetailPanel.Section title="Info" icon="ti ti-info-circle" tone="neutral">
                     <DescriptionList
                       layout="rows"
                       size="sm"
@@ -1135,18 +1236,10 @@ const DetailPanelGroupedDemo = () => {
                         { term: "Updated", description: "07 Jul 2026" },
                       ]}
                     />
-                  </section>
+                  </DetailPanel.Section>
 
-                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-versions">
-                    <header>
-                      <span class="ui-detail-panel-grouped__icon" data-tone="warning" aria-hidden="true">
-                        <i class="ti ti-history" />
-                      </span>
-                      <h3 id="grouped-note-versions">Versions</h3>
-                      <span class="ui-detail-panel-grouped__meta">12</span>
-                    </header>
-                  </section>
-                </div>
+                  <DetailPanel.Section title="Versions" icon="ti ti-history" tone="warning" meta="12" />
+                </DetailPanel.Group>
               </DetailPanel.Body>
             </DetailPanel>
           </div>
@@ -1874,11 +1967,17 @@ const demos: DemoSection = {
   ),
   "detail-panel": () => (
     <DemoGrid columns="one">
+      <DiscussionProposalDemo />
       <DetailPanelGroupedDemo />
       <DetailPanelCompactCardsDemo />
       <DetailPanelPatternsDemo />
       <DetailPanelDemo />
       <DetailPanelRecordDemo />
+    </DemoGrid>
+  ),
+  discussion: () => (
+    <DemoGrid columns="one">
+      <DiscussionProposalDemo />
     </DemoGrid>
   ),
   "floating-window": () => (

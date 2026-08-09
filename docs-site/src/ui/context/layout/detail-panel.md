@@ -17,34 +17,48 @@ closing, sizing, and persistence. The application owns data, permissions,
 mutations, and which sections are present.
 
 `DetailPanel.Header` keeps identity and actions in one compact region. Pass
-`leading` for an avatar or icon, `actions` for compact utilities such as more
-and close, and `primaryActions` for the small set of prominent commands below
-the identity row. Optional metadata sits beside the subtitle instead of
-competing with the title.
+`icon` for the standard accent-tinted identity tile or `leading` for an avatar
+or another custom identity; they are mutually exclusive. Pass `actions` for
+compact utilities such as more and close, and `primaryActions` for the small
+set of prominent commands below the identity row. Optional metadata sits
+beside the subtitle instead of competing with the title.
 `DetailPanel.Body` is the single scrolling element and accepts a
 `scrollPreserveKey`. Do not add a second full-height scroller inside it.
 
 Use `DetailPanel.Summary` once, directly below the header, when the selected
-item has a primary set of facts or controls. It is the panel's one quiet
-surface; do not repeat it for every group.
+item has a primary set of facts or controls. Summary and grouped sections share
+the same normal surface, while their structure still distinguishes the
+primary overview from related context. Do not repeat the summary for every
+group.
 
 The panel uses `--k2b-detail-panel-accent` for restrained identity and action
 accents, with the portable UI accent as its fallback. A host may map that hook
 to its own theme token; `DetailPanel` does not know how the host derives it.
 
-`DetailPanel.Section` is deliberately flat. It groups content through spacing
-and a sentence-case title, not a card, divider, or decorative background. Pass
-`description` for short supporting context, `meta` for a count or state, and
-`actions` for a normal section. A normal section may omit its body to represent
-a compact, actionable empty group. Set `collapsible` for secondary content; a
-collapsible section uses native `details` behavior and therefore does not
-accept header actions.
+`DetailPanel.Section` is deliberately flat by default. It groups content
+through spacing and a sentence-case title, not a card, divider, or decorative
+background. Pass `icon` for a fixed section icon slot and `tone` to distinguish
+portable `accent`, `neutral`, `success`, `warning`, or `danger` roles through
+text color only. Pass `description` for short supporting context, `meta` for a
+count or state, and `actions` for a normal section. A normal section may omit
+its body to represent a compact, actionable empty group. Set `collapsible` for
+secondary content; a collapsible section uses native `details` behavior and
+therefore does not accept header actions.
+
+Use `DetailPanel.Group` when one or more sections form one stable context, such
+as a company and its contacts or a document and its derived metadata. Merge
+adjacent sections when they belong to that same context. The group owns the
+same normal surface as the summary and the one-pixel gaps between its sections;
+sections outside a group stay flat. Pass `label` when the shared context benefits from an
+accessible group name. Do not wrap every standalone section or manufacture
+groups only for decoration.
 
 Sections accept arbitrary content. Use `DescriptionList layout="rows"` for
 compact properties, normal shared inputs for a full form inspector, and the
 appropriate shared list, table, notice, preview, or editor for specialized
-content. Do not add domain variants such as `record`, `mail`, or `workflow` to
-`DetailPanel`.
+content. Use [`Discussion`](/en/ui/layout/discussion) directly in the body when
+notes or comments need their own labelled composer and author timeline. Do not
+add domain variants such as `record`, `mail`, or `workflow` to `DetailPanel`.
 
 Use `DetailPanel.Action` for a full-width destination or command such as a
 related record, attachment, or in-panel jump. Pass `href` for native link
@@ -56,6 +70,8 @@ fields.
 ## Accessibility
 
 The header title is an `h2`; normal section titles are labelled `h3` headings.
+Decorative header and section icons are hidden from assistive technology, so
+their adjacent text remains the label and color is never the only signal.
 Collapsible sections use a native `summary` with a visible focus indicator.
 Every icon-only action and every control embedded in a description value still
 needs its own accessible name. `DetailPanel.Action` keeps its visible title as
@@ -72,7 +88,7 @@ JavaScript. Interactive children keep their own hydration and state contracts.
 <AppWorkspace.Detail id="item" open={selectedId() !== null} width="md">
   <DetailPanel>
     <DetailPanel.Header
-      leading={<Avatar name="Studio shelf" size="sm" />}
+      icon="ti ti-building-warehouse"
       title="Studio shelf"
       subtitle="Locations · version 2"
       primaryActions={<Toolbar label="Location actions"><Button size="xs">Edit</Button></Toolbar>}
@@ -96,15 +112,18 @@ JavaScript. Interactive children keep their own hydration and state contracts.
         description="Keep decisions with this location"
         actions={<Button variant="ghost" size="xs">Add note</Button>}
       />
-      <DetailPanel.Section title="Related records">
-        <DetailPanel.Action
-          href="/app/grids/locations/records/st-02"
-          leading={<i class="ti ti-building-warehouse" aria-hidden="true" />}
-          title="Studio"
-          description="Room · ST-02"
-          trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-        />
-      </DetailPanel.Section>
+      <DetailPanel.Group label="Inventory context">
+        <DetailPanel.Section title="Related records" icon="ti ti-link" tone="accent">
+          <DetailPanel.Action
+            href="/app/grids/locations/records/st-02"
+            leading={<i class="ti ti-building-warehouse" aria-hidden="true" />}
+            title="Studio"
+            description="Room · ST-02"
+            trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+          />
+        </DetailPanel.Section>
+        <DetailPanel.Section title="Attachments" icon="ti ti-paperclip" tone="neutral" meta="2" />
+      </DetailPanel.Group>
       <DetailPanel.Section title="History" collapsible>
         …
       </DetailPanel.Section>

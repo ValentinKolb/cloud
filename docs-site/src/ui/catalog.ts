@@ -74,10 +74,20 @@ const portableSections = [
       page("slider", "Slider", "ti ti-adjustments-horizontal", "Range input with value labels and optional centered scale."),
       page("icon", "IconInput", "ti ti-icons", "Searchable controlled icon selection."),
       page("image", "ImageInput", "ti ti-photo", "Controlled image selection, preview, transform, and removal."),
-      page("image-cropper", "ImageCropper", "ti ti-crop", "Direct-manipulation crop, resize, and rotation with free or fixed aspect ratios."),
+      page(
+        "image-cropper",
+        "ImageCropper",
+        "ti ti-crop",
+        "Direct-manipulation crop, resize, and rotation with free or fixed aspect ratios.",
+      ),
       page("file-dropzone", "FileDropzone", "ti ti-cloud-upload", "Accessible click and drag file selection with validation state."),
       page("markdown-editor", "MarkdownEditor", "ti ti-markdown", "Standalone controlled Markdown editing with native textarea behavior."),
-      page("autocomplete", "AutocompleteEditor", "ti ti-sparkles", "Completion-aware editing for mentions, formulas, and custom suggestions."),
+      page(
+        "autocomplete",
+        "AutocompleteEditor",
+        "ti ti-sparkles",
+        "Completion-aware editing for mentions, formulas, and custom suggestions.",
+      ),
     ],
   },
   {
@@ -101,8 +111,24 @@ const portableSections = [
     title: "Layout",
     icon: "ti ti-layout",
     pages: [
-      page("workspace", "AppWorkspace", "ti ti-layout-sidebar", "Responsive application frame with navigation, work, detail, and drawer regions."),
-      page("detail-panel", "DetailPanel", "ti ti-layout-sidebar-right", "Quiet contextual inspectors with compact identity, flat sections, and one scroll owner."),
+      page(
+        "workspace",
+        "AppWorkspace",
+        "ti ti-layout-sidebar",
+        "Responsive application frame with navigation, work, detail, and drawer regions.",
+      ),
+      page(
+        "detail-panel",
+        "DetailPanel",
+        "ti ti-layout-sidebar-right",
+        "Quiet contextual inspectors with compact identity, flat sections, and one scroll owner.",
+      ),
+      page(
+        "discussion",
+        "Discussion",
+        "ti ti-messages",
+        "Portable notes and comments with compact authorship, Markdown composition, and progressive actions.",
+      ),
       page("panes", "Panes", "ti ti-columns", "Controlled serializable tabs and nested split layouts."),
       page("overview", "AppOverview", "ti ti-home", "Application landing page with primary and supporting panels."),
       page("settings-modal", "Settings", "ti ti-settings", "Accessible settings tabs, fields, and save state."),
@@ -121,7 +147,12 @@ const portableSections = [
       page("details", "Description list", "ti ti-list-details", "Semantic responsive key-value details with optional actions."),
       page("progress", "Progress", "ti ti-progress", "Determinate progress in compact sizes and semantic tones."),
       page("stats", "Statistics", "ti ti-chart-bar", "Labeled values, context, accents, trends, and grids."),
-      page("observability", "Operational surfaces", "ti ti-activity", "Panel headers, data panels, notices, ranges, and status vocabulary."),
+      page(
+        "observability",
+        "Operational surfaces",
+        "ti ti-activity",
+        "Panel headers, data panels, notices, ranges, and status vocabulary.",
+      ),
     ],
   },
   {
@@ -222,19 +253,15 @@ const entry = (
 };
 
 const portableEntries = portableSections.flatMap((section, sectionIndex) =>
-  section.pages.map((page, pageIndex) =>
-    entry(section.id, section.title, page, (sectionIndex + 1) * 100 + pageIndex, "portable"),
-  ),
+  section.pages.map((page, pageIndex) => entry(section.id, section.title, page, (sectionIndex + 1) * 100 + pageIndex, "portable")),
 );
 
-const cloudEntries = cloudPages.map((page, pageIndex) =>
-  entry("cloud", "Cloud components", page, 1_000 + pageIndex, "cloud"),
-);
+const cloudEntries = cloudPages.map((page, pageIndex) => entry("cloud", "Cloud components", page, 1_000 + pageIndex, "cloud"));
 
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 98;
+export const portableUiComponentCount = 99;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({

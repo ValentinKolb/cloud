@@ -156,7 +156,7 @@ export default ssr<AuthContext>(async (c) => {
           </AppWorkspace.Detail>
         </AppWorkspace.Content>
       </AppWorkspace>
-      <DesktopDetailLayoutSync detailContainerId="contacts-detail-panel" />
+      <DesktopDetailLayoutSync detailPanelId="contacts-detail-panel" />
     </Layout>
   );
 });
