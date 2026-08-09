@@ -163,6 +163,24 @@ const sourceTargetSchema = z.object({
   expectedRemoteState: remoteMessagePreconditionSchema.optional(),
 });
 
+const hasEarlierActiveMessageMutation = async (commandId: string): Promise<boolean> => {
+  const [predecessor] = await sql<{ id: string }[]>`
+    SELECT predecessor.id
+    FROM mail.commands current_command
+    JOIN mail.commands predecessor
+      ON predecessor.mailbox_id = current_command.mailbox_id
+     AND predecessor.id <> current_command.id
+     AND predecessor.kind IN ('set_flags', 'change_message_state', 'move', 'copy', 'delete')
+     AND predecessor.state IN ('queued', 'executing', 'ambiguous')
+     AND predecessor.target->>'remoteMessageRefId' = current_command.target->>'remoteMessageRefId'
+     AND (predecessor.created_at, predecessor.id) < (current_command.created_at, current_command.id)
+    WHERE current_command.id = ${commandId}::uuid
+      AND current_command.target ? 'remoteMessageRefId'
+    LIMIT 1
+  `;
+  return Boolean(predecessor);
+};
+
 const loadRemoteMessage = async (command: DbCommandExecution, target: z.infer<typeof sourceTargetSchema>): Promise<DbRemoteMessage> => {
   const folderId = target.folderId ?? target.sourceFolderId;
   if (!folderId) throw Object.assign(new Error("Command source folder is missing"), { code: "INVALID_COMMAND_TARGET" });
@@ -1530,6 +1548,10 @@ const runMessageMutation = async (
   claimed: { command: DbCommandExecution; previousState: string },
   assertJobLeaseActive: LeaseAssertion,
 ): Promise<void> => {
+  if (await hasEarlierActiveMessageMutation(claimed.command.id)) {
+    await requeueCommand(claimed.command, "MESSAGE_MUTATION_PREDECESSOR_ACTIVE", "An earlier change to this message is still pending");
+    return;
+  }
   const binding = await loadPinnedBinding(claimed.command);
   const lock = await mailProviderOperationMutex.acquire(binding.remote_resource_id, MAIL_PROVIDER_OPERATION_LEASE_MS);
   if (!lock) {

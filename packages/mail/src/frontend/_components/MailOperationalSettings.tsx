@@ -311,7 +311,7 @@ export default function MailOperationalSettings(props: {
         </div>
       </section>
 
-      <div class="flex flex-wrap gap-x-5 gap-y-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] px-3 py-2.5 text-xs text-secondary">
+      <div class="flex flex-wrap gap-x-5 gap-y-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2.5 text-xs text-secondary">
         <span class="flex items-center gap-1.5">
           <i class="ti ti-server app-accent-text" aria-hidden="true" />
           {healthSummary().accounts}

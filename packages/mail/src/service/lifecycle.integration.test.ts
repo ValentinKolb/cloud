@@ -2387,6 +2387,115 @@ suite("mail lifecycle control plane", () => {
     }
   }, 15_000);
 
+  test("opposing message mutations execute in accepted order when the later worker starts first", async () => {
+    const [message] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<ordered-state-${suffix}@example.com>`},
+        'Ordered state mutation',
+        now(),
+        1,
+        ${sha256Json({ fixture: "ordered-state", suffix })},
+        'complete'
+      ) RETURNING id
+    `;
+    const [remoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${inboxFolderId}::uuid, ${message!.id}::uuid, 10, 777778)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+      VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid)
+    `;
+
+    const createStateCommand = (change: { addFlags: ("answered" | "flagged")[]; removeFlags: ("answered" | "flagged")[] }, key: string) =>
+      createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "change_message_state",
+          remoteMessageRefId: remoteRef!.id,
+          folderId: inboxFolderId,
+          change: { ...change, addKeywords: [], removeKeywords: [] },
+          idempotencyKey: key,
+        },
+      });
+    const first = await createStateCommand({ addFlags: ["flagged"], removeFlags: [] }, `ordered-state-add-${suffix}`);
+    const second = await createStateCommand({ addFlags: [], removeFlags: ["flagged"] }, `ordered-state-remove-${suffix}`);
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    await sql`
+      UPDATE mail.commands
+      SET created_at = CASE
+        WHEN id = ${first.data.id}::uuid THEN now() - interval '1 second'
+        ELSE now()
+      END
+      WHERE id IN (${first.data.id}::uuid, ${second.data.id}::uuid)
+    `;
+
+    let providerFlags: string[] = [];
+    const changes: { addFlags: string[]; removeFlags: string[] }[] = [];
+    const providerState = spyOn(imapSmtpConnector, "getMessageState").mockImplementation(async () => ({
+      exists: true,
+      flags: providerFlags,
+      keywords: [],
+      messageId: `<ordered-state-${suffix}@example.com>`,
+      modseq: "1",
+    }));
+    const changeState = spyOn(imapSmtpConnector, "changeMessageState").mockImplementation(async (_runtime, _target, change) => {
+      changes.push({ addFlags: change.addFlags, removeFlags: change.removeFlags });
+      providerFlags = providerFlags.filter((flag) => !change.removeFlags.includes(flag));
+      providerFlags = [...new Set([...providerFlags, ...change.addFlags])];
+      return {
+        exists: true,
+        flags: providerFlags,
+        keywords: [],
+        messageId: `<ordered-state-${suffix}@example.com>`,
+        modseq: String(changes.length + 1),
+      };
+    });
+    try {
+      expect(await executeMutationCommand(second.data.id)).toBe("queued");
+      expect(changes).toEqual([]);
+      const [waiting] = await sql<{ last_error_code: string | null }[]>`
+        SELECT last_error_code FROM mail.commands WHERE id = ${second.data.id}::uuid
+      `;
+      expect(waiting?.last_error_code).toBe("MESSAGE_MUTATION_PREDECESSOR_ACTIVE");
+
+      expect(await executeMutationCommand(first.data.id)).toBe("confirmed");
+      expect(await executeMutationCommand(second.data.id)).toBe("confirmed");
+      expect(changes).toEqual([
+        { addFlags: ["\\Flagged"], removeFlags: [] },
+        { addFlags: [], removeFlags: ["\\Flagged"] },
+      ]);
+      const [placement] = await sql<{ flags: string[] }[]>`
+        SELECT flags FROM mail.message_placements WHERE remote_message_ref_id = ${remoteRef!.id}::uuid
+      `;
+      expect(placement?.flags).toEqual([]);
+
+      const failed = await createStateCommand({ addFlags: ["answered"], removeFlags: [] }, `ordered-state-failed-${suffix}`);
+      const afterFailure = await createStateCommand({ addFlags: [], removeFlags: ["answered"] }, `ordered-state-after-failure-${suffix}`);
+      expect(failed.ok).toBe(true);
+      expect(afterFailure.ok).toBe(true);
+      if (!failed.ok || !afterFailure.ok) return;
+      await sql`
+        UPDATE mail.commands
+        SET state = 'failed', created_at = now() - interval '1 second', finished_at = now(), updated_at = now()
+        WHERE id = ${failed.data.id}::uuid
+      `;
+      expect(await executeMutationCommand(afterFailure.data.id)).toBe("confirmed");
+      expect(changes.at(-1)).toEqual({ addFlags: [], removeFlags: ["\\Answered"] });
+    } finally {
+      changeState.mockRestore();
+      providerState.mockRestore();
+    }
+  });
+
   test("real command and hydration completion wake kernel dependencies before their deadlines", async () => {
     const [dependencyFolder] = await sql<{ id: string }[]>`
       SELECT folder.id
