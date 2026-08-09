@@ -5,7 +5,7 @@ export type IpaIdentity = {
 
 export const readCompleteIpaList = (params: {
   response: {
-    result: { result: unknown; truncated?: unknown } | null;
+    result: { result?: unknown; truncated?: unknown } | null;
     error: { message: string } | null;
   };
   entity: string;

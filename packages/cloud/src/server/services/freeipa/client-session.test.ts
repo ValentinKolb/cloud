@@ -82,6 +82,23 @@ describe("FreeIPA login failure mapping", () => {
     await expect(getServiceSession({ url: host, serviceUser: "svc", servicePassword: "new" })).resolves.toBe("new");
     expect(loginPasswords).toEqual(["old", "new"]);
   });
+
+  test("reuses the cached service session after FreeIPA ping", async () => {
+    let loginCount = 0;
+    let pingCount = 0;
+    const host = startServer((request) => {
+      if (new URL(request.url).pathname.endsWith("/login_password")) {
+        loginCount += 1;
+        return new Response("", { headers: { "Set-Cookie": "ipa_session=session; Secure; HttpOnly" } });
+      }
+      pingCount += 1;
+      return Response.json({ result: { summary: "IPA server is running" }, error: null, id: 0 });
+    });
+
+    await expect(getServiceSession({ url: host, serviceUser: "svc", servicePassword: "secret" })).resolves.toBe("session");
+    await expect(getServiceSession({ url: host, serviceUser: "svc", servicePassword: "secret" })).resolves.toBe("session");
+    expect({ loginCount, pingCount }).toEqual({ loginCount: 1, pingCount: 1 });
+  });
 });
 
 describe("FreeIPA RPC response validation", () => {
@@ -113,6 +130,17 @@ describe("FreeIPA RPC response validation", () => {
     await expect(call({ url: host, ipaSession: "session", method: "ping" })).rejects.toMatchObject({
       name: "FreeIpaTransportError",
       kind: "invalid_response",
+    });
+    responseBody = '{"result":[],"error":null,"id":0}';
+    await expect(call({ url: host, ipaSession: "session", method: "ping" })).rejects.toMatchObject({
+      name: "FreeIpaTransportError",
+      kind: "invalid_response",
+    });
+    responseBody = '{"result":{"summary":"IPA server is running"},"error":null,"id":0}';
+    await expect(call({ url: host, ipaSession: "session", method: "ping" })).resolves.toMatchObject({
+      result: { summary: "IPA server is running" },
+      error: null,
+      id: 0,
     });
     responseBody = "null";
     await expect(call({ url: host, ipaSession: "session", method: "ping" })).rejects.toMatchObject({

@@ -2,10 +2,10 @@ import { getFreeIpaTls } from "./tls";
 import { FreeIpaTransportError, isFreeIpaUpstreamStatus, readFreeIpaErrorBody, withFreeIpaResponse } from "./transport";
 
 export type IpaRpcResult = {
-  result: unknown;
-  count: number;
-  truncated: boolean;
-  summary: string | null;
+  result?: unknown;
+  count?: number;
+  truncated?: boolean;
+  summary?: string | null;
 };
 
 export type IpaRpcResponse = {
@@ -98,8 +98,7 @@ export const call = async (config: {
         typeof response.id !== "number" ||
         !Number.isFinite(response.id) ||
         (response.result === null) === (response.error === null) ||
-        (response.result !== null &&
-          (typeof response.result !== "object" || response.result === null || !Object.hasOwn(response.result, "result"))) ||
+        (response.result !== null && (typeof response.result !== "object" || response.result === null || Array.isArray(response.result))) ||
         (response.error !== null &&
           response.error !== undefined &&
           (typeof response.error !== "object" ||
