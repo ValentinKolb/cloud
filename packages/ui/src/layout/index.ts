@@ -32,6 +32,7 @@ export type {
   DetailPanelHeaderProps,
   DetailPanelProps,
   DetailPanelSectionProps,
+  DetailPanelSummaryProps,
 } from "./DetailPanel";
 export { default as DetailPanel } from "./DetailPanel";
 export type {

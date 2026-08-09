@@ -23,6 +23,7 @@ import {
   StatusBadge,
   Tag,
   TextInput,
+  Toolbar,
 } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { DemoCard } from "../DemoCard";
@@ -850,6 +851,587 @@ const DetailPanelRecordDemo = () => (
   </DemoCard>
 );
 
+const DetailPanelGroupedDemo = () => {
+  const [status, setStatus] = createSignal("needs-response");
+  const [assignee, setAssignee] = createSignal("unassigned");
+
+  return (
+    <DemoCard
+      id="detail-panel-grouped"
+      chip={[
+        { kind: "component", name: "DetailPanel", from: "@k2b/ui" },
+        { kind: "component", name: "DescriptionList", from: "@k2b/ui" },
+      ]}
+      description="Entity groups merge related sections into one surface. A group-owned 1px gap separates its subsections, while app accent and semantic tones give identity, status, and outcomes distinct visual roles."
+      code={`<div class="ui-detail-panel-grouped__group" role="group" aria-label="Customer context">
+  <section class="ui-detail-panel-grouped__section" aria-labelledby="company-title">
+    <header>
+      <span class="ui-detail-panel-grouped__icon" data-tone="accent">…</span>
+      <h3 id="company-title">Company</h3>
+    </header>
+    <DescriptionList layout="rows" size="sm" items={companyItems} />
+  </section>
+  <section class="ui-detail-panel-grouped__section" aria-labelledby="contact-title">…</section>
+  <section class="ui-detail-panel-grouped__section" aria-labelledby="threads-title">…</section>
+</div>`}
+    >
+      <div class="ui-detail-panel-patterns">
+        <article class="ui-detail-panel-pattern">
+          <header>
+            <strong>Grouped request</strong>
+            <span>Request state and customer context become two motivated surfaces.</span>
+          </header>
+          <div class="ui-detail-panel-pattern__frame">
+            <DetailPanel class="ui-detail-panel-grouped">
+              <DetailPanel.Header
+                title="Bug report"
+                subtitle="No preview · 5 minutes ago"
+                actions={
+                  <IconButton variant="ghost" size="xs" label="Close request details">
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </IconButton>
+                }
+              />
+              <DetailPanel.Body>
+                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Request context">
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-workflow">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="accent" aria-hidden="true">
+                        <i class="ti ti-route" />
+                      </span>
+                      <h3 id="grouped-request-workflow">Workflow</h3>
+                    </header>
+                    <DescriptionList
+                      layout="rows"
+                      size="sm"
+                      items={[
+                        {
+                          term: "Status",
+                          description: (
+                            <SelectChip
+                              aria-label="Request status"
+                              value={status}
+                              onValueChange={setStatus}
+                              options={[
+                                { value: "needs-response", label: "Needs first response", icon: "ti ti-sparkles" },
+                                { value: "investigating", label: "Investigating", icon: "ti ti-loader" },
+                                { value: "waiting", label: "Waiting for customer", icon: "ti ti-clock" },
+                                { value: "done", label: "Done", icon: "ti ti-circle-check" },
+                              ]}
+                            />
+                          ),
+                        },
+                        {
+                          term: "Assignee",
+                          description: (
+                            <SelectChip
+                              aria-label="Request assignee"
+                              value={assignee}
+                              onValueChange={setAssignee}
+                              options={[
+                                { value: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
+                                { value: "valentin", label: "Valentin", icon: "ti ti-user" },
+                              ]}
+                            />
+                          ),
+                        },
+                        { term: "Priority", description: "Normal" },
+                        { term: "Labels", description: <Tag color="var(--k2b-detail-panel-accent)">Bug</Tag> },
+                        { term: "Thread tier", description: "Growth" },
+                      ]}
+                    />
+                  </section>
+
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-links">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="neutral" aria-hidden="true">
+                        <i class="ti ti-link" />
+                      </span>
+                      <h3 id="grouped-request-links">Links</h3>
+                      <span class="ui-detail-panel-grouped__meta">0</span>
+                    </header>
+                    <div class="ui-detail-panel-grouped__empty-actions">
+                      <Button variant="ghost" size="xs">
+                        <i class="ti ti-message-circle" aria-hidden="true" /> Discussions
+                      </Button>
+                      <Button variant="ghost" size="xs">
+                        <i class="ti ti-link-plus" aria-hidden="true" /> Thread links
+                      </Button>
+                    </div>
+                  </section>
+                </div>
+
+                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Customer context">
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-company">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="accent" aria-hidden="true">
+                        <i class="ti ti-building" />
+                      </span>
+                      <h3 id="grouped-request-company">content-mobbin</h3>
+                      <IconButton variant="ghost" size="xs" label="Company actions">
+                        <i class="ti ti-dots" aria-hidden="true" />
+                      </IconButton>
+                    </header>
+                    <DescriptionList
+                      layout="rows"
+                      size="sm"
+                      items={[
+                        { term: "Company tier", description: "Growth" },
+                        { term: "Slack channels", description: "Not connected" },
+                        { term: "Domain", description: "content-mobbin.com" },
+                      ]}
+                    />
+                  </section>
+
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-contact">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="warning" aria-hidden="true">
+                        <i class="ti ti-user" />
+                      </span>
+                      <h3 id="grouped-request-contact">alexsmith</h3>
+                      <IconButton variant="ghost" size="xs" label="Contact actions">
+                        <i class="ti ti-dots" aria-hidden="true" />
+                      </IconButton>
+                    </header>
+                    <DescriptionList
+                      layout="rows"
+                      size="sm"
+                      items={[
+                        { term: "Email", description: "alexsmith@content-mobbin.com" },
+                        { term: "Groups", description: "Not assigned" },
+                      ]}
+                    />
+                  </section>
+
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-threads">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="success" aria-hidden="true">
+                        <i class="ti ti-history" />
+                      </span>
+                      <h3 id="grouped-request-threads">Recent threads</h3>
+                    </header>
+                    <div class="ui-detail-panel-grouped__threads">
+                      {[
+                        ["Bug report", "1h ago"],
+                        ["Account recovery", "3h ago"],
+                        ["Invoice question", "Yesterday"],
+                      ].map(([title, time]) => (
+                        <button type="button">
+                          <i class="ti ti-circle-check" aria-hidden="true" />
+                          <span>{title}</span>
+                          <time>{time}</time>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+
+                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Subscription context">
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-request-subscription">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="danger" aria-hidden="true">
+                        <i class="ti ti-alert-triangle" />
+                      </span>
+                      <h3 id="grouped-request-subscription">Subscription plan details</h3>
+                      <IconButton variant="ghost" size="xs" label="Retry subscription sync">
+                        <i class="ti ti-refresh" aria-hidden="true" />
+                      </IconButton>
+                    </header>
+                  </section>
+                </div>
+              </DetailPanel.Body>
+            </DetailPanel>
+          </div>
+        </article>
+
+        <article class="ui-detail-panel-pattern">
+          <header>
+            <strong>Grouped note</strong>
+            <span>Document navigation and collaboration become two stable contexts.</span>
+          </header>
+          <div class="ui-detail-panel-pattern__frame">
+            <DetailPanel class="ui-detail-panel-grouped">
+              <DetailPanel.Header
+                leading={
+                  <span class="ui-detail-panel-grouped__hero-icon" aria-hidden="true">
+                    <i class="ti ti-notes" />
+                  </span>
+                }
+                title="Welcome!"
+                subtitle="Collaborative note"
+                primaryActions={
+                  <Toolbar label="Note actions">
+                    <IconButton variant="ghost" size="xs" label="Open markdown">
+                      <i class="ti ti-markdown" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="ghost" size="xs" label="Copy note">
+                      <i class="ti ti-copy" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="ghost" size="xs" label="Download note">
+                      <i class="ti ti-download" aria-hidden="true" />
+                    </IconButton>
+                  </Toolbar>
+                }
+                actions={
+                  <IconButton variant="ghost" size="xs" label="Close note details">
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </IconButton>
+                }
+              />
+              <DetailPanel.Body>
+                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Document context">
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-contents">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="accent" aria-hidden="true">
+                        <i class="ti ti-list-tree" />
+                      </span>
+                      <h3 id="grouped-note-contents">Contents</h3>
+                    </header>
+                    <ol class="ui-detail-panel-grouped__contents">
+                      {[
+                        ["H1", "Welcome!"],
+                        ["H2", "Text Formatting"],
+                        ["H2", "Headings"],
+                        ["H2", "Lists"],
+                        ["H2", "Links & Images"],
+                        ["H2", "Code Blocks"],
+                        ["H2", "Tables"],
+                      ].map(([level, label]) => (
+                        <li>
+                          <span>{level}</span>
+                          <button type="button">{label}</button>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                </div>
+
+                <div class="ui-detail-panel-grouped__group" role="group" aria-label="Collaboration context">
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-online">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="success" aria-hidden="true">
+                        <i class="ti ti-users" />
+                      </span>
+                      <h3 id="grouped-note-online">Online · 1</h3>
+                    </header>
+                    <div class="ui-detail-panel-grouped__person">
+                      <Avatar name="Valentin Kolb" size="xs" />
+                      <span>Valentin Kolb</span>
+                    </div>
+                  </section>
+
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-info">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="neutral" aria-hidden="true">
+                        <i class="ti ti-info-circle" />
+                      </span>
+                      <h3 id="grouped-note-info">Info</h3>
+                    </header>
+                    <DescriptionList
+                      layout="rows"
+                      size="sm"
+                      items={[
+                        { term: "Created", description: "07 Jul 2026" },
+                        { term: "Updated", description: "07 Jul 2026" },
+                      ]}
+                    />
+                  </section>
+
+                  <section class="ui-detail-panel-grouped__section" aria-labelledby="grouped-note-versions">
+                    <header>
+                      <span class="ui-detail-panel-grouped__icon" data-tone="warning" aria-hidden="true">
+                        <i class="ti ti-history" />
+                      </span>
+                      <h3 id="grouped-note-versions">Versions</h3>
+                      <span class="ui-detail-panel-grouped__meta">12</span>
+                    </header>
+                  </section>
+                </div>
+              </DetailPanel.Body>
+            </DetailPanel>
+          </div>
+        </article>
+      </div>
+    </DemoCard>
+  );
+};
+
+const DetailPanelCompactCardsDemo = () => {
+  const [status, setStatus] = createSignal("needs-response");
+  const [assignee, setAssignee] = createSignal("unassigned");
+  const [teamNote, setTeamNote] = createSignal("");
+
+  return (
+    <DemoCard
+      id="detail-panel-compact-cards"
+      chip={[
+        { kind: "component", name: "DetailPanel", from: "@k2b/ui" },
+        { kind: "component", name: "DescriptionList", from: "@k2b/ui" },
+      ]}
+      description="Compact cards: every top-level section uses the same surface rule. Space is saved through 8px card gaps, 12px padding, horizontal ledger rows, and inline empty states rather than selectively removing boxes."
+      code={`<DetailPanel class="ui-detail-panel-compact">
+  <DetailPanel.Header title="Urgent invoice review" subtitle="alex@example.com · 2 hours ago" />
+  <DetailPanel.Body>
+    <DetailPanel.Section title="Here now" class="ui-detail-panel-compact__card">…</DetailPanel.Section>
+    <DetailPanel.Section title="Workflow" class="ui-detail-panel-compact__card">
+      <DescriptionList layout="rows" size="sm" items={workflowItems} />
+    </DetailPanel.Section>
+    <DetailPanel.Section title="Contact" class="ui-detail-panel-compact__card">…</DetailPanel.Section>
+    <DetailPanel.Section title="Team notes" class="ui-detail-panel-compact__card">…</DetailPanel.Section>
+    <DetailPanel.Section title="Mail details" class="ui-detail-panel-compact__card" collapsible>…</DetailPanel.Section>
+  </DetailPanel.Body>
+</DetailPanel>`}
+    >
+      <div class="ui-detail-panel-patterns">
+        <article class="ui-detail-panel-pattern">
+          <header>
+            <strong>Compact-card mail</strong>
+            <span>Every section is a card; density comes from shared internal geometry.</span>
+          </header>
+          <div class="ui-detail-panel-pattern__frame">
+            <DetailPanel class="ui-detail-panel-compact">
+              <DetailPanel.Header
+                leading={<Avatar name="Alex Smith" size="sm" />}
+                title="Urgent invoice review"
+                subtitle="alex@example.com · 2 hours ago"
+                primaryActions={
+                  <Toolbar label="Mail actions" wrap>
+                    <Button variant="secondary" size="xs">
+                      <i class="ti ti-message-reply" aria-hidden="true" /> Reply
+                    </Button>
+                    <Button variant="secondary" size="xs">
+                      <i class="ti ti-clock" aria-hidden="true" /> Snooze
+                    </Button>
+                  </Toolbar>
+                }
+                actions={
+                  <IconButton variant="ghost" size="xs" label="Close mail details">
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </IconButton>
+                }
+              />
+              <DetailPanel.Body>
+                <DetailPanel.Section title="Here now" class="ui-detail-panel-compact__card">
+                  <div class="ui-detail-panel-compact__presence">
+                    <Avatar name="Valentin Kolb" size="xs" />
+                    <span>Valentin Kolb</span>
+                    <StatusBadge tone="neutral" label="Viewing" variant="text" icon="ti ti-eye" />
+                  </div>
+                </DetailPanel.Section>
+
+                <DetailPanel.Section
+                  title="Workflow"
+                  class="ui-detail-panel-compact__card"
+                  actions={
+                    <IconButton variant="ghost" size="xs" label="Edit workflow">
+                      <i class="ti ti-adjustments" aria-hidden="true" />
+                    </IconButton>
+                  }
+                >
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      {
+                        term: "Tags",
+                        description: <Tag color="var(--k2b-detail-panel-accent)">Invoice</Tag>,
+                      },
+                      {
+                        term: "Assignee",
+                        description: (
+                          <SelectChip
+                            aria-label="Mail assignee"
+                            value={assignee}
+                            onValueChange={setAssignee}
+                            options={[
+                              { value: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
+                              { value: "valentin", label: "Valentin", icon: "ti ti-user" },
+                            ]}
+                          />
+                        ),
+                      },
+                      {
+                        term: "Status",
+                        description: (
+                          <SelectChip
+                            aria-label="Mail status"
+                            value={status}
+                            onValueChange={setStatus}
+                            options={[
+                              { value: "needs-response", label: "Needs response", icon: "ti ti-message-reply" },
+                              { value: "waiting", label: "Waiting", icon: "ti ti-hourglass" },
+                              { value: "done", label: "Done", icon: "ti ti-circle-check" },
+                            ]}
+                          />
+                        ),
+                      },
+                      {
+                        term: "Snooze",
+                        description: (
+                          <Button variant="ghost" size="xs">
+                            <i class="ti ti-calendar" aria-hidden="true" /> Tomorrow
+                          </Button>
+                        ),
+                      },
+                      {
+                        term: "Reminder",
+                        description: "Not set",
+                        action: (
+                          <IconButton variant="ghost" size="xs" label="Set personal reminder">
+                            <i class="ti ti-plus" aria-hidden="true" />
+                          </IconButton>
+                        ),
+                      },
+                    ]}
+                  />
+                </DetailPanel.Section>
+
+                <DetailPanel.Section title="Contact" class="ui-detail-panel-compact__card">
+                  <DetailPanel.Action
+                    leading={<i class="ti ti-user" aria-hidden="true" />}
+                    title="test1@docker-demo.de"
+                    description="Create or link a contact"
+                    trailing={<i class="ti ti-arrow-right" aria-hidden="true" />}
+                  />
+                </DetailPanel.Section>
+
+                <DetailPanel.Section title="Team notes" class="ui-detail-panel-compact__card">
+                  <p class="ui-detail-panel-compact__hint">No team notes yet. Add context for everyone with mailbox access.</p>
+                  <div class="ui-detail-panel-compact__composer">
+                    <TextInput
+                      aria-label="Add team note"
+                      placeholder="Add an internal note"
+                      multiline
+                      lines={2}
+                      value={teamNote()}
+                      onValueChange={setTeamNote}
+                    />
+                    <Button size="xs">
+                      <i class="ti ti-send" aria-hidden="true" /> Comment
+                    </Button>
+                  </div>
+                </DetailPanel.Section>
+
+                <DetailPanel.Section title="Mail details" meta="4 fields" class="ui-detail-panel-compact__card" collapsible>
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      { term: "Message ID", description: "8e1f…0816" },
+                      { term: "Attachments", description: "1" },
+                    ]}
+                  />
+                </DetailPanel.Section>
+              </DetailPanel.Body>
+            </DetailPanel>
+          </div>
+        </article>
+
+        <article class="ui-detail-panel-pattern">
+          <header>
+            <strong>Compact-card note</strong>
+            <span>Contents, collaborators, info, and versions use one identical section treatment.</span>
+          </header>
+          <div class="ui-detail-panel-pattern__frame">
+            <DetailPanel class="ui-detail-panel-compact">
+              <DetailPanel.Header
+                leading={
+                  <span class="ui-detail-panel-compact__note-icon" aria-hidden="true">
+                    <i class="ti ti-notes" />
+                  </span>
+                }
+                title="Welcome!"
+                subtitle="Collaborative note"
+                primaryActions={
+                  <Toolbar label="Note actions">
+                    <IconButton variant="ghost" size="xs" label="Open markdown">
+                      <i class="ti ti-markdown" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="ghost" size="xs" label="Copy note">
+                      <i class="ti ti-copy" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="ghost" size="xs" label="Download note">
+                      <i class="ti ti-download" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="ghost" size="xs" label="Open history">
+                      <i class="ti ti-history" aria-hidden="true" />
+                    </IconButton>
+                  </Toolbar>
+                }
+                actions={
+                  <IconButton variant="ghost" size="xs" label="Close note details">
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </IconButton>
+                }
+              />
+              <DetailPanel.Body>
+                <DetailPanel.Section title="Contents" class="ui-detail-panel-compact__card">
+                  <ol class="ui-detail-panel-compact__contents">
+                    {[
+                      ["H1", "Welcome!"],
+                      ["H2", "Text Formatting"],
+                      ["H2", "Headings"],
+                      ["H2", "Lists"],
+                      ["H2", "Links & Images"],
+                      ["H2", "Code Blocks"],
+                      ["H2", "Tables"],
+                    ].map(([level, label]) => (
+                      <li>
+                        <span>{level}</span>
+                        <button type="button">{label}</button>
+                      </li>
+                    ))}
+                  </ol>
+                </DetailPanel.Section>
+
+                <DetailPanel.Section title="Online" class="ui-detail-panel-compact__card">
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      {
+                        term: "Person",
+                        description: (
+                          <span class="ui-detail-panel-compact__person">
+                            <Avatar name="Valentin Kolb" size="xs" />
+                            Valentin Kolb
+                          </span>
+                        ),
+                      },
+                    ]}
+                  />
+                </DetailPanel.Section>
+
+                <DetailPanel.Section title="Info" class="ui-detail-panel-compact__card">
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      { term: "Created", description: "07 Jul 2026" },
+                      { term: "Updated", description: "07 Jul 2026" },
+                    ]}
+                  />
+                </DetailPanel.Section>
+
+                <DetailPanel.Section title="Versions" meta="12" class="ui-detail-panel-compact__card" collapsible>
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      { term: "Latest", description: "Today, 14:32" },
+                      { term: "Author", description: "Valentin Kolb" },
+                    ]}
+                  />
+                </DetailPanel.Section>
+              </DetailPanel.Body>
+            </DetailPanel>
+          </div>
+        </article>
+      </div>
+    </DemoCard>
+  );
+};
+
 const DetailPanelPatternsDemo = () => {
   const [status, setStatus] = createSignal("needs-response");
   const [assignee, setAssignee] = createSignal("unassigned");
@@ -862,60 +1444,197 @@ const DetailPanelPatternsDemo = () => {
         { kind: "component", name: "DetailPanel", from: "@k2b/ui" },
         { kind: "component", name: "DescriptionList", from: "@k2b/ui" },
       ]}
-      description="Three compositional directions: editable facts for fast triage, connected entity context, and an operational state with one clear recovery path. The panel grammar stays consistent while each section fits its use case."
-      code={`const [status, setStatus] = createSignal("needs-response");
-
-<DetailPanel.Section title="Request">
-  <DescriptionList
-    layout="rows"
-    size="sm"
-    items={[{
-      term: "Status",
-      description: <SelectChip aria-label="Request status" value={status} onValueChange={setStatus} options={statusOptions} />,
-    }]}
-  />
-</DetailPanel.Section>
-
-<DetailPanel.Section
-  title={<span class="ui-detail-panel-pattern__entity-title"><Avatar name="Northstar Studio" size="xs" /><span>Northstar Studio</span></span>}
-  actions={<IconButton variant="ghost" size="xs" label="Company actions"><i class="ti ti-dots" aria-hidden="true" /></IconButton>}
->
-  <DescriptionList layout="rows" size="sm" items={companyItems} />
-</DetailPanel.Section>
-<DetailPanel.Section title="Recent threads">
-  <DetailPanel.Action
-    href="/threads/bug-report"
-    leading={<i class="ti ti-circle-check" aria-hidden="true" />}
+      description="One dense ledger rhythm at two data extremes: a sparse contact stays intentional through one summary surface and compact actionable empty sections, while a rich request keeps editable facts, related context, and history scanable without a card per group."
+      code={`<DetailPanel>
+  <DetailPanel.Header
+    leading={<Avatar name="Alex Smith" size="sm" />}
     title="Bug report"
-    description="5 minutes ago"
-    trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+    subtitle="Customer request"
+    primaryActions={<Toolbar label="Request actions" wrap>…</Toolbar>}
+    actions={<IconButton label="Close details">…</IconButton>}
   />
-</DetailPanel.Section>
-
-<DetailPanel.Section
-  title="Subscription plan"
-  actions={<IconButton variant="ghost" size="xs" label="Retry plan sync"><i class="ti ti-refresh" aria-hidden="true" /></IconButton>}
->
-  <div class="ui-detail-panel-pattern__recovery">
-    <span class="ui-detail-panel-pattern__error"><i class="ti ti-alert-triangle" aria-hidden="true" /> An unknown error occurred.</span>
-    <Button variant="secondary" size="xs">Read docs</Button>
-  </div>
-</DetailPanel.Section>`}
+  <DetailPanel.Body>
+    <DetailPanel.Summary title="Overview" actions={<Button variant="ghost" size="xs">Edit</Button>}>
+      <DescriptionList
+        layout="rows"
+        size="sm"
+        actionVisibility="progressive"
+        items={overviewItems}
+      />
+    </DetailPanel.Summary>
+    <DetailPanel.Section
+      title="Organization"
+      meta="0"
+      actions={<Button variant="ghost" size="xs">Add member</Button>}
+    >
+      <DetailPanel.Action title="No relationships yet" trailing={<>…</>} />
+    </DetailPanel.Section>
+    <DetailPanel.Section title="History" collapsible>…</DetailPanel.Section>
+  </DetailPanel.Body>
+</DetailPanel>`}
     >
       <div class="ui-detail-panel-patterns">
         <article class="ui-detail-panel-pattern">
           <header>
-            <strong>Editable facts</strong>
-            <span>Best for fast triage and frequent changes.</span>
+            <strong>Sparse contact</strong>
+            <span>One useful value still creates an intentional panel.</span>
           </header>
           <div class="ui-detail-panel-pattern__frame">
             <DetailPanel>
-              <DetailPanel.Header title="Bug report" subtitle="No preview" />
-              <DetailPanel.Body scrollPreserveKey="pattern-editable-facts">
-                <DetailPanel.Section title="Request">
+              <DetailPanel.Header
+                leading={<Avatar name="Capability hardening smoke" size="sm" />}
+                title="Capability hardening smoke"
+                subtitle="Test Book · Contact"
+                primaryActions={
+                  <Toolbar label="Contact actions" wrap>
+                    <Button variant="secondary" size="xs">
+                      <i class="ti ti-mail" aria-hidden="true" /> Email
+                    </Button>
+                    <Button variant="secondary" size="xs">
+                      <i class="ti ti-note" aria-hidden="true" /> Note
+                    </Button>
+                  </Toolbar>
+                }
+                actions={
+                  <>
+                    <IconButton variant="ghost" size="xs" label="Favorite contact">
+                      <i class="ti ti-star" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="primary" size="xs" label="More contact actions">
+                      <i class="ti ti-dots" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton variant="ghost" size="xs" label="Close contact details">
+                      <i class="ti ti-x" aria-hidden="true" />
+                    </IconButton>
+                  </>
+                }
+              />
+              <DetailPanel.Body>
+                <DetailPanel.Summary
+                  title="Overview"
+                  actions={
+                    <Button variant="ghost" size="xs">
+                      <i class="ti ti-pencil" aria-hidden="true" /> Edit
+                    </Button>
+                  }
+                >
                   <DescriptionList
                     layout="rows"
                     size="sm"
+                    actionVisibility="progressive"
+                    items={[
+                      {
+                        term: "Book",
+                        description: "Test Book",
+                      },
+                      {
+                        term: "Email",
+                        description: "capability-hardening-smoke@example.test",
+                        action: (
+                          <IconButton variant="ghost" size="xs" label="Send email">
+                            <i class="ti ti-mail" aria-hidden="true" />
+                          </IconButton>
+                        ),
+                      },
+                      {
+                        term: "Phone",
+                        description: <span class="text-dimmed">Not added</span>,
+                        action: (
+                          <IconButton variant="ghost" size="xs" label="Add phone">
+                            <i class="ti ti-plus" aria-hidden="true" />
+                          </IconButton>
+                        ),
+                      },
+                      {
+                        term: "Company",
+                        description: <span class="text-dimmed">Not added</span>,
+                        action: (
+                          <IconButton variant="ghost" size="xs" label="Add company">
+                            <i class="ti ti-plus" aria-hidden="true" />
+                          </IconButton>
+                        ),
+                      },
+                      {
+                        term: "Tags",
+                        description: <Tag color="var(--k2b-detail-panel-accent, var(--k2b-accent-600))">Smoke test</Tag>,
+                      },
+                    ]}
+                  />
+                </DetailPanel.Summary>
+                <DetailPanel.Section
+                  title="Organization"
+                  meta="0"
+                  actions={
+                    <Button variant="ghost" size="xs">
+                      <i class="ti ti-plus" aria-hidden="true" /> Add member
+                    </Button>
+                  }
+                >
+                  <DetailPanel.Action title="No relationships yet" trailing={<i class="ti ti-arrow-right" aria-hidden="true" />} />
+                </DetailPanel.Section>
+                <DetailPanel.Section
+                  title="Notes"
+                  meta="0"
+                  actions={
+                    <Button variant="ghost" size="xs">
+                      <i class="ti ti-plus" aria-hidden="true" /> Add note
+                    </Button>
+                  }
+                >
+                  <DetailPanel.Action
+                    title="Keep decisions and context with this contact"
+                    trailing={<i class="ti ti-arrow-right" aria-hidden="true" />}
+                  />
+                </DetailPanel.Section>
+                <DetailPanel.Section title="More details" meta="3 groups" collapsible>
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      { term: "Birthday", description: "Not added" },
+                      { term: "Language", description: "Not added" },
+                      { term: "Address", description: "Not added" },
+                    ]}
+                  />
+                </DetailPanel.Section>
+              </DetailPanel.Body>
+            </DetailPanel>
+          </div>
+        </article>
+
+        <article class="ui-detail-panel-pattern">
+          <header>
+            <strong>Rich request</strong>
+            <span>Editable workflow facts stay anchored while related context remains open.</span>
+          </header>
+          <div class="ui-detail-panel-pattern__frame">
+            <DetailPanel>
+              <DetailPanel.Header
+                leading={<Avatar name="Alex Smith" size="sm" />}
+                title="Bug report"
+                subtitle="Customer request · 5 minutes ago"
+                primaryActions={
+                  <Toolbar label="Request actions" wrap>
+                    <Button variant="secondary" size="xs">
+                      <i class="ti ti-message-reply" aria-hidden="true" /> Reply
+                    </Button>
+                    <Button variant="secondary" size="xs">
+                      <i class="ti ti-note" aria-hidden="true" /> Add note
+                    </Button>
+                  </Toolbar>
+                }
+                actions={
+                  <IconButton variant="ghost" size="xs" label="Close request details">
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </IconButton>
+                }
+              />
+              <DetailPanel.Body>
+                <DetailPanel.Summary title="Request">
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    actionVisibility="progressive"
                     items={[
                       {
                         term: "Status",
@@ -925,8 +1644,8 @@ const DetailPanelPatternsDemo = () => {
                             value={status}
                             onValueChange={setStatus}
                             options={[
-                              { value: "needs-response", label: "Needs first response", icon: "ti ti-sparkles" },
-                              { value: "investigating", label: "Investigating", icon: "ti ti-route" },
+                              { value: "needs-response", label: "Needs response", icon: "ti ti-message-reply" },
+                              { value: "investigating", label: "Investigating", icon: "ti ti-search" },
                               { value: "done", label: "Done", icon: "ti ti-circle-check" },
                             ]}
                           />
@@ -940,7 +1659,7 @@ const DetailPanelPatternsDemo = () => {
                             value={assignee}
                             onValueChange={setAssignee}
                             options={[
-                              { value: "unassigned", label: "Unassigned", icon: "ti ti-user-circle" },
+                              { value: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
                               { value: "valentin", label: "Valentin", icon: "ti ti-user" },
                             ]}
                           />
@@ -954,7 +1673,7 @@ const DetailPanelPatternsDemo = () => {
                             value={priority}
                             onValueChange={setPriority}
                             options={[
-                              { value: "normal", label: "Normal", icon: "ti ti-equal" },
+                              { value: "normal", label: "Normal", icon: "ti ti-minus" },
                               { value: "high", label: "High", icon: "ti ti-arrow-up" },
                             ]}
                           />
@@ -962,49 +1681,22 @@ const DetailPanelPatternsDemo = () => {
                       },
                       {
                         term: "Labels",
-                        description: (
-                          <Button variant="ghost" size="xs">
-                            <i class="ti ti-plus" aria-hidden="true" /> Add labels
-                          </Button>
+                        description: <Tag color="#6366f1">Product feedback</Tag>,
+                        action: (
+                          <IconButton variant="ghost" size="xs" label="Add request label">
+                            <i class="ti ti-plus" aria-hidden="true" />
+                          </IconButton>
                         ),
                       },
                       {
                         term: "Thread tier",
-                        description: <StatusBadge tone="neutral" label="Premium support" icon="ti ti-diamond" />,
+                        description: "Growth",
                       },
                     ]}
                   />
-                </DetailPanel.Section>
-                <DetailPanel.Section title="Links (1)" collapsible defaultOpen>
-                  <DetailPanel.Action
-                    type="button"
-                    leading={<i class="ti ti-brand-slack" aria-hidden="true" />}
-                    title="Discussion in #website-revamp"
-                    description="Just now"
-                    trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                  />
-                </DetailPanel.Section>
-              </DetailPanel.Body>
-            </DetailPanel>
-          </div>
-        </article>
-
-        <article class="ui-detail-panel-pattern">
-          <header>
-            <strong>Connected context</strong>
-            <span>Best when related entities explain the selected item.</span>
-          </header>
-          <div class="ui-detail-panel-pattern__frame">
-            <DetailPanel>
-              <DetailPanel.Header title="Bug report" subtitle="Customer context" />
-              <DetailPanel.Body scrollPreserveKey="pattern-connected-context">
+                </DetailPanel.Summary>
                 <DetailPanel.Section
-                  title={
-                    <span class="ui-detail-panel-pattern__entity-title">
-                      <Avatar name="Northstar Studio" size="xs" />
-                      <span>Northstar Studio</span>
-                    </span>
-                  }
+                  title="Northstar Studio"
                   actions={
                     <IconButton variant="ghost" size="xs" label="Company actions">
                       <i class="ti ti-dots" aria-hidden="true" />
@@ -1014,27 +1706,24 @@ const DetailPanelPatternsDemo = () => {
                   <DescriptionList
                     layout="rows"
                     size="sm"
+                    actionVisibility="progressive"
                     items={[
                       { term: "Company tier", description: "Growth" },
                       {
                         term: "Slack channels",
-                        description: (
+                        description: "Not connected",
+                        action: (
                           <Button variant="ghost" size="xs">
                             <i class="ti ti-plus" aria-hidden="true" /> Add channel
                           </Button>
                         ),
                       },
-                      { term: "Domain", description: <a href="https://northstar.example">northstar.example</a> },
+                      { term: "Domain", description: "northstar.example" },
                     ]}
                   />
                 </DetailPanel.Section>
                 <DetailPanel.Section
-                  title={
-                    <span class="ui-detail-panel-pattern__entity-title">
-                      <Avatar name="Alex Smith" size="xs" />
-                      <span>Alex Smith</span>
-                    </span>
-                  }
+                  title="Alex Smith"
                   actions={
                     <IconButton variant="ghost" size="xs" label="Contact actions">
                       <i class="ti ti-dots" aria-hidden="true" />
@@ -1044,11 +1733,13 @@ const DetailPanelPatternsDemo = () => {
                   <DescriptionList
                     layout="rows"
                     size="sm"
+                    actionVisibility="progressive"
                     items={[
                       { term: "Email", description: "alex@northstar.example" },
                       {
                         term: "Groups",
-                        description: (
+                        description: <Tag color="#0f766e">Beta customers</Tag>,
+                        action: (
                           <Button variant="ghost" size="xs">
                             <i class="ti ti-plus" aria-hidden="true" /> Add group
                           </Button>
@@ -1075,61 +1766,14 @@ const DetailPanelPatternsDemo = () => {
                     />
                   </div>
                 </DetailPanel.Section>
-              </DetailPanel.Body>
-            </DetailPanel>
-          </div>
-        </article>
-
-        <article class="ui-detail-panel-pattern">
-          <header>
-            <strong>Operational state</strong>
-            <span>Best for failures that need one obvious next step.</span>
-          </header>
-          <div class="ui-detail-panel-pattern__frame">
-            <DetailPanel>
-              <DetailPanel.Header
-                title="Account"
-                subtitle="Billing and plan context"
-                meta={<StatusBadge tone="error" label="Sync failed" variant="text" />}
-              />
-              <DetailPanel.Body scrollPreserveKey="pattern-operational-state">
-                <DetailPanel.Section
-                  title="Subscription plan"
-                  actions={
-                    <IconButton variant="ghost" size="xs" label="Retry plan sync">
-                      <i class="ti ti-refresh" aria-hidden="true" />
-                    </IconButton>
-                  }
-                >
-                  <div class="ui-detail-panel-pattern__recovery">
-                    <span class="ui-detail-panel-pattern__error">
-                      <i class="ti ti-alert-triangle" aria-hidden="true" />
-                      An unknown error occurred.
-                    </span>
-                    <Button variant="secondary" size="xs">
-                      Read docs
-                    </Button>
-                  </div>
-                </DetailPanel.Section>
-                <DetailPanel.Section title="Last successful sync">
+                <DetailPanel.Section title="Diagnostics" meta="3 fields" collapsible>
                   <DescriptionList
                     layout="rows"
                     size="sm"
                     items={[
-                      { term: "Plan", description: "Business" },
-                      { term: "Seats", description: "18 of 25" },
-                      { term: "Updated", description: "Yesterday, 16:42" },
-                    ]}
-                  />
-                </DetailPanel.Section>
-                <DetailPanel.Section title="Diagnostics" collapsible>
-                  <DescriptionList
-                    layout="rows"
-                    size="sm"
-                    items={[
-                      { term: "Provider", description: "Stripe" },
-                      { term: "Attempt", description: "3 of 3" },
-                      { term: "Code", description: <code class="text-xs">plan_sync_failed</code> },
+                      { term: "Source", description: "Email" },
+                      { term: "Language", description: "English" },
+                      { term: "Request ID", description: <code class="text-xs">req_81d3</code> },
                     ]}
                   />
                 </DetailPanel.Section>
@@ -1230,9 +1874,11 @@ const demos: DemoSection = {
   ),
   "detail-panel": () => (
     <DemoGrid columns="one">
+      <DetailPanelGroupedDemo />
+      <DetailPanelCompactCardsDemo />
+      <DetailPanelPatternsDemo />
       <DetailPanelDemo />
       <DetailPanelRecordDemo />
-      <DetailPanelPatternsDemo />
     </DemoGrid>
   ),
   "floating-window": () => (

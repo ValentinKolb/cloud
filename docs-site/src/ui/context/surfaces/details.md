@@ -17,11 +17,20 @@ import { Button, DescriptionList } from "@k2b/ui";
 
 ## Layout
 
-`columns` controls the wide-screen grid and collapses to one column on narrow screens. Set `layout="rows"` for a compact inspector-style label/value list. An item may provide one short action directly related to its value.
+`columns` controls the wide-screen grid and collapses to one column on narrow
+screens. Set `layout="rows"` for a compact inspector-style label/value list. An
+item may provide one short action directly related to its value. Set
+`actionVisibility="progressive"` when repeated row actions should stay quiet:
+fine pointers reveal them on row hover or focus, while touch layouts keep them
+visible.
 
 ## Accessibility
 
-The component renders real `dl`, `dt`, and `dd` elements. Terms must be concise, descriptions must remain meaningful without visual position, and icon-only actions need labels.
+The component renders real `dl`, `dt`, and `dd` elements. Terms must be concise,
+descriptions must remain meaningful without visual position, and icon-only
+actions need labels. Progressive actions remain keyboard-focusable and become
+visible through `focus-within`; visibility must never be the only indication
+that an action exists.
 
 ## Runtime
 
@@ -31,7 +40,8 @@ Description lists are server-renderable and need no client JavaScript unless an 
 
 ```tsx
 <DescriptionList
-  columns={2}
+  layout="rows"
+  actionVisibility="progressive"
   items={[
     { term: "Owner", description: "Platform team" },
     { term: "Region", description: "Europe West" },

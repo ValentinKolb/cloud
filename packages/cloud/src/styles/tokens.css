@@ -190,11 +190,15 @@
 .app-accent-scope {
   --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
   --ui-app-accent-border: var(--app-accent, var(--color-blue-500));
+  /* Portable UI components consume their own optional hook; Cloud alone maps
+     it to the active app appearance. */
+  --k2b-detail-panel-accent: var(--ui-app-accent-text);
 }
 
 .dark :is(.cloud-app-canvas, .app-accent-scope) {
   --ui-app-accent-text: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
   --ui-app-accent-border: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
+  --k2b-detail-panel-accent: var(--ui-app-accent-text);
 }
 
 @utility slider-track-colors {

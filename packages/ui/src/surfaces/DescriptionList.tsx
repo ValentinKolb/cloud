@@ -11,6 +11,7 @@ export type DescriptionListProps = {
   columns?: 1 | 2 | 3;
   layout?: "grid" | "rows";
   size?: "sm" | "md";
+  actionVisibility?: "always" | "progressive";
   class?: string;
 };
 
@@ -23,6 +24,7 @@ export function DescriptionList(props: DescriptionListProps): JSX.Element {
       data-columns={columns()}
       data-layout={props.layout ?? "grid"}
       data-size={props.size ?? "md"}
+      data-action-visibility={props.actionVisibility ?? "always"}
     >
       <For each={props.items}>
         {(item) => (
