@@ -34,12 +34,10 @@ describe("Mail live protocol", () => {
         mailboxId: MAILBOX_ID,
         cursor: "13-1",
         event: {
-          type: "conversation.changed",
+          type: "mail.invalidated",
           mailboxId: MAILBOX_ID,
           conversationId: CONVERSATION_ID,
-          reason: "comment",
-          targetId: CONVERSATION_ID,
-          activityId: "42",
+          changeId: "14f26be3-77e9-4756-b19b-3e9d88e940dd",
           at: "2026-07-16T20:00:00.000Z",
         },
       },
@@ -66,37 +64,15 @@ describe("Mail live protocol", () => {
           mailboxId: MAILBOX_ID,
           cursor: "14-1",
           event: {
-            type: "mailbox.changed",
+            type: "mail.invalidated",
             mailboxId: MAILBOX_ID,
             conversationId: null,
-            reason: "local_tag",
-            targetId: null,
-            activityId: "43",
+            changeId: "f695501f-58c6-45d8-a078-ae06ed28bc7f",
             at: "2026-07-16T20:01:00.000Z",
           },
         },
       }).success,
     ).toBeTrue();
-    for (const reason of ["scheduled_send", "deleted", "restored"] as const) {
-      expect(
-        MailLiveServerMessageSchema.safeParse({
-          type: MAIL_LIVE_WS_TYPE.event,
-          payload: {
-            mailboxId: MAILBOX_ID,
-            cursor: "15-1",
-            event: {
-              type: "mailbox.changed",
-              mailboxId: MAILBOX_ID,
-              conversationId: null,
-              reason,
-              targetId: null,
-              activityId: `lifecycle-${reason}`,
-              at: "2026-07-16T20:02:00.000Z",
-            },
-          },
-        }).success,
-      ).toBeTrue();
-    }
     expect(parseMailLiveServerMessage("not-json")).toBeNull();
     expect(parseMailLiveServerMessage(JSON.stringify({ type: MAIL_LIVE_WS_TYPE.event, payload: {} }))).toBeNull();
   });

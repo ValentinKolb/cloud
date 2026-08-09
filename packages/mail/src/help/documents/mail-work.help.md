@@ -62,7 +62,7 @@ Select a conversation row to open its thread. Each message has its own sender, r
 
 An optional conversation summary appears below the message count. Use **More conversation actions > Create summary** or **Edit summary** to maintain it; summaries are shared Mail context and can also be updated by an automation. If the conversation has unfinished drafts, **Continue draft** opens the newest one directly.
 
-Opening an unread conversation marks it as read. Use **More conversation actions** to mark it unread again, add or remove a flag, or print the conversation.
+Opening an unread conversation marks it as read. Use **More conversation actions** to mark it unread again, add or remove a flag, or print the conversation. A conversation that you mark unread stays unread in already open tabs until you deliberately open its row again; a live update alone does not mark it read.
 
 Mail adapts message bodies to the current theme by default: safe HTML in light mode and plain text in dark mode when both versions are available. Open an individual message's actions and choose **View as plain text** or **View as HTML** to override that message. Choose a persistent mode for this browser under **Settings > Reading > Default message format**.
 

@@ -1,3 +1,4 @@
+import { job, scheduler } from "@k2b/sync";
 import {
   createRuntimeLifecycle,
   createRuntimeTaskTracker,
@@ -6,7 +7,6 @@ import {
   stopRuntimeResources,
 } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
-import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import type { CommandState, MailCommand, RemoteMessagePrecondition } from "../contracts";
@@ -16,7 +16,7 @@ import { commandStillAuthorized } from "./command-authorization";
 import { imapSmtpConnector, type RemoteMessageState, type RemoteMutationTarget } from "./connectors";
 import type { SmtpConnectionConfig } from "./connectors/contract";
 import { deriveConversationWorkState } from "./conversation-work-state";
-import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
+import { notifyMailInvalidations, publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import {
   enqueueMaintenanceCommand,
@@ -26,8 +26,8 @@ import {
 } from "./maintenance-runtime";
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { isOperatorMaintenanceKind } from "./operator-actions";
-import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { loadOutboundProjectionByOutbox } from "./outbound-message-projection";
+import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
@@ -289,6 +289,7 @@ const commandState = async (
     return updated;
   });
   if (!updated) return false;
+  await notifyMailInvalidations();
   if (["confirmed", "failed", "cancelled", "reconciled", "needs_attention"].includes(state)) {
     await publishMailWorkflowDependency({
       mailboxId: updated.mailbox_id,

@@ -36,6 +36,7 @@ import {
   restoreDraftRecoveryCopy,
   updateDraft,
 } from "./drafts";
+import { latestMailInvalidationCursor, liveMailInvalidations } from "./events";
 import { resolveMailExecution } from "./execution";
 import { createLocalTag, setConversationLocalTags } from "./local-tags";
 import { createMailbox, updateMailbox } from "./mailboxes";
@@ -692,6 +693,12 @@ suite("mail PostgreSQL foundation", () => {
       },
     ]);
 
+    const liveAbort = new AbortController();
+    const liveCursor = (await latestMailInvalidationCursor(mailbox.data.id)) ?? "0-0";
+    const liveIterator = liveMailInvalidations({ mailboxId: mailbox.data.id, after: liveCursor, signal: liveAbort.signal })[
+      Symbol.asyncIterator
+    ]();
+    const nextLiveInvalidation = liveIterator.next();
     const conversationRead = await createConversationTriageCommands({
       context,
       mailboxId: mailbox.data.id,
@@ -705,6 +712,17 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(conversationRead.ok).toBe(true);
     if (!conversationRead.ok) return;
+    const liveInvalidation = await Promise.race([
+      nextLiveInvalidation,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timed out waiting for triage invalidation")), 5_000)),
+    ]);
+    liveAbort.abort();
+    expect(liveInvalidation.value?.data).toMatchObject({
+      type: "mail.invalidated",
+      mailboxId: mailbox.data.id,
+      conversationId: null,
+      changeId: expect.any(String),
+    });
     expect(conversationRead.data.commands).toHaveLength(3);
     expect(new Set(conversationRead.data.commands.map((item) => item.correlationId))).toEqual(
       new Set([conversationRead.data.correlationId]),

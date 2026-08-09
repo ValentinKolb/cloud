@@ -16,7 +16,7 @@ import {
 } from "./collaboration";
 import type { ConnectorEnvelope } from "./connectors";
 import { getConversationSummary, updateConversationSummary } from "./conversation-summary";
-import { latestMailCollaborationEventCursor, liveMailCollaborationEvents } from "./events";
+import { latestMailInvalidationCursor, liveMailInvalidations } from "./events";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { getConversationViewCounts, listConversations } from "./messages";
@@ -205,8 +205,8 @@ suite("mail collaboration backend", () => {
     });
     expect(invalidAssignee.ok).toBe(false);
     const eventAbort = new AbortController();
-    const eventCursor = (await latestMailCollaborationEventCursor(mailboxId)) ?? "0-0";
-    const eventIterator = liveMailCollaborationEvents({ mailboxId, after: eventCursor, signal: eventAbort.signal })[Symbol.asyncIterator]();
+    const eventCursor = (await latestMailInvalidationCursor(mailboxId)) ?? "0-0";
+    const eventIterator = liveMailInvalidations({ mailboxId, after: eventCursor, signal: eventAbort.signal })[Symbol.asyncIterator]();
     const nextEvent = eventIterator.next();
     const future = new Date(Date.now() + 60 * 60_000).toISOString();
     const waiting = await updateConversationCollaboration({
@@ -231,11 +231,11 @@ suite("mail collaboration backend", () => {
     eventAbort.abort();
     expect(liveEvent.done).toBe(false);
     expect(liveEvent.value?.data).toMatchObject({
+      type: "mail.invalidated",
       mailboxId,
-      conversationId,
-      reason: "collaboration",
-      activityId: expect.any(String),
+      changeId: expect.any(String),
     });
+    expect([null, conversationId]).toContain(liveEvent.value?.data.conversationId);
 
     const stale = await updateConversationCollaboration({
       context: writerContext,

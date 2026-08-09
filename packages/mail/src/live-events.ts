@@ -8,59 +8,17 @@ export const MAIL_LIVE_WS_TYPE = {
   error: "mail.live.error",
 } as const;
 
-const MailConversationChangedEventSchema = z
+export const MailInvalidationSchema = z
   .object({
-    type: z.literal("conversation.changed"),
+    type: z.literal("mail.invalidated"),
     mailboxId: z.uuid(),
-    conversationId: z.uuid(),
-    reason: z.enum([
-      "collaboration",
-      "comment",
-      "draft",
-      "inbound",
-      "outbound",
-      "threading",
-      "reminder",
-      "local_tag",
-      "reference",
-      "summary",
-    ]),
-    targetId: z.uuid().nullable(),
-    activityId: z.string().min(1).max(128),
+    conversationId: z.uuid().nullable(),
+    changeId: z.uuid(),
     at: z.string().datetime(),
   })
   .strict();
 
-const MailMailboxChangedEventSchema = z
-  .object({
-    type: z.literal("mailbox.changed"),
-    mailboxId: z.uuid(),
-    conversationId: z.null(),
-    reason: z.enum([
-      "local_tag",
-      "reference_configuration",
-      "automatic_reply",
-      "incoming_automation",
-      "scheduled_send",
-      "subscription",
-      "folder",
-      "deleted",
-      "restored",
-    ]),
-    targetId: z.uuid().nullable(),
-    activityId: z.string().min(1).max(128),
-    at: z.string().datetime(),
-  })
-  .strict();
-
-export const MailCollaborationEventSchema = z.discriminatedUnion("type", [
-  MailConversationChangedEventSchema,
-  MailMailboxChangedEventSchema,
-]);
-
-export type MailCollaborationEvent = z.infer<typeof MailCollaborationEventSchema>;
-export type MailConversationChangedEvent = Extract<MailCollaborationEvent, { type: "conversation.changed" }>;
-export type MailMailboxChangedEvent = Extract<MailCollaborationEvent, { type: "mailbox.changed" }>;
+export type MailInvalidation = z.infer<typeof MailInvalidationSchema>;
 
 export const MailLiveCursorSchema = z.string().regex(/^\d+-\d+$/);
 const MailLiveRevocationCodeSchema = z.enum(["login_required", "not_found", "access_denied"]);
@@ -94,7 +52,7 @@ export const MailLiveServerMessageSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal(MAIL_LIVE_WS_TYPE.event),
-      payload: z.object({ mailboxId: z.uuid(), cursor: MailLiveCursorSchema, event: MailCollaborationEventSchema }).strict(),
+      payload: z.object({ mailboxId: z.uuid(), cursor: MailLiveCursorSchema, event: MailInvalidationSchema }).strict(),
     })
     .strict(),
   z

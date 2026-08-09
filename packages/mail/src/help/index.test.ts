@@ -208,6 +208,7 @@ describe("mailHelp", () => {
     const work = mailHelp.getMarkdown("mail-work");
     const admin = mailHelp.getMarkdown("mail-admin");
 
+    expect(work).toContain("stays unread in already open tabs");
     expect(work).toContain("View as plain text");
     expect(work).toContain("safe HTML in light mode and plain text in dark mode");
     expect(work).toContain("Settings > Reading > Default message format");

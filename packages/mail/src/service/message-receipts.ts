@@ -1,5 +1,5 @@
 import type { sql } from "bun";
-import type { MailConversationChangedEvent } from "../live-events";
+import type { MailConversationChangedEvent } from "./events";
 
 type SqlClient = typeof sql;
 

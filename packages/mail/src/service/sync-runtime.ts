@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { type JobCtx, job, scheduler } from "@k2b/sync";
 import {
   createRuntimeLifecycle,
   createRuntimeTaskTracker,
@@ -10,7 +11,6 @@ import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services/postg
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
-import { type JobCtx, job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { normalizeEmailAddress } from "./address-normalization";
@@ -30,6 +30,7 @@ import {
   submitDueDraftProjectionWork,
 } from "./draft-provider-projection";
 import { deleteAbandonedDraftAttachmentUploads } from "./draft-uploads";
+import { enqueueMailInvalidation, notifyMailInvalidations } from "./events";
 import { resolveMailExecution } from "./execution";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbox-transport-fence";
@@ -995,6 +996,7 @@ export const commitSyncBatch = async (params: {
   draftExportSnapshotIds: string[];
   flagsUpdated: number;
   removed: number;
+  liveInvalidated: boolean;
 }> => {
   const result = await sql.begin(async (tx) => {
     const [resource] = await tx<{ id: string }[]>`
@@ -1190,8 +1192,13 @@ export const commitSyncBatch = async (params: {
         finished_at = now()
       WHERE id = ${params.fence.runId}::uuid
     `;
-    return { hydratedIds, draftImportSnapshotIds, draftExportSnapshotIds, flagsUpdated, removed };
+    const liveInvalidated = hydratedIds.length > 0 || flagsUpdated > 0 || removed > 0;
+    if (liveInvalidated) {
+      await enqueueMailInvalidation(tx, { mailboxId: params.folder.mailbox_id });
+    }
+    return { hydratedIds, draftImportSnapshotIds, draftExportSnapshotIds, flagsUpdated, removed, liveInvalidated };
   });
+  if (result.liveInvalidated) await notifyMailInvalidations();
   return result;
 };
 

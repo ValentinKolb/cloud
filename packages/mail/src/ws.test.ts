@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { UserSchema } from "@valentinkolb/cloud/contracts";
 import { err, fail, ok } from "@k2b/stdlib";
-import type { MailCollaborationEvent } from "./live-events";
+import { UserSchema } from "@valentinkolb/cloud/contracts";
+import type { MailInvalidation } from "./live-events";
 import type { MailRequestContext } from "./service/auth";
 import { evaluateMailLiveAccess, type MailLiveAccessDependencies, parseMailLiveReplayEvent, resolveMailLiveCursor } from "./ws";
 
@@ -120,15 +120,13 @@ describe("Mail live cursors", () => {
     const event = {
       cursor: "10-2",
       data: {
-        type: "conversation.changed",
+        type: "mail.invalidated",
         mailboxId: MAILBOX_ID,
         conversationId: crypto.randomUUID(),
-        reason: "comment",
-        targetId: null,
-        activityId: "42",
+        changeId: crypto.randomUUID(),
         at: "2026-07-16T20:00:00.000Z",
       },
-    } satisfies { cursor: string; data: MailCollaborationEvent };
+    } satisfies { cursor: string; data: MailInvalidation };
 
     expect(parseMailLiveReplayEvent(MAILBOX_ID, event)).toEqual({ cursor: event.cursor, event: event.data });
     expect(parseMailLiveReplayEvent(crypto.randomUUID(), event)).toBeNull();

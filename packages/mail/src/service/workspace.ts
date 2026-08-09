@@ -17,7 +17,7 @@ import * as conversationReferences from "./conversation-reference";
 import type { ConversationContentSummary } from "./conversation-summary";
 import * as conversationSummaries from "./conversation-summary";
 import * as drafts from "./drafts";
-import { latestMailCollaborationEventCursor } from "./events";
+import { latestMailInvalidationCursor } from "./events";
 import type { ConversationLocalTags, LocalTag } from "./local-tags";
 import * as localTags from "./local-tags";
 import * as mailboxes from "./mailboxes";
@@ -458,7 +458,7 @@ export const loadMailboxPageData = async (params: {
 
   let initialLiveCursor: string | null = null;
   try {
-    initialLiveCursor = await latestMailCollaborationEventCursor(params.mailboxId);
+    initialLiveCursor = await latestMailInvalidationCursor(params.mailboxId);
   } catch (error) {
     log.warn("Failed to capture the initial Mail live cursor", {
       mailboxId: params.mailboxId,

@@ -3926,6 +3926,86 @@ const addConversationSummaries = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addLiveInvalidationOutbox = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.live_invalidation_outbox (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID,
+      transaction_key TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      claimed_until TIMESTAMPTZ,
+      delivered_at TIMESTAMPTZ,
+      last_error TEXT CHECK (last_error IS NULL OR char_length(last_error) <= 1000),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, conversation_id, transaction_key)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX live_invalidation_outbox_mailbox_transaction_idx
+    ON mail.live_invalidation_outbox (mailbox_id, transaction_key)
+    WHERE conversation_id IS NULL
+  `;
+  await db`
+    CREATE INDEX live_invalidation_outbox_pending_idx
+    ON mail.live_invalidation_outbox (next_attempt_at, created_at, id)
+    WHERE delivered_at IS NULL
+  `;
+  await db`
+    CREATE INDEX live_invalidation_outbox_delivered_idx
+    ON mail.live_invalidation_outbox (delivered_at)
+    WHERE delivered_at IS NOT NULL
+  `;
+  await db`
+    CREATE OR REPLACE FUNCTION mail.enqueue_live_invalidation(
+      target_mailbox_id UUID,
+      target_conversation_id UUID DEFAULT NULL
+    )
+    RETURNS UUID
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      invalidation_id UUID;
+      current_transaction_key TEXT := pg_current_xact_id()::text;
+    BEGIN
+      INSERT INTO mail.live_invalidation_outbox (
+        mailbox_id, conversation_id, transaction_key
+      ) VALUES (
+        target_mailbox_id, target_conversation_id, current_transaction_key
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING id INTO invalidation_id;
+
+      IF invalidation_id IS NULL THEN
+        SELECT id INTO invalidation_id
+        FROM mail.live_invalidation_outbox
+        WHERE mailbox_id = target_mailbox_id
+          AND conversation_id IS NOT DISTINCT FROM target_conversation_id
+          AND transaction_key = current_transaction_key;
+      END IF;
+      RETURN invalidation_id;
+    END;
+    $$
+  `;
+  await db`
+    CREATE OR REPLACE FUNCTION mail.enqueue_activity_live_invalidation()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      PERFORM mail.enqueue_live_invalidation(NEW.mailbox_id, NEW.conversation_id);
+      RETURN NEW;
+    END;
+    $$
+  `;
+  await db`
+    CREATE TRIGGER activity_events_enqueue_live_invalidation
+    AFTER INSERT ON mail.activity_events
+    FOR EACH ROW EXECUTE FUNCTION mail.enqueue_activity_live_invalidation()
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4025,6 +4105,7 @@ const migrations: readonly MailMigration[] = [
   { version: 112, name: "mail_automation_text_sources", run: resetIncomingAutomationAuthoringModel },
   { version: 113, name: "reviewable_workflow_drafts", run: exposeReviewableWorkflowDrafts },
   { version: 114, name: "conversation_summaries", run: addConversationSummaries },
+  { version: 115, name: "live_invalidation_outbox", run: addLiveInvalidationOutbox },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

@@ -1,6 +1,6 @@
-import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
-import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
+import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
+import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import {
   type ActorCommandInput,
@@ -21,7 +21,7 @@ import { enqueueMailCommand } from "./command-runtime";
 import { validateDraftComposeSafety } from "./compose-safety";
 import { renderComposeDraft } from "./compose-templates";
 import { invalidateDraftLeaseAfterSend } from "./draft-leases";
-import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
+import { notifyMailInvalidations, publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { createBlobReadable } from "./message-blobs";
 import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator-actions";
@@ -844,6 +844,7 @@ const publishCreatedOutboundProjection = async (command: MailCommand): Promise<v
 };
 
 export const enqueueCreatedActorCommands = async (commands: MailCommand[]): Promise<void> => {
+  if (commands.length > 0) await notifyMailInvalidations();
   await Promise.all(
     commands.map(async (command) => {
       await enqueueMailCommand(command.id, command.kind).catch(() => undefined);
@@ -868,6 +869,7 @@ const invalidateSentDraftLeases = async (inputs: ActorCommandInput[]): Promise<v
 const createActorCommandWithActor = async (params: CreateActorCommandInternalParams): Promise<Result<MailCommand>> => {
   try {
     const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
+    if (result.ok) await notifyMailInvalidations();
     if (result.ok) await invalidateSentDraftLeases([params.input]);
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
     if (result.ok) await publishCreatedOutboundProjection(result.data);
@@ -932,6 +934,7 @@ export const createWorkflowCommandInTransaction = (
   );
 
 export const enqueueCreatedWorkflowCommand = async (command: MailCommand, input: ActorCommandInput): Promise<void> => {
+  await notifyMailInvalidations();
   await enqueueMailCommand(command.id, command.kind).catch(() => undefined);
   await publishCreatedOutboundProjection(command);
   if (input.kind === "send" && input.scheduledAt) {
@@ -955,6 +958,7 @@ export const createWorkflowCommand = async (params: {
   afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
 }): Promise<Result<MailCommand>> => {
   const result = await sql.begin((tx) => createWorkflowCommandInTransaction(params, tx));
+  if (result.ok && params.enqueue === false) await notifyMailInvalidations();
   if (result.ok && params.enqueue !== false) await enqueueCreatedWorkflowCommand(result.data, params.input);
   return result;
 };
@@ -1106,6 +1110,7 @@ export const createMaintenanceCommand = async (params: {
       );
       return ok(mapCommand(row));
     });
+    if (result.ok) await notifyMailInvalidations();
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
     return result;
   } catch (error) {

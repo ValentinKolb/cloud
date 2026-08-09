@@ -18,6 +18,7 @@ import * as draftProviderProjection from "./draft-provider-projection";
 import * as draftUploads from "./draft-uploads";
 import * as drafts from "./drafts";
 import * as events from "./events";
+import { startMailInvalidationRuntime, stopMailInvalidationRuntime } from "./events";
 import * as execution from "./execution";
 import * as folders from "./folders";
 import * as health from "./health";
@@ -54,6 +55,7 @@ import * as workflows from "./workflows";
 
 const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
+    await startMailInvalidationRuntime();
     await scheduledMailRuntime.start();
     await imapPushRuntime.start();
     incomingAutomations.startIncomingAutomationBackfillRuntime();
@@ -63,6 +65,7 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
       incomingAutomations.stopIncomingAutomationBackfillRuntime,
       () => imapPushRuntime.stop(),
       () => scheduledMailRuntime.stop(),
+      stopMailInvalidationRuntime,
     ]),
 });
 

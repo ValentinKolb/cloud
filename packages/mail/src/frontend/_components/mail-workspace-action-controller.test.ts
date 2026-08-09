@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { MailActionId } from "./mail-actions";
 import type { MailBulkTarget } from "./mail-bulk-actions";
 import {
+  decideMailAutoReadIntent,
   type MailWorkspaceActionHost,
   mailOptimisticFields,
   removeDestinationPlacements,
@@ -62,6 +63,16 @@ const host = (overrides: Partial<MailWorkspaceActionHost> = {}) => {
 };
 
 describe("Mail workspace action controller", () => {
+  test("consumes each open intent once instead of reacting to later unread snapshots", () => {
+    expect(decideMailAutoReadIntent({ intent: 0, consumedIntent: -1, busy: false, unread: false, canSubmit: true })).toBe("consume");
+    expect(decideMailAutoReadIntent({ intent: 0, consumedIntent: 0, busy: false, unread: true, canSubmit: true })).toBe("ignore");
+    expect(decideMailAutoReadIntent({ intent: 1, consumedIntent: 0, busy: false, unread: true, canSubmit: true })).toBe("read");
+  });
+
+  test("waits to consume a new open intent while another action is pending", () => {
+    expect(decideMailAutoReadIntent({ intent: 1, consumedIntent: 0, busy: true, unread: true, canSubmit: true })).toBe("wait");
+  });
+
   test("owns the successful optimistic action sequence", async () => {
     const fixture = host();
     await runMailWorkspaceAction("mark_read", {}, fixture.host);

@@ -45,7 +45,11 @@ import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refres
 import { buildMailListHref } from "./_components/mail-navigation";
 import { createMailPresenceSession } from "./_components/mail-presence-session";
 import type { MailUserPreferences } from "./_components/mail-user-preferences";
-import { type MailWorkspaceActionOptions, runMailWorkspaceAction } from "./_components/mail-workspace-action-controller";
+import {
+  decideMailAutoReadIntent,
+  type MailWorkspaceActionOptions,
+  runMailWorkspaceAction,
+} from "./_components/mail-workspace-action-controller";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -90,6 +94,7 @@ export default function MailWorkspace(props: {
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
+  const [conversationOpenIntent, setConversationOpenIntent] = createSignal(0);
   const mailboxId = props.data.mailbox.id;
   const userPreferences = createMemo(() => observeMailUserPreferences(mailboxId, props.initialUserPreferences));
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -253,8 +258,10 @@ export default function MailWorkspace(props: {
 
   const openWorkspaceHref = async (href: string, replace = false) => {
     const result = await replaceWorkspaceRoute(href);
-    if (result === "applied") navigate(href, { replace, scroll: "preserve" });
-    else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
+    if (result === "applied") {
+      if (data.selectedConversationId) setConversationOpenIntent((intent) => intent + 1);
+      navigate(href, { replace, scroll: "preserve" });
+    } else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
   };
 
   const loadMoreConversations = async (href: string): Promise<boolean> => {
@@ -566,6 +573,7 @@ export default function MailWorkspace(props: {
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
           if (message.payload.event.conversationId) detailCache.invalidate(message.payload.event.conversationId);
+          else detailCache.clear();
           liveRefresh.schedule(message.payload.cursor);
           return;
         }
@@ -801,8 +809,10 @@ export default function MailWorkspace(props: {
 
   const navigateConversation = async (href: string, item: MailListItem, activation: "keyboard" | "pointer") => {
     const result = item.conversationId ? await applyConversationRoute(href, item, activation) : await replaceWorkspaceRoute(href);
-    if (result === "applied") navigate(href, { scroll: "preserve", viewTransition: false });
-    else if (result === "failed") toast.error("Could not open this conversation. Your current view was kept.");
+    if (result === "applied") {
+      setConversationOpenIntent((intent) => intent + 1);
+      navigate(href, { scroll: "preserve", viewTransition: false });
+    } else if (result === "failed") toast.error("Could not open this conversation. Your current view was kept.");
   };
 
   const reconcileWorkspace = async () => {
@@ -1293,19 +1303,23 @@ export default function MailWorkspace(props: {
     }
   };
 
-  let autoReadSelectionId: string | null = null;
+  let consumedOpenIntent = -1;
   createEffect(() => {
+    const intent = conversationOpenIntent();
     const pending = actionPending();
     const item = selectedListItem();
     const conversationId = item?.conversationId ?? data.selectedConversationId;
-    if (!conversationId) {
-      autoReadSelectionId = null;
-      return;
-    }
-    if (pending || conversationId === autoReadSelectionId || !selectedUnread()) return;
-    const target = item ? actionTargetForItem(item, "mark_read") : actionTargets("mark_read")[0];
-    if (!target || target.sourceFolderIds.length === 0) return;
-    autoReadSelectionId = conversationId;
+    const target = conversationId ? (item ? actionTargetForItem(item, "mark_read") : actionTargets("mark_read")[0]) : undefined;
+    const decision = decideMailAutoReadIntent({
+      intent,
+      consumedIntent: consumedOpenIntent,
+      busy: pending,
+      unread: selectedUnread(),
+      canSubmit: Boolean(target?.sourceFolderIds.length),
+    });
+    if (decision === "ignore" || decision === "wait") return;
+    consumedOpenIntent = intent;
+    if (decision === "consume" || !target) return;
     void runAction("mark_read", { silent: true, targets: [target] });
   });
 

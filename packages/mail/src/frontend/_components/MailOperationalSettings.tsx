@@ -1,6 +1,6 @@
-import { NoticeCard, Button, IconButton, Placeholder, ProgressBar, prompts, StatusBadge, type StatusTone, toast } from "@k2b/ui";
 import { type DateContext, dates, text } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, IconButton, NoticeCard, Placeholder, ProgressBar, prompts, StatusBadge, type StatusTone, toast } from "@k2b/ui";
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
@@ -14,6 +14,7 @@ import type {
 } from "../../contracts";
 import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
 import { readApiError } from "./api-response";
+import { formatHealthEventAge, mailboxHealthPresentation, mailboxOperationalHealthSummary } from "./mail-health-presentation";
 
 const healthTone = (health: Mailbox["health"]): StatusTone => (health === "active" ? "ok" : health === "paused" ? "neutral" : "warning");
 
@@ -81,6 +82,11 @@ const activityState = (state: RedactedOperatorCommand["state"]): { label: string
     return { label: "Queued", icon: "ti-clock", tone: "neutral" };
   }
   return { label: "Cancelled", icon: "ti-circle-minus", tone: "neutral" };
+};
+
+const errorLabel = (code: string): string => {
+  const label = code.toLowerCase().replaceAll("_", " ");
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
 };
 
 export default function MailOperationalSettings(props: {
@@ -247,6 +253,8 @@ export default function MailOperationalSettings(props: {
   const connectedBinding = () =>
     props.bindings.find((binding) => binding.state === "active") ?? props.bindings.find((binding) => binding.state !== "revoked");
   const discoveryNeedsAttention = () => props.health.discovery.missingFolders + props.health.discovery.ambiguousFolders;
+  const healthPresentation = () => mailboxHealthPresentation({ health: props.health.health, healthReason: props.health.healthReason });
+  const healthSummary = () => mailboxOperationalHealthSummary(props.health);
 
   return (
     <div class="flex flex-col gap-5">
@@ -256,11 +264,11 @@ export default function MailOperationalSettings(props: {
         </span>
         <div class="min-w-64 flex-1">
           <div class="flex flex-wrap items-center gap-2">
-            <h3 class="text-base font-semibold text-primary">Mailbox connection</h3>
+            <h3 class="text-base font-semibold text-primary">Mailbox status</h3>
             <StatusBadge tone={healthTone(props.health.health)} label={props.health.health.replaceAll("_", " ")} />
           </div>
           <p class="mt-1 text-sm text-secondary">
-            {props.health.healthReason ||
+            {healthPresentation()?.message ||
               (props.health.health === "active"
                 ? "Provider access and background synchronization are operational."
                 : "Review provider access before relying on delivery or synchronization.")}
@@ -268,9 +276,13 @@ export default function MailOperationalSettings(props: {
           <p class="mt-2 text-xs text-dimmed">
             {connectedBinding()?.authenticatedPrincipal || "No connected account"}
             {" · "}
-            {props.health.sync.lastAt
-              ? `Last synchronized ${dates.formatDateTimeRelative(props.health.sync.lastAt, props.dateConfig)}`
-              : "Not synchronized yet"}
+            <Show when={props.health.sync.lastAt} fallback="No successful synchronization yet">
+              {(lastAt) => (
+                <time datetime={lastAt()} title={dates.formatDateTime(lastAt(), props.dateConfig)}>
+                  Last successful sync {dates.formatDateTimeRelative(lastAt(), props.dateConfig)}
+                </time>
+              )}
+            </Show>
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -302,22 +314,19 @@ export default function MailOperationalSettings(props: {
       <div class="flex flex-wrap gap-x-5 gap-y-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] px-3 py-2.5 text-xs text-secondary">
         <span class="flex items-center gap-1.5">
           <i class="ti ti-server app-accent-text" aria-hidden="true" />
-          {props.health.bindings.active} {props.health.bindings.active === 1 ? "account" : "accounts"}
+          {healthSummary().accounts}
         </span>
         <span class="flex items-center gap-1.5">
           <i class={`ti ${discoveryNeedsAttention() > 0 ? "ti-alert-triangle" : "ti-folders"} app-accent-text`} aria-hidden="true" />
-          {props.health.discovery.activeFolders} folders
-          <Show when={discoveryNeedsAttention() > 0}> · {discoveryNeedsAttention()} need review</Show>
+          {healthSummary().discovery}
         </span>
         <span class="flex items-center gap-1.5">
           <i class="ti ti-refresh app-accent-text" aria-hidden="true" />
-          {props.health.sync.runningRuns > 0
-            ? `${props.health.sync.runningRuns} running`
-            : `${props.health.sync.folderStates.current ?? 0} current`}
+          {healthSummary().synchronization}
         </span>
         <span class="flex items-center gap-1.5">
           <i class="ti ti-search app-accent-text" aria-hidden="true" />
-          {props.health.search.bm25Ready ? "Search ready" : "Standard search"}
+          {healthSummary().search}
         </span>
       </div>
 
@@ -622,28 +631,43 @@ export default function MailOperationalSettings(props: {
                   <div class="flex flex-col gap-2">
                     <p class="text-xs font-semibold text-primary">Needs attention</p>
                     <For each={status().attentionCommands}>
-                      {(item) => (
-                        <div class="flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2">
-                          <span class="min-w-0 flex-1 text-xs text-secondary">
-                            <span class="font-medium text-primary">{item.kind.replaceAll("_", " ")}</span> {item.state.replaceAll("_", " ")}{" "}
-                            · {item.id}
-                            {item.errorCode ? ` · ${item.errorCode}` : ""}
-                          </span>
-                          <For each={item.actions.filter((action) => action.eligible)}>
-                            {(action) => (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                type="button"
-                                disabled={busy()}
-                                onClick={() => operatorCommand.mutate(action)}
-                              >
-                                {actionLabel(action.kind)}
-                              </Button>
-                            )}
-                          </For>
-                        </div>
-                      )}
+                      {(item) => {
+                        const state = activityState(item.state);
+                        return (
+                          <div class="flex flex-wrap items-center gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2.5">
+                            <span class="min-w-64 flex-1">
+                              <span class="flex flex-wrap items-center gap-2">
+                                <span class="text-sm font-medium text-primary">{activityLabel(item.kind)}</span>
+                                <StatusBadge tone={state.tone} label={state.label} />
+                              </span>
+                              <span class="mt-0.5 block text-xs text-secondary">
+                                <time datetime={item.updatedAt} title={dates.formatDateTime(item.updatedAt, props.dateConfig)}>
+                                  Updated {formatHealthEventAge(item.updatedAt)}
+                                </time>
+                                {item.errorCode ? ` · ${errorLabel(item.errorCode)}` : ""}
+                              </span>
+                              <span class="block truncate text-[11px] text-dimmed" title={item.id}>
+                                Command {item.id}
+                              </span>
+                            </span>
+                            <div class="flex flex-wrap gap-2">
+                              <For each={item.actions.filter((action) => action.eligible)}>
+                                {(action) => (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    type="button"
+                                    disabled={busy()}
+                                    onClick={() => operatorCommand.mutate(action)}
+                                  >
+                                    {actionLabel(action.kind)}
+                                  </Button>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        );
+                      }}
                     </For>
                     <Show when={status().nextAttentionCursor}>
                       {(cursor) => (

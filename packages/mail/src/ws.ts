@@ -1,14 +1,14 @@
+import type { Result } from "@k2b/stdlib";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { accounts, logger } from "@valentinkolb/cloud/services";
-import type { Result } from "@k2b/stdlib";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { getCookie } from "hono/cookie";
 import {
   MAIL_LIVE_WS_TYPE,
-  MailCollaborationEventSchema,
+  MailInvalidationSchema,
   MailLiveClientMessageSchema,
   MailLiveCursorSchema,
   type MailLiveErrorCode,
@@ -17,7 +17,7 @@ import {
 } from "./live-events";
 import type { MailRequestContext } from "./service/auth";
 import * as collaboration from "./service/collaboration";
-import { latestMailCollaborationEventCursor, liveMailCollaborationEvents } from "./service/events";
+import { latestMailInvalidationCursor, liveMailInvalidations } from "./service/events";
 
 const log = logger("mail:websocket");
 const ACCESS_REFRESH_INTERVAL_MS = 8_000;
@@ -79,12 +79,12 @@ export const evaluateMailLiveAccess = async (
 export const resolveMailLiveCursor = async (
   mailboxId: string,
   fromCursor: string | null,
-  latestCursor: (mailboxId: string) => Promise<string | null> = latestMailCollaborationEventCursor,
+  latestCursor: (mailboxId: string) => Promise<string | null> = latestMailInvalidationCursor,
 ): Promise<string> => MailLiveCursorSchema.parse(fromCursor ?? (await latestCursor(mailboxId)) ?? "0-0");
 
 export const parseMailLiveReplayEvent = (mailboxId: string, event: { cursor: string; data: unknown }) => {
   const cursor = MailLiveCursorSchema.safeParse(event.cursor);
-  const payload = MailCollaborationEventSchema.safeParse(event.data);
+  const payload = MailInvalidationSchema.safeParse(event.data);
   if (!cursor.success || !payload.success || payload.data.mailboxId !== mailboxId) return null;
   return { cursor: cursor.data, event: payload.data };
 };
@@ -206,7 +206,7 @@ const startStream = (ctx: WsContext, mailboxId: string, after: string) => {
 
   void (async () => {
     try {
-      for await (const event of liveMailCollaborationEvents({ mailboxId, after, signal: abort.signal })) {
+      for await (const event of liveMailInvalidations({ mailboxId, after, signal: abort.signal })) {
         if (!(await deliverReplayEvent(ctx, mailboxId, abort, event))) break;
       }
       if (subscriptionIsCurrent(ctx, mailboxId, abort)) {

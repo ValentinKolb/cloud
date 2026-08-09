@@ -8,6 +8,20 @@ export type MailWorkspaceActionOptions = {
   silent?: boolean;
 };
 
+export type MailAutoReadDecision = "ignore" | "wait" | "consume" | "read";
+
+export const decideMailAutoReadIntent = (params: {
+  intent: number;
+  consumedIntent: number;
+  busy: boolean;
+  unread: boolean;
+  canSubmit: boolean;
+}): MailAutoReadDecision => {
+  if (params.intent === params.consumedIntent) return "ignore";
+  if (params.busy) return "wait";
+  return params.unread && params.canSubmit ? "read" : "consume";
+};
+
 type ActionFailure = {
   conversationId: string;
   label: string;

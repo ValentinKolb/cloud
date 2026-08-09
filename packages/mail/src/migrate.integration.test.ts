@@ -17,7 +17,11 @@ suite("mail migrations", () => {
         workflow_aligned_model_applied_count: number;
         text_sources_applied_count: number;
         summaries_applied_count: number;
+        live_invalidation_applied_count: number;
         summary_columns_present: boolean;
+        live_invalidation_table_present: boolean;
+        live_invalidation_trigger_present: boolean;
+        live_invalidation_conversation_fk_absent: boolean;
         table_present: boolean;
         active_name_index_present: boolean;
         touch_trigger_present: boolean;
@@ -32,6 +36,7 @@ suite("mail migrations", () => {
         (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 111 AND name = 'workflow_aligned_incoming_automation_steps') AS workflow_aligned_model_applied_count,
         (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 112 AND name = 'mail_automation_text_sources') AS text_sources_applied_count,
         (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 114 AND name = 'conversation_summaries') AS summaries_applied_count,
+        (SELECT COUNT(*)::int FROM mail.schema_migrations WHERE version = 115 AND name = 'live_invalidation_outbox') AS live_invalidation_applied_count,
         (
           SELECT COUNT(*) = 2
           FROM information_schema.columns
@@ -39,6 +44,18 @@ suite("mail migrations", () => {
             AND table_name = 'conversations'
             AND column_name IN ('summary', 'summary_revision')
         ) AS summary_columns_present,
+        to_regclass('mail.live_invalidation_outbox') IS NOT NULL AS live_invalidation_table_present,
+        EXISTS (
+          SELECT 1 FROM pg_trigger
+          WHERE tgrelid = 'mail.activity_events'::regclass
+            AND tgname = 'activity_events_enqueue_live_invalidation'
+            AND NOT tgisinternal
+        ) AS live_invalidation_trigger_present,
+        NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'mail.live_invalidation_outbox'::regclass
+            AND conname = 'live_invalidation_outbox_conversation_id_fkey'
+        ) AS live_invalidation_conversation_fk_absent,
         to_regclass('mail.incoming_automations') IS NOT NULL AS table_present,
         to_regclass('mail.incoming_automations_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
         EXISTS (
@@ -69,7 +86,11 @@ suite("mail migrations", () => {
       workflow_aligned_model_applied_count: 1,
       text_sources_applied_count: 1,
       summaries_applied_count: 1,
+      live_invalidation_applied_count: 1,
       summary_columns_present: true,
+      live_invalidation_table_present: true,
+      live_invalidation_trigger_present: true,
+      live_invalidation_conversation_fk_absent: true,
       table_present: true,
       active_name_index_present: true,
       touch_trigger_present: true,

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
+import { mutex } from "@k2b/sync";
 import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
 import {
   claimWorkflowRun,
@@ -9,7 +10,6 @@ import {
   finishWorkflowRun,
   publishWorkflowVersion,
 } from "@valentinkolb/cloud/workflows/store";
-import { mutex } from "@k2b/sync";
 import { sql } from "bun";
 import { type ConnectorVerification, unavailableProviderLimitSnapshot } from "../contracts";
 import { migrate } from "../migrate";
@@ -1344,6 +1344,12 @@ suite("mail lifecycle control plane", () => {
     expect(projection?.deleted_at).not.toBeNull();
     expect(projection?.uid_validity).toBe("52");
     expect(projection?.run_state).toBe("completed");
+    const [liveInvalidation] = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM mail.live_invalidation_outbox
+      WHERE mailbox_id = ${mailboxId}::uuid
+    `;
+    expect(liveInvalidation?.count).toBeGreaterThan(0);
     await sql`DELETE FROM mail.folders WHERE id = ${folder!.id}::uuid`;
   });
 
