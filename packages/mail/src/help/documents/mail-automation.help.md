@@ -34,6 +34,18 @@ Add steps in the order they should run. A flow can freely mix:
 
 Reply drafts and internal comments are normal Mail steps and do not require AI. Add either step directly, then choose **Custom text** or a compatible earlier workflow output as its text source. AI results remain normal workflow outputs. **Use output** and **Add condition** are shortcuts that add ordinary following steps; they do not hide extra behavior inside the AI block. Then and Else branches can again contain Mail actions, AI steps, output consumers, or conditions.
 
+### Know the guided definition contract
+
+The guided editor and the CLI use the same strict definition. Unknown fields are rejected. A definition has `name`, `enabled`, `scope`, and `steps`; its name accepts 1–120 characters, and a new definition defaults `enabled` to `false`.
+
+- `scope.mode: all` needs no conditions. `scope.mode: matching` requires `conditions.mode: all|any` and 1–8 unique condition items. Fields are `sender_address`, `sender_domain`, `subject`, `body_text`, and `attachment_presence`. Sender address and domain use `operator: is`; subject and body accept `is`, `contains`, `starts_with`, or `ends_with`; attachment presence uses `is` with a boolean `value`. Address values accept 1–320 characters, domains 1–253, and subject or body values 1–1,000.
+- Every step has a unique UUID in `id`. Step kinds are `mail_action`, `ai_generate_text`, `ai_classify`, `ai_classify_many`, `create_reply_draft`, `add_comment`, `set_summary`, and `if`.
+- A `mail_action` is `junk`, `trash`, `mark_read`, `add_keyword`, `move_to_folder`, `add_local_tag`, `assign_user`, or `set_status`. Catalog-backed actions use `folderId`, `tagId`, or `userId`; status is `needs_action`, `waiting`, or `done`. A keyword accepts 1–100 characters and must use valid provider-keyword syntax.
+- `ai_generate_text.instructions` accepts 1–4,000 characters and `maxOutputChars` is 200–10,000. `ai_classify` and `ai_classify_many` accept 2–10 choices with case-insensitively unique names; a choice name accepts 1–80 characters and its description 1–500. `ai_classify_many.maxChoices` is from 1 to the number of choices.
+- `create_reply_draft`, `add_comment`, and `set_summary` use `body: { kind: custom, value: ... }` with 1–50,000 characters or `body: { kind: step_output, sourceStepId: ... }` for an earlier text-producing AI step. A multi-choice result is not a text source. Reply drafts additionally require a catalog `senderIdentityId`.
+- An `if` condition references an earlier AI `sourceStepId`. Use `equals` for generated text or one classification and `includes` for multi-classification; `value` accepts 1–500 characters and must name a declared choice for classification. Both `then` and `else` contain at most 12 steps.
+- A definition contains 1–20 top-level steps, at most 40 steps across branches, at most 4 branch levels, and at most 10 AI calls. One reachable path can contain only one provider-message action, assignment, status change, and summary replacement, and cannot add the same local tag twice.
+
 Mail generates canonical workflow YAML from the flow and shows it read-only in the editor. Steps run from top to bottom through the shared workflow runtime. If a later step fails, effects from earlier completed steps remain. Editing the flow publishes a new immutable workflow version; changing only the name or active state does not duplicate identical source. Destructive actions cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
 Text conditions support exact, contains, starts-with, and ends-with matching. Regular expressions are intentionally unavailable until Mail can enforce a bounded RE2-compatible matcher.

@@ -27,6 +27,42 @@ cld --json mail admin operations
 
 These views intentionally omit provider secrets and message content.
 
+## Recover mailbox access as a Cloud administrator
+
+Cloud administrators can discover and inspect active mailboxes without first
+having mailbox access. Use an id when a mailbox name is not unique:
+
+```bash
+cld --json mail admin mailbox list --query "Support" --limit 50
+cld --json mail admin mailbox list --cursor <next-cursor> --limit 50
+cld --json mail admin mailbox get <mailbox-id>
+```
+
+`admin mailbox list` accepts a limit from 1 to 100 and returns the server's
+opaque next cursor in structured output. `admin mailbox get` returns one
+redacted operations record. Neither command exposes provider secrets, messages,
+attachments, or implicit mailbox-content access.
+
+Inspect direct grants and resolve a user, group, or service account before
+changing access:
+
+```bash
+cld --json mail admin mailbox access list <mailbox-id> --include-service-accounts
+cld --json mail admin mailbox access search-principals "Support" --kind user,group,service_account
+cld --json mail admin mailbox access grant <mailbox-id> --user person@example.com --permission admin
+cld --json mail admin mailbox access set <mailbox-id> --group "Support Team" --permission write
+cld --json mail admin mailbox access set <mailbox-id> --access-id <access-id> --permission admin
+cld mail admin mailbox access revoke <mailbox-id> --access-id <access-id> --yes
+```
+
+Permissions are `read`, `write`, and `admin`. `grant` creates a new direct
+entry and fails if that principal already has one. `set` is idempotent: with an
+access id it updates that entry; with exactly one `--user`, `--group`, or
+`--service-account` it resolves the principal and creates or updates the direct
+grant. `revoke` requires `--yes` and removes only the selected direct entry;
+inherited access can still remain. Add a replacement administrator before
+removing the last mailbox administrator.
+
 ## Discover, replace, and revoke providers
 
 Discover likely settings and inspect write-only provider records:
@@ -303,6 +339,7 @@ Do not automatically delete provider mail after the run. The marker keeps test m
 | Area | Commands |
 | --- | --- |
 | Health | `status`, `mailbox wait`, `operator status`, `admin operations` |
+| Access recovery | `admin mailbox list|get`, `admin mailbox access list|search-principals|grant|set|revoke` |
 | Providers | `provider discover|list|add|replace|revoke`, `binding list|attach|verify`, `identity list|add|setup-default|configure|verify|disable`, `identity transport set|remove` |
 | Maintenance | `sync`, `sync folder`, `rediscover`, `repair folder|hydration`, `operator run` |
 | Storage | `admin storage show|reconcile` |

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
+import { z } from "zod";
+import mailCli from "../cli";
 import { createAutomaticReplyConfigurationSchema, createIncomingAutomationSchema } from "../contracts";
 import { bindMailWorkflow } from "../workflows/binder";
 import { buildMailWorkflowCatalog } from "../workflows/catalog";
@@ -9,18 +12,76 @@ import { mailHelp } from ".";
 const cliAutomationReference = await Bun.file(
   new URL("../../../../skills/cloud-cli/references/mail-automation.md", import.meta.url),
 ).text();
+const cliMailReferences = await Promise.all(
+  ["mail.md", "mail-compose.md", "mail-automation.md", "mail-operations.md"].map((file) =>
+    Bun.file(new URL(`../../../../skills/cloud-cli/references/${file}`, import.meta.url)).text(),
+  ),
+);
+
+const renderMailCliHelp = async (path: string[]): Promise<string> => {
+  const lines: string[] = [];
+  const unavailable = () => {
+    throw new Error("CLI help unexpectedly executed a command");
+  };
+  const context = {
+    args: [...path, "help"],
+    flags: {},
+    options: { profile: "", server: "", token: "", output: "text" },
+    getDefault: async () => undefined,
+    setDefault: async () => undefined,
+    createApiClient: unavailable,
+    fetch: unavailable,
+    readJson: unavailable,
+    print: (value = "") => lines.push(value),
+    write: async () => undefined,
+    error: unavailable,
+    json: unavailable,
+    jsonLine: unavailable,
+    table: unavailable,
+  } as unknown as CloudCliContext;
+  await mailCli.run(context);
+  return lines.join("\n");
+};
+
+const registeredMailCliCommands = async (): Promise<Map<string, string>> => {
+  const commands = new Map<string, string>();
+  const visit = async (path: string[]): Promise<void> => {
+    const help = await renderMailCliHelp(path);
+    const commandSection = help.match(/\nCommands:\n([\s\S]*?)(?:\n\S|$)/)?.[1] ?? "";
+    const children = [...commandSection.matchAll(/^  (\S+)\s+/gm)].map((match) => match[1]!);
+    const command = path.join(" ");
+    if (path.length > 0 && (children.length === 0 || help.includes(`  cld mail ${command} [options]`))) commands.set(command, help);
+    for (const child of children) await visit([...path, child]);
+  };
+  await visit([]);
+  return commands;
+};
 
 const manifestTerms = (schema: unknown): string[] => {
   if (!schema || typeof schema !== "object") return [];
-  const value = schema as { properties?: unknown; enum?: unknown; items?: unknown; variants?: unknown };
+  const value = schema as {
+    properties?: unknown;
+    enum?: unknown;
+    const?: unknown;
+    items?: unknown;
+    variants?: unknown;
+    oneOf?: unknown;
+    anyOf?: unknown;
+    allOf?: unknown;
+    $defs?: unknown;
+  };
   const terms: string[] = [];
   if (value.properties && typeof value.properties === "object") {
     for (const [key, child] of Object.entries(value.properties)) terms.push(key, ...manifestTerms(child));
   }
   if (Array.isArray(value.enum)) terms.push(...value.enum.filter((entry): entry is string => typeof entry === "string"));
+  if (typeof value.const === "string") terms.push(value.const);
   if (value.items) terms.push(...manifestTerms(value.items));
-  if (Array.isArray(value.variants)) {
-    for (const variant of value.variants) terms.push(...manifestTerms(variant));
+  for (const variants of [value.variants, value.oneOf, value.anyOf, value.allOf]) {
+    if (Array.isArray(variants)) for (const variant of variants) terms.push(...manifestTerms(variant));
+  }
+  if (value.$defs && typeof value.$defs === "object") {
+    for (const definition of Object.values(value.$defs)) terms.push(...manifestTerms(definition));
   }
   return terms;
 };
@@ -186,6 +247,39 @@ describe("mailHelp", () => {
     expect(work).toContain("Manage unsubscribe");
   });
 
+  test("documents every incoming-automation schema term and structural limit in Help and the CLI skill", () => {
+    const references = [
+      ["Help", mailHelp.getMarkdown("mail-automation")],
+      ["CLI", cliAutomationReference],
+    ] as const;
+    const schemaTerms = [...new Set(manifestTerms(z.toJSONSchema(createIncomingAutomationSchema)))];
+    const limitTerms = [
+      "1–120 characters",
+      "1–8",
+      "1–320",
+      "1–253",
+      "1–1,000",
+      "1–100",
+      "1–4,000",
+      "200–10,000",
+      "2–10",
+      "1–80",
+      "1–500",
+      "1–50,000",
+      "at most 12",
+      "1–20",
+      "at most 40 steps",
+      "at most 4 branch levels",
+      "at most 10 AI calls",
+    ];
+
+    for (const [label, reference] of references) {
+      for (const term of [...schemaTerms, ...limitTerms]) {
+        expect(reference, `${label} reference missing incoming-automation contract term ${term}`).toContain(term);
+      }
+    }
+  });
+
   test("keeps every documented workflow example valid for the Mail vocabulary", async () => {
     const markdown = [mailHelp.getMarkdown("mail-automation"), mailHelp.getMarkdown("mail-workflows")].join("\n");
     const examples = [...markdown.matchAll(/```yaml\n([\s\S]*?)```/g)].map((match) => match[1]!);
@@ -269,5 +363,39 @@ describe("mailHelp", () => {
       if (!compiled.ok) continue;
       expect((await bindMailWorkflow(compiled.ir, catalog)).ok, source).toBe(true);
     }
+  });
+
+  test("keeps the complete native Mail CLI registration and examples documented", async () => {
+    const reference = cliMailReferences.join("\n");
+    const commands = await registeredMailCliCommands();
+    expect(commands.size).toBeGreaterThanOrEqual(200);
+
+    for (const command of commands.keys()) {
+      expect(reference, `CLI reference missing registered command ${command}`).toContain(command);
+    }
+
+    const globalFlags = new Set(["--json", "--jsonl", "--profile", "--server", "--token", "--quiet", "--debug"]);
+    const examples = [...reference.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .flatMap((match) => match[1]!.replace(/\\\n\s*/g, " ").split("\n"))
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("cld "));
+
+    for (const example of examples) {
+      const tokens = [...example.matchAll(/"[^"]*"|'[^']*'|\S+/g)].map((match) => match[0]);
+      const mailIndex = tokens.indexOf("mail");
+      if (mailIndex < 1 || tokens.slice(1, mailIndex).some((token) => !token.startsWith("--"))) continue;
+      const tail = tokens.slice(mailIndex + 1);
+      const command = tail.map((_, index) => tail.slice(0, index + 1).join(" ")).findLast((candidate) => commands.has(candidate));
+      expect(command, `CLI example uses an unregistered Mail command: ${example}`).toBeDefined();
+      if (!command) continue;
+      const help = commands.get(command)!;
+      for (const flag of tokens.filter((token) => token.startsWith("--")).map((token) => token.split("=")[0]!)) {
+        if (!globalFlags.has(flag)) expect(help, `CLI example uses undocumented flag ${flag}: ${example}`).toContain(flag);
+      }
+    }
+
+    const jsonExamples = [...reference.matchAll(/```json\n([\s\S]*?)```/g)].map((match) => match[1]!);
+    expect(jsonExamples.length).toBeGreaterThanOrEqual(2);
+    for (const example of jsonExamples) expect(() => JSON.parse(example)).not.toThrow();
   });
 });
