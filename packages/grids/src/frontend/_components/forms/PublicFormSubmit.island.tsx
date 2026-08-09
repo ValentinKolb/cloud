@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { NoticeCard, Button } from "@k2b/ui";
+import { Button, NoticeCard } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
@@ -15,7 +15,11 @@ type Props = {
   inlineTargetFields?: Record<string, Field[]>;
   dateConfig?: DateContext;
   surface?: "bare" | "paper";
-} & ({ publicToken: string; submitUrl?: never } | { publicToken?: never; submitUrl: string });
+} & (
+  | { publicToken: string; submitUrl?: never; preview?: never }
+  | { publicToken?: never; submitUrl: string; preview?: never }
+  | { publicToken?: never; submitUrl?: never; preview: true }
+);
 
 /**
  * Shared Form submit surface. It renders the same field contract for a
@@ -47,6 +51,7 @@ export default function FormSubmit(props: Props) {
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
+    if (props.preview) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -163,7 +168,7 @@ export default function FormSubmit(props: Props) {
               stretching the full form width (flex-column children are
               `align-items: stretch` by default). */}
           <div class="mt-2 flex items-center justify-end">
-            <Button variant="primary" size="sm" type="submit" disabled={submitting()}>
+            <Button variant="primary" size="sm" type="submit" disabled={props.preview || submitting()}>
               <Show when={submitting()} fallback={<i class="ti ti-send" />}>
                 <i class="ti ti-loader-2 animate-spin" />
               </Show>

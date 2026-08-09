@@ -27,6 +27,10 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
   switch (state.route.kind) {
     case "customApp":
       catalog.customApps = state.catalog.customApps;
+      catalog.tables = state.catalog.tables;
+      catalog.fieldsByTable = state.catalog.fieldsByTable;
+      catalog.viewsByTable = state.catalog.viewsByTable;
+      catalog.formsByTable = state.catalog.formsByTable;
       break;
     case "records":
     case "queryResultView":

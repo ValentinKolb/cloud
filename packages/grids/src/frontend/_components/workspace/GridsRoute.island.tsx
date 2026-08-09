@@ -38,7 +38,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
   const [workflowRunUpdate, setWorkflowRunUpdate] = createSignal<GridsWorkflowRun | null>(null);
 
   if (route.kind === "customApp") {
-    return <CustomAppBuilder app={route.app} />;
+    return <CustomAppBuilder app={route.app} catalog={state.catalog} dateConfig={state.dateConfig} />;
   }
 
   const updateWorkflowRun = (runId: string | null) => {

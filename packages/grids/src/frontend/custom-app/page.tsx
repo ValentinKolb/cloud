@@ -1,4 +1,4 @@
-import { MarkdownView, StatCell, StatGrid } from "@k2b/ui";
+import { MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { executeGqlSourceForContext, executeSavedViewSourceForContext } from "../../api/gql-runtime";
@@ -12,8 +12,8 @@ import {
 } from "../../api/permissions";
 import { ssr } from "../../config";
 import type { DocumentRunSummary, DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
-import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppPageRecordFieldIds, visibleCustomAppPage } from "../../custom-apps/conditions";
+import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
 import { customAppViewSourceHash } from "../../custom-apps/insight-source";
 import {
@@ -21,16 +21,15 @@ import {
   customAppActionUrl,
   customAppCommentsUrl,
   customAppFormSubmitUrl,
-  customAppPageHref,
   customAppRecordUpdateUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
 import { gridsService } from "../../service";
 import {
-  chartDataFromPreview,
   type CustomAppChartData,
   type CustomAppMetricCell,
+  chartDataFromPreview,
   metricCellsFromPreview,
 } from "../../service/custom-app-insights";
 import type { PublicRenderableForm } from "../../service/forms";
@@ -38,6 +37,7 @@ import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import RecordComments from "../_components/records/RecordComments.island";
 import Actions, { type CustomAppRenderedAction } from "./Actions.island";
 import CustomAppChart from "./Chart";
+import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
 import RecordsTable from "./RecordsTable.island";
 import { formatCustomAppValue } from "./value-format";
@@ -73,7 +73,7 @@ type FormBlockData =
 
 const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: string }) => {
   if (!props.data.ok) {
-    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+    return <Placeholder variant="compact" align="left" title="Records unavailable" description={props.data.message} />;
   }
   return (
     <RecordsTable
@@ -89,9 +89,9 @@ const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: strin
 
 const Metrics = (props: { data: MetricsBlockData; dateConfig: ReturnType<typeof getDateConfig> }) => {
   if (!props.data.ok) {
-    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+    return <Placeholder variant="compact" align="left" title="Metrics unavailable" description={props.data.message} />;
   }
-  if (props.data.cells.length === 0) return <div class="rounded-xl border p-4 text-sm text-secondary">No metrics found.</div>;
+  if (props.data.cells.length === 0) return <Placeholder variant="compact" align="left" description="No metrics found." />;
   return (
     <StatGrid columns={props.data.cells.length === 1 ? 1 : props.data.cells.length === 2 ? 2 : 3}>
       {props.data.cells.map((cell) => {
@@ -104,7 +104,7 @@ const Metrics = (props: { data: MetricsBlockData; dateConfig: ReturnType<typeof 
 
 const AppChart = (props: { block: ChartBlock; data: ChartBlockData; dateConfig: ReturnType<typeof getDateConfig> }) => {
   if (!props.data.ok) {
-    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+    return <Placeholder variant="compact" align="left" title="Chart unavailable" description={props.data.message} />;
   }
   return (
     <div class="flex h-72 min-h-0 flex-col">
@@ -128,7 +128,7 @@ const Record = (props: {
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
   if (!props.pageRecord) {
-    return <div class="rounded-xl border p-4 text-sm text-secondary">{props.block.emptyText ?? "Record not found."}</div>;
+    return <Placeholder variant="compact" align="left" description={props.block.emptyText ?? "Record not found."} />;
   }
   return (
     <RecordDetails
@@ -148,7 +148,7 @@ const Record = (props: {
 
 const Form = (props: { block: FormBlock; data: FormBlockData; dateConfig: ReturnType<typeof getDateConfig> }) => {
   if (!props.data.ok) {
-    return <div class="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger">{props.data.message}</div>;
+    return <Placeholder variant="compact" align="left" title="Form unavailable" description={props.data.message} />;
   }
   return (
     <FormSubmit
@@ -177,94 +177,55 @@ const CustomAppPage = (props: {
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
-  const navigation = props.definition.pages
-    .map((page, index) => ({ page, index }))
-    .filter(({ page }) => page.navigation.visible)
-    .sort((left, right) => left.page.navigation.order - right.page.navigation.order || left.index - right.index);
   return (
-    <main class="mx-auto flex w-full max-w-[96rem] flex-col gap-6 p-4 sm:p-6 lg:p-8">
-      <header class="flex flex-wrap items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
-          {props.definition.icon ? <i class={`ti ti-${props.definition.icon} text-2xl text-accent`} aria-hidden="true" /> : null}
-          <div>
-            <p class="text-sm text-secondary">{props.definition.name}</p>
-            <h1 class="text-2xl font-semibold">{props.page.title}</h1>
-          </div>
-        </div>
-        {navigation.length > 1 ? (
-          <nav aria-label="App pages" class="flex flex-wrap items-center gap-1 rounded-xl bg-subtle p-1">
-            {navigation.map(({ page }) => (
-              <a
-                href={customAppPageHref(props.shortId, page.id)}
-                aria-current={page.id === props.page.id ? "page" : undefined}
-                class={`rounded-lg px-3 py-1.5 text-sm font-medium ${page.id === props.page.id ? "bg-surface text-primary shadow-sm" : "text-secondary hover:text-primary"}`}
-              >
-                {page.title}
-              </a>
-            ))}
-          </nav>
-        ) : null}
-      </header>
-      {props.page.rows.map((row) => (
-        <div class="flex flex-wrap gap-4">
-          {row.columns.map((column) => (
-            <section class="min-w-0 basis-80" style={{ flex: `${column.span} 1 20rem` }}>
-              <div class="flex flex-col gap-4">
-                {column.blocks.map((block) => (
-                  <article class="paper p-4 sm:p-5">
-                    {block.title && block.type !== "comments" ? <h2 class="mb-3 text-base font-semibold">{block.title}</h2> : null}
-                    {block.type === "markdown" ? (
-                      <MarkdownView markdown={block.markdown} smallHeadings />
-                    ) : block.type === "records" ? (
-                      <Records
-                        block={block}
-                        data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
-                        shortId={props.shortId}
-                      />
-                    ) : block.type === "metrics" ? (
-                      <Metrics
-                        data={props.metrics.get(block.id) ?? { ok: false, message: "Metrics are unavailable." }}
-                        dateConfig={props.dateConfig}
-                      />
-                    ) : block.type === "chart" ? (
-                      <AppChart
-                        block={block}
-                        data={props.charts.get(block.id) ?? { ok: false, message: "Chart data is unavailable." }}
-                        dateConfig={props.dateConfig}
-                      />
-                    ) : block.type === "record" ? (
-                      <Record
-                        block={block}
-                        pageRecord={props.pageRecord}
-                        baseId={props.definition.baseId}
-                        updateEndpoint={props.recordUpdateEndpoints.get(block.id)}
-                        documentRuns={props.documentRuns.get(block.id) ?? []}
-                        dateConfig={props.dateConfig}
-                      />
-                    ) : block.type === "comments" ? (
-                      <RecordComments
-                        endpoint={props.commentEndpoints.get(block.id) ?? ""}
-                        title={block.title}
-                        emptyText={block.emptyText}
-                        dateConfig={props.dateConfig}
-                      />
-                    ) : block.type === "actions" ? (
-                      <Actions actions={props.actions.get(block.id) ?? []} />
-                    ) : (
-                      <Form
-                        block={block}
-                        data={props.forms.get(block.id) ?? { ok: false, message: "This form is unavailable." }}
-                        dateConfig={props.dateConfig}
-                      />
-                    )}
-                  </article>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      ))}
-    </main>
+    <CustomAppPageLayout
+      definition={props.definition}
+      page={props.page}
+      shortId={props.shortId}
+      renderBlock={(block) =>
+        block.type === "markdown" ? (
+          <MarkdownView markdown={block.markdown} smallHeadings />
+        ) : block.type === "records" ? (
+          <Records
+            block={block}
+            data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
+            shortId={props.shortId}
+          />
+        ) : block.type === "metrics" ? (
+          <Metrics data={props.metrics.get(block.id) ?? { ok: false, message: "Metrics are unavailable." }} dateConfig={props.dateConfig} />
+        ) : block.type === "chart" ? (
+          <AppChart
+            block={block}
+            data={props.charts.get(block.id) ?? { ok: false, message: "Chart data is unavailable." }}
+            dateConfig={props.dateConfig}
+          />
+        ) : block.type === "record" ? (
+          <Record
+            block={block}
+            pageRecord={props.pageRecord}
+            baseId={props.definition.baseId}
+            updateEndpoint={props.recordUpdateEndpoints.get(block.id)}
+            documentRuns={props.documentRuns.get(block.id) ?? []}
+            dateConfig={props.dateConfig}
+          />
+        ) : block.type === "comments" ? (
+          <RecordComments
+            endpoint={props.commentEndpoints.get(block.id) ?? ""}
+            title={block.title}
+            emptyText={block.emptyText}
+            dateConfig={props.dateConfig}
+          />
+        ) : block.type === "actions" ? (
+          <Actions actions={props.actions.get(block.id) ?? []} />
+        ) : (
+          <Form
+            block={block}
+            data={props.forms.get(block.id) ?? { ok: false, message: "This form is unavailable." }}
+            dateConfig={props.dateConfig}
+          />
+        )
+      }
+    />
   );
 };
 
