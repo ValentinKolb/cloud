@@ -31,7 +31,7 @@ const ButtonsDemo = () => (
       { kind: "component", name: "IconButtonLink", from: "@k2b/ui" },
       { kind: "component", name: "SplitButton", from: "@k2b/ui" },
     ]}
-    description="Package-native buttons share one variant and size contract. Hover keeps the variant tone, pressing adds a subtle flat scale without layout movement, Button defaults to primary, IconButton defaults to ghost, and text actions stay surface-free and flush with nearby copy."
+    description="Package-native buttons share one variant and size contract. Hover keeps the variant tone, immediate actions press with a subtle flat scale without layout movement, split-button menu triggers stay still, Button defaults to primary, IconButton defaults to ghost, and text actions stay surface-free and flush with nearby copy."
     code={`<Button variant="primary">Save</Button>
 <Button variant="secondary">Preview</Button>
 <Button variant="ghost">Later</Button>

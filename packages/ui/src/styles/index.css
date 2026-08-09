@@ -1055,10 +1055,10 @@
 }
 
 .k2b-ui .k2b-split-button > .k2b-button:not(:disabled):active {
-  scale: 1;
+  scale: none;
 }
 
-.k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-button:not(:disabled):active) {
+.k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-split-button__primary:not(:disabled):active) {
   scale: 0.98;
 }
 
@@ -1081,8 +1081,8 @@
   }
 
   .k2b-ui .k2b-button:not(:disabled):active,
-  .k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-button:not(:disabled):active) {
-    scale: 1;
+  .k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-split-button__primary:not(:disabled):active) {
+    scale: none;
   }
 }
 

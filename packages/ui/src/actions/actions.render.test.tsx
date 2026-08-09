@@ -696,8 +696,8 @@ describe("@k2b/ui action geometry parity", () => {
     const active = rule(".k2b-ui .k2b-button:not(:disabled):active");
     const split = rule(".k2b-ui .k2b-dropdown.k2b-split-button");
     const splitSegmentActive = rule(".k2b-ui .k2b-split-button > .k2b-button:not(:disabled):active");
-    const splitActive = rule(
-      ".k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-button:not(:disabled):active)",
+    const splitPrimaryActive = rule(
+      ".k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-split-button__primary:not(:disabled):active)",
     );
     const disabled = rule(".k2b-ui .k2b-button:disabled");
 
@@ -707,8 +707,11 @@ describe("@k2b/ui action geometry parity", () => {
     expect(active).toContain("scale: 0.98");
     expect(active).not.toContain("box-shadow");
     expect(split).toContain("transition: scale 100ms ease-out");
-    expect(splitSegmentActive).toContain("scale: 1");
-    expect(splitActive).toContain("scale: 0.98");
+    expect(splitSegmentActive).toContain("scale: none");
+    expect(splitPrimaryActive).toContain("scale: 0.98");
+    expect(actionsCss).not.toContain(
+      ".k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-button:not(:disabled):active)",
+    );
     expect(actionsCss).toContain("@media (prefers-reduced-motion: reduce)");
     expect(disabled).toContain("opacity: 0.4");
   });
