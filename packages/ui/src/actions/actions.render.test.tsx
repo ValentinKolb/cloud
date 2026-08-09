@@ -691,14 +691,25 @@ describe("@k2b/ui action geometry parity", () => {
     expect(actionsCss).toContain(".k2b-ui .k2b-filter-chip:hover");
   });
 
-  test("buttons carry Cloud's transition, press, and disabled treatment", () => {
+  test("buttons use flat, layout-stable press feedback", () => {
     const button = rule(".k2b-ui .k2b-button");
+    const active = rule(".k2b-ui .k2b-button:not(:disabled):active");
+    const split = rule(".k2b-ui .k2b-dropdown.k2b-split-button");
+    const splitSegmentActive = rule(".k2b-ui .k2b-split-button > .k2b-button:not(:disabled):active");
+    const splitActive = rule(
+      ".k2b-ui .k2b-dropdown.k2b-split-button:has(> .k2b-button:not(:disabled):active)",
+    );
     const disabled = rule(".k2b-ui .k2b-button:disabled");
 
     expect(button).toContain("transition:");
     expect(button).toContain("user-select: none");
     expect(button).toContain("font-weight: 500");
-    expect(actionsCss).toContain(".k2b-ui .k2b-button:not(:disabled):active");
+    expect(active).toContain("scale: 0.98");
+    expect(active).not.toContain("box-shadow");
+    expect(split).toContain("transition: scale 100ms ease-out");
+    expect(splitSegmentActive).toContain("scale: 1");
+    expect(splitActive).toContain("scale: 0.98");
+    expect(actionsCss).toContain("@media (prefers-reduced-motion: reduce)");
     expect(disabled).toContain("opacity: 0.4");
   });
 });

@@ -49,6 +49,8 @@ import { Button, ButtonLink, IconButton, IconButtonLink, SplitButton } from "@k2
 
 `size` accepts `xs`, `sm`, `md`, or `lg`. `Button` defaults to `primary`; `IconButton` defaults to `ghost`. Loading disables the action, exposes busy semantics, and may replace the visible label through `loadingLabel`.
 
+Hover preserves each variant's color hierarchy. Pressing adds a subtle inward scale without adding shadow depth or changing layout; compound split buttons move as one control. Reduced-motion preferences keep the color feedback without the scale.
+
 Use `SplitButton` when one immediate action has closely related alternatives. The main segment remains a native button; the icon-only segment opens the existing `DropdownItem` menu contract. `variant`, `size`, `disabled`, and `loading` apply to both segments. `menuLabel` is required as the secondary trigger's accessible name.
 
 Links use normal document navigation by default. Inside a hydrated SSR workspace, opt into the shared navigation contract explicitly:
