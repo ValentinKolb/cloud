@@ -1,5 +1,5 @@
-import type { WorkflowDiagnostic, WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import type { WorkflowDiagnostic, WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { sql } from "bun";
 import type {
   CreateGridsWorkflowLauncherInput,
@@ -144,6 +144,18 @@ export const listLaunchers = async (workflowId: string, enabledOnly = false): Pr
     SELECT ${selectColumns}
     FROM grids.workflow_launchers
     WHERE workflow_id = ${workflowId}::uuid
+      AND deleted_at IS NULL
+      AND (${enabledOnly} = FALSE OR enabled = TRUE)
+    ORDER BY created_at, id
+  `;
+  return rows.map(mapLauncher);
+};
+
+export const listLaunchersForBase = async (baseId: string, enabledOnly = false): Promise<GridsWorkflowLauncher[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT ${selectColumns}
+    FROM grids.workflow_launchers
+    WHERE base_id = ${baseId}::uuid
       AND deleted_at IS NULL
       AND (${enabledOnly} = FALSE OR enabled = TRUE)
     ORDER BY created_at, id

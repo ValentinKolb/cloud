@@ -26,6 +26,7 @@ const workflowState = (): OkWorkspaceState =>
     canCreateTables: false,
     catalog: {
       customApps: [],
+      workflowLaunchers: [],
       tables: [],
       viewsByTable: {},
       sidebarForms: [],

@@ -135,6 +135,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     spyOn(gridsService.field, "listByTable").mockImplementation(async () => [statusField] as never);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.workflow, "listEnabledForBase").mockImplementation(async () => []);
+    spyOn(gridsService.workflow.launcher, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.record, "list").mockImplementation(async (params) => {
       lastRecordListParams = params;
       const ids = (params.recordMeta as { ids?: unknown[] } | null | undefined)?.ids;

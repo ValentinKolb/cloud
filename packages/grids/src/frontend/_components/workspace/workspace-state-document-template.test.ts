@@ -132,6 +132,7 @@ describe("loadGridsWorkspaceState — document templates use Base access", () =>
     spyOn(gridsService.document, "summarizeTemplate").mockImplementation(() => templateSummary as never);
     spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
+    spyOn(gridsService.workflow.launcher, "listForBase").mockImplementation(async () => []);
   });
 
   afterEach(() => mock.restore());

@@ -47,6 +47,7 @@ export type WorkspaceGroupBucket = {
 export type WorkspaceCatalog = {
   customApps: CustomAppSummary[];
   workflows: Workflow[];
+  workflowLaunchers: GridsWorkflowLauncher[];
   workflowLevels: Record<string, "none" | "read" | "write" | "admin">;
   tables: Table[];
   tableLevels: Record<string, "none" | "read" | "write" | "admin">;

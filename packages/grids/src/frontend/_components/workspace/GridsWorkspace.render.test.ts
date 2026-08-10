@@ -33,6 +33,7 @@ const workspaceState = (): OkWorkspaceState => ({
   catalog: {
     customApps: [],
     workflows: [],
+    workflowLaunchers: [],
     workflowLevels: {},
     tables: [],
     tableLevels: {},

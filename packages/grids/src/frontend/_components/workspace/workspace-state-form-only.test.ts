@@ -74,6 +74,7 @@ describe("loadGridsWorkspaceState — Base access boundary", () => {
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
+    spyOn(gridsService.workflow.launcher, "listForBase").mockImplementation(async () => []);
   });
 
   afterEach(() => mock.restore());

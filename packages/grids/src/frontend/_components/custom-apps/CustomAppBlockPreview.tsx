@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Button, MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
-import { createMemo, createResource, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { CustomAppBlock } from "../../../custom-apps/contracts";
@@ -47,6 +47,7 @@ function SourcePreview(props: {
   catalog: WorkspaceCatalog;
   dateConfig?: DateContext;
   initialResult?: DslQueryPreviewResponse;
+  onPreviewResult?: (blockId: string, result: DslQueryPreviewResponse) => void;
 }) {
   const initialSource = JSON.stringify([props.baseId, props.block.source]);
   const source = () => JSON.stringify([props.baseId, props.block.source]);
@@ -60,6 +61,10 @@ function SourcePreview(props: {
     const tableIds = new Set((result?.ok ? result.columns : []).flatMap((column) => (column.tableId ? [column.tableId] : [])));
     return [...tableIds].flatMap((tableId) => props.catalog.fieldsByTable[tableId] ?? []);
   };
+  createEffect(() => {
+    const result = preview();
+    if (result) props.onPreviewResult?.(props.block.id, result);
+  });
   return (
     <Show
       when={!preview.loading}
@@ -119,6 +124,7 @@ export default function CustomAppBlockPreview(props: {
   catalog: WorkspaceCatalog;
   dateConfig?: DateContext;
   initialResult?: DslQueryPreviewResponse;
+  onPreviewResult?: (blockId: string, result: DslQueryPreviewResponse) => void;
 }) {
   const form = createMemo(() => {
     const block = props.block;
@@ -146,6 +152,7 @@ export default function CustomAppBlockPreview(props: {
       catalog={props.catalog}
       dateConfig={props.dateConfig}
       initialResult={props.initialResult}
+      onPreviewResult={props.onPreviewResult}
     />
   ) : props.block.type === "form" ? (
     <Show when={form()} fallback={<Placeholder align="left" title="Form unavailable" description="Choose an active Form in this Base." />}>

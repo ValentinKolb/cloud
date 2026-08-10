@@ -33,8 +33,9 @@ export const loadCatalog = async (baseId: string, user: AuthUser, includeCustomA
   }
   sidebarDocumentTemplates.sort((left, right) => left.template.name.localeCompare(right.template.name, undefined, { sensitivity: "base" }));
 
-  const [allWorkflows, customApps] = await Promise.all([
+  const [allWorkflows, workflowLaunchers, customApps] = await Promise.all([
     gridsService.workflow?.listForBase ? gridsService.workflow.listForBase(baseId) : Promise.resolve([]),
+    includeCustomApps ? gridsService.workflow.launcher.listForBase(baseId, true) : Promise.resolve([]),
     includeCustomApps ? gridsService.customApp.listSummariesByBase(baseId) : Promise.resolve([]),
   ]);
   const baseLevel = await resolveBaseLevel(user, baseId);
@@ -45,6 +46,14 @@ export const loadCatalog = async (baseId: string, user: AuthUser, includeCustomA
   return {
     customApps,
     workflows,
+    workflowLaunchers: workflowLaunchers.filter(
+      (launcher) =>
+        launcher.config.kind === "customApp" &&
+        launcher.enabled &&
+        launcher.deletedAt === null &&
+        launcher.diagnostics.length === 0 &&
+        workflows.some((workflow) => workflow.id === launcher.workflowId && workflow.revision === launcher.validatedRevision),
+    ),
     workflowLevels,
     tables,
     tableLevels: catalogRaw.tableLevels,

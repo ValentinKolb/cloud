@@ -9,6 +9,7 @@ import type { OkWorkspaceState, WorkspaceCatalog } from "./workspace-state-model
 const emptyClientCatalog = (): WorkspaceCatalog => ({
   customApps: [],
   workflows: [],
+  workflowLaunchers: [],
   workflowLevels: {},
   tables: [],
   tableLevels: {},

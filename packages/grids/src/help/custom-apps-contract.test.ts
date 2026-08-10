@@ -56,6 +56,24 @@ describe("Custom Apps documentation contract", () => {
     }
   });
 
+  test("documents the implemented Record-only page parameter contract", async () => {
+    const markdown = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
+
+    expect(markdown).toContain("This release supports required Record parameters only.");
+    expect(markdown).toContain("its URL and `@params.<name>` value are UUID strings");
+    expect(markdown).not.toContain("Supported parameter types are String, Number, Boolean, Date, Date time, and Record.");
+  });
+
+  test("documents progressive visual authoring and contextual GQL", async () => {
+    const overview = await Bun.file(new URL("./documents/grids-custom-apps.help.md", import.meta.url)).text();
+    const pages = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
+
+    expect(overview).toContain("opened in a larger editor without creating a second draft");
+    expect(overview).toContain("Renaming one in the builder updates");
+    expect(overview).toContain("only active Custom App launchers");
+    expect(pages).toContain("the raw GQL console deliberately does not offer Custom App `@…` context");
+  });
+
   test("keeps every Golden YAML example parseable and structurally deterministic", async () => {
     for (const filename of exampleFiles) {
       const source = await Bun.file(new URL(`../../docs/custom-apps/${filename}`, import.meta.url)).text();

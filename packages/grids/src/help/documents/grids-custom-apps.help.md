@@ -159,6 +159,12 @@ On first apply, Grids assigns the app's stable five-character `shortId`. You may
 
 Base administrators can turn on **Edit mode** and create an app with **New app** under **Custom Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, and Actions. Records, Metrics, and Charts can use an accessible saved View or inline GQL.
 
+The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, page records, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL can be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
+
+Route parameters are required Record IDs. Renaming one in the builder updates its typed Form, navigation, workflow, and exact `@params.<name>` GQL references. Turning a page into a page-record route also hides it from navigation and adds a Record block. Records rows can link to compatible route pages; Forms can prefill compatible relation inputs and navigate after creation; Record blocks can choose writable fields and document templates.
+
+An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Custom App launchers whose validated workflow revision is available in the current Base.
+
 The builder saves every structurally complete change automatically. A notice appears while the draft differs from the live version or still needs attention. **Publish changes** validates and publishes the latest saved draft; **Restore live version** discards the pending draft and copies the current live snapshot back into it. The external-link icon opens the live snapshot. Saved View and parameter-free GQL previews are resolved on the server, and the canvas keeps unchanged blocks mounted while a neighboring block is edited.
 
 ## Grant access and publish {icon="lock"}

@@ -13,6 +13,7 @@ const {
   isCustomAppAvailabilityDiagnostic,
   isCustomAppBlockSourceDiagnostic,
 } = await import("./CustomAppBuilder");
+const { CustomAppAvailabilitySection } = await import("./CustomAppGqlField");
 
 const app = (): CustomApp => {
   const draftDefinition: NonNullable<CustomApp["draftDefinition"]> = {
@@ -82,6 +83,7 @@ const app = (): CustomApp => {
 const catalog = (): WorkspaceCatalog => ({
   customApps: [],
   workflows: [],
+  workflowLaunchers: [],
   workflowLevels: {},
   tables: [],
   tableLevels: {},
@@ -255,6 +257,34 @@ describe("CustomAppBuilder", () => {
     ).toBe(false);
   });
 
+  test("progressively discloses optional availability GQL", () => {
+    const always = renderToString(() =>
+      createComponent(CustomAppAvailabilitySection, {
+        baseId: app().baseId,
+        contextKeys: ["auth.id", "time.now"],
+        targetLabel: "Overview",
+        value: () => "",
+        onValueChange: () => undefined,
+      }),
+    );
+    const custom = renderToString(() =>
+      createComponent(CustomAppAvailabilitySection, {
+        baseId: app().baseId,
+        contextKeys: ["auth.id", "time.now"],
+        targetLabel: "Overview",
+        value: () => "from table Loans where record.createdBy = @auth.id",
+        onValueChange: () => undefined,
+      }),
+    );
+
+    expect(always).toContain("Always");
+    expect(always).toContain("Add rule");
+    expect(always).not.toContain("Open large editor");
+    expect(custom).toContain("Custom rule");
+    expect(custom).toContain("Open large editor");
+    expect(custom).toContain('class="k2b-detail-panel__section" open');
+  });
+
   test("renders fail-closed recovery for an incompatible stored draft", () => {
     const legacy = app();
     legacy.draftDefinition = null;
@@ -315,8 +345,8 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("k2b-detail-panel__body");
     expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page settings"');
     expect(html).toContain("Show in app navigation");
-    expect(html).toContain("Available when (GQL)");
-    expect(html).toContain("@auth.id");
+    expect(html).toContain("Availability");
+    expect(html).toContain("Open large editor");
     expect(html).toMatch(/k2b-app-workspace__sidebar-body[\s\S]*k2b-app-workspace__sidebar-footer[\s\S]*This app is a draft/);
     expect(html).toMatch(/k2b-app-workspace__sidebar-footer[^>]*>[\s\S]*k2b-notice-card/);
     expect(html).not.toContain("grids-builder-block");
@@ -330,15 +360,23 @@ describe("CustomAppBuilder", () => {
 
   test("uses the shared GQL source editor instead of the Markdown input", async () => {
     const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
+    const gqlFieldSource = await Bun.file(resolve(import.meta.dir, "CustomAppGqlField.tsx")).text();
     const gqlSettings = source.slice(source.indexOf('<Show when={selectedSourceBlock()?.source.kind === "gql"}>'));
 
-    expect(gqlSettings).toContain("<GqlSourceEditor");
+    expect(gqlSettings).toContain("<CustomAppGqlField");
     expect(gqlSettings).toContain("baseId={draft.draft().baseId}");
     expect(gqlSettings).toContain("contextKeys={contextKeys()}");
     expect(gqlSettings).not.toMatch(/<TextInput[\s\S]{0,240}label="GQL"/);
     expect(source).not.toContain("param('name')");
     expect(source).not.toContain("visibleWhen");
     expect(source).not.toContain("source.inputs");
+    expect(gqlFieldSource).toContain("<PanelDialog.Body scrollPreserveKey={`custom-app-gql-${props.dialogTitle}`}>");
+    expect(gqlFieldSource).toContain('class="flex min-h-0 flex-1 flex-col gap-4"');
+    expect(gqlFieldSource).not.toContain("<PanelDialog.Section");
+    expect(source).toContain('<DetailPanel.Group label="App settings">');
+    expect(source).toContain('<DetailPanel.Group label="Page settings">');
+    expect(source).toContain('<DetailPanel.Group label="Block settings">');
+    expect(source).toContain('<DetailPanel.Group label="Action settings">');
   });
 
   test("uses the workspace edit accent for selected and focused blocks", async () => {

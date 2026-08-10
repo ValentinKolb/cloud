@@ -22,7 +22,7 @@ App identity is intentionally restrained to a name and supported icon. Pages and
 
 ## Declare page context {icon="brackets"}
 
-A page declares every URL parameter before a block can use it. Supported parameter types are String, Number, Boolean, Date, Date time, and Record. A Record parameter also declares its table.
+A page declares every URL parameter before a block can use it. This release supports required Record parameters only. Each parameter declares one table in the same Base; its URL and `@params.<name>` value are UUID strings, and the server verifies that the referenced record belongs to that table before loading page data.
 
 A page may load one **page record** from a Record parameter. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
@@ -39,7 +39,7 @@ path: request_id
 | --- | --- | --- |
 | `PARAMS` | Current page | `request_id` |
 | `RECORD` | Current page record | `id` |
-| `ROW` | One Records row link or row action | `id` or `fields.<outputId>` |
+| `ROW` | One Records row link | `id` |
 | `RESULT` | Form success navigation | `recordId` |
 
 The builder shows only references valid in the current location. YAML validation applies the same scope and type rules. References cannot read arbitrary URL values, another block's internal state, or undeclared data.
@@ -55,7 +55,7 @@ Use the simplest layout that preserves task order:
 - 6 + 6 for two peers;
 - several small columns for compact metrics.
 
-Do not encode separate desktop and mobile layouts. The preview exposes desktop and narrow widths so the same definition can be checked before publication.
+Do not encode separate desktop and mobile layouts. Check the same draft at wide and narrow workspace widths before publication.
 
 ## Configure resource-backed blocks {icon="blocks"}
 
@@ -65,13 +65,13 @@ Markdown renders headings, lists, links, and safe images. It does not run HTML, 
 
 ### Records
 
-Records reads either an existing saved view or a bounded inline GQL query. It supports table and card presentation, explicit fields, empty copy, and a row navigation or row action.
+Records reads either an existing saved view or a bounded inline GQL query. It supports table presentation, explicit fields, empty copy, and optional row navigation.
 
 Inline GQL has a required maximum row count. The runtime also applies shared query budgets. Search, filter, sort, and pagination state is namespaced by the block ID in the URL, so two Records blocks cannot overwrite each other's state.
 
 An inline query receives typed `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
-Use `ROW` only while defining that block's row link or row action. Row actions use the same navigation and enabled-workflow contracts as an Actions block.
+Use `ROW.id` only while defining that block's row link. Put workflow buttons in an Actions block on the target record page.
 
 ### Metrics and Chart
 
@@ -149,6 +149,8 @@ availableWhen:
 ```
 
 An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The runtime omits the resource, does not execute its data source, and rechecks the guard before every Form submission or action invocation. Browser visibility is never the enforcement boundary.
+
+In the visual builder, optional availability stays collapsed until you add a rule. Its summary says **Always**, **Custom rule**, or **Needs attention**. Edit short queries in the inspector or choose **Open large editor** for the same automatically saved draft value. Both editors use only the implicit context available on the selected page; the raw GQL console deliberately does not offer Custom App `@…` context.
 
 ## Design local states {icon="info-circle"}
 
