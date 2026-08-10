@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, Button, ButtonLink, DescriptionList, DetailPanel, Dropdown, IconButton, Placeholder, Tooltip } from "@k2b/ui";
+import { Avatar, Button, ButtonLink, DescriptionList, DetailPanel, Dropdown, IconButton, Placeholder, Tag, Tooltip } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
@@ -10,7 +10,6 @@ import ContactFavoriteButton from "./ContactFavoriteButton";
 import ContactNotesSection from "./ContactNotesSection";
 import ContactOrgTreeView from "./ContactOrgTreeView";
 import ContactQuickEdit from "./ContactQuickEdit";
-import ContactTagChip from "./ContactTagChip";
 import { contactFavoriteKey, listenForContactFavoriteChanges } from "./contacts-favorites";
 import { listenForContactsLiveInvalidation, requiresSelectedContactRefresh } from "./contacts-live";
 import {
@@ -276,7 +275,13 @@ export default function ContactDetailPanel(props: Props) {
                   term: "Tags",
                   description: (
                     <span class="flex flex-wrap gap-1.5">
-                      <For each={c().tags}>{(tag) => <ContactTagChip name={tag.name} color={tag.color} size="sm" />}</For>
+                      <For each={c().tags}>
+                        {(tag) => (
+                          <Tag color={tag.color} icon="ti ti-point" size="lg">
+                            {tag.name}
+                          </Tag>
+                        )}
+                      </For>
                     </span>
                   ),
                 },

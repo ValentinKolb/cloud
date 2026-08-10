@@ -158,6 +158,10 @@ describe("Contacts detail panels", () => {
     expect(html).toContain('class="k2b-discussion__item"');
     expect(html).toContain("Follow up next week.");
     expect(html).toContain("Grace Hopper");
+    expect(html).toContain("k2b-tag__label");
+    expect(html).toContain('data-size="lg"');
+    expect(html).toContain("ti ti-point k2b-tag__icon");
+    expect(html).toContain("Research");
     expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);
     for (const className of legacyDetailClasses) expect(html).not.toContain(className);
   });

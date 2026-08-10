@@ -14,6 +14,12 @@ import { MultiSelectInput, Tag, TagEditor, type TagEditorItem } from "@k2b/ui";
 
 ## Ownership
 
+`Tag` owns compact passive and selected presentation. Set `selected` when the
+surrounding control represents the current value; the selected treatment uses
+a stronger surface and replaces an optional icon with a check, so it does not
+depend on color alone. `Tag` remains presentation-only: the surrounding link or
+button owns `href`, activation, `aria-current`, or `aria-pressed`.
+
 `TagEditor` is controlled and backend-free. It owns create/edit/delete interaction, busy state, focus, and inline errors. The application owns persistence, authorization, uniqueness, confirmation, toasts, sorting, and reconciliation. A rejected async callback keeps the editor open. A missing callback hides that capability.
 
 `MultiSelectInput` accepts `renderOption` and `renderValue` for richer labels while retaining the package-owned selection and removal semantics.
@@ -29,6 +35,10 @@ Interactive editing and selection require hydration. The initial list and tags r
 ## Example
 
 ```tsx
+<Tag color="#2563eb" icon="ti ti-point" selected size="lg">
+  Platform
+</Tag>
+
 <TagEditor
   items={tags()}
   onCreate={createTag}

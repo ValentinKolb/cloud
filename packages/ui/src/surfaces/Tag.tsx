@@ -1,11 +1,14 @@
 import { type JSX, Show } from "solid-js";
 import { colorTintStyle } from "../internal/color";
 
+export type TagSize = "sm" | "md" | "lg";
+
 export type TagProps = {
   children: JSX.Element;
   color?: string | null;
   icon?: string;
-  size?: "sm" | "md";
+  size?: TagSize;
+  selected?: boolean;
   onRemove?: () => void;
   removeLabel?: string;
   disabled?: boolean;
@@ -14,9 +17,16 @@ export type TagProps = {
 
 /** Compact label presentation with optional color, icon, and remove action. */
 export function Tag(props: TagProps): JSX.Element {
+  const icon = () => (props.selected ? "ti ti-check" : props.icon);
+
   return (
-    <span class={`k2b-tag ${props.class ?? ""}`} data-size={props.size ?? "md"} style={colorTintStyle(props.color)}>
-      <Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+    <span
+      class={`k2b-tag ${props.class ?? ""}`}
+      data-size={props.size ?? "md"}
+      data-selected={props.selected ? "true" : undefined}
+      style={colorTintStyle(props.color)}
+    >
+      <Show when={icon()}>{(value) => <i class={`${value()} k2b-tag__icon`} aria-hidden="true" />}</Show>
       <span class="k2b-tag__label">{props.children}</span>
       <Show when={props.onRemove}>
         {(remove) => (

@@ -1,6 +1,6 @@
 import { documentNavigate, navigate } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { Button, FilterChip, type FilterChipSection, Pagination, TextInput } from "@k2b/ui";
+import { Button, FilterChip, type FilterChipSection, Pagination, Tag, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactPresenceFilter, ContactSort, ContactTag } from "../../service";
@@ -9,7 +9,6 @@ import { readErrorMessage } from "./api";
 import { openContactDuplicatesDialog } from "./ContactDuplicatesDialog";
 import ContactsBulkActions from "./ContactsBulkActions";
 import ContactsList from "./ContactsList";
-import ContactTagChip from "./ContactTagChip";
 import { listenForContactFavoriteChanges } from "./contacts-favorites";
 import { listenForContactsLiveInvalidation, requiresContactsResultsRefresh } from "./contacts-live";
 import {
@@ -338,13 +337,11 @@ export default function ContactsResults(props: Props) {
             <a
               href={filterHref(state().href, query())}
               aria-current={!props.activeTagId ? "page" : undefined}
-              class={`inline-flex h-6 shrink-0 items-center rounded-full border px-2 text-xs font-medium transition-colors ${
-                props.activeTagId
-                  ? "border-[var(--ui-border)] bg-[var(--ui-surface-muted)] text-secondary hover:bg-[var(--ui-hover)]"
-                  : "border-transparent bg-[var(--ui-selected)] text-primary"
-              }`}
+              class="inline-flex shrink-0 transition-opacity hover:opacity-80"
             >
-              All
+              <Tag selected={!props.activeTagId} size="lg">
+                All
+              </Tag>
             </a>
             {props.tags?.map((tag) => (
               <a
@@ -353,7 +350,9 @@ export default function ContactsResults(props: Props) {
                 title={props.showBookNames ? `${tag.name} · ${props.bookNames[tag.bookId] ?? "Contact book"}` : undefined}
                 class="inline-flex shrink-0 transition-opacity hover:opacity-80"
               >
-                <ContactTagChip name={tag.name} color={tag.color} active={props.activeTagId === tag.id} size="sm" />
+                <Tag color={tag.color} icon="ti ti-point" selected={props.activeTagId === tag.id} size="lg">
+                  {tag.name}
+                </Tag>
               </a>
             ))}
           </nav>

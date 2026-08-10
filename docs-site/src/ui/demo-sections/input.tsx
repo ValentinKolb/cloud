@@ -477,6 +477,7 @@ const TagEditorDemo = () => {
 <Tag color="#0891b2">Platform</Tag>
 <Tag color="#8b5cf6" icon="ti ti-palette">Design</Tag>
 <Tag size="sm">Neutral</Tag>
+<Tag color="#2563eb" icon="ti ti-point" selected size="lg">Selected</Tag>
 
 <TagEditor
   items={tags()}
@@ -503,6 +504,9 @@ const TagEditorDemo = () => {
           <Tag color="#0891b2">Platform</Tag>
           <Tag color="#8b5cf6" icon="ti ti-palette">Design</Tag>
           <Tag size="sm">Neutral</Tag>
+          <Tag color="#2563eb" icon="ti ti-point" selected size="lg">
+            Selected
+          </Tag>
         </div>
         <TagEditor
           items={items()}

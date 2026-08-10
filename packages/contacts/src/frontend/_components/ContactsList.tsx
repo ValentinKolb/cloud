@@ -1,9 +1,8 @@
-import { Placeholder, Tooltip } from "@k2b/ui";
+import { Placeholder, Tag, Tooltip } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
 import { resolveContactInitials, resolveContactName } from "../../shared";
 import ContactFavoriteButton from "./ContactFavoriteButton";
-import ContactTagChip from "./ContactTagChip";
 import { contactFavoriteKey } from "./contacts-favorites";
 import { buildContactDetailHref } from "./contacts-search";
 import {
@@ -181,7 +180,13 @@ export default function ContactsList(props: Props) {
                           </span>
                         )}
                       </Show>
-                      <For each={visibleTags()}>{(tag) => <ContactTagChip name={tag.name} color={tag.color} />}</For>
+                      <For each={visibleTags()}>
+                        {(tag) => (
+                          <Tag color={tag.color} icon="ti ti-point">
+                            {tag.name}
+                          </Tag>
+                        )}
+                      </For>
                       <Show when={hiddenTagCount() > 0}>
                         <span class="text-[11px] tabular-nums">+{hiddenTagCount()}</span>
                       </Show>

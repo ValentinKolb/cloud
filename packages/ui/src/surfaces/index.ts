@@ -30,5 +30,5 @@ export type {
 export { StatGrid } from "./StatGrid";
 export type { StatusBadgeProps, StatusTone } from "./StatusBadge";
 export { StatusBadge } from "./StatusBadge";
-export type { TagProps } from "./Tag";
+export type { TagProps, TagSize } from "./Tag";
 export { Tag } from "./Tag";

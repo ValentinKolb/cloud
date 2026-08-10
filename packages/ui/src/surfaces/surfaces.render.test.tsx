@@ -25,6 +25,7 @@ const { Tag } = await import("./Tag");
 
 const stylesDir = resolve(import.meta.dir, "../styles");
 const stylesheets = readdirSync(stylesDir).filter((file) => file.endsWith(".css"));
+const baseCss = readFileSync(resolve(stylesDir, "index.css"), "utf8");
 const parityCss = readFileSync(resolve(stylesDir, "surfaces-widgets-parity.css"), "utf8");
 const ownedSelectors =
   /\.k2b-(avatar|link-card|not-found|notice-card|notice-grid|placeholder|progress|stat-grid|stat-cell|status-badge|widget)/;
@@ -55,6 +56,22 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
 
     expect(tag).toContain("--k2b-choice-color:#7c3aed");
     expect(tag).toContain('aria-label="Remove UI"');
+    const selectedTag = renderToString(() =>
+      createComponent(Tag, {
+        color: "#2563eb",
+        icon: "ti ti-point",
+        selected: true,
+        size: "lg",
+        children: "Selected",
+      }),
+    );
+    expect(selectedTag).toContain('data-size="lg"');
+    expect(selectedTag).toContain('data-selected="true"');
+    expect(selectedTag).toContain("ti ti-check k2b-tag__icon");
+    expect(selectedTag).not.toContain("ti ti-point");
+    expect(baseCss).toContain('.k2b-ui .k2b-tag[data-selected="true"]');
+    expect(baseCss).toContain("var(--k2b-choice-color, var(--k2b-action))");
+    expect(baseCss).toContain("color: var(--k2b-text);");
     expect(list).toContain("<dl");
     expect(list).toContain("<dt>Owner</dt>");
     expect(list).toContain("<dd>Platform team</dd>");
