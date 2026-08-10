@@ -113,6 +113,8 @@ describe("composeAiSystemPrompt", () => {
     expect(enabled).toContain("current user with current permissions");
     expect(enabled).toContain("owning app authorizes every call");
     expect(enabled).toContain("Catalog visibility never proves resource access");
+    expect(enabled).toContain("compact live app directory from capability discovery");
+    expect(enabled).toContain("do not expect a static app list in this prompt");
     expect(enabled).toContain("use its exact appId for the first search or list");
     expect(enabled).toContain("Try at most one broader search");
     expect(enabled).toContain("load only the needed names");

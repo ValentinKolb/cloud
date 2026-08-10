@@ -20,8 +20,15 @@ export type AiCapabilityCatalogItem = {
   name: string;
   appId: string;
   appName: string;
+  appDescription: string;
   kind: AiCapabilityKind;
   title: string;
+  description: string;
+};
+
+export type AiCapabilityAppCatalogItem = {
+  appId: string;
+  appName: string;
   description: string;
 };
 
@@ -36,6 +43,9 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 50;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_SEARCH_LIMIT = 25;
+const DEFAULT_APP_LIST_LIMIT = 20;
+const MAX_APP_LIST_LIMIT = 25;
+const MAX_APP_DIRECTORY_DESCRIPTION_CHARS = 2_000;
 const MAX_UNAVAILABLE_LOADED_NAMES = 10;
 
 const providerSafeSegment = (value: string): string =>
@@ -60,10 +70,29 @@ const catalogItem = (entry: AiCapabilityCatalogEntry): AiCapabilityCatalogItem =
   name: entry.name,
   appId: entry.appId,
   appName: entry.appName,
+  appDescription: entry.appDescription,
   kind: entry.kind,
   title: entry.title,
   description: entry.description,
 });
+
+/** Build the compact, deterministic directory of apps in the current live registry. */
+export const buildAiCapabilityAppCatalog = (apps: readonly CapabilityRegistryEntry[]): AiCapabilityAppCatalogItem[] => {
+  const seen = new Set<string>();
+  return [...apps]
+    .sort(
+      (left, right) =>
+        left.appId.localeCompare(right.appId) ||
+        left.appName.localeCompare(right.appName) ||
+        left.appDescription.localeCompare(right.appDescription) ||
+        left.endpoint.localeCompare(right.endpoint),
+    )
+    .flatMap((app) => {
+      if (seen.has(app.appId)) return [];
+      seen.add(app.appId);
+      return [{ appId: app.appId, appName: app.appName, description: app.appDescription }];
+    });
+};
 
 /** Build one deterministic, immutable view of the current live registry. */
 export const buildAiCapabilityCatalog = (apps: CapabilityRegistryEntry[]): AiCapabilityCatalogEntry[] => {
@@ -84,6 +113,7 @@ export const buildAiCapabilityCatalog = (apps: CapabilityRegistryEntry[]): AiCap
         name: aiCapabilityToolName(app.appId, kind, operation.localId),
         appId: app.appId,
         appName: app.appName,
+        appDescription: app.appDescription,
         kind,
         title: operation.title,
         description: operation.description,
@@ -131,6 +161,24 @@ export const listAiCapabilities = (
   };
 };
 
+export const listAiCapabilityApps = (
+  apps: readonly AiCapabilityAppCatalogItem[],
+  input: { cursor?: string; limit?: number },
+): { apps: AiCapabilityAppCatalogItem[]; page: { hasMore: boolean; nextCursor?: string } } => {
+  const start = input.cursor ? apps.findIndex((app) => app.appId > input.cursor!) : 0;
+  const offset = start < 0 ? apps.length : start;
+  const limit = boundedLimit(input.limit, DEFAULT_APP_LIST_LIMIT, MAX_APP_LIST_LIMIT);
+  const page = apps.slice(offset, offset + limit);
+  const hasMore = offset + page.length < apps.length;
+  return {
+    apps: [...page],
+    page: {
+      hasMore,
+      ...(hasMore && page.length > 0 ? { nextCursor: page.at(-1)!.appId } : {}),
+    },
+  };
+};
+
 const normalizeSearchText = (value: string): string =>
   value
     .normalize("NFKD")
@@ -173,9 +221,11 @@ export const searchAiCapabilities = (
       const title = normalizeSearchText(entry.title);
       const identity = `${name} ${title}`;
       const app = normalizeSearchText(`${entry.appId} ${entry.appName}`);
+      const appDescription = normalizeSearchText(entry.appDescription);
       const description = normalizeSearchText(entry.description);
       const identityWords = searchWordForms(identity);
       const appWords = searchWordForms(app);
+      const appDescriptionWords = searchWordForms(appDescription);
       const descriptionWords = searchWordForms(description);
       let matchedTerms = 0;
       let score = 0;
@@ -183,14 +233,17 @@ export const searchAiCapabilities = (
       else if (includesSearchPhrase(identity, phrase)) score += 50;
       if (app === phrase) score += 40;
       else if (includesSearchPhrase(app, phrase)) score += 20;
+      if (includesSearchPhrase(appDescription, phrase)) score += 12;
       if (includesSearchPhrase(description, phrase)) score += 15;
       for (const term of terms) {
         const identityMatch = includesSearchTerm(identityWords, term);
         const appMatch = includesSearchTerm(appWords, term);
+        const appDescriptionMatch = includesSearchTerm(appDescriptionWords, term);
         const descriptionMatch = includesSearchTerm(descriptionWords, term);
-        if (identityMatch || appMatch || descriptionMatch) matchedTerms += 1;
+        if (identityMatch || appMatch || appDescriptionMatch || descriptionMatch) matchedTerms += 1;
         if (identityMatch) score += 8;
         if (appMatch) score += 6;
+        if (appDescriptionMatch) score += 3;
         if (descriptionMatch) score += 4;
       }
       return matchedTerms > 0 ? [{ entry, matchedTerms, score }] : [];
@@ -355,8 +408,17 @@ const CatalogItemSchema = z
     name: z.string(),
     appId: z.string(),
     appName: z.string(),
+    appDescription: z.string(),
     kind: z.enum(["query", "action"]),
     title: z.string(),
+    description: z.string(),
+  })
+  .strict();
+
+const AppCatalogItemSchema = z
+  .object({
+    appId: z.string(),
+    appName: z.string(),
     description: z.string(),
   })
   .strict();
@@ -364,12 +426,28 @@ const CatalogItemSchema = z
 type CapabilityStateStore = Pick<AiConversationStore, "loadCapabilities">;
 
 export const createAiCapabilityMetaTools = (input: {
+  apps: readonly CapabilityRegistryEntry[];
   catalog: readonly AiCapabilityCatalogEntry[];
   conversationId: string;
   store: CapabilityStateStore;
   maxLoadedCapabilities?: number;
   unavailableLoadedNames?: readonly string[];
 }): AiRuntimeTool[] => {
+  const apps = buildAiCapabilityAppCatalog(input.apps);
+  const directoryEntries: string[] = [];
+  let directoryLength = 0;
+  for (const app of apps) {
+    const entry = `${app.appId} (${app.appName})`;
+    const addedLength = entry.length + (directoryEntries.length > 0 ? 2 : 0);
+    if (directoryLength + addedLength > MAX_APP_DIRECTORY_DESCRIPTION_CHARS) break;
+    directoryEntries.push(entry);
+    directoryLength += addedLength;
+  }
+  const hiddenAppCount = apps.length - directoryEntries.length;
+  const liveAppDirectory =
+    directoryEntries.length > 0
+      ? ` Live capability apps: ${directoryEntries.join(", ")}${hiddenAppCount > 0 ? `, and ${hiddenAppCount} more` : ""}.`
+      : " No live capability apps are visible in this provider turn; retry discovery later instead of claiming a permanent product limitation.";
   const unavailableLoadedNames = input.unavailableLoadedNames ?? [];
   const unavailableLoadedNotice =
     unavailableLoadedNames.length > 0
@@ -383,7 +461,7 @@ export const createAiCapabilityMetaTools = (input: {
       : "";
   const search = defineAiTool({
     name: "search_capabilities",
-    description: `Search installed Cloud app capabilities by concise task terms, app, or name. When the app is known, set its exact appId on the first attempt. Set kind to query for reads and action for mutations. If one scoped attempt has no relevant result, try at most one broader search, then stop. Returns compact exact names for loading.${unavailableLoadedNotice}`,
+    description: `Search installed Cloud app capabilities by concise task terms, app name, app description, or operation metadata.${liveAppDirectory} When the app is known, set its exact appId on the first attempt. Use list_capability_apps for app descriptions. Set kind to query for reads and action for mutations. If one scoped attempt has no relevant result, try at most one broader search, then stop. Returns compact exact names for loading.${unavailableLoadedNotice}`,
     inputSchema: z
       .object({
         query: z.string().trim().min(1).max(200).describe("What the capability should do."),
@@ -395,6 +473,25 @@ export const createAiCapabilityMetaTools = (input: {
     outputSchema: z.object({ capabilities: z.array(CatalogItemSchema).max(MAX_SEARCH_LIMIT) }).strict(),
     approval: "never",
   }).server(async (args) => searchAiCapabilities(input.catalog, args));
+
+  const listApps = defineAiTool({
+    name: "list_capability_apps",
+    description:
+      "List the live Cloud apps that currently publish capabilities, including their exact app ids, names, and app descriptions. Use this only when the compact live directory is insufficient to identify the owning app.",
+    inputSchema: z
+      .object({
+        cursor: z.string().max(80).optional(),
+        limit: z.number().int().min(1).max(MAX_APP_LIST_LIMIT).optional(),
+      })
+      .strict(),
+    outputSchema: z
+      .object({
+        apps: z.array(AppCatalogItemSchema).max(MAX_APP_LIST_LIMIT),
+        page: z.object({ hasMore: z.boolean(), nextCursor: z.string().optional() }).strict(),
+      })
+      .strict(),
+    approval: "never",
+  }).server(async (args) => listAiCapabilityApps(apps, args));
 
   const list = defineAiTool({
     name: "list_capabilities",
@@ -442,7 +539,7 @@ export const createAiCapabilityMetaTools = (input: {
     return { ...updated, missing };
   });
 
-  return [search, list, load];
+  return [search, listApps, list, load];
 };
 
 export const createLoadedAiCapabilityTools = (input: {
@@ -522,6 +619,7 @@ export const createAiCapabilityToolResolver =
     const unavailableLoadedNames = loadedNames.filter((name) => !catalogNames.has(name));
     const capabilityTools = [
       ...createAiCapabilityMetaTools({
+        apps: registry,
         catalog,
         conversationId: input.conversationId,
         store: input.store,

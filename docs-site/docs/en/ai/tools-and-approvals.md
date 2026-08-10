@@ -139,10 +139,14 @@ source:
 toolSource: { kind: "default", capabilities: true }
 ```
 
-Capability-enabled chats always expose three small discovery tools:
+Capability-enabled chats expose four small discovery tools from the current
+live registry snapshot:
 
-- `search_capabilities` finds operations by task, name, application, and
-  `query` or `action` kind;
+- `search_capabilities` includes a bounded directory of live app IDs and names,
+  then finds operations by task, app name, app description, operation metadata,
+  and `query` or `action` kind;
+- `list_capability_apps` returns the live apps with their exact IDs, names, and
+  descriptions when the compact directory is not enough;
 - `list_capabilities` lists a bounded page, optionally filtered by application
   and kind;
 - `load_capabilities` retains exact names returned by discovery.
@@ -155,7 +159,8 @@ set `kind: "query"` for reads or `kind: "action"` for mutations. Use the
 paginated list only for browsing, not as a fallback dump after a
 natural-language search.
 
-A loaded capability becomes an ordinary named tool on the next model turn.
+Search and list results include the owning app description. A loaded capability
+becomes an ordinary named tool on the next model turn.
 Cloud sends the model a reduced input schema that keeps structure, required
 fields, descriptions, enums, and useful formats. Output schemas, schema hashes,
 icons, authorization metadata, and validation-only limits stay out of model

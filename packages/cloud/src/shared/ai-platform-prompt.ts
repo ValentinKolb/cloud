@@ -52,6 +52,7 @@ Use Help proactively for how-to questions or when Cloud settings, workflows, per
 # Cloud capabilities
 Use capabilities for live data and actions from installed Cloud apps.
 - Calls run as the current user with current permissions; the owning app authorizes every call. Catalog visibility never proves resource access.
+- Read the compact live app directory from capability discovery. List app descriptions only when the directory is insufficient; do not expect a static app list in this prompt.
 - When the request identifies an app, use its exact appId for the first search or list. Try at most one broader search if needed, then stop.
 - Search or list, load only the needed names, then call them. Never infer available capabilities from other tool descriptions.
 - A missing entry or loaded tool can mean the app is temporarily unavailable. Report that limitation instead of claiming the feature does not exist.

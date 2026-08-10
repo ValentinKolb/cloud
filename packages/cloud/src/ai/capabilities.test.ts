@@ -9,6 +9,7 @@ import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/re
 import {
   aiCapabilityInputSchema,
   aiCapabilityToolName,
+  buildAiCapabilityAppCatalog,
   buildAiCapabilityCatalog,
   createAiCapabilityMetaTools,
   createAiCapabilityToolResolver,
@@ -16,6 +17,7 @@ import {
   createAiHelpTools,
   createLoadedAiCapabilityTools,
   listAiCapabilities,
+  listAiCapabilityApps,
   reduceAiCapabilityInputSchema,
   searchAiCapabilities,
 } from "./capabilities";
@@ -25,6 +27,7 @@ const capabilityApp = (
   appId: string,
   appName = appId,
   query = { title: "List items", description: "List the items this user can read." },
+  appDescription = "",
 ): CapabilityRegistryEntry => {
   const compiled = compileCapabilities(
     appId,
@@ -67,7 +70,7 @@ const capabilityApp = (
     appName,
     appIcon: "ti ti-box",
     appAccent: "#0f766e",
-    appDescription: "",
+    appDescription,
     endpoint: `http://${appId}:3000/api/_internal/capabilities/v1`,
     manifest: compiled.manifest,
   };
@@ -277,6 +280,45 @@ describe("AI capability catalog", () => {
     expect(JSON.stringify(page)).not.toContain("appIcon");
   });
 
+  test("builds and pages a deterministic live app directory", () => {
+    const apps = buildAiCapabilityAppCatalog([
+      capabilityApp("spaces", "Spaces", undefined, "Team spaces and kanban boards."),
+      capabilityApp("contacts", "Contacts", undefined, "Address books and people."),
+      capabilityApp("contacts", "Duplicate", undefined, "Ignored duplicate."),
+    ]);
+
+    expect(apps).toEqual([
+      { appId: "contacts", appName: "Contacts", description: "Address books and people." },
+      { appId: "spaces", appName: "Spaces", description: "Team spaces and kanban boards." },
+    ]);
+    expect(listAiCapabilityApps(apps, { limit: 1 })).toEqual({
+      apps: [{ appId: "contacts", appName: "Contacts", description: "Address books and people." }],
+      page: { hasMore: true, nextCursor: "contacts" },
+    });
+    expect(listAiCapabilityApps(apps, { cursor: "contacts" }).apps).toEqual([
+      { appId: "spaces", appName: "Spaces", description: "Team spaces and kanban boards." },
+    ]);
+  });
+
+  test("bounds the live app directory in provider tool context", () => {
+    const apps = Array.from({ length: 25 }, (_, index) =>
+      capabilityApp(`app-${index}`, `App ${index} ${"long-name ".repeat(20)}`, undefined, `Description ${index}`),
+    );
+    const tools = createAiCapabilityMetaTools({
+      apps,
+      catalog: buildAiCapabilityCatalog(apps),
+      conversationId: "conversation-1",
+      store: {
+        loadCapabilities: async ({ names }) => ({ loaded: names, alreadyLoaded: [], evicted: [] }),
+      },
+    });
+    const description = tools.find((tool) => tool.def.name === "search_capabilities")?.def.description ?? "";
+
+    expect(description).toContain("Live capability apps:");
+    expect(description).toContain("more");
+    expect(description.length).toBeLessThan(3_000);
+  });
+
   test("ranks natural-language task terms without requiring one contiguous phrase", () => {
     const mail = capabilityApp("mail", "Mail", {
       title: "List conversations",
@@ -297,6 +339,25 @@ describe("AI capability catalog", () => {
     expect(searchAiCapabilities(catalog, { query: "missing phrase" }).capabilities).toEqual([]);
     expect(searchAiCapabilities(catalog, { query: "create items", appId: "contacts", kind: "action" }).capabilities).toEqual([
       expect.objectContaining({ name: "contacts__action__create" }),
+    ]);
+  });
+
+  test("searches and returns the owning app description", () => {
+    const catalog = buildAiCapabilityCatalog([
+      capabilityApp(
+        "mail",
+        "Mail",
+        { title: "Browse records", description: "Return accessible records." },
+        "Read and organize email communication, mailboxes, and inboxes.",
+      ),
+    ]);
+
+    expect(searchAiCapabilities(catalog, { query: "email communication", kind: "query" }).capabilities).toEqual([
+      expect.objectContaining({
+        appId: "mail",
+        name: "mail__query__list",
+        appDescription: "Read and organize email communication, mailboxes, and inboxes.",
+      }),
     ]);
   });
 
@@ -324,6 +385,7 @@ describe("AI capability catalog", () => {
     const catalog = buildAiCapabilityCatalog([capabilityApp("contacts", "Contacts")]);
     const updates: Array<{ names: string[]; maxLoadedCapabilities?: number }> = [];
     const tools = createAiCapabilityMetaTools({
+      apps: [capabilityApp("contacts", "Contacts")],
       catalog,
       conversationId: "conversation-1",
       maxLoadedCapabilities: 2,
@@ -446,6 +508,7 @@ describe("AI capability catalog", () => {
     const first = await resolver();
     expect(first.map((tool) => tool.def.name)).toEqual([
       "search_capabilities",
+      "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
       "contacts__query__list",
@@ -460,6 +523,7 @@ describe("AI capability catalog", () => {
     const second = await resolver();
     expect(second.map((tool) => tool.def.name)).toEqual([
       "search_capabilities",
+      "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
       "spaces__action__create",
@@ -518,6 +582,7 @@ describe("AI capability catalog", () => {
 
     expect((await resolver()).map((tool) => tool.def.name)).toEqual([
       "search_capabilities",
+      "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
       "search_help",
@@ -543,7 +608,16 @@ describe("AI capability catalog", () => {
       execute: async () => ({ data: [] }),
     });
 
-    expect((await resolver()).map((tool) => tool.def.name)).toEqual(["search_capabilities", "list_capabilities", "load_capabilities"]);
+    const unavailable = await resolver();
+    expect(unavailable.map((tool) => tool.def.name)).toEqual([
+      "search_capabilities",
+      "list_capability_apps",
+      "list_capabilities",
+      "load_capabilities",
+    ]);
+    expect(unavailable.find((tool) => tool.def.name === "search_capabilities")?.def.description).toContain(
+      "No live capability apps are visible in this provider turn",
+    );
     expect(failures).toHaveLength(1);
   });
 
@@ -573,7 +647,7 @@ describe("AI capability catalog", () => {
     expect(tools.map((tool) => tool.def.name)).toContain("contacts__action__create");
   });
 
-  test("lets a small scripted model list, load, and call without seeing every capability schema", async () => {
+  test("lets a small scripted model discover an app, load, and call without seeing every capability schema", async () => {
     const entries: StoreEntry[] = [];
     const requests: ProviderRequest[] = [];
     let loaded: string[] = [];
@@ -596,6 +670,7 @@ describe("AI capability catalog", () => {
       },
     });
     const calls = [
+      { id: "apps-1", name: "list_capability_apps", args: {} },
       { id: "list-1", name: "list_capabilities", args: { appId: "contacts", kind: "query" } },
       { id: "load-1", name: "load_capabilities", args: { names: ["contacts__query__list"] } },
       { id: "query-1", name: "contacts__query__list", args: {} },
@@ -639,9 +714,17 @@ describe("AI capability catalog", () => {
       // drain
     }
 
-    expect((requests[0]?.tools ?? []).map((tool) => tool.name)).toEqual(["search_capabilities", "list_capabilities", "load_capabilities"]);
-    expect((requests[1]?.tools ?? []).map((tool) => tool.name)).not.toContain("contacts__query__list");
-    expect((requests[2]?.tools ?? []).map((tool) => tool.name)).toContain("contacts__query__list");
+    expect((requests[0]?.tools ?? []).map((tool) => tool.name)).toEqual([
+      "search_capabilities",
+      "list_capability_apps",
+      "list_capabilities",
+      "load_capabilities",
+    ]);
+    expect(requests[0]?.tools?.find((tool) => tool.name === "search_capabilities")?.description).toContain(
+      "Live capability apps: contacts (Contacts)",
+    );
+    expect((requests[2]?.tools ?? []).map((tool) => tool.name)).not.toContain("contacts__query__list");
+    expect((requests[3]?.tools ?? []).map((tool) => tool.name)).toContain("contacts__query__list");
     expect(JSON.stringify(requests[0]?.tools)).not.toContain("schemaHash");
     expect(JSON.stringify(requests[0]?.tools)).not.toContain("Optional title text.");
     expect(executed).toBe("contacts__query__list");
