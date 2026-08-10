@@ -29,6 +29,7 @@ import {
   mailboxes,
   messages,
   reminders,
+  resourceParents,
   scheduledSends,
   search,
   senderIdentities,
@@ -394,17 +395,17 @@ const queryDefinitions = {
       );
     },
   },
-  "mailbox.get": {
-    title: "Get mailbox",
+  "mailbox.read": {
+    title: "Read mailbox",
     description: "Read one accessible mailbox without exposing connector credentials.",
-    input: c.MailboxGetInputSchema,
+    input: c.ResourceReadInputSchema,
     data: c.MailboxDataSchema,
     openWorld: false,
-    run: async (input: z.output<typeof c.MailboxGetInputSchema>, context: CapabilityExecutionContext) => {
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
       const mailContext = requestContext(context);
-      const mailbox = await mailboxes.getMailbox(mailContext, input.mailboxId);
+      const mailbox = await mailboxes.getMailbox(mailContext, input.id);
       if (!mailbox.ok) return mailbox;
-      const permission = await mailboxAccess.getMailboxPermission(mailContext, input.mailboxId);
+      const permission = await mailboxAccess.getMailboxPermission(mailContext, input.id);
       return permission === "none"
         ? fail(err.forbidden("Mailbox access is required"))
         : ok({
@@ -539,25 +540,27 @@ const queryDefinitions = {
       });
     },
   },
-  "conversation.get": {
-    title: "Get conversation",
-    description: "Read collaboration state, tags, and message IDs for one conversation; call message.get for safe plain-text bodies.",
-    input: c.ConversationGetInputSchema,
+  "conversation.read": {
+    title: "Read conversation",
+    description: "Read collaboration state, tags, and message IDs for one conversation; call message.read for safe plain-text bodies.",
+    input: c.ResourceReadInputSchema,
     data: c.ConversationGetDataSchema,
     openWorld: true,
-    run: async (input: z.output<typeof c.ConversationGetInputSchema>, context: CapabilityExecutionContext) => {
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
       const mailContext = requestContext(context);
+      const mailboxId = await resourceParents.conversation(input.id);
+      if (!mailboxId) return fail(err.notFound("Conversation"));
       const [state, tags, page] = await Promise.all([
         collaboration.getConversationCollaboration({
           context: mailContext,
-          mailboxId: input.mailboxId,
-          conversationId: input.conversationId,
+          mailboxId,
+          conversationId: input.id,
         }),
-        localTags.getConversationLocalTags({ context: mailContext, mailboxId: input.mailboxId, conversationId: input.conversationId }),
+        localTags.getConversationLocalTags({ context: mailContext, mailboxId, conversationId: input.id }),
         messages.listConversationMessages({
           context: mailContext,
-          mailboxId: input.mailboxId,
-          conversationId: input.conversationId,
+          mailboxId,
+          conversationId: input.id,
           limit: 50,
         }),
       ]);
@@ -566,7 +569,7 @@ const queryDefinitions = {
       if (!page.ok) return page;
       return ok({
         data: {
-          conversationId: input.conversationId,
+          conversationId: input.id,
           collaboration: {
             assignee: state.data.assignee,
             workStatus: state.data.workStatus,
@@ -574,10 +577,10 @@ const queryDefinitions = {
             revision: state.data.revision,
           },
           tags: tags.data.tags.map(({ id, name, color, revision }) => ({ id, name, color, revision })),
-          messages: page.data.items.map((item) => mapNavigableMessageSummary(input.mailboxId, input.conversationId, item)),
+          messages: page.data.items.map((item) => mapNavigableMessageSummary(mailboxId, input.id, item)),
           messagesTruncated: page.data.nextCursor !== null,
         },
-        ...conversationMetadata(input.mailboxId, input.conversationId),
+        ...conversationMetadata(mailboxId, input.id),
       });
     },
   },
@@ -599,17 +602,19 @@ const queryDefinitions = {
         (item) => mapNavigableMessageSummary(input.mailboxId, input.conversationId, item),
       ),
   },
-  "message.get": {
-    title: "Get message",
+  "message.read": {
+    title: "Read message",
     description: "Read one email message body as safe plain text with bounded attachment metadata. Raw source and HTML are excluded.",
-    input: c.MessageGetInputSchema,
+    input: c.ResourceReadInputSchema,
     data: c.MessageDataSchema,
     openWorld: true,
-    run: async (input: z.output<typeof c.MessageGetInputSchema>, context: CapabilityExecutionContext) => {
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+      const mailboxId = await resourceParents.message(input.id);
+      if (!mailboxId) return fail(err.notFound("Message"));
       const result = await messages.getMessage({
         context: requestContext(context),
-        mailboxId: input.mailboxId,
-        messageId: input.messageId,
+        mailboxId,
+        messageId: input.id,
       });
       if (!result.ok) return result;
       const item = result.data;
@@ -619,11 +624,11 @@ const queryDefinitions = {
         filename: filename === null ? null : truncateText(filename, 255).text,
         contentType: truncateText(contentType, 255).text,
         sizeBytes,
-        downloadHref: `/api/mail/mailboxes/${input.mailboxId}/messages/${input.messageId}/attachments/${id}`,
+        downloadHref: `/api/mail/mailboxes/${mailboxId}/messages/${input.id}/attachments/${id}`,
       }));
       return ok({
         data: {
-          ...mapMessageSummary(input.mailboxId, null, item, 20),
+          ...mapMessageSummary(mailboxId, null, item, 20),
           contentType: item.contentType === null ? null : truncateText(item.contentType, 255).text,
           sizeBytes: item.sizeBytes,
           replyTo: item.replyTo.slice(0, 20).map(mapAddress),
@@ -659,13 +664,44 @@ const queryDefinitions = {
           ...attachments.slice(0, 99).map((attachment) => ({ type: "mail.attachment", id: attachment.id })),
         ],
         links: [
-          openLink(messageHref(input.mailboxId, item.id)),
+          openLink(messageHref(mailboxId, item.id)),
           ...attachments.slice(0, 19).map((attachment) => ({
             rel: "download" as const,
             href: attachment.downloadHref,
             title: attachment.filename?.trim() || "Download attachment",
           })),
         ],
+      });
+    },
+  },
+  "attachment.read": {
+    title: "Read message attachment",
+    description: "Read bounded metadata for one message attachment without loading its content.",
+    input: c.ResourceReadInputSchema,
+    data: c.AttachmentDataSchema,
+    openWorld: false,
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+      const parent = await resourceParents.attachment(input.id);
+      if (!parent) return fail(err.notFound("Attachment"));
+      const result = await messages.getMessage({
+        context: requestContext(context),
+        mailboxId: parent.mailboxId,
+        messageId: parent.messageId,
+      });
+      if (!result.ok) return result;
+      const attachment = result.data.attachments.find((item) => item.id === input.id);
+      if (!attachment) return fail(err.notFound("Attachment"));
+      const data = {
+        id: attachment.id,
+        filename: attachment.filename === null ? null : truncateText(attachment.filename, 255).text,
+        contentType: truncateText(attachment.contentType, 255).text,
+        sizeBytes: attachment.sizeBytes,
+        downloadHref: `/api/mail/mailboxes/${parent.mailboxId}/messages/${parent.messageId}/attachments/${attachment.id}`,
+      };
+      return ok({
+        data,
+        refs: [{ type: "mail.attachment", id: attachment.id }],
+        links: [{ rel: "download" as const, href: data.downloadHref, title: data.filename?.trim() || "Download attachment" }],
       });
     },
   },
@@ -678,16 +714,19 @@ const queryDefinitions = {
     run: async (input: z.output<typeof c.DraftListInputSchema>, context: CapabilityExecutionContext) =>
       mapResult(await drafts.listDrafts(requestContext(context), input.mailboxId, input.limit), (items) => items.map(mapDraftSummary)),
   },
-  "draft.get": {
-    title: "Get draft",
+  "draft.read": {
+    title: "Read draft",
     description: "Read one editable or scheduled draft.",
-    input: c.DraftGetInputSchema,
+    input: c.ResourceReadInputSchema,
     data: c.DraftDataSchema,
     openWorld: false,
-    run: async (input: z.output<typeof c.DraftGetInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(await drafts.getDraft(requestContext(context), input.mailboxId, input.draftId), mapDraft, (draft) =>
-        draftMetadata(input.mailboxId, draft.id),
-      ),
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+      const mailboxId = await resourceParents.draft(input.id);
+      if (!mailboxId) return fail(err.notFound("Draft"));
+      return mapResult(await drafts.getDraft(requestContext(context), mailboxId, input.id), mapDraft, (draft) =>
+        draftMetadata(mailboxId, draft.id),
+      );
+    },
   },
   "draft.send.review": {
     title: "Review draft before sending",
@@ -737,6 +776,28 @@ const queryDefinitions = {
         : result;
     },
   },
+  "comment.read": {
+    title: "Read conversation comment",
+    description: "Read one accessible internal conversation comment by stable ID.",
+    input: c.ResourceReadInputSchema,
+    data: c.CommentDataSchema,
+    openWorld: false,
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+      const parent = await resourceParents.comment(input.id);
+      if (!parent) return fail(err.notFound("Comment"));
+      return mapResult(
+        await collaboration.getConversationComment({ context: requestContext(context), ...parent, commentId: input.id }),
+        (item) => item,
+        (item) => ({
+          refs: [
+            { type: "mail.comment", id: item.id },
+            { type: "mail.conversation", id: parent.conversationId },
+          ],
+          links: [openLink(conversationHref(parent.mailboxId, parent.conversationId))],
+        }),
+      );
+    },
+  },
   "conversation.activity.list": {
     title: "List mail activity",
     description: "List bounded mailbox or conversation collaboration activity.",
@@ -769,6 +830,28 @@ const queryDefinitions = {
         }),
       ),
   },
+  "reminder.read": {
+    title: "Read personal reminder",
+    description: "Read one personal reminder owned by the current user-backed actor.",
+    input: c.ResourceReadInputSchema,
+    data: c.ReminderDataSchema,
+    openWorld: false,
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+      const parent = await resourceParents.reminder(input.id);
+      if (!parent) return fail(err.notFound("Reminder"));
+      const result = await reminders.getConversationReminder({ context: requestContext(context), ...parent });
+      if (!result.ok) return result;
+      if (!result.data || result.data.id !== input.id) return fail(err.notFound("Reminder"));
+      return ok({
+        data: result.data,
+        refs: [
+          { type: "mail.reminder", id: result.data.id },
+          { type: "mail.conversation", id: parent.conversationId },
+        ],
+        links: [openLink(conversationHref(parent.mailboxId, parent.conversationId))],
+      });
+    },
+  },
   "delivery.list": {
     title: "List scheduled deliveries",
     description: "List messages still in an undo window or scheduled for later delivery.",
@@ -797,18 +880,20 @@ const queryDefinitions = {
       });
     },
   },
-  "delivery.get": {
-    title: "Get scheduled delivery",
+  "delivery.read": {
+    title: "Read scheduled delivery",
     description: "Read one scheduled delivery by identifier.",
-    input: c.DeliveryGetInputSchema,
+    input: c.ResourceReadInputSchema,
     data: c.DeliveryDataSchema,
     openWorld: false,
-    run: async (input: z.output<typeof c.DeliveryGetInputSchema>, context: CapabilityExecutionContext) =>
-      mapResult(
+    run: async (input: z.output<typeof c.ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+      const mailboxId = await resourceParents.delivery(input.id);
+      if (!mailboxId) return fail(err.notFound("Scheduled message"));
+      return mapResult(
         await scheduledSends.getScheduledSend({
           context: requestContext(context),
-          mailboxId: input.mailboxId,
-          scheduledSendId: input.deliveryId,
+          mailboxId,
+          scheduledSendId: input.id,
         }),
         (item) => ({
           id: item.id,
@@ -823,8 +908,9 @@ const queryDefinitions = {
           lastError: boundedText(item.lastError, 1000).text,
           createdAt: item.createdAt,
         }),
-        (item) => ({ refs: [{ type: "mail.delivery", id: item.id }], links: [statusLink(scheduledHref(input.mailboxId))] }),
-      ),
+        (item) => ({ refs: [{ type: "mail.delivery", id: item.id }], links: [statusLink(scheduledHref(mailboxId))] }),
+      );
+    },
   },
   "mailing-list.subscription.list": {
     title: "List mailing-list subscriptions",
@@ -1716,21 +1802,37 @@ const actionDefinitions = {
 export const mailCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
-    mailbox: { title: "Mailbox", description: "A mailbox the actor may access.", icon: "ti ti-inbox" },
+    mailbox: { title: "Mailbox", description: "A mailbox the actor may access.", icon: "ti ti-inbox", reader: "mailbox.read" },
     "sender-identity": { title: "Sender identity", description: "A From identity configured for a mailbox.", icon: "ti ti-user-send" },
     folder: { title: "Mail folder", description: "A selectable provider mail folder.", icon: "ti ti-folder" },
     conversation: {
       title: "Mail conversation",
       description: "A grouped mail conversation with collaboration state.",
       icon: "ti ti-messages",
+      reader: "conversation.read",
     },
-    message: { title: "Mail message", description: "One message in an accessible mailbox.", icon: "ti ti-mail" },
-    attachment: { title: "Mail attachment", description: "Bounded metadata for a message or draft attachment.", icon: "ti ti-paperclip" },
-    draft: { title: "Mail draft", description: "An editable outgoing message.", icon: "ti ti-mail-pencil" },
+    message: { title: "Mail message", description: "One message in an accessible mailbox.", icon: "ti ti-mail", reader: "message.read" },
+    attachment: {
+      title: "Mail attachment",
+      description: "Bounded metadata for a message attachment.",
+      icon: "ti ti-paperclip",
+      reader: "attachment.read",
+    },
+    draft: { title: "Mail draft", description: "An editable outgoing message.", icon: "ti ti-mail-pencil", reader: "draft.read" },
     tag: { title: "Mail tag", description: "A Cloud-local collaboration tag.", icon: "ti ti-tag" },
-    comment: { title: "Mail comment", description: "An internal conversation comment.", icon: "ti ti-message" },
-    reminder: { title: "Mail reminder", description: "A user's personal reminder for a conversation.", icon: "ti ti-bell" },
-    delivery: { title: "Mail delivery", description: "A queued, undo-window, or scheduled delivery.", icon: "ti ti-clock-send" },
+    comment: { title: "Mail comment", description: "An internal conversation comment.", icon: "ti ti-message", reader: "comment.read" },
+    reminder: {
+      title: "Mail reminder",
+      description: "A user's personal reminder for a conversation.",
+      icon: "ti ti-bell",
+      reader: "reminder.read",
+    },
+    delivery: {
+      title: "Mail delivery",
+      description: "A queued, undo-window, or scheduled delivery.",
+      icon: "ti ti-clock-send",
+      reader: "delivery.read",
+    },
     "mailing-list": {
       title: "Mailing list",
       description: "A mailing list detected from standards-based headers.",

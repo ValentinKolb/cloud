@@ -1,5 +1,5 @@
-import type { AccessUser, PermissionLevel } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import type { AccessUser, PermissionLevel } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type {
   ActorRef,
@@ -654,6 +654,18 @@ const loadComment = async (params: {
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
   `;
   return row ? mapComment(row) : null;
+};
+
+export const getConversationComment = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  commentId: string;
+}): Promise<Result<ConversationComment>> => {
+  const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  const comment = await loadComment({ db: sql, ...params });
+  return comment ? ok(comment) : fail(err.notFound("Comment"));
 };
 
 const validateCommentReferences = async (params: {

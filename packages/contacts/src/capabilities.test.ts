@@ -111,13 +111,16 @@ describe("contacts capabilities", () => {
     expect(Object.keys(contactsCapabilities.types).sort()).toEqual(["book", "contact", "note", "tag"]);
     expect(Object.keys(contactsCapabilities.queries).sort()).toEqual([
       "book.list",
-      "contact.get",
+      "book.read",
       "contact.list",
+      "contact.read",
       "contact.resolve",
       "contact.search",
       "contact.suggest",
       "note.list",
+      "note.read",
       "tag.list",
+      "tag.read",
     ]);
     expect(Object.keys(contactsCapabilities.actions).sort()).toEqual([
       "contact.create",
@@ -198,8 +201,8 @@ describe("contacts capabilities", () => {
     spyOn(contactsService.book, "get").mockResolvedValue(book);
     spyOn(contactsService.contact, "get").mockResolvedValue(contact);
 
-    const definition = contactsCapabilities.queries["contact.get"];
-    const result = await definition.run({ contactId }, context);
+    const definition = contactsCapabilities.queries["contact.read"];
+    const result = await definition.run({ id: contactId }, context);
 
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
@@ -291,7 +294,7 @@ describe("contacts capabilities", () => {
     spyOn(contactsService.book, "get").mockResolvedValue(book);
     spyOn(contactsService.contact, "get").mockResolvedValue(oversized);
 
-    const result = await contactsCapabilities.queries["contact.get"].run({ contactId }, context);
+    const result = await contactsCapabilities.queries["contact.read"].run({ id: contactId }, context);
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(ContactDetailDataSchema.safeParse(result.data.data).success).toBeTrue();

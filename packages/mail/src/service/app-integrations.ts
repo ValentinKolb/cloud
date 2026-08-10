@@ -25,7 +25,7 @@ const REQUIRED_SPACES_INVITATION_QUERIES = [
 ] as const;
 const REQUIRED_SPACES_INVITATION_ACTIONS = ["calendar-invitation.import", "calendar-invitation.response.commit"] as const;
 const REQUIRED_SPACES_SETTINGS_QUERIES = ["calendar-destination.list"] as const;
-const REQUIRED_SPACES_COMPOSER_QUERIES = ["calendar-destination.list", "space.get", "event.list"] as const;
+const REQUIRED_SPACES_COMPOSER_QUERIES = ["calendar-destination.list", "space.read", "event.list"] as const;
 const REQUIRED_SPACES_COMPOSER_ACTIONS = ["event.create", "event.invitation.prepare", "event.invitation.commit"] as const;
 
 export type AppIntegrationRequest = {
@@ -140,10 +140,10 @@ export const getCalendarSpace = (spaceId: string, request: AppIntegrationRequest
   fetchAppCapability({
     appId: "spaces",
     kind: "query",
-    capabilityId: "space.get",
+    capabilityId: "space.read",
     request,
     dataSchema: spaceDetailSchema,
-    input: { spaceId },
+    input: { id: spaceId },
   }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const listCalendarEvents = (spaceId: string, request: AppIntegrationRequest, query?: string) =>

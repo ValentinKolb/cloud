@@ -98,10 +98,12 @@ describe("Venue capabilities", () => {
     expect(Object.keys(venueCapabilities.types ?? {}).sort()).toEqual(["assignment", "shift", "venue"]);
     expect(Object.keys(venueCapabilities.queries ?? {}).sort()).toEqual([
       "assignment.mine",
+      "assignment.read",
       "feedback.summary",
       "shift.list",
-      "venue.get",
+      "shift.read",
       "venue.list",
+      "venue.read",
       "venue.search",
       "venue.status",
     ]);
@@ -224,15 +226,15 @@ describe("Venue capabilities", () => {
         const hiddenList = await invokeQuery("venue.list", { limit: 25 }, otherContext);
         expect(hiddenList.ok && hiddenList.data.data).toEqual([]);
 
-        const publicVenue = await invokeQuery("venue.get", { venueId: publicVenueId }, otherContext);
+        const publicVenue = await invokeQuery("venue.read", { id: publicVenueId }, otherContext);
         expect(publicVenue.ok && publicVenue.data.data).toMatchObject({ id: publicVenueId, permission: null, publicEnabled: true });
         if (publicVenue.ok) {
           expect(publicVenue.data.data).not.toHaveProperty("icalToken");
           expect(publicVenue.data.data).not.toHaveProperty("logoBase64");
           expect(publicVenue.data.links).toEqual([{ rel: "open", href: `/app/venue/public/public-agent-venue-${suffix}` }]);
         }
-        const hiddenVenue = await invokeQuery("venue.get", { venueId }, otherContext);
-        const missingVenue = await invokeQuery("venue.get", { venueId: crypto.randomUUID() }, otherContext);
+        const hiddenVenue = await invokeQuery("venue.read", { id: venueId }, otherContext);
+        const missingVenue = await invokeQuery("venue.read", { id: crypto.randomUUID() }, otherContext);
         expect(hiddenVenue).toMatchObject({ ok: false, error: { code: "NOT_FOUND", status: 404 } });
         expect(missingVenue).toMatchObject({ ok: false, error: { code: "NOT_FOUND", status: 404 } });
         const status = await invokeQuery("venue.status", { venueId }, context);
@@ -246,6 +248,7 @@ describe("Venue capabilities", () => {
           ]),
         );
         if (shifts.ok) expect(shifts.data.data[0]).not.toHaveProperty("assignments");
+        expect((await invokeQuery("shift.read", { id: `${templateId}:${shiftDate}` }, context)).ok).toBe(true);
 
         const firstShiftPage = await invokeQuery("shift.list", { venueId, startDate: shiftDate, days: 1, limit: 1 }, context);
         if (!firstShiftPage.ok || !firstShiftPage.data.page?.hasMore) throw new Error("Expected a second shift page");
@@ -309,6 +312,7 @@ describe("Venue capabilities", () => {
 
         const mine = await invokeQuery("assignment.mine", { venueId, days: 366, limit: 25 }, context);
         expect(mine.ok && mine.data.links).toEqual([{ rel: "open", href: `/app/venue/${venueId}/my-shifts` }]);
+        if (signup.ok) expect((await invokeQuery("assignment.read", { id: signup.data.data.id }, context)).ok).toBe(true);
         expect(mine.ok && mine.data.data).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ id: signup.data.data.id, venueId }),
@@ -390,7 +394,7 @@ describe("Venue capabilities", () => {
       expect(listed.ok && listed.data.data).toEqual([expect.objectContaining({ id: boundVenueId, permission: "read" })]);
       const searched = await invokeQuery("venue.search", { query: "Agent Venue", tags: [], limit: 25 }, context);
       expect(searched.ok && searched.data.data).toEqual([expect.objectContaining({ ref: { type: "venue.venue", id: boundVenueId } })]);
-      const crossVenue = await invokeQuery("venue.get", { venueId: otherVenueId }, context);
+      const crossVenue = await invokeQuery("venue.read", { id: otherVenueId }, context);
       expect(crossVenue).toMatchObject({ ok: false, error: { code: "FORBIDDEN", status: 403 } });
       const userOnlyAction = await invokeAction(
         "assignment.signup_free",

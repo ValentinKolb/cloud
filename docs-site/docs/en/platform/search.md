@@ -5,7 +5,7 @@ section: Platform services
 order: 560
 description: Project focused application Queries into the shared Cloud search.
 tags: [search, capabilities, authorization]
-updated: 2026-08-01
+updated: 2026-08-10
 ---
 
 # Universal search
@@ -31,6 +31,7 @@ import {
   UniversalSearchInputSchema,
 } from "@valentinkolb/cloud/contracts";
 import { ok } from "@k2b/stdlib";
+import { z } from "zod";
 
 export const inventoryCapabilities = defineCapabilities({
   protocolVersion: 1,
@@ -38,9 +39,53 @@ export const inventoryCapabilities = defineCapabilities({
     item: {
       title: "Inventory item",
       description: "One item in the inventory catalog.",
+      reader: "item.read",
     },
   },
   queries: {
+    "item.read": {
+      title: "Read inventory item",
+      description: "Read one visible inventory item by stable ID.",
+      input: z
+        .object({
+          id: z.string().uuid().describe("Stable inventory item UUID."),
+        })
+        .strict(),
+      data: z
+        .object({
+          id: z.string().uuid(),
+          name: z.string(),
+          quantity: z.number().int(),
+        })
+        .strict(),
+      openWorld: false,
+      run: async ({ id }, context) => {
+        const item = await inventory.get({
+          id,
+          accessSubject: context.accessSubject,
+        });
+        return item
+          ? ok({
+              data: {
+                id: item.id,
+                name: item.name,
+                quantity: item.quantity,
+              },
+              refs: [{ type: "inventory.item", id: item.id }],
+              links: [
+                { rel: "open", href: `/app/inventory/items/${item.id}` },
+              ],
+            })
+          : {
+              ok: false,
+              error: {
+                code: "NOT_FOUND",
+                message: "Inventory item not found",
+                status: 404,
+              },
+            };
+      },
+    },
     search: {
       title: "Search inventory",
       description: "Find visible inventory items by name.",
@@ -104,6 +149,17 @@ Each returned resource must:
 - contain only information the current access subject may read;
 - stay within the requested limit.
 
+Cloud preserves each structured `CloudResourceRef` in the merged result. If
+the referenced Type advertises a canonical reader, the search result's
+`ref.id` must work unchanged as that reader's required `id`. A consumer can
+therefore keep the ref and resolve the current reader later without storing a
+Capability name.
+
+Searchability does not require a reader. A Type without one may still return a
+navigable search result with an `open` link, but consumers must not present it
+as programmatically readable. Search and read remain separate Queries: search
+finds bounded resource views; the Type's reader loads one known resource.
+
 Use `preview`, `icon`, `priority`, and `metadata` only when they help identify
 the resource. A `preview` semantic link lets Cloud load a separate preview
 surface.
@@ -129,6 +185,10 @@ The same Query can also be invoked through the generic capability HTTP, CLI,
 or MCP surface. Those calls follow normal capability authentication and may
 use a service-account access subject. The application must handle the subject
 types it supports explicitly.
+
+Resolving a reader is not authorization. Consumers use the current live
+manifest, and the owning app checks the current `AccessSubject` again when the
+reader runs.
 
 See [Resource authorization](/en/docs/identity/authorization).
 

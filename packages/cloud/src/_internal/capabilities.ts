@@ -179,6 +179,20 @@ const assertPropertyDescriptions = (schema: unknown, label: string, path: readon
   }
 };
 
+const assertCanonicalReaderInput = (schema: JsonSchema, label: string): void => {
+  const properties = schema.properties;
+  const id = properties && typeof properties === "object" && !Array.isArray(properties) ? (properties as JsonSchema).id : undefined;
+  if (!id || typeof id !== "object" || Array.isArray(id) || (id as JsonSchema).type !== "string") {
+    throw new Error(`${label} must require a string id field`);
+  }
+  const required = Array.isArray(schema.required) ? schema.required.filter((field): field is string => typeof field === "string") : [];
+  if (!required.includes("id")) throw new Error(`${label} must require a string id field`);
+  const additionalRequired = required.filter((field) => field !== "id");
+  if (additionalRequired.length > 0) {
+    throw new Error(`${label} cannot require fields other than id: ${additionalRequired.join(", ")}`);
+  }
+};
+
 const assertClosedObjectInput = (schema: JsonSchema, label: string): void => {
   if (schema.type !== "object") throw new Error(`${label} must be a Zod object schema`);
   if (schema.additionalProperties !== false) throw new Error(`${label} must reject unknown properties`);
@@ -260,6 +274,7 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
         title: definition.title.trim(),
         description: definition.description.trim(),
         ...(definition.icon ? { icon: definition.icon } : {}),
+        ...(definition.reader !== undefined ? { reader: CapabilityLocalIdSchema.parse(definition.reader) } : {}),
       };
     });
   const typeIds = new Set(types.map((type) => qualifiedId(appId, type.localId)));
@@ -294,6 +309,12 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       manifest,
       resultSchema: schemas.resultZodSchema,
     });
+  }
+  for (const type of types) {
+    if (!type.reader) continue;
+    const reader = queries.get(type.reader);
+    if (!reader) throw new Error(`Resource type ${type.localId} reader ${type.reader} must name an existing Query`);
+    assertCanonicalReaderInput(reader.manifest.inputSchema, `Resource type ${type.localId} reader ${type.reader} input`);
   }
   const actions = new Map<string, CompiledCapabilityAction>();
   for (const [localId, definition] of Object.entries(definitions.actions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
@@ -382,6 +403,13 @@ export const parseCapabilityManifest = (value: unknown, expectedAppId: string): 
         throw new Error(`Operation ${operation.localId} advertises Universal Search with non-canonical schemas`);
       }
     }
+  }
+  const queries = new Map(manifest.queries.map((query) => [query.localId, query]));
+  for (const type of manifest.types) {
+    if (!type.reader) continue;
+    const reader = queries.get(type.reader);
+    if (!reader) throw new Error(`Resource type ${type.localId} reader ${type.reader} must name an existing Query`);
+    assertCanonicalReaderInput(reader.inputSchema, `Resource type ${type.localId} reader ${type.reader} input`);
   }
 
   const { manifestHash: _manifestHash, ...manifestBase } = manifest;
@@ -474,9 +502,11 @@ export const capabilityManifestEvolutionIssues = (previous: CapabilityManifest, 
   if (previous.appId !== next.appId) issues.push(`appId changed from ${previous.appId} to ${next.appId}`);
   if (previous.protocolVersion !== next.protocolVersion) issues.push("protocolVersion changed");
 
-  const nextTypes = new Set(next.types.map((type) => type.localId));
+  const nextTypes = new Map(next.types.map((type) => [type.localId, type]));
   for (const type of previous.types) {
-    if (!nextTypes.has(type.localId)) issues.push(`Type ${type.localId} was removed`);
+    const current = nextTypes.get(type.localId);
+    if (!current) issues.push(`Type ${type.localId} was removed`);
+    else if (type.reader && current.reader !== type.reader) issues.push(`Type ${type.localId} reader changed`);
   }
 
   const nextQueries = new Map(next.queries.map((operation) => [operation.localId, operation]));

@@ -38,6 +38,7 @@ type InventoryMetricRow = {
 };
 
 type ObservedResourceRow = {
+  id: string;
   resource_key: string;
   resource_id: string;
   resource_type: string | null;
@@ -239,6 +240,29 @@ export const listMetrics = async (
   );
 };
 
+export const getResource = async (id: string, user: AccessScope): Promise<Result<PulseResourceSearchResult>> => {
+  const [row] = await sql<SearchResourceRow[]>`
+    SELECT resource.id, resource.base_id, base.name AS base_name, resource.resource_key, resource.resource_id,
+           resource.resource_type, resource.label, resource.source_ids, resource.dimensions, resource.last_seen_at
+    FROM pulse.observed_resources resource
+    JOIN pulse.bases base ON base.id = resource.base_id AND base.deletion_started_at IS NULL
+    WHERE resource.id = ${id}::uuid
+  `;
+  if (!row) return fail(err.notFound("Resource"));
+  const access = await requireBaseAccess(row.base_id, user, "read");
+  if (!access.ok) return fail(access.error);
+  return ok({
+    refId: row.id,
+    baseId: row.base_id,
+    baseName: row.base_name,
+    key: row.resource_key,
+    id: row.resource_id,
+    label: row.label,
+    type: row.resource_type,
+    lastSeenAt: isoNullable(row.last_seen_at),
+  });
+};
+
 export const searchResources = async (
   user: AccessScope,
   params: { query?: string | null; limit?: number } = {},
@@ -258,6 +282,7 @@ export const searchResources = async (
   const pattern = searchPattern(params.query);
   const rows = await sql<SearchResourceRow[]>`
     SELECT
+      resource.id,
       resource.base_id,
       base.name AS base_name,
       resource.resource_key,
@@ -285,6 +310,7 @@ export const searchResources = async (
   `;
   return ok(
     rows.map((row) => ({
+      refId: row.id,
       baseId: row.base_id,
       baseName: row.base_name,
       key: row.resource_key,

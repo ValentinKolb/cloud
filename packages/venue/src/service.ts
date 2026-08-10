@@ -861,6 +861,11 @@ const listTemplates = async (venueId: string, options: { limit?: number } = {}):
   return rows.map(mapTemplate);
 };
 
+const getTemplate = async (id: string): Promise<ShiftTemplate | null> => {
+  const [row] = await sql<DbShiftTemplate[]>`SELECT * FROM venue.shift_templates WHERE id = ${id}::uuid`;
+  return row ? mapTemplate(row) : null;
+};
+
 const createTemplate = async (venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
   return createTemplateInTx(sql, venueId, input);
 };
@@ -1201,6 +1206,17 @@ const getPersonalAssignment = async (venueId: string, assignmentId: string, user
   return row ? mapAssignment(row) : null;
 };
 
+const getPersonalAssignmentById = async (assignmentId: string, userId: string): Promise<PersonalShiftAssignment | null> => {
+  const [row] = await sql<(DbShiftAssignment & { venue_name: string; venue_timezone: string })[]>`
+    SELECT sa.*, u.display_name AS user_display_name, v.name AS venue_name, v.timezone AS venue_timezone
+    FROM venue.shift_assignments sa
+    JOIN auth.users u ON u.id = sa.user_id
+    JOIN venue.venues v ON v.id = sa.venue_id
+    WHERE sa.id = ${assignmentId}::uuid AND sa.user_id = ${userId}::uuid
+  `;
+  return row ? { ...mapAssignment(row), venueName: row.venue_name, venueTimezone: row.venue_timezone } : null;
+};
+
 const listSections = async (venueId: string, onlyEnabled = false): Promise<PublicSection[]> => {
   const rows = await sql<DbPublicSection[]>`
     SELECT * FROM venue.public_sections
@@ -1326,7 +1342,7 @@ const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatu
   return venue?.publicEnabled ? statusForVenue(venue, now) : null;
 };
 
-type VenueDashboardOptions = {
+export type VenueDashboardOptions = {
   slotStartDate?: string;
   slotDays?: number;
   includeFeedbackEntries?: boolean;
@@ -1439,11 +1455,12 @@ export const venueService = {
   venueTemplates: { list: listVenueTemplates, instantiate: instantiateVenueTemplate },
   openingRules: { list: listOpeningRules, create: createOpeningRule, update: updateOpeningRule, delete: deleteOpeningRule },
   overrides: { list: listOverrides, upsert: upsertOverride, update: updateOverride, delete: deleteOverride },
-  templates: { list: listTemplates, create: createTemplate, update: updateTemplate, delete: deleteTemplate },
+  templates: { list: listTemplates, get: getTemplate, create: createTemplate, update: updateTemplate, delete: deleteTemplate },
   shifts: { list: upcomingSlots, listSummary: upcomingSlotSummaries },
   assignments: {
     mine: listPersonalAssignments,
     getPersonal: getPersonalAssignment,
+    getPersonalById: getPersonalAssignmentById,
     signupTemplate,
     signupTemplateWeeks,
     signupFree,

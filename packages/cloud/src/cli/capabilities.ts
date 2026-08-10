@@ -6,7 +6,10 @@ import {
   CAPABILITY_MAX_RESULT_BYTES,
   CapabilityCatalogSchema,
   CapabilityErrorSchema,
+  CloudResourceRefSchema,
   capabilityResultSchema,
+  cloudResourceRefAppId,
+  resolveCapabilityResourceReader,
 } from "../contracts/capabilities";
 import { arg, type CliInputFlagValue, type CloudCliContext, command, defineCliCommands, flag, readCliInput } from "./index";
 
@@ -65,7 +68,8 @@ const invoke = async (config: {
   kind: "queries" | "actions";
   appId: string;
   capabilityId: string;
-  input: CliInputFlagValue;
+  input?: CliInputFlagValue;
+  inputValue?: unknown;
   idempotencyKey?: string;
 }) => {
   const headers = new Headers({ "content-type": "application/json" });
@@ -77,7 +81,7 @@ const invoke = async (config: {
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ input: await parseInput(config.input) }),
+        body: JSON.stringify({ input: config.inputValue ?? (await parseInput(config.input!)) }),
       },
     );
   } catch (error) {
@@ -174,6 +178,36 @@ export default defineCliCommands({
           capabilityId: args.queryId,
           input: flags.input,
         }),
+    }),
+    command("read", {
+      summary: "Read a Cloud resource through its canonical capability reader",
+      args: {
+        type: arg.required({ description: "Qualified resource type" }),
+        id: arg.required({ description: "Stable resource id" }),
+      },
+      run: async ({ ctx, args }) => {
+        const ref = CloudResourceRefSchema.parse({ type: args.type, id: args.id });
+        const appId = cloudResourceRefAppId(ref);
+        let cursor: string | undefined;
+        const seenCursors = new Set<string>();
+        let app: z.infer<typeof CapabilityCatalogSchema>["apps"][number] | undefined;
+        do {
+          const query = new URLSearchParams({ limit: "25" });
+          if (cursor) query.set("cursor", cursor);
+          const page = CapabilityCatalogSchema.parse(
+            await readCapabilityJson(await ctx.fetch(`/api/capabilities/v1/catalog?${query}`), CAPABILITY_MAX_CATALOG_BYTES),
+          );
+          app = page.apps.find((candidate) => candidate.appId === appId);
+          const nextCursor = page.page.hasMore ? page.page.nextCursor : undefined;
+          if (nextCursor && seenCursors.has(nextCursor)) throw new Error("Capability catalog returned a repeated cursor.");
+          if (nextCursor) seenCursors.add(nextCursor);
+          cursor = nextCursor;
+        } while (!app && cursor);
+        if (!app) throw new Error(`Capability app ${appId} is unavailable.`);
+        const reader = resolveCapabilityResourceReader(app.manifest, ref);
+        if (!reader) throw new Error(`Cloud resource type ${ref.type} is unknown or has no reader.`);
+        await invoke({ ctx, kind: "queries", appId, capabilityId: reader.localId, inputValue: { id: ref.id } });
+      },
     }),
     command("action", {
       summary: "Invoke an app mutation",

@@ -34,7 +34,7 @@ export const NotebookListInputSchema = z
     limit: LimitSchema,
   })
   .strict();
-export const NotebookGetInputSchema = z.object({ notebookId: z.uuid().describe("Stable notebook UUID.") }).strict();
+export const NotebookReadInputSchema = z.object({ id: z.uuid().describe("Stable notebook UUID.") }).strict();
 
 export const NoteSummaryDataSchema = z
   .object({
@@ -74,9 +74,9 @@ export const NoteTreeDataSchema = z
   )
   .max(2000);
 
-export const NoteGetInputSchema = z
+export const NoteReadInputSchema = z
   .object({
-    noteId: z.uuid().describe("Stable note UUID."),
+    id: z.uuid().describe("Stable note UUID."),
     contentOffset: z.number().int().nonnegative().default(0).describe("Zero-based character offset into the Markdown source."),
     contentLimit: z.number().int().min(1).max(50_000).default(20_000).describe("Maximum Markdown characters to return."),
   })

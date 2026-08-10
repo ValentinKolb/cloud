@@ -179,7 +179,7 @@ describe("global capability search", () => {
           appId: "demo",
           appName: "Demo",
           appIcon: "ti ti-box",
-          id: "demo.item:42",
+          ref: { type: "demo.item", id: "42" },
           title: "Answer",
           href: "/app/demo/42",
           preview: "A result",

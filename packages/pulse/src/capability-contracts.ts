@@ -9,7 +9,7 @@ const QuerySchema = z.string().trim().max(500).optional().describe("Optional tex
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
-const BaseDataSchema = z
+export const BaseDataSchema = z
   .object({
     id: z.uuid(),
     name: z.string().min(1).max(120),
@@ -21,8 +21,9 @@ const BaseDataSchema = z
   .strict();
 export const BaseListDataSchema = z.array(BaseDataSchema).max(100);
 export const BaseListInputSchema = z.object({ query: QuerySchema, ...PageInputShape }).strict();
+export const BaseReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Pulse Base UUID.") }).strict();
 
-const SourceDataSchema = z
+export const SourceDataSchema = z
   .object({
     id: z.uuid(),
     baseId: z.uuid(),
@@ -40,6 +41,22 @@ export const SourceListDataSchema = z.array(SourceDataSchema).max(100);
 export const SourceListInputSchema = z
   .object({ baseId: z.uuid().describe("Readable Pulse Base UUID."), query: QuerySchema, ...PageInputShape })
   .strict();
+export const SourceReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Pulse Source UUID.") }).strict();
+
+export const ResourceDataSchema = z
+  .object({
+    id: z.uuid(),
+    baseId: z.uuid(),
+    baseName: z.string().min(1).max(120),
+    key: z.string().min(1).max(500),
+    resourceId: z.string().min(1).max(500),
+    label: z.string().min(1).max(500),
+    type: z.string().max(120).nullable(),
+    lastSeenAt: TimestampSchema.nullable(),
+    links: ResourceLinksSchema,
+  })
+  .strict();
+export const ResourceReadInputSchema = z.object({ id: z.uuid().describe("Stable observed-resource UUID.") }).strict();
 
 const MetricDataSchema = z
   .object({
@@ -142,7 +159,7 @@ export const QueryExecutionDataSchema = z
   })
   .strict();
 
-const SavedQueryDataSchema = z
+export const SavedQueryDataSchema = z
   .object({
     id: z.uuid(),
     baseId: z.uuid(),
@@ -157,6 +174,7 @@ export const SavedQueryListDataSchema = z.array(SavedQueryDataSchema).max(100);
 export const SavedQueryListInputSchema = z
   .object({ baseId: z.uuid().describe("Readable Pulse Base UUID."), query: QuerySchema, ...PageInputShape })
   .strict();
+export const SavedQueryReadInputSchema = z.object({ id: z.uuid().describe("Stable saved-query UUID.") }).strict();
 export const SavedQueryExecuteInputSchema = z
   .object({
     baseId: z.uuid().describe("Readable Pulse Base UUID."),

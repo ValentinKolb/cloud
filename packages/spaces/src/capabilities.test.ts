@@ -202,14 +202,14 @@ describe("spaces capabilities", () => {
       "calendar-destination.list",
       "calendar-invitation.preview",
       "calendar-invitation.response.prepare",
-      "comment.get",
       "comment.list",
+      "comment.read",
       "event.list",
-      "item.get",
+      "item.read",
       "item.search",
       "space.assignee.list",
-      "space.get",
       "space.list",
+      "space.read",
       "space.search",
       "task.list",
     ]);
@@ -432,7 +432,7 @@ describe("spaces capabilities", () => {
   test("fails a resource-bound credential closed before reading another Space", async () => {
     const get = spyOn(spacesService.space, "get");
 
-    const result = await spacesCapabilities.queries["space.get"].run({ spaceId: otherSpaceId }, serviceAccountContext);
+    const result = await spacesCapabilities.queries["space.read"].run({ id: otherSpaceId }, serviceAccountContext);
 
     expect(get).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: false, error: { code: "NOT_FOUND", message: "Space not found", status: 404 } });
@@ -481,7 +481,7 @@ describe("spaces capabilities", () => {
     spyOn(spacesService.space, "get").mockResolvedValue(space);
     spyOn(spacesService.space.permission, "get").mockResolvedValue("read");
 
-    const result = await spacesCapabilities.queries["comment.get"].run({ commentId }, serviceAccountContext);
+    const result = await spacesCapabilities.queries["comment.read"].run({ id: commentId }, serviceAccountContext);
 
     expect(result).toMatchObject({
       ok: true,

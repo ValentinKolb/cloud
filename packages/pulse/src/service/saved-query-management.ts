@@ -2,7 +2,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { PulseSavedQuery } from "../contracts";
 import { compilePulseQueryText } from "../query-dsl";
-import { requireBaseAccess, requireBaseActive, userIdForScope, type AccessScope } from "./access-control";
+import { type AccessScope, requireBaseAccess, requireBaseActive, userIdForScope } from "./access-control";
 import { iso } from "./telemetry-values";
 
 type SavedQueryRow = {
@@ -58,6 +58,17 @@ export const getSavedQuery = async (baseId: string, queryId: string, user: Acces
       AND id = ${queryId}::uuid
   `;
   return row ? ok(mapSavedQuery(row)) : fail(err.notFound("Saved query"));
+};
+
+export const readSavedQuery = async (queryId: string, user: AccessScope): Promise<Result<PulseSavedQuery>> => {
+  const [row] = await sql<SavedQueryRow[]>`
+    SELECT id, base_id, name, description, query, created_at, updated_at
+    FROM pulse.saved_queries
+    WHERE id = ${queryId}::uuid
+  `;
+  if (!row) return fail(err.notFound("Saved query"));
+  const access = await requireBaseAccess(row.base_id, user, "read");
+  return access.ok ? ok(mapSavedQuery(row)) : fail(access.error);
 };
 
 export const createSavedQuery = async (params: {

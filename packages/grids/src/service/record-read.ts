@@ -20,6 +20,16 @@ import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
 
+export const findTableId = async (recordId: string): Promise<string | null> => {
+  const [row] = await sql<Array<{ table_id: string }>>`
+    SELECT r.table_id::text AS table_id
+    FROM grids.records r
+    ${liveRecordParentJoinSql("r", "rt", "rb")}
+    WHERE r.id = ${recordId}::uuid AND r.deleted_at IS NULL
+  `;
+  return row?.table_id ?? null;
+};
+
 const relationIdsFor = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : typeof value === "string" ? [value] : [];
 

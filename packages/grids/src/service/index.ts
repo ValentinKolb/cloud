@@ -23,9 +23,9 @@ import {
   loadCustomAppGrantsForSubject,
   resolveEffectivePermission,
 } from "./permission-resolver";
+import * as recordComments from "./record-comments";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
 import * as recordHistory from "./record-history";
-import * as recordComments from "./record-comments";
 import * as records from "./records";
 import * as relationsModule from "./relations";
 import * as tables from "./tables";
@@ -45,7 +45,7 @@ import {
   validateWorkflowSource,
 } from "./workflow-definitions";
 import { invokeBulkLauncher, invokeCustomAppLauncher, invokeScannerLauncher } from "./workflow-launcher-invocations";
-import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
+import { createLauncher, getLauncher, listLaunchers, listLaunchersForBase, removeLauncher, updateLauncher } from "./workflow-launchers";
 import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-record-events";
 import { getWorkflowRun } from "./workflow-runs";
 import { invokeGridsWorkflow, reconcileWorkflowRuntime, startWorkflowRuntime, stopWorkflowRuntime } from "./workflow-runtime";
@@ -113,6 +113,7 @@ export const gridsService = {
     list: records.list,
     countAccessibleByTable: records.countAccessibleByTable,
     get: records.get,
+    findTableId: records.findTableId,
     create: records.create,
     createMany: records.createMany,
     eventOutboxStats: records.recordEventOutboxStats,
@@ -287,6 +288,7 @@ export const gridsService = {
     launcher: {
       get: getLauncher,
       list: listLaunchers,
+      listForBase: listLaunchersForBase,
       create: createLauncher,
       update: updateLauncher,
       remove: removeLauncher,

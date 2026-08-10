@@ -75,27 +75,30 @@ describe("mail capabilities", () => {
       "tag",
     ]);
     expect(Object.keys(mailCapabilities.queries).sort()).toEqual([
+      "attachment.read",
+      "comment.read",
       "conversation.activity.list",
       "conversation.comment.list",
-      "conversation.get",
       "conversation.list",
+      "conversation.read",
       "conversation.reminder.get",
       "conversation.search",
-      "delivery.get",
       "delivery.list",
-      "draft.get",
+      "delivery.read",
       "draft.list",
+      "draft.read",
       "draft.send.review",
       "folder.list",
-      "mailbox.get",
       "mailbox.identity.list",
       "mailbox.list",
       "mailbox.member.list",
+      "mailbox.read",
       "mailbox.tag.list",
       "mailing-list.subscription.get",
       "mailing-list.subscription.list",
-      "message.get",
       "message.list",
+      "message.read",
+      "reminder.read",
       "search",
     ]);
     expect(Object.keys(mailCapabilities.actions).sort()).toEqual([
@@ -447,7 +450,7 @@ describe("mail capabilities", () => {
     expect(DraftSendInputSchema.safeParse({ ...input, safetyApproval: { warningIds: [] } }).success).toBeFalse();
   });
 
-  test("does not expose raw source or sanitized html from message.get", () => {
+  test("does not expose raw source or sanitized html from message.read", () => {
     const value = {
       id: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
       mailboxId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",

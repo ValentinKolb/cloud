@@ -6,11 +6,14 @@ import {
   CAPABILITY_MAX_RESULT_BYTES,
   CapabilityPageSchema,
   CapabilitySemanticLinkSchema,
+  cloudResourceRefAppId,
   defineCapabilities,
+  resolveCapabilityResourceReader,
   UniversalSearchDataSchema,
   UniversalSearchInputSchema,
 } from "../contracts/capabilities";
 import {
+  capabilityHash,
   capabilityManifestEvolutionIssues,
   compileCapabilities,
   invokeCompiledCapability,
@@ -33,7 +36,7 @@ const example = () =>
   defineCapabilities({
     protocolVersion: 1,
     types: {
-      item: { title: "Item", description: "One test item." },
+      item: { title: "Item", description: "One test item.", reader: "get" },
     },
     queries: {
       get: {
@@ -85,12 +88,80 @@ describe("capability v1 compilation", () => {
     const second = compileCapabilities("example", example());
     expect(first.manifest).toEqual(second.manifest);
     expect(first.manifest.types[0]?.localId).toBe("item");
+    expect(first.manifest.types[0]?.reader).toBe("get");
     expect(first.manifest.queries[0]?.localId).toBe("get");
     expect(first.manifest.queries[0]?.openWorld).toBe(false);
     expect(first.manifest.queries[0]?.dataSchema).toBeDefined();
     expect(first.manifest.actions[0]?.approval).toBe("rememberable");
     expect(first.manifest.actions[0]?.review).toBe(true);
     expect(first.manifest.manifestHash).toHaveLength(64);
+  });
+
+  test("requires resource readers to be canonical Queries", () => {
+    const definitions = (reader: string, input: z.ZodType) =>
+      defineCapabilities({
+        protocolVersion: 1,
+        types: { item: { title: "Item", description: "One item.", reader } },
+        queries: {
+          read: {
+            title: "Read item",
+            description: "Reads one item.",
+            input,
+            data: z.object({ id: z.string() }).strict(),
+            openWorld: false,
+            run: async () => ok({ data: { id: "one" } }),
+          },
+        },
+      });
+
+    expect(() => compileCapabilities("example", definitions("missing", z.object({ id: z.string().describe("Id.") }).strict()))).toThrow(
+      "must name an existing Query",
+    );
+    expect(() => compileCapabilities("example", definitions("read", z.object({ key: z.string().describe("Key.") }).strict()))).toThrow(
+      "must require a string id field",
+    );
+    expect(() =>
+      compileCapabilities(
+        "example",
+        definitions("read", z.object({ id: z.string().describe("Id."), scope: z.string().describe("Scope.") }).strict()),
+      ),
+    ).toThrow("cannot require fields other than id");
+    expect(() =>
+      compileCapabilities("example", definitions("read", z.object({ id: z.string().describe("Id.").optional() }).strict())),
+    ).toThrow("must require a string id field");
+    expect(() => compileCapabilities("example", definitions("read", z.object({ id: z.number().describe("Id.") }).strict()))).toThrow(
+      "must require a string id field",
+    );
+    expect(() =>
+      compileCapabilities(
+        "example",
+        definitions("read", z.object({ id: z.string().describe("Id."), cursor: z.string().describe("Cursor.").optional() }).strict()),
+      ),
+    ).not.toThrow();
+  });
+
+  test("resolves the current reader from a qualified resource reference", () => {
+    const manifest = compileCapabilities("example", example()).manifest;
+    expect(resolveCapabilityResourceReader(manifest, { type: "example.item", id: "one" })?.localId).toBe("get");
+    expect(resolveCapabilityResourceReader(manifest, { type: "other.item", id: "one" })).toBeNull();
+    expect(resolveCapabilityResourceReader(manifest, { type: "example.unknown", id: "one" })).toBeNull();
+    const withoutReader = { ...manifest, types: [{ ...manifest.types[0]!, reader: undefined }] };
+    expect(resolveCapabilityResourceReader(withoutReader, { type: "example.item", id: "one" })).toBeNull();
+    expect(cloudResourceRefAppId({ type: "example.item", id: "one" })).toBe("example");
+  });
+
+  test("treats adding a reader as additive and changing it as breaking", () => {
+    const current = example();
+    const withoutReader = compileCapabilities(
+      "example",
+      defineCapabilities({ ...current, types: { item: { title: "Item", description: "One test item." } } }),
+    ).manifest;
+    const withReader = compileCapabilities("example", current).manifest;
+    expect(capabilityManifestEvolutionIssues(withoutReader, withReader)).toEqual([]);
+    expect(capabilityManifestEvolutionIssues(withReader, withoutReader)).toContain("Type item reader changed");
+    const replacement = structuredClone(withReader);
+    replacement.types[0]!.reader = "other.read";
+    expect(capabilityManifestEvolutionIssues(withReader, replacement)).toContain("Type item reader changed");
   });
 
   test("requires a closed-world review before approval can be remembered", () => {
@@ -515,6 +586,12 @@ describe("capability v1 compilation", () => {
     const collision = structuredClone(manifest);
     collision.queries[0]!.localId = collision.types[0]!.localId;
     expect(() => parseCapabilityManifest(collision, "example")).toThrow("declared more than once");
+
+    const missingReader = structuredClone(manifest);
+    missingReader.types[0]!.reader = "missing";
+    const { manifestHash: _manifestHash, ...manifestBase } = missingReader;
+    missingReader.manifestHash = capabilityHash(manifestBase);
+    expect(() => parseCapabilityManifest(missingReader, "example")).toThrow("must name an existing Query");
   });
 
   test("allows additive same-id evolution and reports breaking changes", () => {

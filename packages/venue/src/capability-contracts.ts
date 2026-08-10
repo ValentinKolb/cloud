@@ -9,7 +9,7 @@ const VenueIdSchema = z.uuid().describe("Stable Venue UUID.");
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
-const VenueDataSchema = z
+export const VenueDataSchema = z
   .object({
     id: z.uuid(),
     slug: z.string().min(1).max(80),
@@ -34,8 +34,8 @@ export const VenueListInputSchema = z
   })
   .strict();
 export const VenueListDataSchema = z.array(VenueDataSchema.extend({ links: ResourceLinksSchema }).strict()).max(100);
-export const VenueGetInputSchema = z.object({ venueId: VenueIdSchema }).strict();
-export const VenueGetDataSchema = VenueDataSchema;
+export const VenueReadInputSchema = z.object({ id: VenueIdSchema }).strict();
+export const VenueTargetInputSchema = z.object({ venueId: VenueIdSchema }).strict();
 
 const PublicOpeningDataSchema = z
   .object({
@@ -59,7 +59,7 @@ export const VenueStatusDataSchema = z
   })
   .strict();
 
-const ShiftDataSchema = z
+export const ShiftDataSchema = z
   .object({
     id: z.string().min(1).max(512),
     venueId: z.uuid(),
@@ -85,8 +85,9 @@ export const ShiftListInputSchema = z
   })
   .strict();
 export const ShiftListDataSchema = z.array(ShiftDataSchema).max(100);
+export const ShiftReadInputSchema = z.object({ id: z.string().min(1).max(512).describe("Stable dated shift ID.") }).strict();
 
-const AssignmentDataSchema = z
+export const AssignmentDataSchema = z
   .object({
     id: z.uuid(),
     venueId: z.uuid(),
@@ -109,6 +110,7 @@ export const AssignmentMineInputSchema = z
   })
   .strict();
 export const AssignmentListDataSchema = z.array(AssignmentDataSchema).max(100);
+export const AssignmentReadInputSchema = z.object({ id: z.uuid().describe("Stable personal assignment UUID.") }).strict();
 
 const FeedbackBucketDataSchema = z
   .object({ date: DateKeySchema, count: z.number().int().nonnegative(), averageRating: z.number().min(1).max(5).nullable() })

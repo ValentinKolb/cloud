@@ -236,11 +236,10 @@ export const assistantProjectCommands = [
         result.references.map((reference) => ({
           id: reference.id,
           label: reference.label,
-          app: reference.appId,
-          type: reference.resourceType,
-          resource: reference.resourceId,
+          type: reference.ref.type,
+          resource: reference.ref.id,
         })),
-        [{ key: "id" }, { key: "label" }, { key: "app" }, { key: "type" }, { key: "resource" }],
+        [{ key: "id" }, { key: "label" }, { key: "type" }, { key: "resource" }],
       );
     },
   }),
@@ -248,9 +247,8 @@ export const assistantProjectCommands = [
     summary: "Add a Project Cloud reference",
     args: {
       project: arg.required({ valueLabel: "project-id-or-name" }),
-      app: arg.required(),
-      type: arg.required(),
-      resource: arg.required(),
+      type: arg.required({ valueLabel: "qualified-type" }),
+      resource: arg.required({ valueLabel: "resource-id" }),
     },
     flags: { label: flag.string() },
     async run({ ctx, args, flags }) {
@@ -261,9 +259,7 @@ export const assistantProjectCommands = [
           ctx,
           path(project.id, "/references"),
           jsonRequest("POST", {
-            appId: args.app,
-            resourceType: args.type,
-            resourceId: args.resource,
+            ref: { type: args.type, id: args.resource },
             label: flags.label ?? "",
           }),
         ),

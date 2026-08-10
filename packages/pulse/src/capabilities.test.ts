@@ -74,15 +74,19 @@ describe("Pulse capabilities", () => {
     expect(Object.keys(pulseCapabilities.types ?? {}).sort()).toEqual(["base", "resource", "saved_query", "source"]);
     expect(Object.keys(pulseCapabilities.queries ?? {}).sort()).toEqual([
       "base.list",
+      "base.read",
       "base.search",
       "field.search",
       "metric.search",
       "query.compile",
       "query.execute",
+      "resource.read",
       "resource.search",
       "saved_query.execute",
       "saved_query.list",
+      "saved_query.read",
       "source.list",
+      "source.read",
     ]);
     expect("actions" in pulseCapabilities).toBe(false);
 
@@ -199,10 +203,11 @@ describe("Pulse capabilities", () => {
         INSERT INTO pulse.signal_fields (base_id, source_id, scope, signal_name, role, key, value_type, observed_count, first_seen_at, last_seen_at)
         VALUES (${baseId}::uuid, ${sourceId}::uuid, 'metric', 'agent.cpu', 'dimension', 'env', 'string', 1, now(), now())
       `;
+      const resourceRefId = crypto.randomUUID();
       await sql`
-        INSERT INTO pulse.observed_resources (base_id, resource_key, resource_id, resource_type, label, source_ids, dimensions)
+        INSERT INTO pulse.observed_resources (id, base_id, resource_key, resource_id, resource_type, label, source_ids, dimensions)
         VALUES (
-          ${baseId}::uuid, ${resourceKey}, 'agent-1', 'service', 'Agent service', ARRAY[${sourceId}::uuid],
+          ${resourceRefId}::uuid, ${baseId}::uuid, ${resourceKey}, 'agent-1', 'service', 'Agent service', ARRAY[${sourceId}::uuid],
           (${JSON.stringify({ env: "test" })}::jsonb #>> '{}')::jsonb
         )
       `;
@@ -222,6 +227,7 @@ describe("Pulse capabilities", () => {
       ]);
       const hiddenBases = await invoke("base.list", { limit: 25 }, otherContext);
       expect(hiddenBases.ok && hiddenBases.data.data).toEqual([]);
+      expect((await invoke("base.read", { id: baseId }, context)).ok).toBe(true);
 
       const sources = await invoke("source.list", { baseId, limit: 25 }, context);
       expect(sources.ok && sources.data.data).toEqual([
@@ -231,10 +237,12 @@ describe("Pulse capabilities", () => {
           links: [{ rel: "open", href: `/app/pulse/${baseId}/sources/${sourceId}` }],
         }),
       ]);
+      expect((await invoke("source.read", { id: sourceId }, context)).ok).toBe(true);
       const resources = await invoke("resource.search", { query: "Agent service", tags: [], limit: 10 }, context);
       expect(resources.ok && resources.data.data).toEqual([
         expect.objectContaining({ title: "Agent service", metadata: expect.arrayContaining([{ label: "Base ID", value: baseId }]) }),
       ]);
+      expect((await invoke("resource.read", { id: resourceRefId }, context)).ok).toBe(true);
       const metrics = await invoke("metric.search", { baseId, query: "agent", limit: 25 }, context);
       expect(metrics.ok && metrics.data.data).toEqual([
         expect.objectContaining({
@@ -279,6 +287,7 @@ describe("Pulse capabilities", () => {
       expect(nonfinite.ok && nonfinite.data.data.events[0]?.value).toBeNull();
       const saved = await invoke("saved_query.list", { baseId, limit: 25 }, context);
       expect(saved.ok && saved.data.data).toEqual([expect.objectContaining({ id: savedQueryId, query })]);
+      expect((await invoke("saved_query.read", { id: savedQueryId }, context)).ok).toBe(true);
       const savedExecution = await invoke("saved_query.execute", { baseId, queryId: savedQueryId }, context);
       expect(savedExecution.ok && savedExecution.data.data).toMatchObject({
         kind: "metric",

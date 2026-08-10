@@ -108,7 +108,7 @@ cld assistant projects list
 cld assistant projects create "Release notes" --instructions-file ./release-notes.md
 cld assistant projects knowledge add "Release notes" "Editorial guidelines" --content-file ./guidelines.md
 cld assistant projects files put "Release notes" ./glossary.csv
-cld assistant projects references add "Release notes" grids record <record-id> --label "Current catalog"
+cld assistant projects references add "Release notes" grids.record <record-id> --label "Current catalog"
 cld assistant projects access grant "Release notes" <group-id> --type group --permission write
 cld assistant chats create --project <project-id>
 ```

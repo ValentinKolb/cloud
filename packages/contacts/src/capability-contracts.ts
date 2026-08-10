@@ -18,7 +18,7 @@ const CapabilityPageInputShape = {
 
 export const NormalizedContactEmailSchema = z.email().max(320);
 
-const ContactTagDataSchema = z
+export const ContactTagDataSchema = z
   .object({
     id: z.uuid(),
     bookId: z.uuid(),
@@ -176,17 +176,20 @@ export const ContactListInputSchema = z
   })
   .strict();
 
-export const ContactGetInputSchema = z.object({ contactId: z.uuid().describe("Stable contact UUID.") }).strict();
+export const ContactReadInputSchema = z.object({ id: z.uuid().describe("Stable contact UUID.") }).strict();
 
-const ContactBookDataSchema = z
+export const ContactBookReadInputSchema = z
+  .object({ id: ReadableContactBookIdSchema.describe("Stable address-book identifier.") })
+  .strict();
+export const ContactBookDataSchema = z
   .object({
-    id: z.uuid(),
+    id: ReadableContactBookIdSchema,
     name: z.string().min(1),
     description: NullableTextSchema,
     permission: z.enum(["read", "write", "admin"]),
     links: ResourceLinksSchema,
-    createdAt: TimestampSchema,
-    updatedAt: TimestampSchema,
+    createdAt: TimestampSchema.nullable(),
+    updatedAt: TimestampSchema.nullable(),
   })
   .strict();
 export const ContactBookListDataSchema = z.array(ContactBookDataSchema).max(100);
@@ -201,12 +204,14 @@ export const ContactBookListInputSchema = z
   })
   .strict();
 
+export const ContactTagReadInputSchema = z.object({ id: z.uuid().describe("Stable contact-tag UUID.") }).strict();
 export const ContactTagListDataSchema = z.array(ContactTagDataSchema).max(100);
 export const ContactTagListInputSchema = z
   .object({ bookId: z.uuid().describe("Address-book UUID whose tags should be listed."), ...CapabilityPageInputShape })
   .strict();
 
-const ContactNoteDataSchema = z
+export const ContactNoteReadInputSchema = z.object({ id: z.uuid().describe("Stable contact-note UUID.") }).strict();
+export const ContactNoteDataSchema = z
   .object({
     id: z.uuid(),
     contactId: z.uuid(),

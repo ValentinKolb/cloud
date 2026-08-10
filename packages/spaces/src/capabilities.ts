@@ -29,9 +29,9 @@ import {
   CommentDataSchema,
   CommentDeleteDataSchema,
   CommentDeleteInputSchema,
-  CommentGetInputSchema,
   CommentListDataSchema,
   CommentListInputSchema,
+  CommentReadInputSchema,
   CommentUpdateInputSchema,
   EventCreateInputSchema,
   EventDataSchema,
@@ -45,13 +45,13 @@ import {
   ItemDataSchema,
   ItemDeleteDataSchema,
   ItemDeleteInputSchema,
-  ItemGetInputSchema,
+  ItemReadInputSchema,
   SpaceAssigneeListDataSchema,
   SpaceAssigneeListInputSchema,
   SpaceDetailDataSchema,
-  SpaceGetInputSchema,
   SpaceListDataSchema,
   SpaceListInputSchema,
+  SpaceReadInputSchema,
   TaskCreateInputSchema,
   TaskDataSchema,
   TaskListDataSchema,
@@ -402,10 +402,10 @@ const runSpaceList = async (input: z.infer<typeof SpaceListInputSchema>, context
   );
 };
 
-const runSpaceGet = async (input: z.infer<typeof SpaceGetInputSchema>, context: CapabilityExecutionContext) => {
-  const access = await requireSpace(input.spaceId, context);
+const runSpaceRead = async (input: z.infer<typeof SpaceReadInputSchema>, context: CapabilityExecutionContext) => {
+  const access = await requireSpace(input.id, context);
   if (!access.ok) return access;
-  const detail = await spacesService.space.getDetail({ id: input.spaceId });
+  const detail = await spacesService.space.getDetail({ id: input.id });
   if (!detail) return fail(err.notFound("Space"));
   return ok({
     data: {
@@ -489,8 +489,8 @@ const runItemList = async (input: ItemListInput, context: CapabilityExecutionCon
   );
 };
 
-const runItemGet = async (input: z.infer<typeof ItemGetInputSchema>, context: CapabilityExecutionContext) => {
-  const resolved = await requireItem(input.itemId, context);
+const runItemRead = async (input: z.infer<typeof ItemReadInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await requireItem(input.id, context);
   if (!resolved.ok) return resolved;
   return ok({
     data: mapItem(resolved.data.item),
@@ -527,8 +527,8 @@ const resolveComment = async (commentId: string, context: CapabilityExecutionCon
   return item.ok ? ok({ comment, item: item.data.item }) : fail(err.notFound("Comment"));
 };
 
-const runCommentGet = async (input: z.infer<typeof CommentGetInputSchema>, context: CapabilityExecutionContext) => {
-  const resolved = await resolveComment(input.commentId, context);
+const runCommentRead = async (input: z.infer<typeof CommentReadInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await resolveComment(input.id, context);
   if (!resolved.ok) return resolved;
   return ok({
     data: mapComment(resolved.data.comment),
@@ -804,9 +804,14 @@ const runEventInvitationCommit = async (input: z.infer<typeof EventInvitationCom
 export const spacesCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
-    space: { title: "Space", description: "A permission-scoped collaboration space.", icon: "ti ti-layout-kanban" },
-    item: { title: "Space item", description: "A task or event inside a space.", icon: "ti ti-checkbox" },
-    comment: { title: "Space comment", description: "A user-authored comment attached to a Space item.", icon: "ti ti-message" },
+    space: { title: "Space", description: "A permission-scoped collaboration space.", icon: "ti ti-layout-kanban", reader: "space.read" },
+    item: { title: "Space item", description: "A task or event inside a space.", icon: "ti ti-checkbox", reader: "item.read" },
+    comment: {
+      title: "Space comment",
+      description: "A user-authored comment attached to a Space item.",
+      icon: "ti ti-message",
+      reader: "comment.read",
+    },
   },
   queries: {
     "space.search": {
@@ -844,13 +849,13 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       run: runSpaceList,
     },
-    "space.get": {
-      title: "Get space",
+    "space.read": {
+      title: "Read space",
       description: "Read one accessible Space plus its bounded column and tag vocabulary.",
-      input: SpaceGetInputSchema,
+      input: SpaceReadInputSchema,
       data: SpaceDetailDataSchema,
       openWorld: false,
-      run: runSpaceGet,
+      run: runSpaceRead,
     },
     "space.assignee.list": {
       title: "List assignable Space members",
@@ -876,13 +881,13 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       run: (input, context) => runItemList(input, context, "event"),
     },
-    "item.get": {
-      title: "Get Space item",
+    "item.read": {
+      title: "Read Space item",
       description: "Read one task or event by stable item UUID with an explicit kind discriminator.",
-      input: ItemGetInputSchema,
+      input: ItemReadInputSchema,
       data: ItemDataSchema,
       openWorld: false,
-      run: runItemGet,
+      run: runItemRead,
     },
     "comment.list": {
       title: "List comments",
@@ -892,13 +897,13 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       run: runCommentList,
     },
-    "comment.get": {
-      title: "Get comment",
+    "comment.read": {
+      title: "Read comment",
       description: "Read one comment by stable UUID after checking its parent item and Space.",
-      input: CommentGetInputSchema,
+      input: CommentReadInputSchema,
       data: CommentDataSchema,
       openWorld: false,
-      run: runCommentGet,
+      run: runCommentRead,
     },
     "calendar-invitation.preview": {
       title: "Preview calendar invitation",

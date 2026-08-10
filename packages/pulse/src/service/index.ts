@@ -42,8 +42,9 @@ import {
 } from "./public-dashboard-snapshot";
 import { queryEventAggregateData, queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
 import { compileQueryText, executeCompiledQuery, queryEventMapText, queryMetric, queryMetricText } from "./query-management";
-import { createSavedQuery, deleteSavedQuery, getSavedQuery, listSavedQueries } from "./saved-query-management";
+import { createSavedQuery, deleteSavedQuery, getSavedQuery, listSavedQueries, readSavedQuery } from "./saved-query-management";
 import {
+  getResource,
   listCurrentStates,
   listInventory,
   listMetricSeries,
@@ -53,12 +54,13 @@ import {
   listResourceMetrics,
   listResourceStates,
   listResources,
-  searchResources,
   listSignalFields,
+  searchResources,
 } from "./signal-catalog";
 import {
   createSource,
   createSourceApiKey,
+  getSource,
   listSourceApiKeys,
   listSourceScrapes,
   listSources,
@@ -157,6 +159,7 @@ export const pulseService = {
   },
   source: {
     list: listSources,
+    get: getSource,
     scrapes: listSourceScrapes,
     apiKeys: {
       list: listSourceApiKeys,
@@ -182,6 +185,7 @@ export const pulseService = {
   savedQuery: {
     list: listSavedQueries,
     get: getSavedQuery,
+    read: readSavedQuery,
     create: createSavedQuery,
     remove: deleteSavedQuery,
   },
@@ -206,6 +210,7 @@ export const pulseService = {
     fields: listSignalFields,
     inventory: listInventory,
     resources: listResources,
+    resource: getResource,
     searchResources,
     resourceMetrics: listResourceMetrics,
     resourceEvents: listResourceEvents,

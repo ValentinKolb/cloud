@@ -613,13 +613,12 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS ai.project_references (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
-      app_id TEXT NOT NULL,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
       label TEXT NOT NULL DEFAULT '',
       created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (project_id, app_id, resource_type, resource_id)
+      UNIQUE (project_id, resource_type, resource_id)
     )
   `.simple();
 

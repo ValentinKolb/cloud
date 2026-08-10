@@ -23,7 +23,7 @@ import { withLookupTargetMetadata } from "./lookup-display";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { cleanRecordMeta, compileRecordMetaFilter, listRecordActors, recordMetaRequiresDeletedRows } from "./record-metadata";
 import { mapRecordRow } from "./record-persistence";
-import { enrichFormulaLookups, get, projectionFragmentsFor } from "./record-read";
+import { enrichFormulaLookups, findTableId, get, projectionFragmentsFor } from "./record-read";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
@@ -474,3 +474,4 @@ export const listActors = listRecordActors;
 
 export { recordEventOutboxStats, redriveRecordEventOutbox } from "./record-event-outbox";
 export { create, createMany, restore, softDelete, update } from "./record-write";
+export { findTableId };

@@ -31,9 +31,9 @@ import {
 import { isQueryAdmissionError } from "./api/query-admission";
 import {
   BaseCapabilityDataSchema,
-  BaseGetInputSchema,
   BaseListDataSchema,
   BaseListInputSchema,
+  BaseReadInputSchema,
   GqlContextDataSchema,
   GqlContextInputSchema,
   type GqlContextItemSchema,
@@ -43,8 +43,12 @@ import {
   GqlViewExecuteInputSchema,
   RecordCapabilityDataSchema,
   RecordCreateInputSchema,
-  RecordGetInputSchema,
+  RecordReadInputSchema,
   RecordUpdateInputSchema,
+  TableCapabilityDataSchema,
+  TableReadInputSchema,
+  ViewCapabilityDataSchema,
+  ViewReadInputSchema,
 } from "./capability-contracts";
 import type { DslQueryPreviewResponse } from "./contracts";
 import { isRecordWritableFieldType } from "./field-types";
@@ -181,13 +185,50 @@ const requireTableRecordAccess = async (tableId: string, access: GridsAccessCont
   return authorization.ok ? ok({ table, recordAccess: ALL_RECORD_ACCESS }) : authorization;
 };
 
-const runBaseGet = async (input: z.infer<typeof BaseGetInputSchema>, context: CapabilityExecutionContext) => {
-  const result = await requireBase(input.baseId, accessContext(context));
+const runBaseRead = async (input: z.infer<typeof BaseReadInputSchema>, context: CapabilityExecutionContext) => {
+  const result = await requireBase(input.id, accessContext(context));
   if (!result.ok) return result;
   return ok({
     data: mapBase(result.data),
     refs: [{ type: "grids.base", id: result.data.id }],
     links: [{ rel: "open" as const, href: baseHref(result.data) }],
+  });
+};
+
+const runTableRead = async (input: z.infer<typeof TableReadInputSchema>, context: CapabilityExecutionContext) => {
+  const table = await gridsService.table.get(input.id);
+  if (!table) return fail(err.notFound("Table"));
+  const permission = await gateBaseAtAccess(accessContext(context), table.baseId, "read");
+  if (!permission.ok) return permission;
+  if (permission.data === "none") return fail(err.forbidden("You do not have permission to access this resource."));
+  const base = await gridsService.base.get(table.baseId);
+  return ok({
+    data: tableContextItem(table, permission.data),
+    refs: [{ type: "grids.table", id: table.id }],
+    ...(base ? { links: [{ rel: "open" as const, href: tableHref(base, table) }] } : {}),
+  });
+};
+
+const runViewRead = async (input: z.infer<typeof ViewReadInputSchema>, context: CapabilityExecutionContext) => {
+  const view = await gridsService.view.get(input.id);
+  if (!view) return fail(err.notFound("View"));
+  const table = await gridsService.table.get(view.tableId);
+  if (!table) return fail(err.notFound("View"));
+  const permission = await gateBaseAtAccess(accessContext(context), table.baseId, "read");
+  if (!permission.ok) return permission;
+  const base = await gridsService.base.get(table.baseId);
+  return ok({
+    data: {
+      kind: "view" as const,
+      id: view.id,
+      shortId: view.shortId,
+      tableId: view.tableId,
+      name: view.name,
+      description: view.description,
+      icon: view.icon ?? null,
+    },
+    refs: [{ type: "grids.view", id: view.id }],
+    ...(base ? { links: [{ rel: "open" as const, href: viewHref(base, table, view.shortId) }] } : {}),
   });
 };
 
@@ -548,12 +589,14 @@ const recordResult = async (record: GridRecord, table: Table) => {
   });
 };
 
-const runRecordGet = async (input: z.infer<typeof RecordGetInputSchema>, context: CapabilityExecutionContext) => {
+const runRecordRead = async (input: z.infer<typeof RecordReadInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
-  const table = await requireTableRecordAccess(input.tableId, access, "read");
+  const tableId = await gridsService.record.findTableId(input.id);
+  if (!tableId) return fail(err.notFound("Record"));
+  const table = await requireTableRecordAccess(tableId, access, "read");
   if (!table.ok) return table;
   const dateConfig = await capabilityDateConfig();
-  const record = await gridsService.record.get(input.tableId, input.recordId, {
+  const record = await gridsService.record.get(tableId, input.id, {
     dateConfig,
     viewer: actorViewerFor(access),
     recordAccess: table.data.recordAccess,
@@ -594,10 +637,20 @@ const runRecordUpdate = async (input: z.infer<typeof RecordUpdateInputSchema>, c
 export const gridsCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
-    base: { title: "Grids Base", description: "A permission-scoped Grids workspace.", icon: "ti ti-table" },
-    table: { title: "Grids Table", description: "A readable stored or Combined table in a Base.", icon: "ti ti-table-column" },
-    view: { title: "Grids View", description: "A permission-scoped saved GQL data view.", icon: "ti ti-layout-list" },
-    record: { title: "Grids Record", description: "One stable record in a Grids Table.", icon: "ti ti-row-insert-bottom" },
+    base: { title: "Grids Base", description: "A permission-scoped Grids workspace.", icon: "ti ti-table", reader: "base.read" },
+    table: {
+      title: "Grids Table",
+      description: "A readable stored or Combined table in a Base.",
+      icon: "ti ti-table-column",
+      reader: "table.read",
+    },
+    view: { title: "Grids View", description: "A permission-scoped saved GQL data view.", icon: "ti ti-layout-list", reader: "view.read" },
+    record: {
+      title: "Grids Record",
+      description: "One stable record in a Grids Table.",
+      icon: "ti ti-row-insert-bottom",
+      reader: "record.read",
+    },
   },
   queries: {
     "base.search": {
@@ -617,13 +670,29 @@ export const gridsCapabilities = defineCapabilities({
       openWorld: false,
       run: runBaseList,
     },
-    "base.get": {
-      title: "Get Grids Base",
+    "base.read": {
+      title: "Read Grids Base",
       description: "Read one accessible Grids Base by stable ID.",
-      input: BaseGetInputSchema,
+      input: BaseReadInputSchema,
       data: BaseCapabilityDataSchema,
       openWorld: false,
-      run: runBaseGet,
+      run: runBaseRead,
+    },
+    "table.read": {
+      title: "Read Grids Table",
+      description: "Read one accessible Grids Table by stable ID.",
+      input: TableReadInputSchema,
+      data: TableCapabilityDataSchema,
+      openWorld: false,
+      run: runTableRead,
+    },
+    "view.read": {
+      title: "Read Grids View",
+      description: "Read one accessible saved Grids View by stable ID.",
+      input: ViewReadInputSchema,
+      data: ViewCapabilityDataSchema,
+      openWorld: false,
+      run: runViewRead,
     },
     "gql.context": {
       title: "Load Grids GQL context",
@@ -661,14 +730,14 @@ export const gridsCapabilities = defineCapabilities({
       openWorld: false,
       run: runGqlViewExecute,
     },
-    "record.get": {
-      title: "Get Grids Record",
+    "record.read": {
+      title: "Read Grids Record",
       description:
         "Read bounded record metadata and its current version for conflict-safe record.update. Use targeted gql.execute selects to read field values.",
-      input: RecordGetInputSchema,
+      input: RecordReadInputSchema,
       data: RecordCapabilityDataSchema,
       openWorld: false,
-      run: runRecordGet,
+      run: runRecordRead,
     },
   },
   actions: {
@@ -686,7 +755,7 @@ export const gridsCapabilities = defineCapabilities({
     "record.update": {
       title: "Update Grids Record",
       description:
-        "Load fields for value and audit requirements, then record.get for ifVersion. Only supplied Field UUIDs change; stale versions are rejected. Returns bounded metadata; read values with targeted GQL.",
+        "Load fields for value and audit requirements, then record.read for ifVersion. Only supplied Field UUIDs change; stale versions are rejected. Returns bounded metadata; read values with targeted GQL.",
       input: RecordUpdateInputSchema,
       data: RecordCapabilityDataSchema,
       destructive: true,

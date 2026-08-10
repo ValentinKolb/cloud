@@ -5,7 +5,7 @@ section: Platform services
 order: 555
 description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
 tags: [capabilities, rpc, agents, mcp]
-updated: 2026-08-05
+updated: 2026-08-10
 ---
 
 # App capabilities
@@ -77,8 +77,8 @@ const items = new Map<string, Item>([
   ],
 ]);
 
-const visibleItem = (itemId: string, subject: AccessSubject): Item | null => {
-  const item = items.get(itemId);
+const visibleItem = (id: string, subject: AccessSubject): Item | null => {
+  const item = items.get(id);
   return item && subject.type === "user" && subject.userId === item.ownerId
     ? item
     : null;
@@ -91,15 +91,16 @@ export const inventoryCapabilities = defineCapabilities({
       title: "Inventory item",
       description: "One item in the inventory catalog.",
       icon: "ti ti-package",
+      reader: "item.read",
     },
   },
   queries: {
-    "item.get": {
-      title: "Get inventory item",
+    "item.read": {
+      title: "Read inventory item",
       description: "Read one visible inventory item by stable ID.",
       input: z
         .object({
-          itemId: z.string().uuid().describe("Stable inventory item UUID."),
+          id: z.string().uuid().describe("Stable inventory item UUID."),
         })
         .strict(),
       data: z
@@ -110,8 +111,8 @@ export const inventoryCapabilities = defineCapabilities({
         })
         .strict(),
       openWorld: false,
-      run: async ({ itemId }, context) => {
-        const item = visibleItem(itemId, context.accessSubject);
+      run: async ({ id }, context) => {
+        const item = visibleItem(id, context.accessSubject);
         if (!item) {
           return {
             ok: false,
@@ -234,7 +235,7 @@ qualifies local IDs with the application ID:
 
 ```text
 item        -> inventory.item
-item.get    -> inventory.item.get
+item.read   -> inventory.item.read
 item.rename -> inventory.item.rename
 ```
 
@@ -245,9 +246,27 @@ CLI commands, and MCP tool names aligned.
 Types connect operation targets, result references, Universal Search results,
 and client presentation. Declaring a Type does not create CRUD operations.
 
+A Type may name one canonical reader Query:
+
+```ts
+types: {
+  item: {
+    title: "Inventory item",
+    description: "One item in the inventory catalog.",
+    reader: "item.read",
+  },
+}
+```
+
+`reader` is the Query's local ID inside the same app. Its presence tells a
+consumer that a `CloudResourceRef` of this Type can be read programmatically.
+The referenced Query is the only read implementation; do not publish a second
+`item.get` or a Project-specific reader for the same operation. Omit `reader`
+when the resource has no useful bounded machine representation.
+
 ### Queries read data
 
-Queries do not mutate application state. Use them for bounded get, list,
+Queries do not mutate application state. Use them for bounded read, list,
 filter, or search operations. Filtering, sorting, pagination, and authorization
 stay in the application service.
 
@@ -260,6 +279,19 @@ Queries may opt into [Universal Search](/en/docs/platform/search). An app may
 publish multiple focused search Queries when it owns distinct resource kinds.
 Cloud caps merged results per app, so registering more focused Queries does
 not give an app a larger share of the global result set.
+
+A canonical reader is an ordinary Query named by its Type. Its input has one
+required resource field named `id`. It may add optional fields for bounded
+pagination or content windows, but no other required field. Every
+provider-owned `CloudResourceRef` for that Type must use an `id` the reader can
+resolve directly. The reader performs the same current authorization as every
+other Query.
+
+Consumers resolve a reader from the current live manifest: find the owning app
+from the qualified `ref.type`, find the matching Type, then invoke the Query in
+its optional `reader` field with `{ id: ref.id }`. They do not derive a Query
+name, persist one beside the reference, or fall back to semantic capability
+search.
 
 ### Actions change state
 
@@ -396,6 +428,9 @@ Cloud validates the declaration at startup:
 - input and data schemas must project to JSON Schema;
 - every Query and Action declares `openWorld`, and every Action also declares
   `destructive` and `idempotency`;
+- every Type `reader` names an existing Query in the same declaration;
+- a reader Query has a required string `id` field and no other required input
+  fields, and is assigned to at most one Type;
 - `idempotencyKey` is reserved for transports and cannot be an Action field;
 - Action reviews use the fixed platform schema and are advertised as
   `review: true` only when the callback exists;
@@ -447,11 +482,11 @@ additional transport invariant, not a replacement for app-side checks.
 
 Treat an app ID plus local operation ID as a stable public contract. The same
 ID may add new Types, operations, optional input object fields, result object
-fields, Universal Search tags, or an Action review. It must not change kind,
-remove fields or operations, add required input, weaken a previously guaranteed
-result field, change safety or idempotency semantics, or remove an advertised
-review or search token. Publish a new local ID for those changes and migrate
-callers deliberately.
+fields, Universal Search tags, a Type reader, or an Action review. It must not
+change kind, remove fields or operations, add required input, weaken a
+previously guaranteed result field, change safety or idempotency semantics, or
+remove or replace an advertised reader, review, or search token. Publish a new
+local ID for those changes and migrate callers deliberately.
 
 Keep a previous manifest fixture and check it in provider tests:
 
@@ -495,6 +530,12 @@ are root-relative same-origin Cloud paths. They are hints: a caller may open
 one, but an operation does not require UI merely because it returns a link.
 When `hasMore` is true, `nextCursor` is required; on the final page it must be
 absent. Treat cursors as opaque values.
+
+When a provider-owned Type advertises a reader, every returned `ref.id` for
+that Type must be accepted by that reader. For a foreign ref, the foreign
+Type's owning app defines whether and how it can be read. A ref never carries
+or caches a reader name; consumers resolve it from the current owning app
+manifest.
 
 Keep result metadata non-overlapping. For one primary resource, return its
 identity in top-level `refs` and its navigation in top-level `links`. For
@@ -565,7 +606,7 @@ consumer API.
 The POST body contains one `input` field:
 
 ```json
-{ "input": { "itemId": "11111111-1111-4111-8111-111111111111" } }
+{ "input": { "id": "11111111-1111-4111-8111-111111111111" } }
 ```
 
 The optional review route accepts the same body and is available only when the
@@ -588,9 +629,9 @@ const itemSchema = z.object({ id: z.uuid(), name: z.string() }).passthrough();
 const result = await invokeCapabilityWithDataSchema(
   {
     appId: "inventory",
-    capabilityId: "item.get",
+    capabilityId: "item.read",
     kind: "query",
-    input: { itemId },
+    input: { id: itemId },
   },
   itemSchema,
 );
@@ -607,9 +648,9 @@ import { invokeCapabilityWithDataSchema } from "@valentinkolb/cloud/capabilities
 const result = await invokeCapabilityWithDataSchema(
   {
     appId: "inventory",
-    capabilityId: "item.get",
+    capabilityId: "item.read",
     kind: "query",
-    input: { itemId },
+    input: { id: itemId },
   },
   itemSchema,
   {
@@ -636,8 +677,9 @@ The generic CLI uses the same dispatcher:
 
 ```bash
 cld capabilities catalog
-cld capabilities query inventory item.get \
-  --input '{"itemId":"11111111-1111-4111-8111-111111111111"}'
+cld capabilities read inventory.item 11111111-1111-4111-8111-111111111111
+cld capabilities query inventory item.read \
+  --input '{"id":"11111111-1111-4111-8111-111111111111"}'
 cld capabilities action inventory item.rename \
   --input '{"itemId":"11111111-1111-4111-8111-111111111111","name":"Dock"}'
 ```
@@ -652,7 +694,7 @@ The authenticated `/api/mcp/v1` endpoint projects the live catalog as MCP
 tools:
 
 ```text
-inventory__query__item.get
+inventory__query__item.read
 inventory__action__item.rename
 ```
 

@@ -207,6 +207,7 @@ export type CapabilityResourceTypeDefinition = {
   title: string;
   description: string;
   icon?: string;
+  reader?: string;
 };
 
 export type CapabilitySearchTagDefinition = {
@@ -276,6 +277,7 @@ export const CapabilityResourceTypeManifestSchema = z
     title: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
     icon: z.string().min(1).max(120).optional(),
+    reader: CapabilityLocalIdSchema.optional(),
   })
   .strict();
 
@@ -337,6 +339,17 @@ export type CapabilityQueryManifest = z.infer<typeof CapabilityQueryManifestSche
 export type CapabilityActionManifest = z.infer<typeof CapabilityActionManifestSchema>;
 export type CapabilitySearchTagManifest = z.infer<typeof CapabilitySearchTagManifestSchema>;
 export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
+
+export const cloudResourceRefAppId = (ref: CloudResourceRef): string => ref.type.slice(0, ref.type.indexOf("."));
+
+/** Resolves a resource reference against one current, validated app manifest. */
+export const resolveCapabilityResourceReader = (manifest: CapabilityManifest, ref: CloudResourceRef): CapabilityQueryManifest | null => {
+  if (cloudResourceRefAppId(ref) !== manifest.appId) return null;
+  const prefix = `${manifest.appId}.`;
+  const type = manifest.types.find((candidate) => candidate.localId === ref.type.slice(prefix.length));
+  if (!type?.reader) return null;
+  return manifest.queries.find((candidate) => candidate.localId === type.reader) ?? null;
+};
 
 export const CapabilityCatalogAppSchema = z
   .object({

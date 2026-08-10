@@ -125,12 +125,12 @@ describe("notebooks capabilities", () => {
   test("declares the complete bounded wiki surface", () => {
     expect(Object.keys(notebooksCapabilities.types).sort()).toEqual(["note", "notebook"]);
     expect(Object.keys(notebooksCapabilities.queries).sort()).toEqual([
-      "note.get",
       "note.links",
+      "note.read",
       "note.search",
       "note.tree",
-      "notebook.get",
       "notebook.list",
+      "notebook.read",
       "notebook.search",
       "tag.list",
       "tag.notes",
@@ -215,7 +215,7 @@ describe("notebooks capabilities", () => {
       yjsSnapshot: "private-snapshot",
     });
 
-    const result = await notebooksCapabilities.queries["note.get"].run({ noteId, contentOffset: 0, contentLimit: 12 }, userContext);
+    const result = await notebooksCapabilities.queries["note.read"].run({ id: noteId, contentOffset: 0, contentLimit: 12 }, userContext);
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.data.data.content).toBe("# Knowledge ");
@@ -229,7 +229,7 @@ describe("notebooks capabilities", () => {
 
   test("confines resource accounts and caps writes by scope", async () => {
     const getNotebook = trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
-    const outside = await notebooksCapabilities.queries["notebook.get"].run({ notebookId: otherNotebookId }, resourceContext(["read"]));
+    const outside = await notebooksCapabilities.queries["notebook.read"].run({ id: otherNotebookId }, resourceContext(["read"]));
     expect(outside.ok).toBeFalse();
     expect(getNotebook).not.toHaveBeenCalled();
 

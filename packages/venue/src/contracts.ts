@@ -309,3 +309,17 @@ export const VenueDashboardSchema = z.object({
   feedbackEntries: z.array(FeedbackEntrySchema),
 });
 export type VenueDashboard = z.infer<typeof VenueDashboardSchema>;
+
+export const VenueDashboardQuerySchema = z.object({
+  slotStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  slotDays: z.coerce.number().int().min(0).max(60).optional(),
+  includeFeedbackEntries: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
+  feedbackDays: z.coerce.number().int().min(1).max(365).optional(),
+  feedbackSearch: z.string().trim().max(200).optional(),
+});

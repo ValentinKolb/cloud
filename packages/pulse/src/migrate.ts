@@ -360,6 +360,7 @@ export const migrate = async (): Promise<void> => {
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.observed_resources (
+      id UUID NOT NULL DEFAULT gen_random_uuid(),
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
       resource_key TEXT NOT NULL,
       resource_id TEXT NOT NULL,
@@ -372,6 +373,11 @@ export const migrate = async (): Promise<void> => {
       PRIMARY KEY (base_id, resource_key)
     )
   `.simple();
+  await sql`ALTER TABLE pulse.observed_resources ADD COLUMN IF NOT EXISTS id UUID`.simple();
+  await sql`UPDATE pulse.observed_resources SET id = gen_random_uuid() WHERE id IS NULL`.simple();
+  await sql`ALTER TABLE pulse.observed_resources ALTER COLUMN id SET DEFAULT gen_random_uuid()`.simple();
+  await sql`ALTER TABLE pulse.observed_resources ALTER COLUMN id SET NOT NULL`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_observed_resources_id ON pulse.observed_resources(id)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_base_seen ON pulse.observed_resources(base_id, last_seen_at DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_base_type ON pulse.observed_resources(base_id, resource_type, last_seen_at DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_sources ON pulse.observed_resources USING GIN (source_ids)`.simple();

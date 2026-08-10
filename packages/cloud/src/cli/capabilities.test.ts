@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { ok } from "@k2b/stdlib";
+import { z } from "zod";
+import { compileCapabilities } from "../_internal/capabilities";
+import { defineCapabilities } from "../contracts/capabilities";
 import capabilitiesCliModule from "./capabilities";
 import type { CloudCliContext, CloudCliFlags } from "./index";
 
@@ -30,6 +34,91 @@ const createContext = (args: string[], flags: CloudCliFlags, fetch: CloudCliCont
 };
 
 describe("capabilities CLI", () => {
+  test("discovers and invokes a canonical resource reader across catalog pages", async () => {
+    const manifest = compileCapabilities(
+      "contacts",
+      defineCapabilities({
+        protocolVersion: 1,
+        types: { contact: { title: "Contact", description: "One contact.", reader: "contact.read" } },
+        queries: {
+          "contact.read": {
+            title: "Read contact",
+            description: "Read one contact.",
+            input: z.object({ id: z.string().describe("Stable contact id.") }).strict(),
+            data: z.object({ id: z.string() }).strict(),
+            openWorld: false,
+            run: async ({ id }) => ok({ data: { id } }),
+          },
+        },
+      }),
+    ).manifest;
+    const requests: Array<{ path: string; body?: unknown }> = [];
+    const { ctx, lines } = createContext(["read", "contacts.contact", "contact-1"], {}, async (path, init) => {
+      requests.push({ path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (path.includes("cursor=")) {
+        return Response.json({
+          protocolVersion: 1,
+          apps: [
+            {
+              appId: "contacts",
+              appName: "Contacts",
+              appIcon: "ti ti-address-book",
+              appDescription: "Contacts",
+              manifest,
+            },
+          ],
+          page: { hasMore: false },
+        });
+      }
+      if (path.startsWith("/api/capabilities/v1/catalog")) {
+        return Response.json({ protocolVersion: 1, apps: [], page: { hasMore: true, nextCursor: "before-contacts" } });
+      }
+      return Response.json({ data: { id: "contact-1" } });
+    });
+    await capabilitiesCliModule.run(ctx);
+    expect(requests.at(-1)).toEqual({
+      path: "/api/capabilities/v1/queries/contacts/contact.read",
+      body: { input: { id: "contact-1" } },
+    });
+    expect(lines).toEqual(['{"data":{"id":"contact-1"}}']);
+  });
+
+  test("fails closed for missing apps, Types without readers, and repeated catalog cursors", async () => {
+    const missing = createContext(["read", "missing.item", "one"], {}, async () =>
+      Response.json({ protocolVersion: 1, apps: [], page: { hasMore: false } }),
+    );
+    await expect(capabilitiesCliModule.run(missing.ctx)).rejects.toThrow("Capability app missing is unavailable");
+
+    const noReaderManifest = compileCapabilities(
+      "contacts",
+      defineCapabilities({
+        protocolVersion: 1,
+        types: { contact: { title: "Contact", description: "One contact." } },
+      }),
+    ).manifest;
+    const noReader = createContext(["read", "contacts.contact", "one"], {}, async () =>
+      Response.json({
+        protocolVersion: 1,
+        apps: [
+          {
+            appId: "contacts",
+            appName: "Contacts",
+            appIcon: "ti ti-address-book",
+            appDescription: "Contacts",
+            manifest: noReaderManifest,
+          },
+        ],
+        page: { hasMore: false },
+      }),
+    );
+    await expect(capabilitiesCliModule.run(noReader.ctx)).rejects.toThrow("unknown or has no reader");
+
+    const repeated = createContext(["read", "missing.item", "one"], {}, async () =>
+      Response.json({ protocolVersion: 1, apps: [], page: { hasMore: true, nextCursor: "same" } }),
+    );
+    await expect(capabilitiesCliModule.run(repeated.ctx)).rejects.toThrow("repeated cursor");
+  });
+
   test("invokes a query with strict JSON input", async () => {
     let request: { path: string; init?: RequestInit } | undefined;
     const { ctx, lines } = createContext(

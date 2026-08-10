@@ -1,5 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
+import { getCapability } from "../_internal/registry";
+import { CloudResourceRefSchema, cloudResourceRefAppId, resolveCapabilityResourceReader } from "../contracts/capabilities";
 import { PrincipalSchema } from "../contracts/shared";
 import { type AuthContext, auth, err, fail, ok, rateLimit, respond, v } from "../server";
 import { decodeAiFileContent } from "./files-store";
@@ -36,18 +38,22 @@ const ProjectFileSchema = z.object({
   encoding: z.enum(["utf8", "base64"]).default("utf8"),
 });
 const ReferenceSchema = z.object({
-  appId: z.string().trim().min(1).max(120),
-  resourceType: z.string().trim().min(1).max(120),
-  resourceId: z.string().trim().min(1).max(500),
+  ref: CloudResourceRefSchema,
   label: z.string().trim().max(200).default(""),
 });
 
 const notFound = (c: Parameters<typeof respond>[0], noun = "Project") => respond(c, fail(err.notFound(noun)));
 
-export const createAiProjectsRoutes = () =>
+type AiProjectsRouteDependencies = {
+  limit?: MiddlewareHandler<AuthContext>;
+  authenticate?: MiddlewareHandler<AuthContext>;
+  getCapability?: typeof getCapability;
+};
+
+export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies = {}) =>
   new Hono<AuthContext>()
-    .use(rateLimit())
-    .use("*", auth.requireRole("authenticated"))
+    .use(dependencies.limit ?? rateLimit())
+    .use("*", dependencies.authenticate ?? auth.requireRole("authenticated"))
     .get("/", async (c) => respond(c, ok({ projects: await aiProjects.list(c.get("accessSubject")) })))
     .post("/", v("json", ProjectFieldsSchema), async (c) => {
       try {
@@ -153,7 +159,20 @@ export const createAiProjectsRoutes = () =>
       return respond(c, ok({ references: await aiProjects.listReferences(project.id, c.get("accessSubject")) }));
     })
     .post("/:projectId/references", v("json", ReferenceSchema), async (c) => {
-      const reference = await aiProjects.createReference(c.req.param("projectId")!, c.get("accessSubject"), c.req.valid("json"));
+      const body = c.req.valid("json");
+      const projectId = c.req.param("projectId")!;
+      const subject = c.get("accessSubject");
+      if (!(await aiProjects.get(projectId, subject, "write"))) return notFound(c);
+      let entry: Awaited<ReturnType<typeof getCapability>>;
+      try {
+        entry = await (dependencies.getCapability ?? getCapability)(cloudResourceRefAppId(body.ref));
+      } catch {
+        return c.json({ code: "APP_UNAVAILABLE", message: "Capability registry is currently unavailable" }, 503);
+      }
+      if (!entry || !resolveCapabilityResourceReader(entry.manifest, body.ref)) {
+        return respond(c, fail(err.badInput("Cloud resource type is unknown or has no reader.")));
+      }
+      const reference = await aiProjects.createReference(projectId, subject, body);
       return reference ? respond(c, ok({ reference }), 201) : notFound(c);
     })
     .delete("/:projectId/references/:referenceId", async (c) =>

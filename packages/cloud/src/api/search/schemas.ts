@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CloudResourceRefSchema } from "../../contracts";
 
 const TAG_PATTERN = /^[^\s#]+$/;
 const SEARCH_BASE_URL = "https://cloud.invalid";
@@ -43,7 +44,7 @@ export const SearchItemSchema = z.object({
   appId: z.string(),
   appName: z.string(),
   appIcon: z.string(),
-  id: z.string(),
+  ref: CloudResourceRefSchema,
   title: z.string(),
   href: SameOriginPathSchema,
   preview: z.string().optional(),

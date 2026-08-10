@@ -15,17 +15,17 @@ import { type AuditActor, audit } from "@valentinkolb/cloud/services";
 import type { z } from "zod";
 import {
   NotebookDataSchema,
-  NotebookGetInputSchema,
   NotebookListDataSchema,
   NotebookListInputSchema,
+  NotebookReadInputSchema,
   NoteCreateInputSchema,
   NoteDetailDataSchema,
   NoteEditDataSchema,
   NoteEditInputSchema,
-  NoteGetInputSchema,
   NoteLinksDataSchema,
   NoteLinksInputSchema,
   NoteMoveInputSchema,
+  NoteReadInputSchema,
   NoteSummaryDataSchema,
   NoteTreeDataSchema,
   NoteTreeInputSchema,
@@ -294,8 +294,8 @@ const runNotebookList = async (input: z.infer<typeof NotebookListInputSchema>, c
   });
 };
 
-const runNotebookGet = async (input: z.infer<typeof NotebookGetInputSchema>, context: CapabilityExecutionContext) => {
-  const access = await requireNotebook(input.notebookId, context);
+const runNotebookRead = async (input: z.infer<typeof NotebookReadInputSchema>, context: CapabilityExecutionContext) => {
+  const access = await requireNotebook(input.id, context);
   if (!access.ok) return access;
   return ok({
     data: mapNotebook(access.data.notebook, access.data.permission as Exclude<PermissionLevel, "none">),
@@ -326,10 +326,10 @@ const runNoteTree = async (input: z.infer<typeof NoteTreeInputSchema>, context: 
   });
 };
 
-const runNoteGet = async (input: z.infer<typeof NoteGetInputSchema>, context: CapabilityExecutionContext) => {
-  const resolved = await requireNote(input.noteId, context);
+const runNoteRead = async (input: z.infer<typeof NoteReadInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await requireNote(input.id, context);
   if (!resolved.ok) return resolved;
-  const note = await noteStore.getWithContent({ id: input.noteId });
+  const note = await noteStore.getWithContent({ id: input.id });
   if (!note) return fail(err.notFound("Note"));
   const content = note.contentMd ?? "";
   if (input.contentOffset > content.length) return fail(err.badInput("contentOffset is outside the note"));
@@ -540,8 +540,13 @@ const runNoteMove = async (input: z.infer<typeof NoteMoveInputSchema>, context: 
 export const notebooksCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
-    notebook: { title: "Notebook", description: "A permission-scoped collection of Markdown notes.", icon: "ti ti-notebook" },
-    note: { title: "Note", description: "A Markdown note in an accessible notebook.", icon: "ti ti-file-text" },
+    notebook: {
+      title: "Notebook",
+      description: "A permission-scoped collection of Markdown notes.",
+      icon: "ti ti-notebook",
+      reader: "notebook.read",
+    },
+    note: { title: "Note", description: "A Markdown note in an accessible notebook.", icon: "ti ti-file-text", reader: "note.read" },
   },
   queries: {
     "notebook.search": {
@@ -574,13 +579,13 @@ export const notebooksCapabilities = defineCapabilities({
       openWorld: false,
       run: runNotebookList,
     },
-    "notebook.get": {
-      title: "Get notebook",
+    "notebook.read": {
+      title: "Read notebook",
       description: "Read one accessible notebook and its homepage reference.",
-      input: NotebookGetInputSchema,
+      input: NotebookReadInputSchema,
       data: NotebookDataSchema,
       openWorld: false,
-      run: runNotebookGet,
+      run: runNotebookRead,
     },
     "note.tree": {
       title: "List note tree",
@@ -590,13 +595,13 @@ export const notebooksCapabilities = defineCapabilities({
       openWorld: false,
       run: runNoteTree,
     },
-    "note.get": {
-      title: "Get note",
+    "note.read": {
+      title: "Read note",
       description: "Read a bounded Markdown window plus hashes, tags, and named-block summaries.",
-      input: NoteGetInputSchema,
+      input: NoteReadInputSchema,
       data: NoteDetailDataSchema,
       openWorld: false,
-      run: runNoteGet,
+      run: runNoteRead,
     },
     "note.links": {
       title: "List note links and backlinks",

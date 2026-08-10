@@ -16,7 +16,7 @@ const ChatSearchInputSchema = z
 
 const ChatReadInputSchema = z
   .object({
-    chatId: z.uuid().describe("Stable Assistant chat ID."),
+    id: z.uuid().describe("Stable Assistant chat ID."),
     cursor: z
       .string()
       .regex(/^[1-9]\d{0,9}$/)
@@ -99,6 +99,7 @@ export const assistantCapabilities = defineCapabilities({
       title: "Assistant chat",
       description: "A private Assistant conversation owned by the current user.",
       icon: "ti ti-message-chatbot",
+      reader: "chat.read",
     },
   },
   queries: {
@@ -130,7 +131,7 @@ export const assistantCapabilities = defineCapabilities({
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
         const chat = await aiConversationStore.getConversation({
-          conversationId: input.chatId,
+          conversationId: input.id,
           appId: ASSISTANT_APP_ID,
           ownerUserId: context.user.id,
         });

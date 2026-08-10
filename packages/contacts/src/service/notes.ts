@@ -50,6 +50,17 @@ const loadNote = async (config: { noteId: string; contactId: string; db?: SqlExe
   return row ? mapNote(row) : null;
 };
 
+export const get = async (config: { id: string }): Promise<ContactNote | null> => {
+  if (!isUuid(config.id)) return null;
+  const [row] = await sql<DbContactNote[]>`
+    SELECT n.id, n.contact_id, n.author_user_id, n.author_display_name, u.avatar_hash AS author_avatar_hash, n.content, n.created_at, n.updated_at
+    FROM contacts.contact_notes n
+    LEFT JOIN auth.users u ON u.id = n.author_user_id
+    WHERE n.id = ${config.id}::uuid
+  `;
+  return row ? mapNote(row) : null;
+};
+
 /**
  * Lists notes for one contact in chronological order (newest first).
  * Caller must already have read access to the contact's book.

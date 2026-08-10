@@ -47,6 +47,16 @@ export const list = async (config: { bookId: string }): Promise<ContactTag[]> =>
   return rows.map(mapTag);
 };
 
+export const get = async (config: { id: string }): Promise<ContactTag | null> => {
+  if (!isUuid(config.id)) return null;
+  const [row] = await sql<DbTag[]>`
+    SELECT id, book_id, name, color, created_at, updated_at
+    FROM contacts.tags
+    WHERE id = ${config.id}::uuid
+  `;
+  return row ? mapTag(row) : null;
+};
+
 /** Lists one bounded page of tags for capability and API consumers. */
 export const listPage = async (config: { bookId: string; pagination?: PageParams }): Promise<Paginated<ContactTag>> => {
   const { page, perPage, offset } = paginate(config.pagination);

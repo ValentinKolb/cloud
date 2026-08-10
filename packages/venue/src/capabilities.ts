@@ -14,18 +14,23 @@ import {
   AssignmentActionDataSchema,
   AssignmentCancelDataSchema,
   AssignmentCancelInputSchema,
+  AssignmentDataSchema,
   AssignmentFreeSignupInputSchema,
   AssignmentListDataSchema,
   AssignmentMineInputSchema,
+  AssignmentReadInputSchema,
   AssignmentSignupInputSchema,
   FeedbackSummaryDataSchema,
+  ShiftDataSchema,
   ShiftListDataSchema,
   ShiftListInputSchema,
-  VenueGetDataSchema,
-  VenueGetInputSchema,
+  ShiftReadInputSchema,
+  VenueDataSchema,
   VenueListDataSchema,
   VenueListInputSchema,
+  VenueReadInputSchema,
   VenueStatusDataSchema,
+  VenueTargetInputSchema,
 } from "./capability-contracts";
 import type { ShiftAssignment, Venue } from "./contracts";
 import { type UpcomingSlotSummary, venueService } from "./service";
@@ -138,10 +143,10 @@ const runVenueList = async (input: z.infer<typeof VenueListInputSchema>, context
   });
 };
 
-const runVenueGet = async (input: z.infer<typeof VenueGetInputSchema>, context: CapabilityExecutionContext) => {
+const runVenueRead = async (input: z.infer<typeof VenueReadInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const venue = await requireVenue(input.venueId, scope.data, "read", true);
+  const venue = await requireVenue(input.id, scope.data, "read", true);
   if (!venue.ok) return venue;
   return ok({
     data: mapVenue(venue.data),
@@ -150,7 +155,7 @@ const runVenueGet = async (input: z.infer<typeof VenueGetInputSchema>, context: 
   });
 };
 
-const runVenueStatus = async (input: z.infer<typeof VenueGetInputSchema>, context: CapabilityExecutionContext) => {
+const runVenueStatus = async (input: z.infer<typeof VenueTargetInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
   const venue = await requireVenue(input.venueId, scope.data, "read", true);
@@ -232,6 +237,21 @@ const mapPersonalAssignment = (assignment: PersonalAssignment) => ({
   updatedAt: assignment.updatedAt,
 });
 
+const runAssignmentRead = async (input: z.infer<typeof AssignmentReadInputSchema>, context: CapabilityExecutionContext) => {
+  if (!context.user) return fail(err.forbidden("Venue assignments require a user-backed actor"));
+  const assignment = await venueService.assignments.getPersonalById(input.id, context.user.id);
+  if (!assignment) return fail(err.notFound("Shift assignment"));
+  const scope = scopeFor(context);
+  if (!scope.ok) return scope;
+  const venue = await requireVenue(assignment.venueId, scope.data, "read");
+  if (!venue.ok) return venue;
+  return ok({
+    data: mapPersonalAssignment(assignment),
+    refs: [{ type: "venue.assignment", id: assignment.id }],
+    links: [{ rel: "open" as const, href: myShiftsHref(assignment.venueId) }],
+  });
+};
+
 const runAssignmentMine = async (input: z.infer<typeof AssignmentMineInputSchema>, context: CapabilityExecutionContext) => {
   if (!context.user) return fail(err.forbidden("Venue assignments require a user-backed actor"));
   const scope = scopeFor(context);
@@ -263,7 +283,7 @@ const runAssignmentMine = async (input: z.infer<typeof AssignmentMineInputSchema
   });
 };
 
-const runFeedbackSummary = async (input: z.infer<typeof VenueGetInputSchema>, context: CapabilityExecutionContext) => {
+const runFeedbackSummary = async (input: z.infer<typeof VenueTargetInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
   const venue = await requireVenue(input.venueId, scope.data, "read");
@@ -310,6 +330,31 @@ const parseShiftId = (shiftId: string) => {
   return match?.[1] && match[2] && z.iso.date().safeParse(match[2]).success
     ? ok({ templateId: match[1], date: match[2] })
     : fail(err.badInput("Invalid shiftId"));
+};
+
+const runShiftRead = async (input: z.infer<typeof ShiftReadInputSchema>, context: CapabilityExecutionContext) => {
+  const parsed = parseShiftId(input.id);
+  if (!parsed.ok) return parsed;
+  const template = await venueService.templates.get(parsed.data.templateId);
+  if (!template || !template.active) return fail(err.notFound("Shift"));
+  const scope = scopeFor(context);
+  if (!scope.ok) return scope;
+  const venue = await requireVenue(template.venueId, scope.data, "read");
+  if (!venue.ok) return venue;
+  const slots = await venueService.shifts.listSummary(venue.data, {
+    startDate: parsed.data.date,
+    days: 1,
+    templates: [template],
+    currentUserId: context.user?.id ?? null,
+  });
+  const shift = slots.find((slot) => slot.key === input.id);
+  return shift
+    ? ok({
+        data: mapShift(shift),
+        refs: [{ type: "venue.shift", id: input.id }],
+        links: [{ rel: "open" as const, href: shiftHref(venue.data.id) }],
+      })
+    : fail(err.notFound("Shift"));
 };
 
 const validateFreeSignupWindow = (input: z.infer<typeof AssignmentFreeSignupInputSchema>) => {
@@ -385,13 +430,20 @@ export const venueCapabilities = defineCapabilities({
       title: "Venue",
       description: "A public or permission-scoped place with opening and staffing rules.",
       icon: "ti ti-building-carousel",
+      reader: "venue.read",
     },
     shift: {
       title: "Venue shift",
       description: "One dated staffing slot generated from a Venue shift template.",
       icon: "ti ti-calendar-event",
+      reader: "shift.read",
     },
-    assignment: { title: "Shift assignment", description: "A user's concrete signup for a Venue shift.", icon: "ti ti-user-check" },
+    assignment: {
+      title: "Shift assignment",
+      description: "A user's concrete signup for a Venue shift.",
+      icon: "ti ti-user-check",
+      reader: "assignment.read",
+    },
   },
   queries: {
     "venue.search": {
@@ -411,18 +463,18 @@ export const venueCapabilities = defineCapabilities({
       openWorld: false,
       run: runVenueList,
     },
-    "venue.get": {
-      title: "Get Venue",
+    "venue.read": {
+      title: "Read Venue",
       description: "Read compact metadata for one public or accessible Venue without media or secret calendar tokens.",
-      input: VenueGetInputSchema,
-      data: VenueGetDataSchema,
+      input: VenueReadInputSchema,
+      data: VenueDataSchema,
       openWorld: false,
-      run: runVenueGet,
+      run: runVenueRead,
     },
     "venue.status": {
       title: "Get Venue status",
       description: "Get current opening status, today's hours, and the next confirmed openings in the Venue timezone.",
-      input: VenueGetInputSchema,
+      input: VenueTargetInputSchema,
       data: VenueStatusDataSchema,
       openWorld: false,
       run: runVenueStatus,
@@ -435,6 +487,14 @@ export const venueCapabilities = defineCapabilities({
       openWorld: false,
       run: runShiftList,
     },
+    "shift.read": {
+      title: "Read Venue shift",
+      description: "Read one dated Venue shift by its stable ID.",
+      input: ShiftReadInputSchema,
+      data: ShiftDataSchema,
+      openWorld: false,
+      run: runShiftRead,
+    },
     "assignment.mine": {
       title: "List my assignments",
       description: "List the current user-backed actor's own assignments in a bounded date range.",
@@ -443,10 +503,18 @@ export const venueCapabilities = defineCapabilities({
       openWorld: false,
       run: runAssignmentMine,
     },
+    "assignment.read": {
+      title: "Read my assignment",
+      description: "Read one assignment owned by the current user-backed actor.",
+      input: AssignmentReadInputSchema,
+      data: AssignmentDataSchema,
+      openWorld: false,
+      run: runAssignmentRead,
+    },
     "feedback.summary": {
       title: "Get Venue feedback summary",
       description: "Read bounded rating aggregates without loading anonymous feedback comments.",
-      input: VenueGetInputSchema,
+      input: VenueTargetInputSchema,
       data: FeedbackSummaryDataSchema,
       openWorld: false,
       run: runFeedbackSummary,

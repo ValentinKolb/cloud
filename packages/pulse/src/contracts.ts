@@ -175,6 +175,7 @@ export type PulseResourceSummary = {
 };
 
 export type PulseResourceSearchResult = Pick<PulseResourceSummary, "key" | "id" | "label" | "type" | "lastSeenAt"> & {
+  refId: string;
   baseId: string;
   baseName: string;
 };

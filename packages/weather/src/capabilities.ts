@@ -49,7 +49,13 @@ const LocationListInputSchema = z
   })
   .strict();
 
-const LocationGetInputSchema = z
+const LocationReadInputSchema = z
+  .object({
+    id: z.uuid().describe("Stable UUID of the saved weather location."),
+  })
+  .strict();
+
+const LocationTargetInputSchema = z
   .object({
     locationId: z.uuid().describe("Stable UUID of the saved weather location."),
   })
@@ -203,10 +209,10 @@ const runLocationList = async (input: z.infer<typeof LocationListInputSchema>, c
   );
 };
 
-const runLocationGet = async (input: z.infer<typeof LocationGetInputSchema>, context: CapabilityExecutionContext) => {
+const runLocationRead = async (input: z.infer<typeof LocationReadInputSchema>, context: CapabilityExecutionContext) => {
   const userId = requireUserId(context);
   if (!userId.ok) return userId;
-  const location = await weatherService.location.saved.get({ id: input.locationId, userId: userId.data });
+  const location = await weatherService.location.saved.get({ id: input.id, userId: userId.data });
   if (!location) return fail(err.notFound("Location"));
   const data = mapLocation(location);
   return ok({
@@ -394,7 +400,7 @@ const runLocationCreate = async (input: z.infer<typeof LocationCreateInputSchema
     },
   );
 
-const runLocationDelete = async (input: z.infer<typeof LocationGetInputSchema>, context: CapabilityExecutionContext) =>
+const runLocationDelete = async (input: z.infer<typeof LocationTargetInputSchema>, context: CapabilityExecutionContext) =>
   audited(
     {
       action: "weather.capability.location.delete",
@@ -417,6 +423,7 @@ export const weatherCapabilities = defineCapabilities({
       title: "Saved location",
       description: "A saved weather location owned by the current user.",
       icon: "ti ti-map-pin",
+      reader: "location.read",
     },
   },
   queries: {
@@ -446,13 +453,13 @@ export const weatherCapabilities = defineCapabilities({
       openWorld: false,
       run: runLocationList,
     },
-    "location.get": {
-      title: "Get saved weather location",
+    "location.read": {
+      title: "Read saved weather location",
       description: "Read one saved weather location owned by the current user by stable UUID.",
-      input: LocationGetInputSchema,
+      input: LocationReadInputSchema,
       data: LocationSchema,
       openWorld: false,
-      run: runLocationGet,
+      run: runLocationRead,
     },
     "forecast.current": {
       title: "Get current weather",
@@ -495,7 +502,7 @@ export const weatherCapabilities = defineCapabilities({
     "location.delete": {
       title: "Delete saved weather location",
       description: "Permanently delete one saved weather location owned by the current user.",
-      input: LocationGetInputSchema,
+      input: LocationTargetInputSchema,
       data: LocationDeleteDataSchema,
       destructive: true,
       openWorld: false,

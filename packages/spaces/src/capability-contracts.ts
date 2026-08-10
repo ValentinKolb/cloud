@@ -69,7 +69,7 @@ export const SpaceListInputSchema = z
   .strict();
 
 export const SpaceListDataSchema = z.array(SpaceSummaryDataSchema).max(100);
-export const SpaceGetInputSchema = z.object({ spaceId: z.uuid().describe("Stable Space UUID.") }).strict();
+export const SpaceReadInputSchema = z.object({ id: z.uuid().describe("Stable Space UUID.") }).strict();
 
 const ItemAssigneeDataSchema = z.object({ id: z.uuid(), displayName: z.string().min(1).max(200) }).strict();
 const ItemTagDataSchema = z.object({ id: z.uuid(), name: z.string().min(1).max(100), color: z.string().min(1).max(100) }).strict();
@@ -179,7 +179,7 @@ const ItemListBaseShape = {
 
 export const TaskListInputSchema = z.object(ItemListBaseShape).strict();
 export const EventListInputSchema = z.object(ItemListBaseShape).strict();
-export const ItemGetInputSchema = z.object({ itemId: z.uuid().describe("Stable Space item UUID.") }).strict();
+export const ItemReadInputSchema = z.object({ id: z.uuid().describe("Stable Space item UUID.") }).strict();
 
 export const SpaceAssigneeListInputSchema = z
   .object({
@@ -306,7 +306,7 @@ export const CommentListItemDataSchema = CommentDataSchema.omit({ content: true 
   contentTruncated: z.boolean(),
 });
 export const CommentListDataSchema = z.array(CommentListItemDataSchema).max(100);
-export const CommentGetInputSchema = z.object({ commentId: z.uuid().describe("Stable comment UUID.") }).strict();
+export const CommentReadInputSchema = z.object({ id: z.uuid().describe("Stable comment UUID.") }).strict();
 export const CommentCreateInputSchema = z
   .object({
     itemId: z.uuid().describe("Writable parent item UUID."),

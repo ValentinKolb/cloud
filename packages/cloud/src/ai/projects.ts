@@ -1,4 +1,5 @@
 import { type SQLQuery, sql } from "bun";
+import type { CloudResourceRef } from "../contracts/capabilities";
 import type { AccessSubject } from "../server";
 import {
   buildAccessPrincipalCondition,
@@ -57,9 +58,7 @@ export type AiProjectFile = {
 export type AiProjectReference = {
   id: string;
   projectId: string;
-  appId: string;
-  resourceType: string;
-  resourceId: string;
+  ref: CloudResourceRef;
   label: string;
   createdAt: string;
 };
@@ -106,7 +105,6 @@ type FileRow = {
 type ReferenceRow = {
   id: string;
   project_id: string;
-  app_id: string;
   resource_type: string;
   resource_id: string;
   label: string;
@@ -176,9 +174,7 @@ const toFile = (row: FileRow): AiProjectFile => ({
 const toReference = (row: ReferenceRow): AiProjectReference => ({
   id: row.id,
   projectId: row.project_id,
-  appId: row.app_id,
-  resourceType: row.resource_type,
-  resourceId: row.resource_id,
+  ref: { type: row.resource_type, id: row.resource_id },
   label: row.label,
   createdAt: iso(row.created_at),
 });
@@ -302,10 +298,7 @@ export const aiProjects = {
         : null,
       references.length
         ? `Cloud references (metadata only; use authorized app capabilities to read the source):\n${references
-            .map(
-              (reference) =>
-                `- ${reference.label || reference.resourceId}: ${reference.appId}/${reference.resourceType}/${reference.resourceId}`,
-            )
+            .map((reference) => `- ${reference.label || reference.ref.id}: ${reference.ref.type}/${reference.ref.id}`)
             .join("\n")}`
         : null,
     ].filter(Boolean);
@@ -512,12 +505,12 @@ export const aiProjects = {
   async createReference(
     projectId: string,
     subject: AccessSubject,
-    input: { appId: string; resourceType: string; resourceId: string; label?: string },
+    input: { ref: CloudResourceRef; label?: string },
   ): Promise<AiProjectReference | null> {
     if (!(await requireProject(projectId, subject, "write"))) return null;
     const rows = await sql<ReferenceRow[]>`
-      INSERT INTO ai.project_references (project_id, app_id, resource_type, resource_id, label, created_by_user_id)
-      VALUES (${projectId}::uuid, ${input.appId.trim()}, ${input.resourceType.trim()}, ${input.resourceId.trim()}, ${input.label?.trim() ?? ""}, ${ownerUserId(subject)}::uuid)
+      INSERT INTO ai.project_references (project_id, resource_type, resource_id, label, created_by_user_id)
+      VALUES (${projectId}::uuid, ${input.ref.type}, ${input.ref.id}, ${input.label?.trim() ?? ""}, ${ownerUserId(subject)}::uuid)
       RETURNING *
     `;
     await touchProject(projectId);

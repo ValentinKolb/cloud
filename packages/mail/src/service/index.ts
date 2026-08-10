@@ -38,6 +38,7 @@ import * as providerConnections from "./provider-connections";
 import * as providerOAuth from "./provider-oauth";
 import * as reminders from "./reminders";
 import * as remoteContent from "./remote-content";
+import * as resourceParents from "./resource-parents";
 import * as savedViews from "./saved-views";
 import * as scheduledSends from "./scheduled-sends";
 import { cancelSendCommand } from "./scheduled-sends";
@@ -111,6 +112,7 @@ export {
   providerOAuth,
   reminders,
   remoteContent,
+  resourceParents,
   savedViews,
   scheduledSends,
   search,
@@ -159,6 +161,7 @@ export const mailService = {
   providerOAuth,
   presence,
   reminders,
+  resourceParents,
   remoteContent,
   savedViews,
   scheduledSends,

@@ -15,6 +15,7 @@ import {
   createAiCapabilityToolResolver,
   createAiHelpToolResolver,
   createAiHelpTools,
+  createAiResourceReaderTool,
   createLoadedAiCapabilityTools,
   listAiCapabilities,
   listAiCapabilityApps,
@@ -100,6 +101,88 @@ const actor = {
 };
 
 describe("AI capability catalog", () => {
+  test("resolves a structured ref to its canonical reader and invokes it with only id", async () => {
+    const compiled = compileCapabilities(
+      "contacts",
+      defineCapabilities({
+        protocolVersion: 1,
+        types: { contact: { title: "Contact", description: "One contact.", reader: "contact.read" } },
+        queries: {
+          "contact.read": {
+            title: "Read contact",
+            description: "Read one contact.",
+            input: z.object({ id: z.string().describe("Stable contact id.") }).strict(),
+            data: z.object({ id: z.string() }).strict(),
+            openWorld: false,
+            run: async ({ id }) => ok({ data: { id } }),
+          },
+        },
+      }),
+    );
+    const app: CapabilityRegistryEntry = {
+      appId: "contacts",
+      appName: "Contacts",
+      appIcon: "ti ti-address-book",
+      appAccent: "#000000",
+      appDescription: "Contacts",
+      endpoint: "http://contacts/api/_internal/capabilities/v1",
+      manifest: compiled.manifest,
+    };
+    const catalog = buildAiCapabilityCatalog([app]);
+    let invocation: unknown;
+    const prepared = prepareAiTools({
+      tools: [
+        createAiResourceReaderTool({
+          apps: [app],
+          catalog,
+          execute: async (entry, args) => {
+            invocation = { localId: entry.operation.localId, args };
+            return { data: { id: "contact-1" } };
+          },
+        }),
+      ],
+      actor,
+      conversationId: "conversation-1",
+    });
+    const tool = prepared.tools[0];
+    if (!tool || tool.kind !== "server") throw new Error("resource reader missing");
+    await tool.execute(
+      { type: "contacts.contact", id: "contact-1" },
+      { signal: AbortSignal.timeout(1_000), requestApproval: async () => true, requestClientTool: async <T>() => undefined as T },
+    );
+    expect(invocation).toEqual({ localId: "contact.read", args: { id: "contact-1" } });
+  });
+
+  test("rejects unknown and non-readable resource Types before execution", async () => {
+    const app = capabilityApp("contacts");
+    let executions = 0;
+    const prepared = prepareAiTools({
+      tools: [
+        createAiResourceReaderTool({
+          apps: [app],
+          catalog: buildAiCapabilityCatalog([app]),
+          execute: async () => {
+            executions += 1;
+            return {};
+          },
+        }),
+      ],
+      actor,
+      conversationId: "conversation-1",
+    });
+    const tool = prepared.tools[0];
+    if (!tool || tool.kind !== "server") throw new Error("resource reader missing");
+    const context = {
+      signal: AbortSignal.timeout(1_000),
+      requestApproval: async () => true,
+      requestClientTool: async <T>() => undefined as T,
+    };
+
+    await expect(tool.execute({ type: "missing.item", id: "item-1" }, context)).rejects.toThrow("unknown or has no reader");
+    await expect(tool.execute({ type: "contacts.item", id: "item-1" }, context)).rejects.toThrow("unknown or has no reader");
+    expect(executions).toBe(0);
+  });
+
   test("searches and reads registered Help without per-document tools", async () => {
     const help: HelpRegistryEntry = {
       appId: "grids",
@@ -511,6 +594,7 @@ describe("AI capability catalog", () => {
       "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
+      "read_cloud_resource",
       "contacts__query__list",
     ]);
     expect(first.find((tool) => tool.def.name === "search_capabilities")?.def.description).not.toContain(
@@ -526,6 +610,7 @@ describe("AI capability catalog", () => {
       "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
+      "read_cloud_resource",
       "spaces__action__create",
     ]);
     const searchDescription = second.find((tool) => tool.def.name === "search_capabilities")?.def.description;
@@ -587,6 +672,7 @@ describe("AI capability catalog", () => {
       "load_capabilities",
       "search_help",
       "read_help",
+      "read_cloud_resource",
     ]);
     expect(failures).toHaveLength(1);
   });
@@ -614,6 +700,7 @@ describe("AI capability catalog", () => {
       "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
+      "read_cloud_resource",
     ]);
     expect(unavailable.find((tool) => tool.def.name === "search_capabilities")?.def.description).toContain(
       "No live capability apps are visible in this provider turn",
@@ -719,6 +806,7 @@ describe("AI capability catalog", () => {
       "list_capability_apps",
       "list_capabilities",
       "load_capabilities",
+      "read_cloud_resource",
     ]);
     expect(requests[0]?.tools?.find((tool) => tool.name === "search_capabilities")?.description).toContain(
       "Live capability apps: contacts (Contacts)",

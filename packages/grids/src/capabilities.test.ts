@@ -98,14 +98,16 @@ describe("Grids capabilities", () => {
     expect(gridsCapabilities.protocolVersion).toBe(1);
     expect(Object.keys(gridsCapabilities.types ?? {}).sort()).toEqual(["base", "record", "table", "view"]);
     expect(Object.keys(gridsCapabilities.queries ?? {}).sort()).toEqual([
-      "base.get",
       "base.list",
+      "base.read",
       "base.search",
       "gql.context",
       "gql.execute",
       "gql.preview",
       "gql.view.execute",
-      "record.get",
+      "record.read",
+      "table.read",
+      "view.read",
     ]);
     expect(Object.keys(gridsCapabilities.actions ?? {}).sort()).toEqual(["record.create", "record.update"]);
     expect(
@@ -231,7 +233,7 @@ describe("Grids capabilities", () => {
         }),
       ]);
 
-      const loadedBase = await invoke("query", "base.get", { baseId }, context);
+      const loadedBase = await invoke("query", "base.read", { id: baseId }, context);
       expect(loadedBase.ok && loadedBase.data.data).toMatchObject({ id: baseId, shortId: expect.any(String) });
 
       const tables = await invoke("query", "gql.context", { baseId, kind: "tables", limit: 25 }, context);
@@ -323,7 +325,7 @@ describe("Grids capabilities", () => {
       expect(record).toMatchObject({ version: 1 });
       expect(record).not.toHaveProperty("data");
 
-      const loadedRecord = await invoke("query", "record.get", { tableId, recordId: record.id }, context);
+      const loadedRecord = await invoke("query", "record.read", { id: record.id }, context);
       expect(loadedRecord.ok && loadedRecord.data.data).toMatchObject({ id: record.id, version: 1 });
       if (loadedRecord.ok) expect(loadedRecord.data.data).not.toHaveProperty("data");
 
@@ -517,7 +519,7 @@ describe("Grids capabilities", () => {
 
       const listed = await invoke("query", "base.list", { limit: 25 }, context);
       expect(listed.ok && listed.data.data).toEqual([expect.objectContaining({ id: boundBaseId })]);
-      const crossBase = await invoke("query", "base.get", { baseId: otherBaseId }, context);
+      const crossBase = await invoke("query", "base.read", { id: otherBaseId }, context);
       expect(crossBase).toMatchObject({ ok: false, error: { code: "FORBIDDEN", status: 403 } });
       const tables = await invoke("query", "gql.context", { baseId: boundBaseId, kind: "tables", limit: 25 }, context);
       expect(tables.ok && tables.data.data).toMatchObject({

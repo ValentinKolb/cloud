@@ -28,12 +28,12 @@ export const BaseListInputSchema = z
   })
   .strict();
 
-export const BaseGetInputSchema = z.object({ baseId: z.uuid().describe("Stable readable Base UUID.") }).strict();
+export const BaseReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Base UUID.") }).strict();
 
 const ContextKindSchema = z.enum(["tables", "views", "fields", "options"]);
 const GridsPermissionSchema = z.enum(["read", "write", "admin"]);
 
-const TableContextItemSchema = z
+export const TableCapabilityDataSchema = z
   .object({
     kind: z.literal("table"),
     id: z.uuid(),
@@ -50,7 +50,7 @@ const TableContextItemSchema = z
   })
   .strict();
 
-const ViewContextItemSchema = z
+export const ViewCapabilityDataSchema = z
   .object({
     kind: z.literal("view"),
     id: z.uuid(),
@@ -120,8 +120,8 @@ const RecordWriteContextSchema = z
   .strict();
 
 export const GqlContextItemSchema = z.discriminatedUnion("kind", [
-  TableContextItemSchema,
-  ViewContextItemSchema,
+  TableCapabilityDataSchema,
+  ViewCapabilityDataSchema,
   FieldContextItemSchema,
   OptionContextItemSchema,
 ]);
@@ -272,12 +272,9 @@ export const RecordCapabilityDataSchema = z
   })
   .strict();
 
-export const RecordGetInputSchema = z
-  .object({
-    tableId: z.uuid().describe("Readable Table containing the record."),
-    recordId: z.uuid().describe("Stable live record UUID."),
-  })
-  .strict();
+export const TableReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Table UUID.") }).strict();
+export const ViewReadInputSchema = z.object({ id: z.uuid().describe("Stable readable View UUID.") }).strict();
+export const RecordReadInputSchema = z.object({ id: z.uuid().describe("Stable live record UUID.") }).strict();
 
 const RecordValuesSchema = z.record(z.string().uuid(), z.unknown());
 const RecordAuditSchema = z
@@ -298,7 +295,7 @@ export const RecordUpdateInputSchema = z
     tableId: z.uuid().describe("Writable stored Table containing the record."),
     recordId: z.uuid().describe("Stable live record UUID to update."),
     values: RecordValuesSchema.describe("Field UUIDs mapped to explicitly supplied replacement values."),
-    ifVersion: z.number().int().positive().describe("Record version returned by record.get; stale versions are rejected."),
+    ifVersion: z.number().int().positive().describe("Record version returned by record.read; stale versions are rejected."),
     audit: RecordAuditSchema.optional().describe("Answers required by the Table audit policy, when configured."),
   })
   .strict();

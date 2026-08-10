@@ -9,9 +9,7 @@ const ProjectContextItemSchema = z.object({
   title: z.string(),
   mediaType: z.string().optional(),
   size: z.number().optional(),
-  appId: z.string().optional(),
-  resourceType: z.string().optional(),
-  resourceId: z.string().optional(),
+  ref: z.object({ type: z.string(), id: z.string() }).optional(),
   content: z.string().optional(),
 });
 
@@ -94,18 +92,13 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
       ...references
         .filter(
           (reference) =>
-            !query ||
-            [reference.label, reference.appId, reference.resourceType, reference.resourceId].some((value) =>
-              value.toLowerCase().includes(query),
-            ),
+            !query || [reference.label, reference.ref.type, reference.ref.id].some((value) => value.toLowerCase().includes(query)),
         )
         .map((reference) => ({
           id: reference.id,
           kind: "reference" as const,
-          title: reference.label || reference.resourceId,
-          appId: reference.appId,
-          resourceType: reference.resourceType,
-          resourceId: reference.resourceId,
+          title: reference.label || reference.ref.id,
+          ref: reference.ref,
         })),
     ].slice(0, 100);
     return { ok: true, message: `Found ${items.length} Project item${items.length === 1 ? "" : "s"}.`, items };

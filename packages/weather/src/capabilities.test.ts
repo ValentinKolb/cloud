@@ -102,8 +102,8 @@ describe("weather capabilities", () => {
       "city.search",
       "forecast.current",
       "forecast.get",
-      "location.get",
       "location.list",
+      "location.read",
       "location.search",
     ]);
     expect(Object.keys(weatherCapabilities.actions).sort()).toEqual(["location.create", "location.delete"]);
@@ -197,7 +197,7 @@ describe("weather capabilities", () => {
   test("fails unsupported actors closed before reading saved locations", async () => {
     const get = spyOn(weatherService.location.saved, "get");
 
-    const result = await weatherCapabilities.queries["location.get"].run({ locationId }, serviceAccountContext);
+    const result = await weatherCapabilities.queries["location.read"].run({ id: locationId }, serviceAccountContext);
 
     expect(get).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: false, error: { code: "FORBIDDEN", status: 403 } });
@@ -206,7 +206,7 @@ describe("weather capabilities", () => {
   test("does not distinguish a missing location from another user's location", async () => {
     const get = spyOn(weatherService.location.saved, "get").mockResolvedValue(null);
 
-    const result = await weatherCapabilities.queries["location.get"].run({ locationId }, userContext);
+    const result = await weatherCapabilities.queries["location.read"].run({ id: locationId }, userContext);
 
     expect(get).toHaveBeenCalledWith({ id: locationId, userId });
     expect(result).toEqual({

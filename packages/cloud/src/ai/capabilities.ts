@@ -8,7 +8,14 @@ import {
   readHelpCatalog,
   searchHelpCatalog,
 } from "../_internal/help-catalog";
-import type { CapabilityActionManifest, CapabilityActionReview, CapabilityQueryManifest } from "../contracts/capabilities";
+import {
+  type CapabilityActionManifest,
+  type CapabilityActionReview,
+  type CapabilityQueryManifest,
+  CloudResourceRefSchema,
+  cloudResourceRefAppId,
+  resolveCapabilityResourceReader,
+} from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
 import { defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
@@ -579,6 +586,30 @@ export const createLoadedAiCapabilityTools = (input: {
   });
 };
 
+export const createAiResourceReaderTool = (input: {
+  apps: readonly CapabilityRegistryEntry[];
+  catalog: readonly AiCapabilityCatalogEntry[];
+  execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
+}): AiRuntimeTool =>
+  defineAiTool({
+    name: "read_cloud_resource",
+    description:
+      "Read a Cloud resource from its structured reference using the resource type's current canonical reader. Use this for refs returned by search, Projects, or other capabilities.",
+    inputSchema: CloudResourceRefSchema,
+    outputSchema: z.unknown(),
+    approval: "never",
+  }).server(async (ref, context) => {
+    const appId = cloudResourceRefAppId(ref);
+    const app = input.apps.find((candidate) => candidate.appId === appId);
+    const reader = app ? resolveCapabilityResourceReader(app.manifest, ref) : null;
+    if (!reader) throw new Error(`Cloud resource type ${ref.type} is unknown or has no reader.`);
+    const entry = input.catalog.find(
+      (candidate) => candidate.appId === appId && candidate.kind === "query" && candidate.operation.localId === reader.localId,
+    );
+    if (!entry) throw new Error(`Cloud resource reader ${appId}.${reader.localId} is unavailable.`);
+    return input.execute(entry, { id: ref.id }, context);
+  });
+
 /** Nessi resolver: one registry/load-state snapshot is used for both provider schemas and execution in each turn. */
 export const createAiCapabilityToolResolver =
   (input: {
@@ -627,6 +658,7 @@ export const createAiCapabilityToolResolver =
         unavailableLoadedNames,
       }),
       ...(input.listHelpRegistry ? createAiHelpTools(helpRegistry) : []),
+      createAiResourceReaderTool({ apps: registry, catalog, execute: input.execute }),
       ...createLoadedAiCapabilityTools({ catalog, loadedNames, review: input.review, execute: input.execute }),
     ];
     const prepared = prepareAiTools({

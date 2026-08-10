@@ -12,8 +12,10 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import type { z } from "zod";
 import {
+  BaseDataSchema,
   BaseListDataSchema,
   BaseListInputSchema,
+  BaseReadInputSchema,
   FieldSearchDataSchema,
   FieldSearchInputSchema,
   MetricSearchDataSchema,
@@ -21,11 +23,17 @@ import {
   QueryCompileDataSchema,
   QueryExecutionDataSchema,
   QueryTextInputSchema,
+  ResourceDataSchema,
+  ResourceReadInputSchema,
+  SavedQueryDataSchema,
   SavedQueryExecuteInputSchema,
   SavedQueryListDataSchema,
   SavedQueryListInputSchema,
+  SavedQueryReadInputSchema,
+  SourceDataSchema,
   SourceListDataSchema,
   SourceListInputSchema,
+  SourceReadInputSchema,
 } from "./capability-contracts";
 import type { PulseBase, PulseCurrentState, PulseRecordedEvent, PulseSavedQuery, PulseSource } from "./contracts";
 import { pulseBaseHref, pulseExplorerHref, pulseResourceHref, pulseSignalHref, pulseSourceHref } from "./resource-hrefs";
@@ -127,6 +135,18 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
   });
 };
 
+const runBaseRead = async (input: z.infer<typeof BaseReadInputSchema>, context: CapabilityExecutionContext) => {
+  const scope = scopeFor(context);
+  if (!scope.ok) return scope;
+  const result = await pulseService.base.get(input.id, scope.data);
+  if (!result.ok) return result;
+  return ok({
+    data: mapBase(result.data),
+    refs: [{ type: "pulse.base", id: result.data.id }],
+    links: [{ rel: "open" as const, href: pulseBaseHref(result.data.id) }],
+  });
+};
+
 const runSourceList = async (input: z.infer<typeof SourceListInputSchema>, context: CapabilityExecutionContext) => {
   const cursor = decodeCursor(input.cursor);
   if (!cursor.ok) return cursor;
@@ -145,8 +165,13 @@ const runSourceList = async (input: z.infer<typeof SourceListInputSchema>, conte
   });
 };
 
-const resourceRefId = (baseId: string, resourceKey: string): string =>
-  `sha256:${new Bun.CryptoHasher("sha256").update(`${baseId}\0${resourceKey}`).digest("hex")}`;
+const runSourceRead = async (input: z.infer<typeof SourceReadInputSchema>, context: CapabilityExecutionContext) => {
+  const scope = scopeFor(context);
+  if (!scope.ok) return scope;
+  const result = await pulseService.source.get(input.id, scope.data);
+  if (!result.ok) return result;
+  return ok({ data: mapSource(result.data), refs: [{ type: "pulse.source", id: result.data.id }] });
+};
 
 const runResourceSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
@@ -157,7 +182,7 @@ const runResourceSearch = async (input: UniversalSearchInput, context: Capabilit
   });
   if (!result.ok) return result;
   const data: CloudResourceView[] = result.data.map((resource) => ({
-    ref: { type: "pulse.resource", id: resourceRefId(resource.baseId, resource.key) },
+    ref: { type: "pulse.resource", id: resource.refId },
     title: resource.label.slice(0, 500),
     preview: [resource.type, resource.id].filter(Boolean).join(" · "),
     icon: "ti ti-box",
@@ -170,6 +195,28 @@ const runResourceSearch = async (input: UniversalSearchInput, context: Capabilit
     links: [{ rel: "open", href: pulseResourceHref(resource.baseId, resource.key) }],
   }));
   return ok({ data });
+};
+
+const runResourceRead = async (input: z.infer<typeof ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
+  const scope = scopeFor(context);
+  if (!scope.ok) return scope;
+  const result = await pulseService.query.resource(input.id, scope.data);
+  if (!result.ok) return result;
+  const resource = result.data;
+  return ok({
+    data: {
+      id: resource.refId,
+      baseId: resource.baseId,
+      baseName: resource.baseName.slice(0, 120),
+      key: resource.key.slice(0, 500),
+      resourceId: resource.id.slice(0, 500),
+      label: resource.label.slice(0, 500),
+      type: resource.type?.slice(0, 120) ?? null,
+      lastSeenAt: resource.lastSeenAt,
+      links: [{ rel: "open" as const, href: pulseResourceHref(resource.baseId, resource.key) }],
+    },
+    refs: [{ type: "pulse.resource", id: resource.refId }],
+  });
 };
 
 const runMetricSearch = async (input: z.infer<typeof MetricSearchInputSchema>, context: CapabilityExecutionContext) => {
@@ -195,6 +242,13 @@ const runMetricSearch = async (input: z.infer<typeof MetricSearchInputSchema>, c
     input.limit,
   );
   return ok({ ...page, refs: [{ type: "pulse.base", id: input.baseId }] });
+};
+
+const runSavedQueryRead = async (input: z.infer<typeof SavedQueryReadInputSchema>, context: CapabilityExecutionContext) => {
+  const scope = scopeFor(context);
+  if (!scope.ok) return scope;
+  const result = await pulseService.savedQuery.read(input.id, scope.data);
+  return result.ok ? ok({ data: mapSavedQuery(result.data), refs: [{ type: "pulse.saved_query", id: result.data.id }] }) : result;
 };
 
 const runFieldSearch = async (input: z.infer<typeof FieldSearchInputSchema>, context: CapabilityExecutionContext) => {
@@ -387,10 +441,30 @@ const runSavedQueryExecute = async (input: z.infer<typeof SavedQueryExecuteInput
 export const pulseCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
-    base: { title: "Pulse Base", description: "A permission-scoped Pulse telemetry workspace.", icon: "ti ti-activity-heartbeat" },
-    source: { title: "Pulse Source", description: "A telemetry source and its current ingest or scrape health.", icon: "ti ti-plug" },
-    resource: { title: "Pulse Resource", description: "An observed resource with metrics, events, or states.", icon: "ti ti-box" },
-    saved_query: { title: "Pulse Saved Query", description: "A named, validated Pulse query stored in a Base.", icon: "ti ti-code" },
+    base: {
+      title: "Pulse Base",
+      description: "A permission-scoped Pulse telemetry workspace.",
+      icon: "ti ti-activity-heartbeat",
+      reader: "base.read",
+    },
+    source: {
+      title: "Pulse Source",
+      description: "A telemetry source and its current ingest or scrape health.",
+      icon: "ti ti-plug",
+      reader: "source.read",
+    },
+    resource: {
+      title: "Pulse Resource",
+      description: "An observed resource with metrics, events, or states.",
+      icon: "ti ti-box",
+      reader: "resource.read",
+    },
+    saved_query: {
+      title: "Pulse Saved Query",
+      description: "A named, validated Pulse query stored in a Base.",
+      icon: "ti ti-code",
+      reader: "saved_query.read",
+    },
   },
   queries: {
     "base.search": {
@@ -410,6 +484,14 @@ export const pulseCapabilities = defineCapabilities({
       openWorld: false,
       run: runBaseList,
     },
+    "base.read": {
+      title: "Read Pulse Base",
+      description: "Read one accessible Pulse Base by stable ID.",
+      input: BaseReadInputSchema,
+      data: BaseDataSchema,
+      openWorld: false,
+      run: runBaseRead,
+    },
     "source.list": {
       title: "List Pulse Sources",
       description: "List bounded source health for one readable Base without exposing credentials.",
@@ -417,6 +499,14 @@ export const pulseCapabilities = defineCapabilities({
       data: SourceListDataSchema,
       openWorld: false,
       run: runSourceList,
+    },
+    "source.read": {
+      title: "Read Pulse Source",
+      description: "Read one accessible Pulse Source by stable ID.",
+      input: SourceReadInputSchema,
+      data: SourceDataSchema,
+      openWorld: false,
+      run: runSourceRead,
     },
     "resource.search": {
       title: "Search Pulse Resources",
@@ -430,6 +520,14 @@ export const pulseCapabilities = defineCapabilities({
         ],
       },
       run: runResourceSearch,
+    },
+    "resource.read": {
+      title: "Read Pulse Resource",
+      description: "Read one accessible observed Pulse Resource by stable ID.",
+      input: ResourceReadInputSchema,
+      data: ResourceDataSchema,
+      openWorld: false,
+      run: runResourceRead,
     },
     "metric.search": {
       title: "Search Pulse Metrics",
@@ -471,6 +569,14 @@ export const pulseCapabilities = defineCapabilities({
       data: SavedQueryListDataSchema,
       openWorld: false,
       run: runSavedQueryList,
+    },
+    "saved_query.read": {
+      title: "Read saved Pulse Query",
+      description: "Read one accessible saved Pulse Query by stable ID.",
+      input: SavedQueryReadInputSchema,
+      data: SavedQueryDataSchema,
+      openWorld: false,
+      run: runSavedQueryRead,
     },
     "saved_query.execute": {
       title: "Execute saved telemetry query",

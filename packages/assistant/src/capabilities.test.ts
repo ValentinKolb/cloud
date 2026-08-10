@@ -127,7 +127,7 @@ describe("Assistant capabilities", () => {
       hasMore: true,
     });
 
-    const result = await assistantCapabilities.queries["chat.read"].run({ chatId: chat.id, limit: 20 }, context);
+    const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.id, limit: 20 }, context);
 
     expect(get).toHaveBeenCalledWith({ conversationId: chat.id, appId: "assistant", ownerUserId: user.id });
     expect(result).toMatchObject({
@@ -155,7 +155,7 @@ describe("Assistant capabilities", () => {
   test("does not reveal missing or other users' chats", async () => {
     spyOn(aiConversationStore, "getConversation").mockResolvedValue(null);
 
-    const result = await assistantCapabilities.queries["chat.read"].run({ chatId: chat.id, limit: 20 }, context);
+    const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.id, limit: 20 }, context);
 
     expect(result).toEqual({ ok: false, error: { code: "NOT_FOUND", message: "Chat not found", status: 404 } });
   });

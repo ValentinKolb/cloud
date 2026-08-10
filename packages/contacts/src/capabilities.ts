@@ -19,28 +19,34 @@ import type { z } from "zod";
 import {
   CONTACT_COLLECTION_LIMIT,
   CONTACT_TAG_LIMIT,
+  ContactBookDataSchema,
   ContactBookListDataSchema,
   ContactBookListInputSchema,
+  ContactBookReadInputSchema,
   ContactCreateInputSchema,
   ContactDeleteDataSchema,
   ContactDeleteInputSchema,
   ContactDetailDataSchema,
-  ContactGetInputSchema,
   ContactListInputSchema,
   ContactMoveInputSchema,
   ContactMutationDataSchema,
   ContactNoteCreateDataSchema,
   ContactNoteCreateInputSchema,
+  ContactNoteDataSchema,
   ContactNoteListDataSchema,
   ContactNoteListInputSchema,
+  ContactNoteReadInputSchema,
+  ContactReadInputSchema,
   ContactResolveDataSchema,
   ContactResolveInputSchema,
   ContactSuggestDataSchema,
   ContactSuggestInputSchema,
   ContactTagChangeDataSchema,
   ContactTagChangeInputSchema,
+  ContactTagDataSchema,
   ContactTagListDataSchema,
   ContactTagListInputSchema,
+  ContactTagReadInputSchema,
   ContactUpdateInputSchema,
   FavoriteSetDataSchema,
   FavoriteSetInputSchema,
@@ -462,12 +468,55 @@ const runContactList = async (input: z.infer<typeof ContactListInputSchema>, con
   return pageResult(page, page.items.map(mapContactResourceView));
 };
 
-const runContactGet = async (input: z.infer<typeof ContactGetInputSchema>, context: CapabilityExecutionContext) => {
-  const resolved = await resolveContact(input.contactId, context);
+const runContactRead = async (input: z.infer<typeof ContactReadInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await resolveContact(input.id, context);
   if (!resolved.ok) return resolved;
   return ok({
     data: mapContactDetail(resolved.data.contact),
     refs: [{ type: "contacts.contact", id: resolved.data.contact.id }],
+    links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+  });
+};
+
+const runBookRead = async (input: z.infer<typeof ContactBookReadInputSchema>, context: CapabilityExecutionContext) => {
+  const access = await requireBookPermission(input.id, context, "read");
+  if (!access.ok) return access;
+  const book = access.data.book;
+  return ok({
+    data: {
+      id: book.id,
+      name: book.name,
+      description: book.description,
+      permission: access.data.permission,
+      links: [{ rel: "open" as const, href: `/app/contacts/${book.id}` }],
+      createdAt: book.createdAt,
+      updatedAt: book.updatedAt,
+    },
+    refs: [{ type: "contacts.book", id: book.id }],
+    links: [{ rel: "open" as const, href: `/app/contacts/${book.id}` }],
+  });
+};
+
+const runTagRead = async (input: z.infer<typeof ContactTagReadInputSchema>, context: CapabilityExecutionContext) => {
+  const tag = await contactsService.tag.get({ id: input.id });
+  if (!tag) return fail(err.notFound("Tag"));
+  const access = await requireBookPermission(tag.bookId, context, "read");
+  if (!access.ok) return access;
+  const data = mapTag(tag);
+  return ok({ data, refs: [{ type: "contacts.tag", id: tag.id }], links: data.links });
+};
+
+const runNoteRead = async (input: z.infer<typeof ContactNoteReadInputSchema>, context: CapabilityExecutionContext) => {
+  const note = await contactsService.contact.notes.get({ id: input.id });
+  if (!note) return fail(err.notFound("Note"));
+  const resolved = await resolveContact(note.contactId, context);
+  if (!resolved.ok) return resolved;
+  return ok({
+    data: mapNote(note),
+    refs: [
+      { type: "contacts.note", id: note.id },
+      { type: "contacts.contact", id: note.contactId },
+    ],
     links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
   });
 };
@@ -746,10 +795,20 @@ const runNoteCreate = async (input: z.infer<typeof ContactNoteCreateInputSchema>
 export const contactsCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
-    contact: { title: "Contact", description: "A person or organization in an address book.", icon: "ti ti-address-book" },
-    book: { title: "Address book", description: "A permission-scoped collection of contacts.", icon: "ti ti-book" },
-    tag: { title: "Contact tag", description: "A book-scoped label assigned to contacts.", icon: "ti ti-tag" },
-    note: { title: "Contact note", description: "A user-authored note attached to a contact.", icon: "ti ti-note" },
+    contact: {
+      title: "Contact",
+      description: "A person or organization in an address book.",
+      icon: "ti ti-address-book",
+      reader: "contact.read",
+    },
+    book: { title: "Address book", description: "A permission-scoped collection of contacts.", icon: "ti ti-book", reader: "book.read" },
+    tag: { title: "Contact tag", description: "A book-scoped label assigned to contacts.", icon: "ti ti-tag", reader: "tag.read" },
+    note: {
+      title: "Contact note",
+      description: "A user-authored note attached to a contact.",
+      icon: "ti ti-note",
+      reader: "note.read",
+    },
   },
   queries: {
     "contact.search": {
@@ -794,13 +853,37 @@ export const contactsCapabilities = defineCapabilities({
       openWorld: false,
       run: runContactList,
     },
-    "contact.get": {
-      title: "Get contact",
+    "contact.read": {
+      title: "Read contact",
       description: "Read one contact by stable UUID after resolving and checking its owning address book.",
-      input: ContactGetInputSchema,
+      input: ContactReadInputSchema,
       data: ContactDetailDataSchema,
       openWorld: false,
-      run: runContactGet,
+      run: runContactRead,
+    },
+    "book.read": {
+      title: "Read address book",
+      description: "Read one accessible address book by its stable identifier.",
+      input: ContactBookReadInputSchema,
+      data: ContactBookDataSchema,
+      openWorld: false,
+      run: runBookRead,
+    },
+    "tag.read": {
+      title: "Read contact tag",
+      description: "Read one contact tag after checking its owning address book.",
+      input: ContactTagReadInputSchema,
+      data: ContactTagDataSchema,
+      openWorld: false,
+      run: runTagRead,
+    },
+    "note.read": {
+      title: "Read contact note",
+      description: "Read one contact note after checking its parent contact and address book.",
+      input: ContactNoteReadInputSchema,
+      data: ContactNoteDataSchema,
+      openWorld: false,
+      run: runNoteRead,
     },
     "book.list": {
       title: "List manual address books",

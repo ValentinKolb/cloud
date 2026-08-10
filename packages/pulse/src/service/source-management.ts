@@ -3,7 +3,7 @@ import { err, fail, ok, type PermissionLevel, type Result } from "@valentinkolb/
 import { encryptSecret, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseSource, PulseSourceScrape, SourceKind } from "../contracts";
-import { requireBaseAccess, requireBaseActive, type AccessScope, type UserScope } from "./access-control";
+import { type AccessScope, requireBaseAccess, requireBaseActive, type UserScope } from "./access-control";
 import { iso, isoNullable } from "./telemetry-values";
 
 export const PULSE_APP_ID = "pulse";
@@ -141,6 +141,13 @@ export const listSources = async (
     OFFSET ${offset}
   `;
   return ok(rows.map(mapSource));
+};
+
+export const getSource = async (sourceId: string, user: AccessScope): Promise<Result<PulseSource>> => {
+  const [row] = await sql<SourceRow[]>`SELECT * FROM pulse.sources WHERE id = ${sourceId}::uuid`;
+  if (!row) return fail(err.notFound("Source"));
+  const access = await requireBaseAccess(row.base_id, user, "read");
+  return access.ok ? ok(mapSource(row)) : fail(access.error);
 };
 
 export const listSourceScrapes = async (params: {

@@ -4,11 +4,11 @@ import { type AccessSubject, type PermissionLevel, paginate, paginateItems } fro
 import type { ContactServiceEventData } from "../live-events";
 import * as apiKeys from "./api-keys";
 import * as books from "./books";
+import * as contactLookup from "./contact-lookup";
 import * as contacts from "./contacts";
 import { publishContactEvent } from "./events";
 import * as favorites from "./favorites";
 import * as imports from "./imports";
-import * as contactLookup from "./contact-lookup";
 import * as notes from "./notes";
 import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
@@ -140,6 +140,7 @@ export const contactsService = {
   },
   tag: {
     list: (config: { bookId: string }) => tags.list(config),
+    get: tags.get,
     listPage: tags.listPage,
     listForBooks: (config: { bookIds: string[] }) => tags.listForBooks(config),
     create: (config: { bookId: string; data: CreateContactTagInput }) =>
@@ -207,6 +208,7 @@ export const contactsService = {
     }) => contacts.search(config),
     notes: {
       list: (config: { bookId: string; contactId: string }) => notes.list(config),
+      get: notes.get,
       listPage: notes.listPage,
       create: (config: {
         bookId: string;

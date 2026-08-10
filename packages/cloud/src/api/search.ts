@@ -208,7 +208,7 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
           }
           const preview = view.links.find((link) => link.rel === "preview");
           const parsed = SearchItemSchema.safeParse({
-            id: `${view.ref.type}:${view.ref.id}`,
+            ref: view.ref,
             title: view.title,
             href: open.href,
             preview: view.preview,

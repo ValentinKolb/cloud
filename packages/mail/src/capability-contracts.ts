@@ -25,7 +25,6 @@ const NullableTextSchema = z.string().nullable();
 const UuidSchema = z.uuid();
 const MailboxIdInputSchema = UuidSchema.describe("Mailbox UUID that scopes the operation.");
 const ConversationIdInputSchema = UuidSchema.describe("Conversation UUID.");
-const MessageIdInputSchema = UuidSchema.describe("Message UUID.");
 const DraftIdInputSchema = UuidSchema.describe("Draft UUID.");
 const ExpectedRevisionInputSchema = z.number().int().positive().describe("Current resource revision used for optimistic concurrency.");
 const CursorSchema = z.string().min(1).max(2048).optional().describe("Opaque cursor returned by the previous page.");
@@ -108,7 +107,7 @@ export const MailboxListInputSchema = z
     limit: LimitSchema,
   })
   .strict();
-export const MailboxGetInputSchema = z.object({ mailboxId: MailboxIdInputSchema }).strict();
+export const ResourceReadInputSchema = z.object({ id: UuidSchema.describe("Stable resource UUID.") }).strict();
 
 export const SenderIdentityDataSchema = z
   .object({
@@ -214,7 +213,6 @@ export const ConversationListInputSchema = z
     limit: VocabularyLimitSchema,
   })
   .strict();
-export const ConversationGetInputSchema = z.object({ mailboxId: MailboxIdInputSchema, conversationId: ConversationIdInputSchema }).strict();
 
 export const ConversationSearchInputSchema = z
   .object({
@@ -228,7 +226,7 @@ export const ConversationSearchInputSchema = z
 export const ConversationSearchDataSchema = z.array(ConversationDataSchema).max(100);
 
 const AddressDataSchema = z.object({ name: z.string().max(200).nullable(), address: z.email() }).strict();
-const AttachmentDataSchema = z
+export const AttachmentDataSchema = z
   .object({
     id: UuidSchema,
     filename: z.string().max(255).nullable(),
@@ -274,7 +272,6 @@ export const MessageListInputSchema = z
     limit: VocabularyLimitSchema,
   })
   .strict();
-export const MessageGetInputSchema = z.object({ mailboxId: MailboxIdInputSchema, messageId: MessageIdInputSchema }).strict();
 export const MessageDataSchema = MessageSummaryDataSchema.extend({
   from: z.array(AddressDataSchema).max(20),
   to: z.array(AddressDataSchema).max(20),
@@ -391,7 +388,6 @@ export const DraftSummaryDataSchema = z
   .strict();
 export const DraftListDataSchema = z.array(DraftSummaryDataSchema).max(100);
 export const DraftListInputSchema = z.object({ mailboxId: MailboxIdInputSchema, limit: LimitSchema }).strict();
-export const DraftGetInputSchema = z.object({ mailboxId: MailboxIdInputSchema, draftId: DraftIdInputSchema }).strict();
 export const DraftSendReviewInputSchema = z
   .object({ mailboxId: MailboxIdInputSchema, draftId: DraftIdInputSchema, expectedRevision: ExpectedRevisionInputSchema })
   .strict();
@@ -491,9 +487,6 @@ export const DeliveryDataSchema = z
   .strict();
 export const DeliveryListDataSchema = z.array(DeliveryDataSchema).max(100);
 export const DeliveryListInputSchema = z.object({ mailboxId: MailboxIdInputSchema, ...PageInputShape }).strict();
-export const DeliveryGetInputSchema = z
-  .object({ mailboxId: MailboxIdInputSchema, deliveryId: UuidSchema.describe("Scheduled-delivery UUID.") })
-  .strict();
 export const DeliveryCancelInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,

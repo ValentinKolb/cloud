@@ -1,6 +1,7 @@
 import { mutation, timed } from "@k2b/stdlib/solid";
-import { NoticeCard, dialogCore } from "@k2b/ui";
+import { dialogCore, NoticeCard } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { CloudResourceRef } from "../contracts";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
 type SearchMetadata = {
@@ -12,7 +13,7 @@ type SearchItem = {
   appId: string;
   appName: string;
   appIcon: string;
-  id: string;
+  ref: CloudResourceRef;
   title: string;
   href: string;
   preview?: string;
@@ -50,7 +51,7 @@ const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 200;
 const TAG_TOKEN_PATTERN = /^[^\s#]+$/;
 
-const rowKey = (item: SearchItem) => `row:${item.appId}:${item.id}`;
+const rowKey = (item: SearchItem) => `row:${item.appId}:${item.ref.type}:${item.ref.id}`;
 const isValidImagePreviewUrl = (url?: string) => typeof url === "string" && url.startsWith("/");
 const sortByPriorityAndTitle = (a: SearchItem, b: SearchItem) => {
   const byPriority = (b.priority ?? 0) - (a.priority ?? 0);

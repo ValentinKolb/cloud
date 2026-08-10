@@ -66,9 +66,7 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
         bytes: new TextEncoder().encode("# Triage"),
       });
       const reference = await aiProjects.createReference(project.id, member, {
-        appId: "notebooks",
-        resourceType: "notebook",
-        resourceId: "support-runbook",
+        ref: { type: "notebooks.notebook", id: "support-runbook" },
         label: "Runbook",
       });
       expect(knowledge).not.toBeNull();
@@ -80,7 +78,7 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
       expect(snapshot?.defaultModelProfileId).toBe("model-support");
       expect(snapshot?.context).toContain("Escalation");
       expect(snapshot?.context).toContain("guides/triage.md");
-      expect(snapshot?.context).toContain("notebooks/notebook/support-runbook");
+      expect(snapshot?.context).toContain("notebooks.notebook/support-runbook");
 
       const ownerChat = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: ownerId, projectId: project.id });
       const memberChat = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: memberId, projectId: project.id });

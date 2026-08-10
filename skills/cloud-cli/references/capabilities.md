@@ -5,6 +5,7 @@ Action and no more ergonomic app-specific command is needed.
 
 ```bash
 cld capabilities catalog --json
+cld capabilities read contacts.contact <contact-id> --json
 cld capabilities query contacts search \
   --input '{"query":"Ada","tags":["contact"],"limit":10}' \
   --json
@@ -17,6 +18,8 @@ cld capabilities action contacts create \
 - `catalog` is the source of truth. Read its ids, descriptions, input schema,
   result schema, safety metadata, and semantic links before invoking a tool.
 - Query and Action ids after the app id are app-local ids from the live catalog.
+- `read` resolves a qualified resource Type through its declared canonical
+  reader and invokes that ordinary Query with the supplied stable id.
 - Pass one strict JSON object through `--input`, `--input-file`, or stdin.
 - Read the Action's idempotency policy from the catalog. Supply a stable key
   when it is `required` or when retrying an `optional` Action; reuse it only
