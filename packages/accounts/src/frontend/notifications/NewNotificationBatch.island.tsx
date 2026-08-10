@@ -1,7 +1,8 @@
 import { navigateTo } from "@k2b/ssr/nav";
+import { query } from "@k2b/stdlib/solid";
 import { Button, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, panelDialogWideOptions, prompts, TextInput } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import AccountAvatar from "@/frontend/AccountAvatar";
 
@@ -31,6 +32,17 @@ type PreviewState = {
   recipientHash: string;
 };
 
+type PreviewSource = {
+  key: string;
+  selection: SelectionPayload;
+  hasAudience: boolean;
+};
+
+type PreviewResult = {
+  sourceKey: string;
+  data: PreviewState;
+};
+
 const readError = async (res: Response, fallback: string) => {
   try {
     const data = await res.json();
@@ -41,13 +53,15 @@ const readError = async (res: Response, fallback: string) => {
 };
 
 function BatchDialog(props: { close: () => void }) {
+  let active = true;
+  onCleanup(() => {
+    active = false;
+  });
   const [subject, setSubject] = createSignal("");
   const [body, setBody] = createSignal("");
   const [users, setUsers] = createSignal<SelectedUser[]>([]);
   const [groups, setGroups] = createSignal<SelectedGroup[]>([]);
   const [loading, setLoading] = createSignal(false);
-  const [previewLoading, setPreviewLoading] = createSignal(false);
-  const [preview, setPreview] = createSignal<PreviewState | null>(null);
 
   const selection = createMemo<SelectionPayload>(() => ({
     userIds: users().map((user) => user.id),
@@ -58,6 +72,34 @@ function BatchDialog(props: { close: () => void }) {
   const selectionKey = (value: SelectionPayload) => JSON.stringify(value);
   const hasAudience = () => selectionHasAudience(selection());
   const canCreate = () => subject().trim().length > 0 && body().trim().length > 0 && hasAudience();
+  const previewSource = createMemo<PreviewSource>(() => {
+    const currentSelection = selection();
+    return {
+      key: selectionKey(currentSelection),
+      selection: currentSelection,
+      hasAudience: selectionHasAudience(currentSelection),
+    };
+  });
+
+  const previewQuery = query.create<PreviewSource, PreviewResult>({
+    source: previewSource,
+    enabled: () => previewSource().hasAudience,
+    isSameSource: (left, right) => left.key === right.key,
+    load: async (source, { abortSignal }) => {
+      const res = await apiClient.notifications.batches.preview.$post(
+        { json: { selection: source.selection } },
+        { init: { signal: abortSignal } },
+      );
+      if (!res.ok) throw new Error(await readError(res, "Failed to preview recipients."));
+      return { sourceKey: source.key, data: await res.json() };
+    },
+  });
+
+  const currentPreview = () => {
+    const result = previewQuery.data();
+    return result?.sourceKey === previewSource().key ? result.data : null;
+  };
+  const previewLoading = () => previewQuery.loading() || previewQuery.refreshing();
 
   const addUser = (principal: EntitySearchPrincipal) => {
     if (principal.type !== "user") return;
@@ -90,53 +132,36 @@ function BatchDialog(props: { close: () => void }) {
     setter((current) => current.filter((item) => item.id !== id));
   };
 
-  let previewRequest = 0;
-
-  const runPreview = async (options?: { quiet?: boolean; selection?: SelectionPayload }) => {
-    const previewSelection = options?.selection ?? selection();
-    const previewSelectionKey = selectionKey(previewSelection);
-    if (!selectionHasAudience(previewSelection)) {
-      setPreview(null);
-      if (!options?.quiet) prompts.error("Select at least one user or group.");
+  const refreshPreview = async (expectedSourceKey = previewSource().key) => {
+    if (!previewSource().hasAudience) {
+      prompts.error("Select at least one user or group.");
       return null;
     }
-    const requestId = ++previewRequest;
-    setPreviewLoading(true);
-    try {
-      const res = await apiClient.notifications.batches.preview.$post({ json: { selection: previewSelection } });
-      if (!res.ok) throw new Error(await readError(res, "Failed to preview recipients."));
-      const data = await res.json();
-      if (requestId === previewRequest && selectionKey(selection()) === previewSelectionKey) setPreview(data);
-      return data;
-    } catch (error) {
-      if (!options?.quiet) prompts.error(error instanceof Error ? error.message : String(error));
-      if (requestId === previewRequest && selectionKey(selection()) === previewSelectionKey) setPreview(null);
+    await previewQuery.refresh();
+    if (!active) return null;
+    if (previewSource().key !== expectedSourceKey) {
+      prompts.error("The audience changed while recipients were being resolved. Review the preview and try again.");
       return null;
-    } finally {
-      if (requestId === previewRequest) setPreviewLoading(false);
     }
+    if (previewQuery.error()) {
+      prompts.error(previewQuery.error()!.message);
+      return null;
+    }
+    if (previewQuery.stale()) {
+      prompts.error("The recipient preview could not be confirmed. Refresh it and try again.");
+      return null;
+    }
+    return currentPreview();
   };
-
-  createEffect(() => {
-    const currentSelection = selection();
-    if (!selectionHasAudience(currentSelection)) {
-      setPreview(null);
-      setPreviewLoading(false);
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      void runPreview({ quiet: true, selection: currentSelection });
-    }, 350);
-    onCleanup(() => window.clearTimeout(timeout));
-  });
 
   const createDraft = async () => {
     if (!canCreate()) {
       prompts.error("Subject, message, and audience are required.");
       return;
     }
-    const draftSelection = selection();
-    const latestPreview = await runPreview({ selection: draftSelection });
+    const draftSource = previewSource();
+    const draftSelection = draftSource.selection;
+    const latestPreview = await refreshPreview(draftSource.key);
     if (!latestPreview) return;
     if (latestPreview.deliverableCount === 0) {
       prompts.error("No deliverable recipients match this audience.");
@@ -217,7 +242,9 @@ function BatchDialog(props: { close: () => void }) {
   const previewLabel = () => {
     if (!hasAudience()) return "No audience selected.";
     if (previewLoading()) return "Resolving recipients...";
-    const data = preview();
+    const error = previewQuery.error();
+    if (error) return error.message;
+    const data = currentPreview();
     if (!data) return "Recipient preview will update automatically.";
     return `${data.deliverableCount} deliverable of ${data.targetCount} matched users (${data.skippedNoEmailCount} without email).`;
   };
@@ -316,8 +343,20 @@ function BatchDialog(props: { close: () => void }) {
               subtitle="Updated automatically from the current audience selection."
               icon="ti ti-eye"
             >
-              <NoticeCard tone={previewLoading() ? "info" : "neutral"} icon={false} bodyClass="flex items-start gap-2">
-                <i class={previewLoading() ? "ti ti-loader-2 mt-0.5 shrink-0 animate-spin" : "ti ti-users mt-0.5 shrink-0"} />
+              <NoticeCard
+                tone={previewQuery.error() ? "danger" : previewLoading() ? "info" : "neutral"}
+                icon={false}
+                bodyClass="flex items-start gap-2"
+              >
+                <i
+                  class={
+                    previewLoading()
+                      ? "ti ti-loader-2 mt-0.5 shrink-0 animate-spin"
+                      : previewQuery.error()
+                        ? "ti ti-alert-circle mt-0.5 shrink-0"
+                        : "ti ti-users mt-0.5 shrink-0"
+                  }
+                />
                 <span>{previewLabel()}</span>
               </NoticeCard>
             </PanelDialog.Section>
@@ -331,7 +370,12 @@ function BatchDialog(props: { close: () => void }) {
           <Button size="sm" variant="secondary" onClick={props.close} disabled={loading()}>
             Cancel
           </Button>
-          <Button size="sm" variant="subtle" onClick={() => void runPreview()} disabled={previewLoading() || loading() || !hasAudience()}>
+          <Button
+            size="sm"
+            variant="subtle"
+            onClick={() => void previewQuery.refresh()}
+            disabled={previewLoading() || loading() || !hasAudience()}
+          >
             <i class={previewLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
             <span>{previewLoading() ? "Previewing..." : "Refresh preview"}</span>
           </Button>

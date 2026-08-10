@@ -9,7 +9,8 @@
     "./cli": "./src/cli.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
+    "test:dom": "bun test --isolate --conditions=browser --preload ../ui/test/solid-dom-preload.ts ./test"
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
