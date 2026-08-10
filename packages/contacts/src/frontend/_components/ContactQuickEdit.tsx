@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, prompts, TextInput, toast } from "@k2b/ui";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -39,29 +39,15 @@ export default function ContactQuickEdit(props: Props) {
   const [parentRef, setParentRef] = createSignal<ContactRef | null>(initial.parentRef);
   const [tagIds, setTagIds] = createSignal(initial.tagIds);
 
-  const saveMutation = mutations.create<Contact, void>({
-    mutation: async () => {
-      const draft = contactToUpsertDraft(props.contact);
-      const emails = [...draft.emails];
-      const phones = [...draft.phones];
-      emails[0] = { label: emails[0]?.label ?? "Email", email: email() };
-      phones[0] = { label: phones[0]?.label ?? "Telephone", phone: phone() };
-
-      const response = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
-        param: { bookId: props.contact.bookId, contactId: props.contact.id },
-        json: buildContactPayload({
-          ...draft,
-          label: label(),
-          firstName: firstName(),
-          lastName: lastName(),
-          companyName: companyName(),
-          jobTitle: jobTitle(),
-          emails,
-          phones,
-          parentRef: parentRef(),
-          tagIds: tagIds(),
-        }),
-      });
+  const saveMutation = mutations.create<Contact, { bookId: string; contactId: string; payload: ReturnType<typeof buildContactPayload> }>({
+    mutation: async ({ bookId, contactId, payload }, { abortSignal }) => {
+      const response = await apiClient.books[":bookId"].contacts[":contactId"].$patch(
+        {
+          param: { bookId, contactId },
+          json: payload,
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update contact"));
       return await response.json();
     },
@@ -71,6 +57,38 @@ export default function ContactQuickEdit(props: Props) {
     },
     onError: (error) => prompts.error(error.message),
   });
+
+  onCleanup(() => saveMutation.abort());
+
+  const save = () => {
+    try {
+      const draft = contactToUpsertDraft(props.contact);
+      const emails = [...draft.emails];
+      const phones = [...draft.phones];
+      emails[0] = { label: emails[0]?.label ?? "Email", email: email() };
+      phones[0] = { label: phones[0]?.label ?? "Telephone", phone: phone() };
+
+      const payload = buildContactPayload({
+        ...draft,
+        label: label(),
+        firstName: firstName(),
+        lastName: lastName(),
+        companyName: companyName(),
+        jobTitle: jobTitle(),
+        emails,
+        phones,
+        parentRef: parentRef(),
+        tagIds: tagIds(),
+      });
+      void saveMutation.mutate({
+        bookId: props.contact.bookId,
+        contactId: props.contact.id,
+        payload: { ...payload, tagIds: [...(payload.tagIds ?? [])] },
+      });
+    } catch (error) {
+      void prompts.error(error instanceof Error ? error.message : "Failed to prepare contact update");
+    }
+  };
 
   const openParentPicker = async () => {
     const picked = await prompts.dialog<Contact | null>(
@@ -92,7 +110,7 @@ export default function ContactQuickEdit(props: Props) {
       data-contacts-editor="true"
       onSubmit={(event) => {
         event.preventDefault();
-        saveMutation.mutate(undefined);
+        save();
       }}
     >
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">

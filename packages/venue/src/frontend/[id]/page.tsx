@@ -7,6 +7,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import { venueService } from "../../service";
 import VenueWorkspace from "../_components/VenueWorkspace.island";
+import { venueDashboardRouteScope } from "../dashboard-query";
 
 const calendarViews: CalendarView[] = ["week", "month"];
 const feedbackDaysOptions = [7, 14, 30] as const;
@@ -15,17 +16,6 @@ type FeedbackDays = (typeof feedbackDaysOptions)[number];
 const parseCalendarDate = (value: string | null): string => {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date().toISOString().slice(0, 10);
   return value;
-};
-
-const shiftDate = (date: string, days: number): string => {
-  const [year = "1970", month = "1", day = "1"] = date.split("-");
-  const next = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + days, 12));
-  return next.toISOString().slice(0, 10);
-};
-
-const slotWindow = (view: CalendarView, date: string): { startDate: string; days: number } => {
-  if (view === "month") return { startDate: shiftDate(date, -7), days: 45 };
-  return { startDate: shiftDate(date, -7), days: 14 };
 };
 
 const viewPath = (id: string, view: "shifts" | "my-shifts" | "feedback") => `/app/venue/${id}/${view}`;
@@ -93,16 +83,16 @@ export default ssr<AuthContext>(async (c) => {
   const initialCalendarDate = parseCalendarDate(url.searchParams.get("cd"));
   const initialFeedbackDays = parseFeedbackDays(url.searchParams.get("days"));
   const initialFeedbackSearch = (url.searchParams.get("search") ?? "").trim();
-  const slots =
-    resolved.initialView === "shifts" ? slotWindow(initialCalendarView, initialCalendarDate) : { startDate: initialCalendarDate, days: 14 };
+  const dashboardScope = venueDashboardRouteScope({
+    venueId: venue.id,
+    view: resolved.initialView,
+    calendarView: initialCalendarView,
+    calendarDate: initialCalendarDate,
+    feedbackDays: initialFeedbackDays,
+    feedbackSearch: initialFeedbackSearch,
+  });
   const [dashboard, icalToken, accessEntries, apiKeyOverview] = await Promise.all([
-    venueService.dashboard(venue, user, {
-      slotStartDate: slots.startDate,
-      slotDays: slots.days,
-      includeFeedbackEntries: resolved.initialView === "feedback",
-      feedbackDays: initialFeedbackDays,
-      feedbackSearch: initialFeedbackSearch || undefined,
-    }),
+    venueService.dashboard(venue, user, dashboardScope.options),
     venueService.ical.getOrCreateToken(user.id),
     venue.permission === "admin" ? venueService.access.list(venue.id) : Promise.resolve([]),
     venue.permission === "admin"
@@ -138,6 +128,7 @@ export default ssr<AuthContext>(async (c) => {
     >
       <VenueWorkspace
         dashboard={dashboard}
+        dashboardSource={dashboardScope.source}
         userId={user.id}
         icalToken={icalToken}
         accessEntries={accessEntries}

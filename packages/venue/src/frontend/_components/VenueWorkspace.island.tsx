@@ -1,6 +1,6 @@
-import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { cookies } from "@k2b/stdlib/browser";
-import { mutation } from "@k2b/stdlib/solid";
+import { mutation, query } from "@k2b/stdlib/solid";
 import {
   AppWorkspace,
   Button,
@@ -23,9 +23,11 @@ import {
   toast,
 } from "@k2b/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { FeedbackEntry, PublicSection, PublicSectionInput, ShiftAssignment, UpcomingSlot } from "../../contracts";
+import { loadVenueDashboard, sameVenueDashboardSource } from "../dashboard-query";
+import { reconcileChangedSettings } from "../settings-contract";
 import { DOUBLE_CLICK_CONFIRM_COOKIE, feedbackRangeOptions, views } from "./venue-workspace/constants";
 import { openVenuePublicDisplayDialog } from "./venue-workspace/public-display";
 import { PublicSectionDialog, PublicSectionPreview, sectionKindIcon } from "./venue-workspace/public-sections";
@@ -64,11 +66,32 @@ function ViewHeader(props: { title: string; description: string; action?: JSX.El
 }
 
 export default function VenueWorkspace(props: VenueWorkspaceProps) {
-  const venue = () => props.dashboard.venue;
+  const dashboardQuery = query.create({
+    source: () => props.dashboardSource,
+    initial: { source: props.dashboardSource, data: props.dashboard },
+    isSameSource: sameVenueDashboardSource,
+    load: (source, { abortSignal }) => loadVenueDashboard(source, abortSignal),
+  });
+  const dashboard = () => dashboardQuery.data() ?? props.dashboard;
+  const venue = () => dashboard().venue;
   const [view] = createSignal<VenueView>(props.initialView);
   const [selectedSectionId, setSelectedSectionId] = createSignal(props.initialSectionId ?? null);
   const [calendarView] = createSignal<CalendarView>(props.initialCalendarView);
   const [calendarDate] = createSignal(parseDateKey(props.initialCalendarDate));
+  const [prompting, setPrompting] = createSignal(false);
+  const [workspaceWritePending, setWorkspaceWritePending] = createSignal(false);
+  let disposed = false;
+  const runPromptedAction = async <T,>(readIntent: () => Promise<T>, applyIntent: (intent: T) => Promise<void>) => {
+    if (prompting() || workspaceWriteBusy()) return;
+    setPrompting(true);
+    try {
+      const intent = await readIntent();
+      if (disposed) return;
+      await applyIntent(intent);
+    } finally {
+      setPrompting(false);
+    }
+  };
   const viewHref = (next: VenueView) => `/app/venue/${venue().id}/${next}`;
   const feedbackRangeDays = createMemo(() => props.initialFeedbackDays);
   const feedbackSearchAction = createMemo(() => {
@@ -86,7 +109,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
     const next = Number(value[0] ?? 30);
     navigateTo(feedbackFilterUrl(next === 7 || next === 14 ? next : 30));
   };
-  const feedbackBucketsForDays = (days: number) => props.dashboard.feedback.buckets.filter((bucket) => withinLastDays(bucket.date, days));
+  const feedbackBucketsForDays = (days: number) => dashboard().feedback.buckets.filter((bucket) => withinLastDays(bucket.date, days));
   const feedbackBuckets = createMemo(() => feedbackBucketsForDays(feedbackRangeDays()));
   const feedbackRangeCount = createMemo(() => feedbackBucketCount(feedbackBuckets()));
   const feedbackRangeAverage = createMemo(() => feedbackBucketAverage(feedbackBuckets()));
@@ -98,9 +121,9 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
       .map(({ bucket, index }) => ({ x: index + 1, y: bucket.averageRating ?? 0 })),
   );
   const filteredFeedbackEntries = createMemo(() =>
-    props.dashboard.feedbackEntries.filter((entry) => withinLastDays(entry.createdAt, feedbackRangeDays())),
+    dashboard().feedbackEntries.filter((entry) => withinLastDays(entry.createdAt, feedbackRangeDays())),
   );
-  const activeSlots = createMemo(() => props.dashboard.slots.filter(isSlotActive));
+  const activeSlots = createMemo(() => dashboard().slots.filter(isSlotActive));
   const openRegistrationCount = createMemo(() => activeSlots().reduce((sum, slot) => sum + slot.missingPeople, 0));
   const feedbackCommentCount = createMemo(() => filteredFeedbackEntries().filter((entry) => Boolean(entry.comment?.trim())).length);
   const feedbackColumns: DataTableColumn<FeedbackEntry>[] = [
@@ -108,10 +131,10 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
     { id: "comment", header: "Comment", value: (entry) => entry.comment, cellClass: "min-w-64" },
     { id: "created", header: "Submitted", value: (entry) => entry.createdAt, headerClass: "w-px", cellClass: "w-px whitespace-nowrap" },
   ];
-  const selectedSection = createMemo(() => props.dashboard.sections.find((section) => section.id === selectedSectionId()) ?? null);
-  const slotByKey = createMemo(() => new Map(props.dashboard.slots.map((slot) => [slot.key, slot])));
+  const selectedSection = createMemo(() => dashboard().sections.find((section) => section.id === selectedSectionId()) ?? null);
+  const slotByKey = createMemo(() => new Map(dashboard().slots.map((slot) => [slot.key, slot])));
   const shiftEvents = createMemo<CalendarEvent[]>(() =>
-    props.dashboard.slots.map((slot) => ({
+    dashboard().slots.map((slot) => ({
       id: slot.key,
       title: slot.template.title,
       start: slot.startsAt,
@@ -126,8 +149,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
     {
       sectionLabel: "Public content",
       items: [
-        ...(canAdmin(venue()) ? [{ icon: "ti ti-plus", label: "Add public section", action: () => addSection.mutate() }] : []),
-        ...props.dashboard.sections.map((section) => ({
+        ...(canAdmin(venue()) ? [{ icon: "ti ti-plus", label: "Add public section", action: () => void openAddSection() }] : []),
+        ...dashboard().sections.map((section) => ({
           icon: sectionKindIcon(section.kind),
           label: section.title,
           href: sectionHref(section),
@@ -144,23 +167,25 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
   };
 
   const openSignup = async () => {
-    await dialogCore.open<boolean>((close) => <SignupDialog dashboard={props.dashboard} close={close} />, panelDialogOptions);
+    const snapshot = dashboard();
+    await runPromptedAction(
+      () => dialogCore.open<boolean>((close) => <SignupDialog dashboard={snapshot} close={close} />, panelDialogOptions),
+      async (changed) => {
+        await reconcileChangedSettings(changed, async () => {
+          await reconcileDashboard();
+        });
+      },
+    );
   };
   const openPublicPage = () => openVenuePublicDisplayDialog(venue().slug);
 
-  const calendarSignup = mutation.create<void, UpcomingSlot>({
-    mutation: async (slot) => {
-      if (slot.full) throw new Error("This shift is already full.");
-      if (!isSlotActive(slot)) throw new Error("This shift has already ended.");
-      const res = await apiClient.venues[":id"].templates[":templateId"].signup.$post({
-        param: { id: venue().id, templateId: slot.template.id },
-        json: { date: slot.date },
-      });
+  const calendarSignup = mutation.create<void, { venueId: string; templateId: string; date: string }>({
+    mutation: async ({ venueId, templateId, date }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"].templates[":templateId"].signup.$post(
+        { param: { id: venueId, templateId }, json: { date } },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readError(res, "Failed to sign up."));
-    },
-    onSuccess: () => {
-      toast.success("Shift added");
-      refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -174,144 +199,258 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
       prompts.error("This shift has already ended.");
       return;
     }
-    const skipConfirm = cookies.readJsonCookie(DOUBLE_CLICK_CONFIRM_COOKIE, false);
-    const confirmed = skipConfirm
-      ? true
-      : await prompts.dialog<boolean>((close) => <ConfirmShiftSignupDialog slot={slot} timezone={venue().timezone} close={close} />, {
-          title: "Join this shift?",
-          icon: "ti ti-user-plus",
-          size: "small",
-        });
-    if (confirmed) calendarSignup.mutate(slot);
-  };
-
-  const openSettings = async () => {
-    await prompts.dialog<void>(
-      (close) => (
-        <SettingsDialog
-          dashboard={props.dashboard}
-          accessEntries={props.accessEntries}
-          apiKeys={props.apiKeys}
-          icalToken={props.icalToken}
-          close={close}
-        />
-      ),
-      {
-        surface: "bare",
-        header: false,
-        size: "large",
+    const intent = {
+      venueId: venue().id,
+      templateId: slot.template.id,
+      date: slot.date,
+      slot,
+      timezone: venue().timezone,
+    };
+    await runPromptedAction(
+      async () =>
+        cookies.readJsonCookie(DOUBLE_CLICK_CONFIRM_COOKIE, false)
+          ? true
+          : await prompts.dialog<boolean>(
+              (close) => <ConfirmShiftSignupDialog slot={intent.slot} timezone={intent.timezone} close={close} />,
+              {
+                title: "Join this shift?",
+                icon: "ti ti-user-plus",
+                size: "small",
+              },
+            ),
+      async (confirmed) => {
+        if (confirmed) {
+          await runWorkspaceWrite(
+            calendarSignup,
+            { venueId: intent.venueId, templateId: intent.templateId, date: intent.date },
+            "Shift added",
+          );
+        }
       },
     );
   };
 
-  const addSection = mutation.create<void, void>({
-    mutation: async () => {
-      const input = await dialogCore.open<PublicSectionInput | null>(
-        (close) => <PublicSectionDialog close={close} nextPosition={props.dashboard.sections.length + 1} />,
-        panelDialogOptions,
-      );
-      if (!input) return;
-      const res = await apiClient.venues[":id"].sections.$post({
-        param: { id: venue().id },
-        json: input,
-      });
+  const openSettings = async () => {
+    const snapshot = dashboard();
+    await runPromptedAction(
+      () =>
+        prompts.dialog<boolean>(
+          (close) => (
+            <SettingsDialog
+              dashboard={snapshot}
+              accessEntries={props.accessEntries}
+              apiKeys={props.apiKeys}
+              icalToken={props.icalToken}
+              close={close}
+            />
+          ),
+          {
+            surface: "bare",
+            header: false,
+            size: "large",
+            cancelBehavior: "ignore",
+          },
+        ),
+      async (changed) => {
+        await reconcileChangedSettings(changed, async () => {
+          await reconcileDashboard();
+        });
+      },
+    );
+  };
+
+  const reconcileDashboard = async (successMessage?: string): Promise<boolean> => {
+    try {
+      await dashboardQuery.invalidate();
+      if (successMessage) toast.success(successMessage);
+      return true;
+    } catch {
+      prompts.error("The change was saved, but the venue could not be refreshed. Use Retry in the workspace before making another change.");
+      return false;
+    }
+  };
+
+  const addSection = mutation.create<void, { venueId: string; input: PublicSectionInput }>({
+    mutation: async ({ venueId, input }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"].sections.$post({ param: { id: venueId }, json: input }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readError(res, "Failed to add public section."));
     },
-    onSuccess: () => {
-      refreshCurrentPath();
-    },
     onError: (err) => prompts.error(err.message),
   });
 
-  const editSection = mutation.create<void, PublicSection>({
-    mutation: async (section) => {
-      const input = await dialogCore.open<PublicSectionInput | null>(
-        (close) => (
-          <PublicSectionDialog
-            close={close}
-            initial={section}
-            nextPosition={section.position}
-            title="Edit public section"
-            submitLabel="Save section"
-          />
+  const openAddSection = async () => {
+    const intent = { venueId: venue().id, nextPosition: dashboard().sections.length + 1 };
+    await runPromptedAction(
+      () =>
+        dialogCore.open<PublicSectionInput | null>(
+          (close) => <PublicSectionDialog close={close} nextPosition={intent.nextPosition} />,
+          panelDialogOptions,
         ),
-        panelDialogOptions,
+      async (input) => {
+        if (input) await runWorkspaceWrite(addSection, { venueId: intent.venueId, input });
+      },
+    );
+  };
+
+  const editSection = mutation.create<void, { venueId: string; sectionId: string; input: PublicSectionInput }>({
+    mutation: async ({ venueId, sectionId, input }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"].sections[":resourceId"].$patch(
+        { param: { id: venueId, resourceId: sectionId }, json: input },
+        { init: { signal: abortSignal } },
       );
-      if (!input) return;
-      const res = await apiClient.venues[":id"].sections[":resourceId"].$patch({
-        param: { id: venue().id, resourceId: section.id },
-        json: input,
-      });
       if (!res.ok) throw new Error(await readError(res, "Failed to update public section."));
     },
-    onSuccess: () => {
-      toast.success("Section updated");
-      refreshCurrentPath();
-    },
     onError: (err) => prompts.error(err.message),
   });
 
-  const duplicateSection = mutation.create<void, PublicSection>({
-    mutation: async (section) => {
-      const res = await apiClient.venues[":id"].sections.$post({
-        param: { id: venue().id },
-        json: {
-          kind: section.kind,
-          title: `${section.title} copy`,
-          content: section.content,
-          enabled: section.enabled,
-          position: props.dashboard.sections.length + 1,
-        },
-      });
+  const openEditSection = async (section: PublicSection) => {
+    const intent = { venueId: venue().id, sectionId: section.id, section: { ...section, content: { ...section.content } } };
+    await runPromptedAction(
+      () =>
+        dialogCore.open<PublicSectionInput | null>(
+          (close) => (
+            <PublicSectionDialog
+              close={close}
+              initial={intent.section}
+              nextPosition={intent.section.position}
+              title="Edit public section"
+              submitLabel="Save section"
+            />
+          ),
+          panelDialogOptions,
+        ),
+      async (input) => {
+        if (input) {
+          await runWorkspaceWrite(editSection, { venueId: intent.venueId, sectionId: intent.sectionId, input }, "Section updated");
+        }
+      },
+    );
+  };
+
+  const duplicateSection = mutation.create<void, { venueId: string; input: PublicSectionInput }>({
+    mutation: async ({ venueId, input }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"].sections.$post({ param: { id: venueId }, json: input }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readError(res, "Failed to duplicate public section."));
     },
-    onSuccess: () => {
-      toast.success("Section duplicated");
-      refreshCurrentPath();
-    },
     onError: (err) => prompts.error(err.message),
   });
+  const duplicatePublicSection = async (section: PublicSection) => {
+    await runWorkspaceWrite(
+      duplicateSection,
+      {
+        venueId: venue().id,
+        input: {
+          kind: section.kind,
+          title: `${section.title} copy`,
+          content: { ...section.content },
+          enabled: section.enabled,
+          position: dashboard().sections.length + 1,
+        },
+      },
+      "Section duplicated",
+    );
+  };
 
-  const deleteSection = mutation.create<boolean, PublicSection>({
-    mutation: async (section) => {
-      const confirmed = await prompts.confirm(`Delete "${section.title}"?`, {
-        title: "Delete public section",
-        variant: "danger",
-        confirmText: "Delete",
-      });
-      if (!confirmed) return false;
-      const res = await apiClient.venues[":id"].sections[":resourceId"].$delete({
-        param: { id: venue().id, resourceId: section.id },
-      });
+  const deleteSection = mutation.create<void, { venueId: string; sectionId: string }>({
+    mutation: async ({ venueId, sectionId }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"].sections[":resourceId"].$delete(
+        { param: { id: venueId, resourceId: sectionId } },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readError(res, "Failed to delete public section."));
-      return true;
-    },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
-      toast.success("Section deleted");
-      setSelectedSectionId(null);
-      window.history.replaceState({}, "", viewHref("shifts"));
-      refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const cancelAssignment = mutation.create<void, ShiftAssignment>({
-    mutation: async (assignment) => {
-      const confirmed = await prompts.confirm(`Cancel shift for ${assignment.userDisplayName} at ${fmt(assignment.startsAt)}?`, {
-        title: "Cancel shift",
-        variant: "danger",
-        confirmText: "Cancel shift",
-      });
-      if (!confirmed) return;
-      const res = await apiClient.venues[":id"].assignments[":assignmentId"].$delete({
-        param: { id: venue().id, assignmentId: assignment.id },
-      });
+  const confirmDeleteSection = async (section: PublicSection) => {
+    const intent = { venueId: venue().id, sectionId: section.id, title: section.title };
+    await runPromptedAction(
+      () =>
+        prompts.confirm(`Delete "${intent.title}"?`, {
+          title: "Delete public section",
+          variant: "danger",
+          confirmText: "Delete",
+        }),
+      async (confirmed) => {
+        if (confirmed) {
+          await runWorkspaceWrite(deleteSection, { venueId: intent.venueId, sectionId: intent.sectionId }, "Section deleted", () => {
+            setSelectedSectionId(null);
+            window.history.replaceState({}, "", viewHref("shifts"));
+          });
+        }
+      },
+    );
+  };
+
+  const cancelAssignment = mutation.create<void, { venueId: string; assignmentId: string }>({
+    mutation: async ({ venueId, assignmentId }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"].assignments[":assignmentId"].$delete(
+        { param: { id: venueId, assignmentId } },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readError(res, "Failed to cancel shift."));
-      toast.success("Shift cancelled");
-      refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
+  });
+
+  const confirmCancelAssignment = async (assignment: ShiftAssignment) => {
+    const intent = {
+      venueId: venue().id,
+      assignmentId: assignment.id,
+      label: `${assignment.userDisplayName} at ${fmt(assignment.startsAt)}`,
+    };
+    await runPromptedAction(
+      () =>
+        prompts.confirm(`Cancel shift for ${intent.label}?`, {
+          title: "Cancel shift",
+          variant: "danger",
+          confirmText: "Cancel shift",
+        }),
+      async (confirmed) => {
+        if (confirmed) {
+          await runWorkspaceWrite(cancelAssignment, { venueId: intent.venueId, assignmentId: intent.assignmentId }, "Shift cancelled");
+        }
+      },
+    );
+  };
+
+  const workspaceWriteBusy = () =>
+    workspaceWritePending() ||
+    dashboardQuery.refreshing() ||
+    Boolean(dashboardQuery.error()) ||
+    calendarSignup.loading() ||
+    addSection.loading() ||
+    editSection.loading() ||
+    duplicateSection.loading() ||
+    deleteSection.loading() ||
+    cancelAssignment.loading();
+  const workspaceActionBlocked = () => prompting() || workspaceWriteBusy();
+  const runWorkspaceWrite = async <V,>(
+    control: { mutate: (value: V) => Promise<void>; error: () => Error | null | undefined },
+    value: V,
+    successMessage?: string,
+    afterReconcile?: () => void,
+  ) => {
+    if (workspaceWriteBusy()) return;
+    setWorkspaceWritePending(true);
+    try {
+      await control.mutate(value);
+      if (disposed || control.error()) return;
+      const reconciled = await reconcileDashboard(successMessage);
+      if (reconciled && !disposed) afterReconcile?.();
+    } finally {
+      setWorkspaceWritePending(false);
+    }
+  };
+
+  onCleanup(() => {
+    disposed = true;
+    calendarSignup.abort();
+    addSection.abort();
+    editSection.abort();
+    duplicateSection.abort();
+    deleteSection.abort();
+    cancelAssignment.abort();
   });
 
   return (
@@ -322,7 +461,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems scrollPreserveKey={`venue-sidebar-mobile-${venue().id}`}>
             <Show when={canWrite(venue())}>
-              <AppWorkspace.SidebarItem icon="ti ti-user-plus" tone="success" onClick={openSignup}>
+              <AppWorkspace.SidebarItem icon="ti ti-user-plus" tone="success" disabled={workspaceActionBlocked()} onClick={openSignup}>
                 Sign up
               </AppWorkspace.SidebarItem>
             </Show>
@@ -345,11 +484,16 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
               )}
             </For>
             <Show when={canAdmin(venue())}>
-              <AppWorkspace.SidebarItem icon="ti ti-plus" tone="success" onClick={() => addSection.mutate()}>
+              <AppWorkspace.SidebarItem
+                icon="ti ti-plus"
+                tone="success"
+                disabled={workspaceActionBlocked()}
+                onClick={() => void openAddSection()}
+              >
                 Add public section
               </AppWorkspace.SidebarItem>
             </Show>
-            <For each={props.dashboard.sections}>
+            <For each={dashboard().sections}>
               {(section) => (
                 <AppWorkspace.SidebarItem
                   href={sectionHref(section)}
@@ -371,7 +515,13 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
           <div class="flex flex-col gap-3">
             <AppWorkspace.SidebarIconGrid columns={canWrite(venue()) ? 3 : 2} sidebarMode="expanded">
               <Show when={canWrite(venue())}>
-                <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
+                <AppWorkspace.SidebarIconAction
+                  icon="ti ti-user-plus"
+                  label="Sign up for a shift"
+                  tone="success"
+                  disabled={workspaceActionBlocked()}
+                  onClick={openSignup}
+                />
               </Show>
               <AppWorkspace.SidebarIconAction icon="ti ti-device-tv" label="Public page" onClick={openPublicPage} />
               <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
@@ -395,7 +545,13 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
 
           <AppWorkspace.SidebarIconGrid sidebarMode="collapsed">
             <Show when={canWrite(venue())}>
-              <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
+              <AppWorkspace.SidebarIconAction
+                icon="ti ti-user-plus"
+                label="Sign up for a shift"
+                tone="success"
+                disabled={workspaceActionBlocked()}
+                onClick={openSignup}
+              />
             </Show>
             <AppWorkspace.SidebarIconAction icon="ti ti-device-tv" label="Public page" onClick={openPublicPage} />
             <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
@@ -410,7 +566,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                 />
               )}
             </For>
-            <Show when={canAdmin(venue()) || props.dashboard.sections.length > 0}>
+            <Show when={canAdmin(venue()) || dashboard().sections.length > 0}>
               <Dropdown.Root items={collapsedPublicContentMenu()} position="right-start" width="16rem">
                 <Dropdown.Trigger
                   appearance="plain"
@@ -427,12 +583,17 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
           <AppWorkspace.SidebarBody scrollPreserveKey={`venue-sidebar-${venue().id}`} sidebarMode="expanded">
             <AppWorkspace.SidebarSection title="Public content">
               <Show when={canAdmin(venue())}>
-                <AppWorkspace.SidebarItem icon="ti ti-plus" tone="success" onClick={() => addSection.mutate()}>
+                <AppWorkspace.SidebarItem
+                  icon="ti ti-plus"
+                  tone="success"
+                  disabled={workspaceActionBlocked()}
+                  onClick={() => void openAddSection()}
+                >
                   Add public section
                 </AppWorkspace.SidebarItem>
               </Show>
               <For
-                each={props.dashboard.sections}
+                each={dashboard().sections}
                 fallback={<Placeholder align="left" class="px-2 py-2" description={<>No sections yet.</>} />}
               >
                 {(section) => (
@@ -466,6 +627,20 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
         <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
           <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`venue-main-${venue().id}`} style="scrollbar-gutter: stable">
             <div class="flex flex-col gap-2">
+              <Show when={dashboardQuery.error()}>
+                <div class="paper flex items-center justify-between gap-3 p-3 text-sm">
+                  <p class="text-danger">The venue could not be refreshed. The last confirmed data is still shown.</p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={dashboardQuery.refreshing()}
+                    onClick={() => dashboardQuery.refresh()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              </Show>
               <Show when={selectedSection()}>
                 {(section) => (
                   <>
@@ -482,8 +657,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                               type="button"
                               variant="secondary"
                               size="sm"
-                              disabled={editSection.loading()}
-                              onClick={() => editSection.mutate(section())}
+                              disabled={workspaceActionBlocked()}
+                              onClick={() => void openEditSection(section())}
                             >
                               <i class={editSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} /> Edit
                             </Button>
@@ -492,8 +667,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                                 type="button"
                                 variant="secondary"
                                 size="sm"
-                                disabled={duplicateSection.loading()}
-                                onClick={() => duplicateSection.mutate(section())}
+                                disabled={workspaceActionBlocked()}
+                                onClick={() => void duplicatePublicSection(section())}
                                 aria-label="Duplicate section"
                               >
                                 <i class={duplicateSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-copy"} />
@@ -504,8 +679,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                                 type="button"
                                 variant="danger"
                                 size="sm"
-                                disabled={deleteSection.loading()}
-                                onClick={() => deleteSection.mutate(section())}
+                                disabled={workspaceActionBlocked()}
+                                onClick={() => void confirmDeleteSection(section())}
                                 aria-label="Delete section"
                               >
                                 <i class={deleteSection.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
@@ -536,7 +711,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                     description="See staffing coverage and join an available shift."
                     action={
                       <Show when={canWrite(venue())}>
-                        <Button type="button" size="sm" onClick={openSignup}>
+                        <Button type="button" size="sm" disabled={workspaceActionBlocked()} onClick={openSignup}>
                           <i class="ti ti-user-plus" /> Sign up
                         </Button>
                       </Show>
@@ -560,8 +735,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                     />
                     <StatCell
                       label="My upcoming"
-                      value={props.dashboard.myUpcomingShifts.length}
-                      sub={`${props.dashboard.myShiftCount} assignment${props.dashboard.myShiftCount === 1 ? "" : "s"} in total`}
+                      value={dashboard().myUpcomingShifts.length}
+                      sub={`${dashboard().myShiftCount} assignment${dashboard().myShiftCount === 1 ? "" : "s"} in total`}
                       accent={{ tone: "blue", icon: "ti ti-user-check" }}
                     />
                   </StatGrid>
@@ -628,7 +803,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                           <i class="ti ti-calendar-down" /> iCal
                         </ButtonLink>
                         <Show when={canWrite(venue())}>
-                          <Button type="button" size="sm" onClick={openSignup}>
+                          <Button type="button" size="sm" disabled={workspaceActionBlocked()} onClick={openSignup}>
                             <i class="ti ti-user-plus" /> Sign up
                           </Button>
                         </Show>
@@ -637,11 +812,11 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                   />
                   <section class="paper p-2">
                     <Show
-                      when={props.dashboard.myUpcomingShifts.length > 0}
+                      when={dashboard().myUpcomingShifts.length > 0}
                       fallback={<Placeholder align="left" class="px-2 py-6" description={<>You have no upcoming shifts.</>} />}
                     >
                       <div class="grid gap-1">
-                        <For each={props.dashboard.myUpcomingShifts}>
+                        <For each={dashboard().myUpcomingShifts}>
                           {(shift) => (
                             <div class="flex items-center justify-between gap-3 rounded-lg px-3 py-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900">
                               <div class="min-w-0">
@@ -652,8 +827,8 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                                 type="button"
                                 variant="danger"
                                 size="sm"
-                                disabled={cancelAssignment.loading()}
-                                onClick={() => cancelAssignment.mutate(shift)}
+                                disabled={workspaceActionBlocked()}
+                                onClick={() => void confirmCancelAssignment(shift)}
                               >
                                 <i class={cancelAssignment.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-x"} /> Cancel
                               </Button>

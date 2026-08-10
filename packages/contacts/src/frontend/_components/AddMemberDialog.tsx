@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, PanelDialog, prompts } from "@k2b/ui";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -35,18 +35,23 @@ export default function AddMemberDialog(props: Props) {
     jobTitle: props.parent.jobTitle,
   };
 
-  const linkMutation = mutations.create<Contact, { contact: Contact }>({
-    mutation: async (vars) => {
-      const res = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
-        param: { bookId: vars.contact.bookId, contactId: vars.contact.id },
-        json: { parentContactId: props.parent.id },
-      });
+  const linkMutation = mutations.create<Contact, { bookId: string; contactId: string; parentContactId: string }>({
+    mutation: async ({ bookId, contactId, parentContactId }, { abortSignal }) => {
+      const res = await apiClient.books[":bookId"].contacts[":contactId"].$patch(
+        {
+          param: { bookId, contactId },
+          json: { parentContactId },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to link member"));
       return await res.json();
     },
     onSuccess: (linked) => props.close(linked),
     onError: (error) => prompts.error(error.message),
   });
+
+  onCleanup(() => linkMutation.abort());
 
   return (
     <Show
@@ -80,7 +85,7 @@ export default function AddMemberDialog(props: Props) {
                 placeholder="Search contacts in this book..."
                 onSelect={(contact) => {
                   if (linkMutation.loading()) return;
-                  linkMutation.mutate({ contact });
+                  linkMutation.mutate({ bookId: contact.bookId, contactId: contact.id, parentContactId: props.parent.id });
                 }}
               />
             </PanelDialog.Section>

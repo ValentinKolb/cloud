@@ -1,4 +1,3 @@
-import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation } from "@k2b/stdlib/solid";
 import {
@@ -13,7 +12,7 @@ import {
   TextInput,
   toast,
 } from "@k2b/ui";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { UpcomingSlot, VenueDashboard } from "../../../contracts";
 import { DOUBLE_CLICK_CONFIRM_COOKIE } from "./constants";
@@ -21,50 +20,63 @@ import { ProgressBar } from "./schedule";
 import { defaultShiftRange, fmt, fmtTime, isSlotActive, readError, timeZoneDateConfig } from "./utils";
 
 export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed: boolean) => void }) {
-  const defaultMode = props.dashboard.venue.signupMode === "free" ? "free" : "shifts";
+  const dashboard = () => props.dashboard;
+  const defaultMode = dashboard().venue.signupMode === "free" ? "free" : "shifts";
   const [mode, setMode] = createSignal<"shifts" | "free">(defaultMode);
   const [freeRange, setFreeRange] = createSignal<DateRangeValue>(defaultShiftRange());
   const [note, setNote] = createSignal("");
-  const availableSlots = createMemo(() => props.dashboard.slots.filter(isSlotActive).slice(0, 16));
+  const availableSlots = createMemo(() => dashboard().slots.filter(isSlotActive).slice(0, 16));
 
-  const signup = mutation.create<void, { slot: UpcomingSlot; weeks?: number }>({
-    mutation: async ({ slot, weeks }) => {
+  const signup = mutation.create<void, { venueId: string; templateId: string; date: string; weeks?: number }>({
+    mutation: async ({ venueId, templateId, date, weeks }, { abortSignal }) => {
       const target = apiClient.venues[":id"].templates[":templateId"];
       const res = weeks
-        ? await target["signup-weeks"].$post({
-            param: { id: props.dashboard.venue.id, templateId: slot.template.id },
-            json: { date: slot.date, weeks },
-          })
-        : await target.signup.$post({
-            param: { id: props.dashboard.venue.id, templateId: slot.template.id },
-            json: { date: slot.date },
-          });
+        ? await target["signup-weeks"].$post(
+            { param: { id: venueId, templateId }, json: { date, weeks } },
+            { init: { signal: abortSignal } },
+          )
+        : await target.signup.$post({ param: { id: venueId, templateId }, json: { date } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readError(res, "Failed to sign up."));
     },
     onSuccess: () => {
       toast.success("Shift added");
       props.close(true);
-      refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const freeSignup = mutation.create<void, void>({
-    mutation: async () => {
-      const range = freeRange();
-      if (!range.start || !range.end) throw new Error("Pick a start and end time.");
-      const res = await apiClient.venues[":id"]["free-signup"].$post({
-        param: { id: props.dashboard.venue.id },
-        json: { startsAt: range.start, endsAt: range.end, note: note().trim() || null },
-      });
+  const freeSignup = mutation.create<void, { venueId: string; startsAt: string; endsAt: string; note: string | null }>({
+    mutation: async ({ venueId, startsAt, endsAt, note: signupNote }, { abortSignal }) => {
+      const res = await apiClient.venues[":id"]["free-signup"].$post(
+        { param: { id: venueId }, json: { startsAt, endsAt, note: signupNote } },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readError(res, "Failed to sign up."));
     },
     onSuccess: () => {
       toast.success("Shift added");
       props.close(true);
-      refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
+  });
+
+  const submitFreeSignup = async () => {
+    const range = freeRange();
+    if (!range.start || !range.end) {
+      prompts.error("Pick a start and end time.");
+      return;
+    }
+    await freeSignup.mutate({
+      venueId: dashboard().venue.id,
+      startsAt: range.start,
+      endsAt: range.end,
+      note: note().trim() || null,
+    });
+  };
+
+  onCleanup(() => {
+    signup.abort();
+    freeSignup.abort();
   });
 
   return (
@@ -72,12 +84,12 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <PanelDialog.Header
           title="Sign up for a shift"
-          subtitle={props.dashboard.venue.name}
+          subtitle={dashboard().venue.name}
           icon="ti ti-user-plus"
           close={() => props.close(false)}
         />
         <PanelDialog.Body>
-          <Show when={props.dashboard.venue.signupMode === "both"}>
+          <Show when={dashboard().venue.signupMode === "both"}>
             <SegmentedControl
               value={mode}
               onValueChange={setMode}
@@ -96,7 +108,7 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                   value={freeRange}
                   onValueChange={setFreeRange}
                   withTime
-                  dateConfig={timeZoneDateConfig(props.dashboard.venue.timezone)}
+                  dateConfig={timeZoneDateConfig(dashboard().venue.timezone)}
                   durationPresets={[
                     { label: "2h", minutes: 120 },
                     { label: "4h", minutes: 240 },
@@ -104,7 +116,13 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                   ]}
                 />
                 <TextInput label="Note" value={note} onValueChange={setNote} multiline lines={3} />
-                <Button type="button" size="sm" class="justify-center" disabled={freeSignup.loading()} onClick={() => freeSignup.mutate()}>
+                <Button
+                  type="button"
+                  size="sm"
+                  class="justify-center"
+                  disabled={freeSignup.loading()}
+                  onClick={() => void submitFreeSignup()}
+                >
                   <i class={freeSignup.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
                   Add free shift
                 </Button>
@@ -147,7 +165,13 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                         type="button"
                         size="sm"
                         disabled={slot.full || !isSlotActive(slot) || signup.loading()}
-                        onClick={() => signup.mutate({ slot })}
+                        onClick={() =>
+                          signup.mutate({
+                            venueId: dashboard().venue.id,
+                            templateId: slot.template.id,
+                            date: slot.date,
+                          })
+                        }
                       >
                         Join
                       </Button>
@@ -156,7 +180,14 @@ export function SignupDialog(props: { dashboard: VenueDashboard; close: (changed
                         variant="secondary"
                         size="sm"
                         disabled={slot.full || !isSlotActive(slot) || signup.loading()}
-                        onClick={() => signup.mutate({ slot, weeks: 4 })}
+                        onClick={() =>
+                          signup.mutate({
+                            venueId: dashboard().venue.id,
+                            templateId: slot.template.id,
+                            date: slot.date,
+                            weeks: 4,
+                          })
+                        }
                       >
                         Join next 4 weeks
                       </Button>

@@ -1,8 +1,8 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { query } from "@k2b/stdlib/solid";
 import { Avatar, Button, ButtonLink, DescriptionList, DetailPanel, Dropdown, IconButton, Placeholder, Tag, Tooltip } from "@k2b/ui";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
+import type { Contact, ContactNote, ContactRef } from "../../service";
 import { resolveContactInitials, resolveContactName, safeWebsiteHref } from "../../shared";
 import { readErrorMessage } from "./api";
 import { createContactDetailActions } from "./ContactDetailPanel.actions";
@@ -10,6 +10,7 @@ import ContactFavoriteButton from "./ContactFavoriteButton";
 import ContactNotesSection from "./ContactNotesSection";
 import ContactOrgTreeView from "./ContactOrgTreeView";
 import ContactQuickEdit from "./ContactQuickEdit";
+import { createContactQuerySource, isCurrentQuerySnapshot, parseContactQuerySource } from "./contact-query-source";
 import { contactFavoriteKey, listenForContactFavoriteChanges } from "./contacts-favorites";
 import { listenForContactsLiveInvalidation, requiresSelectedContactRefresh } from "./contacts-live";
 import {
@@ -49,76 +50,87 @@ const formatAddress = (address: Contact["addresses"][number]) => {
   return [address.recipientName, address.companyName, address.line1, address.line2, cityLine, regionLine].filter(Boolean) as string[];
 };
 
+type DetailTarget = {
+  source: string;
+  bookId: string;
+  contactId: string;
+};
+
+type DetailSnapshot = {
+  source: string;
+  contact: Contact | null;
+  favorite: boolean;
+};
+
 export default function ContactDetailPanel(props: Props) {
-  const [contact, setContact] = createSignal<Contact | null>(props.initialContact);
-  const [contactId, setContactId] = createSignal<string | null>(props.initialContactId);
-  const [bookId, setBookId] = createSignal<string | null>(props.initialBookId);
+  const initialTarget =
+    props.initialContactId && props.initialBookId
+      ? {
+          source: createContactQuerySource({ bookId: props.initialBookId, contactId: props.initialContactId, revision: 0 }),
+          bookId: props.initialBookId,
+          contactId: props.initialContactId,
+        }
+      : null;
+  const [target, setTarget] = createSignal<DetailTarget | null>(initialTarget);
+  const [exactSeed, setExactSeed] = createSignal<DetailSnapshot | null>(null);
   const [detailMode, setDetailMode] = createSignal<"details" | "tree">("details");
   const [quickEditing, setQuickEditing] = createSignal(false);
-  const [orgTree, setOrgTree] = createSignal<ContactTree | null>(null);
-  const [selectedFavorite, setSelectedFavorite] = createSignal(
-    props.initialContact
-      ? props.initialFavoriteKeys.includes(contactFavoriteKey(props.initialContact.bookId, props.initialContact.id))
-      : false,
-  );
+  const [orgTreeSource, setOrgTreeSource] = createSignal<string | null>(null);
+  const [favoriteEvents, setFavoriteEvents] = createSignal(new Map<string, boolean>());
+  const favoriteFor = (contact: Pick<Contact, "bookId" | "id">) => {
+    const key = contactFavoriteKey(contact.bookId, contact.id);
+    const events = favoriteEvents();
+    return events.has(key) ? (events.get(key) ?? false) : props.initialFavoriteKeys.includes(key);
+  };
+  const [selectedFavorite, setSelectedFavorite] = createSignal(props.initialContact ? favoriteFor(props.initialContact) : false);
+  let nextRevision = 0;
 
-  const detailMutation = mutations.create<
-    { contact: Contact | null; favorite?: boolean },
-    { bookId: string; contactId: string; selectedBookId: string; loadFavorite?: boolean },
-    { target: { bookId: string; contactId: string; selectedBookId: string; loadFavorite?: boolean } }
-  >({
-    onBefore: (target) => ({ target }),
-    mutation: async (target, ctx) => {
-      const response = await apiClient.books[":bookId"].contacts[":contactId"].$get(
-        { param: target },
-        { init: { signal: ctx.abortSignal } },
-      );
-      if (response.status === 403 || response.status === 404) return { contact: null };
+  const detailQuery = query.create<string | null, DetailSnapshot | null>({
+    source: () => target()?.source ?? null,
+    enabled: () => target() !== null,
+    initial:
+      initialTarget && props.initialContact
+        ? {
+            source: initialTarget.source,
+            data: {
+              source: initialTarget.source,
+              contact: props.initialContact,
+              favorite: favoriteFor(props.initialContact),
+            },
+          }
+        : undefined,
+    load: async (source, { abortSignal }) => {
+      if (!source) return null;
+      const seed = exactSeed();
+      if (seed?.source === source) {
+        setExactSeed(null);
+        return seed;
+      }
+      const { bookId, contactId } = parseContactQuerySource(source);
+      const request = { bookId, contactId };
+      const response = await apiClient.books[":bookId"].contacts[":contactId"].$get({ param: request }, { init: { signal: abortSignal } });
+      if (response.status === 403 || response.status === 404) return { source, contact: null, favorite: false };
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to refresh contact"));
       const contact = await response.json();
-      if (!target.loadFavorite) return { contact };
-      const favoriteResponse = await apiClient.favorites[":bookId"][":contactId"].$get({ param: target });
+      const favoriteResponse = await apiClient.favorites[":bookId"][":contactId"].$get(
+        { param: request },
+        { init: { signal: abortSignal } },
+      );
       if (!favoriteResponse.ok) throw new Error(await readErrorMessage(favoriteResponse, "Failed to load favorite state"));
-      return { contact, favorite: (await favoriteResponse.json()).favorite };
-    },
-    onSuccess: (result, ctx) => {
-      const target = ctx?.target;
-      if (!target || contactId() !== target.contactId || bookId() !== target.selectedBookId) return;
-      const updated = result.contact;
-      if (!updated) {
-        clearSelectedContactInUrl("replace");
-        return;
-      }
-      if (result.favorite !== undefined) setSelectedFavorite(result.favorite);
-      setContact(updated);
-      setContactId(updated.id);
-      setBookId(updated.bookId);
-      setOrgTree(null);
-      if (updated.bookId !== target.selectedBookId) {
-        setSelectedContactInUrl({ contactId: updated.id, bookId: updated.bookId, contact: updated, history: "replace" });
-      }
+      return { source, contact, favorite: (await favoriteResponse.json()).favorite };
     },
   });
 
-  const refreshSelectedContact = async (targetBookId?: string) => {
-    const selectedContactId = contactId();
-    const selectedBookId = bookId();
-    if (!selectedContactId || !selectedBookId) return;
-    await detailMutation.mutate({ bookId: targetBookId ?? selectedBookId, contactId: selectedContactId, selectedBookId });
-    if (detailMutation.error()) throw detailMutation.error();
-  };
+  const detailSnapshot = createMemo(() => {
+    const selected = target();
+    const loaded = detailQuery.data();
+    return selected && isCurrentQuerySnapshot(loaded, selected.source) ? loaded : null;
+  });
+  const contact = createMemo(() => detailSnapshot()?.contact ?? null);
+  const contactId = () => target()?.contactId ?? null;
+  const bookId = () => target()?.bookId ?? null;
 
-  const retrySelectedContact = () => {
-    const selectedContactId = contactId();
-    const selectedBookId = bookId();
-    if (!selectedContactId || !selectedBookId) return;
-    void detailMutation.mutate({
-      bookId: selectedBookId,
-      contactId: selectedContactId,
-      selectedBookId,
-      loadFavorite: true,
-    });
-  };
+  const retrySelectedContact = () => void detailQuery.refresh();
 
   const findContact = (id: string | null, selectedBookId: string | null) => {
     if (!id || !selectedBookId) return null;
@@ -130,70 +142,102 @@ export default function ContactDetailPanel(props: Props) {
     return null;
   };
 
+  const selectTarget = (
+    selectedBookId: string | null,
+    selectedContactId: string | null,
+    seed?: { contact: Contact; favorite: boolean },
+  ) => {
+    setDetailMode("details");
+    setQuickEditing(false);
+    setOrgTreeSource(null);
+    if (!selectedBookId || !selectedContactId) {
+      setExactSeed(null);
+      setTarget(null);
+      return;
+    }
+    const source = createContactQuerySource({ bookId: selectedBookId, contactId: selectedContactId, revision: ++nextRevision });
+    setExactSeed(seed ? { source, contact: seed.contact, favorite: seed.favorite } : null);
+    setTarget({ source, bookId: selectedBookId, contactId: selectedContactId });
+  };
+
   const syncFromUrl = () => {
     const selected = getSelectedContactFromUrl();
     const found = findContact(selected.contactId, selected.bookId);
-    setContact(found);
-    setContactId(selected.contactId);
-    setBookId(selected.bookId);
-    setSelectedFavorite(found ? props.initialFavoriteKeys.includes(contactFavoriteKey(found.bookId, found.id)) : false);
-    setDetailMode("details");
-    setQuickEditing(false);
-    setOrgTree(null);
-    if (selected.contactId && selected.bookId && !found) {
-      void detailMutation.mutate({
-        bookId: selected.bookId,
-        contactId: selected.contactId,
-        selectedBookId: selected.bookId,
-        loadFavorite: true,
+    selectTarget(selected.bookId, selected.contactId, found ? { contact: found, favorite: favoriteFor(found) } : undefined);
+  };
+
+  createEffect(() => {
+    const snapshot = detailSnapshot();
+    if (!snapshot) return;
+    const loadedSource = snapshot.source;
+    if (!snapshot.contact) {
+      queueMicrotask(() => {
+        if (detailSnapshot()?.source === loadedSource) clearSelectedContactInUrl("replace");
+      });
+      return;
+    }
+    setSelectedFavorite(snapshot.favorite);
+    const selected = getSelectedContactFromUrl();
+    if (selected.contactId !== snapshot.contact.id || selected.bookId !== snapshot.contact.bookId) {
+      const updated = snapshot.contact;
+      queueMicrotask(() => {
+        if (detailSnapshot()?.source !== loadedSource) return;
+        setSelectedContactInUrl({
+          contactId: updated.id,
+          bookId: updated.bookId,
+          contact: updated,
+          favorite: snapshot.favorite,
+          history: "replace",
+        });
       });
     }
-  };
+  });
 
   onMount(() => {
     const handleSelect = (event: Event) => {
       const payload = (event as CustomEvent<ContactDetailPayload>).detail;
       const found = payload.item ?? findContact(payload.itemKey, payload.bookId);
-      setContact(found);
-      setContactId(payload.itemKey);
-      setBookId(payload.bookId);
-      setSelectedFavorite(
-        payload.favorite ??
-          (payload.item ? props.initialFavoriteKeys.includes(contactFavoriteKey(payload.item.bookId, payload.item.id)) : false),
+      selectTarget(
+        payload.bookId,
+        payload.itemKey,
+        found
+          ? {
+              contact: found,
+              favorite: favoriteEvents().has(contactFavoriteKey(found.bookId, found.id))
+                ? favoriteFor(found)
+                : (payload.favorite ?? favoriteFor(found)),
+            }
+          : undefined,
       );
-      setDetailMode("details");
-      setQuickEditing(false);
-      setOrgTree(null);
-      if (payload.itemKey && payload.bookId && !found) {
-        void detailMutation.mutate({
-          bookId: payload.bookId,
-          contactId: payload.itemKey,
-          selectedBookId: payload.bookId,
-          loadFavorite: true,
-        });
-      }
     };
 
     const handlePopState = () => syncFromUrl();
     const stopFavoriteChanges = listenForContactFavoriteChanges((change) => {
+      const key = contactFavoriteKey(change.bookId, change.contactId);
+      setFavoriteEvents((current) => {
+        const next = new Map(current);
+        next.set(key, change.favorite);
+        return next;
+      });
       if (change.contactId === contactId() && change.bookId === bookId()) setSelectedFavorite(change.favorite);
     });
 
     window.addEventListener(CONTACT_DETAIL_EVENT, handleSelect);
     window.addEventListener("popstate", handlePopState);
-    const stopLiveInvalidations = listenForContactsLiveInvalidation((event) => {
+    const stopLiveInvalidations = listenForContactsLiveInvalidation("detail", (event) => {
       const selectedContactId = contactId();
       const selectedBookId = bookId();
       if (!selectedContactId || !selectedBookId) return;
       if (event.type === "contact.deleted" && event.contactId === selectedContactId && event.bookId === selectedBookId) {
         clearSelectedContactInUrl("replace");
-        return;
+        return Promise.resolve();
       }
       if (event.type === "contact.moved" && event.contactId === selectedContactId && event.sourceBookId === selectedBookId) {
-        return refreshSelectedContact(event.targetBookId);
+        selectTarget(event.targetBookId, selectedContactId);
+        return detailQuery.invalidate();
       }
       if (requiresSelectedContactRefresh(event, selectedBookId)) {
-        return refreshSelectedContact();
+        return detailQuery.invalidate();
       }
     });
 
@@ -208,9 +252,10 @@ export default function ContactDetailPanel(props: Props) {
   const actions = createContactDetailActions({
     bookId,
     writableBooks: props.writableBooks,
-    orgTree,
-    setOrgTree,
+    orgTreeSource,
+    setOrgTreeSource,
     setDetailMode,
+    invalidateDetail: detailQuery.invalidate,
   });
 
   return (
@@ -218,10 +263,10 @@ export default function ContactDetailPanel(props: Props) {
       when={contact()}
       fallback={
         <Show
-          when={detailMutation.error()}
+          when={detailQuery.error()}
           fallback={
             <Show
-              when={detailMutation.loading()}
+              when={detailQuery.loading() || detailQuery.refreshing()}
               fallback={
                 props.showEmpty === false ? null : (
                   <Placeholder icon="ti ti-id" class="h-full min-h-0 justify-center" description={<>Select a contact to see details</>} />
@@ -290,7 +335,7 @@ export default function ContactDetailPanel(props: Props) {
         ];
         return (
           <Show
-            when={detailMode() === "tree" && orgTree()}
+            when={detailMode() === "tree" && actions.orgTree()}
             fallback={
               <DetailPanel>
                 <DetailPanel.Header
@@ -380,7 +425,6 @@ export default function ContactDetailPanel(props: Props) {
                         contact={c()}
                         onCancel={() => setQuickEditing(false)}
                         onSaved={(updated) => {
-                          setContact(updated);
                           setQuickEditing(false);
                           setSelectedContactInUrl({
                             contactId: updated.id,
@@ -657,8 +701,7 @@ export default function ContactDetailPanel(props: Props) {
                 tree={tree()}
                 onSelect={(node) => actions.selectOrgTreeNode(node, c().bookId)}
                 onBack={() => {
-                  setDetailMode("details");
-                  setOrgTree(null);
+                  actions.closeOrgTree();
                 }}
               />
             )}

@@ -1,7 +1,7 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, ButtonLink, PanelDialog, prompts, TextInput, toast } from "@k2b/ui";
-import { type Accessor, createSignal, type Setter, Show } from "solid-js";
+import { type Accessor, createSignal, onCleanup, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -273,52 +273,50 @@ const FooterContent = (props: FooterContentProps) => (
 type SaveContactConfig = {
   mode: ContactUpsertMode;
   bookId: string;
-  initialContact: Contact | null;
+  contactId?: string;
   payload: ReturnType<typeof buildContactPayload>;
 };
 
-const saveContact = async (config: SaveContactConfig): Promise<Contact> => {
+const saveContact = async (config: SaveContactConfig, abortSignal: AbortSignal): Promise<Contact> => {
   if (config.mode === "create") {
-    const response = await apiClient.books[":bookId"].contacts.$post({
-      param: { bookId: config.bookId },
-      json: config.payload,
-    });
+    const response = await apiClient.books[":bookId"].contacts.$post(
+      {
+        param: { bookId: config.bookId },
+        json: config.payload,
+      },
+      { init: { signal: abortSignal } },
+    );
     if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create contact"));
     return await response.json();
   }
 
-  if (!config.initialContact) throw new Error("Missing contact data for edit mode");
-  const response = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
-    param: {
-      bookId: config.bookId,
-      contactId: config.initialContact.id,
+  if (!config.contactId) throw new Error("Missing contact data for edit mode");
+  const response = await apiClient.books[":bookId"].contacts[":contactId"].$patch(
+    {
+      param: {
+        bookId: config.bookId,
+        contactId: config.contactId,
+      },
+      json: config.payload,
     },
-    json: config.payload,
-  });
+    { init: { signal: abortSignal } },
+  );
   if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update contact"));
   return await response.json();
 };
 
-const deleteContact = async (bookId: string, initialContact: Contact | null): Promise<Contact | null> => {
-  if (!initialContact) throw new Error("Missing contact data for delete");
-
-  const confirmed = await prompts.confirm(`Delete "${resolveContactName(initialContact)}"? This cannot be undone.`, {
-    title: "Delete Contact",
-    icon: "ti ti-trash",
-    variant: "danger",
-    confirmText: "Delete",
-    cancelText: "Cancel",
-  });
-  if (!confirmed) return null;
-
-  const response = await apiClient.books[":bookId"].contacts[":contactId"].$delete({
-    param: {
-      bookId,
-      contactId: initialContact.id,
+const deleteContact = async (intent: { bookId: string; contact: Contact }, abortSignal: AbortSignal): Promise<Contact> => {
+  const response = await apiClient.books[":bookId"].contacts[":contactId"].$delete(
+    {
+      param: {
+        bookId: intent.bookId,
+        contactId: intent.contact.id,
+      },
     },
-  });
+    { init: { signal: abortSignal } },
+  );
   if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to delete contact"));
-  return initialContact;
+  return intent.contact;
 };
 
 const afterSave = (config: { mode: ContactUpsertMode; bookId: string; onSaved?: (contact: Contact) => void }, contact: Contact) => {
@@ -330,8 +328,7 @@ const afterSave = (config: { mode: ContactUpsertMode; bookId: string; onSaved?: 
   navigateTo(detailHref(config.bookId, contact.id));
 };
 
-const afterDelete = (config: { bookId: string; onDeleted?: () => void }, contact: Contact | null) => {
-  if (!contact) return;
+const afterDelete = (config: { bookId: string; onDeleted?: () => void }, contact: Contact) => {
   toast.success("Contact deleted");
   if (config.onDeleted) {
     config.onDeleted();
@@ -460,6 +457,8 @@ export default function ContactUpsertForm(props: Props) {
   );
   const [showAddresses, setShowAddresses] = createSignal((initialContact?.addresses.length ?? 0) > 0);
   const [showBankAccounts, setShowBankAccounts] = createSignal(bankAccounts().length > 0);
+  const [confirmingDelete, setConfirmingDelete] = createSignal(false);
+  let disposed = false;
 
   const draftPayload = () =>
     buildContactPayload({
@@ -483,21 +482,56 @@ export default function ContactUpsertForm(props: Props) {
       bankAccounts: bankAccounts(),
     });
 
-  const upsertMutation = mutations.create<Contact, void>({
-    mutation: () => saveContact({ mode: props.mode, bookId: props.bookId, initialContact, payload: draftPayload() }),
+  const upsertMutation = mutations.create<Contact, SaveContactConfig>({
+    mutation: (intent, { abortSignal }) => saveContact(intent, abortSignal),
     onSuccess: (contact) => afterSave({ mode: props.mode, bookId: props.bookId, onSaved: props.onSaved }, contact),
     onError: (error) => prompts.error(error.message),
   });
 
-  const removeMutation = mutations.create<Contact | null, void>({
-    mutation: () => deleteContact(props.bookId, initialContact),
+  const removeMutation = mutations.create<Contact, { bookId: string; contact: Contact }>({
+    mutation: (intent, { abortSignal }) => deleteContact(intent, abortSignal),
     onSuccess: (contact) => afterDelete({ bookId: props.bookId, onDeleted: props.onDeleted }, contact),
     onError: (error) => prompts.error(error.message),
   });
 
+  onCleanup(() => {
+    disposed = true;
+    upsertMutation.abort();
+    removeMutation.abort();
+  });
+
   const handleDelete = async () => {
-    if (!initialContact) return;
-    removeMutation.mutate(undefined);
+    if (!initialContact || confirmingDelete() || removeMutation.loading()) return;
+    const intent = { bookId: props.bookId, contact: initialContact };
+    setConfirmingDelete(true);
+    try {
+      const confirmed = await prompts.confirm(`Delete "${resolveContactName(intent.contact)}"? This cannot be undone.`, {
+        title: "Delete Contact",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+      });
+      if (confirmed && !disposed) void removeMutation.mutate(intent);
+    } catch (error) {
+      if (!disposed) void prompts.error(error instanceof Error ? error.message : "Could not confirm contact deletion");
+    } finally {
+      if (!disposed) setConfirmingDelete(false);
+    }
+  };
+
+  const handleSave = () => {
+    try {
+      const payload = draftPayload();
+      void upsertMutation.mutate({
+        mode: props.mode,
+        bookId: props.bookId,
+        contactId: initialContact?.id,
+        payload: { ...payload, tagIds: [...(payload.tagIds ?? [])] },
+      });
+    } catch (error) {
+      void prompts.error(error instanceof Error ? error.message : "Failed to prepare contact");
+    }
   };
 
   const handleCancel = () => {
@@ -638,9 +672,9 @@ export default function ContactUpsertForm(props: Props) {
             backHref={props.backHref}
             onCancel={props.onCancel}
             saving={upsertMutation.loading()}
-            deleting={removeMutation.loading()}
+            deleting={confirmingDelete() || removeMutation.loading()}
             onDelete={handleDelete}
-            onSave={() => upsertMutation.mutate(undefined)}
+            onSave={handleSave}
           />
         </PanelDialog.Footer>
       </div>

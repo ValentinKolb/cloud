@@ -1,11 +1,12 @@
 import { timing } from "@k2b/stdlib";
 import { qr } from "@k2b/stdlib/qr";
-import { mutation } from "@k2b/stdlib/solid";
+import { query } from "@k2b/stdlib/solid";
 import { MarkdownView } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import { type PublicOpening, type PublicSection, type PublicStatus, PublicStatusSchema } from "../../../contracts";
 import PublicFeedbackForm from "../../_components/PublicFeedbackForm.island";
+import { PublicRefreshNotice, type RefreshDiagnostics } from "../../public-refresh-notice";
 import { type VenuePublicDisplayHeight, venuePublicRefreshBackoffMs } from "../../public-runtime";
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -211,8 +212,6 @@ function UpcomingOpenings(props: { status: PublicStatus; display?: boolean }) {
   );
 }
 
-type RefreshDiagnostics = { refreshEnabled: boolean; refreshedAt: string | null };
-
 function FullDisplay(props: { status: PublicStatus; feedbackQr: string | null } & RefreshDiagnostics) {
   const status = () => props.status;
   const hasRegularHours = () => status().venue.openMode !== "staffed" && groupedOpeningHours(status().openingRules).length > 0;
@@ -223,7 +222,9 @@ function FullDisplay(props: { status: PublicStatus; feedbackQr: string | null } 
       class="relative h-screen overflow-hidden bg-zinc-950 text-white"
       data-live-refresh={props.refreshEnabled ? "enabled" : "disabled"}
       data-last-refresh-at={props.refreshedAt ?? undefined}
+      data-refresh-error={props.refreshError ?? undefined}
     >
+      <PublicRefreshNotice {...props} display />
       {status().venue.bannerBase64 && (
         <img src={status().venue.bannerBase64 ?? undefined} alt="" class="absolute inset-0 size-full object-cover opacity-25" />
       )}
@@ -269,7 +270,9 @@ function ScrollablePage(props: { status: PublicStatus } & RefreshDiagnostics) {
       class="min-h-screen bg-zinc-100 text-zinc-950"
       data-live-refresh={props.refreshEnabled ? "enabled" : "disabled"}
       data-last-refresh-at={props.refreshedAt ?? undefined}
+      data-refresh-error={props.refreshError ?? undefined}
     >
+      <PublicRefreshNotice {...props} />
       <div class="relative min-h-[42vh] overflow-hidden bg-zinc-950 text-white">
         {status().venue.bannerBase64 && (
           <img src={status().venue.bannerBase64 ?? undefined} alt="" class="absolute inset-0 size-full object-cover opacity-45" />
@@ -310,7 +313,9 @@ function UnavailablePage(props: RefreshDiagnostics) {
       class="min-h-screen bg-zinc-950 text-white"
       data-live-refresh={props.refreshEnabled ? "enabled" : "disabled"}
       data-last-refresh-at={props.refreshedAt ?? undefined}
+      data-refresh-error={props.refreshError ?? undefined}
     >
+      <PublicRefreshNotice {...props} />
       <div class="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center p-6 text-center">
         <i class="ti ti-building-store-off mb-4 text-5xl text-zinc-500" />
         <h1 class="text-2xl font-semibold">Venue not available</h1>
@@ -366,24 +371,18 @@ type PublicVenuePageProps = {
 };
 
 export default function PublicVenuePage(props: PublicVenuePageProps) {
-  const [status, setStatus] = createSignal(props.initialStatus);
   const [refreshedAt, setRefreshedAt] = createSignal<string | null>(null);
+  const [visible, setVisible] = createSignal(true);
   let disposed = false;
   let failures = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let visibilityHandler: (() => void) | undefined;
 
-  const refreshStatus = mutation.create<PublicStatus | null, void>({
-    mutation: (_, { abortSignal }) => fetchPublicStatus(props.slug, abortSignal),
-    onSuccess: (nextStatus) => {
-      failures = 0;
-      setStatus(nextStatus);
-      setRefreshedAt(new Date().toISOString());
-    },
-    onError: (error) => {
-      failures += 1;
-      console.warn("Venue public page refresh failed", error);
-    },
+  const statusQuery = query.create({
+    source: () => props.slug,
+    initial: { source: props.slug, data: props.initialStatus },
+    enabled: () => props.refresh && visible(),
+    load: (slug, { abortSignal }) => fetchPublicStatus(slug, abortSignal),
   });
 
   const nextDelay = () => Math.max(1_000, Math.min(60_000, timing.jitter(venuePublicRefreshBackoffMs(failures), 350)));
@@ -394,18 +393,31 @@ export default function PublicVenuePage(props: PublicVenuePageProps) {
   };
   const run = async () => {
     if (disposed) return;
-    if (document.hidden) {
+    if (!visible()) {
       schedule(venuePublicRefreshBackoffMs(0));
       return;
     }
-    if (refreshStatus.loading()) return;
-    await refreshStatus.mutate();
+    if (statusQuery.refreshing() || statusQuery.loading()) return;
+    await statusQuery.refresh();
+    if (statusQuery.error()) {
+      failures += 1;
+      console.warn("Venue public page refresh failed", statusQuery.error());
+    } else {
+      failures = 0;
+      setRefreshedAt(new Date().toISOString());
+    }
     schedule(nextDelay());
+  };
+  const retryRefresh = () => {
+    failures = 0;
+    schedule(0);
   };
 
   onMount(() => {
     if (!props.refresh) return;
+    setVisible(!document.hidden);
     visibilityHandler = () => {
+      setVisible(!document.hidden);
       if (!document.hidden) schedule(0);
     };
     document.addEventListener("visibilitychange", visibilityHandler);
@@ -416,19 +428,46 @@ export default function PublicVenuePage(props: PublicVenuePageProps) {
     disposed = true;
     if (timer) clearTimeout(timer);
     if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
-    refreshStatus.abort();
   });
 
   const feedbackQr = () =>
-    status()?.venue.feedbackEnabled ? qr.toSvg(props.feedbackUrl, { correctionLevel: "M", on: "#18181b", off: "transparent" }) : null;
+    statusQuery.data()?.venue.feedbackEnabled
+      ? qr.toSvg(props.feedbackUrl, { correctionLevel: "M", on: "#18181b", off: "transparent" })
+      : null;
 
   return (
-    <Show when={status()} fallback={<UnavailablePage refreshEnabled={props.refresh} refreshedAt={refreshedAt()} />}>
+    <Show
+      when={statusQuery.data()}
+      fallback={
+        <UnavailablePage
+          refreshEnabled={props.refresh}
+          refreshedAt={refreshedAt()}
+          refreshError={statusQuery.error()?.message ?? null}
+          refreshing={statusQuery.refreshing()}
+          retryRefresh={retryRefresh}
+        />
+      }
+    >
       {(current) =>
         props.displayHeight === "full" ? (
-          <FullDisplay status={current()} feedbackQr={feedbackQr()} refreshEnabled={props.refresh} refreshedAt={refreshedAt()} />
+          <FullDisplay
+            status={current()}
+            feedbackQr={feedbackQr()}
+            refreshEnabled={props.refresh}
+            refreshedAt={refreshedAt()}
+            refreshError={statusQuery.error()?.message ?? null}
+            refreshing={statusQuery.refreshing()}
+            retryRefresh={retryRefresh}
+          />
         ) : (
-          <ScrollablePage status={current()} refreshEnabled={props.refresh} refreshedAt={refreshedAt()} />
+          <ScrollablePage
+            status={current()}
+            refreshEnabled={props.refresh}
+            refreshedAt={refreshedAt()}
+            refreshError={statusQuery.error()?.message ?? null}
+            refreshing={statusQuery.refreshing()}
+            retryRefresh={retryRefresh}
+          />
         )
       }
     </Show>

@@ -3,7 +3,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
 import { resolveContactInitials, resolveContactName } from "../../shared";
 import ContactFavoriteButton from "./ContactFavoriteButton";
-import { contactFavoriteKey } from "./contacts-favorites";
+import { createContactFavoriteProjection, listenForContactFavoriteChanges } from "./contacts-favorites";
 import { buildContactDetailHref } from "./contacts-search";
 import {
   CONTACT_DETAIL_EVENT,
@@ -41,6 +41,7 @@ export default function ContactsList(props: Props) {
   const [selectedKey, setSelectedKey] = createSignal<string | null>(
     contactKey(props.initialSelectedContactId, props.initialSelectedBookId),
   );
+  const favoriteProjection = createContactFavoriteProjection(() => props.initialFavoriteKeys);
 
   const selectContact = (contact: Contact) => {
     setSelectedKey(contactKey(contact.id, contact.bookId));
@@ -48,7 +49,7 @@ export default function ContactsList(props: Props) {
       contactId: contact.id,
       bookId: contact.bookId,
       contact,
-      favorite: props.initialFavoriteKeys.includes(contactFavoriteKey(contact.bookId, contact.id)),
+      favorite: favoriteProjection.favoriteFor(contact),
     });
   };
 
@@ -62,11 +63,13 @@ export default function ContactsList(props: Props) {
       const selected = getSelectedContactFromUrl();
       setSelectedKey(contactKey(selected.contactId, selected.bookId));
     };
+    const stopFavoriteChanges = listenForContactFavoriteChanges(favoriteProjection.apply);
 
     window.addEventListener(CONTACT_DETAIL_EVENT, handleDetailEvent);
     window.addEventListener("popstate", handlePopState);
 
     onCleanup(() => {
+      stopFavoriteChanges();
       window.removeEventListener(CONTACT_DETAIL_EVENT, handleDetailEvent);
       window.removeEventListener("popstate", handlePopState);
     });
@@ -237,7 +240,7 @@ export default function ContactsList(props: Props) {
                   <ContactFavoriteButton
                     bookId={contact.bookId}
                     contactId={contact.id}
-                    initialFavorite={props.initialFavoriteKeys.includes(contactFavoriteKey(contact.bookId, contact.id))}
+                    initialFavorite={favoriteProjection.favoriteFor(contact)}
                     class="focus-ui flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--ui-hover)]"
                   />
                 </span>

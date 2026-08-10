@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, ButtonLink, CheckboxCard, prompts } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CreateContactInput } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -26,13 +26,18 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
   const [filename, setFilename] = createSignal<string>("");
   const [candidates, setCandidates] = createSignal<ImportCandidate[]>([]);
   const [selected, setSelected] = createSignal<Set<number>>(new Set());
+  let fileReader: FileReader | undefined;
+  let disposed = false;
 
-  const previewMutation = mutations.create<ImportCandidate[], string>({
-    mutation: async (content) => {
-      const res = await apiClient.books[":bookId"].import.preview.$post({
-        param: { bookId: props.bookId },
-        json: { format: "vcard", content },
-      });
+  const previewMutation = mutations.create<ImportCandidate[], { bookId: string; content: string }>({
+    mutation: async ({ bookId, content }, { abortSignal }) => {
+      const res = await apiClient.books[":bookId"].import.preview.$post(
+        {
+          param: { bookId },
+          json: { format: "vcard", content },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to parse vCard"));
       const data = await res.json();
       return data.candidates;
@@ -47,12 +52,15 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
     onError: (error) => prompts.error(error.message),
   });
 
-  const commitMutation = mutations.create<{ created: number; failures: string[] }, ImportCandidate[]>({
-    mutation: async (chosen) => {
-      const res = await apiClient.books[":bookId"].import.commit.$post({
-        param: { bookId: props.bookId },
-        json: { contacts: chosen.map((c) => c.candidate) },
-      });
+  const commitMutation = mutations.create<{ created: number; failures: string[] }, { bookId: string; contacts: CreateContactInput[] }>({
+    mutation: async ({ bookId, contacts }, { abortSignal }) => {
+      const res = await apiClient.books[":bookId"].import.commit.$post(
+        {
+          param: { bookId },
+          json: { contacts },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to import contacts"));
       return await res.json();
     },
@@ -68,6 +76,13 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
     },
   });
 
+  onCleanup(() => {
+    disposed = true;
+    fileReader?.abort();
+    previewMutation.abort();
+    commitMutation.abort();
+  });
+
   const handleFileChange = (event: Event) => {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -78,10 +93,14 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
       return;
     }
     setFilename(file.name);
+    const bookId = props.bookId;
+    fileReader?.abort();
     const reader = new FileReader();
+    fileReader = reader;
     reader.onload = () => {
+      if (disposed) return;
       const content = String(reader.result ?? "");
-      previewMutation.mutate(content);
+      previewMutation.mutate({ bookId, content });
     };
     reader.readAsText(file);
   };
@@ -105,7 +124,7 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
       return;
     }
     setStage("committing");
-    commitMutation.mutate(chosen);
+    commitMutation.mutate({ bookId: props.bookId, contacts: chosen.map((item) => item.candidate) });
   };
 
   return (

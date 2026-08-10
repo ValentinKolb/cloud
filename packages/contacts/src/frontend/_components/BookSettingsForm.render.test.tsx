@@ -28,15 +28,11 @@ describe("Contact book settings", () => {
   test("renders grouped modal navigation and a persistent metadata footer", () => {
     const html = renderToString(() => (
       <BookSettingsForm
-        bookId="book-1"
-        initialName="Suppliers"
-        initialDescription="External suppliers"
-        accessEntries={[]}
-        apiKeys={[]}
-        initialTags={[tag]}
+        context={() => ({ book, accessEntries: [], apiKeys: [], tags: [tag] })}
         onClose={() => undefined}
         onDeleted={() => undefined}
         onWorkspaceChange={() => undefined}
+        onReconcile={async () => undefined}
       />
     ));
 
@@ -60,16 +56,12 @@ describe("Contact book settings", () => {
   test("can open directly on tag management", () => {
     const html = renderToString(() => (
       <BookSettingsForm
-        bookId="book-1"
-        initialName="Suppliers"
-        initialDescription={null}
-        accessEntries={[]}
-        apiKeys={[]}
-        initialTags={[tag]}
+        context={() => ({ book: { ...book, description: null }, accessEntries: [], apiKeys: [], tags: [tag] })}
         initialTab="tags"
         onClose={() => undefined}
         onDeleted={() => undefined}
         onWorkspaceChange={() => undefined}
+        onReconcile={async () => undefined}
       />
     ));
 

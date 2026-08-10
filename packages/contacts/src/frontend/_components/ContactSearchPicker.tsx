@@ -1,9 +1,10 @@
-import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { TextInput } from "@k2b/ui";
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+import { query as queries, timed } from "@k2b/stdlib/solid";
+import { Button, TextInput } from "@k2b/ui";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";
 import { resolveContactName } from "../../shared";
+import { currentDebouncedSourceValue, type SourceTagged } from "./lazy-query-source";
 
 type Props = {
   /** Restricts results to one book — picker never crosses book boundaries. */
@@ -26,32 +27,42 @@ type Props = {
  */
 export default function ContactSearchPicker(props: Props) {
   const [query, setQuery] = createSignal("");
-  const [results, setResults] = createSignal<Contact[]>([]);
+  const [committedQuery, setCommittedQuery] = createSignal("");
 
-  const searchMutation = mutations.create<Contact[], string>({
-    mutation: async (q, ctx) => {
+  const source = () =>
+    JSON.stringify({ bookId: props.bookId, query: committedQuery(), perPage: props.perPage ?? 20, excludeIds: props.excludeIds ?? [] });
+  const results = queries.create<string, SourceTagged<Contact[]>>({
+    source,
+    load: async (source, ctx) => {
+      const {
+        bookId,
+        query: search,
+        perPage,
+        excludeIds,
+      } = JSON.parse(source) as {
+        bookId: string;
+        query: string;
+        perPage: number;
+        excludeIds: string[];
+      };
       const res = await apiClient.books[":bookId"].contacts.$get(
         {
-          param: { bookId: props.bookId },
-          query: { q: q || undefined, per_page: String(props.perPage ?? 20) },
+          param: { bookId },
+          query: { q: search || undefined, per_page: String(perPage) },
         },
         { init: { signal: ctx.abortSignal } },
       );
       if (!res.ok) throw new Error("Could not search contacts");
       const payload = await res.json();
       const items = payload.data;
-      const excludeSet = new Set(props.excludeIds ?? []);
-      return items.filter((c) => !excludeSet.has(c.id));
+      const excludeSet = new Set(excludeIds);
+      return { source, value: items.filter((c) => !excludeSet.has(c.id)) };
     },
-    onSuccess: setResults,
-    onError: () => setResults([]),
   });
+  const currentResults = () => currentDebouncedSourceValue(query(), committedQuery(), source(), results.data());
+  const visibleError = () => (query() === committedQuery() ? results.error() : null);
 
-  const { debouncedFn: debouncedFetch } = timed.debounce((q: string) => searchMutation.mutate(q), 200);
-
-  onMount(() => {
-    searchMutation.mutate("");
-  });
+  const { debouncedFn: commitSearch } = timed.debounce(setCommittedQuery, 200);
 
   let firstEffect = true;
   createEffect(() => {
@@ -60,7 +71,7 @@ export default function ContactSearchPicker(props: Props) {
       firstEffect = false;
       return;
     }
-    debouncedFetch(q);
+    commitSearch(q);
   });
 
   const subtitle = (contact: Contact) => {
@@ -78,11 +89,25 @@ export default function ContactSearchPicker(props: Props) {
         onValueChange={setQuery}
       />
       <div class="-mx-1 flex max-h-72 flex-col overflow-y-auto px-1">
+        <Show when={visibleError()}>
+          <div class="flex items-center justify-between gap-2 px-2 py-2 text-xs text-red-600 dark:text-red-400" role="alert">
+            <span>Could not search contacts</span>
+            <Button type="button" variant="ghost" size="xs" onClick={() => void results.refresh()}>
+              Retry
+            </Button>
+          </div>
+        </Show>
         <Show
-          when={results().length > 0}
-          fallback={<p class="px-2 py-6 text-center text-xs text-dimmed">{searchMutation.loading() ? "Searching…" : "No matches"}</p>}
+          when={(currentResults() ?? []).length > 0}
+          fallback={
+            <Show when={!visibleError()}>
+              <p class="px-2 py-6 text-center text-xs text-dimmed">
+                {results.loading() || query() !== committedQuery() ? "Searching…" : "No matches"}
+              </p>
+            </Show>
+          }
         >
-          <For each={results()}>
+          <For each={currentResults() ?? []}>
             {(contact) => (
               <button
                 type="button"

@@ -5,6 +5,7 @@ import {
   buildContactsPageHref,
   buildContactsPaginationBaseHref,
   buildContactsSearchHref,
+  contactsResultHref,
   contactsResultSignature,
 } from "./contacts-search";
 
@@ -28,6 +29,10 @@ describe("Contacts search route state", () => {
     );
     expect(buildContactsPageHref("/app/contacts/book-1?search=Ada&page=9&contact=one", 3)).toBe("/app/contacts/book-1?search=Ada&page=3");
     expect(buildContactsPageHref("/app/contacts/book-1?search=Ada&page=9", 1)).toBe("/app/contacts/book-1?search=Ada");
+  });
+
+  test("removes detail selection from the canonical results source", () => {
+    expect(contactsResultHref("/app/contacts/book-1?search=Ada&contact=one&contactBook=book-1")).toBe("/app/contacts/book-1?search=Ada");
   });
 
   test("keeps list scope in real contact detail links", () => {

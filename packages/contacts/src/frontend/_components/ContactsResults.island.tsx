@@ -1,5 +1,5 @@
-import { documentNavigate, navigate } from "@k2b/ssr/nav";
-import { mutation as mutations, timed } from "@k2b/stdlib/solid";
+import { documentNavigate, type LinkNavigateEvent, navigate } from "@k2b/ssr/nav";
+import { query as queries, timed } from "@k2b/stdlib/solid";
 import { Button, FilterChip, type FilterChipSection, Pagination, Tag, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -11,10 +11,12 @@ import ContactsBulkActions from "./ContactsBulkActions";
 import ContactsList from "./ContactsList";
 import { listenForContactFavoriteChanges } from "./contacts-favorites";
 import { listenForContactsLiveInvalidation, requiresContactsResultsRefresh } from "./contacts-live";
+import { createContactsResultsNavigation, selectContactsResultsSnapshot } from "./contacts-results-navigation";
 import {
   buildContactsPageHref,
   buildContactsPaginationBaseHref,
   buildContactsSearchHref,
+  contactsResultHref,
   contactsResultSignature,
 } from "./contacts-search";
 import { syncContactDetailFromUrl } from "./context";
@@ -41,25 +43,14 @@ type Props = {
   writableBooks: Array<{ id: string; name: string }>;
 };
 
-type ResultState = {
+type ContactsResultsSnapshot = {
+  source: string;
+  href: string;
   contacts: Contact[];
   favoriteKeys: string[];
   total: number;
   page: number;
   totalPages: number;
-  href: string;
-};
-
-type LoadRequest = {
-  href: string;
-  version: number;
-  commit: boolean;
-  fallback: boolean;
-};
-
-type LoadResult = {
-  request: LoadRequest;
-  payload: Awaited<ReturnType<typeof fetchContactsResults>>;
 };
 
 const pathWithQuery = () => `${window.location.pathname}${window.location.search}`;
@@ -135,125 +126,166 @@ const fetchContactsResults = async (props: Pick<Props, "bookId" | "perPage">, hr
   return await response.json();
 };
 
+const loadContactsResults = async (
+  props: Pick<Props, "bookId" | "perPage">,
+  source: string,
+  signal: AbortSignal,
+): Promise<ContactsResultsSnapshot> => {
+  let href = source;
+  let payload = await fetchContactsResults(props, href, signal);
+  const totalPages = Math.max(1, payload.pagination.total_pages);
+  if (payload.pagination.page > totalPages) {
+    href = buildContactsPageHref(source, totalPages);
+    payload = await fetchContactsResults(props, href, signal);
+  }
+  return {
+    source,
+    href,
+    contacts: payload.data,
+    favoriteKeys: payload.favoriteKeys,
+    total: payload.pagination.total,
+    page: payload.pagination.page,
+    totalPages: Math.max(1, payload.pagination.total_pages),
+  };
+};
+
 export default function ContactsResults(props: Props) {
-  const [state, setState] = createSignal<ResultState>({
+  const initialSource = contactsResultHref(props.initialHref);
+  const initialSnapshot: ContactsResultsSnapshot = {
+    source: initialSource,
+    href: initialSource,
     contacts: props.initialContacts,
     favoriteKeys: props.initialFavoriteKeys,
     total: props.initialTotal,
     page: props.initialPage,
     totalPages: props.initialTotalPages,
-    href: props.initialHref,
-  });
+  };
+  const [source, setSource] = createSignal(initialSource);
   const [query, setQuery] = createSignal(props.initialSearch);
   const [focused, setFocused] = createSignal(false);
   const [selectionMode, setSelectionMode] = createSignal(false);
   const [selectedIds, setSelectedIds] = createSignal<string[]>([]);
-  let requestVersion = 0;
+  const [failedSource, setFailedSource] = createSignal<string | null>(null);
 
-  const routeMutation = mutations.create<LoadResult, LoadRequest, { request: LoadRequest }>({
-    onBefore: (request) => ({ request }),
-    mutation: async (request, ctx) => ({
-      request,
-      payload: await fetchContactsResults(props, request.href, ctx.abortSignal),
-    }),
-    onSuccess: ({ request, payload }) => {
-      if (request.version !== requestVersion) return;
-      const totalPages = Math.max(1, payload.pagination.total_pages);
-      if (payload.pagination.page > totalPages) {
-        requestVersion += 1;
-        queueMicrotask(() => {
-          void loadHref(buildContactsPageHref(request.href, totalPages), {
-            commit: request.commit,
-            fallback: request.fallback,
-          });
-        });
-        return;
-      }
-      setState({
-        contacts: payload.data,
-        favoriteKeys: payload.favoriteKeys,
-        total: payload.pagination.total,
-        page: payload.pagination.page,
-        totalPages,
-        href: request.href,
-      });
-      const visibleIds = new Set(payload.data.map((contact) => contact.id));
-      setSelectedIds((current) => current.filter((id) => visibleIds.has(id)));
-      setQuery(new URL(request.href, window.location.origin).searchParams.get("search") ?? "");
-      if (request.commit) {
-        navigate(request.href, { replace: true, scroll: "preserve" });
-        syncContactDetailFromUrl();
+  const results = queries.create<string, ContactsResultsSnapshot, unknown>({
+    source,
+    initial: { source: initialSource, data: initialSnapshot },
+    load: async (href, { abortSignal }) => {
+      setFailedSource(null);
+      try {
+        return await loadContactsResults(props, href, abortSignal);
+      } catch (error) {
+        if (!abortSignal.aborted) setFailedSource(href);
+        throw error;
       }
     },
-    onError: (_error, ctx) => {
-      if (ctx?.request.version === requestVersion && ctx.request.fallback) {
-        documentNavigate(ctx.request.href, { replace: true });
-      }
+    subscribe: ({ invalidate }) => {
+      const stopLiveInvalidations = listenForContactsLiveInvalidation("results", (event) => {
+        if (requiresContactsResultsRefresh(event)) return invalidate(event);
+      });
+      const stopFavoriteChanges = listenForContactFavoriteChanges(() => {
+        if (readContactsQueryOptions(currentHref()).favorites) void invalidate({ type: "favorite.changed" }).catch(() => undefined);
+      });
+      return () => {
+        stopLiveInvalidations();
+        stopFavoriteChanges();
+      };
     },
   });
 
-  const loadHref = async (href: string, options: { commit?: boolean; fallback?: boolean; throwOnError?: boolean } = {}) => {
-    const request = {
-      href,
-      version: requestVersion,
-      commit: options.commit !== false,
-      fallback: options.fallback !== false,
-    };
-    await routeMutation.mutate(request);
-    if (options.throwOnError && request.version === requestVersion && routeMutation.error()) throw routeMutation.error();
+  const navigation = createContactsResultsNavigation({
+    initialSource,
+    initialHref: initialSource,
+    setSource,
+  });
+
+  const current = (): ContactsResultsSnapshot | undefined => {
+    return selectContactsResultsSnapshot({
+      loaded: results.data(),
+      source: source(),
+      committedSource: navigation.committedSource(),
+      canRenderCommitted: navigation.canRenderCommitted(),
+    });
+  };
+  const currentHref = () => current()?.href ?? source();
+
+  const commitHistory = (href: string) => {
+    navigate(href, { replace: true, scroll: "preserve" });
+    syncContactDetailFromUrl();
+  };
+
+  const navigateHref = (
+    href: string,
+    options: { retainCommitted?: boolean; onApply?: (href: string) => void; onFallback?: (href: string) => void } = {},
+  ) => {
+    setFailedSource(null);
+    return navigation.navigate(contactsResultHref(href), {
+      onApply: options.onApply ?? commitHistory,
+      onFallback: options.onFallback ?? ((fallbackHref) => documentNavigate(fallbackHref, { replace: true })),
+      retainCommitted: options.retainCommitted,
+    });
   };
 
   const debounce = timed.debounce((value: string) => {
-    void loadHref(buildContactsSearchHref(pathWithQuery(), value));
+    void navigateHref(buildContactsSearchHref(pathWithQuery(), value));
   }, 200);
 
-  const refreshLiveResults = async () => {
-    requestVersion += 1;
-    await loadHref(state().href, { commit: false, fallback: false, throwOnError: true });
-  };
-
   createEffect(() => {
-    if (!focused() && !debounce.isPending() && !routeMutation.loading()) {
-      setQuery(new URL(state().href, "http://contacts.local").searchParams.get("search") ?? "");
+    if (!focused() && !debounce.isPending() && !results.loading()) {
+      setQuery(new URL(currentHref(), "http://contacts.local").searchParams.get("search") ?? "");
     }
   });
 
+  createEffect(() => {
+    const loaded = results.data();
+    if (!loaded || loaded.source !== source() || results.stale()) return;
+    const applied = navigation.apply(loaded.source, loaded.href, () => {
+      const visibleIds = new Set(loaded.contacts.map((contact) => contact.id));
+      setSelectedIds((selected) => selected.filter((id) => visibleIds.has(id)));
+      setQuery(new URL(loaded.href, window.location.origin).searchParams.get("search") ?? "");
+    });
+    if (applied) return;
+
+    const visibleIds = new Set(loaded.contacts.map((contact) => contact.id));
+    setSelectedIds((selected) => selected.filter((id) => visibleIds.has(id)));
+  });
+
+  createEffect(() => {
+    const failed = failedSource();
+    if (results.error() && failed && source() === failed) navigation.fail(failed);
+  });
+
+  const handlePopState = () => {
+    const href = contactsResultHref(pathWithQuery());
+    if (contactsResultSignature(href) === contactsResultSignature(navigation.committedHref())) return;
+    void navigateHref(href, {
+      retainCommitted: false,
+      onApply: () => syncContactDetailFromUrl(),
+      onFallback: (fallbackHref) => documentNavigate(fallbackHref, { replace: true }),
+    });
+  };
   onMount(() => {
-    const handlePopState = () => {
-      const href = pathWithQuery();
-      if (contactsResultSignature(href) === contactsResultSignature(state().href)) return;
-      requestVersion += 1;
-      void loadHref(href, { commit: false, fallback: true });
-    };
     window.addEventListener("popstate", handlePopState);
-    const stopLiveInvalidations = listenForContactsLiveInvalidation((event) => {
-      if (requiresContactsResultsRefresh(event)) return refreshLiveResults();
-    });
-    const stopFavoriteChanges = listenForContactFavoriteChanges((change) => {
-      if (readContactsQueryOptions(state().href).favorites) return refreshLiveResults();
-    });
     onCleanup(() => {
       debounce.cancel();
-      stopLiveInvalidations();
-      stopFavoriteChanges();
       window.removeEventListener("popstate", handlePopState);
+      navigation.dispose();
     });
   });
 
   const commitImmediately = (value: string) => {
     debounce.cancel();
-    requestVersion += 1;
-    void loadHref(buildContactsSearchHref(pathWithQuery(), value));
+    navigation.supersede();
+    void navigateHref(buildContactsSearchHref(pathWithQuery(), value));
   };
 
   const updateOptions = (patch: Parameters<typeof buildContactsQueryHref>[1]) => {
-    const href = buildContactsQueryHref(state().href, patch);
+    const href = buildContactsQueryHref(currentHref(), patch);
     if (!props.bookId && patch.favorites !== undefined) {
       documentNavigate(href, { replace: true });
       return;
     }
-    requestVersion += 1;
-    void loadHref(href);
+    void navigateHref(href);
   };
 
   const clearSelection = () => {
@@ -263,18 +295,17 @@ export default function ContactsResults(props: Props) {
   const toggleSelection = (contactId: string) => {
     setSelectedIds((current) => (current.includes(contactId) ? current.filter((id) => id !== contactId) : [...current, contactId]));
   };
-  const selectVisible = () => setSelectedIds(state().contacts.map((contact) => contact.id));
-  const refreshResults = async () => {
-    requestVersion += 1;
-    await loadHref(state().href, { commit: false, fallback: false, throwOnError: true });
-  };
+  const selectVisible = () => setSelectedIds(current()?.contacts.map((contact) => contact.id) ?? []);
+  const refreshResults = () => results.invalidate({ type: "contacts.changed" });
 
-  const committedSearch = () => new URL(state().href, "http://contacts.local").searchParams.get("search") ?? "";
+  const committedSearch = () => new URL(currentHref(), "http://contacts.local").searchParams.get("search") ?? "";
   const formAction = () => new URL(props.initialHref, "http://contacts.local").pathname;
   const resultCopy = () =>
-    committedSearch().trim()
-      ? `${state().total} result${state().total === 1 ? "" : "s"} for “${committedSearch().trim()}”`
-      : `${state().total} contact${state().total === 1 ? "" : "s"}`;
+    !current()
+      ? "Loading contacts…"
+      : committedSearch().trim()
+        ? `${current()!.total} result${current()!.total === 1 ? "" : "s"} for “${committedSearch().trim()}”`
+        : `${current()!.total} contact${current()!.total === 1 ? "" : "s"}`;
 
   return (
     <div class="flex min-h-0 flex-1 flex-col">
@@ -302,7 +333,7 @@ export default function ContactsResults(props: Props) {
             activeIcon="ti ti-search"
             value={query}
             onValueChange={(value) => {
-              requestVersion += 1;
+              navigation.supersede();
               setQuery(value);
               debounce.debouncedFn(value);
             }}
@@ -313,29 +344,29 @@ export default function ContactsResults(props: Props) {
               commitImmediately("");
             }}
             suffix={
-              debounce.isPending() || routeMutation.loading() ? (
+              debounce.isPending() || results.loading() || results.refreshing() ? (
                 <i class="ti ti-loader-2 animate-spin text-dimmed" aria-hidden="true" />
               ) : undefined
             }
           />
           <Show when={props.activeTagId}>{(tagId) => <input type="hidden" name="tag_id" value={tagId()} />}</Show>
-          <Show when={readContactsQueryOptions(state().href).sort !== "name"}>
-            <input type="hidden" name="sort" value={readContactsQueryOptions(state().href).sort} />
+          <Show when={readContactsQueryOptions(currentHref()).sort !== "name"}>
+            <input type="hidden" name="sort" value={readContactsQueryOptions(currentHref()).sort} />
           </Show>
-          <Show when={readContactsQueryOptions(state().href).email !== "all"}>
-            <input type="hidden" name="email" value={readContactsQueryOptions(state().href).email} />
+          <Show when={readContactsQueryOptions(currentHref()).email !== "all"}>
+            <input type="hidden" name="email" value={readContactsQueryOptions(currentHref()).email} />
           </Show>
-          <Show when={readContactsQueryOptions(state().href).phone !== "all"}>
-            <input type="hidden" name="phone" value={readContactsQueryOptions(state().href).phone} />
+          <Show when={readContactsQueryOptions(currentHref()).phone !== "all"}>
+            <input type="hidden" name="phone" value={readContactsQueryOptions(currentHref()).phone} />
           </Show>
-          <Show when={readContactsQueryOptions(state().href).favorites}>
+          <Show when={readContactsQueryOptions(currentHref()).favorites}>
             <input type="hidden" name="favorites" value="true" />
           </Show>
         </form>
         <Show when={(props.tags?.length ?? 0) > 0 && props.filtersBasePath}>
           <nav aria-label="Filter contacts by tag" class="mt-2 flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5">
             <a
-              href={filterHref(state().href, query())}
+              href={filterHref(currentHref(), query())}
               aria-current={!props.activeTagId ? "page" : undefined}
               class="inline-flex shrink-0 transition-opacity hover:opacity-80"
             >
@@ -345,7 +376,7 @@ export default function ContactsResults(props: Props) {
             </a>
             {props.tags?.map((tag) => (
               <a
-                href={filterHref(state().href, query(), tag.id)}
+                href={filterHref(currentHref(), query(), tag.id)}
                 aria-current={props.activeTagId === tag.id ? "page" : undefined}
                 title={props.showBookNames ? `${tag.name} · ${props.bookNames[tag.bookId] ?? "Contact book"}` : undefined}
                 class="inline-flex shrink-0 transition-opacity hover:opacity-80"
@@ -362,18 +393,18 @@ export default function ContactsResults(props: Props) {
             label="Sort"
             icon="ti ti-arrows-sort"
             options={SORT_OPTIONS}
-            value={[readContactsQueryOptions(state().href).sort]}
+            value={[readContactsQueryOptions(currentHref()).sort]}
             defaultValue={["name"]}
-            isActive={readContactsQueryOptions(state().href).sort !== "name"}
+            isActive={readContactsQueryOptions(currentHref()).sort !== "name"}
             onValueChange={(value) => updateOptions({ sort: (value[0] ?? "name") as ContactSort })}
           />
           <FilterChip
             label="Contact info"
             icon="ti ti-address-book"
             options={REACH_OPTIONS}
-            value={[`email:${readContactsQueryOptions(state().href).email}`, `phone:${readContactsQueryOptions(state().href).phone}`]}
+            value={[`email:${readContactsQueryOptions(currentHref()).email}`, `phone:${readContactsQueryOptions(currentHref()).phone}`]}
             defaultValue={["email:all", "phone:all"]}
-            isActive={readContactsQueryOptions(state().href).email !== "all" || readContactsQueryOptions(state().href).phone !== "all"}
+            isActive={readContactsQueryOptions(currentHref()).email !== "all" || readContactsQueryOptions(currentHref()).phone !== "all"}
             onValueChange={(value) =>
               updateOptions({
                 email: (value.find((entry) => entry.startsWith("email:"))?.slice(6) ?? "all") as ContactPresenceFilter,
@@ -388,7 +419,7 @@ export default function ContactsResults(props: Props) {
                 size="sm"
                 onClick={async () => {
                   const changed = await openContactDuplicatesDialog(props.bookId!);
-                  if (changed) documentNavigate(state().href, { replace: true });
+                  if (changed) documentNavigate(currentHref(), { replace: true });
                 }}
               >
                 <i class="ti ti-users-group" /> Duplicates
@@ -408,7 +439,7 @@ export default function ContactsResults(props: Props) {
           <ContactsBulkActions
             bookId={props.bookId!}
             selectedIds={selectedIds}
-            visibleIds={() => state().contacts.map((contact) => contact.id)}
+            visibleIds={() => current()?.contacts.map((contact) => contact.id) ?? []}
             tags={props.tags ?? []}
             writableBooks={props.writableBooks}
             onSelectVisible={selectVisible}
@@ -419,32 +450,57 @@ export default function ContactsResults(props: Props) {
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 sm:px-4" data-scroll-preserve="contacts-main-list">
-        <ContactsList
-          contacts={state().contacts}
-          bookNames={props.bookNames}
-          showBookNames={props.showBookNames}
-          initialSelectedContactId={props.initialSelectedContactId}
-          initialSelectedBookId={props.initialSelectedBookId}
-          detailBaseHref={state().href}
-          initialFavoriteKeys={state().favoriteKeys}
-          selectionMode={selectionMode()}
-          selectedIds={selectedIds()}
-          onToggleSelection={toggleSelection}
-          emptyTitle={committedSearch().trim() ? "No matching contacts" : "No contacts yet"}
-          emptyDescription={
-            committedSearch().trim()
-              ? "Try a different name, company, email address, or phone number."
-              : "Create the first contact from the action above."
-          }
-        />
-        <Show when={state().totalPages > 1}>
-          <div class="pt-3">
-            <Pagination
-              currentPage={state().page}
-              totalPages={state().totalPages}
-              baseUrl={buildContactsPaginationBaseHref(state().href)}
-            />
-          </div>
+        <Show when={results.error()}>
+          {(error) => (
+            <div class="mb-2 flex items-center justify-between gap-2 text-xs text-red-600" role="alert">
+              <span>{error().message}</span>
+              <Button type="button" variant="ghost" size="xs" disabled={results.refreshing()} onClick={() => void results.refresh()}>
+                Retry
+              </Button>
+            </div>
+          )}
+        </Show>
+        <Show when={current()} fallback={<p class="py-8 text-center text-sm text-dimmed">Loading contacts…</p>}>
+          {(snapshot) => (
+            <>
+              <ContactsList
+                contacts={snapshot().contacts}
+                bookNames={props.bookNames}
+                showBookNames={props.showBookNames}
+                initialSelectedContactId={props.initialSelectedContactId}
+                initialSelectedBookId={props.initialSelectedBookId}
+                detailBaseHref={snapshot().href}
+                initialFavoriteKeys={snapshot().favoriteKeys}
+                selectionMode={selectionMode()}
+                selectedIds={selectedIds()}
+                onToggleSelection={toggleSelection}
+                emptyTitle={committedSearch().trim() ? "No matching contacts" : "No contacts yet"}
+                emptyDescription={
+                  committedSearch().trim()
+                    ? "Try a different name, company, email address, or phone number."
+                    : "Create the first contact from the action above."
+                }
+              />
+              <Show when={snapshot().totalPages > 1}>
+                <div class="pt-3">
+                  <Pagination
+                    currentPage={snapshot().page}
+                    totalPages={snapshot().totalPages}
+                    baseUrl={buildContactsPaginationBaseHref(snapshot().href)}
+                    onNavigate={async (event: LinkNavigateEvent) => {
+                      await navigateHref(event.href, {
+                        onApply: (href) => {
+                          event.push(href);
+                          syncContactDetailFromUrl();
+                        },
+                        onFallback: (href) => event.fallback(href),
+                      });
+                    }}
+                  />
+                </div>
+              </Show>
+            </>
+          )}
         </Show>
       </div>
     </div>

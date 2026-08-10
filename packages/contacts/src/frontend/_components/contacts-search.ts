@@ -23,6 +23,13 @@ export const contactsResultSignature = (href: string): string => {
   ].join("\u0000");
 };
 
+export const contactsResultHref = (href: string): string => {
+  const url = new URL(href, "http://contacts.local");
+  url.searchParams.delete("contact");
+  url.searchParams.delete("contactBook");
+  return `${url.pathname}${url.search}`;
+};
+
 export const buildContactsPaginationBaseHref = (href: string): string => {
   const url = new URL(href, "http://contacts.local");
   url.searchParams.delete("page");

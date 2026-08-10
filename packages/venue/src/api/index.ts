@@ -26,6 +26,7 @@ import {
   ShiftTemplateInputSchema,
   TemplateSignupInputSchema,
   UpcomingSlotSchema,
+  VenueDashboardQuerySchema,
   VenueDashboardSchema,
   VenueInputSchema,
   VenueSchema,
@@ -55,6 +56,15 @@ const CreateVenueApiKeySchema = z.object({
 const CreateVenueApiKeyResponseSchema = z.object({
   credential: VenueApiKeySchema,
   token: z.string(),
+});
+const VenueSettingsContextSchema = VenueDashboardSchema.pick({
+  venue: true,
+  openingRules: true,
+  overrides: true,
+  templates: true,
+}).extend({
+  accessEntries: z.array(AccessEntrySchema),
+  apiKeys: z.array(VenueApiKeySchema),
 });
 
 type VenueApiKey = z.infer<typeof VenueApiKeySchema>;
@@ -292,11 +302,43 @@ const venueRoutes = new Hono<AuthContext>()
       return respond(c, () => venueService.venues.create(c.req.valid("json"), user.data), 201);
     },
   )
-  .get("/:id/dashboard", v("param", VenueIdParamSchema), async (c) => {
+  .get("/:id/dashboard", v("param", VenueIdParamSchema), v("query", VenueDashboardQuerySchema), async (c) => {
     const venue = await readVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, ok(await venueService.dashboard(venue.data, getUserBackedActor(c))));
+    return respond(c, ok(await venueService.dashboard(venue.data, getUserBackedActor(c), c.req.valid("query"))));
   })
+  .get(
+    "/:id/settings-context",
+    describeRoute({
+      tags: ["Venues"],
+      summary: "Load venue settings context",
+      responses: { 200: jsonResponse(VenueSettingsContextSchema, "Venue settings context") },
+    }),
+    v("param", VenueIdParamSchema),
+    async (c) => {
+      const venue = await readVenue(c, c.req.valid("param").id);
+      if (!venue.ok) return respond(c, venue);
+      const isAdmin = venue.data.permission === "admin";
+      const [openingRules, overrides, templates, accessEntries, apiKeys] = await Promise.all([
+        venueService.openingRules.list(venue.data.id),
+        venueService.overrides.list(venue.data.id),
+        venueService.templates.list(venue.data.id),
+        isAdmin ? venueService.access.list(venue.data.id) : Promise.resolve([]),
+        isAdmin ? listVenueApiKeys(venue.data.id) : Promise.resolve([]),
+      ]);
+      return respond(
+        c,
+        ok({
+          venue: venue.data,
+          openingRules,
+          overrides,
+          templates,
+          accessEntries,
+          apiKeys,
+        }),
+      );
+    },
+  )
   .patch("/:id", v("param", VenueIdParamSchema), v("json", VenueInputSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);

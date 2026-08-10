@@ -1,16 +1,16 @@
-import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { currentPathWithQuery } from "@k2b/ssr/nav";
 import { retry } from "@k2b/sync/browser";
+import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { onCleanup, onMount } from "solid-js";
 import {
   CONTACTS_LIVE_WS_TYPE,
   type ContactLiveClientMessage,
   type ContactLiveScope,
   type ContactLiveServerMessage,
-  type ContactServiceEvent,
   parseContactLiveServerMessage,
 } from "../../live-events";
-import { dispatchContactsLiveInvalidation, requiresContactsShellRefresh } from "./contacts-live";
+import { createContactsLiveApplyQueue, dispatchContactsLiveInvalidation, requiresContactsShellRefresh } from "./contacts-live";
+import { getSelectedContactFromUrl } from "./context";
 
 type Props = {
   scope: ContactLiveScope;
@@ -41,7 +41,6 @@ export default function ContactsLiveEvents(props: Props) {
   onMount(() => {
     const lifecycle = new AbortController();
     let reloading = false;
-    let applyQueue = Promise.resolve();
 
     const replaceCurrentPage = () => {
       if (reloading || lifecycle.signal.aborted) return;
@@ -50,35 +49,37 @@ export default function ContactsLiveEvents(props: Props) {
       window.location.replace(currentPathWithQuery());
     };
 
-    const enqueueEvent = (
-      event: ContactServiceEvent,
-      cursor: string,
-      controls: { markApplied: (cursor: string) => void; terminate: (error: { code: string; message: string }) => void },
-    ) => {
-      applyQueue = applyQueue
-        .then(async () => {
-          if (reloading || lifecycle.signal.aborted) return;
-          if (requiresContactsShellRefresh(event)) {
-            controls.terminate({ code: "shell_changed", message: "Contact book metadata changed" });
-            await waitForEditorsToClose(lifecycle.signal);
-            replaceCurrentPage();
-            return;
-          }
-          await retry({
-            signal: lifecycle.signal,
-            run: () => dispatchContactsLiveInvalidation(event),
-            after: ({ ctx }) => {
-              if (ctx.error && ctx.attempt < 3) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 150, maxMs: 1_000 }) });
-            },
-          });
-          controls.markApplied(cursor);
-        })
-        .catch(async () => {
-          controls.terminate({ code: "refresh_failed", message: "Could not apply a Contacts update" });
+    const getCurrentSelection = () => {
+      const selection = getSelectedContactFromUrl();
+      if (selection.contactId && !selection.bookId && props.scope.kind === "book") {
+        return { ...selection, bookId: props.scope.bookId };
+      }
+      return selection;
+    };
+
+    const applyQueue = createContactsLiveApplyQueue({
+      apply: async (event, controls) => {
+        if (reloading || lifecycle.signal.aborted) return false;
+        if (requiresContactsShellRefresh(event)) {
+          controls.terminate({ code: "shell_changed", message: "Contact book metadata changed" });
           await waitForEditorsToClose(lifecycle.signal);
           replaceCurrentPage();
+          return false;
+        }
+        await retry({
+          signal: lifecycle.signal,
+          run: () => dispatchContactsLiveInvalidation(event, getCurrentSelection()),
+          after: ({ ctx }) => {
+            if (ctx.error && ctx.attempt < 3) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 150, maxMs: 1_000 }) });
+          },
         });
-    };
+      },
+      onFailure: async (_error, controls) => {
+        controls.terminate({ code: "refresh_failed", message: "Could not apply a Contacts update" });
+        await waitForEditorsToClose(lifecycle.signal);
+        replaceCurrentPage();
+      },
+    });
 
     const connection = createLiveWebSocket<ContactLiveServerMessage>({
       url: "/api/contacts/ws",
@@ -107,7 +108,7 @@ export default function ContactsLiveEvents(props: Props) {
           return;
         }
         if (message.type === CONTACTS_LIVE_WS_TYPE.event) {
-          enqueueEvent(message.payload.event, message.payload.cursor, controls);
+          void applyQueue.enqueue(message.payload.event, message.payload.cursor, controls);
           return;
         }
         if (message.type === CONTACTS_LIVE_WS_TYPE.revoked) {
@@ -119,6 +120,7 @@ export default function ContactsLiveEvents(props: Props) {
 
     connection.connect();
     onCleanup(() => {
+      applyQueue.stop();
       lifecycle.abort();
       connection.dispose();
     });

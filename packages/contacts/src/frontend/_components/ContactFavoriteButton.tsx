@@ -1,6 +1,12 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { IconButton, prompts } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
-import { listenForContactFavoriteChanges, saveContactFavorite } from "./contacts-favorites";
+import {
+  contactFavoriteKey,
+  createContactFavoriteMutationLifecycle,
+  listenForContactFavoriteChanges,
+  saveContactFavorite,
+} from "./contacts-favorites";
 
 type Props = {
   bookId: string;
@@ -12,10 +18,45 @@ type Props = {
 export default function ContactFavoriteButton(props: Props) {
   const [favorite, setFavorite] = createSignal(props.initialFavorite);
   const [saving, setSaving] = createSignal(false);
+  const lifecycle = createContactFavoriteMutationLifecycle(contactFavoriteKey(props.bookId, props.contactId));
+
+  const saveMutation = mutations.create<
+    void,
+    { bookId: string; contactId: string; favorite: boolean },
+    { sourceKey: string; previous: boolean; optimisticFavorite: boolean }
+  >({
+    onBefore: (change) => {
+      const previous = favorite();
+      setFavorite(change.favorite);
+      return {
+        sourceKey: contactFavoriteKey(change.bookId, change.contactId),
+        previous,
+        optimisticFavorite: change.favorite,
+      };
+    },
+    mutation: (change, { abortSignal }) => saveContactFavorite(change, abortSignal),
+    onError: (error, context) => {
+      if (!context || lifecycle.owns(context.sourceKey)) {
+        if (context && favorite() === context.optimisticFavorite) setFavorite(context.previous);
+        void prompts.error(error.message);
+      }
+    },
+    onAbort: (context) => {
+      if (context && lifecycle.owns(context.sourceKey) && favorite() === context.optimisticFavorite) {
+        setFavorite(context.previous);
+      }
+    },
+    onFinally: (context) => {
+      if (context && lifecycle.settle(context.sourceKey)) setSaving(false);
+    },
+  });
 
   createEffect(() => {
-    void props.bookId;
-    void props.contactId;
+    const sourceKey = contactFavoriteKey(props.bookId, props.contactId);
+    const sourceChanged = sourceKey !== lifecycle.sourceKey();
+    const shouldAbort = lifecycle.switchSource(sourceKey);
+    if (shouldAbort) saveMutation.abort();
+    if (sourceChanged) setSaving(false);
     setFavorite(props.initialFavorite);
   });
 
@@ -26,19 +67,13 @@ export default function ContactFavoriteButton(props: Props) {
     onCleanup(stop);
   });
 
-  const toggle = async () => {
-    if (saving()) return;
-    const next = !favorite();
-    setFavorite(next);
+  onCleanup(() => saveMutation.abort());
+
+  const toggle = () => {
+    const sourceKey = contactFavoriteKey(props.bookId, props.contactId);
+    if (!lifecycle.begin(sourceKey)) return;
     setSaving(true);
-    try {
-      await saveContactFavorite({ bookId: props.bookId, contactId: props.contactId, favorite: next });
-    } catch (error) {
-      setFavorite(!next);
-      await prompts.error(error instanceof Error ? error.message : "Could not update favorite");
-    } finally {
-      setSaving(false);
-    }
+    void saveMutation.mutate({ bookId: props.bookId, contactId: props.contactId, favorite: !favorite() });
   };
 
   return (
@@ -51,7 +86,7 @@ export default function ContactFavoriteButton(props: Props) {
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        void toggle();
+        toggle();
       }}
     >
       <i class="ti ti-star" />

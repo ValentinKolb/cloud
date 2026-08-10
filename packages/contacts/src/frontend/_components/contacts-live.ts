@@ -4,34 +4,105 @@ const CONTACTS_LIVE_INVALIDATION_EVENT = "contacts:live-invalidation";
 
 type ContactsLiveInvalidation = ContactServiceEvent | { type: "scope.changed" };
 
-type ContactsLiveInvalidationDispatch = {
-  invalidation: ContactsLiveInvalidation;
-  waitUntil: (work: Promise<void>) => void;
+type ContactsLiveOwner = "results" | "detail" | "notes";
+
+type ContactsLiveSelection = {
+  bookId: string | null;
+  contactId: string | null;
 };
 
-export const dispatchContactsLiveInvalidation = async (invalidation: ContactsLiveInvalidation): Promise<void> => {
-  const pending: Promise<void>[] = [];
+type ContactsLiveInvalidationDispatch = {
+  invalidation: ContactsLiveInvalidation;
+  cover: (owner: ContactsLiveOwner, work: Promise<void>) => void;
+};
+
+type ContactsLiveApplyControls = {
+  markApplied: (cursor: string) => void;
+  terminate: (error: { code: string; message: string }) => void;
+};
+
+type ContactsLiveApplyQueueOptions = {
+  apply: (event: ContactServiceEvent, controls: ContactsLiveApplyControls) => Promise<boolean | void>;
+  onFailure: (error: unknown, controls: ContactsLiveApplyControls) => void | Promise<void>;
+};
+
+export const createContactsLiveApplyQueue = (options: ContactsLiveApplyQueueOptions) => {
+  let queue = Promise.resolve();
+  let stopped = false;
+
+  const enqueue = (event: ContactServiceEvent, cursor: string, controls: ContactsLiveApplyControls): Promise<void> => {
+    const apply = queue.then(async () => {
+      if (stopped) return;
+      const applied = await options.apply(event, controls);
+      if (applied === false || stopped) {
+        stopped = true;
+        return;
+      }
+      controls.markApplied(cursor);
+    });
+    queue = apply.catch(async (error) => {
+      if (stopped) return;
+      stopped = true;
+      await options.onFailure(error, controls);
+    });
+    return queue;
+  };
+
+  return {
+    enqueue,
+    stop: () => {
+      stopped = true;
+    },
+  };
+};
+
+const requiredContactsLiveOwners = (invalidation: ContactsLiveInvalidation, selection: ContactsLiveSelection): ContactsLiveOwner[] => {
+  if (requiresContactsResultsRefresh(invalidation)) {
+    if (selection.bookId && selection.contactId && requiresSelectedContactRefresh(invalidation, selection.bookId)) {
+      return ["results", "detail"];
+    }
+    return ["results"];
+  }
+  if (invalidation.type === "notes.changed" && invalidation.bookId === selection.bookId && invalidation.contactId === selection.contactId) {
+    return ["notes"];
+  }
+  return [];
+};
+
+export const dispatchContactsLiveInvalidation = async (
+  invalidation: ContactsLiveInvalidation,
+  selection: ContactsLiveSelection,
+): Promise<void> => {
+  const pending = new Map<ContactsLiveOwner, Promise<void>[]>();
   window.dispatchEvent(
     new CustomEvent<ContactsLiveInvalidationDispatch>(CONTACTS_LIVE_INVALIDATION_EVENT, {
       detail: {
         invalidation,
-        waitUntil: (work) => pending.push(work),
+        cover: (owner, work) => pending.set(owner, [...(pending.get(owner) ?? []), work]),
       },
     }),
   );
-  const results = await Promise.allSettled(pending);
+  const requiredOwners = requiredContactsLiveOwners(invalidation, selection);
+  const coverage = [...pending.values()].flat();
+  for (const owner of requiredOwners) {
+    if (!pending.has(owner)) coverage.push(Promise.reject(new Error(`Contacts live ${owner} coverage is not ready`)));
+  }
+  const results = await Promise.allSettled(coverage);
   const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
   if (failed) throw failed.reason;
 };
 
-export const listenForContactsLiveInvalidation = (listener: (event: ContactsLiveInvalidation) => void | Promise<void>): (() => void) => {
+export const listenForContactsLiveInvalidation = (
+  owner: ContactsLiveOwner,
+  listener: (event: ContactsLiveInvalidation) => void | Promise<void>,
+): (() => void) => {
   const handler = (event: Event) => {
     const dispatch = (event as CustomEvent<ContactsLiveInvalidationDispatch>).detail;
     try {
       const work = listener(dispatch.invalidation);
-      if (work) dispatch.waitUntil(work);
+      if (work) dispatch.cover(owner, work);
     } catch (error) {
-      dispatch.waitUntil(Promise.reject(error));
+      dispatch.cover(owner, Promise.reject(error));
     }
   };
   window.addEventListener(CONTACTS_LIVE_INVALIDATION_EVENT, handler);
