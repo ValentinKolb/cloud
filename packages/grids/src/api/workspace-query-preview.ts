@@ -1,10 +1,12 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
+import type { CustomAppBlock } from "../custom-apps/contracts";
 import type { GridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
 import { type DslCurrentSource, executeGqlSource, executeSavedViewSource } from "./gql-runtime";
 
 type OkWorkspaceState = Extract<GridsWorkspaceState, { kind: "ok" }>;
 type QueryRoute = Extract<OkWorkspaceState["route"], { kind: "query" }>;
+type SourceBlock = Extract<CustomAppBlock, { type: "records" | "metrics" | "chart" }>;
 
 const currentSourceForPreview = (source: QueryRoute["currentSource"]): DslCurrentSource => {
   if (!source) return undefined;
@@ -14,6 +16,44 @@ const currentSourceForPreview = (source: QueryRoute["currentSource"]): DslCurren
 export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Context, state: T): Promise<T> => {
   if (state.kind !== "ok") return state;
   const authContext = c as unknown as Context<AuthContext>;
+  const route = state.route;
+  if (route.kind === "customApp") {
+    const blocks = route.app.draftDefinition.pages.flatMap((page) =>
+      page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)),
+    );
+    const sourceBlocks = blocks.filter(
+      (block): block is SourceBlock =>
+        (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+        !(block.source.kind === "gql" && Object.keys(block.source.inputs ?? {}).length > 0),
+    );
+    const entries = await Promise.all(
+      sourceBlocks.map(async (block) => {
+        const maxRows = block.type === "chart" ? block.limit : block.source.kind === "gql" ? block.source.maxRows : 100;
+        try {
+          const result =
+            block.source.kind === "view"
+              ? await executeSavedViewSource(authContext, state.base.id, block.source.viewId, {
+                  maxRows,
+                  pageSize: maxRows,
+                  operation: "initial-preview",
+                  surface: "ssr",
+                })
+              : (
+                  await executeGqlSource(
+                    authContext,
+                    state.base.id,
+                    { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
+                    { maxRows, operation: "initial-preview" },
+                  )
+                ).response;
+          return [block.id, result] as const;
+        } catch {
+          return [block.id, { ok: false, diagnostics: [{ message: "Could not execute this data source." }] }] as const;
+        }
+      }),
+    );
+    return { ...state, route: { ...route, initialPreviewResults: Object.fromEntries(entries) } } as T;
+  }
   if (state.route.kind === "queryResultView") {
     try {
       const initialResult = await executeSavedViewSource(authContext, state.base.id, state.route.activeView.id, {

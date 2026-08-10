@@ -87,6 +87,8 @@ describe("GridsSidebar Custom Apps", () => {
         icon: "clipboard",
         publishedAt: null,
         updatedAt: "2026-08-07T00:00:00.000Z",
+        draftValid: true,
+        hasUnpublishedChanges: true,
       },
     ];
     state.route = { kind: "customApp", app: { id: state.catalog.customApps[0]!.id } } as OkWorkspaceState["route"];
@@ -96,6 +98,20 @@ describe("GridsSidebar Custom Apps", () => {
     expect(html).toContain("Custom Apps");
     expect(html).toContain("Loan desk");
     expect(html).toContain("/app/grids/BASE1/apps/APP1?edit=true");
+    expect(html).toContain("settings=app");
     expect(html).toContain("draft");
+  });
+
+  test("shows app creation before the first app exists in Edit mode", () => {
+    const state = workflowState();
+    state.adminModeRequested = true;
+    state.canManageBase = true;
+    state.catalog.customApps = [];
+    state.route = { kind: "empty" };
+
+    const html = renderToString(() => createComponent(GridsSidebar, { state }));
+
+    expect(html).toContain("Custom Apps");
+    expect(html).toContain("New app");
   });
 });

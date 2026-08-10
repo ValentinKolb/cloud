@@ -6,7 +6,19 @@ import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "./access";
-import { apply, compile, get, getPublishedByShortId, plan, publish, remove, unpublish } from "./custom-apps";
+import {
+  apply,
+  compile,
+  createBlank,
+  get,
+  getPublishedByShortId,
+  plan,
+  publish,
+  remove,
+  restoreDraft,
+  saveDraft,
+  unpublish,
+} from "./custom-apps";
 import { canExecuteWorkflow } from "./workflow-action-scope";
 import { getWorkflow } from "./workflow-definitions";
 import { createLauncher } from "./workflow-launchers";
@@ -20,6 +32,57 @@ beforeAll(async () => {
 });
 
 describe("Custom App lifecycle", () => {
+  postgresTest("autosaves invalid referenced drafts and restores the live snapshot", async () => {
+    const baseId = testUuid();
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Draft lifecycle')`;
+      const created = await createBlank(baseId, "Draft app");
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      const published = await publish(created.data.id);
+      expect(published.ok).toBe(true);
+
+      const invalidDefinition: CustomAppDefinition = {
+        ...created.data.draftDefinition,
+        pages: created.data.draftDefinition.pages.map((page) => ({
+          ...page,
+          rows: page.rows.map((row) => ({
+            ...row,
+            columns: row.columns.map((column) => ({
+              ...column,
+              blocks: [
+                {
+                  id: "missing-view",
+                  type: "records",
+                  source: { kind: "view", viewId: testUuid() },
+                  display: { kind: "table", columnIds: [testUuid()] },
+                },
+              ],
+            })),
+          })),
+        })),
+      };
+      const saved = await saveDraft(created.data.id, invalidDefinition);
+      expect(saved.ok).toBe(true);
+      if (!saved.ok) return;
+      expect(saved.data.valid).toBe(false);
+      expect(saved.data.app.draftCapabilities).toBeNull();
+      expect(saved.data.app.hasUnpublishedChanges).toBe(true);
+
+      const restored = await restoreDraft(created.data.id);
+      expect(restored.ok).toBe(true);
+      if (!restored.ok) return;
+      expect(restored.data.draftValid).toBe(true);
+      expect(restored.data.hasUnpublishedChanges).toBe(false);
+      expect(restored.data.publishedDefinition).not.toBeNull();
+      if (restored.data.publishedDefinition) {
+        expect(restored.data.draftDefinition).toEqual(restored.data.publishedDefinition);
+      }
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
   postgresTest("compiles references and keeps draft changes isolated until publish", async () => {
     const baseId = testUuid();
     const tableId = testUuid();

@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import {
   type CustomAppBlock,
   type CustomAppCapabilities,
@@ -9,7 +10,6 @@ import {
   CustomAppDefinitionSchema,
   type CustomAppDiagnostic,
 } from "../custom-apps/contracts";
-import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { isRecordWritableFieldType } from "../field-types";
 import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
@@ -32,15 +32,20 @@ export type CustomApp = {
   name: string;
   icon: string | null;
   draftDefinition: CustomAppDefinition;
-  draftCapabilities: CustomAppCapabilities;
+  draftCapabilities: CustomAppCapabilities | null;
   publishedDefinition: CustomAppDefinition | null;
   publishedCapabilities: CustomAppCapabilities | null;
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  draftValid: boolean;
+  hasUnpublishedChanges: boolean;
 };
 
-export type CustomAppSummary = Pick<CustomApp, "id" | "shortId" | "baseId" | "name" | "icon" | "publishedAt" | "updatedAt">;
+export type CustomAppSummary = Pick<
+  CustomApp,
+  "id" | "shortId" | "baseId" | "name" | "icon" | "publishedAt" | "updatedAt" | "draftValid" | "hasUnpublishedChanges"
+>;
 
 export type CompiledCustomApp = { definition: CustomAppDefinition; capabilities: CustomAppCapabilities };
 export type CustomAppCompilation = { ok: true; compiled: CompiledCustomApp } | { ok: false; diagnostics: CustomAppDiagnostic[] };
@@ -51,33 +56,31 @@ export type CustomAppPlan = {
   changes: string[];
 };
 
-const mapRow = (row: DbRow): CustomApp => ({
-  id: row.id as string,
-  shortId: row.short_id as string,
-  baseId: row.base_id as string,
-  name: row.name as string,
-  icon: (row.icon as string | null) ?? null,
-  draftDefinition: CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {})),
-  draftCapabilities: CustomAppCapabilitiesSchema.parse(
-    parseJsonbRow(row.draft_capabilities, {
-      views: [],
-      insights: [],
-      recordQueries: [],
-      records: [],
-      forms: [],
-      comments: [],
-      documents: [],
-      workflowLaunchers: [],
-    }),
-  ),
-  publishedDefinition: row.published_definition ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {})) : null,
-  publishedCapabilities: row.published_capabilities
-    ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.published_capabilities, {}))
-    : null,
-  publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
-  createdAt: (row.created_at as Date).toISOString(),
-  updatedAt: (row.updated_at as Date).toISOString(),
-});
+const mapRow = (row: DbRow): CustomApp => {
+  const draftDefinition = CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {}));
+  const publishedDefinition = row.published_definition
+    ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {}))
+    : null;
+  const draftCapabilities = row.draft_capabilities ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, {})) : null;
+  return {
+    id: row.id as string,
+    shortId: row.short_id as string,
+    baseId: row.base_id as string,
+    name: row.name as string,
+    icon: (row.icon as string | null) ?? null,
+    draftDefinition,
+    draftCapabilities,
+    publishedDefinition,
+    publishedCapabilities: row.published_capabilities
+      ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.published_capabilities, {}))
+      : null,
+    publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
+    createdAt: (row.created_at as Date).toISOString(),
+    updatedAt: (row.updated_at as Date).toISOString(),
+    draftValid: draftCapabilities !== null,
+    hasUnpublishedChanges: !publishedDefinition || stableStringify(draftDefinition) !== stableStringify(publishedDefinition),
+  };
+};
 
 const mapSummaryRow = (row: DbRow): CustomAppSummary => ({
   id: row.id as string,
@@ -87,6 +90,10 @@ const mapSummaryRow = (row: DbRow): CustomAppSummary => ({
   icon: (row.icon as string | null) ?? null,
   publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
   updatedAt: (row.updated_at as Date).toISOString(),
+  draftValid: Boolean(row.draft_capabilities),
+  hasUnpublishedChanges:
+    !row.published_definition ||
+    stableStringify(parseJsonbRow(row.draft_definition, {})) !== stableStringify(parseJsonbRow(row.published_definition, {})),
 });
 
 const stableValue = (value: unknown): unknown => {
@@ -650,7 +657,7 @@ export const listByBase = async (baseId: string): Promise<CustomApp[]> => {
 
 export const listSummariesByBase = async (baseId: string): Promise<CustomAppSummary[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT id, short_id, base_id, name, icon, published_at, updated_at
+    SELECT id, short_id, base_id, name, icon, draft_definition, draft_capabilities, published_definition, published_at, updated_at
     FROM grids.custom_apps
     WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
     ORDER BY name, id
@@ -685,6 +692,99 @@ export const plan = async (input: unknown): Promise<CustomAppPlan> => {
   if (stableStringify(existing.draftDefinition) !== stableStringify(normalizedDefinition)) changes.push("definition");
   if (stableStringify(existing.draftCapabilities) !== stableStringify(capabilities)) changes.push("capabilities");
   return { valid: true, diagnostics: [], action: changes.length === 0 ? "noop" : "update", changes };
+};
+
+export type CustomAppDraftSave = {
+  app: CustomApp;
+  valid: boolean;
+  diagnostics: CustomAppDiagnostic[];
+};
+
+export const saveDraft = async (id: string, input: unknown): Promise<Result<CustomAppDraftSave>> => {
+  const parsed = CustomAppDefinitionSchema.safeParse(input);
+  if (!parsed.success)
+    return fail(
+      err.badInput(
+        zodDiagnostics(parsed.error)
+          .map((item) => item.message)
+          .join("; "),
+      ),
+    );
+  return sql.begin(async (tx): Promise<Result<CustomAppDraftSave>> => {
+    const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
+    if (!locked) return fail(err.notFound("Custom App"));
+    const existing = mapRow(locked);
+    if (parsed.data.id !== existing.id || parsed.data.baseId !== existing.baseId)
+      return fail(err.badInput("Custom App identity is immutable"));
+    if (parsed.data.shortId !== undefined && parsed.data.shortId !== existing.shortId) return fail(err.badInput("shortId is immutable"));
+    const definition = { ...parsed.data, shortId: existing.shortId };
+    const compilation = await compile(definition, tx);
+    const capabilities = compilation.ok ? compilation.compiled.capabilities : null;
+    const diagnostics = compilation.ok ? [] : compilation.diagnostics;
+    const [updated] = await tx<DbRow[]>`
+      UPDATE grids.custom_apps
+      SET name = ${definition.name}, icon = ${definition.icon ?? null}, draft_definition = ${definition}::jsonb,
+          draft_capabilities = ${capabilities}::jsonb, updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING *
+    `;
+    if (!updated) return fail(err.notFound("Custom App"));
+    const app = mapRow(updated);
+    return ok({ app, valid: compilation.ok, diagnostics });
+  });
+};
+
+export const restoreDraft = async (id: string, actorId: string | null = null): Promise<Result<CustomApp>> =>
+  sql.begin(async (tx): Promise<Result<CustomApp>> => {
+    const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
+    if (!locked) return fail(err.notFound("Custom App"));
+    if (!locked.published_definition || !locked.published_capabilities) return fail(err.badInput("Custom App has no live version"));
+    const publishedDefinition = CustomAppDefinitionSchema.parse(parseJsonbRow(locked.published_definition, {}));
+    const [updated] = await tx<DbRow[]>`
+      UPDATE grids.custom_apps
+      SET name = ${publishedDefinition.name}, icon = ${publishedDefinition.icon ?? null},
+          draft_definition = published_definition, draft_capabilities = published_capabilities, updated_at = now()
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING *
+    `;
+    if (!updated) return fail(err.notFound("Custom App"));
+    const app = mapRow(updated);
+    await logAudit(
+      {
+        baseId: app.baseId,
+        userId: actorId,
+        action: "updated",
+        diff: { customAppDraftRestore: { old: locked.updated_at, new: app.updatedAt } },
+      },
+      tx,
+    );
+    return ok(app);
+  });
+
+export const createBlank = async (baseId: string, name: string, actorId: string | null = null): Promise<Result<CustomApp>> => {
+  const definition: CustomAppDefinition = {
+    schemaVersion: 1,
+    kind: "grids.custom-app",
+    id: crypto.randomUUID(),
+    baseId,
+    name,
+    startPageId: "home",
+    pages: [
+      {
+        id: "home",
+        title: "Home",
+        navigation: { visible: true, order: 0 },
+        parameters: {},
+        rows: [
+          {
+            id: "row-1",
+            columns: [{ id: "column-1", span: 12, blocks: [{ id: "welcome", type: "markdown", markdown: `# ${name}` }] }],
+          },
+        ],
+      },
+    ],
+  };
+  return apply(definition, actorId);
 };
 
 export const apply = async (input: unknown, actorId: string | null = null): Promise<Result<CustomApp>> => {

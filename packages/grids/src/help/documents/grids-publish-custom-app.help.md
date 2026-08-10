@@ -74,7 +74,7 @@ Warnings cover reachable but likely poor experiences, such as missing empty copy
 
 ## Publish one snapshot {icon="copy-check"}
 
-Publishing stores the validated app definition and its derived capability set as the new published snapshot. The stable `/apps/<shortId>` route serves that snapshot; the draft remains available to builders.
+The builder saves changes automatically into a draft. When that draft differs from the live version, the Pages notice offers **Publish changes** and **Restore live version**. Publishing first waits for the latest autosave, then stores the validated definition and its derived capability set as the new published snapshot. Restore copies the current published snapshot back into the draft. The stable `/apps/<shortId>` route serves only the published snapshot.
 
 Published apps continue to use the current referenced Grids resources. Permission and row-scope changes take effect immediately. If a referenced resource is later disabled, deleted, or changed incompatibly, only the affected block or action fails closed. The rest of the page remains usable.
 

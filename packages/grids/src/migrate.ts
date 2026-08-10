@@ -1334,6 +1334,7 @@ const migrateCustomApps = async (sql: SQL): Promise<void> => {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_custom_apps_short_id
     ON grids.custom_apps(short_id) WHERE deleted_at IS NULL
   `.simple();
+  await sql`ALTER TABLE grids.custom_apps ALTER COLUMN draft_capabilities DROP NOT NULL`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_custom_apps_base
     ON grids.custom_apps(base_id, name) WHERE deleted_at IS NULL

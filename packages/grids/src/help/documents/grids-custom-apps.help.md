@@ -153,6 +153,12 @@ cld grids apps apply MyBase --source-file requests.yaml
 
 On first apply, Grids assigns the app's stable five-character `shortId`. You may keep `shortId` out of the source file; later applies preserve the assigned value. Use `apps export` for a normalized definition that includes it.
 
+## Build visually {icon="apps"}
+
+Base administrators can turn on **Edit mode** and create an app with **New app** under **Custom Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, and Actions. Records, Metrics, and Charts can use an accessible saved View or inline GQL.
+
+The builder saves every structurally complete change automatically. A notice appears while the draft differs from the live version or still needs attention. **Publish changes** validates and publishes the latest saved draft; **Restore live version** discards the pending draft and copies the current live snapshot back into it. The external-link icon opens the live snapshot. Saved View and parameter-free GQL previews are resolved on the server, and the canvas keeps unchanged blocks mounted while a neighboring block is edited.
+
 ## Grant access and publish {icon="lock"}
 
 Grant the intended Cloud user or group access to the app and its data. The same normal Grids permissions apply; Custom Apps do not create another account or role model.

@@ -22,6 +22,7 @@ import {
 import { requireUuidParam } from "./route-params";
 
 const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
+const CustomAppCreateSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
 const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
 const CustomAppActionInvocationSchema = z.object({ operationId: z.string().uuid() }).strict();
 const RecordCommentListQuerySchema = z
@@ -393,6 +394,12 @@ export const createCustomAppsApi = (
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(await gridsService.customApp.listByBase(baseId));
     })
+    .post("/by-base/:baseId", requireUuidParam("baseId", "Base"), v("json", CustomAppCreateSchema), async (c) => {
+      const baseId = c.req.param("baseId")!;
+      const gate = await gateAt(c, { baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(c, () => gridsService.customApp.createBlank(baseId, c.req.valid("json").name, currentActorUserId(c)));
+    })
     .post("/validate", v("json", CustomAppDefinitionInputSchema), async (c) => {
       const input = c.req.valid("json").definition;
       const denied = await gateDefinitionAdmin(c, input);
@@ -422,6 +429,20 @@ export const createCustomAppsApi = (
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(app);
+    })
+    .put("/:appId/draft", requireUuidParam("appId", "Custom App"), v("json", CustomAppDefinitionInputSchema), async (c) => {
+      const app = await gridsService.customApp.get(c.req.param("appId")!);
+      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      const gate = await gateAt(c, { baseId: app.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(c, () => gridsService.customApp.saveDraft(app.id, c.req.valid("json").definition));
+    })
+    .post("/:appId/restore", requireUuidParam("appId", "Custom App"), async (c) => {
+      const app = await gridsService.customApp.get(c.req.param("appId")!);
+      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      const gate = await gateAt(c, { baseId: app.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(c, () => gridsService.customApp.restoreDraft(app.id, currentActorUserId(c)));
     })
     .get("/:appId/export", requireUuidParam("appId", "Custom App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);

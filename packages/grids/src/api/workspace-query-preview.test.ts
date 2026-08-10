@@ -8,6 +8,7 @@ import { withInitialGqlResults } from "./workspace-query-preview";
 const baseId = "11111111-1111-4111-8111-111111111111";
 const viewId = "22222222-2222-4222-8222-222222222222";
 let savedViewCalls: Array<{ baseId: string; viewId: string; options: unknown }> = [];
+let gqlCalls: Array<{ baseId: string; input: unknown; limits: unknown }> = [];
 
 const aggregateResult: DslQueryPreviewResponse = {
   ok: true,
@@ -30,10 +31,54 @@ const queryResultState = (cursor: string | null = null): GridsWorkspaceState =>
     },
   }) as GridsWorkspaceState;
 
+const customAppState = (): GridsWorkspaceState =>
+  ({
+    kind: "ok",
+    base: { id: baseId },
+    route: {
+      kind: "customApp",
+      app: {
+        draftDefinition: {
+          startPageId: "home",
+          pages: [
+            {
+              id: "home",
+              rows: [
+                {
+                  columns: [
+                    {
+                      blocks: [
+                        {
+                          id: "records",
+                          type: "records",
+                          source: { kind: "view", viewId },
+                          display: { kind: "table", columnIds: [] },
+                        },
+                        {
+                          id: "metrics",
+                          type: "metrics",
+                          source: { kind: "gql", query: "aggregate count(*) as items", maxRows: 1 },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  }) as GridsWorkspaceState;
+
 describe("workspace initial GQL results", () => {
   beforeEach(() => {
     savedViewCalls = [];
-    spyOn(gqlRuntime, "executeGqlSource").mockImplementation(async () => ({ ok: true, response: aggregateResult }) as never);
+    gqlCalls = [];
+    spyOn(gqlRuntime, "executeGqlSource").mockImplementation(async (_context, requestedBaseId, input, limits) => {
+      gqlCalls.push({ baseId: requestedBaseId, input, limits });
+      return { ok: true, response: aggregateResult } as never;
+    });
     spyOn(gqlRuntime, "executeSavedViewSource").mockImplementation(async (_context, requestedBaseId, requestedViewId, options) => {
       savedViewCalls.push({ baseId: requestedBaseId, viewId: requestedViewId, options });
       return aggregateResult;
@@ -63,5 +108,21 @@ describe("workspace initial GQL results", () => {
         options: { maxRows: 500, pageSize: 100, operation: "initial-preview", surface: "ssr", cursor: "signed-cursor" },
       },
     ]);
+  });
+
+  test("resolves the initial Custom App draft page before hydration", async () => {
+    const state = await withInitialGqlResults({} as Context, customAppState());
+
+    expect(savedViewCalls).toHaveLength(1);
+    expect(gqlCalls).toEqual([
+      {
+        baseId,
+        input: { query: "aggregate count(*) as items", limit: 1, pageSize: 1, surface: "ssr" },
+        limits: { maxRows: 1, operation: "initial-preview" },
+      },
+    ]);
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok" || state.route.kind !== "customApp") return;
+    expect(state.route.initialPreviewResults).toEqual({ records: aggregateResult, metrics: aggregateResult });
   });
 });

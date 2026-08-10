@@ -38,7 +38,15 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
   const [workflowRunUpdate, setWorkflowRunUpdate] = createSignal<GridsWorkflowRun | null>(null);
 
   if (route.kind === "customApp") {
-    return <CustomAppBuilder app={route.app} catalog={state.catalog} dateConfig={state.dateConfig} />;
+    return (
+      <CustomAppBuilder
+        app={route.app}
+        catalog={state.catalog}
+        dateConfig={state.dateConfig}
+        initialPreviewResults={route.initialPreviewResults}
+        initialInspectorMode={route.initialInspectorMode}
+      />
+    );
   }
 
   const updateWorkflowRun = (runId: string | null) => {
@@ -61,7 +69,6 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
       window.addEventListener("popstate", onPopState);
       onCleanup(() => window.removeEventListener("popstate", onPopState));
     }
-
   });
 
   if (route.kind === "records") {

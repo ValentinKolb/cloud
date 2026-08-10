@@ -1,5 +1,5 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@k2b/stdlib";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type {
   DocumentRunBrowseResponse,
   DocumentRunSummary,
@@ -195,6 +195,8 @@ export type WorkspaceDocumentTemplateRoute = {
 export type WorkspaceCustomAppRoute = {
   kind: "customApp";
   app: CustomApp;
+  initialInspectorMode: "app" | "page";
+  initialPreviewResults?: Record<string, DslQueryPreviewResponse>;
 };
 
 export type GridsWorkspaceRoute =

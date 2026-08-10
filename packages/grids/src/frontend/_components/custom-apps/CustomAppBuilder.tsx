@@ -4,6 +4,7 @@ import {
   AppWorkspace,
   Button,
   ButtonLink,
+  DetailPanel,
   Dropdown,
   IconButton,
   MultiSelectInput,
@@ -16,13 +17,14 @@ import {
   TextInput,
   Toolbar,
 } from "@k2b/ui";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
+import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppDiagnostic } from "../../../custom-apps/contracts";
 import type { CustomApp, Field, View } from "../../../service";
-import type { CustomAppPlan } from "../../../service/custom-apps";
+import type { CustomAppDraftSave } from "../../../service/custom-apps";
 import { type CustomAppBlockDragMeta, type CustomAppBlockDropMeta, CustomAppPageLayout } from "../../custom-app/PageLayout";
-import { createDraft } from "../editor-draft";
+import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
 import CustomAppBlockPreview from "./CustomAppBlockPreview";
@@ -34,6 +36,7 @@ import {
   sameCustomAppBlockDropIntent,
   selectCustomAppBlockDropTarget,
 } from "./custom-app-builder-dnd";
+import { createCustomAppBuilderState } from "./custom-app-builder-state";
 
 type CustomAppPage = CustomAppDefinition["pages"][number];
 type CustomAppRow = CustomAppPage["rows"][number];
@@ -45,7 +48,6 @@ type SelectedBlock = {
   row: CustomAppRow;
 };
 
-const cloneDefinition = (definition: CustomAppDefinition): CustomAppDefinition => structuredClone(definition);
 const localId = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const chartTypeFrom = (value: string): Extract<CustomAppBlock, { type: "chart" }>["chartType"] | null => {
@@ -109,13 +111,26 @@ const newPage = (definition: CustomAppDefinition): CustomAppPage => {
   };
 };
 
-export default function CustomAppBuilder(props: { app: CustomApp; catalog: WorkspaceCatalog; dateConfig?: DateContext }) {
+export default function CustomAppBuilder(props: {
+  app: CustomApp;
+  catalog: WorkspaceCatalog;
+  dateConfig?: DateContext;
+  initialPreviewResults?: Record<string, DslQueryPreviewResponse>;
+  initialInspectorMode?: "app" | "page";
+}) {
   const [app, setApp] = createSignal(props.app);
-  const draft = createDraft(cloneDefinition(props.app.draftDefinition));
+  const draft = createCustomAppBuilderState(props.app.draftDefinition);
   const [diagnostics, setDiagnostics] = createSignal<CustomAppDiagnostic[]>([]);
+  const [saveState, setSaveState] = createSignal<"idle" | "saving" | "saved" | "error" | "invalid">(
+    props.app.draftValid === false ? "invalid" : "idle",
+  );
+  const [saveError, setSaveError] = createSignal<string | null>(
+    props.app.draftValid === false ? "The saved draft must be fixed before it can be published." : null,
+  );
   const [selectedPageId, setSelectedPageId] = createSignal(props.app.draftDefinition.startPageId);
   const [selectedBlockId, setSelectedBlockId] = createSignal<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = createSignal(true);
+  const [inspectorMode, setInspectorMode] = createSignal<"app" | "page" | "block">(props.initialInspectorMode ?? "page");
   const selectedPage = createMemo(() => draft.draft().pages.find((page) => page.id === selectedPageId()) ?? draft.draft().pages[0]!);
   const selectedBlock = createMemo<SelectedBlock | null>(() => {
     const blockId = selectedBlockId();
@@ -128,10 +143,25 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
     }
     return null;
   });
+  const selectedSourceBlock = createMemo(() => {
+    const block = selectedBlock()?.block;
+    return block?.type === "records" || block?.type === "metrics" || block?.type === "chart" ? block : null;
+  });
+  const selectedRecordBlock = createMemo(() => {
+    const block = selectedBlock()?.block;
+    return block?.type === "record" ? block : null;
+  });
+  const selectedActionsBlock = createMemo(() => {
+    const block = selectedBlock()?.block;
+    return block?.type === "actions" ? block : null;
+  });
   const blockCount = createMemo(() =>
     selectedPage().rows.reduce((total, row) => total + row.columns.reduce((sum, column) => sum + column.blocks.length, 0), 0),
   );
   const tablesById = createMemo(() => new Map(props.catalog.tables.map((table) => [table.id, table])));
+  const tableOptions = createMemo(() =>
+    props.catalog.tables.map((table) => ({ value: table.id, label: table.name, icon: table.icon ?? "ti ti-table" })),
+  );
   const views = createMemo(() =>
     Object.values(props.catalog.viewsByTable)
       .flat()
@@ -206,17 +236,19 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
   const selectPage = (pageId: string) => {
     setSelectedPageId(pageId);
     setSelectedBlockId(null);
+    setInspectorMode("page");
     setInspectorOpen(true);
   };
 
   const selectBlock = (blockId: string) => {
     setSelectedBlockId(blockId);
+    setInspectorMode("block");
     setInspectorOpen(true);
   };
 
   const setDefinition = (update: (current: CustomAppDefinition) => CustomAppDefinition) => {
     setDiagnostics([]);
-    draft.set(update(draft.draft()));
+    draft.set(update(draft.snapshot()));
   };
 
   const patchPage = (patch: Partial<CustomAppPage>) => {
@@ -230,15 +262,8 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
   const updateSelectedBlock = (update: (block: CustomAppBlock) => CustomAppBlock) => {
     const selected = selectedBlock();
     if (!selected) return;
-    patchPage({
-      rows: selectedPage().rows.map((row) => ({
-        ...row,
-        columns: row.columns.map((column) => ({
-          ...column,
-          blocks: column.blocks.map((block) => (block.id === selected.block.id ? update(block) : block)),
-        })),
-      })),
-    });
+    setDiagnostics([]);
+    draft.updateBlock(selectedPage().id, selected.block.id, update);
   };
 
   const addBlock = (block: CustomAppBlock) => {
@@ -268,6 +293,40 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
     if (!form) return;
     addBlock({ id: localId("form"), type: "form", formId: form.id, fixedValues: {} });
   };
+  const addMetricsBlock = () => {
+    const view = readyViews()[0]?.view;
+    if (view) addBlock({ id: localId("metrics"), type: "metrics", source: { kind: "view", viewId: view.id } });
+  };
+  const addChartBlock = () => {
+    const view = readyViews()[0]?.view;
+    if (view) addBlock({ id: localId("chart"), type: "chart", chartType: "bar", limit: 100, source: { kind: "view", viewId: view.id } });
+  };
+  const pageRecordFields = createMemo(() => {
+    const tableId = selectedPage().record?.tableId;
+    return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
+  });
+  const addRecordBlock = () => {
+    const fields = pageRecordFields();
+    if (fields.length > 0) {
+      addBlock({ id: localId("record"), type: "record", fieldIds: fields.map((field) => field.id), editableFieldIds: [] });
+    }
+  };
+  const addCommentsBlock = () => addBlock({ id: localId("comments"), type: "comments" });
+  const addActionsBlock = () =>
+    addBlock({
+      id: localId("actions"),
+      type: "actions",
+      actions: [
+        {
+          id: localId("action"),
+          label: "Open start page",
+          kind: "navigate",
+          pageId: draft.draft().startPageId,
+          history: "push",
+          params: {},
+        },
+      ],
+    });
   const addBlockItems = createMemo(() => [
     { icon: "ti ti-markdown", label: "Markdown", description: "Add formatted text.", action: addTextBlock },
     readyViews().length > 0
@@ -276,6 +335,19 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
     forms().length > 0
       ? { icon: "ti ti-forms", label: "Form", description: "Embed an active form.", action: addFormBlock }
       : { icon: "ti ti-forms", label: "Form", description: "Create and activate a form first.", disabled: true as const },
+    readyViews().length > 0
+      ? { icon: "ti ti-chart-dots", label: "Metrics", description: "Summarize an aggregate view or GQL query.", action: addMetricsBlock }
+      : { icon: "ti ti-chart-dots", label: "Metrics", description: "Create a saved aggregate view first.", disabled: true as const },
+    readyViews().length > 0
+      ? { icon: "ti ti-chart-bar", label: "Chart", description: "Visualize an aggregate view or GQL query.", action: addChartBlock }
+      : { icon: "ti ti-chart-bar", label: "Chart", description: "Create a saved aggregate view first.", disabled: true as const },
+    selectedPage().record && pageRecordFields().length > 0
+      ? { icon: "ti ti-id", label: "Record", description: "Show fields from the page record.", action: addRecordBlock }
+      : { icon: "ti ti-id", label: "Record", description: "Configure a page record first.", disabled: true as const },
+    selectedPage().record
+      ? { icon: "ti ti-messages", label: "Comments", description: "Show comments for the page record.", action: addCommentsBlock }
+      : { icon: "ti ti-messages", label: "Comments", description: "Configure a page record first.", disabled: true as const },
+    { icon: "ti ti-bolt", label: "Actions", description: "Add page or workflow actions.", action: addActionsBlock },
   ]);
 
   const newLayoutIds = (): CustomAppLayoutIds => ({
@@ -341,46 +413,73 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
     setSelectedBlockId(null);
   };
 
-  const persistDraft = async (abortSignal?: AbortSignal): Promise<CustomApp> => {
-    const source = draft.draft();
-    const definition = cloneDefinition(source);
-    const planResponse = await apiClient.apps.plan.$post(
-      { json: { definition } },
-      abortSignal ? { init: { signal: abortSignal } } : undefined,
-    );
-    if (!planResponse.ok) throw new Error(await errorMessage(planResponse, "Could not validate the Custom App draft."));
-    const plan = (await planResponse.json()) as CustomAppPlan;
-    if (draft.draft() === source) setDiagnostics(plan.diagnostics);
-    if (!plan.valid) throw new Error("Fix the highlighted Custom App settings before saving.");
-    const response = await apiClient.apps.apply.$post(
-      { json: { definition } },
-      abortSignal ? { init: { signal: abortSignal } } : undefined,
-    );
-    if (!response.ok) throw new Error(await errorMessage(response, "Could not save the Custom App draft."));
-    const saved = (await response.json()) as CustomApp;
-    setDiagnostics([]);
-    setApp(saved);
-    const current = draft.draft();
-    draft.markSaved(cloneDefinition(saved.draftDefinition));
-    if (current !== source) draft.set(current);
-    return saved;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let saveQueued = false;
+  let activeSave: Promise<boolean> | null = null;
+  const drainQueuedDrafts = async (): Promise<boolean> => {
+    let successful = true;
+    while (saveQueued) {
+      saveQueued = false;
+      const version = draft.version();
+      const definition = draft.snapshot();
+      setSaveState("saving");
+      setSaveError(null);
+      try {
+        const response = await apiClient.apps[":appId"].draft.$put({ param: { appId: app().id }, json: { definition } });
+        if (!response.ok) throw new Error(await errorMessage(response, "Could not save the Custom App draft."));
+        const saved = (await response.json()) as CustomAppDraftSave;
+        setApp(saved.app);
+        setDiagnostics(saved.diagnostics);
+        draft.markSaved(saved.app.draftDefinition);
+        setSaveState(saved.valid ? "saved" : "invalid");
+        setSaveError(saved.valid ? null : "The draft was saved, but it must be fixed before it can be published.");
+        if (draft.version() !== version) saveQueued = true;
+      } catch (error) {
+        setSaveState("error");
+        setSaveError(error instanceof Error ? error.message : "Could not save the Custom App draft.");
+        successful = false;
+        break;
+      }
+    }
+    return successful;
+  };
+  const persistQueuedDrafts = (): Promise<boolean> => {
+    if (activeSave) return activeSave;
+    activeSave = drainQueuedDrafts().finally(() => {
+      activeSave = null;
+    });
+    return activeSave;
   };
 
-  const saveMutation = mutations.create<CustomApp, void>({
-    mutation: (_, { abortSignal }) => persistDraft(abortSignal),
-    onSuccess: () => prompts.success("Custom App draft saved."),
-    onError: (error) => prompts.error(error.message),
+  const queueAutosave = () => {
+    saveQueued = true;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void persistQueuedDrafts(), 650);
+  };
+
+  createEffect(() => {
+    draft.version();
+    if (draft.dirty()) queueAutosave();
   });
+  onCleanup(() => saveTimer && clearTimeout(saveTimer));
+
+  const flushAutosave = async () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = undefined;
+    if (draft.dirty()) saveQueued = true;
+    return persistQueuedDrafts();
+  };
 
   const publishMutation = mutations.create<CustomApp, void>({
     mutation: async (_, { abortSignal }) => {
-      const saved = await persistDraft(abortSignal);
-      const response = await apiClient.apps[":appId"].publish.$post({ param: { appId: saved.id } }, { init: { signal: abortSignal } });
+      if (!(await flushAutosave())) throw new Error("The latest changes could not be saved.");
+      const response = await apiClient.apps[":appId"].publish.$post({ param: { appId: app().id } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not publish the Custom App."));
       return (await response.json()) as CustomApp;
     },
     onSuccess: (published) => {
       setApp(published);
+      draft.markSaved(published.draftDefinition);
       prompts.success("Custom App published.");
     },
     onError: (error) => prompts.error(error.message),
@@ -413,10 +512,28 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
     selectPage(nextPage.id);
   };
 
-  const reset = () => {
-    draft.reset();
-    selectPage(draft.draft().startPageId);
-  };
+  const restoreMutation = mutations.create<CustomApp, void>({
+    mutation: async (_, { abortSignal }) => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = undefined;
+      if (activeSave) await activeSave;
+      saveQueued = false;
+      const response = await apiClient.apps[":appId"].restore.$post({ param: { appId: app().id } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not restore the live version."));
+      return (await response.json()) as CustomApp;
+    },
+    onSuccess: (restored) => {
+      saveQueued = false;
+      setApp(restored);
+      draft.replace(restored.draftDefinition);
+      setDiagnostics([]);
+      setSaveError(null);
+      setSaveState("saved");
+      selectPage(restored.draftDefinition.startPageId);
+      prompts.success("Draft restored to the live version.");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
   return (
     <>
@@ -435,11 +552,13 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
               <strong class="px-1 text-sm">Pages</strong>
             </Toolbar.Group>
             <Toolbar.Spacer />
-            <Toolbar.Group>
-              <Button size="xs" variant="ghost" onClick={addPage}>
-                <i class="ti ti-plus" aria-hidden="true" /> Add
-              </Button>
-            </Toolbar.Group>
+            <Show when={app().publishedAt}>
+              <Toolbar.Group>
+                <ButtonLink href={`/apps/${app().shortId}`} target="_blank" rel="noreferrer" size="xs" aria-label="Open live app">
+                  <i class="ti ti-external-link" aria-hidden="true" />
+                </ButtonLink>
+              </Toolbar.Group>
+            </Show>
           </Toolbar>
           <AppWorkspace.SidebarBody class="p-2" scrollPreserveKey={`grids-custom-app-pages-${props.app.id}`}>
             <AppWorkspace.SidebarSection>
@@ -453,11 +572,59 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
                         <span class="text-[9px] uppercase tracking-wider text-dimmed">start</span>
                       </AppWorkspace.SidebarItemMeta>
                     )}
+                    <AppWorkspace.SidebarItemAction
+                      icon="ti ti-settings"
+                      label={`Settings for ${page.title}`}
+                      onSelect={() => selectPage(page.id)}
+                    />
                   </AppWorkspace.SidebarItem>
                 )}
               </For>
+              <AppWorkspace.SidebarItem tone="success" onClick={addPage}>
+                <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
+                <AppWorkspace.SidebarItemLabel>New page</AppWorkspace.SidebarItemLabel>
+              </AppWorkspace.SidebarItem>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
+          <Show
+            when={
+              !app().publishedAt || app().hasUnpublishedChanges || draft.dirty() || saveState() === "error" || saveState() === "invalid"
+            }
+          >
+            <AppWorkspace.SidebarFooter class="p-2">
+              <NoticeCard
+                tone={saveState() === "error" || saveState() === "invalid" ? "danger" : "warning"}
+                title={app().publishedAt ? "Changes are in a draft" : "This app is a draft"}
+                detail={
+                  saveState() === "saving"
+                    ? "Saving changes automatically…"
+                    : (saveError() ?? "Changes are saved automatically. Publish the draft when it is ready for everyone.")
+                }
+              >
+                <div class="flex flex-wrap gap-2">
+                  <Show when={app().publishedAt}>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      loading={restoreMutation.loading()}
+                      disabled={publishMutation.loading()}
+                      onClick={() => restoreMutation.mutate(undefined)}
+                    >
+                      Restore live version
+                    </Button>
+                  </Show>
+                  <Button
+                    size="xs"
+                    loading={publishMutation.loading()}
+                    disabled={restoreMutation.loading() || saveState() === "invalid" || saveState() === "error"}
+                    onClick={() => publishMutation.mutate(undefined)}
+                  >
+                    Publish changes
+                  </Button>
+                </div>
+              </NoticeCard>
+            </AppWorkspace.SidebarFooter>
+          </Show>
         </AppWorkspace.MainPane>
 
         <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-base" aria-label="Custom App canvas">
@@ -471,44 +638,11 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
             </Toolbar.Group>
             <Toolbar.Spacer />
             <Toolbar.Group>
-              <Button
-                size="xs"
-                variant="secondary"
-                aria-pressed={inspectorOpen() && selectedBlockId() === null}
-                onClick={() => selectPage(selectedPage().id)}
-              >
-                <i class="ti ti-settings" aria-hidden="true" /> Page settings
-              </Button>
               <Dropdown.Root items={addBlockItems()} position="bottom-right" width="16rem" label="Add content block">
                 <Dropdown.Trigger size="xs" variant="secondary">
                   <i class="ti ti-plus" aria-hidden="true" /> Add block
                 </Dropdown.Trigger>
               </Dropdown.Root>
-              <Button size="xs" variant="ghost" disabled={!draft.dirty()} onClick={reset}>
-                Reset
-              </Button>
-              <Show when={app().publishedAt}>
-                <ButtonLink size="xs" variant="secondary" href={`/apps/${app().shortId}`} target="_blank" rel="noreferrer">
-                  <i class="ti ti-external-link" aria-hidden="true" /> Open published
-                </ButtonLink>
-              </Show>
-              <Button
-                size="xs"
-                variant="secondary"
-                loading={saveMutation.loading()}
-                disabled={!draft.dirty() || publishMutation.loading()}
-                onClick={() => saveMutation.mutate(undefined)}
-              >
-                Save
-              </Button>
-              <Button
-                size="xs"
-                loading={publishMutation.loading()}
-                disabled={saveMutation.loading()}
-                onClick={() => publishMutation.mutate(undefined)}
-              >
-                Publish
-              </Button>
             </Toolbar.Group>
           </Toolbar>
 
@@ -530,6 +664,7 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
                   shortId={app().shortId}
                   catalog={props.catalog}
                   dateConfig={props.dateConfig}
+                  initialResult={props.initialPreviewResults?.[block.id]}
                 />
               )}
             />
@@ -538,17 +673,32 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
       </AppWorkspace.Main>
 
       <AppWorkspace.Detail id="custom-app-inspector" open={inspectorOpen()} width="md" resizable minWidth={280} maxWidth={520}>
-        <div class="flex h-full min-h-0 flex-col">
-          <header class="flex items-start justify-between gap-3 p-4">
-            <div>
-              <p class="text-xs uppercase tracking-wider text-dimmed">Inspector</p>
-              <h2 class="font-semibold">{selectedBlockId() ? "Edit block" : "Page settings"}</h2>
-            </div>
-            <IconButton size="sm" label="Close page inspector" onClick={() => setInspectorOpen(false)}>
-              <i class="ti ti-x" aria-hidden="true" />
-            </IconButton>
-          </header>
-          <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-4 pt-1">
+        <DetailPanel>
+          <DetailPanel.Header
+            icon={
+              inspectorMode() === "block"
+                ? blockMeta[selectedBlock()?.block.type ?? "markdown"].icon
+                : inspectorMode() === "app"
+                  ? "ti ti-app-window"
+                  : "ti ti-file-settings"
+            }
+            title={
+              inspectorMode() === "block"
+                ? selectedBlock()?.block.title || blockMeta[selectedBlock()?.block.type ?? "markdown"].label
+                : inspectorMode() === "app"
+                  ? "App settings"
+                  : selectedPage().title
+            }
+            subtitle={inspectorMode() === "block" ? "Content block" : inspectorMode() === "app" ? draft.draft().name : "Page settings"}
+            actions={
+              <IconButton size="sm" label="Close inspector" onClick={() => setInspectorOpen(false)}>
+                <i class="ti ti-x" aria-hidden="true" />
+              </IconButton>
+            }
+          />
+          <DetailPanel.Body
+            scrollPreserveKey={`grids-custom-app-inspector-${app().id}-${inspectorMode()}-${selectedBlockId() ?? selectedPage().id}`}
+          >
             <Show when={diagnosticsForSelection().length > 0}>
               <NoticeCard tone="danger" icon={false} role="alert">
                 <p class="font-medium">This draft needs attention</p>
@@ -557,286 +707,520 @@ export default function CustomAppBuilder(props: { app: CustomApp; catalog: Works
                 </ul>
               </NoticeCard>
             </Show>
-            <Show when={selectedBlockId() === null}>
-              <section class="flex flex-col gap-3" aria-labelledby="custom-app-settings-heading">
-                <h3 id="custom-app-settings-heading" class="text-xs font-semibold uppercase tracking-wider text-dimmed">
-                  App
-                </h3>
-                <TextInput
-                  label="Name"
-                  value={() => draft.draft().name}
-                  onValueChange={(name) => setDefinition((definition) => ({ ...definition, name }))}
-                  required
-                />
-                <TextInput
-                  label="Icon"
-                  description="Tabler icon slug, for example app-window."
-                  value={() => draft.draft().icon ?? ""}
-                  onValueChange={(icon) => setDefinition((definition) => ({ ...definition, icon: icon.trim() || undefined }))}
-                />
-              </section>
-
-              <section class="flex flex-col gap-3" aria-labelledby="custom-page-settings-heading">
-                <h3 id="custom-page-settings-heading" class="text-xs font-semibold uppercase tracking-wider text-dimmed">
-                  Selected page
-                </h3>
-                <TextInput label="Title" value={() => selectedPage().title} onValueChange={(title) => patchPage({ title })} required />
-                <Switch
-                  label="Show in app navigation"
-                  value={() => selectedPage().navigation.visible}
-                  onValueChange={(visible) => patchPage({ navigation: { ...selectedPage().navigation, visible } })}
-                />
-                <Show
-                  when={draft.draft().startPageId === selectedPage().id}
-                  fallback={
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setDefinition((definition) => ({ ...definition, startPageId: selectedPage().id }))}
-                    >
-                      Set as start page
-                    </Button>
-                  }
-                >
-                  <StatusBadge tone="ok" label="Start page" variant="text" />
-                </Show>
-                <div>
-                  <p class="text-xs text-dimmed">Page ID</p>
-                  <code class="text-xs">{selectedPage().id}</code>
-                </div>
-                <Button size="sm" variant="danger" disabled={draft.draft().pages.length === 1} onClick={() => void removePage()}>
-                  <i class="ti ti-trash" aria-hidden="true" /> Remove page
-                </Button>
-              </section>
+            <Show when={inspectorMode() === "app"}>
+              <DetailPanel.Group label="App settings">
+                <DetailPanel.Section title="Identity" icon="ti ti-app-window" tone="accent">
+                  <div class="flex flex-col gap-3">
+                    <TextInput
+                      label="Name"
+                      value={() => draft.draft().name}
+                      onValueChange={(name) => setDefinition((definition) => ({ ...definition, name }))}
+                      required
+                    />
+                    <TextInput
+                      label="Icon"
+                      description="Tabler icon slug, for example app-window."
+                      value={() => draft.draft().icon ?? ""}
+                      onValueChange={(icon) => setDefinition((definition) => ({ ...definition, icon: icon.trim() || undefined }))}
+                    />
+                  </div>
+                </DetailPanel.Section>
+              </DetailPanel.Group>
             </Show>
 
-            <Show when={selectedBlock()}>
-              {(selected) => (
-                <section class="flex flex-col gap-4" aria-labelledby="custom-block-settings-heading">
-                  <div>
-                    <h3 id="custom-block-settings-heading" class="text-xs font-semibold uppercase tracking-wider text-dimmed">
-                      Content block
-                    </h3>
-                    <p class="mt-1 text-sm text-dimmed">{blockMeta[selected().block.type].label}</p>
-                  </div>
-                  <TextInput
-                    label="Title"
-                    value={() => selected().block.title ?? ""}
-                    onValueChange={(title) => updateSelectedBlock((block) => ({ ...block, title: title || undefined }) as CustomAppBlock)}
-                    clearable
-                  />
-                  <Show when={selected().block.type === "markdown"}>
-                    <TextInput
-                      label="Content"
-                      description="Markdown is sanitized when the published app renders it."
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "markdown" ? block.markdown : "";
-                      }}
-                      onValueChange={(markdown) =>
-                        updateSelectedBlock((block) => (block.type === "markdown" ? { ...block, markdown } : block))
-                      }
-                      markdown
+            <Show when={inspectorMode() === "page"}>
+              <DetailPanel.Group label="Page settings">
+                <DetailPanel.Section title="Page" icon="ti ti-file-settings" tone="accent">
+                  <div class="flex flex-col gap-3">
+                    <TextInput label="Title" value={() => selectedPage().title} onValueChange={(title) => patchPage({ title })} required />
+                    <Switch
+                      label="Show in app navigation"
+                      value={() => selectedPage().navigation.visible}
+                      onValueChange={(visible) => patchPage({ navigation: { ...selectedPage().navigation, visible } })}
                     />
-                  </Show>
-                  <Show when={selected().block.type === "records"}>
                     <Select
-                      label="Saved view"
-                      description="Only views you can use in this Base are listed."
-                      placeholder="Choose a saved view"
-                      searchable
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "records" && block.source.kind === "view" ? block.source.viewId : null;
-                      }}
-                      selectedLabel={() => {
-                        const block = selected().block;
-                        if (block.type !== "records" || block.source.kind !== "view") return undefined;
-                        return viewsById().has(block.source.viewId) ? undefined : "Unavailable view";
-                      }}
-                      error={() => {
-                        const block = selected().block;
-                        if (block.type !== "records") return undefined;
-                        if (block.source.kind !== "view") return "Choose a saved view to configure this block visually.";
-                        if (!viewsById().has(block.source.viewId)) return "This saved view is no longer available.";
-                        return diagnosticFor(block.id, "source");
-                      }}
-                      options={viewOptions()}
-                      onValueChange={(viewId) => {
-                        if (!viewId) return;
-                        const view = viewsById().get(viewId);
-                        if (!view) return;
-                        const fields = viewResources().find((resource) => resource.view.id === viewId)?.fields ?? [];
-                        updateSelectedBlock((block) =>
-                          block.type === "records"
-                            ? {
-                                ...block,
-                                source: { kind: "view", viewId },
-                                display: {
-                                  kind: "table",
-                                  columnIds: fields.map((field) => field.id),
-                                },
-                              }
-                            : block,
-                        );
-                      }}
-                    />
-                    <Show when={selectedRecordsView()}>
-                      <MultiSelectInput
-                        label="Columns"
-                        description="Choose up to 30 fields shown by the Records table."
-                        placeholder="Choose columns"
-                        searchable
-                        clearable
-                        value={() => {
-                          const block = selected().block;
-                          return block.type === "records" ? block.display.columnIds : [];
-                        }}
-                        selectedOptions={() => {
-                          const block = selected().block;
-                          if (block.type !== "records") return [];
-                          const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
-                          return block.display.columnIds.map(
-                            (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
-                          );
-                        }}
-                        options={selectedRecordsFieldOptions()}
-                        error={() => {
-                          const block = selected().block;
-                          if (block.type !== "records") return undefined;
-                          if (block.display.columnIds.length === 0) return "Choose at least one column.";
-                          const available = new Set(selectedRecordsFields().map((field) => field.id));
-                          if (block.display.columnIds.some((fieldId) => !available.has(fieldId))) {
-                            return "Replace or remove unavailable fields.";
-                          }
-                          return diagnosticFor(block.id, "columnIds");
-                        }}
-                        onValueChange={(columnIds) =>
-                          updateSelectedBlock((block) =>
-                            block.type === "records" ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } } : block,
-                          )
+                      label="Page record"
+                      description="Adds a required record_id page parameter for Record and Comments blocks."
+                      placeholder="No page record"
+                      clearable
+                      value={() => selectedPage().record?.tableId ?? null}
+                      options={tableOptions()}
+                      onValueChange={(tableId) => {
+                        if (!tableId) {
+                          patchPage({ record: undefined });
+                          return;
                         }
-                      />
-                    </Show>
-                  </Show>
-                  <Show when={selected().block.type === "form"}>
-                    <Select
-                      label="Form"
-                      description="Only active forms you can use in this Base are listed."
-                      placeholder="Choose an active form"
-                      searchable
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "form" ? block.formId : null;
-                      }}
-                      selectedLabel={() => {
-                        const block = selected().block;
-                        return block.type === "form" && !formsById().has(block.formId) ? "Unavailable form" : undefined;
-                      }}
-                      error={() => {
-                        const block = selected().block;
-                        if (block.type !== "form") return undefined;
-                        if (!formsById().has(block.formId)) return "This form is missing or inactive.";
-                        return diagnosticFor(block.id, "formId");
-                      }}
-                      options={formOptions()}
-                      onValueChange={(formId) => {
-                        if (!formId) return;
-                        updateSelectedBlock((block) => (block.type === "form" ? { ...block, formId } : block));
+                        patchPage({
+                          parameters: {
+                            ...selectedPage().parameters,
+                            record_id: { type: "record", tableId, required: true },
+                          },
+                          record: { tableId, id: { source: "PARAMS", path: "record_id" } },
+                        });
                       }}
                     />
-                  </Show>
-                  <Show
-                    when={selected().block.type === "records" || selected().block.type === "record" || selected().block.type === "comments"}
-                  >
-                    <TextInput
-                      label="Empty state"
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "records" || block.type === "record" || block.type === "comments"
-                          ? (block.emptyText ?? "")
-                          : "";
-                      }}
-                      onValueChange={(emptyText) =>
-                        updateSelectedBlock((block) =>
-                          block.type === "records" || block.type === "record" || block.type === "comments"
-                            ? { ...block, emptyText: emptyText || undefined }
-                            : block,
-                        )
+                    <Show
+                      when={draft.draft().startPageId === selectedPage().id}
+                      fallback={
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setDefinition((definition) => ({ ...definition, startPageId: selectedPage().id }))}
+                        >
+                          Set as start page
+                        </Button>
                       }
-                      clearable
-                    />
-                  </Show>
-                  <Show when={selected().block.type === "chart"}>
-                    <TextInput
-                      label="Subtitle"
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "chart" ? (block.subtitle ?? "") : "";
-                      }}
-                      onValueChange={(subtitle) =>
-                        updateSelectedBlock((block) => (block.type === "chart" ? { ...block, subtitle: subtitle || undefined } : block))
-                      }
-                      clearable
-                    />
-                    <Select
-                      label="Chart type"
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "chart" ? block.chartType : null;
-                      }}
-                      onValueChange={(chartType) => {
-                        const next = chartType ? chartTypeFrom(chartType) : null;
-                        if (!next) return;
-                        updateSelectedBlock((block) => (block.type === "chart" ? { ...block, chartType: next } : block));
-                      }}
-                      options={[
-                        { id: "bar", label: "Bar" },
-                        { id: "line", label: "Line" },
-                        { id: "donut", label: "Donut" },
-                        { id: "sparkline", label: "Sparkline" },
-                        { id: "scatter", label: "Scatter" },
-                      ]}
-                    />
-                    <NumberInput
-                      label="Result limit"
-                      value={() => {
-                        const block = selected().block;
-                        return block.type === "chart" ? block.limit : null;
-                      }}
-                      onValueChange={(limit) => {
-                        if (limit === null) return;
-                        updateSelectedBlock((block) => (block.type === "chart" ? { ...block, limit } : block));
-                      }}
-                      min={1}
-                      max={100}
-                      step={1}
-                    />
-                  </Show>
-                  <div class="flex flex-wrap gap-2">
-                    <Button size="sm" variant="secondary" disabled={selected().blockIndex === 0} onClick={() => moveSelectedBlock(-1)}>
-                      <i class="ti ti-arrow-up" aria-hidden="true" /> Move up
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={selected().blockIndex === selected().column.blocks.length - 1}
-                      onClick={() => moveSelectedBlock(1)}
                     >
-                      <i class="ti ti-arrow-down" aria-hidden="true" /> Move down
-                    </Button>
+                      <StatusBadge tone="ok" label="Start page" variant="text" />
+                    </Show>
+                    <div>
+                      <p class="text-xs text-dimmed">Page ID</p>
+                      <code class="text-xs">{selectedPage().id}</code>
+                    </div>
                   </div>
-                  <Button size="sm" variant="danger" disabled={blockCount() === 1} onClick={() => void removeSelectedBlock()}>
-                    <i class="ti ti-trash" aria-hidden="true" /> Remove block
+                </DetailPanel.Section>
+                <DetailPanel.Section title="Danger zone" icon="ti ti-trash" tone="danger">
+                  <Button size="sm" variant="danger" disabled={draft.draft().pages.length === 1} onClick={() => void removePage()}>
+                    <i class="ti ti-trash" aria-hidden="true" /> Remove page
                   </Button>
-                  <Show when={blockCount() === 1}>
-                    <p class="text-xs text-dimmed">A page needs at least one block.</p>
-                  </Show>
-                </section>
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+            </Show>
+
+            <Show when={inspectorMode() === "block" && selectedBlock()}>
+              {(selected) => (
+                <DetailPanel.Group label="Block settings">
+                  <DetailPanel.Section title="Content block" icon={blockMeta[selected().block.type].icon} tone="accent">
+                    <div class="flex flex-col gap-4">
+                      <TextInput
+                        label="Title"
+                        value={() => selected().block.title ?? ""}
+                        onValueChange={(title) =>
+                          updateSelectedBlock((block) => ({ ...block, title: title || undefined }) as CustomAppBlock)
+                        }
+                        clearable
+                      />
+                      <Show when={selected().block.type === "markdown"}>
+                        <TextInput
+                          label="Content"
+                          description="Markdown is sanitized when the published app renders it."
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "markdown" ? block.markdown : "";
+                          }}
+                          onValueChange={(markdown) =>
+                            updateSelectedBlock((block) => (block.type === "markdown" ? { ...block, markdown } : block))
+                          }
+                          markdown
+                        />
+                      </Show>
+                      <Show
+                        when={
+                          selected().block.type === "records" || selected().block.type === "metrics" || selected().block.type === "chart"
+                        }
+                      >
+                        <Select
+                          label="Data source"
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "records" || block.type === "metrics" || block.type === "chart"
+                              ? block.source.kind
+                              : null;
+                          }}
+                          options={[
+                            { id: "view", label: "Saved view", icon: "ti ti-table" },
+                            { id: "gql", label: "GQL query", icon: "ti ti-code" },
+                          ]}
+                          onValueChange={(kind) => {
+                            if (kind !== "view" && kind !== "gql") return;
+                            const resource = readyViews()[0];
+                            const tableName = props.catalog.tables[0]?.name ?? "Table";
+                            updateSelectedBlock((block) => {
+                              if (block.type !== "records" && block.type !== "metrics" && block.type !== "chart") return block;
+                              if (kind === "gql") {
+                                const query =
+                                  block.type === "metrics"
+                                    ? `from table "${tableName}"\naggregate count(*) as total`
+                                    : `from table "${tableName}"`;
+                                return { ...block, source: { kind: "gql", query, maxRows: block.type === "metrics" ? 1 : 100 } };
+                              }
+                              if (!resource) return block;
+                              return block.type === "records"
+                                ? {
+                                    ...block,
+                                    source: { kind: "view", viewId: resource.view.id },
+                                    display: { kind: "table", columnIds: resource.fields.map((field) => field.id) },
+                                  }
+                                : { ...block, source: { kind: "view", viewId: resource.view.id } };
+                            });
+                          }}
+                        />
+                        <Show when={selectedSourceBlock()?.source.kind === "gql"}>
+                          <GqlSourceEditor
+                            baseId={draft.draft().baseId}
+                            label="GQL"
+                            description="Use params with param('name'); parameterized queries preview once a page value exists."
+                            lines={10}
+                            spellcheck={false}
+                            value={() => {
+                              const block = selected().block;
+                              return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                block.source.kind === "gql"
+                                ? block.source.query
+                                : "";
+                            }}
+                            onValueChange={(query) =>
+                              updateSelectedBlock((block) =>
+                                (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                block.source.kind === "gql"
+                                  ? { ...block, source: { ...block.source, query } }
+                                  : block,
+                              )
+                            }
+                          />
+                          <NumberInput
+                            label="Maximum rows"
+                            min={1}
+                            max={100}
+                            step={1}
+                            value={() => {
+                              const block = selected().block;
+                              return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                block.source.kind === "gql"
+                                ? block.source.maxRows
+                                : null;
+                            }}
+                            onValueChange={(maxRows) => {
+                              if (maxRows === null) return;
+                              updateSelectedBlock((block) =>
+                                (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                block.source.kind === "gql"
+                                  ? { ...block, source: { ...block.source, maxRows } }
+                                  : block,
+                              );
+                            }}
+                          />
+                        </Show>
+                      </Show>
+                      <Show
+                        when={
+                          (selectedSourceBlock()?.type === "metrics" || selectedSourceBlock()?.type === "chart") &&
+                          selectedSourceBlock()?.source.kind === "view"
+                        }
+                      >
+                        <Select
+                          label="Saved view"
+                          searchable
+                          value={() => {
+                            const block = selected().block;
+                            return (block.type === "metrics" || block.type === "chart") && block.source.kind === "view"
+                              ? block.source.viewId
+                              : null;
+                          }}
+                          options={viewOptions()}
+                          onValueChange={(viewId) =>
+                            viewId &&
+                            updateSelectedBlock((block) =>
+                              block.type === "metrics" || block.type === "chart" ? { ...block, source: { kind: "view", viewId } } : block,
+                            )
+                          }
+                        />
+                      </Show>
+                      <Show when={selected().block.type === "records"}>
+                        <Show when={selectedSourceBlock()?.type === "records" && selectedSourceBlock()?.source.kind === "view"}>
+                          <Select
+                            label="Saved view"
+                            description="Only views you can use in this Base are listed."
+                            placeholder="Choose a saved view"
+                            searchable
+                            value={() => {
+                              const block = selected().block;
+                              return block.type === "records" && block.source.kind === "view" ? block.source.viewId : null;
+                            }}
+                            selectedLabel={() => {
+                              const block = selected().block;
+                              if (block.type !== "records" || block.source.kind !== "view") return undefined;
+                              return viewsById().has(block.source.viewId) ? undefined : "Unavailable view";
+                            }}
+                            error={() => {
+                              const block = selected().block;
+                              if (block.type !== "records") return undefined;
+                              if (block.source.kind !== "view") return "Choose a saved view to configure this block visually.";
+                              if (!viewsById().has(block.source.viewId)) return "This saved view is no longer available.";
+                              return diagnosticFor(block.id, "source");
+                            }}
+                            options={viewOptions()}
+                            onValueChange={(viewId) => {
+                              if (!viewId) return;
+                              const view = viewsById().get(viewId);
+                              if (!view) return;
+                              const fields = viewResources().find((resource) => resource.view.id === viewId)?.fields ?? [];
+                              updateSelectedBlock((block) =>
+                                block.type === "records"
+                                  ? {
+                                      ...block,
+                                      source: { kind: "view", viewId },
+                                      display: {
+                                        kind: "table",
+                                        columnIds: fields.map((field) => field.id),
+                                      },
+                                    }
+                                  : block,
+                              );
+                            }}
+                          />
+                          <Show when={selectedRecordsView()}>
+                            <MultiSelectInput
+                              label="Columns"
+                              description="Choose up to 30 fields shown by the Records table."
+                              placeholder="Choose columns"
+                              searchable
+                              clearable
+                              value={() => {
+                                const block = selected().block;
+                                return block.type === "records" ? block.display.columnIds : [];
+                              }}
+                              selectedOptions={() => {
+                                const block = selected().block;
+                                if (block.type !== "records") return [];
+                                const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
+                                return block.display.columnIds.map(
+                                  (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
+                                );
+                              }}
+                              options={selectedRecordsFieldOptions()}
+                              error={() => {
+                                const block = selected().block;
+                                if (block.type !== "records") return undefined;
+                                if (block.display.columnIds.length === 0) return "Choose at least one column.";
+                                const available = new Set(selectedRecordsFields().map((field) => field.id));
+                                if (block.display.columnIds.some((fieldId) => !available.has(fieldId))) {
+                                  return "Replace or remove unavailable fields.";
+                                }
+                                return diagnosticFor(block.id, "columnIds");
+                              }}
+                              onValueChange={(columnIds) =>
+                                updateSelectedBlock((block) =>
+                                  block.type === "records"
+                                    ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } }
+                                    : block,
+                                )
+                              }
+                            />
+                          </Show>
+                        </Show>
+                      </Show>
+                      <Show when={selected().block.type === "form"}>
+                        <Select
+                          label="Form"
+                          description="Only active forms you can use in this Base are listed."
+                          placeholder="Choose an active form"
+                          searchable
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "form" ? block.formId : null;
+                          }}
+                          selectedLabel={() => {
+                            const block = selected().block;
+                            return block.type === "form" && !formsById().has(block.formId) ? "Unavailable form" : undefined;
+                          }}
+                          error={() => {
+                            const block = selected().block;
+                            if (block.type !== "form") return undefined;
+                            if (!formsById().has(block.formId)) return "This form is missing or inactive.";
+                            return diagnosticFor(block.id, "formId");
+                          }}
+                          options={formOptions()}
+                          onValueChange={(formId) => {
+                            if (!formId) return;
+                            updateSelectedBlock((block) => (block.type === "form" ? { ...block, formId } : block));
+                          }}
+                        />
+                      </Show>
+                      <Show when={selected().block.type === "record"}>
+                        <MultiSelectInput
+                          label="Fields"
+                          searchable
+                          value={() => selectedRecordBlock()?.fieldIds ?? []}
+                          options={pageRecordFields().map((field) => ({
+                            id: field.id,
+                            label: field.name,
+                            description: field.type,
+                            icon: field.icon ?? "ti ti-column-insert-right",
+                          }))}
+                          onValueChange={(fieldIds) =>
+                            updateSelectedBlock((block) =>
+                              block.type === "record"
+                                ? {
+                                    ...block,
+                                    fieldIds: fieldIds.slice(0, 30),
+                                    editableFieldIds: block.editableFieldIds.filter((id) => fieldIds.includes(id)),
+                                  }
+                                : block,
+                            )
+                          }
+                        />
+                        <MultiSelectInput
+                          label="Editable fields"
+                          searchable
+                          clearable
+                          value={() => selectedRecordBlock()?.editableFieldIds ?? []}
+                          options={pageRecordFields()
+                            .filter((field) => selectedRecordBlock()?.fieldIds.includes(field.id))
+                            .map((field) => ({
+                              id: field.id,
+                              label: field.name,
+                              description: field.type,
+                              icon: field.icon ?? "ti ti-edit",
+                            }))}
+                          onValueChange={(editableFieldIds) =>
+                            updateSelectedBlock((block) =>
+                              block.type === "record" ? { ...block, editableFieldIds: editableFieldIds.slice(0, 30) } : block,
+                            )
+                          }
+                        />
+                      </Show>
+                      <Show when={selected().block.type === "actions"}>
+                        <For each={selectedActionsBlock()?.actions ?? []}>
+                          {(action) => (
+                            <div class="flex flex-col gap-3 rounded-lg border border-subtle p-3">
+                              <TextInput
+                                label="Action label"
+                                value={() => action.label}
+                                onValueChange={(label) =>
+                                  updateSelectedBlock((block) =>
+                                    block.type === "actions"
+                                      ? {
+                                          ...block,
+                                          actions: block.actions.map((candidate) =>
+                                            candidate.id === action.id ? { ...candidate, label } : candidate,
+                                          ),
+                                        }
+                                      : block,
+                                  )
+                                }
+                              />
+                              <Show when={action.kind === "navigate"}>
+                                <Select
+                                  label="Target page"
+                                  value={() => (action.kind === "navigate" ? action.pageId : null)}
+                                  options={draft.draft().pages.map((page) => ({ id: page.id, label: page.title }))}
+                                  onValueChange={(pageId) =>
+                                    pageId &&
+                                    updateSelectedBlock((block) =>
+                                      block.type === "actions"
+                                        ? {
+                                            ...block,
+                                            actions: block.actions.map((candidate) =>
+                                              candidate.id === action.id && candidate.kind === "navigate"
+                                                ? { ...candidate, pageId }
+                                                : candidate,
+                                            ),
+                                          }
+                                        : block,
+                                    )
+                                  }
+                                />
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </Show>
+                      <Show
+                        when={
+                          selected().block.type === "records" || selected().block.type === "record" || selected().block.type === "comments"
+                        }
+                      >
+                        <TextInput
+                          label="Empty state"
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "records" || block.type === "record" || block.type === "comments"
+                              ? (block.emptyText ?? "")
+                              : "";
+                          }}
+                          onValueChange={(emptyText) =>
+                            updateSelectedBlock((block) =>
+                              block.type === "records" || block.type === "record" || block.type === "comments"
+                                ? { ...block, emptyText: emptyText || undefined }
+                                : block,
+                            )
+                          }
+                          clearable
+                        />
+                      </Show>
+                      <Show when={selected().block.type === "chart"}>
+                        <TextInput
+                          label="Subtitle"
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "chart" ? (block.subtitle ?? "") : "";
+                          }}
+                          onValueChange={(subtitle) =>
+                            updateSelectedBlock((block) => (block.type === "chart" ? { ...block, subtitle: subtitle || undefined } : block))
+                          }
+                          clearable
+                        />
+                        <Select
+                          label="Chart type"
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "chart" ? block.chartType : null;
+                          }}
+                          onValueChange={(chartType) => {
+                            const next = chartType ? chartTypeFrom(chartType) : null;
+                            if (!next) return;
+                            updateSelectedBlock((block) => (block.type === "chart" ? { ...block, chartType: next } : block));
+                          }}
+                          options={[
+                            { id: "bar", label: "Bar" },
+                            { id: "line", label: "Line" },
+                            { id: "donut", label: "Donut" },
+                            { id: "sparkline", label: "Sparkline" },
+                            { id: "scatter", label: "Scatter" },
+                          ]}
+                        />
+                        <NumberInput
+                          label="Result limit"
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "chart" ? block.limit : null;
+                          }}
+                          onValueChange={(limit) => {
+                            if (limit === null) return;
+                            updateSelectedBlock((block) => (block.type === "chart" ? { ...block, limit } : block));
+                          }}
+                          min={1}
+                          max={100}
+                          step={1}
+                        />
+                      </Show>
+                      <div class="flex flex-wrap gap-2">
+                        <Button size="sm" variant="secondary" disabled={selected().blockIndex === 0} onClick={() => moveSelectedBlock(-1)}>
+                          <i class="ti ti-arrow-up" aria-hidden="true" /> Move up
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={selected().blockIndex === selected().column.blocks.length - 1}
+                          onClick={() => moveSelectedBlock(1)}
+                        >
+                          <i class="ti ti-arrow-down" aria-hidden="true" /> Move down
+                        </Button>
+                      </div>
+                      <Button size="sm" variant="danger" disabled={blockCount() === 1} onClick={() => void removeSelectedBlock()}>
+                        <i class="ti ti-trash" aria-hidden="true" /> Remove block
+                      </Button>
+                      <Show when={blockCount() === 1}>
+                        <p class="text-xs text-dimmed">A page needs at least one block.</p>
+                      </Show>
+                    </div>
+                  </DetailPanel.Section>
+                </DetailPanel.Group>
               )}
             </Show>
-          </div>
-        </div>
+          </DetailPanel.Body>
+        </DetailPanel>
       </AppWorkspace.Detail>
     </>
   );

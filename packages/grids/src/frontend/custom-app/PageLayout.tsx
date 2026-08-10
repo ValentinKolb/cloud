@@ -1,5 +1,5 @@
 import type { DndController } from "@k2b/stdlib/solid";
-import type { JSX } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppPageHref } from "../../custom-apps/routing";
 import {
@@ -159,210 +159,228 @@ export function CustomAppPageLayout(props: {
             <h1 class="text-2xl font-semibold">{props.page.title}</h1>
           </div>
         </div>
-        {navigation().length > 1 ? (
+        <Show when={navigation().length > 1}>
           <nav aria-label="App pages" class="flex flex-wrap items-center gap-1 rounded-xl bg-subtle p-1">
-            {navigation().map(({ page }) =>
-              props.editor ? (
-                <button
-                  type="button"
-                  aria-current={page.id === props.page.id ? "page" : undefined}
-                  class={`rounded-lg px-3 py-1.5 text-sm font-medium ${page.id === props.page.id ? "bg-surface text-primary shadow-sm" : "text-secondary hover:text-primary"}`}
-                  onClick={() => props.editor?.onSelectPage(page.id)}
-                >
-                  {page.title}
-                </button>
-              ) : (
-                <a
-                  href={customAppPageHref(props.shortId, page.id)}
-                  aria-current={page.id === props.page.id ? "page" : undefined}
-                  class={`rounded-lg px-3 py-1.5 text-sm font-medium ${page.id === props.page.id ? "bg-surface text-primary shadow-sm" : "text-secondary hover:text-primary"}`}
-                >
-                  {page.title}
-                </a>
-              ),
-            )}
+            <For each={navigation()}>
+              {({ page }) =>
+                props.editor ? (
+                  <button
+                    type="button"
+                    aria-current={page.id === props.page.id ? "page" : undefined}
+                    class={`rounded-lg px-3 py-1.5 text-sm font-medium ${page.id === props.page.id ? "bg-surface text-primary shadow-sm" : "text-secondary hover:text-primary"}`}
+                    onClick={() => props.editor?.onSelectPage(page.id)}
+                  >
+                    {page.title}
+                  </button>
+                ) : (
+                  <a
+                    href={customAppPageHref(props.shortId, page.id)}
+                    aria-current={page.id === props.page.id ? "page" : undefined}
+                    class={`rounded-lg px-3 py-1.5 text-sm font-medium ${page.id === props.page.id ? "bg-surface text-primary shadow-sm" : "text-secondary hover:text-primary"}`}
+                  >
+                    {page.title}
+                  </a>
+                )
+              }
+            </For>
           </nav>
-        ) : null}
+        </Show>
       </header>
 
       <div class="flex flex-col gap-8">
-        {props.page.rows.map((row, rowIndex) => {
-          const multiColumnRow = row.columns.length > 1;
-          const previousRow = props.page.rows[rowIndex - 1];
-          const rowIntent = (edge: "before" | "after") => () =>
-            ({ kind: "row", targetRowId: row.id, edge }) satisfies CustomAppBlockDropIntent;
-          return (
-            <div class="custom-app-row relative flex flex-wrap gap-6">
-              {props.editor && multiColumnRow && rowIndex === 0 ? (
-                <DropZone
-                  id={customAppDropZoneId(row.id, "row-before")}
-                  zone="row-before"
-                  label="in a full-width row above"
-                  priority={2}
-                  intent={rowIntent("before")}
-                />
-              ) : null}
-              {props.editor && multiColumnRow ? (
-                <DropZone
-                  id={customAppDropZoneId(row.id, "row-after")}
-                  zone="row-after"
-                  label="in a full-width row below"
-                  priority={2}
-                  intent={rowIntent("after")}
-                />
-              ) : null}
-              {row.columns.map((column, columnIndex) => {
-                const columnRange = (side: "left" | "right") => () => {
-                  const candidates = column.blocks.filter((block) => block.id !== activeBlockId());
-                  const first = candidates[0];
-                  const last = candidates.at(-1);
-                  return first && last
-                    ? ({ kind: "beside", firstBlockId: first.id, lastBlockId: last.id, side } satisfies CustomAppBlockDropIntent)
-                    : null;
-                };
-                const showColumnRange = () =>
-                  multiColumnRow ||
-                  customAppColumnRangeNeedsDropZone(
-                    column.blocks.map((block) => block.id),
-                    activeBlockId(),
-                  );
-                return (
-                  <section class="custom-app-column relative min-w-0 basis-80" style={{ flex: `${column.span} 1 20rem` }}>
-                    {props.editor && showColumnRange() ? (
-                      <>
-                        <DropZone
-                          id={customAppDropZoneId(column.id, "column-left")}
-                          zone="column-left"
-                          label="left of this stack"
-                          priority={1}
-                          betweenColumns={multiColumnRow && columnIndex > 0}
-                          intent={columnRange("left")}
-                        />
-                        {!multiColumnRow || columnIndex === row.columns.length - 1 ? (
-                          <DropZone
-                            id={customAppDropZoneId(column.id, "column-right")}
-                            zone="column-right"
-                            label="right of this stack"
-                            priority={1}
-                            intent={columnRange("right")}
-                          />
-                        ) : null}
-                      </>
-                    ) : null}
-                    <div class="custom-app-block-stack">
-                      {column.blocks.map((block, blockIndex) => {
-                        const nextBlock = column.blocks[blockIndex + 1];
-                        const intent = (value: CustomAppBlockDropIntent) => () => value;
-                        const pairLeftId = customAppDropZoneId(block.id, "pair-left");
-                        const pairRightId = customAppDropZoneId(block.id, "pair-right");
-                        const previousRowOwnsBoundary =
-                          !multiColumnRow && blockIndex === 0 && previousRow !== undefined && previousRow.columns.length > 1;
-                        return (
+        <For each={props.page.rows}>
+          {(row, rowIndex) => {
+            const multiColumnRow = row.columns.length > 1;
+            const previousRow = () => props.page.rows[rowIndex() - 1];
+            const rowIntent = (edge: "before" | "after") => () =>
+              ({ kind: "row", targetRowId: row.id, edge }) satisfies CustomAppBlockDropIntent;
+            return (
+              <div class="custom-app-row relative flex flex-wrap gap-6">
+                {props.editor && multiColumnRow && rowIndex() === 0 ? (
+                  <DropZone
+                    id={customAppDropZoneId(row.id, "row-before")}
+                    zone="row-before"
+                    label="in a full-width row above"
+                    priority={2}
+                    intent={rowIntent("before")}
+                  />
+                ) : null}
+                {props.editor && multiColumnRow ? (
+                  <DropZone
+                    id={customAppDropZoneId(row.id, "row-after")}
+                    zone="row-after"
+                    label="in a full-width row below"
+                    priority={2}
+                    intent={rowIntent("after")}
+                  />
+                ) : null}
+                <For each={row.columns}>
+                  {(column, columnIndex) => {
+                    const columnRange = (side: "left" | "right") => () => {
+                      const candidates = column.blocks.filter((block) => block.id !== activeBlockId());
+                      const first = candidates[0];
+                      const last = candidates.at(-1);
+                      return first && last
+                        ? ({ kind: "beside", firstBlockId: first.id, lastBlockId: last.id, side } satisfies CustomAppBlockDropIntent)
+                        : null;
+                    };
+                    const showColumnRange = () =>
+                      multiColumnRow ||
+                      customAppColumnRangeNeedsDropZone(
+                        column.blocks.map((block) => block.id),
+                        activeBlockId(),
+                      );
+                    return (
+                      <section class="custom-app-column relative min-w-0 basis-80" style={{ flex: `${column.span} 1 20rem` }}>
+                        {props.editor && showColumnRange() ? (
                           <>
-                            <article
-                              ref={(element) => {
-                                const controller = props.editor?.dnd;
-                                if (!controller) return;
-                                controller.draggable(element, () => ({
-                                  id: customAppBlockDragId(block.id),
-                                  meta: { blockId: block.id, label: blockLabel[block.type] },
-                                  focusable: false,
-                                  keyboard: true,
-                                  handleSelector: '[data-custom-app-dnd-handle="block"]',
-                                }));
-                              }}
-                              class="custom-app-block relative min-w-0"
-                              style={{ "grid-row": `${blockIndex + 1}` }}
-                              data-editing={props.editor ? "true" : undefined}
-                              data-selected={props.editor?.selectedBlockId() === block.id ? "true" : undefined}
-                              onPointerDown={(event) => selectFromCanvas(event, block.id)}
-                            >
-                              {props.editor ? (
+                            <DropZone
+                              id={customAppDropZoneId(column.id, "column-left")}
+                              zone="column-left"
+                              label="left of this stack"
+                              priority={1}
+                              betweenColumns={multiColumnRow && columnIndex() > 0}
+                              intent={columnRange("left")}
+                            />
+                            {!multiColumnRow || columnIndex() === row.columns.length - 1 ? (
+                              <DropZone
+                                id={customAppDropZoneId(column.id, "column-right")}
+                                zone="column-right"
+                                label="right of this stack"
+                                priority={1}
+                                intent={columnRange("right")}
+                              />
+                            ) : null}
+                          </>
+                        ) : null}
+                        <div class="custom-app-block-stack">
+                          <For each={column.blocks}>
+                            {(block, blockIndex) => {
+                              const nextBlock = () => column.blocks[blockIndex() + 1];
+                              const intent = (value: CustomAppBlockDropIntent) => () => value;
+                              const pairLeftId = customAppDropZoneId(block.id, "pair-left");
+                              const pairRightId = customAppDropZoneId(block.id, "pair-right");
+                              const previousRowOwnsBoundary =
+                                !multiColumnRow && blockIndex() === 0 && previousRow() !== undefined && previousRow()!.columns.length > 1;
+                              return (
                                 <>
-                                  <EditorHandle block={block} />
-                                  {!previousRowOwnsBoundary ? (
-                                    <DropZone
-                                      id={customAppDropZoneId(block.id, "before")}
-                                      zone="before"
-                                      label={`before ${blockLabel[block.type]}`}
-                                      priority={3}
-                                      intent={intent({ kind: "stack", targetBlockId: block.id, edge: "before" })}
-                                    />
-                                  ) : null}
-                                  {blockIndex === column.blocks.length - 1 ? (
-                                    <DropZone
-                                      id={customAppDropZoneId(block.id, "after")}
-                                      zone="after"
-                                      label={`after ${blockLabel[block.type]}`}
-                                      priority={3}
-                                      intent={intent({ kind: "stack", targetBlockId: block.id, edge: "after" })}
-                                    />
-                                  ) : null}
-                                  {!multiColumnRow ? (
+                                  <article
+                                    ref={(element) => {
+                                      const controller = props.editor?.dnd;
+                                      if (!controller) return;
+                                      controller.draggable(element, () => ({
+                                        id: customAppBlockDragId(block.id),
+                                        meta: { blockId: block.id, label: blockLabel[block.type] },
+                                        focusable: false,
+                                        keyboard: true,
+                                        handleSelector: '[data-custom-app-dnd-handle="block"]',
+                                      }));
+                                    }}
+                                    class="custom-app-block relative min-w-0"
+                                    style={{ "grid-row": `${blockIndex() + 1}` }}
+                                    data-editing={props.editor ? "true" : undefined}
+                                    data-selected={props.editor?.selectedBlockId() === block.id ? "true" : undefined}
+                                    onPointerDown={(event) => selectFromCanvas(event, block.id)}
+                                  >
+                                    {props.editor ? (
+                                      <>
+                                        <EditorHandle block={block} />
+                                        {!previousRowOwnsBoundary ? (
+                                          <DropZone
+                                            id={customAppDropZoneId(block.id, "before")}
+                                            zone="before"
+                                            label={`before ${blockLabel[block.type]}`}
+                                            priority={3}
+                                            intent={intent({ kind: "stack", targetBlockId: block.id, edge: "before" })}
+                                          />
+                                        ) : null}
+                                        {blockIndex() === column.blocks.length - 1 ? (
+                                          <DropZone
+                                            id={customAppDropZoneId(block.id, "after")}
+                                            zone="after"
+                                            label={`after ${blockLabel[block.type]}`}
+                                            priority={3}
+                                            intent={intent({ kind: "stack", targetBlockId: block.id, edge: "after" })}
+                                          />
+                                        ) : null}
+                                        {!multiColumnRow ? (
+                                          <>
+                                            <DropZone
+                                              id={customAppDropZoneId(block.id, "left")}
+                                              zone="left"
+                                              label={`left of ${blockLabel[block.type]}`}
+                                              priority={3}
+                                              intent={intent({
+                                                kind: "beside",
+                                                firstBlockId: block.id,
+                                                lastBlockId: block.id,
+                                                side: "left",
+                                              })}
+                                            />
+                                            <DropZone
+                                              id={customAppDropZoneId(block.id, "right")}
+                                              zone="right"
+                                              label={`right of ${blockLabel[block.type]}`}
+                                              priority={3}
+                                              intent={intent({
+                                                kind: "beside",
+                                                firstBlockId: block.id,
+                                                lastBlockId: block.id,
+                                                side: "right",
+                                              })}
+                                            />
+                                          </>
+                                        ) : null}
+                                      </>
+                                    ) : null}
+                                    {block.title && block.type !== "comments" ? (
+                                      <h2 class="mb-3 text-base font-semibold">{block.title}</h2>
+                                    ) : null}
+                                    {props.renderBlock(block)}
+                                  </article>
+                                  {props.editor && !multiColumnRow && nextBlock() ? (
                                     <>
                                       <DropZone
-                                        id={customAppDropZoneId(block.id, "left")}
-                                        zone="left"
-                                        label={`left of ${blockLabel[block.type]}`}
-                                        priority={3}
-                                        intent={intent({ kind: "beside", firstBlockId: block.id, lastBlockId: block.id, side: "left" })}
+                                        id={pairLeftId}
+                                        zone="pair-left"
+                                        label={`left of ${blockLabel[block.type]} and ${blockLabel[nextBlock()!.type]}`}
+                                        priority={4}
+                                        pair={{ side: "left", gridRow: `${blockIndex() + 1} / span 2` }}
+                                        intent={intent({
+                                          kind: "beside",
+                                          firstBlockId: block.id,
+                                          lastBlockId: nextBlock()!.id,
+                                          side: "left",
+                                        })}
                                       />
                                       <DropZone
-                                        id={customAppDropZoneId(block.id, "right")}
-                                        zone="right"
-                                        label={`right of ${blockLabel[block.type]}`}
-                                        priority={3}
-                                        intent={intent({ kind: "beside", firstBlockId: block.id, lastBlockId: block.id, side: "right" })}
+                                        id={pairRightId}
+                                        zone="pair-right"
+                                        label={`right of ${blockLabel[block.type]} and ${blockLabel[nextBlock()!.type]}`}
+                                        priority={4}
+                                        pair={{ side: "right", gridRow: `${blockIndex() + 1} / span 2` }}
+                                        intent={intent({
+                                          kind: "beside",
+                                          firstBlockId: block.id,
+                                          lastBlockId: nextBlock()!.id,
+                                          side: "right",
+                                        })}
                                       />
                                     </>
                                   ) : null}
                                 </>
-                              ) : null}
-                              {block.title && block.type !== "comments" ? (
-                                <h2 class="mb-3 text-base font-semibold">{block.title}</h2>
-                              ) : null}
-                              {props.renderBlock(block)}
-                            </article>
-                            {props.editor && !multiColumnRow && nextBlock ? (
-                              <>
-                                <DropZone
-                                  id={pairLeftId}
-                                  zone="pair-left"
-                                  label={`left of ${blockLabel[block.type]} and ${blockLabel[nextBlock.type]}`}
-                                  priority={4}
-                                  pair={{ side: "left", gridRow: `${blockIndex + 1} / span 2` }}
-                                  intent={intent({
-                                    kind: "beside",
-                                    firstBlockId: block.id,
-                                    lastBlockId: nextBlock.id,
-                                    side: "left",
-                                  })}
-                                />
-                                <DropZone
-                                  id={pairRightId}
-                                  zone="pair-right"
-                                  label={`right of ${blockLabel[block.type]} and ${blockLabel[nextBlock.type]}`}
-                                  priority={4}
-                                  pair={{ side: "right", gridRow: `${blockIndex + 1} / span 2` }}
-                                  intent={intent({
-                                    kind: "beside",
-                                    firstBlockId: block.id,
-                                    lastBlockId: nextBlock.id,
-                                    side: "right",
-                                  })}
-                                />
-                              </>
-                            ) : null}
-                          </>
-                        );
-                      })}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          );
-        })}
+                              );
+                            }}
+                          </For>
+                        </div>
+                      </section>
+                    );
+                  }}
+                </For>
+              </div>
+            );
+          }}
+        </For>
       </div>
     </main>
   );

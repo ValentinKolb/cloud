@@ -1,18 +1,21 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, MarkdownView, Placeholder } from "@k2b/ui";
+import { Button, MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { createMemo, createResource, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { CustomAppBlock } from "../../../custom-apps/contracts";
 import type { Form } from "../../../service";
+import { chartDataFromPreview, metricCellsFromPreview } from "../../../service/custom-app-insights";
+import CustomAppChart from "../../custom-app/Chart";
 import RecordsTable from "../../custom-app/RecordsTable.island";
+import { formatCustomAppValue } from "../../custom-app/value-format";
 import FormSubmit from "../forms/PublicFormSubmit.island";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
 
-type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
+type SourceBlock = Extract<CustomAppBlock, { type: "records" | "metrics" | "chart" }>;
 
-const loadRecords = async (baseId: string, block: RecordsBlock): Promise<DslQueryPreviewResponse> => {
+const loadSource = async (baseId: string, block: SourceBlock): Promise<DslQueryPreviewResponse> => {
   if (block.source.kind === "gql" && Object.keys(block.source.inputs ?? {}).length > 0) {
     return { ok: false, diagnostics: [{ message: "Page parameters are required to preview this query." }] };
   }
@@ -20,13 +23,13 @@ const loadRecords = async (baseId: string, block: RecordsBlock): Promise<DslQuer
     block.source.kind === "view"
       ? await apiClient.gql["by-base"][":baseId"].views[":viewId"].execute.$post({
           param: { baseId, viewId: block.source.viewId },
-          json: { pageSize: 100, surface: "custom-app" },
+          json: { pageSize: block.type === "chart" ? block.limit : 100, surface: "custom-app" },
         })
       : await apiClient.gql["by-base"][":baseId"].execute.$post({
           param: { baseId },
           json: { query: block.source.query, pageSize: block.source.maxRows, limit: block.source.maxRows, surface: "custom-app" },
         });
-  if (!response.ok) throw new Error(await errorMessage(response, "Could not load Records preview."));
+  if (!response.ok) throw new Error(await errorMessage(response, "Could not load the data preview."));
   return response.json();
 };
 
@@ -40,9 +43,26 @@ const renderableForm = (form: Form, fixedFieldIds: string[]) => ({
   },
 });
 
-function RecordsPreview(props: { baseId: string; shortId: string; block: RecordsBlock }) {
+function SourcePreview(props: {
+  baseId: string;
+  shortId: string;
+  block: SourceBlock;
+  catalog: WorkspaceCatalog;
+  dateConfig?: DateContext;
+  initialResult?: DslQueryPreviewResponse;
+}) {
+  const initialSource = JSON.stringify([props.baseId, props.block.source]);
   const source = () => JSON.stringify([props.baseId, props.block.source]);
-  const [preview] = createResource(source, () => loadRecords(props.baseId, props.block));
+  const [preview] = createResource(
+    () => (props.initialResult && source() === initialSource ? false : source()),
+    () => loadSource(props.baseId, props.block),
+    { initialValue: props.initialResult },
+  );
+  const sourceFields = () => {
+    const result = preview();
+    const tableIds = new Set((result?.ok ? result.columns : []).flatMap((column) => (column.tableId ? [column.tableId] : [])));
+    return [...tableIds].flatMap((tableId) => props.catalog.fieldsByTable[tableId] ?? []);
+  };
   return (
     <Show
       when={!preview.loading}
@@ -54,7 +74,15 @@ function RecordsPreview(props: { baseId: string; shortId: string; block: Records
       >
         {(result) => {
           const resolved = result();
-          return resolved.ok ? (
+          if (!resolved.ok)
+            return (
+              <Placeholder
+                align="left"
+                title="Data unavailable"
+                description={resolved.diagnostics[0]?.message ?? "The data source could not be previewed."}
+              />
+            );
+          return props.block.type === "records" ? (
             <RecordsTable
               title={props.block.title ?? "Records"}
               emptyText={props.block.emptyText ?? "No records found."}
@@ -62,12 +90,24 @@ function RecordsPreview(props: { baseId: string; shortId: string; block: Records
               selectedColumnIds={props.block.display.columnIds}
               result={resolved}
             />
-          ) : (
-            <Placeholder
-              align="left"
-              title="Records unavailable"
-              description={resolved.diagnostics[0]?.message ?? "The data source could not be previewed."}
+          ) : props.block.type === "metrics" ? (
+            <StatGrid columns={3}>
+              <For each={metricCellsFromPreview(resolved, sourceFields())}>
+                {(cell) => {
+                  const value = formatCustomAppValue(cell.value, cell.valueFormat, props.dateConfig);
+                  return <StatCell label={cell.label} value={value} title={value} />;
+                }}
+              </For>
+            </StatGrid>
+          ) : props.dateConfig ? (
+            <CustomAppChart
+              chartType={props.block.chartType}
+              data={chartDataFromPreview(resolved, sourceFields())}
+              valueFormat={props.block.valueFormat}
+              dateConfig={props.dateConfig}
             />
+          ) : (
+            <Placeholder align="left" title="Chart preview unavailable" description="Date formatting context is missing." />
           );
         }}
       </Show>
@@ -81,6 +121,7 @@ export default function CustomAppBlockPreview(props: {
   shortId: string;
   catalog: WorkspaceCatalog;
   dateConfig?: DateContext;
+  initialResult?: DslQueryPreviewResponse;
 }) {
   const form = createMemo(() => {
     const block = props.block;
@@ -100,8 +141,15 @@ export default function CustomAppBlockPreview(props: {
 
   return props.block.type === "markdown" ? (
     <MarkdownView markdown={props.block.markdown} smallHeadings />
-  ) : props.block.type === "records" ? (
-    <RecordsPreview baseId={props.baseId} shortId={props.shortId} block={props.block} />
+  ) : props.block.type === "records" || props.block.type === "metrics" || props.block.type === "chart" ? (
+    <SourcePreview
+      baseId={props.baseId}
+      shortId={props.shortId}
+      block={props.block}
+      catalog={props.catalog}
+      dateConfig={props.dateConfig}
+      initialResult={props.initialResult}
+    />
   ) : props.block.type === "form" ? (
     <Show when={form()} fallback={<Placeholder align="left" title="Form unavailable" description="Choose an active Form in this Base." />}>
       {(selected) => (

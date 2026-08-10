@@ -1,5 +1,6 @@
 import { AppWorkspace } from "@k2b/ui";
 import BaseSettingsButton from "../sidebar/BaseSettingsButton.island";
+import CreateCustomAppButton from "../sidebar/CreateCustomAppButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
 import CreateWorkflowButton from "../sidebar/CreateWorkflowButton.island";
 import EmailTemplatesButton from "../sidebar/EmailTemplatesButton.island";
@@ -159,7 +160,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
         </AppWorkspace.SidebarSection>
       )}
 
-      {state.catalog.customApps.length > 0 && (
+      {(state.catalog.customApps.length > 0 || (state.adminModeRequested && state.canManageBase)) && (
         <AppWorkspace.SidebarSection title="Custom Apps">
           {state.catalog.customApps.map((app) => (
             <SidebarLink
@@ -174,8 +175,19 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
                   <span class="text-[9px] uppercase tracking-wider text-dimmed">draft</span>
                 </AppWorkspace.SidebarItemMeta>
               )}
+              {activeCustomAppId === app.id && (
+                <AppWorkspace.SidebarItemAction
+                  icon="ti ti-settings"
+                  label={`Settings for ${app.name}`}
+                  href={`/app/grids/${state.base.shortId}/apps/${app.shortId}?edit=true&settings=app`}
+                  navigation="document"
+                />
+              )}
             </SidebarLink>
           ))}
+          {state.adminModeRequested && state.canManageBase && (
+            <CreateCustomAppButton baseId={state.base.id} baseShortId={state.base.shortId} />
+          )}
         </AppWorkspace.SidebarSection>
       )}
     </>

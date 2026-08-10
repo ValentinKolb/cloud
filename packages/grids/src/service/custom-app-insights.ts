@@ -1,6 +1,6 @@
 import type { AggregationSpec, DslQueryPreviewColumn, DslQueryPreviewResponse, GroupBySpec } from "../contracts";
+import { customAppAggregateOutputKey } from "../custom-apps/aggregate-output";
 import type { CustomAppValueFormat } from "../custom-apps/contracts";
-import { aggregateOutputKey } from "./aggregate-capabilities";
 import type { Field } from "./types";
 
 type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
@@ -56,7 +56,7 @@ const previewChartShape = (preview: PreviewSuccess) => {
       values: Object.fromEntries(
         aggregateColumns.flatMap((column, index) => {
           const spec = aggregations[index];
-          return spec ? [[aggregateOutputKey(spec.fieldId, spec.agg), row.values[column.key] ?? null]] : [];
+          return spec ? [[customAppAggregateOutputKey(spec.fieldId, spec.agg), row.values[column.key] ?? null]] : [];
         }),
       ),
     })),

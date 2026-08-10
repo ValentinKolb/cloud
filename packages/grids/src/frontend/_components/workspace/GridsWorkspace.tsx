@@ -31,6 +31,10 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
       catalog.fieldsByTable = state.catalog.fieldsByTable;
       catalog.viewsByTable = state.catalog.viewsByTable;
       catalog.formsByTable = state.catalog.formsByTable;
+      catalog.workflows = state.catalog.workflows;
+      catalog.workflowLevels = state.catalog.workflowLevels;
+      catalog.documentTemplatesByTable = state.catalog.documentTemplatesByTable;
+      catalog.documentTemplateLevels = state.catalog.documentTemplateLevels;
       break;
     case "records":
     case "queryResultView":

@@ -59,6 +59,8 @@ const app = (): CustomApp => ({
   publishedAt: null,
   createdAt: "2026-08-07T00:00:00.000Z",
   updatedAt: "2026-08-07T00:00:00.000Z",
+  draftValid: true,
+  hasUnpublishedChanges: true,
 });
 
 const catalog = (): WorkspaceCatalog => ({
@@ -195,8 +197,12 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain('class="custom-app-drop-indicator"');
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain('class="k2b-content-markdown ');
-    expect(html).toContain("Close page inspector");
+    expect(html).toContain("Close inspector");
+    expect(html).toContain("k2b-detail-panel__body");
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page settings"');
     expect(html).toContain("Show in app navigation");
+    expect(html).toMatch(/k2b-app-workspace__sidebar-body[\s\S]*k2b-app-workspace__sidebar-footer[\s\S]*This app is a draft/);
+    expect(html).toMatch(/k2b-app-workspace__sidebar-footer[^>]*>[\s\S]*k2b-notice-card/);
     expect(html).not.toContain("grids-builder-block");
     expect(html).not.toContain("custom-app-row-control");
     expect(html).not.toContain("custom-app-column-control");
@@ -204,6 +210,15 @@ describe("CustomAppBuilder", () => {
     expect(html).not.toContain('class="paper');
     expect(html).not.toContain("border-b border-subtle");
     expect(html).not.toContain("border-t border-subtle");
+  });
+
+  test("uses the shared GQL source editor instead of the Markdown input", async () => {
+    const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
+    const gqlSettings = source.slice(source.indexOf('<Show when={selectedSourceBlock()?.source.kind === "gql"}>'));
+
+    expect(gqlSettings).toContain("<GqlSourceEditor");
+    expect(gqlSettings).toContain("baseId={draft.draft().baseId}");
+    expect(gqlSettings).not.toMatch(/<TextInput[\s\S]{0,240}label="GQL"/);
   });
 
   test("uses the workspace edit accent for selected and focused blocks", async () => {
