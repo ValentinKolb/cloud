@@ -1,5 +1,5 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
   Button,
   ButtonLink,
@@ -16,15 +16,15 @@ import {
   Tooltip,
   toast,
 } from "@k2b/ui";
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
-import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
+import { openEditItemDialog, saveItemFormData } from "../shared/editItem";
 import { summarizeRecurrence } from "../shared/recurrence";
 import SpaceAssigneePicker from "../shared/SpaceAssigneePicker";
-import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { invalidateSpacesData, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import type { SpaceItemDetail } from "../workspace/workspace-types";
 import { canTransferThroughWormhole, showWormholeTransferToast, transferThroughWormhole } from "../wormhole-transfer";
 import CommentsSection from "./CommentsSection";
@@ -115,7 +115,8 @@ function AssigneesSection(props: {
  * All edits are saved immediately via API.
  */
 export default function ItemDetailPanel(props: Props) {
-  const [commentsPage, setCommentsPage] = createSignal(props.initialCommentsPage);
+  const reconcileAfterWrite = () =>
+    void invalidateSpacesData().catch(() => prompts.error("Changes were saved, but item data could not be refreshed."));
   const [selectedPriorityValue, setSelectedPriorityValue] = createSignal<string | null>(props.item.priority);
   const [selectedTagIds, setSelectedTagIds] = createSignal(props.item.tags?.map((tag) => tag.id) ?? []);
   let selectedItemId = props.item.id;
@@ -152,7 +153,7 @@ export default function ItemDetailPanel(props: Props) {
   const handleItemUpdated = (item: SpaceItem | null) => {
     if (!item) return;
     toast.success("Item updated");
-    requestCurrentSpacesRouteRefresh();
+    reconcileAfterWrite();
   };
 
   const loadCommentsPage = async (page: number, signal: AbortSignal) => {
@@ -171,38 +172,32 @@ export default function ItemDetailPanel(props: Props) {
     return res.json();
   };
 
-  const refreshCommentsMutation = mutations.create<SpaceItemDetail["comments"], void>({
-    mutation: (_vars, ctx) => loadCommentsPage(1, ctx.abortSignal),
-    onSuccess: setCommentsPage,
-    onError: (err) => {
-      if (err.name === "AbortError") return;
-      prompts.error(err.message);
+  const commentsSource = `${props.commentTarget.itemId}:${props.commentTarget.recurrenceId ?? "series"}`;
+  const commentsQuery = query.createInfinite<string, SpaceItemDetail["comments"], number>({
+    source: () => commentsSource,
+    initial: { source: commentsSource, pages: [props.initialCommentsPage] },
+    loadPage: async (_source, { cursor, abortSignal }) => {
+      const page = cursor ?? 1;
+      const result = await loadCommentsPage(page, abortSignal);
+      if (result.page !== page) throw new Error("The server returned an invalid comments page.");
+      return result;
     },
+    getNextCursor: (page) => (page.hasNext ? page.page + 1 : null),
   });
-
-  const loadEarlierCommentsMutation = mutations.create<SpaceItemDetail["comments"], void>({
-    mutation: (_vars, ctx) => loadCommentsPage(commentsPage().page + 1, ctx.abortSignal),
-    onSuccess: (older) => {
-      setCommentsPage((current) => ({
-        ...older,
-        items: [...older.items, ...current.items],
-        total: Math.max(older.total, current.total),
-      }));
-    },
-    onError: (err) => {
-      if (err.name !== "AbortError") prompts.error(err.message);
-    },
-  });
-
-  const refreshComments = () => {
-    refreshCommentsMutation.abort();
-    void refreshCommentsMutation.mutate(undefined);
+  const commentsPage = () => {
+    const pages = commentsQuery.pages();
+    const first = pages[0] ?? props.initialCommentsPage;
+    const last = pages.at(-1) ?? first;
+    const seen = new Set<string>();
+    const items = pages
+      .flatMap((page) => page.items)
+      .filter((comment) => {
+        if (seen.has(comment.id)) return false;
+        seen.add(comment.id);
+        return true;
+      });
+    return { ...last, items, total: Math.max(first.total, last.total) };
   };
-
-  onCleanup(() => {
-    refreshCommentsMutation.abort();
-    loadEarlierCommentsMutation.abort();
-  });
 
   const updateMutation = mutations.create<SpaceItem, Record<string, unknown>>({
     mutation: patchItem,
@@ -210,38 +205,58 @@ export default function ItemDetailPanel(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
-  let previousPriority = selectedPriorityValue();
-  const priorityMutation = mutations.create<SpaceItem, string | null>({
-    mutation: (priority) => patchItem({ priority }),
+  type PriorityIntent = { next: string | null; previous: string | null };
+  const priorityMutation = mutations.create<SpaceItem, PriorityIntent, { previous: string | null }>({
+    onBefore: (intent) => ({ previous: intent.previous }),
+    mutation: (intent) => patchItem({ priority: intent.next }),
     onSuccess: handleItemUpdated,
-    onError: (err) => {
-      setSelectedPriorityValue(previousPriority);
+    onError: (err, context) => {
+      if (context) setSelectedPriorityValue(context.previous);
       prompts.error(err.message);
     },
+    onAbort: (context) => {
+      if (context) setSelectedPriorityValue(context.previous);
+    },
   });
+  let prioritySubmitting = false;
 
-  const updatePriority = (priority: string | null) => {
-    if (priorityMutation.loading()) return;
-    previousPriority = selectedPriorityValue();
+  const updatePriority = async (priority: string | null) => {
+    if (prioritySubmitting || priorityMutation.loading()) return;
+    prioritySubmitting = true;
+    const previous = selectedPriorityValue();
     setSelectedPriorityValue(priority);
-    priorityMutation.mutate(priority);
+    try {
+      await priorityMutation.mutate({ next: priority, previous });
+    } finally {
+      prioritySubmitting = false;
+    }
   };
 
-  let previousTagIds = selectedTagIds();
-  const tagsMutation = mutations.create<SpaceItem, string[]>({
-    mutation: (tagIds) => patchItem({ tagIds }),
+  type TagsIntent = { next: string[]; previous: string[] };
+  const tagsMutation = mutations.create<SpaceItem, TagsIntent, { previous: string[] }>({
+    onBefore: (intent) => ({ previous: intent.previous }),
+    mutation: (intent) => patchItem({ tagIds: intent.next }),
     onSuccess: handleItemUpdated,
-    onError: (err) => {
-      setSelectedTagIds(previousTagIds);
+    onError: (err, context) => {
+      if (context) setSelectedTagIds(context.previous);
       prompts.error(err.message);
     },
+    onAbort: (context) => {
+      if (context) setSelectedTagIds(context.previous);
+    },
   });
+  let tagsSubmitting = false;
 
-  const updateTags = (tagIds: string[]) => {
-    if (tagsMutation.loading()) return;
-    previousTagIds = selectedTagIds();
+  const updateTags = async (tagIds: string[]) => {
+    if (tagsSubmitting || tagsMutation.loading()) return;
+    tagsSubmitting = true;
+    const previous = selectedTagIds();
     setSelectedTagIds(tagIds);
-    tagsMutation.mutate(tagIds);
+    try {
+      await tagsMutation.mutate({ next: tagIds, previous });
+    } finally {
+      tagsSubmitting = false;
+    }
   };
 
   const completeMutation = mutations.create<boolean, boolean>({
@@ -258,55 +273,46 @@ export default function ItemDetailPanel(props: Props) {
     },
     onSuccess: (completed) => {
       toast.success(completed ? "Item completed" : "Item reopened");
-      requestCurrentSpacesRouteRefresh();
+      reconcileAfterWrite();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const duplicateMutation = mutations.create<SpaceItem, void>({
-    mutation: async () => {
+  const duplicateIntent = () => ({
+    columnId: props.item.columnId,
+    title: `${props.item.title} (Copy)`,
+    description: props.item.description ?? undefined,
+    startsAt: props.item.startsAt ?? undefined,
+    endsAt: props.item.endsAt ?? undefined,
+    deadline: props.item.deadline ?? undefined,
+    priority: props.item.priority ?? undefined,
+    assigneeIds: props.item.assignees?.map((a) => a.id),
+    tagIds: props.item.tags?.map((t) => t.id),
+  });
+  const duplicateMutation = mutations.create<SpaceItem, ReturnType<typeof duplicateIntent>>({
+    mutation: async (intent) => {
       const res = await apiClient[":id"].items.$post({
         param: { id: props.spaceId },
-        json: {
-          columnId: props.item.columnId,
-          title: `${props.item.title} (Copy)`,
-          description: props.item.description ?? undefined,
-          startsAt: props.item.startsAt ?? undefined,
-          endsAt: props.item.endsAt ?? undefined,
-          deadline: props.item.deadline ?? undefined,
-          priority: props.item.priority ?? undefined,
-          assigneeIds: props.item.assignees?.map((a) => a.id),
-          tagIds: props.item.tags?.map((t) => t.id),
-        },
+        json: intent,
       });
       if (!res.ok) throw new Error(await readResponseError(res, "Failed to duplicate item"));
       return res.json();
     },
     onSuccess: () => {
       toast.success("Item duplicated");
-      requestCurrentSpacesRouteRefresh();
+      reconcileAfterWrite();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteMutation = mutations.create({
-    mutation: async () => {
-      const confirmed = await prompts.confirm(`Are you sure you want to delete "${props.item.title}"?`, {
-        title: "Delete Item",
-        icon: "ti ti-trash",
-        variant: "danger",
-        confirmText: "Delete",
-      });
-      if (!confirmed) return false;
-
+  const deleteMutation = mutations.create<void, { itemId: string }>({
+    mutation: async ({ itemId }) => {
       const res = await apiClient[":id"].items[":itemId"].$delete({
-        param: { id: props.spaceId, itemId: props.item.id },
+        param: { id: props.spaceId, itemId },
       });
       if (!res.ok) throw new Error(await readResponseError(res, "Failed to delete item"));
-      return true;
     },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
+    onSuccess: () => {
       toast.success("Item deleted");
       requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
     },
@@ -330,21 +336,52 @@ export default function ItemDetailPanel(props: Props) {
     },
   });
 
-  const handleDuplicate = () => duplicateMutation.mutate(undefined);
-  const handleDelete = () => deleteMutation.mutate({});
+  const handleDuplicate = () => {
+    if (!duplicateMutation.loading()) void duplicateMutation.mutate(duplicateIntent());
+  };
+  let deletePromptPending = false;
+  const handleDelete = async () => {
+    if (deletePromptPending || deleteMutation.loading()) return;
+    deletePromptPending = true;
+    try {
+      const confirmed = await prompts.confirm(`Are you sure you want to delete "${props.item.title}"?`, {
+        title: "Delete Item",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (confirmed) void deleteMutation.mutate({ itemId: props.item.id });
+    } finally {
+      deletePromptPending = false;
+    }
+  };
 
-  const editItemMutation = mutations.create<boolean, void>({
-    mutation: () =>
-      editItemWithDialog({
+  type EditIntent = Parameters<typeof saveItemFormData>[0];
+  const editItemMutation = mutations.create<void, EditIntent>({
+    mutation: saveItemFormData,
+    onSuccess: () => {
+      toast.success("Item updated");
+      reconcileAfterWrite();
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+  let editPromptPending = false;
+  const handleEdit = async () => {
+    if (editPromptPending || editItemMutation.loading()) return;
+    editPromptPending = true;
+    try {
+      const data = await openEditItemDialog({
         spaceId: props.spaceId,
         item: props.item,
         columns: props.columns,
         tags: props.tags,
         dateConfig: props.dateConfig,
-      }),
-    onSuccess: handleEditItemSuccess,
-    onError: (err) => prompts.error(err.message),
-  });
+      });
+      if (data) void editItemMutation.mutate({ spaceId: props.spaceId, itemId: props.item.id, data });
+    } finally {
+      editPromptPending = false;
+    }
+  };
 
   const isLoading = () =>
     updateMutation.loading() ||
@@ -364,7 +401,7 @@ export default function ItemDetailPanel(props: Props) {
       {
         label: "Edit item",
         icon: "ti ti-pencil",
-        action: () => editItemMutation.mutate(undefined),
+        action: () => void handleEdit(),
       },
       {
         label: "Duplicate item",
@@ -487,7 +524,7 @@ export default function ItemDetailPanel(props: Props) {
                     </Show>
                     {isCompleted() ? "Reopen" : "Mark complete"}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void handleEdit()} disabled={isLoading()}>
                     <i class="ti ti-pencil" aria-hidden="true" /> Edit
                   </Button>
                 </Show>
@@ -519,7 +556,7 @@ export default function ItemDetailPanel(props: Props) {
                   <IconActionButton
                     icon="ti ti-pencil"
                     title={isEvent() ? "Edit event time" : "Edit deadline"}
-                    onClick={() => editItemMutation.mutate(undefined)}
+                    onClick={() => void handleEdit()}
                     disabled={isLoading()}
                   />
                 ) : undefined
@@ -580,7 +617,7 @@ export default function ItemDetailPanel(props: Props) {
                       <IconActionButton
                         icon="ti ti-pencil"
                         title="Edit event details"
-                        onClick={() => editItemMutation.mutate(undefined)}
+                        onClick={() => void handleEdit()}
                         disabled={isLoading()}
                       />
                     ) : undefined
@@ -621,12 +658,7 @@ export default function ItemDetailPanel(props: Props) {
               tone="neutral"
               actions={
                 canEditItem() ? (
-                  <IconActionButton
-                    icon="ti ti-pencil"
-                    title="Edit description"
-                    onClick={() => editItemMutation.mutate(undefined)}
-                    disabled={isLoading()}
-                  />
+                  <IconActionButton icon="ti ti-pencil" title="Edit description" onClick={() => void handleEdit()} disabled={isLoading()} />
                 ) : undefined
               }
             >
@@ -720,10 +752,14 @@ export default function ItemDetailPanel(props: Props) {
               comments={commentsPage().items}
               total={commentsPage().total}
               hasMore={commentsPage().hasNext}
-              loadingMore={loadEarlierCommentsMutation.loading()}
-              onLoadMore={() => loadEarlierCommentsMutation.mutate(undefined)}
+              loadingMore={commentsQuery.loadingMore()}
+              loadError={commentsQuery.error()?.message}
+              onLoadMore={() => void commentsQuery.loadMore()}
+              onRetry={() => void commentsQuery.refresh()}
               currentUserId={props.currentUserId}
-              onUpdate={refreshComments}
+              onUpdate={() =>
+                void commentsQuery.invalidate().catch(() => prompts.error("Comment saved, but comments could not be refreshed."))
+              }
               dateConfig={props.dateConfig}
               canWrite={props.canWrite}
             />

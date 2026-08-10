@@ -1,11 +1,12 @@
 import type { DateContext } from "@k2b/stdlib";
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { Button } from "@k2b/ui";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";
 import Calendar from "../calendar";
-import { type CalendarFilter, parseCalendarRoute } from "../calendar/filter";
+import type { CalendarFilter } from "../calendar/filter";
 import type { CalendarView, DayWeather } from "../calendar/types";
-import { useSpacesCalendarNavigation } from "./calendar-navigation";
+import { useSpacesCalendarQuery } from "./calendar-query";
 
 type CalendarState = {
   view: CalendarView;
@@ -27,17 +28,14 @@ type Props = {
 };
 
 export default function SpacesCalendarRoute(props: Props) {
-  const [state, setState] = createSignal(props.initialState);
   const [selectedItemId, setSelectedItemId] = createSignal(props.selectedItemId);
-  const navigation = useSpacesCalendarNavigation({
+  const navigation = useSpacesCalendarQuery({
     spaceId: props.spaceId,
+    initialSource: props.baseUrl,
     initialSnapshot: { kind: "calendar", ...props.initialState },
-    apply: setState,
-    preview: (href) => {
-      const route = parseCalendarRoute(new URL(href, window.location.origin), props.dateConfig);
-      setState((current) => ({ ...current, ...route, items: [], weather: {} }));
-    },
+    dateConfig: props.dateConfig,
   });
+  const state = navigation.current;
   onMount(() => {
     const unsubscribe = subscribeToDetailSelection(({ selectionId }) => setSelectedItemId(selectionId ?? ""));
     onCleanup(unsubscribe);
@@ -45,6 +43,16 @@ export default function SpacesCalendarRoute(props: Props) {
 
   return (
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden" data-scroll-preserve={`spaces-main-${props.spaceId}`}>
+      <Show when={navigation.error()}>
+        {(error) => (
+          <div class="flex items-center justify-between gap-2 pb-1 text-xs text-red-600" role="alert">
+            <span>{error().message}</span>
+            <Button type="button" variant="ghost" size="xs" onClick={() => void navigation.refresh()}>
+              Retry
+            </Button>
+          </div>
+        )}
+      </Show>
       <Calendar
         spaceId={props.spaceId}
         items={state().items}
@@ -60,7 +68,6 @@ export default function SpacesCalendarRoute(props: Props) {
         canWrite={props.canWrite}
         onNavigateHref={navigation.navigateHref}
         onRouteChange={navigation.open}
-        onPrefetch={navigation.prefetch}
         navigationPending={navigation.pending()}
       />
     </div>

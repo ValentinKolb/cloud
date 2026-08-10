@@ -14,7 +14,9 @@ type Props = {
   total: number;
   hasMore: boolean;
   loadingMore: boolean;
+  loadError?: string;
   onLoadMore: () => void;
+  onRetry: () => void;
   currentUserId: string;
   onUpdate: () => void;
   dateConfig?: DateContext;
@@ -46,16 +48,8 @@ export default function CommentsSection(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteCommentMutation = mutations.create<boolean, string>({
+  const deleteCommentMutation = mutations.create<void, string>({
     mutation: async (id: string) => {
-      const confirmed = await prompts.confirm("Are you sure? This cannot be undone.", {
-        title: "Delete Comment",
-        icon: "ti ti-trash",
-        variant: "danger",
-        confirmText: "Delete",
-      });
-      if (!confirmed) return false;
-
       const res = await apiClient[":id"].items[":itemId"].comments[":commentId"].$delete({
         param: { id: props.spaceId, itemId: props.itemId, commentId: id },
       });
@@ -63,17 +57,32 @@ export default function CommentsSection(props: Props) {
         throw new Error(await readResponseError(res, "Failed to delete comment"));
       }
       await res.json();
-      return true;
     },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
+    onSuccess: () => {
       toast.success("Comment deleted");
       props.onUpdate();
     },
     onError: (err) => prompts.error(err.message),
   });
+  let deletePromptPending = false;
+  const deleteComment = async (id: string) => {
+    if (deletePromptPending || deleteCommentMutation.loading()) return;
+    deletePromptPending = true;
+    try {
+      const confirmed = await prompts.confirm("Are you sure? This cannot be undone.", {
+        title: "Delete Comment",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (confirmed) void deleteCommentMutation.mutate(id);
+    } finally {
+      deletePromptPending = false;
+    }
+  };
 
   const submitNewComment = () => {
+    if (createCommentMutation.loading()) return;
     const content = newComment().trim();
     if (!content) return;
     createCommentMutation.mutate(content);
@@ -115,6 +124,14 @@ export default function CommentsSection(props: Props) {
       }
       style="view-transition-name: space-item-detail-comments"
     >
+      <Show when={props.loadError}>
+        <div class="flex items-center justify-between gap-2 text-xs text-red-600" role="alert">
+          <span>{props.loadError}</span>
+          <Button type="button" variant="ghost" size="xs" onClick={props.onRetry}>
+            Retry
+          </Button>
+        </div>
+      </Show>
       <Show when={props.canWrite && composerOpen()}>
         <Discussion.Composer
           onSubmit={handleSubmit}
@@ -197,7 +214,7 @@ export default function CommentsSection(props: Props) {
                       <IconButton
                         label="Delete comment"
                         size="xs"
-                        onClick={() => deleteCommentMutation.mutate(comment.id)}
+                        onClick={() => void deleteComment(comment.id)}
                         disabled={deleteCommentMutation.loading()}
                         class="hover:text-red-600 dark:hover:text-red-400"
                       >

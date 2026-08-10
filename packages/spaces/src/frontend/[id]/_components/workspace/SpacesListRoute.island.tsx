@@ -1,6 +1,7 @@
 import type { DateContext } from "@k2b/stdlib";
+import { query } from "@k2b/stdlib/solid";
 import { Button, Pagination, Placeholder } from "@k2b/ui";
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { ItemListResult, SpaceColumn, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";
 import FilterBar from "../filter/FilterBar";
@@ -8,8 +9,8 @@ import { buildFilterUrl, defaultFilter, type FilterState, hasActiveFilters } fro
 import ItemsList from "../list";
 import CreateItemButton from "../sidebar/CreateItemButton";
 import ItemsTable from "../table/ItemsTable";
-import { useSpacesViewRefresh } from "./view-refresh";
-import { requestSpacesRouteNavigation } from "./workspace-events";
+import { loadSpacesViewSnapshot, SpacesViewUnavailableError } from "./view-query";
+import { requestSpacesRouteNavigation, subscribeToSpacesDataInvalidation } from "./workspace-events";
 
 type Props = {
   spaceId: string;
@@ -26,11 +27,22 @@ type Props = {
 };
 
 export default function SpacesListRoute(props: Props) {
-  const [itemsResult, setItemsResult] = createSignal(props.initialItemsResult);
   const [selectedItemId, setSelectedItemId] = createSignal(props.initialSelectedItemId);
-  useSpacesViewRefresh((snapshot) => {
-    if (snapshot.kind === "list" && snapshot.currentView === props.currentView) setItemsResult(snapshot.itemsResult);
-    else window.location.reload();
+  const source = () => props.itemLinkBaseUrl;
+  const view = query.create<string, { source: string; itemsResult: ItemListResult }, { cursor: string | null }>({
+    source,
+    initial: { source: props.itemLinkBaseUrl, data: { source: props.itemLinkBaseUrl, itemsResult: props.initialItemsResult } },
+    load: async (href, { abortSignal }) => {
+      const snapshot = await loadSpacesViewSnapshot(href, abortSignal);
+      if (snapshot.kind !== "list" || snapshot.currentView !== props.currentView)
+        throw new SpacesViewUnavailableError("Workspace view changed");
+      return { source: href, itemsResult: snapshot.itemsResult };
+    },
+    subscribe: ({ invalidate }) => subscribeToSpacesDataInvalidation(["view"], invalidate),
+  });
+  const itemsResult = () => (view.data()?.source === source() ? view.data()!.itemsResult : props.initialItemsResult);
+  createEffect(() => {
+    if (view.error() instanceof SpacesViewUnavailableError) window.location.reload();
   });
 
   onMount(() => {
@@ -59,6 +71,16 @@ export default function SpacesListRoute(props: Props) {
         onSearchChange={(search) => commitFilterPatch({ search })}
         onClearFilters={clearFilters}
       />
+      <Show when={view.error()}>
+        {(error) => (
+          <div class="flex items-center justify-between gap-2 py-1 text-xs text-red-600" role="alert">
+            <span>{error().message}</span>
+            <Button type="button" variant="ghost" size="xs" disabled={view.refreshing()} onClick={() => void view.refresh()}>
+              Retry
+            </Button>
+          </div>
+        )}
+      </Show>
       <div class="h-2" />
 
       <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`spaces-main-${props.spaceId}`}>

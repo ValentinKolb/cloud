@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { dates as calendar } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
   Button,
   type CalendarEvent,
@@ -20,7 +20,7 @@ import { apiClient } from "@/api/client";
 import { AssignedToFilterSchema, type CalendarItem, ItemTypeSchema, PrioritySchema, type Recurrence, type SpaceItem } from "@/contracts";
 import { readResponseError } from "../../../lib/response";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
-import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { invalidateSpacesData, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import { type CalendarFilter, defaultCalendarFilter, writeCalendarFilter } from "./filter";
 import type { CalendarProps, CalendarView } from "./types";
 
@@ -179,6 +179,23 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
 
 export default function Calendar(props: CalendarProps) {
   const [optimisticTimes, setOptimisticTimes] = createSignal<Record<string, CalendarEventTimeChange>>({});
+  const [createDialogPending, setCreateDialogPending] = createSignal(false);
+  const [seriesItemSource, setSeriesItemSource] = createSignal<string | null>(null);
+  const reconcileAfterWrite = () =>
+    void invalidateSpacesData().catch(() => prompts.error("Changes were saved, but the calendar could not be refreshed."));
+  const seriesItemQuery = query.create<string | null, { source: string; item: SpaceItem }, { cursor: string | null }>({
+    source: seriesItemSource,
+    enabled: () => seriesItemSource() !== null,
+    load: async (itemId, { abortSignal }) => {
+      if (!itemId) throw new Error("Recurring series is missing");
+      const response = await apiClient[":id"].items[":itemId"].$get(
+        { param: { id: props.spaceId, itemId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readResponseError(response, "Could not load event"));
+      return { source: itemId, item: await response.json() };
+    },
+  });
   const events = () =>
     props.items.map((item) => {
       const event = toCalendarEvent(item, props.baseUrl, props.view, props.date, props.filter, props.dateConfig);
@@ -278,10 +295,12 @@ export default function Calendar(props: CalendarProps) {
   const selectEvent = (event: CalendarEvent) => {
     if (event.href) requestSpacesRouteNavigation(event.href, { scroll: "preserve" });
   };
-  const fetchItem = async (itemId: string) => {
-    const itemRes = await apiClient[":id"].items[":itemId"].$get({ param: { id: props.spaceId, itemId } });
-    if (!itemRes.ok) throw new Error(await readResponseError(itemRes, "Could not load event"));
-    return itemRes.json();
+  const loadSeriesItem = async (itemId: string) => {
+    setSeriesItemSource(itemId);
+    await seriesItemQuery.refresh();
+    const snapshot = seriesItemQuery.data();
+    if (snapshot?.source === itemId && !seriesItemQuery.stale()) return snapshot.item;
+    throw seriesItemQuery.error() ?? new Error("Could not load event");
   };
   const createItem = async (data: ItemFormData & { recurringEventId?: string; recurrenceId?: string }) => {
     const res = await apiClient[":id"].items.$post({
@@ -346,12 +365,14 @@ export default function Calendar(props: CalendarProps) {
       allDay: next.allDay ?? false,
     });
   };
-  const applyRecurringTimeChange = async (event: CalendarEvent, next: CalendarEventTimeChange, scope: RecurringEditScope) => {
+  const applyRecurringTimeChange = async (
+    event: CalendarEvent,
+    parent: SpaceItem,
+    next: CalendarEventTimeChange,
+    scope: RecurringEditScope,
+  ) => {
     const recurrenceId = recurrenceIdFromEvent(event);
     if (!recurrenceId) return false;
-    const source = props.items.find((item) => item.id === event.id);
-    const seriesItemId = source?.recurringEventId ?? event.dataSpaceItemId ?? event.id;
-    const parent = await fetchItem(seriesItemId);
 
     if (scope === "occurrence") {
       await updateRecurringOccurrence(event, parent, recurrenceId, next);
@@ -368,17 +389,22 @@ export default function Calendar(props: CalendarProps) {
   };
   const updateEventTime = mutations.create<
     boolean,
-    { event: CalendarEvent; next: CalendarEventTimeChange; action: "move" | "resize"; recurringScope?: RecurringEditScope },
+    {
+      event: CalendarEvent;
+      sourceItem: CalendarItem | undefined;
+      parent: SpaceItem | undefined;
+      next: CalendarEventTimeChange;
+      action: "move" | "resize";
+      recurringScope?: RecurringEditScope;
+    },
     { eventId: string; next: CalendarEventTimeChange; action: "move" | "resize" }
   >({
-    onBefore: ({ event, next, action }) => {
-      const sourceItem = props.items.find((item) => item.id === event.id);
+    onBefore: ({ event, sourceItem, next, action }) => {
       const optimistic = sourceItem?.deadline && !sourceItem.startsAt ? { ...next, end: next.start, allDay: true } : next;
       setOptimisticTimes({ ...optimisticTimes(), [event.id]: optimistic });
       return { eventId: event.id, next, action };
     },
-    mutation: async ({ event, next, recurringScope }) => {
-      const sourceItem = props.items.find((item) => item.id === event.id);
+    mutation: async ({ event, sourceItem, parent, next, recurringScope }) => {
       if (sourceItem?.deadline && !sourceItem.startsAt) {
         const itemId = event.dataSpaceItemId ?? event.id;
         const res = await apiClient[":id"].items[":itemId"].$patch({
@@ -389,8 +415,8 @@ export default function Calendar(props: CalendarProps) {
         return true;
       }
       if (isRecurringCalendarEvent(event)) {
-        if (!recurringScope) return false;
-        return applyRecurringTimeChange(event, next, recurringScope);
+        if (!recurringScope || !parent) return false;
+        return applyRecurringTimeChange(event, parent, next, recurringScope);
       }
       const itemId = event.dataSpaceItemId ?? event.id;
       const res = await apiClient[":id"].items[":itemId"].$patch({
@@ -411,7 +437,7 @@ export default function Calendar(props: CalendarProps) {
         return;
       }
       if (!context) {
-        requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+        reconcileAfterWrite();
         return;
       }
       const target = context.next.allDay
@@ -427,26 +453,57 @@ export default function Calendar(props: CalendarProps) {
             timeZone: props.dateConfig?.timeZone,
           });
       toast.success(context.action === "resize" ? "Event duration updated" : `Event moved to ${target}`);
-      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+      reconcileAfterWrite();
     },
     onError: (error, context) => {
       if (context) clearOptimisticTime(context.eventId);
       prompts.error(error.message);
-      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+      void invalidateSpacesData().catch(() =>
+        prompts.error("The calendar could not confirm the latest event state. Refresh the page before editing it again."),
+      );
     },
   });
+  let updateSubmitting = false;
   const updateTime = async (event: CalendarEvent, next: CalendarEventTimeChange, action: "move" | "resize") => {
-    let recurringScope: RecurringEditScope | undefined;
-    if (isRecurringCalendarEvent(event)) {
-      const scope = await chooseRecurringEditScope();
-      if (!scope) return;
-      recurringScope = scope;
+    if (updateSubmitting || updateEventTime.loading()) return;
+    updateSubmitting = true;
+    try {
+      let recurringScope: RecurringEditScope | undefined;
+      let parent: SpaceItem | undefined;
+      const sourceItem = props.items.find((item) => item.id === event.id);
+      if (isRecurringCalendarEvent(event)) {
+        const scope = await chooseRecurringEditScope();
+        if (!scope) return;
+        recurringScope = scope;
+        const seriesItemId = sourceItem?.recurringEventId ?? event.dataSpaceItemId ?? event.id;
+        parent = await loadSeriesItem(seriesItemId);
+      }
+      await updateEventTime.mutate({ event, sourceItem, parent, next, action, recurringScope });
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      updateSubmitting = false;
     }
-    updateEventTime.mutate({ event, next, action, recurringScope });
   };
-  const createEvent = mutations.create<boolean, CalendarEventTimeChange>({
-    mutation: async (slot) => {
-      const result = await dialogCore.open<ItemFormData | null>(
+  const createEvent = mutations.create<void, ItemFormData>({
+    mutation: async (intent) => {
+      const res = await apiClient[":id"].items.$post({
+        param: { id: props.spaceId },
+        json: { ...normalizeCreatePayload(intent) },
+      });
+      if (!res.ok) throw new Error(await readResponseError(res, "Could not create event"));
+    },
+    onSuccess: () => {
+      toast.success("Event created");
+      reconcileAfterWrite();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const createEventFromSlot = async (slot: CalendarEventTimeChange) => {
+    if (createDialogPending() || createEvent.loading()) return;
+    setCreateDialogPending(true);
+    try {
+      const intent = await dialogCore.open<ItemFormData | null>(
         (close) => (
           <ItemForm
             spaceId={props.spaceId}
@@ -469,23 +526,12 @@ export default function Calendar(props: CalendarProps) {
         ),
         panelDialogFixedOptions,
       );
-      if (!result) return false;
-      const res = await apiClient[":id"].items.$post({
-        param: { id: props.spaceId },
-        json: {
-          ...normalizeCreatePayload(result),
-        },
-      });
-      if (!res.ok) throw new Error(await readResponseError(res, "Could not create event"));
-      return true;
-    },
-    onSuccess: (created) => {
-      if (!created) return;
-      toast.success("Event created");
-      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
-    },
-    onError: (error) => prompts.error(error.message),
-  });
+      if (intent) void createEvent.mutate(intent);
+    } finally {
+      setCreateDialogPending(false);
+    }
+  };
+  const creatingEvent = () => createDialogPending() || createEvent.loading();
   const defaultNewEventSlot = (): CalendarEventTimeChange => {
     const dateKey = calendar.formatDateKey(props.date, props.dateConfig);
     const start = props.dateConfig?.timeZone
@@ -513,10 +559,10 @@ export default function Calendar(props: CalendarProps) {
               type="button"
               size="sm"
               class="shrink-0 whitespace-nowrap"
-              disabled={createEvent.loading()}
-              onClick={() => createEvent.mutate(defaultNewEventSlot())}
+              disabled={creatingEvent()}
+              onClick={() => void createEventFromSlot(defaultNewEventSlot())}
             >
-              <i class={`ti ${createEvent.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-plus"}`} />
+              <i class={`ti ${creatingEvent() ? "ti-loader-2 animate-spin" : "ti-calendar-plus"}`} />
               New event
             </Button>
           </Show>
@@ -584,7 +630,7 @@ export default function Calendar(props: CalendarProps) {
         onEventActivate={selectEvent}
         onEventDrop={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "move") : undefined}
         onEventResize={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "resize") : undefined}
-        onSlotActivate={props.canWrite && !createEvent.loading() ? (slot) => createEvent.mutate(slot) : undefined}
+        onSlotActivate={props.canWrite && !creatingEvent() ? (slot) => void createEventFromSlot(slot) : undefined}
       />
     </div>
   );

@@ -7,7 +7,6 @@ export type SpacesDetailNavigation = {
   itemId: string | null;
   occurrenceId: string | null;
   history?: "push" | "replace" | "none";
-  replace?: boolean;
 };
 
 export type SpacesDetailState = {
@@ -16,9 +15,11 @@ export type SpacesDetailState = {
   selectionId: string | null;
 };
 
-type SpacesDataDomain = "view" | "detail";
+export type SpacesDataDomain = "view" | "detail" | "wormholes";
 export type SpacesDataInvalidation = {
   domains: SpacesDataDomain[];
+  cursor: string | null;
+  cover: (promise: Promise<void>) => void;
 };
 
 const routeKeyWithoutItem = (url: URL) => {
@@ -49,8 +50,52 @@ export const publishSpacesDetailState = (detail: SpacesDetailState) => {
   window.dispatchEvent(new CustomEvent<SpacesDetailState>(SPACES_DETAIL_STATE_EVENT, { detail }));
 };
 
-export const requestSpacesDataRefresh = (domains: SpacesDataDomain[] = ["view", "detail"]) => {
-  window.dispatchEvent(new CustomEvent<SpacesDataInvalidation>(SPACES_DATA_INVALIDATED_EVENT, { detail: { domains } }));
+export const invalidateSpacesData = (domains: SpacesDataDomain[] = ["view", "detail"], cursor: string | null = null) => {
+  const coverage: Promise<void>[] = [];
+  const detail: SpacesDataInvalidation = {
+    domains,
+    cursor,
+    cover: (promise) => coverage.push(promise),
+  };
+  window.dispatchEvent(new CustomEvent<SpacesDataInvalidation>(SPACES_DATA_INVALIDATED_EVENT, { detail }));
+  return Promise.all(coverage).then(() => undefined);
+};
+
+export const createSpacesLiveCursorQueue = (options: {
+  invalidate: (domains: SpacesDataDomain[], cursor: string | null) => Promise<void>;
+  markApplied: (cursor: string | null) => void;
+  onFailure: (error: Error) => void;
+}) => {
+  let queue = Promise.resolve();
+  let failed = false;
+
+  return (domains: SpacesDataDomain[], cursor: string | null) => {
+    queue = queue
+      .then(async () => {
+        if (failed) return;
+        await options.invalidate(domains, cursor);
+        if (!failed) options.markApplied(cursor);
+      })
+      .catch((error) => {
+        if (failed) return;
+        failed = true;
+        options.onFailure(error instanceof Error ? error : new Error(String(error)));
+      });
+    return queue;
+  };
+};
+
+export const subscribeToSpacesDataInvalidation = (
+  domains: SpacesDataDomain[],
+  invalidate: (invalidation: { cursor: string | null }) => Promise<void>,
+) => {
+  const onInvalidated = (event: Event) => {
+    const detail = (event as CustomEvent<SpacesDataInvalidation>).detail;
+    if (!detail || !domains.some((domain) => detail.domains.includes(domain))) return;
+    detail.cover(invalidate({ cursor: detail.cursor }));
+  };
+  window.addEventListener(SPACES_DATA_INVALIDATED_EVENT, onInvalidated);
+  return () => window.removeEventListener(SPACES_DATA_INVALIDATED_EVENT, onInvalidated);
 };
 
 const publishDetailNavigation = (target: URL, history: "push" | "replace" | "none") => {
@@ -86,5 +131,3 @@ export const requestSpacesRouteNavigation = (href: string, options: { replace?: 
   if (options.replace) window.location.replace(`${target.pathname}${target.search}`);
   else window.location.assign(`${target.pathname}${target.search}`);
 };
-
-export const requestCurrentSpacesRouteRefresh = (_options: { scroll?: unknown } = {}) => requestSpacesDataRefresh();

@@ -29,26 +29,39 @@ export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: 
     setColor(current.color);
   };
 
-  const mutation = mutations.create({
-    mutation: async () => {
-      if (!name().trim()) throw new Error("Name is required");
+  type GeneralIntent = { name: string; description: string; color: string };
+  const mutation = mutations.create<void, GeneralIntent, GeneralIntent>({
+    onBefore: (intent) => intent,
+    mutation: async (intent) => {
       const res = await apiClient[":id"].$patch({
         param: { id: props.space.id },
         json: {
-          name: name(),
-          description: description() || null,
-          color: color(),
+          name: intent.name,
+          description: intent.description || null,
+          color: intent.color,
         },
       });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to save Space settings"));
     },
-    onSuccess: () => {
-      setBase({ name: name(), description: description(), color: color() });
+    onSuccess: (_result, context) => {
+      if (context) setBase({ name: context.name, description: context.description, color: context.color });
       toast.success("Space settings saved");
       props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
+  let saveSubmitting = false;
+  const save = async () => {
+    if (saveSubmitting || mutation.loading()) return;
+    const intent = { name: name().trim(), description: description(), color: color() };
+    if (!intent.name) return;
+    saveSubmitting = true;
+    try {
+      await mutation.mutate(intent);
+    } finally {
+      saveSubmitting = false;
+    }
+  };
 
   return (
     <>
@@ -65,7 +78,7 @@ export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: 
             icon="ti ti-typography"
             value={name}
             onValueChange={setName}
-            onSubmit={() => mutation.mutate(undefined)}
+            onSubmit={() => void save()}
             required
           />
         </SettingsField>
@@ -98,12 +111,7 @@ export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: 
       </SettingsGroup>
 
       <SettingsModal.Footer>
-        <SettingsPanelFooter
-          changeCount={changeCount}
-          loading={mutation.loading}
-          onDiscard={discard}
-          onSave={() => mutation.mutate(undefined)}
-        />
+        <SettingsPanelFooter changeCount={changeCount} loading={mutation.loading} onDiscard={discard} onSave={() => void save()} />
       </SettingsModal.Footer>
     </>
   );

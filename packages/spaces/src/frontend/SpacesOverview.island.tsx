@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { NoticeCard, AppOverview, Button, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
+import { AppOverview, Button, ColorInput, NoticeCard, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
@@ -143,30 +143,23 @@ function CreateSpaceForm(props: { starter: SpaceStarter; close: (result: SpaceDr
 
 export default function SpacesOverview(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
+  const [dialogPending, setDialogPending] = createSignal(false);
   const filteredSpaces = createMemo(() => props.spaces.filter((space) => spaceMatches(space, query())));
 
-  const createSpaceMutation = mutations.create<{ space: Space; starter: SpaceStarter } | null, SpaceStarter>({
-    mutation: async (starter) => {
-      const result = await prompts.dialog<SpaceDraft | null>((close) => <CreateSpaceForm starter={starter} close={close} />, {
-        title: starter.id === "blank" ? "New space" : starter.name,
-        icon: starter.icon,
-      });
-      if (!result) return null;
-
+  const createSpaceMutation = mutations.create<{ space: Space; starter: SpaceStarter }, { starter: SpaceStarter; draft: SpaceDraft }>({
+    mutation: async ({ starter, draft }) => {
       const res = await apiClient.index.$post({
         json: {
-          name: result.name,
-          description: result.description || undefined,
-          color: result.color,
+          name: draft.name,
+          description: draft.description || undefined,
+          color: draft.color,
           starter: starter.id as "blank" | "tasks" | "calendar" | "project",
         },
       });
       if (!res.ok) throw new Error(await readResponseError(res, "Failed to create space"));
       return { space: await res.json(), starter };
     },
-    onSuccess: (result) => {
-      if (!result) return;
-      const { space, starter } = result;
+    onSuccess: ({ space, starter }) => {
       toast.success("Space created");
       setLastSpaceId(space.id);
       writeSpaceSettings(space.id, { view: starterView[starter.id] });
@@ -174,6 +167,20 @@ export default function SpacesOverview(props: Props) {
     },
     onError: (error) => prompts.error(error.message),
   });
+  const createSpace = async (starter: SpaceStarter) => {
+    if (dialogPending() || createSpaceMutation.loading()) return;
+    setDialogPending(true);
+    try {
+      const draft = await prompts.dialog<SpaceDraft | null>((close) => <CreateSpaceForm starter={starter} close={close} />, {
+        title: starter.id === "blank" ? "New space" : starter.name,
+        icon: starter.icon,
+      });
+      if (draft) void createSpaceMutation.mutate({ starter, draft });
+    } finally {
+      setDialogPending(false);
+    }
+  };
+  const creating = () => dialogPending() || createSpaceMutation.loading();
 
   const onSearchInput = (value: string) => {
     setQuery(value);
@@ -213,13 +220,7 @@ export default function SpacesOverview(props: Props) {
               icon="ti ti-layout-kanban"
               class="min-h-72"
             >
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => createSpaceMutation.mutate(blankStarter)}
-                disabled={createSpaceMutation.loading()}
-              >
+              <Button type="button" variant="secondary" size="sm" onClick={() => void createSpace(blankStarter)} disabled={creating()}>
                 <i class="ti ti-plus" /> Create a space
               </Button>
             </AppOverview.EmptyState>
@@ -276,8 +277,8 @@ export default function SpacesOverview(props: Props) {
               <button
                 type="button"
                 class="paper flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted"
-                onClick={() => createSpaceMutation.mutate(starter)}
-                disabled={createSpaceMutation.loading()}
+                onClick={() => void createSpace(starter)}
+                disabled={creating()}
               >
                 <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-[var(--ui-surface-muted)]">
                   <i class={`${starter.icon} text-lg text-primary`} />
@@ -293,8 +294,8 @@ export default function SpacesOverview(props: Props) {
           <button
             type="button"
             class="paper flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted"
-            onClick={() => createSpaceMutation.mutate(blankStarter)}
-            disabled={createSpaceMutation.loading()}
+            onClick={() => void createSpace(blankStarter)}
+            disabled={creating()}
           >
             <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-[var(--ui-selected)]">
               <i class="ti ti-plus app-accent-text text-lg" />

@@ -7,7 +7,7 @@ import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import AssigneeAvatars from "../shared/AssigneeAvatars";
-import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { invalidateSpacesData, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type ItemRowProps = {
   item: SpaceItem;
@@ -61,7 +61,7 @@ export default function ItemRow(props: ItemRowProps) {
     },
     onSuccess: (completed) => {
       toast.success(completed ? "Item completed" : "Item reopened");
-      requestCurrentSpacesRouteRefresh();
+      void invalidateSpacesData().catch(() => prompts.error("Item was saved, but the list could not be refreshed."));
     },
     onError: (err) => prompts.error(err.message),
   });

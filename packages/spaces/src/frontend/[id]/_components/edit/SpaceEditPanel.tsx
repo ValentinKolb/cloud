@@ -65,6 +65,7 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
                 spaceId={props.space.id}
                 tags={props.space.tags}
                 onWorkspaceChange={props.onWorkspaceChange}
+                onSettingsChange={props.onSettingsChange}
                 onDirtyChange={setTagsDirty}
               />
             </SettingsModal.Tab>
@@ -73,6 +74,7 @@ export default function SpaceEditPanel(props: SpaceEditPanelProps) {
                 spaceId={props.space.id}
                 columns={props.space.columns}
                 onWorkspaceChange={props.onWorkspaceChange}
+                onSettingsChange={props.onSettingsChange}
                 onDirtyChange={setStatusesDirty}
               />
             </SettingsModal.Tab>

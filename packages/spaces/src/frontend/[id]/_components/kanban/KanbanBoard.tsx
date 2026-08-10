@@ -5,6 +5,7 @@ import {
   type DndDroppableSnapshot,
   dnd,
   mutation as mutations,
+  query,
 } from "@k2b/stdlib/solid";
 import { IconButton, prompts, Tooltip } from "@k2b/ui";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -14,7 +15,7 @@ import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelecti
 import { readResponseError } from "../../../lib/response";
 import AssigneeAvatars from "../shared/AssigneeAvatars";
 import CreateItemButton from "../sidebar/CreateItemButton";
-import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { invalidateSpacesData, requestSpacesRouteNavigation, subscribeToSpacesDataInvalidation } from "../workspace/workspace-events";
 import { canTransferThroughWormhole, showWormholeTransferToast, transferThroughWormhole } from "../wormhole-transfer";
 import type { KanbanBucketInitial } from "./types";
 
@@ -29,11 +30,6 @@ type Props = {
   dateConfig?: DateContext;
   canWrite: boolean;
   wormholes: SpaceWormhole[];
-};
-
-type LoadMoreContext = {
-  bucketKey: string;
-  request: ItemFilter;
 };
 
 type DragMeta = {
@@ -139,13 +135,64 @@ const buildRequest = (params: { bucket: KanbanBucketInitial; page: number; pageS
  * Kanban board with SSR-initialized buckets, drag/drop reordering and explicit per-column "load more".
  */
 export default function KanbanBoard(props: Props) {
-  const [buckets, setBuckets] = createSignal<KanbanBucketInitial[]>(props.initialBuckets);
-  const [loadingBucketKey, setLoadingBucketKey] = createSignal<string | null>(null);
+  const bucketQueries = props.initialBuckets.map((initialBucket) => {
+    const source = `${props.spaceId}:${initialBucket.key}`;
+    const initialPage: ItemListResult = {
+      items: initialBucket.items,
+      page: initialBucket.page,
+      pageSize: props.pageSize,
+      totalPages: initialBucket.totalPages,
+      total: initialBucket.total,
+    };
+    const pages = query.createInfinite<string, ItemListResult, number, { cursor: string | null }>({
+      source: () => source,
+      initial: { source, pages: [initialPage] },
+      loadPage: async (_source, { cursor, abortSignal }) => {
+        const res = await apiClient[":id"].items.filter.$post(
+          {
+            param: { id: props.spaceId },
+            json: buildRequest({ bucket: initialBucket, page: cursor ?? 1, pageSize: props.pageSize }),
+          },
+          { init: { signal: abortSignal } },
+        );
+        if (!res.ok) throw new Error(await readResponseError(res, "Failed to load items"));
+        const result = await res.json();
+        if (result.page !== (cursor ?? 1)) throw new Error("The server returned an invalid Kanban page.");
+        return result;
+      },
+      getNextCursor: (page) => (page.page < page.totalPages ? page.page + 1 : null),
+      subscribe: ({ invalidate }) => subscribeToSpacesDataInvalidation(["view"], invalidate),
+    });
+    return { initialBucket, pages };
+  });
+  const canonicalBuckets = () =>
+    bucketQueries.map(({ initialBucket, pages }) => {
+      const pageList = pages.pages();
+      const lastPage = pageList.at(-1);
+      const seen = new Set<string>();
+      const items = pageList
+        .flatMap((page) => page.items)
+        .filter((item) => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+      return {
+        ...initialBucket,
+        items,
+        page: lastPage?.page ?? initialBucket.page,
+        totalPages: lastPage?.totalPages ?? initialBucket.totalPages,
+        total: lastPage?.total ?? initialBucket.total,
+      };
+    });
+  const [optimisticBuckets, setOptimisticBuckets] = createSignal<KanbanBucketInitial[] | null>(null);
+  const buckets = () => optimisticBuckets() ?? canonicalBuckets();
+  const setBuckets = (update: KanbanBucketInitial[] | ((current: KanbanBucketInitial[]) => KanbanBucketInitial[])) =>
+    setOptimisticBuckets((current) => (typeof update === "function" ? update(current ?? canonicalBuckets()) : update));
   const [movingItemId, setMovingItemId] = createSignal<string | null>(null);
   const [selectedItemId, setSelectedItemId] = createSignal<string | null>(props.selectedItemId ?? null);
   let boardScrollContainer: HTMLDivElement | undefined;
   createEffect(() => {
-    setBuckets(props.initialBuckets);
     setSelectedItemId(props.selectedItemId ?? null);
   });
 
@@ -324,7 +371,7 @@ export default function KanbanBoard(props: Props) {
       cancel: (active) => `Cancelled drag for ${describeActiveItem(active)}`,
     },
     onDrop: ({ active, intent }) => {
-      if (!intent || moveMutation.loading() || transferMutation.loading()) return;
+      if (!intent || movingItemId() || moveMutation.loading() || transferMutation.loading()) return;
       if (intent.kind === "wormhole") {
         transferMutation.mutate({ itemId: active.meta.itemId, wormholeId: intent.wormholeId });
         return;
@@ -348,49 +395,6 @@ export default function KanbanBoard(props: Props) {
       boardScrollContainer?.removeEventListener("scroll", rememberBoardScroll);
       unsubscribe();
     });
-  });
-
-  const loadMoreMutation = mutations.create<ItemListResult, { bucketKey: string }, LoadMoreContext>({
-    onBefore: ({ bucketKey }) => {
-      const bucket = getBucketByKey(bucketKey);
-      if (!bucket) throw new Error("Column not found");
-
-      const request = buildRequest({
-        bucket,
-        page: bucket.page + 1,
-        pageSize: props.pageSize,
-      });
-
-      setLoadingBucketKey(bucketKey);
-      return { bucketKey, request };
-    },
-    mutation: async (_vars, ctx) => {
-      const res = await apiClient[":id"].items.filter.$post({
-        param: { id: props.spaceId },
-        json: ctx.request,
-      });
-      if (!res.ok) {
-        throw new Error(await readResponseError(res, "Failed to load items"));
-      }
-      return (await res.json()) as ItemListResult;
-    },
-    onSuccess: (result, ctx) => {
-      setBuckets((current) =>
-        current.map((bucket) =>
-          bucket.key === ctx?.bucketKey
-            ? {
-                ...bucket,
-                items: [...bucket.items, ...result.items],
-                page: result.page,
-                totalPages: result.totalPages,
-                total: result.total,
-              }
-            : bucket,
-        ),
-      );
-    },
-    onError: (error) => prompts.error(error.message),
-    onFinally: () => setLoadingBucketKey(null),
   });
 
   const moveMutation = mutations.create<SpaceItem, { itemId: string; intent: DropIntent }, MoveContext>({
@@ -498,6 +502,7 @@ export default function KanbanBoard(props: Props) {
           );
         });
       });
+      void invalidateSpacesData(["view"]).catch(() => prompts.error("Item moved, but the board could not be refreshed."));
     },
     onError: (error, ctx) => {
       if (ctx?.previousBuckets) {
@@ -508,6 +513,9 @@ export default function KanbanBoard(props: Props) {
         });
       }
       prompts.error(error.message);
+    },
+    onAbort: (ctx) => {
+      if (ctx?.previousBuckets) setBuckets(ctx.previousBuckets);
     },
     onFinally: () => setMovingItemId(null),
   });
@@ -543,6 +551,7 @@ export default function KanbanBoard(props: Props) {
       }),
     onSuccess: (result) => {
       showWormholeTransferToast(result);
+      void invalidateSpacesData(["view"]).catch(() => prompts.error("Item transferred, but the board could not be refreshed."));
       if (selectedItemId() === result.item.id) {
         requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
       }
@@ -555,11 +564,13 @@ export default function KanbanBoard(props: Props) {
       }
       if (error.name !== "AbortError") prompts.error(error.message);
     },
+    onAbort: (context) => {
+      if (context?.previousBuckets) setBuckets(context.previousBuckets);
+    },
     onFinally: () => setMovingItemId(null),
   });
 
-  const isLoadingBucket = (bucketKey: string) => loadMoreMutation.loading() && loadingBucketKey() === bucketKey;
-  const hasMore = (bucket: KanbanBucketInitial) => bucket.page < bucket.totalPages;
+  const bucketQuery = (bucketKey: string) => bucketQueries.find(({ initialBucket }) => initialBucket.key === bucketKey)?.pages;
   const isDropIndicatorVisible = (bucketKey: string, index: number) => {
     const intent = boardDnd.intent();
     return boardDnd.isDragging() && intent?.kind === "column" && intent.bucketKey === bucketKey && intent.previewIndex === index;
@@ -730,17 +741,29 @@ export default function KanbanBoard(props: Props) {
                       </div>
                     </Show>
 
-                    <Show when={hasMore(bucket)}>
+                    <Show when={bucketQuery(bucket.key)?.hasMore()}>
                       <IconButton
                         label={`Load more items in ${bucket.label}`}
                         size="sm"
-                        onClick={() => loadMoreMutation.mutate({ bucketKey: bucket.key })}
-                        disabled={isLoadingBucket(bucket.key)}
+                        onClick={() => void bucketQuery(bucket.key)?.loadMore()}
+                        disabled={bucketQuery(bucket.key)?.loadingMore()}
                         class="mx-auto mt-1 h-7 w-7"
                         title="Load more"
                       >
-                        <i class={`ti ${isLoadingBucket(bucket.key) ? "ti-loader-2 animate-spin" : "ti-arrow-down"} text-sm`} />
+                        <i class={`ti ${bucketQuery(bucket.key)?.loadingMore() ? "ti-loader-2 animate-spin" : "ti-arrow-down"} text-sm`} />
                       </IconButton>
+                    </Show>
+
+                    <Show when={bucketQuery(bucket.key)?.error()}>
+                      {(error) => (
+                        <button
+                          type="button"
+                          class="focus-ui mx-1 mb-1 rounded-[var(--ui-radius-control)] px-2 py-1.5 text-left text-xs text-red-600"
+                          onClick={() => void bucketQuery(bucket.key)?.refresh()}
+                        >
+                          {error().message} Retry
+                        </button>
+                      )}
                     </Show>
 
                     <Show when={props.canWrite && bucket.columnId}>

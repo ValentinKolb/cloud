@@ -1,8 +1,7 @@
 import type { DateContext } from "@k2b/stdlib";
-import { dialogCore, panelDialogFixedOptions, toast } from "@k2b/ui";
+import { dialogCore, panelDialogFixedOptions } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
-import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
 import ItemForm, { type ItemFormData } from "./ItemForm";
 
 type EditItemParams = {
@@ -30,8 +29,8 @@ export const saveItemFormData = async (params: { spaceId: string; itemId: string
   if (!res.ok) throw new Error("Could not update item");
 };
 
-export const editItemWithDialog = async (params: EditItemParams): Promise<boolean> => {
-  const result = await dialogCore.open<ItemFormData | null>(
+export const openEditItemDialog = async (params: EditItemParams): Promise<ItemFormData | null> =>
+  (await dialogCore.open<ItemFormData | null>(
     (close) => (
       <ItemForm
         spaceId={params.spaceId}
@@ -47,14 +46,4 @@ export const editItemWithDialog = async (params: EditItemParams): Promise<boolea
       />
     ),
     panelDialogFixedOptions,
-  );
-  if (!result) return false;
-  await saveItemFormData({ spaceId: params.spaceId, itemId: params.item.id, data: result });
-  return true;
-};
-
-export const handleEditItemSuccess = (updated: boolean): void => {
-  if (!updated) return;
-  toast.success("Item updated");
-  requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
-};
+  )) ?? null;

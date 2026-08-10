@@ -1,24 +1,22 @@
 import type { DateContext } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppWorkspace, Placeholder, prompts } from "@k2b/ui";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { query } from "@k2b/stdlib/solid";
+import { AppWorkspace, Button, Placeholder, prompts } from "@k2b/ui";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceTag, SpaceWormhole } from "@/contracts";
-import { getDetailItemFromUrl, getDetailOccurrenceFromUrl } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import {
   publishSpacesDetailState,
-  SPACES_DATA_INVALIDATED_EVENT,
   SPACES_DETAIL_NAVIGATION_EVENT,
-  type SpacesDataInvalidation,
   type SpacesDetailNavigation,
+  subscribeToSpacesDataInvalidation,
 } from "../workspace/workspace-events";
 import type { SpaceItemDetail } from "../workspace/workspace-types";
 import ItemDetailPanel from "./ItemDetailPanel";
 
 type Props = {
   spaceId: string;
-  baseUrl: string;
+  initialSource: string;
   currentUserId: string;
   columns: SpaceColumn[];
   tags: SpaceTag[];
@@ -29,32 +27,33 @@ type Props = {
   mailIntegrationAvailable: boolean;
 };
 
-type DetailRequest = {
-  itemId: string;
-  occurrenceId: string | null;
-  href: string;
-  history: "push" | "replace" | "none";
+type DetailHistory = "push" | "replace" | "none";
+type DetailSnapshot = { source: string; detail: SpaceItemDetail | null; notFound: boolean };
+type PendingNavigation = { id: number; source: string; history: DetailHistory; started: boolean };
+
+class DetailAccessChangedError extends Error {}
+
+const detailRequest = (href: string) => {
+  const url = new URL(href, "http://spaces.local");
+  return {
+    itemId: url.searchParams.get("item"),
+    occurrenceId: url.searchParams.get("occurrence"),
+  };
 };
 
-type DetailLoadContext = { request: DetailRequest };
-
-class DetailNotFoundError extends Error {}
-
-const canonicalDetailHref = (request: DetailRequest, detail: SpaceItemDetail) => {
-  if (!detail.recurringContext?.isOverride || detail.item.id === request.itemId) return request.href;
-  const url = new URL(request.href, "http://spaces.local");
+const canonicalDetailHref = (source: string, detail: SpaceItemDetail) => {
+  const request = detailRequest(source);
+  if (!detail.recurringContext?.isOverride || detail.item.id === request.itemId) return source;
+  const url = new URL(source, "http://spaces.local");
   url.searchParams.set("item", detail.item.id);
-  return `${url.pathname}${url.search}${url.hash}`;
+  return `${url.pathname}${url.search}`;
 };
 
-const commitHistory = (request: DetailRequest, detail: SpaceItemDetail) => {
-  const href = canonicalDetailHref(request, detail);
-  if (request.history === "none") {
-    if (href !== request.href) window.history.replaceState(null, "", href);
-    return;
-  }
-  if (request.history === "replace") window.history.replaceState(null, "", href);
-  else window.history.pushState(null, "", href);
+const detailBaseHref = (source: string) => {
+  const url = new URL(source, "http://spaces.local");
+  url.searchParams.delete("item");
+  url.searchParams.delete("occurrence");
+  return `${url.pathname}${url.search}`;
 };
 
 const detailState = (detail: SpaceItemDetail | null) => {
@@ -71,141 +70,155 @@ const detailState = (detail: SpaceItemDetail | null) => {
   };
 };
 
+const writeHistory = (href: string, history: DetailHistory) => {
+  if (history === "replace") window.history.replaceState(null, "", href);
+  else if (history === "push") window.history.pushState(null, "", href);
+  else if (`${window.location.pathname}${window.location.search}` !== href) window.history.replaceState(null, "", href);
+};
+
 export default function ItemDetailRoute(props: Props) {
-  const [detail, setDetail] = createSignal<SpaceItemDetail | null>(props.initialDetail);
-  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-  const clearDetailState = (href: string, history: DetailRequest["history"]) => {
-    setDetail(null);
-    if (history === "replace") window.history.replaceState(null, "", href);
-    else if (history === "push") window.history.pushState(null, "", href);
-    publishSpacesDetailState(detailState(null));
-  };
-  const loadDetail = mutations.create<{ request: DetailRequest; detail: SpaceItemDetail }, DetailRequest, DetailLoadContext>({
-    onBefore: (request) => ({ request }),
-    mutation: async (request, context) => {
+  const initialSource = props.initialDetail ? canonicalDetailHref(props.initialSource, props.initialDetail) : props.initialSource;
+  const initialRequest = detailRequest(props.initialSource);
+  const [source, setSource] = createSignal(initialSource);
+  const [pending, setPending] = createSignal<PendingNavigation | null>(null);
+  let nextNavigationId = 0;
+  let committedSource = initialSource;
+
+  const wormholesQuery = query.create<string, SpaceWormhole[], { cursor: string | null }>({
+    source: () => props.spaceId,
+    initial: { source: props.spaceId, data: props.wormholes },
+    enabled: () => props.canWrite,
+    load: async (spaceId, { abortSignal }) => {
+      const response = await apiClient[":id"].wormholes.$get({ param: { id: spaceId } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await readResponseError(response, "Failed to load wormholes"));
+      return response.json();
+    },
+    subscribe: ({ invalidate }) =>
+      subscribeToSpacesDataInvalidation(["wormholes"], (invalidation) => (props.canWrite ? invalidate(invalidation) : Promise.resolve())),
+  });
+
+  const detailQuery = query.create<string, DetailSnapshot, { cursor: string | null }>({
+    source,
+    initial:
+      props.initialDetail || !initialRequest.itemId
+        ? { source: initialSource, data: { source: initialSource, detail: props.initialDetail, notFound: false } }
+        : undefined,
+    enabled: () => detailRequest(source()).itemId !== null,
+    load: async (href, { abortSignal }) => {
+      const request = detailRequest(href);
+      if (!request.itemId) return { source: href, detail: null, notFound: false };
       const response = await apiClient[":id"].items[":itemId"].detail.$get(
         {
           param: { id: props.spaceId, itemId: request.itemId },
           query: request.occurrenceId ? { recurrence_id: request.occurrenceId } : {},
         },
-        { init: { signal: context.abortSignal } },
+        { init: { signal: abortSignal } },
       );
-      if (response.status === 401 || response.status === 403) {
-        window.location.reload();
-        throw new DOMException("Workspace access changed", "AbortError");
-      }
-      if (response.status === 404) throw new DetailNotFoundError(await readResponseError(response, "Item not found"));
+      if (response.status === 401 || response.status === 403) throw new DetailAccessChangedError("Workspace access changed");
+      if (response.status === 404) return { source: href, detail: null, notFound: true };
       if (!response.ok) throw new Error(await readResponseError(response, "Failed to load item"));
-      return { request, detail: await response.json() };
+      return { source: href, detail: await response.json(), notFound: false };
     },
-    onSuccess: (result) => {
-      setDetail(result.detail);
-      commitHistory(result.request, result.detail);
-      publishSpacesDetailState(detailState(result.detail));
-    },
-    onError: (error, context) => {
-      if (error instanceof DetailNotFoundError && context?.request.history === "none") {
-        clearDetailState(props.baseUrl, "replace");
-        return;
-      }
-      if (context?.request.history === "none") {
-        window.location.reload();
-        return;
-      }
-      prompts.error(error.message);
-    },
+    subscribe: ({ invalidate }) =>
+      subscribeToSpacesDataInvalidation(["detail"], (invalidation) =>
+        detailRequest(source()).itemId ? invalidate(invalidation) : Promise.resolve(),
+      ),
   });
 
-  const closeDetail = (href: string, history: DetailRequest["history"]) => {
-    loadDetail.abort();
-    clearDetailState(href, history);
+  const currentDetail = () => {
+    const snapshot = detailQuery.data();
+    return snapshot?.source === source() && !snapshot.notFound ? snapshot.detail : null;
   };
 
-  const requestDetail = (request: DetailRequest) => {
-    if (!request.itemId) return;
-    loadDetail.abort();
-    void loadDetail.mutate(request);
+  const restoreCommitted = (request: PendingNavigation, error: Error) => {
+    if (pending()?.id !== request.id) return;
+    setPending(null);
+    setSource(committedSource);
+    if (request.history === "none") window.history.replaceState(null, "", committedSource);
+    if (error instanceof DetailAccessChangedError) window.location.reload();
+    else prompts.error(error.message);
   };
 
-  const refreshCurrentDetail = () => {
-    const itemId = detail()?.item.id ?? getDetailItemFromUrl();
-    if (!itemId) return;
-    const occurrenceId = detail()?.recurringContext?.recurrenceId ?? getDetailOccurrenceFromUrl();
-    if (refreshTimer) clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => requestDetail({ itemId, occurrenceId, href: window.location.href, history: "none" }), 120);
+  createEffect(() => {
+    const request = pending();
+    if (request && (detailQuery.loading() || detailQuery.refreshing())) request.started = true;
+    const snapshot = detailQuery.data();
+
+    if (request && snapshot?.source === request.source && !detailQuery.stale()) {
+      if (snapshot.notFound) {
+        restoreCommitted(request, new Error("Item not found"));
+        return;
+      }
+      const href = snapshot.detail ? canonicalDetailHref(request.source, snapshot.detail) : request.source;
+      if (href !== request.source) {
+        setPending({ ...request, source: href, started: false });
+        setSource(href);
+        return;
+      }
+      setPending(null);
+      committedSource = href;
+      writeHistory(href, request.history);
+      publishSpacesDetailState(detailState(snapshot.detail));
+      return;
+    }
+
+    const error = detailQuery.error();
+    if (request?.started && error) {
+      restoreCommitted(request, error);
+      return;
+    }
+
+    if (!request && snapshot?.source === source()) {
+      if (snapshot.notFound) {
+        const baseHref = detailBaseHref(source());
+        committedSource = baseHref;
+        setSource(baseHref);
+        window.history.replaceState(null, "", baseHref);
+        publishSpacesDetailState(detailState(null));
+      } else {
+        publishSpacesDetailState(detailState(snapshot.detail));
+      }
+    }
+  });
+
+  const navigateDetail = (href: string, history: DetailHistory) => {
+    const request = detailRequest(href);
+    if (!request.itemId) {
+      setPending(null);
+      setSource(href);
+      committedSource = href;
+      writeHistory(href, history);
+      publishSpacesDetailState(detailState(null));
+      return;
+    }
+    setPending({ id: ++nextNavigationId, source: href, history, started: false });
+    setSource(href);
   };
 
   onMount(() => {
-    const initialItemId = getDetailItemFromUrl();
-    const initialDetail = detail();
-    if (initialItemId && initialDetail) {
-      commitHistory(
-        {
-          itemId: initialItemId,
-          occurrenceId: getDetailOccurrenceFromUrl(),
-          href: window.location.href,
-          history: "none",
-        },
-        initialDetail,
-      );
-    }
-    publishSpacesDetailState(detailState(initialDetail));
-    if (!detail() && initialItemId) {
-      requestDetail({
-        itemId: initialItemId,
-        occurrenceId: getDetailOccurrenceFromUrl(),
-        href: window.location.href,
-        history: "none",
-      });
+    const initial = currentDetail();
+    if (initial) {
+      writeHistory(initialSource, "none");
+      publishSpacesDetailState(detailState(initial));
+    } else {
+      publishSpacesDetailState(detailState(null));
     }
 
     const onNavigate = (event: Event) => {
       const request = (event as CustomEvent<SpacesDetailNavigation>).detail;
       if (!request) return;
-      const history = request.history ?? (request.replace ? "replace" : "push");
-      if (!request.itemId) {
-        closeDetail(request.href, history);
-        return;
-      }
-      requestDetail({
-        itemId: request.itemId,
-        occurrenceId: request.occurrenceId,
-        href: request.href,
-        history,
-      });
+      navigateDetail(request.href, request.history ?? "push");
     };
-    const onPopState = () => {
-      const itemId = getDetailItemFromUrl();
-      const occurrenceId = getDetailOccurrenceFromUrl();
-      if (!itemId) {
-        loadDetail.abort();
-        setDetail(null);
-        publishSpacesDetailState(detailState(null));
-        return;
-      }
-      if (detail()?.item.id === itemId && (detail()?.recurringContext?.recurrenceId ?? null) === occurrenceId) {
-        publishSpacesDetailState(detailState(detail()));
-        return;
-      }
-      requestDetail({ itemId, occurrenceId, href: window.location.href, history: "none" });
-    };
-    const onInvalidated = (event: Event) => {
-      const invalidation = (event as CustomEvent<SpacesDataInvalidation>).detail;
-      if (invalidation?.domains.includes("detail")) refreshCurrentDetail();
-    };
-
+    const onPopState = () => navigateDetail(`${window.location.pathname}${window.location.search}`, "none");
     window.addEventListener(SPACES_DETAIL_NAVIGATION_EVENT, onNavigate);
-    window.addEventListener(SPACES_DATA_INVALIDATED_EVENT, onInvalidated);
     window.addEventListener("popstate", onPopState);
     onCleanup(() => {
       window.removeEventListener(SPACES_DETAIL_NAVIGATION_EVENT, onNavigate);
-      window.removeEventListener(SPACES_DATA_INVALIDATED_EVENT, onInvalidated);
       window.removeEventListener("popstate", onPopState);
-      if (refreshTimer) clearTimeout(refreshTimer);
-      loadDetail.abort();
     });
   });
 
+  const detail = currentDetail;
   const scrollKey = () =>
     `spaces-detail-${props.spaceId}-${detail()?.item.id ?? "empty"}-${detail()?.recurringContext?.recurrenceId ?? "series"}`;
 
@@ -216,8 +229,19 @@ export default function ItemDetailRoute(props: Props) {
           when={detail()}
           keyed
           fallback={
-            loadDetail.loading() ? (
+            detailQuery.loading() ? (
               <Placeholder state="loading" title="Loading item details" />
+            ) : detailQuery.error() ? (
+              <Placeholder
+                state="error"
+                title="Could not load item details"
+                description={detailQuery.error()!.message}
+                action={
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void detailQuery.refresh()}>
+                    Retry
+                  </Button>
+                }
+              />
             ) : (
               <Placeholder icon="ti ti-click" description={<>Select an item to view details</>} />
             )
@@ -228,9 +252,9 @@ export default function ItemDetailRoute(props: Props) {
               item={current.item}
               columns={props.columns}
               tags={props.tags}
-              wormholes={props.wormholes}
+              wormholes={wormholesQuery.data() ?? props.wormholes}
               spaceId={props.spaceId}
-              baseUrl={props.baseUrl}
+              baseUrl={detailBaseHref(source())}
               currentUserId={props.currentUserId}
               initialCommentsPage={current.comments}
               commentTarget={current.commentTarget}

@@ -9,6 +9,7 @@ export type SpaceEditPanelProps = {
   initialSettings: SpaceUserSettings;
   onClose?: () => void;
   onWorkspaceChange?: () => void;
+  onSettingsChange?: () => Promise<void>;
   accessEntries?: AccessEntry[];
   apiKeys?: ResourceApiKey[];
   wormholes?: SpaceWormhole[];

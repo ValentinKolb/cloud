@@ -7,25 +7,32 @@ import { readErrorMessage } from "./utils";
 export function CalendarSection(props: { spaceId: string; icalToken: string | null; baseUrl: string; isAdmin: boolean }) {
   const [token, setToken] = createSignal(props.icalToken);
 
-  const regenerateMut = mutations.create({
-    mutation: async () => {
-      const confirmed = await prompts.confirm("Regenerating the token will invalidate the current URL. Continue?", {
-        title: "Regenerate Token",
-        variant: "danger",
-      });
-      if (!confirmed) return null;
-
-      const res = await apiClient[":id"]["regenerate-ical-token"].$post({ param: { id: props.spaceId } });
+  const regenerateMut = mutations.create<{ icalToken: string }, { spaceId: string }>({
+    mutation: async ({ spaceId }) => {
+      const res = await apiClient[":id"]["regenerate-ical-token"].$post({ param: { id: spaceId } });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to regenerate token"));
       return res.json();
     },
     onSuccess: (data) => {
-      if (!data) return;
-      setToken((data as { icalToken: string }).icalToken);
+      setToken(data.icalToken);
       toast.success("iCal token regenerated");
     },
     onError: (err) => prompts.error(err.message),
   });
+  let confirmPending = false;
+  const confirmRegenerate = async () => {
+    if (confirmPending || regenerateMut.loading()) return;
+    confirmPending = true;
+    try {
+      const confirmed = await prompts.confirm("Regenerating the token will invalidate the current URL. Continue?", {
+        title: "Regenerate Token",
+        variant: "danger",
+      });
+      if (confirmed) void regenerateMut.mutate({ spaceId: props.spaceId });
+    } finally {
+      confirmPending = false;
+    }
+  };
 
   const icalUrl = () => (token() ? `${props.baseUrl}/api/spaces/calendar/ical/${token()}.ics` : null);
 
@@ -42,13 +49,7 @@ export function CalendarSection(props: { spaceId: string; icalToken: string | nu
         </Show>
         <Show when={props.isAdmin && icalUrl()}>
           <SettingsGroup.Action>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => regenerateMut.mutate(undefined)}
-              disabled={regenerateMut.loading()}
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={() => void confirmRegenerate()} disabled={regenerateMut.loading()}>
               <i class={`ti ${regenerateMut.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
               Regenerate URL
             </Button>

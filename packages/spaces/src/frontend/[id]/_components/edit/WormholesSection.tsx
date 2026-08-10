@@ -1,8 +1,9 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import { Button, ColorInput, IconButton, prompts, Select, SettingsCollection, SettingsGroup, toast } from "@k2b/ui";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceWormhole, SpaceWormholeDestination } from "@/contracts";
+import { subscribeToSpacesDataInvalidation } from "../workspace/workspace-events";
 import { readErrorMessage } from "./utils";
 
 type FormValue = { targetColumnId: string; color: string };
@@ -73,27 +74,40 @@ function WormholeForm(props: {
 }
 
 export function WormholesSection(props: { spaceId: string; initialWormholes: SpaceWormhole[]; onDirtyChange: (dirty: boolean) => void }) {
-  const [wormholes, setWormholes] = createSignal([...props.initialWormholes]);
+  const [optimisticOrder, setOptimisticOrder] = createSignal<SpaceWormhole[] | null>(null);
   const [editingId, setEditingId] = createSignal<string | "new" | null>(null);
 
   createEffect(() => props.onDirtyChange(editingId() !== null));
   onCleanup(() => props.onDirtyChange(false));
 
-  const destinationsMutation = mutations.create<SpaceWormholeDestination[], void>({
-    mutation: async (_vars, ctx) => {
+  const wormholesQuery = query.create<string, SpaceWormhole[], { cursor: string | null }>({
+    source: () => props.spaceId,
+    initial: { source: props.spaceId, data: props.initialWormholes },
+    load: async (spaceId, ctx) => {
+      const response = await apiClient[":id"].wormholes.configured.$get({ param: { id: spaceId } }, { init: { signal: ctx.abortSignal } });
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to load wormholes"));
+      return response.json();
+    },
+    subscribe: ({ invalidate }) => subscribeToSpacesDataInvalidation(["wormholes"], invalidate),
+  });
+  const wormholes = () => optimisticOrder() ?? wormholesQuery.data() ?? props.initialWormholes;
+  const refreshWormholes = () =>
+    void wormholesQuery
+      .invalidate({ cursor: null })
+      .catch(() => prompts.error("Changes were saved, but wormholes could not be refreshed."));
+
+  const destinationsQuery = query.create<string, SpaceWormholeDestination[], { cursor: string | null }>({
+    source: () => props.spaceId,
+    load: async (spaceId, ctx) => {
       const response = await apiClient[":id"]["wormhole-destinations"].$get(
-        { param: { id: props.spaceId } },
+        { param: { id: spaceId } },
         { init: { signal: ctx.abortSignal } },
       );
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to load destinations"));
       return response.json();
     },
-    onError: (error) => {
-      if (error.name !== "AbortError") prompts.error(error.message);
-    },
+    subscribe: ({ invalidate }) => subscribeToSpacesDataInvalidation(["wormholes"], invalidate),
   });
-
-  onMount(() => destinationsMutation.mutate(undefined));
 
   const createMutation = mutations.create<SpaceWormhole, FormValue>({
     mutation: async (value) => {
@@ -101,10 +115,10 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create wormhole"));
       return response.json();
     },
-    onSuccess: (wormhole) => {
-      setWormholes((current) => [...current, wormhole]);
+    onSuccess: () => {
       setEditingId(null);
       toast.success("Wormhole created");
+      refreshWormholes();
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -118,24 +132,16 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update wormhole"));
       return response.json();
     },
-    onSuccess: (wormhole) => {
-      setWormholes((current) => current.map((item) => (item.id === wormhole.id ? wormhole : item)));
+    onSuccess: () => {
       setEditingId(null);
       toast.success("Wormhole updated");
+      refreshWormholes();
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const deleteMutation = mutations.create<string | null, SpaceWormhole>({
+  const deleteMutation = mutations.create<string, SpaceWormhole>({
     mutation: async (wormhole) => {
-      const label = wormhole.target ? `${wormhole.target.spaceName} / ${wormhole.target.columnName}` : "the unavailable destination";
-      const confirmed = await prompts.confirm(`Delete the wormhole to ${label}?`, {
-        title: "Delete wormhole",
-        icon: "ti ti-trash",
-        variant: "danger",
-        confirmText: "Delete",
-      });
-      if (!confirmed) return null;
       const response = await apiClient[":id"].wormholes[":wormholeId"].$delete({
         param: { id: props.spaceId, wormholeId: wormhole.id },
       });
@@ -143,16 +149,31 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
       return wormhole.id;
     },
     onSuccess: (id) => {
-      if (!id) return;
-      setWormholes((current) => current.filter((wormhole) => wormhole.id !== id));
       if (editingId() === id) setEditingId(null);
       toast.success("Wormhole deleted");
+      refreshWormholes();
     },
     onError: (error) => prompts.error(error.message),
   });
+  let deletePromptPending = false;
+  const deleteWormhole = async (wormhole: SpaceWormhole) => {
+    if (deletePromptPending || deleteMutation.loading()) return;
+    deletePromptPending = true;
+    try {
+      const label = wormhole.target ? `${wormhole.target.spaceName} / ${wormhole.target.columnName}` : "the unavailable destination";
+      const confirmed = await prompts.confirm(`Delete the wormhole to ${label}?`, {
+        title: "Delete wormhole",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (confirmed) void deleteMutation.mutate(wormhole);
+    } finally {
+      deletePromptPending = false;
+    }
+  };
 
-  const reorderMutation = mutations.create<void, { ids: string[]; previous: SpaceWormhole[] }, SpaceWormhole[]>({
-    onBefore: ({ previous }) => previous,
+  const reorderMutation = mutations.create<void, { ids: string[] }>({
     mutation: async ({ ids }) => {
       const response = await apiClient[":id"].wormholes.order.$put({
         param: { id: props.spaceId },
@@ -160,14 +181,22 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
       });
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to reorder wormholes"));
     },
-    onError: (error, previous) => {
-      if (previous) setWormholes(previous);
+    onSuccess: () => {
+      void wormholesQuery
+        .invalidate({ cursor: null })
+        .catch(() => prompts.error("Wormholes were reordered, but the latest order could not be loaded."))
+        .finally(() => setOptimisticOrder(null));
+    },
+    onError: (error) => {
+      setOptimisticOrder(null);
       prompts.error(error.message);
     },
+    onAbort: () => setOptimisticOrder(null),
   });
+  let reorderSubmitting = false;
 
   const move = (index: number, direction: -1 | 1) => {
-    if (reorderMutation.loading()) return;
+    if (reorderSubmitting || reorderMutation.loading()) return;
     const nextIndex = index + direction;
     const previous = wormholes();
     if (nextIndex < 0 || nextIndex >= previous.length) return;
@@ -175,11 +204,12 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
     const [moved] = next.splice(index, 1);
     if (!moved) return;
     next.splice(nextIndex, 0, moved);
-    setWormholes(next);
-    reorderMutation.mutate({ ids: next.map((wormhole) => wormhole.id), previous });
+    setOptimisticOrder(next);
+    reorderSubmitting = true;
+    void reorderMutation.mutate({ ids: next.map((wormhole) => wormhole.id) }).finally(() => (reorderSubmitting = false));
   };
 
-  const destinations = () => destinationsMutation.data() ?? [];
+  const destinations = () => destinationsQuery.data() ?? [];
   const formLoading = () => createMutation.loading() || updateMutation.loading();
 
   const editingWormhole = () => {
@@ -219,10 +249,10 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
           <Button
             type="button"
             size="sm"
-            disabled={editingId() !== null || destinationsMutation.loading() || destinations().length === 0}
+            disabled={editingId() !== null || destinationsQuery.loading() || destinations().length === 0}
             onClick={() => setEditingId("new")}
           >
-            <i class={`ti ${destinationsMutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"}`} aria-hidden="true" />
+            <i class={`ti ${destinationsQuery.loading() ? "ti-loader-2 animate-spin" : "ti-plus"}`} aria-hidden="true" />
             New wormhole
           </Button>
         </SettingsCollection.Action>
@@ -250,7 +280,7 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
                     label="Edit wormhole"
                     size="sm"
                     title="Edit"
-                    disabled={editingId() !== null || destinationsMutation.loading() || destinations().length === 0}
+                    disabled={editingId() !== null || destinationsQuery.loading() || destinations().length === 0}
                     onClick={() => setEditingId(wormhole.id)}
                   >
                     <i class="ti ti-pencil" aria-hidden="true" />
@@ -261,7 +291,7 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
                   size="sm"
                   title="Delete"
                   disabled={deleteMutation.loading()}
-                  onClick={() => deleteMutation.mutate(wormhole)}
+                  onClick={() => void deleteWormhole(wormhole)}
                 >
                   <i class="ti ti-trash" aria-hidden="true" />
                 </IconButton>
@@ -271,7 +301,17 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
         </For>
       </SettingsCollection>
 
-      <Show when={destinationsMutation.error()}>
+      <Show when={wormholesQuery.error()}>
+        <SettingsGroup title="Wormholes unavailable" description={wormholesQuery.error()!.message}>
+          <SettingsGroup.Action>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void wormholesQuery.refresh()}>
+              <i class="ti ti-refresh" aria-hidden="true" /> Retry
+            </Button>
+          </SettingsGroup.Action>
+        </SettingsGroup>
+      </Show>
+
+      <Show when={destinationsQuery.error()}>
         <SettingsGroup title="Destinations unavailable" description="Spaces could not load the destinations you can administer.">
           <SettingsGroup.Action>
             <Button
@@ -279,8 +319,7 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
               variant="secondary"
               size="sm"
               onClick={() => {
-                destinationsMutation.abort();
-                destinationsMutation.mutate(undefined);
+                void destinationsQuery.refresh();
               }}
             >
               <i class="ti ti-refresh" aria-hidden="true" /> Retry
@@ -289,7 +328,7 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
         </SettingsGroup>
       </Show>
 
-      <Show when={!destinationsMutation.loading() && !destinationsMutation.error() && destinations().length === 0}>
+      <Show when={!destinationsQuery.loading() && !destinationsQuery.error() && destinations().length === 0}>
         <p class="text-sm text-dimmed">No other Space with admin access and at least one status is available.</p>
       </Show>
     </>

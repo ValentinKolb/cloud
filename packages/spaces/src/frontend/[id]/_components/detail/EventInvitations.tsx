@@ -1,6 +1,6 @@
-import { mutation } from "@k2b/stdlib/solid";
+import { mutation, query } from "@k2b/stdlib/solid";
 import { Button, DetailPanel, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
 import { readResponseError } from "../../../lib/response";
@@ -30,8 +30,13 @@ const parseAttendees = (value: string) => {
     : { ok: true as const, attendees: [...addresses].map((address) => ({ name: null, address })) };
 };
 
-function InvitationDialog(props: { spaceId: string; itemId: string; method: "request" | "cancel"; close: () => void }) {
-  const [context, setContext] = createSignal<InvitationContext | null>(null);
+function InvitationDialog(props: {
+  spaceId: string;
+  itemId: string;
+  method: "request" | "cancel";
+  close: () => void;
+  onCreated: () => void;
+}) {
   const [mailboxId, setMailboxId] = createSignal<string | null>(null);
   const [senderIdentityId, setSenderIdentityId] = createSignal<string | null>(null);
   const [recipients, setRecipients] = createSignal("");
@@ -41,16 +46,21 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
     idempotencyKey = crypto.randomUUID();
   };
 
-  const load = mutation.create<InvitationContext, void>({
-    mutation: async (_input, { abortSignal }) => loadContext(props.spaceId, props.itemId, abortSignal),
-    onSuccess: (result) => {
-      setContext(result);
-      const mailbox = result.mailboxes[0];
-      const identity = mailbox?.identities.find((candidate) => candidate.isDefault) ?? mailbox?.identities[0];
-      setMailboxId(mailbox?.id ?? null);
-      setSenderIdentityId(identity?.id ?? null);
-      setRecipients(result.attendees.map((attendee) => attendee.address).join(", "));
-    },
+  const contextQuery = query.create<string, InvitationContext>({
+    source: () => `${props.spaceId}:${props.itemId}`,
+    load: async (_source, { abortSignal }) => loadContext(props.spaceId, props.itemId, abortSignal),
+  });
+  const context = contextQuery.data;
+  let initializedContext: InvitationContext | null = null;
+  createEffect(() => {
+    const result = context();
+    if (!result || result === initializedContext) return;
+    initializedContext = result;
+    const mailbox = result.mailboxes[0];
+    const identity = mailbox?.identities.find((candidate) => candidate.isDefault) ?? mailbox?.identities[0];
+    setMailboxId(mailbox?.id ?? null);
+    setSenderIdentityId(identity?.id ?? null);
+    setRecipients(result.attendees.map((attendee) => attendee.address).join(", "));
   });
 
   const selectedMailbox = createMemo(() => context()?.mailboxes.find((mailbox) => mailbox.id === mailboxId()) ?? null);
@@ -63,51 +73,74 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
     setSenderIdentityId(identity?.id ?? null);
   };
 
-  const create = mutation.create<void, void>({
-    mutation: async (_input, { abortSignal }) => {
-      const parsed = parseAttendees(recipients());
-      if (!parsed.ok) {
-        setValidationError(parsed.message);
-        return;
-      }
-      if (!mailboxId() || !senderIdentityId()) {
-        setValidationError("Choose a mailbox with a verified sending identity.");
-        return;
-      }
-      setValidationError(null);
-      const mailTab = window.open("about:blank", "_blank");
-      if (!mailTab) throw new Error("Mail could not open a new tab. Allow pop-ups for Cloud and try again.");
-      mailTab.opener = null;
+  type InvitationIntent = {
+    idempotencyKey: string;
+    mailboxId: string;
+    senderIdentityId: string;
+    attendees: Array<{ name: null; address: string }>;
+    method: "request" | "cancel";
+    mailTab: Window;
+  };
+  const create = mutation.create<void, InvitationIntent>({
+    mutation: async (intent, { abortSignal }) => {
       try {
         const response = await apiClient[":id"].items[":itemId"]["invitation-draft"].$post(
           {
             param: { id: props.spaceId, itemId: props.itemId },
             json: {
-              idempotencyKey,
-              mailboxId: mailboxId()!,
-              senderIdentityId: senderIdentityId()!,
-              attendees: parsed.attendees,
-              method: props.method,
+              idempotencyKey: intent.idempotencyKey,
+              mailboxId: intent.mailboxId,
+              senderIdentityId: intent.senderIdentityId,
+              attendees: intent.attendees,
+              method: intent.method,
             },
           },
           { init: { signal: abortSignal } },
         );
         if (!response.ok) throw new Error(await readResponseError(response, "Could not create the invitation draft"));
         const result = await response.json();
-        mailTab.location.replace(new URL(result.href, window.location.origin).href);
+        intent.mailTab.location.replace(new URL(result.href, window.location.origin).href);
         toast.success(props.method === "cancel" ? "Cancellation email created" : "Invitation email created");
+        props.onCreated();
         props.close();
       } catch (error) {
-        mailTab.close();
+        intent.mailTab.close();
         throw error;
       }
     },
     onError: (error) => prompts.error(error.message, { title: "Could not create email" }),
   });
+  const createInvitation = () => {
+    if (create.loading()) return;
+    const parsed = parseAttendees(recipients());
+    if (!parsed.ok) {
+      setValidationError(parsed.message);
+      return;
+    }
+    const selectedMailboxId = mailboxId();
+    const selectedSenderIdentityId = senderIdentityId();
+    if (!selectedMailboxId || !selectedSenderIdentityId) {
+      setValidationError("Choose a mailbox with a verified sending identity.");
+      return;
+    }
+    setValidationError(null);
+    const mailTab = window.open("about:blank", "_blank");
+    if (!mailTab) {
+      void prompts.error("Mail could not open a new tab. Allow pop-ups for Cloud and try again.");
+      return;
+    }
+    mailTab.opener = null;
+    void create.mutate({
+      idempotencyKey,
+      mailboxId: selectedMailboxId,
+      senderIdentityId: selectedSenderIdentityId,
+      attendees: parsed.attendees,
+      method: props.method,
+      mailTab,
+    });
+  };
 
-  onMount(() => load.mutate());
   onCleanup(() => {
-    load.abort();
     create.abort();
   });
 
@@ -124,13 +157,13 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
           when={context()}
           fallback={
             <Placeholder
-              state={load.error() ? "error" : "loading"}
+              state={contextQuery.error() ? "error" : "loading"}
               variant="compact"
-              title={load.error() ? "Mail senders unavailable" : "Loading Mail senders"}
-              description={load.error()?.message}
+              title={contextQuery.error() ? "Mail senders unavailable" : "Loading Mail senders"}
+              description={contextQuery.error()?.message}
               action={
-                load.error() ? (
-                  <Button variant="secondary" size="sm" type="button" onClick={() => load.mutate()}>
+                contextQuery.error() ? (
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void contextQuery.refresh()}>
                     Retry
                   </Button>
                 ) : undefined
@@ -202,8 +235,8 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
         <Button
           type="button"
           variant={props.method === "cancel" ? "danger" : "primary"}
-          disabled={load.loading() || create.loading() || !context() || !mailboxId() || !senderIdentityId()}
-          onClick={() => create.mutate()}
+          disabled={contextQuery.loading() || create.loading() || !context() || !mailboxId() || !senderIdentityId()}
+          onClick={createInvitation}
         >
           <i class={create.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-mail-plus"} aria-hidden="true" />
           Create Mail
@@ -213,25 +246,24 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
   );
 }
 
-const openDialog = (spaceId: string, itemId: string, method: "request" | "cancel") =>
-  dialogCore.open<void>((close) => <InvitationDialog spaceId={spaceId} itemId={itemId} method={method} close={() => close()} />, {
-    ...panelDialogOptions,
-    cancelBehavior: "ignore",
-  });
+const openDialog = (spaceId: string, itemId: string, method: "request" | "cancel", onCreated: () => void) =>
+  dialogCore.open<void>(
+    (close) => <InvitationDialog spaceId={spaceId} itemId={itemId} method={method} close={() => close()} onCreated={onCreated} />,
+    {
+      ...panelDialogOptions,
+      cancelBehavior: "ignore",
+    },
+  );
 
 export default function EventInvitations(props: { spaceId: string; itemId: string }) {
-  const [canCancel, setCanCancel] = createSignal(false);
-  const [lastDelivery, setLastDelivery] = createSignal<InvitationContext["lastDelivery"]>(null);
-  const controller = new AbortController();
-  onMount(() => {
-    void loadContext(props.spaceId, props.itemId, controller.signal)
-      .then((context) => {
-        setCanCancel(context.canCancel);
-        setLastDelivery(context.lastDelivery);
-      })
-      .catch(() => undefined);
+  const contextQuery = query.create<string, InvitationContext>({
+    source: () => `${props.spaceId}:${props.itemId}`,
+    load: async (_source, { abortSignal }) => loadContext(props.spaceId, props.itemId, abortSignal),
   });
-  onCleanup(() => controller.abort());
+  const context = contextQuery.data;
+  const reconcile = () => {
+    void contextQuery.invalidate().catch(() => prompts.error("Email created, but invitation status could not be refreshed."));
+  };
   return (
     <DetailPanel.Section
       title="Invitations"
@@ -239,10 +271,20 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
       icon="ti ti-calendar-share"
       tone="accent"
     >
-      <Show when={lastDelivery()?.state === "failed"}>
+      <Show when={contextQuery.error()}>
+        {(error) => (
+          <div class="mb-2 flex items-center justify-between gap-2 text-xs text-danger" role="alert">
+            <span>{error().message}</span>
+            <Button type="button" variant="ghost" size="xs" onClick={() => void contextQuery.refresh()}>
+              Retry
+            </Button>
+          </div>
+        )}
+      </Show>
+      <Show when={context()?.lastDelivery?.state === "failed"}>
         <p class="mb-2 text-xs text-danger">
           <i class="ti ti-alert-circle mr-1" aria-hidden="true" />
-          {lastDelivery()?.errorMessage ?? "The latest Mail draft could not be created."} Retry by creating the invitation again.
+          {context()?.lastDelivery?.errorMessage ?? "The latest Mail draft could not be created."} Retry by creating the invitation again.
         </p>
       </Show>
       <div class="flex flex-col gap-1">
@@ -250,14 +292,14 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
           type="button"
           leading={<i class="ti ti-calendar-share" aria-hidden="true" />}
           title="Invite or update"
-          onClick={() => openDialog(props.spaceId, props.itemId, "request")}
+          onClick={() => openDialog(props.spaceId, props.itemId, "request", reconcile)}
         />
-        <Show when={canCancel()}>
+        <Show when={context()?.canCancel}>
           <DetailPanel.Action
             type="button"
             leading={<i class="ti ti-calendar-cancel" aria-hidden="true" />}
             title="Cancel invitations"
-            onClick={() => openDialog(props.spaceId, props.itemId, "cancel")}
+            onClick={() => openDialog(props.spaceId, props.itemId, "cancel", reconcile)}
           />
         </Show>
       </div>

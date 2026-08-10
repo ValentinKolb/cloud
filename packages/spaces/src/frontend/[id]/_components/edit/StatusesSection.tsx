@@ -10,10 +10,13 @@ export function StatusesSection(props: {
   spaceId: string;
   columns: SpaceColumn[];
   onWorkspaceChange?: () => void;
+  onSettingsChange?: () => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
 }) {
-  const [columns, setColumns] = createSignal([...props.columns]);
+  const [optimisticColumns, setOptimisticColumns] = createSignal<SpaceColumn[] | null>(null);
+  const columns = () => optimisticColumns() ?? props.columns;
   const [editingId, setEditingId] = createSignal<string | "new" | null>(null);
+  const reconcile = () => void props.onSettingsChange?.().catch((error) => prompts.error(error.message));
 
   createEffect(() => props.onDirtyChange(editingId() !== null));
   onCleanup(() => props.onDirtyChange(false));
@@ -29,11 +32,11 @@ export function StatusesSection(props: {
       }
       return res.json();
     },
-    onSuccess: (newColumn) => {
-      setColumns([...columns(), newColumn as SpaceColumn]);
+    onSuccess: () => {
       setEditingId(null);
       toast.success("Status created");
       props.onWorkspaceChange?.();
+      reconcile();
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -49,23 +52,17 @@ export function StatusesSection(props: {
       }
       return res.json();
     },
-    onSuccess: (updated) => {
-      setColumns(columns().map((c) => (c.id === (updated as SpaceColumn).id ? (updated as SpaceColumn) : c)));
+    onSuccess: () => {
       setEditingId(null);
       toast.success("Status updated");
       props.onWorkspaceChange?.();
+      reconcile();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteMut = mutations.create<SpaceColumn | null, SpaceColumn>({
+  const deleteMut = mutations.create<SpaceColumn, SpaceColumn>({
     mutation: async (column: SpaceColumn) => {
-      const confirmed = await prompts.confirm(`Delete status "${column.name}"?`, {
-        title: "Delete Status",
-        variant: "danger",
-      });
-      if (!confirmed) return null;
-
       const res = await apiClient[":id"].columns[":columnId"].$delete({
         param: { id: props.spaceId, columnId: column.id },
       });
@@ -74,17 +71,17 @@ export function StatusesSection(props: {
       }
       return column;
     },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
-      setColumns(columns().filter((c) => c.id !== deleted.id));
+    onSuccess: () => {
       toast.success("Status deleted");
       props.onWorkspaceChange?.();
+      reconcile();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const reorderMut = mutations.create({
-    mutation: async (columnIds: string[]) => {
+  type ReorderIntent = { columnIds: string[] };
+  const reorderMut = mutations.create<void, ReorderIntent>({
+    mutation: async ({ columnIds }) => {
       const res = await apiClient[":id"].columns.order.$put({
         param: { id: props.spaceId },
         json: { columnIds },
@@ -93,20 +90,50 @@ export function StatusesSection(props: {
         throw new Error(await readErrorMessage(res, "Failed to reorder"));
       }
     },
-    onSuccess: () => props.onWorkspaceChange?.(),
-    onError: (err) => prompts.error(err.message),
+    onSuccess: () => {
+      props.onWorkspaceChange?.();
+      const refresh = props.onSettingsChange?.();
+      if (!refresh) {
+        setOptimisticColumns(null);
+        return;
+      }
+      void refresh.catch((error) => prompts.error(error.message)).finally(() => setOptimisticColumns(null));
+    },
+    onError: (err) => {
+      setOptimisticColumns(null);
+      prompts.error(err.message);
+    },
+    onAbort: () => setOptimisticColumns(null),
   });
+  let reorderSubmitting = false;
+  let deletePromptPending = false;
+  const deleteColumn = async (column: SpaceColumn) => {
+    if (deletePromptPending || deleteMut.loading()) return;
+    deletePromptPending = true;
+    try {
+      const confirmed = await prompts.confirm(`Delete status "${column.name}"?`, {
+        title: "Delete Status",
+        variant: "danger",
+      });
+      if (confirmed) await deleteMut.mutate(column);
+    } finally {
+      deletePromptPending = false;
+    }
+  };
 
   const moveColumn = (index: number, direction: -1 | 1) => {
+    if (reorderSubmitting || reorderMut.loading()) return;
     const newIndex = index + direction;
     if (newIndex < 0 || newIndex >= columns().length) return;
 
-    const newColumns = [...columns()];
+    const previous = columns();
+    const newColumns = [...previous];
     const [moved] = newColumns.splice(index, 1);
     newColumns.splice(newIndex, 0, moved!);
-    setColumns(newColumns);
+    setOptimisticColumns(newColumns);
 
-    reorderMut.mutate(newColumns.map((c) => c.id));
+    reorderSubmitting = true;
+    void reorderMut.mutate({ columnIds: newColumns.map((c) => c.id) }).finally(() => (reorderSubmitting = false));
   };
 
   return (
@@ -168,7 +195,7 @@ export function StatusesSection(props: {
                 <IconButton label={`Edit ${column.name}`} size="sm" onClick={() => setEditingId(column.id)} title="Edit status">
                   <i class="ti ti-pencil" aria-hidden="true" />
                 </IconButton>
-                <IconButton label={`Delete ${column.name}`} size="sm" onClick={() => deleteMut.mutate(column)} title="Delete status">
+                <IconButton label={`Delete ${column.name}`} size="sm" onClick={() => void deleteColumn(column)} title="Delete status">
                   <i class="ti ti-trash" aria-hidden="true" />
                 </IconButton>
               </SettingsCollection.Item.Actions>

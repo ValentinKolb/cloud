@@ -1,9 +1,12 @@
 import type { DateContext } from "@k2b/stdlib";
-import { createSignal } from "solid-js";
+import { query } from "@k2b/stdlib/solid";
+import { Button } from "@k2b/ui";
+import { createEffect, Show } from "solid-js";
 import type { SpaceColumn, SpaceTag, SpaceWormhole } from "@/contracts";
 import KanbanBoard from "../kanban/KanbanBoard";
 import type { KanbanBucketInitial } from "../kanban/types";
-import { useSpacesViewRefresh } from "./view-refresh";
+import { loadSpacesViewSnapshot, SpacesViewUnavailableError } from "./view-query";
+import { subscribeToSpacesDataInvalidation } from "./workspace-events";
 
 type Props = {
   spaceId: string;
@@ -18,26 +21,57 @@ type Props = {
 };
 
 export default function SpacesKanbanRoute(props: Props) {
-  const [state, setState] = createSignal({ buckets: props.initialBuckets, wormholes: props.wormholes });
-  useSpacesViewRefresh((snapshot) => {
-    if (snapshot.kind === "kanban") setState({ buckets: snapshot.buckets, wormholes: snapshot.wormholes });
-    else window.location.reload();
+  const source = () => props.baseUrl;
+  const view = query.create<
+    string,
+    { source: string; buckets: KanbanBucketInitial[]; wormholes: SpaceWormhole[] },
+    { cursor: string | null }
+  >({
+    source,
+    initial: {
+      source: props.baseUrl,
+      data: { source: props.baseUrl, buckets: props.initialBuckets, wormholes: props.wormholes },
+    },
+    load: async (href, { abortSignal }) => {
+      const snapshot = await loadSpacesViewSnapshot(href, abortSignal);
+      if (snapshot.kind !== "kanban") throw new SpacesViewUnavailableError("Workspace view changed");
+      return { source: href, buckets: snapshot.buckets, wormholes: snapshot.wormholes };
+    },
+    subscribe: ({ invalidate }) => subscribeToSpacesDataInvalidation(["wormholes"], invalidate),
+  });
+  const state = () => (view.data()?.source === source() ? view.data()! : { buckets: props.initialBuckets, wormholes: props.wormholes });
+  createEffect(() => {
+    if (view.error() instanceof SpacesViewUnavailableError) window.location.reload();
   });
 
   return (
     <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`spaces-main-${props.spaceId}`}>
-      <KanbanBoard
-        spaceId={props.spaceId}
-        baseUrl={props.baseUrl}
-        columns={props.columns}
-        tags={props.tags}
-        selectedItemId={props.selectedItemId}
-        initialBuckets={state().buckets}
-        pageSize={30}
-        dateConfig={props.dateConfig}
-        canWrite={props.canWrite}
-        wormholes={state().wormholes}
-      />
+      <Show when={view.error()}>
+        {(error) => (
+          <div class="flex items-center justify-between gap-2 pb-1 text-xs text-red-600" role="alert">
+            <span>{error().message}</span>
+            <Button type="button" variant="ghost" size="xs" disabled={view.refreshing()} onClick={() => void view.refresh()}>
+              Retry
+            </Button>
+          </div>
+        )}
+      </Show>
+      <Show when={state()} keyed>
+        {(current) => (
+          <KanbanBoard
+            spaceId={props.spaceId}
+            baseUrl={props.baseUrl}
+            columns={props.columns}
+            tags={props.tags}
+            selectedItemId={props.selectedItemId}
+            initialBuckets={current.buckets}
+            pageSize={30}
+            dateConfig={props.dateConfig}
+            canWrite={props.canWrite}
+            wormholes={current.wormholes}
+          />
+        )}
+      </Show>
     </div>
   );
 }

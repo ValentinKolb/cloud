@@ -18,7 +18,7 @@ import {
 
 type OkWorkspaceState = Extract<SpacesWorkspaceState, { kind: "ok" }>;
 
-const routeContext = (state: OkWorkspaceState, dateConfig?: DateContext) => {
+const routeContext = (state: OkWorkspaceState, initialDetail: SpaceItemDetail | null, dateConfig?: DateContext) => {
   const baseSpaceUrl = `/app/spaces/${state.space.id}`;
   const url = new URL(`${baseSpaceUrl}${state.query ? `?${state.query}` : ""}`, "http://spaces.local");
   const filter = state.currentView === "list" || state.currentView === "table" ? parseFilterFromUrl(url) : defaultFilter;
@@ -34,6 +34,7 @@ const routeContext = (state: OkWorkspaceState, dateConfig?: DateContext) => {
   });
   return {
     baseSpaceUrl,
+    initialHref: `${url.pathname}${url.search}`,
     filter,
     itemLinkBaseUrl,
     paginationBaseUrl: buildSpacesPaginationBaseUrl({
@@ -47,7 +48,8 @@ const routeContext = (state: OkWorkspaceState, dateConfig?: DateContext) => {
 
 export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateConfig?: DateContext; mailIntegrationAvailable: boolean }) {
   const state = props.state;
-  const route = routeContext(state, props.dateConfig);
+  const initialDetail: SpaceItemDetail | null = state.selectedItemDetail;
+  const route = routeContext(state, initialDetail, props.dateConfig);
   const sidebarContext: SpaceContext = {
     space: state.space,
     columns: state.space.columns,
@@ -58,7 +60,6 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
     query: state.query,
     canWrite: state.canWrite,
   };
-  const initialDetail: SpaceItemDetail | null = state.selectedItemDetail;
   const selectedItemId = initialDetail?.item.id ?? "";
   const selectedCalendarEventId = initialDetail?.recurringContext
     ? initialDetail.recurringContext.isOverride
@@ -125,7 +126,7 @@ export default function SpacesWorkspace(props: { state: OkWorkspaceState; dateCo
 
           <ItemDetailRoute
             spaceId={state.space.id}
-            baseUrl={route.itemLinkBaseUrl}
+            initialSource={route.initialHref}
             currentUserId={state.currentUserId}
             columns={state.space.columns}
             tags={state.space.tags}

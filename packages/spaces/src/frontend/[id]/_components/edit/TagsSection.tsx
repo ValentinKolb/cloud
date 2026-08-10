@@ -1,6 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { prompts, SettingsGroup, TagEditor, toast } from "@k2b/ui";
-import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceTag } from "@/contracts";
 import { readErrorMessage } from "./utils";
@@ -9,9 +8,10 @@ export function TagsSection(props: {
   spaceId: string;
   tags: SpaceTag[];
   onWorkspaceChange?: () => void;
+  onSettingsChange?: () => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
 }) {
-  const [tags, setTags] = createSignal([...props.tags]);
+  const reconcile = () => void props.onSettingsChange?.().catch((error) => prompts.error(error.message));
 
   const createMut = mutations.create({
     mutation: async (data: { name: string; color: string }) => {
@@ -24,10 +24,10 @@ export function TagsSection(props: {
       }
       return res.json();
     },
-    onSuccess: (newTag) => {
-      setTags([...tags(), newTag as SpaceTag]);
+    onSuccess: () => {
       toast.success("Tag created");
       props.onWorkspaceChange?.();
+      reconcile();
     },
   });
 
@@ -42,21 +42,15 @@ export function TagsSection(props: {
       }
       return res.json();
     },
-    onSuccess: (updated) => {
-      setTags(tags().map((t) => (t.id === (updated as SpaceTag).id ? (updated as SpaceTag) : t)));
+    onSuccess: () => {
       toast.success("Tag updated");
       props.onWorkspaceChange?.();
+      reconcile();
     },
   });
 
-  const deleteMut = mutations.create<SpaceTag | null, SpaceTag>({
+  const deleteMut = mutations.create<SpaceTag, SpaceTag>({
     mutation: async (tag: SpaceTag) => {
-      const confirmed = await prompts.confirm("Delete this tag?", {
-        title: "Delete Tag",
-        variant: "danger",
-      });
-      if (!confirmed) return null;
-
       const res = await apiClient[":id"].tags[":tagId"].$delete({
         param: { id: props.spaceId, tagId: tag.id },
       });
@@ -65,22 +59,22 @@ export function TagsSection(props: {
       }
       return tag;
     },
-    onSuccess: (deleted) => {
-      if (!deleted) return;
-      setTags(tags().filter((t) => t.id !== deleted.id));
+    onSuccess: () => {
       toast.success("Tag deleted");
       props.onWorkspaceChange?.();
+      reconcile();
     },
   });
 
   const throwMutationError = (error: Error | null) => {
     if (error) throw error;
   };
+  let deletePromptPending = false;
 
   return (
     <SettingsGroup title="Vocabulary" description="Create tags here, then assign them from item editors.">
       <TagEditor
-        items={tags()}
+        items={props.tags}
         defaultColor="#3b82f6"
         disabled={createMut.loading() || updateMut.loading() || deleteMut.loading()}
         onDirtyChange={props.onDirtyChange}
@@ -93,8 +87,16 @@ export function TagsSection(props: {
           throwMutationError(updateMut.error());
         }}
         onDelete={async (tag) => {
-          await deleteMut.mutate(tag);
-          throwMutationError(deleteMut.error());
+          if (deletePromptPending || deleteMut.loading()) return;
+          deletePromptPending = true;
+          try {
+            const confirmed = await prompts.confirm("Delete this tag?", { title: "Delete Tag", variant: "danger" });
+            if (!confirmed) return;
+            await deleteMut.mutate(tag);
+            throwMutationError(deleteMut.error());
+          } finally {
+            deletePromptPending = false;
+          }
         }}
       />
     </SettingsGroup>

@@ -6,7 +6,7 @@ import {
   type SpaceLiveClientMessage,
   type SpaceLiveServerMessage,
 } from "../../../../live-events";
-import { requestSpacesDataRefresh } from "./workspace-events";
+import { createSpacesLiveCursorQueue, invalidateSpacesData } from "./workspace-events";
 
 type Props = {
   spaceId: string;
@@ -15,7 +15,6 @@ type Props = {
 
 export default function SpaceLiveEvents(props: Props) {
   onMount(() => {
-    let reconcileAfterReady = props.initialCursor === null;
     const connection = createLiveWebSocket<SpaceLiveServerMessage>({
       url: "/api/spaces/ws",
       initialCursor: props.initialCursor,
@@ -29,17 +28,17 @@ export default function SpaceLiveEvents(props: Props) {
       onMessage: (message, controls) => {
         if (message.payload.spaceId && message.payload.spaceId !== props.spaceId) return;
         if (message.type === SPACE_LIVE_WS_TYPE.ready) {
-          controls.markApplied(message.payload.cursor);
-          if (reconcileAfterReady) {
-            reconcileAfterReady = false;
-            requestSpacesDataRefresh();
-          }
+          void applyCursor(["view", "detail", "wormholes"], message.payload.cursor);
           return;
         }
         if (message.type === SPACE_LIVE_WS_TYPE.event) {
-          controls.markApplied(message.payload.cursor);
-          if (message.payload.event.type.startsWith("item.")) requestSpacesDataRefresh(["view", "detail"]);
-          else requestSpacesDataRefresh(["view"]);
+          const eventType = message.payload.event.type;
+          if (eventType.startsWith("space.") || eventType === "access.changed") {
+            window.location.reload();
+            return;
+          }
+          const domains = eventType.startsWith("item.") ? (["view", "detail"] as const) : (["view", "wormholes"] as const);
+          void applyCursor([...domains], message.payload.cursor);
           return;
         }
         if (message.type === SPACE_LIVE_WS_TYPE.revoked) {
@@ -47,6 +46,11 @@ export default function SpaceLiveEvents(props: Props) {
         }
       },
       onFatal: () => window.location.reload(),
+    });
+    const applyCursor = createSpacesLiveCursorQueue({
+      invalidate: invalidateSpacesData,
+      markApplied: connection.markApplied,
+      onFailure: () => window.location.reload(),
     });
 
     connection.connect();
