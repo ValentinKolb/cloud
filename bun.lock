@@ -8,7 +8,7 @@
         "@fontsource/ibm-plex-mono": "^5.2.7",
         "@fontsource/ibm-plex-sans": "^5.2.8",
         "@fontsource/ibm-plex-sans-condensed": "^5.2.8",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@tabler/icons-webfont": "^3.44.0",
         "bun-plugin-tailwind": "^0.1.2",
         "seroval": "^1.6.0",
@@ -29,7 +29,7 @@
         "@hono/standard-validator": "0.2.2",
         "@k2b/fibel": "0.7.3",
         "@k2b/ssr": "^0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "4.12.18",
@@ -62,7 +62,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -93,7 +93,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -111,7 +111,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -132,7 +132,7 @@
         "@fontsource/ibm-plex-sans-condensed": "^5.2.8",
         "@k2b/nessi": "^0.11.0",
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@modelcontextprotocol/sdk": "1.30.0",
@@ -206,7 +206,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -225,7 +225,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@simplewebauthn/browser": "^13.3.0",
         "@valentinkolb/cloud": "workspace:*",
@@ -242,7 +242,7 @@
       "name": "@valentinkolb/cloud-app-dashboard",
       "version": "0.0.0",
       "dependencies": {
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -259,7 +259,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -276,7 +276,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/filegate": "2.4.0",
@@ -306,7 +306,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -326,7 +326,7 @@
       "dependencies": {
         "@bwip-js/generic": "4.11.1",
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -348,7 +348,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -367,7 +367,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -423,7 +423,7 @@
         "@codemirror/state": "^6.6.0",
         "@codemirror/view": "^6.42.1",
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@lezer/common": "^1.5.2",
@@ -455,7 +455,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -474,7 +474,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -492,7 +492,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -510,7 +510,7 @@
       "name": "@valentinkolb/cloud-app-quotes",
       "version": "0.0.0",
       "dependencies": {
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
@@ -526,7 +526,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/sync": "5.9.1",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
@@ -547,7 +547,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -566,7 +566,7 @@
       "dependencies": {
         "@fontsource/ibm-plex-mono": "^5.2.7",
         "@fontsource/ibm-plex-sans": "^5.2.8",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@tabler/icons-webfont": "^3.44.0",
         "marked": "^17.0.1",
       },
@@ -593,7 +593,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -611,7 +611,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/stdlib": "0.18.0",
+        "@k2b/stdlib": "0.19.0",
         "@k2b/ui": "workspace:*",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
@@ -863,7 +863,7 @@
 
     "@k2b/ssr": ["@k2b/ssr@0.12.0", "", { "dependencies": { "@babel/core": "^7.29.7", "@babel/preset-typescript": "^7.29.7", "@types/babel__core": "^7.20.5", "babel-preset-solid": "^1.9.12", "seroval": "^1.5.5" }, "peerDependencies": { "elysia": "^1.0.0", "hono": "^4.0.0", "solid-js": "^1.9.0" }, "optionalPeers": ["elysia", "hono"] }, "sha512-71Yg65mfkpVuBSaq0m+QZyvw5KL4uvFVKnZREjNmXVf0K4+IpNWbCcM+fVXbPnzVMr48+FEM9n0/c1E6Jq7yPA=="],
 
-    "@k2b/stdlib": ["@k2b/stdlib@0.18.0", "", { "dependencies": { "dayjs": "^1.11.0" }, "peerDependencies": { "lean-qr": "", "solid-js": "" }, "optionalPeers": ["lean-qr", "solid-js"] }, "sha512-oohrJECSZFYRLh1aCtrHHcSiR1KyxsZq8sRYiRXMJVp3In28LjJWCMYQ59g2FbZhXbA5Cs6yNYA6NFfN2JQAMA=="],
+    "@k2b/stdlib": ["@k2b/stdlib@0.19.0", "", { "dependencies": { "dayjs": "^1.11.0" }, "peerDependencies": { "lean-qr": "", "solid-js": "" }, "optionalPeers": ["lean-qr", "solid-js"] }, "sha512-Vy/Fo9y43a6zWr5p/DL2DciRoWwwhcAFyC1a93V9RJHy+fzS1l1yN68iuaghQs4PA3dEnXgkOQDMizuI3L5b6A=="],
 
     "@k2b/sync": ["@k2b/sync@5.9.1", "", {}, "sha512-dBOJ5bD2U57Wyhyr7jgSGPp6oB0KE89YzwTL3ccmUuim4bGPhlpTlEIr9bBOyHhl1D7Y0LCeC/5kxpSlAdrVkw=="],
 
