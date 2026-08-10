@@ -272,6 +272,13 @@ const ContactTagUpdateInputSchema = z.object({
   color: HexColorSchema.optional(),
 });
 
+const ContactBookSettingsContextSchema = z.object({
+  book: ContactBookSchema,
+  accessEntries: z.array(AccessEntrySchema),
+  apiKeys: z.array(ContactBookApiKeySchema),
+  tags: z.array(ContactTagSchema),
+});
+
 const ContactEmailInputSchema = z.object({
   label: z.string().max(100).nullable().optional(),
   email: z.email(),
@@ -753,6 +760,45 @@ const app = new Hono<AuthContext>()
       const { book, error } = await requireBookAccess(c, bookId, "read");
       if (error || !book) return error!;
       return respond(c, ok(book));
+    },
+  )
+
+  .get(
+    "/books/:bookId/settings-context",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Get contact book settings context",
+      description: "Load the context required by the lazy contact book settings dialog. Requires admin access to a manual book.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactBookSettingsContextSchema, "Contact book settings context"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Book not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+
+      const bookId = c.req.param("bookId") ?? "";
+      const { book, error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+      if (error || !book) return error!;
+
+      const [accessEntries, apiKeys, tags] = await Promise.all([
+        contactsService.book.access.list({ bookId }),
+        contactsService.book.access.apiKeys.list({ bookId }),
+        contactsService.tag.list({ bookId }),
+      ]);
+
+      return respond(
+        c,
+        ok({
+          book,
+          accessEntries: accessEntries.items,
+          apiKeys,
+          tags,
+        }),
+      );
     },
   )
 

@@ -1,5 +1,6 @@
 import { AppWorkspace } from "@k2b/ui";
 import type { ContactBook } from "../../service";
+import BookSettingsButton from "./BookSettingsButton.island";
 import ContactsSpotlightButton from "./ContactsSpotlightButton.island";
 import CreateBookButton from "./CreateBookButton.island";
 
@@ -21,6 +22,7 @@ export default function ContactsSidebar(props: Props) {
     const href = `/app/contacts/${book.id}`;
     const isActive = props.active === book.id;
     const icon = book.isSystem ? "ti ti-building-community" : "ti ti-address-book";
+    const canManage = adminBookIds.includes(book.id);
 
     return (
       <AppWorkspace.SidebarItem
@@ -30,6 +32,13 @@ export default function ContactsSidebar(props: Props) {
         title={book.name}
         viewTransitionName={vt(`book-${book.id}-${mode}`)}
         class="w-full"
+        actions={
+          canManage ? (
+            <AppWorkspace.SidebarItemActions visibility={mode === "desktop" ? "hover" : "always"}>
+              <BookSettingsButton bookId={book.id} bookName={book.name} />
+            </AppWorkspace.SidebarItemActions>
+          ) : undefined
+        }
       >
         <AppWorkspace.SidebarItemIcon icon={icon} />
         <AppWorkspace.SidebarItemLabel>{book.name}</AppWorkspace.SidebarItemLabel>
@@ -111,32 +120,7 @@ export default function ContactsSidebar(props: Props) {
           </AppWorkspace.SidebarSection>
 
           <AppWorkspace.SidebarSection title="Books">
-            {manualBooks.map((book) => {
-              const href = `/app/contacts/${book.id}`;
-              const isActive = props.active === book.id;
-              const canManage = adminBookIds.includes(book.id);
-              return (
-                <AppWorkspace.SidebarItem
-                  href={href}
-                  navigation="document"
-                  active={isActive}
-                  viewTransitionName={vt(`book-${book.id}-desktop`)}
-                  title={book.name}
-                >
-                  <AppWorkspace.SidebarItemIcon icon="ti ti-address-book" />
-                  <AppWorkspace.SidebarItemLabel>{book.name}</AppWorkspace.SidebarItemLabel>
-                  {canManage && (
-                    <AppWorkspace.SidebarItemAction
-                      href={`/app/contacts/${book.id}/settings`}
-                      navigation="document"
-                      icon="ti ti-settings"
-                      label={`Open settings for ${book.name}`}
-                      visibility="hover"
-                    />
-                  )}
-                </AppWorkspace.SidebarItem>
-              );
-            })}
+            {manualBooks.map((book) => renderBookItem(book, "desktop"))}
           </AppWorkspace.SidebarSection>
 
           <AppWorkspace.SidebarSection title="Directory">

@@ -1,4 +1,3 @@
-import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
@@ -7,6 +6,7 @@ import { readErrorMessage } from "./api";
 type Props = {
   bookId: string;
   bookName: string;
+  onDeleted: () => void;
 };
 
 /** Deletes a manual contact book after explicit user confirmation. */
@@ -32,7 +32,7 @@ export default function DeleteBookButton(props: Props) {
     onSuccess: (deleted) => {
       if (!deleted) return;
       toast.success("Contact book deleted");
-      navigateTo("/app/contacts");
+      props.onDeleted();
     },
     onError: (error) => {
       prompts.error(error.message);

@@ -5,6 +5,7 @@ import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
 import { readErrorMessage } from "./api";
+import { openBookSettingsDialog } from "./BookSettingsDialog";
 import ContactSearchPicker from "./ContactSearchPicker";
 import ContactTagsPicker from "./ContactTagsPicker";
 import { buildContactPayload, contactToUpsertDraft } from "./ContactUpsertForm.model";
@@ -141,7 +142,7 @@ export default function ContactQuickEdit(props: Props) {
             bookId={props.contact.bookId}
             selectedIds={tagIds()}
             onChange={setTagIds}
-            manageUrl={`/app/contacts/${props.contact.bookId}/settings`}
+            onManage={async () => (await openBookSettingsDialog({ bookId: props.contact.bookId, initialTab: "tags" })).workspaceChanged}
             compact
           />
         </div>

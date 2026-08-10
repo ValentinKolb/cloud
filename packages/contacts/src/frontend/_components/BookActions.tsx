@@ -1,4 +1,3 @@
-import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, ButtonLink, CheckboxCard, prompts } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
@@ -11,6 +10,7 @@ type Props = {
   bookId: string;
   /** Show the Import button. Read-only users see only Export. */
   canWrite: boolean;
+  onImported?: () => void;
 };
 
 type ImportCandidate = {
@@ -196,7 +196,7 @@ export default function BookActions(props: Props) {
       size: "large",
     });
     if (created && created > 0) {
-      refreshCurrentPath();
+      props.onImported?.();
     }
   };
 

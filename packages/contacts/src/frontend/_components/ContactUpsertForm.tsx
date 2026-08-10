@@ -6,6 +6,7 @@ import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
 import { readErrorMessage } from "./api";
+import { openBookSettingsDialog } from "./BookSettingsDialog";
 import ContactSearchPicker from "./ContactSearchPicker";
 import ContactTagsPicker from "./ContactTagsPicker";
 import { AddressFields, BankAccountFields, ReachFields } from "./ContactUpsertForm.fields";
@@ -116,7 +117,7 @@ const IdentitySection = (props: IdentitySectionProps) => (
           bookId={props.bookId}
           selectedIds={props.tagIds()}
           onChange={props.setTagIds}
-          manageUrl={`/app/contacts/${props.bookId}/settings`}
+          onManage={async () => (await openBookSettingsDialog({ bookId: props.bookId, initialTab: "tags" })).workspaceChanged}
           compact
         />
       </div>

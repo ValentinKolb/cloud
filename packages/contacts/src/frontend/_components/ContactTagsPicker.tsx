@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { MultiSelectInput } from "@k2b/ui";
+import { Button, MultiSelectInput } from "@k2b/ui";
 import { createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
@@ -15,18 +15,18 @@ type Props = {
   /** Compact trigger when used inside a contact editor row — hides the
    *  outer label, just renders the trigger pill. */
   compact?: boolean;
-  /** URL of the tag-management settings page, shown as a link when there are
-   *  no tags yet so users can create their first one. */
-  manageUrl?: string;
+  /** Opens tag management when the book has no tags. Return true to reload. */
+  onManage?: () => boolean | void | Promise<boolean | void>;
 };
 
 /**
  * Multi-select tag picker. Tags themselves are managed in the book settings
- * page — here we only assign / unassign existing ones to the current contact.
+ * dialog — here we only assign / unassign existing ones to the current contact.
  */
 export default function ContactTagsPicker(props: Props) {
   const [available, setAvailable] = createSignal<ContactTag[]>([]);
   const [loaded, setLoaded] = createSignal(false);
+  const [managing, setManaging] = createSignal(false);
 
   const loadMutation = mutations.create<ContactTag[], void>({
     mutation: async (_input, ctx) => {
@@ -43,6 +43,19 @@ export default function ContactTagsPicker(props: Props) {
   onMount(() => {
     loadMutation.mutate(undefined);
   });
+
+  const manageTags = async () => {
+    if (!props.onManage || managing()) return;
+    setManaging(true);
+    try {
+      if (await props.onManage()) {
+        loadMutation.abort();
+        await loadMutation.mutate(undefined);
+      }
+    } finally {
+      setManaging(false);
+    }
+  };
 
   const selectedIds = () => (loaded() ? props.selectedIds.filter((id) => available().some((tag) => tag.id === id)) : []);
   const options = () =>
@@ -67,11 +80,11 @@ export default function ContactTagsPicker(props: Props) {
         clearable
         onValueChange={props.onChange}
       />
-      <Show when={loaded() && available().length === 0 && props.manageUrl}>
-        <a href={props.manageUrl!} class="inline-flex items-center gap-1 text-xs text-link hover:underline">
+      <Show when={loaded() && available().length === 0 && props.onManage}>
+        <Button type="button" variant="ghost" size="xs" class="w-fit" loading={managing()} onClick={() => void manageTags()}>
           <i class="ti ti-settings" aria-hidden="true" />
           Manage tags in book settings
-        </a>
+        </Button>
       </Show>
     </div>
   );
