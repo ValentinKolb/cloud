@@ -14,7 +14,7 @@ Cloud provides a shared runtime for model-backed features.
 
 An application can add a resource chat, call a model for structured output, or
 define tools. Cloud supplies model configuration, credentials, conversation
-storage, streaming, approvals, files, skills, and runtime recovery.
+storage, streaming, approvals, files, Projects, personalization, and runtime recovery.
 
 The application still owns the product behavior. It decides:
 
@@ -32,7 +32,7 @@ The application still owns the product behavior. It decides:
 | A standalone chat surface | [`createAiChatRoutes()`](/en/docs/ai/chat-runtime-and-streaming) |
 | One validated background result | [`runAiStructured()`](/en/docs/ai/structured-and-background-ai) |
 | A model-requested action | [`defineAiTool()`](/en/docs/ai/tools-and-approvals) |
-| Conversation files, skills, or user memory | [Files, skills, and memory](/en/docs/ai/files-skills-and-memory) |
+| Conversation files, Projects, or user memory | [Files, Projects, and personalization](/en/docs/ai/files-projects-and-personalization) |
 | Shared chat components | [Chat interface](/en/docs/ai/chat-interface) |
 
 Do not create a chat when one structured call is enough.

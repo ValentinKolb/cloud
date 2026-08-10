@@ -337,10 +337,6 @@ export default function KanbanBoard(props: Props) {
     },
   });
 
-  onCleanup(() => {
-    boardDnd.destroy();
-  });
-
   onMount(() => {
     requestAnimationFrame(() => restoreBoardScroll());
     boardScrollContainer?.addEventListener("scroll", rememberBoardScroll, { passive: true });

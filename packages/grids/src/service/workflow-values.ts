@@ -9,7 +9,7 @@ import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/
 import type { AuthorizedRecordAccess } from "./record-access";
 import { recordAccessPredicate } from "./record-access";
 import { createReader } from "./record-read";
-import { resolveWorkflowTargetRecordAccess } from "./workflow-authorization";
+import { resolveWorkflowBaseRecordAccess } from "./workflow-authorization";
 
 export type WorkflowRecordReference = {
   kind: "record";
@@ -225,7 +225,7 @@ const recordAccessChecker = (
   return (tableId: string): Promise<AuthorizedRecordAccess | null> => {
     let access = cache.get(tableId);
     if (!access) {
-      access = override ? override(tableId) : resolveWorkflowTargetRecordAccess(principal, { baseId, tableId }, "read");
+      access = override ? override(tableId) : resolveWorkflowBaseRecordAccess(principal, { baseId, tableId }, "read");
       cache.set(tableId, access);
     }
     return access;

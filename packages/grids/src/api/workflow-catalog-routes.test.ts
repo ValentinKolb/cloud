@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { fail, ok } from "@k2b/stdlib";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
-import { fail, ok } from "@k2b/stdlib";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
 import { gridsService } from "../service";
@@ -148,7 +148,7 @@ describe("workflow catalog update route", () => {
     restoredRevision = null;
     restoreExpectedRevision = null;
     spyOn(gridsService.workflow, "get").mockImplementation(async () => workflow);
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => permissionLevel);
   });
 

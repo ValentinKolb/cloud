@@ -1,86 +1,34 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import {
-  type AccessBinding,
   grantAccess,
   listAccessForBaseTree,
   listBaseAccess,
   listCustomAppAccess,
-  listDocumentTemplateAccess,
-  listFormAccess,
-  listTableAccess,
-  listViewAccess,
-  listWorkflowAccess,
   lockBaseAuthorization,
   resolveAccessBinding,
   resolveResourceBinding,
 } from "./access";
-import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
-const fixture = () => ({
-  baseId: uuid(),
-  tableId: uuid(),
-  viewId: uuid(),
-  formId: uuid(),
-  documentTemplateId: uuid(),
-  customAppId: uuid(),
-  workflowId: uuid(),
-});
-
-type Fixture = ReturnType<typeof fixture>;
-
-const insertFixture = async (item: Fixture) => {
-  await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${item.baseId}::uuid, ${shortId("B")}, 'Access registry')`;
-  await sql`
-    INSERT INTO grids.tables (id, short_id, base_id, name)
-    VALUES (${item.tableId}::uuid, ${shortId("T")}, ${item.baseId}::uuid, 'Inventory')
-  `;
-  await sql`
-    INSERT INTO grids.views (id, short_id, table_id, name, source)
-    VALUES (${item.viewId}::uuid, ${shortId("V")}, ${item.tableId}::uuid, 'Available items', ${`from table {${item.tableId}}`})
-  `;
-  await sql`
-    INSERT INTO grids.forms (id, short_id, table_id, name)
-    VALUES (${item.formId}::uuid, ${shortId("F")}, ${item.tableId}::uuid, 'Return item')
-  `;
-  await sql`
-    INSERT INTO grids.document_templates (id, short_id, table_id, name, source, html)
-    VALUES (${item.documentTemplateId}::uuid, ${shortId("D")}, ${item.tableId}::uuid, 'Item label', ${`from table {${item.tableId}}`}, '<p>Item</p>')
-  `;
+const insertFixture = async () => {
+  const baseId = uuid();
+  const customAppId = uuid();
+  await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Access registry')`;
   await sql`
     INSERT INTO grids.custom_apps (id, short_id, base_id, name, draft_definition, draft_capabilities)
-    VALUES (${item.customAppId}::uuid, ${shortId("C")}, ${item.baseId}::uuid, 'Request portal', '{}'::jsonb, '{"views":[]}'::jsonb)
+    VALUES (${customAppId}::uuid, ${shortId("C")}, ${baseId}::uuid, 'Request portal', '{}'::jsonb, NULL)
   `;
-  await insertTestWorkflow({
-    id: item.workflowId,
-    shortId: shortId("W"),
-    baseId: item.baseId,
-    name: "Check in",
-    source: "steps: []",
-    plan: { inputs: [], triggers: [], steps: [], bindings: {} },
-  });
+  return { baseId, customAppId };
 };
 
-const resources = (item: Fixture): Array<{ type: AccessBinding["resourceType"]; id: string; permission: PermissionLevel }> => [
-  { type: "base", id: item.baseId, permission: "admin" },
-  { type: "table", id: item.tableId, permission: "read" },
-  { type: "view", id: item.viewId, permission: "read" },
-  { type: "form", id: item.formId, permission: "write" },
-  { type: "documentTemplate", id: item.documentTemplateId, permission: "admin" },
-  { type: "customApp", id: item.customAppId, permission: "read" },
-  { type: "workflow", id: item.workflowId, permission: "write" },
-];
-
-const cleanup = async (item: Fixture, accessIds: string[]) => {
-  await sql`DELETE FROM grids.audit_log WHERE base_id = ${item.baseId}::uuid`;
-  await deleteTestWorkflowScope(item.baseId);
-  await sql`DELETE FROM grids.bases WHERE id = ${item.baseId}::uuid`;
+const cleanup = async (baseId: string, accessIds: string[]) => {
+  await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
+  await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
   for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
 };
 
@@ -89,114 +37,123 @@ beforeAll(async () => {
 });
 
 describe("access resource registry integration", () => {
+  postgresTest("rejects new Custom App service-account grants without hiding stored rows", async () => {
+    const item = await insertFixture();
+    const [serviceAccount] = await sql<{ id: string }[]>`
+      INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
+      VALUES ('Legacy Custom App access', 'resource_bound', 'grids', 'base', ${item.baseId})
+      RETURNING id::text AS id
+    `;
+    if (!serviceAccount) throw new Error("Failed to create service account fixture");
+    const [storedAccess] = await sql<{ id: string }[]>`
+      INSERT INTO auth.access (service_account_id, permission)
+      VALUES (${serviceAccount.id}::uuid, 'read')
+      RETURNING id::text AS id
+    `;
+    if (!storedAccess) throw new Error("Failed to create stored access fixture");
+    try {
+      await sql`
+        INSERT INTO grids.custom_app_access (custom_app_id, access_id)
+        VALUES (${item.customAppId}::uuid, ${storedAccess.id}::uuid)
+      `;
+
+      const rejected = await grantAccess({
+        resourceType: "customApp",
+        resourceId: item.customAppId,
+        principal: { type: "service_account", serviceAccountId: serviceAccount.id },
+        permission: "read",
+      });
+
+      expect(rejected.ok).toBe(false);
+      if (!rejected.ok) {
+        expect(rejected.error.message).toBe(
+          "Custom App access does not support service accounts; grant access to the delegated user instead.",
+        );
+      }
+      expect(await listCustomAppAccess(item.customAppId)).toEqual([
+        expect.objectContaining({
+          id: storedAccess.id,
+          principal: { type: "service_account", serviceAccountId: serviceAccount.id },
+          permission: "read",
+        }),
+      ]);
+    } finally {
+      await cleanup(item.baseId, [storedAccess.id]);
+      await sql`DELETE FROM auth.service_accounts WHERE id = ${serviceAccount.id}::uuid`;
+    }
+  });
+
   postgresTest("rechecks base administration after a concurrent revocation", async () => {
-    const item = fixture();
+    const item = await insertFixture();
     const [user] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
     if (!user) throw new Error("Access registry integration test needs one auth user");
     const [adminAccess] = await sql<Array<{ id: string }>>`
-      INSERT INTO auth.access (user_id, permission)
-      VALUES (${user.id}::uuid, 'admin')
-      RETURNING id::text
+      INSERT INTO auth.access (user_id, permission) VALUES (${user.id}::uuid, 'admin') RETURNING id::text
     `;
     if (!adminAccess) throw new Error("Failed to create admin access fixture");
-    let releaseRevocation = () => {};
-    let revocationLocked = () => {};
-    const waitForRelease = new Promise<void>((resolve) => {
-      releaseRevocation = resolve;
-    });
-    const waitForLock = new Promise<void>((resolve) => {
-      revocationLocked = resolve;
-    });
+    let release = () => {};
+    let locked = () => {};
+    const waitForRelease = new Promise<void>((resolve) => (release = resolve));
+    const waitForLock = new Promise<void>((resolve) => (locked = resolve));
     try {
-      await insertFixture(item);
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${item.baseId}::uuid, ${adminAccess.id}::uuid)`;
       const revocation = sql.begin(async (tx) => {
         await lockBaseAuthorization([item.baseId], tx);
         await tx`DELETE FROM auth.access WHERE id = ${adminAccess.id}::uuid`;
-        revocationLocked();
+        locked();
         await waitForRelease;
       });
       await waitForLock;
-      const grant = grantAccess({
-        resourceType: "table",
-        resourceId: item.tableId,
+      const pending = grantAccess({
+        resourceType: "customApp",
+        resourceId: item.customAppId,
         principal: { type: "public" },
         permission: "read",
         actorId: user.id,
         authorization: { subject: { type: "user", userId: user.id }, permissionCap: "admin" },
       });
       await Bun.sleep(20);
-      releaseRevocation();
+      release();
       await revocation;
-      const result = await grant;
+      const result = await pending;
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error.status).toBe(403);
-      expect(await listTableAccess(item.tableId)).toHaveLength(0);
+      expect(await listCustomAppAccess(item.customAppId)).toHaveLength(0);
     } finally {
-      releaseRevocation();
-      await cleanup(item, [adminAccess.id]);
+      release();
+      await cleanup(item.baseId, [adminAccess.id]);
     }
   });
 
-  postgresTest("grants, lists, resolves, and base-tree projects every registered resource", async () => {
-    const item = fixture();
+  postgresTest("grants, lists, resolves, and projects only base and Custom App access", async () => {
+    const item = await insertFixture();
     const accessIds: string[] = [];
     try {
-      await insertFixture(item);
-      for (const resource of resources(item)) {
+      for (const resource of [
+        { type: "base" as const, id: item.baseId, permission: "admin" as const },
+        { type: "customApp" as const, id: item.customAppId, permission: "read" as const },
+      ]) {
         const result = await grantAccess({
           resourceType: resource.type,
           resourceId: resource.id,
-          principal: resource.type === "customApp" ? { type: "authenticated" } : { type: "public" },
+          principal: resource.type === "base" ? { type: "authenticated" } : { type: "public" },
           permission: resource.permission,
         });
-        expect(result.ok).toBe(true);
         if (!result.ok) throw new Error(result.error.message);
         accessIds.push(result.data.accessId);
       }
 
-      const lists = await Promise.all([
-        listBaseAccess(item.baseId),
-        listTableAccess(item.tableId),
-        listViewAccess(item.viewId),
-        listFormAccess(item.formId),
-        listDocumentTemplateAccess(item.documentTemplateId),
-        listCustomAppAccess(item.customAppId),
-        listWorkflowAccess(item.workflowId),
-      ]);
-      expect(lists.map((entries) => entries.length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
-
+      expect((await listBaseAccess(item.baseId)).length).toBe(1);
+      expect((await listCustomAppAccess(item.customAppId)).length).toBe(1);
       const bindings = await Promise.all(accessIds.map((accessId) => resolveAccessBinding(accessId)));
       expect(bindings).toEqual([
         { resourceType: "base", baseId: item.baseId },
-        { resourceType: "table", baseId: item.baseId, tableId: item.tableId },
-        { resourceType: "view", baseId: item.baseId, tableId: item.tableId, viewId: item.viewId },
-        { resourceType: "form", baseId: item.baseId, tableId: item.tableId, formId: item.formId },
-        {
-          resourceType: "documentTemplate",
-          baseId: item.baseId,
-          tableId: item.tableId,
-          documentTemplateId: item.documentTemplateId,
-        },
         { resourceType: "customApp", baseId: item.baseId, customAppId: item.customAppId },
-        { resourceType: "workflow", baseId: item.baseId, workflowId: item.workflowId },
       ]);
-
-      const resourceBindings = await Promise.all(resources(item).map((resource) => resolveResourceBinding(resource.type, resource.id)));
-      expect(resourceBindings).toEqual(bindings);
-
-      const tree = await listAccessForBaseTree(item.baseId);
-      expect(tree.map((entry) => entry.resourceType)).toEqual([
-        "base",
-        "table",
-        "view",
-        "form",
-        "documentTemplate",
-        "customApp",
-        "workflow",
-      ]);
+      expect(await resolveResourceBinding("base", item.baseId)).toEqual(bindings[0]!);
+      expect(await resolveResourceBinding("customApp", item.customAppId)).toEqual(bindings[1]!);
+      expect((await listAccessForBaseTree(item.baseId)).map((entry) => entry.resourceType)).toEqual(["base", "customApp"]);
     } finally {
-      await cleanup(item, accessIds);
+      await cleanup(item.baseId, accessIds);
     }
   });
 });

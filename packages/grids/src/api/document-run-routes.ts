@@ -136,7 +136,7 @@ export const createDocumentRunRoutes = () =>
         if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
-        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        const gate = await gateAt(c, { baseId: table.baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const runs = await gridsService.document.listRunsForRecord(tableId, recordId);
         const accessByTemplate = new Map<string | null, boolean>();

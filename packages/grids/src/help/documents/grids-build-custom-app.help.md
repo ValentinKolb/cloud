@@ -5,8 +5,6 @@ icon: ti ti-certificate
 description: Build a request app with progress, comments, and a generated certificate.
 order: 133
 ---
-<!-- Unreleased contract: register this article only with the complete Custom Apps vertical slice. -->
-
 This guide builds a certificate-request app. A requester can submit a request, see their requests, open one request, discuss it, follow its status, and download the generated certificate. A responsible group can process every request through the same base.
 
 The app uses one table and three pages. Existing Forms, Views, Workflows, and document templates continue to own their respective behavior.
@@ -23,20 +21,20 @@ You must be a base administrator. Prepare these resources in the same base:
 | **Certificate** document template | Uses one Certificate requests record |
 | **Approve and generate certificate** workflow launcher | Validates the request, updates it, generates the document, then notifies the requester |
 
-Do not add a requester field. Every record already stores its creator. Use that identity for personal row access. Generated PDFs stay attached through their document runs instead of being copied into another file field.
+Do not add a requester field only to duplicate identity. Every record already stores its creator, and the app's GQL can compare `record.createdBy` with `@auth.id`. Generated PDFs stay attached through their document runs instead of being copied into another file field.
 
 ## Configure access first {icon="lock"}
 
-Create access bindings before composing pages:
+Choose the audience boundaries before composing pages:
 
-| Audience | App | Certificate requests | Form | View | Document template | Workflow launcher |
-| --- | --- | --- | --- | --- | --- | --- |
-| Requesters | Open | Read with `created_by`; create through the form | Submit | Read | Read generated runs for allowed records | No access |
-| Responsible group | Open | Read and update with `all` | Read | Read | Generate and read | Execute |
+| Audience | Boundary | Result |
+| --- | --- | --- |
+| Requesters | Custom App Read | Use only the published pages, personal GQL result, included Form, comments, and documents. |
+| Responsible group | Base Write, or a separate staff Custom App | Process all requests without widening the requester app. |
 
-The app grant alone never grants table, form, view, template, or workflow access. Preview both audiences before publishing.
+Custom App access does not grant raw Base access. The immutable publication lists the exact data and operations available to requesters. Preview the requester app and the staff surface separately before publishing.
 
-**Checkpoint:** a requester can submit the Form and read only request rows they created; the responsible group can read and process all request rows. If this fails, correct the resource grants and row scopes before building pages.
+**Checkpoint:** a requester can submit the Form and the app's Records query returns only `record.createdBy = @auth.id`; the responsible group can process all requests through its separate boundary. If this fails, correct the query or split the audience before building more pages.
 
 ## Open the builder {icon="apps"}
 
@@ -91,7 +89,7 @@ Set the row target to page `request` and bind:
 request_id = ROW.id
 ```
 
-Search, filters, sort, and pagination use URL state owned by this Records block. They can be reloaded or shared without becoming access controls. The `created_by` row scope remains authoritative.
+Search, filters, sort, and pagination use URL state owned by this Records block. They can be reloaded or shared without becoming access controls. The published GQL must keep `record.createdBy = @auth.id` in the server-executed source.
 
 **Checkpoint:** selecting any visible row opens its detail page, while changing the URL to another request does not reveal that record. Fix row navigation separately from row authorization.
 
@@ -146,7 +144,7 @@ When something fails, fix the owning layer:
 | Symptom | Owner |
 | --- | --- |
 | Missing or invalid `request_id` | Page parameter or navigation binding |
-| Missing or denied request | Resource grant or row scope |
+| Missing or unavailable request | Published query, page parameter, or `availableWhen` |
 | Rejected input | Form |
 | Stale transition or partial record change | Workflow |
 | Missing PDF | Document template or document run |

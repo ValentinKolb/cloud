@@ -7,7 +7,7 @@ import { createAdminApi } from "./admin";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const otherBaseId = "22222222-2222-4222-8222-222222222222";
-const tableId = "33333333-3333-4333-8333-333333333333";
+const customAppId = "33333333-3333-4333-8333-333333333333";
 const baseAccessId = "44444444-4444-4444-8444-444444444444";
 const tableAccessId = "55555555-5555-4555-8555-555555555555";
 const createdAccessId = "66666666-6666-4666-8666-666666666666";
@@ -61,11 +61,11 @@ const childEntry = {
   principal: { type: "authenticated" as const },
   permission: "none" as const,
   createdAt: "2026-01-01T00:00:00.000Z",
-  resourceType: "table" as const,
-  resourceId: tableId,
-  resourceName: "Hidden Table",
-  tableId,
-  tableName: "Hidden Table",
+  resourceType: "customApp" as const,
+  resourceId: customAppId,
+  resourceName: "Published App",
+  tableId: null,
+  tableName: null,
 };
 
 const createdEntry = {
@@ -122,7 +122,7 @@ describe("Grids admin API", () => {
     });
     spyOn(gridsService.access, "resolveBinding").mockImplementation(async (accessId) => {
       if (accessId === baseAccessId) return { resourceType: "base", baseId };
-      if (accessId === tableAccessId) return { resourceType: "table", baseId, tableId };
+      if (accessId === tableAccessId) return { resourceType: "customApp", baseId, customAppId };
       return { resourceType: "base", baseId: otherBaseId };
     });
     spyOn(gridsService.access, "updateLevel").mockImplementation(async (...args) => {
@@ -146,7 +146,7 @@ describe("Grids admin API", () => {
     expect(baseGetCalls).toBe(0);
   });
 
-  test("lists base and child ACL entries for platform admins", async () => {
+  test("lists base and Custom App ACL entries for platform admins", async () => {
     const response = await app().request(`/bases/${baseId}/access`);
     const body = await response.json();
 
@@ -174,19 +174,19 @@ describe("Grids admin API", () => {
     ]);
   });
 
-  test("can update child ACLs inside the requested base", async () => {
+  test("can update Custom App ACLs inside the requested base", async () => {
     const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "read" }));
 
     expect(response.status).toBe(204);
     expect(updateCalls).toEqual([[tableAccessId, "read", user.id]]);
   });
 
-  test("rejects invalid child ACL levels in the admin repair route", async () => {
+  test("rejects invalid Custom App ACL levels in the admin repair route", async () => {
     const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "admin" }));
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body).toEqual({ message: "Table grants only accept 'read' / 'write' / 'none'" });
+    expect(body).toEqual({ message: "Custom App grants only accept 'read' or 'none'" });
     expect(updateCalls).toEqual([]);
   });
 
@@ -200,7 +200,7 @@ describe("Grids admin API", () => {
     expect(updateCalls).toEqual([]);
   });
 
-  test("can revoke child ACLs inside the requested base", async () => {
+  test("can revoke Custom App ACLs inside the requested base", async () => {
     const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, { method: "DELETE" });
 
     expect(response.status).toBe(204);

@@ -1,5 +1,5 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { NoticeCard, SettingsModal } from "@k2b/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { DocumentProfile } from "../../../contracts";
 import { DangerZone, DocumentProfileForm, GeneralForm, PermissionsSection, TrashSection } from "./BaseSettingsSections";
 
@@ -43,13 +43,12 @@ export default function BaseSettingsPanel(props: Props) {
           <DocumentProfileForm base={props.base} />
         </SettingsModal.Tab>
 
-        <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Base-level grants apply to every table by default.">
+        <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Base grants control direct access to all Base data.">
           <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
             <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
             <span>
-              Override per table from that table's editor: a group with <code class="font-mono">read</code> on the base and{" "}
-              <code class="font-mono">write</code> on a single table can edit that table but only read others. Within the same tier, "no
-              access" wins; user grants override group grants.
+              A Base grant applies to every table, view, form, document template, and workflow in this Base. Custom Apps use independent
+              grants and can be shared without exposing direct Base access.
             </span>
           </NoticeCard>
           <PermissionsSection baseId={props.base.id} initialEntries={props.accessEntries} />

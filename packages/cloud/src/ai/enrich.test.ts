@@ -25,6 +25,7 @@ const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichm
   runStatus: "idle",
   runError: null,
   unreadCompletion: false,
+  projectId: null,
   resource: { kind: "direct" },
   createdByUserId: null,
   createdAt: "2026-07-09T10:00:00.000Z",

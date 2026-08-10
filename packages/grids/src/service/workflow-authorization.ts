@@ -7,16 +7,10 @@ import {
   serviceAccountCredentials,
   serviceAccounts,
 } from "@valentinkolb/cloud/services";
-import type { sql } from "bun";
+import { sql } from "bun";
 import type { GridsWorkflowCredential, GridsWorkflowCredentialBinding, GridsWorkflowPrincipal } from "../workflows/contracts";
-import {
-  hasAtLeast,
-  loadGrantsForSubject,
-  type ResolveTarget,
-  resolveAuthorizedRecordAccess,
-  resolveEffectivePermission,
-} from "./permission-resolver";
-import type { AuthorizedRecordAccess } from "./record-access";
+import { hasAtLeast, loadBaseGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
+import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "./record-access";
 
 type SqlClient = typeof sql;
 type WorkflowAuthorizationUser = Pick<User, "id" | "accountExpires">;
@@ -266,51 +260,40 @@ export const revalidateWorkflowPrincipalInTransaction = async (
   db: SqlClient,
 ): Promise<WorkflowAuthorizationRevalidation> => revalidateWorkflowPrincipal(principal, baseId, await databaseDeps(db));
 
-export const authorizeWorkflowTarget = async (
+export const authorizeWorkflowBase = async (
   principal: GridsWorkflowPrincipal,
-  target: ResolveTarget,
+  baseId: string,
   required: PermissionLevel,
   db?: SqlClient,
 ): Promise<boolean> => {
   const revalidated = db
-    ? await revalidateWorkflowPrincipalInTransaction(principal, target.baseId, db)
-    : await revalidateWorkflowPrincipal(principal, target.baseId);
+    ? await revalidateWorkflowPrincipalInTransaction(principal, baseId, db)
+    : await revalidateWorkflowPrincipal(principal, baseId);
   if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, required)) return false;
-  const grants = await loadGrantsForSubject(
-    {
-      subject: revalidated.subject,
-      baseId: target.baseId,
-      tableId: "tableId" in target ? target.tableId : null,
-      viewId: "viewId" in target ? target.viewId : null,
-      formId: "formId" in target ? target.formId : null,
-      documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
-      customAppId: "customAppId" in target ? target.customAppId : null,
-      workflowId: "workflowId" in target ? target.workflowId : null,
-    },
-    db,
-  );
-  return hasAtLeast(resolveEffectivePermission(grants, target), required);
+  const grants = await loadBaseGrantsForSubject({ subject: revalidated.subject, baseId }, db);
+  return hasAtLeast(resolveEffectivePermission(grants, { baseId }), required);
 };
 
-export const resolveWorkflowTargetRecordAccess = async (
+const tableBelongsToBase = async (baseId: string, tableId: string, db: SqlClient = sql): Promise<boolean> => {
+  const [row] = await db<Array<{ found: boolean }>>`
+    SELECT TRUE AS found
+    FROM grids.tables t
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE t.id = ${tableId}::uuid
+      AND t.base_id = ${baseId}::uuid
+      AND t.deleted_at IS NULL
+  `;
+  return row?.found === true;
+};
+
+export const resolveWorkflowBaseRecordAccess = async (
   principal: GridsWorkflowPrincipal,
-  target: ResolveTarget,
+  target: { baseId: string; tableId: string },
   required: PermissionLevel,
   db?: SqlClient,
 ): Promise<AuthorizedRecordAccess | null> => {
-  const revalidated = db
-    ? await revalidateWorkflowPrincipalInTransaction(principal, target.baseId, db)
-    : await revalidateWorkflowPrincipal(principal, target.baseId);
-  if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, required)) return null;
-  const grants = await loadGrantsForSubject(
-    {
-      subject: revalidated.subject,
-      baseId: target.baseId,
-      tableId: "tableId" in target ? target.tableId : null,
-      viewId: "viewId" in target ? target.viewId : null,
-    },
-    db,
-  );
-  return resolveAuthorizedRecordAccess(grants, target, required, revalidated.subject.type === "user" ? revalidated.subject.userId : null)
-    .recordAccess;
+  if (!(await tableBelongsToBase(target.baseId, target.tableId, db))) return null;
+  return (await authorizeWorkflowBase(principal, target.baseId, required, db)) ? ALL_RECORD_ACCESS : null;
 };
+
+export const workflowTableBelongsToBase = tableBelongsToBase;

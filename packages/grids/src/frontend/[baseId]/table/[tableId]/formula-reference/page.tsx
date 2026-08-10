@@ -1,22 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { currentActorUser } from "../../../../../api/permissions";
+import { currentActorUser, gateBaseAtAccess, gridsAccessContext } from "../../../../../api/permissions";
 import { ssr } from "../../../../../config";
 import { gridsService } from "../../../../../service";
 import FormulaReferenceWindow from "../../../../_components/fields/FormulaReferenceWindow.island";
-
-type AuthUser = {
-  id: string;
-  memberofGroupIds: string[];
-};
-
-const canReadTable = async (user: AuthUser, baseId: string, tableId: string) => {
-  const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-    baseId,
-  });
-  return gridsService.permission.hasAtLeast(gridsService.permission.resolve(grants, { baseId, tableId }), "read");
-};
 
 export default ssr<AuthContext>(async (c) => {
   c.get("page").title = "Formula reference";
@@ -52,7 +38,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  if (!(await canReadTable(user, base.id, table.id))) {
+  if (!(await gateBaseAtAccess(gridsAccessContext(c), base.id, "read")).ok) {
     return () => (
       <main class="min-h-screen bg-[var(--ui-canvas)] p-[var(--ui-space-shell)]">
         <div class="paper mx-auto mt-16 max-w-md p-8 text-center text-dimmed">

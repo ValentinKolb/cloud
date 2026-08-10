@@ -1,7 +1,7 @@
 import type { DocumentTemplateSummary } from "../../../contracts";
 import type { Form, Table } from "../../../service";
 import { gridsService } from "../../../service";
-import { workflowLevelForUser } from "./workspace-state-access";
+import { resolveBaseLevel } from "./workspace-state-access";
 import type { AuthUser, WorkspaceCatalog } from "./workspace-state-model";
 
 export const loadCatalog = async (baseId: string, user: AuthUser, includeCustomApps = false): Promise<WorkspaceCatalog> => {
@@ -37,9 +37,8 @@ export const loadCatalog = async (baseId: string, user: AuthUser, includeCustomA
     gridsService.workflow?.listForBase ? gridsService.workflow.listForBase(baseId) : Promise.resolve([]),
     includeCustomApps ? gridsService.customApp.listSummariesByBase(baseId) : Promise.resolve([]),
   ]);
-  const workflowLevels = Object.fromEntries(
-    await Promise.all(allWorkflows.map(async (workflow) => [workflow.id, await workflowLevelForUser(user, baseId, workflow.id)] as const)),
-  );
+  const baseLevel = await resolveBaseLevel(user, baseId);
+  const workflowLevels = Object.fromEntries(allWorkflows.map((workflow) => [workflow.id, baseLevel]));
   const workflows = allWorkflows
     .filter((workflow) => gridsService.permission.hasAtLeast(workflowLevels[workflow.id] ?? "none", "read"))
     .sort((left, right) => left.position - right.position || left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));

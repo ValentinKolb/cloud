@@ -9,14 +9,14 @@
  * ports, and the assertions are about rows.
  */
 import { beforeAll, describe, expect } from "bun:test";
-import { type WorkflowBoundPlan, type WorkflowIrStep, type WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowIrStep, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import { createWorkflowRun } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { gridsWorkflows } from "../workflows/module";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
+import { gridsWorkflows } from "../workflows/module";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
 import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
 import { deleteTestWorkflowScope, insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
@@ -201,13 +201,16 @@ const queueRun = async (fixture: Fixture, input: QueuedRun): Promise<string> => 
  * under a port this test invented would fail here rather than in production.
  */
 const drive = async (runId: string, mode: "execute" | "dryRun" = "execute"): Promise<string> => {
-  const outcome = mode === "execute" ? await runGridsWorkflowRun(runId) : await dryRunGridsWorkflowRun(runId);
-  if (outcome.state === "idle") {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const outcome = mode === "execute" ? await runGridsWorkflowRun(runId) : await dryRunGridsWorkflowRun(runId);
+    if (outcome.state === "finished") return (await runRow(runId)).state;
+
     const state = (await runRow(runId)).state;
     if (["succeeded", "failed", "canceled", "needs_attention"].includes(state)) return state;
+    if (outcome.state !== "idle") throw new Error(`Workflow run ${runId} did not finish: ${outcome.state}`);
+    await Bun.sleep(10);
   }
-  if (outcome.state !== "finished") throw new Error(`Workflow run ${runId} did not finish: ${outcome.state}`);
-  return (await runRow(runId)).state;
+  throw new Error(`Workflow run ${runId} did not reach a terminal state`);
 };
 
 const recordData = async (recordId: string): Promise<Record<string, unknown>> => {
@@ -582,11 +585,10 @@ describe("declared Grids workflow actions", () => {
         ),
         inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
       });
-      const [denial] = await sql<Array<{ id: string }>>`
-        INSERT INTO auth.access (user_id, permission) VALUES (${fixture.actorId}::uuid, 'none') RETURNING id::text AS id
+      await sql`
+        DELETE FROM auth.access
+        WHERE id IN (SELECT access_id FROM grids.base_access WHERE base_id = ${fixture.baseId}::uuid)
       `;
-      if (!denial) throw new Error("Atomic workflow fixture could not revoke table access");
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${fixture.tableId}::uuid, ${denial.id}::uuid)`;
 
       expect(await drive(runId)).toBe("failed");
       expect((await runRow(runId)).error).toMatchObject({ code: "FORBIDDEN" });
@@ -648,13 +650,11 @@ describe("declared Grids workflow actions", () => {
         }),
         inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
       });
-      // A deny on the table itself: the run may still execute, so the refusal
-      // has to come from the check the action makes at the moment of the write.
-      const [denial] = await sql<Array<{ id: string }>>`
-        INSERT INTO auth.access (user_id, permission) VALUES (${fixture.actorId}::uuid, 'none') RETURNING id::text AS id
+      // Queued runs recheck the owning Base grant at the moment of the write.
+      await sql`
+        DELETE FROM auth.access
+        WHERE id IN (SELECT access_id FROM grids.base_access WHERE base_id = ${fixture.baseId}::uuid)
       `;
-      if (!denial) throw new Error("Workflow action fixture could not revoke table access");
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${fixture.tableId}::uuid, ${denial.id}::uuid)`;
 
       expect(await drive(runId)).toBe("failed");
       expect((await runRow(runId)).error).toMatchObject({ code: "FORBIDDEN" });

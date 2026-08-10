@@ -5,9 +5,13 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { Hono, type MiddlewareHandler } from "hono";
 import type { CustomAppDefinition } from "../custom-apps/contracts";
+import { customAppViewSourceHash } from "../custom-apps/insight-source";
+import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "../service/access";
+import { compileCustomAppQuery } from "../service/custom-app-query";
+import { executePublishedCustomAppQuery } from "../service/custom-app-runtime-query";
 import { apply, publish } from "../service/custom-apps";
 import type { CustomAppLauncherInvocation } from "../service/workflow-launcher-invocations";
 import { createCustomAppsApi } from "./custom-apps";
@@ -50,6 +54,7 @@ describe("Custom App Form runtime", () => {
     const baseId = testUuid();
     const tableId = testUuid();
     const fieldId = testUuid();
+    const hiddenFieldId = testUuid();
     const formId = testUuid();
     const appId = testUuid();
     const launcherId = testUuid();
@@ -64,8 +69,9 @@ describe("Custom App Form runtime", () => {
         VALUES (${tableId}::uuid, ${testShortId("T")}, ${baseId}::uuid, 'Requests')
       `;
       await sql`
-        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, required, position)
-        VALUES (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, TRUE, 0)
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, required, position) VALUES
+          (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, TRUE, 0),
+          (${hiddenFieldId}::uuid, ${testShortId("H")}, ${tableId}::uuid, 'Internal source', 'text', '{}'::jsonb, FALSE, 1)
       `;
       await sql`
         INSERT INTO grids.forms (id, short_id, table_id, name, config, is_active, position)
@@ -81,7 +87,7 @@ describe("Custom App Form runtime", () => {
       `;
 
       const definition: CustomAppDefinition = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: "grids.custom-app",
         id: appId,
         baseId,
@@ -148,18 +154,23 @@ describe("Custom App Form runtime", () => {
       const published = await publish(appId);
       expect(published.ok).toBe(true);
 
-      for (const grant of [
-        { resourceType: "customApp" as const, resourceId: appId, permission: "read" as const },
-        { resourceType: "form" as const, resourceId: formId, permission: "write" as const },
-        { resourceType: "table" as const, resourceId: tableId, permission: "write" as const },
-      ]) {
-        const result = await grantAccess({ ...grant, principal: { type: "user", userId: authUser.id } });
-        expect(result.ok).toBe(true);
-        if (!result.ok) throw new Error(result.error.message);
-        accessIds.push(result.data.accessId);
-      }
+      const appGrant = await grantAccess({
+        resourceType: "customApp",
+        resourceId: appId,
+        permission: "read",
+        principal: { type: "public" },
+      });
+      expect(appGrant.ok).toBe(true);
+      if (!appGrant.ok) throw new Error(appGrant.error.message);
+      accessIds.push(appGrant.data.accessId);
 
       let actionInvocation: CustomAppLauncherInvocation | null = null;
+      const publicApi = new Hono<AuthContext>().route(
+        "/apps",
+        createCustomAppsApi({
+          requireAuthenticated: async (c) => c.json({ message: "Authentication required" }, 401),
+        }),
+      );
       const api = new Hono<AuthContext>().route(
         "/apps",
         createCustomAppsApi({
@@ -178,12 +189,13 @@ describe("Custom App Form runtime", () => {
           },
         }),
       );
-      const response = await api.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+      const response = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-${baseId}` },
         body: JSON.stringify({ [fieldId]: "Certificate request" }),
       });
       expect(response.status).toBe(201);
+      expect(response.headers.get("X-RateLimit-Limit")).toBe("3");
       const body = (await response.json()) as { recordId: string; navigateTo: string };
       expect(body.navigateTo).toBe(`/apps/${applied.data.shortId}/request?request_id=${body.recordId}`);
 
@@ -192,14 +204,54 @@ describe("Custom App Form runtime", () => {
       `;
       expect(record?.value).toBe("Certificate request");
 
+      await sql`
+        UPDATE grids.forms
+        SET config = ${{
+          fields: [
+            { kind: "user_input", fieldId, required: true },
+            { kind: "form_value", fieldId: hiddenFieldId, value: "injected-after-publish" },
+          ],
+        }}::jsonb
+        WHERE id = ${formId}::uuid
+      `;
+      const driftedSubmit = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-drift-${baseId}` },
+        body: JSON.stringify({ [fieldId]: "Must not be written" }),
+      });
+      expect(driftedSubmit.status).toBe(404);
+      const [afterDrift] = await sql<Array<{ count: number; hidden_count: number }>>`
+        SELECT
+          count(*)::int AS count,
+          count(*) FILTER (WHERE data ? ${hiddenFieldId})::int AS hidden_count
+        FROM grids.records
+        WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
+      `;
+      expect(afterDrift).toEqual({ count: 1, hidden_count: 0 });
+      await sql`
+        UPDATE grids.forms
+        SET config = ${{ fields: [{ kind: "user_input", fieldId, required: true }] }}::jsonb
+        WHERE id = ${formId}::uuid
+      `;
+
       const recordUrl = `/apps/runtime/${applied.data.shortId}/request/record/record?request_id=${body.recordId}`;
+      const anonymousRecordEdit = await publicApi.request(recordUrl, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "If-Match": "1" },
+        body: JSON.stringify({ values: { [fieldId]: "Anonymous edit" } }),
+      });
+      expect(anonymousRecordEdit.status).toBe(401);
       const updatedRecord = await api.request(recordUrl, {
         method: "PATCH",
         headers: { "content-type": "application/json", "If-Match": "1" },
         body: JSON.stringify({ values: { [fieldId]: "Certificate request updated" } }),
       });
       expect(updatedRecord.status).toBe(200);
-      expect(await updatedRecord.json()).toMatchObject({ id: body.recordId, version: 2, data: { [fieldId]: "Certificate request updated" } });
+      expect(await updatedRecord.json()).toMatchObject({
+        id: body.recordId,
+        version: 2,
+        data: { [fieldId]: "Certificate request updated" },
+      });
 
       const rejectedField = await api.request(recordUrl, {
         method: "PATCH",
@@ -216,9 +268,10 @@ describe("Custom App Form runtime", () => {
       expect(staleRecord.status).toBe(409);
 
       const commentsUrl = `/apps/runtime/${applied.data.shortId}/request/discussion/comments?request_id=${body.recordId}`;
+      expect((await publicApi.request(commentsUrl)).status).toBe(401);
       const createdComment = await api.request(commentsUrl, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-${baseId}` },
         body: JSON.stringify({ body: "Ready for review" }),
       });
       expect(createdComment.status).toBe(201);
@@ -231,6 +284,7 @@ describe("Custom App Form runtime", () => {
       expect(page).toMatchObject({ items: [{ id: comment.id, body: "Ready for review" }], nextCursor: null });
 
       const actionDefinition = structuredClone(definition);
+      const actionAvailability = `from table {${tableId}}\nwhere record.id = @params.request_id and {${fieldId}} = 'Certificate request updated'\nlimit 1`;
       actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
         id: "actions",
         type: "actions",
@@ -241,16 +295,35 @@ describe("Custom App Form runtime", () => {
             kind: "workflow",
             launcherId,
             inputs: { request: { source: "RECORD", path: "id" } },
-            visibleWhen: [
-              {
-                left: { source: "RECORD", path: `fields.${fieldId}` },
-                operator: "eq",
-                right: { source: "LITERAL", value: "Certificate request updated" },
-              },
-            ],
+            availableWhen: { query: actionAvailability },
           },
         ],
       });
+      const authenticatedUser = userFor(authUser.id);
+      const actionContext = buildCustomAppRuntimeContext({
+        access: { actor: { kind: "user", user: authenticatedUser }, accessSubject: { type: "user", userId: authUser.id } },
+        app: { id: appId, shortId: applied.data.shortId, name: definition.name },
+        base: { id: baseId, name: "Custom App API" },
+        page: actionDefinition.pages[1]!,
+        pageUrl: `/apps/${applied.data.shortId}/request?request_id=${body.recordId}`,
+        pageParams: { request_id: body.recordId },
+        dateConfig: { timeZone: "UTC" },
+      });
+      const compiledActionAvailability = await compileCustomAppQuery({
+        baseId,
+        source: actionAvailability,
+        context: actionContext.query,
+      });
+      if (!compiledActionAvailability.ok) throw new Error(compiledActionAvailability.error);
+      const actionCapability = {
+        target: "action" as const,
+        pageId: "request",
+        blockId: "actions",
+        actionId: "approve",
+        sourceHash: customAppViewSourceHash(baseId, actionAvailability),
+        planHash: compiledActionAvailability.data.planHash,
+        tableIds: [tableId],
+      };
       const [stored] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
         SELECT published_capabilities FROM grids.custom_apps WHERE id = ${appId}::uuid
       `;
@@ -260,12 +333,64 @@ describe("Custom App Form runtime", () => {
         SET published_definition = ${JSON.stringify(actionDefinition)}::jsonb,
             published_capabilities = ${JSON.stringify({
               ...stored.published_capabilities,
-              workflowLaunchers: [
-                { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
-              ],
+              availability: [...((stored.published_capabilities.availability as unknown[]) ?? []), actionCapability],
+              workflowLaunchers: [{ pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 }],
             })}::jsonb
         WHERE id = ${appId}::uuid
       `;
+      const anonymousAction = await publicApi.request(
+        `/apps/runtime/${applied.data.shortId}/request/actions/actions/approve?request_id=${body.recordId}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operationId: testUuid() }),
+        },
+      );
+      expect(anonymousAction.status).toBe(401);
+      const directAvailability = await executePublishedCustomAppQuery({
+        baseId,
+        source: actionAvailability,
+        capability: actionCapability,
+        context: actionContext.query,
+        signal: new AbortController().signal,
+        timeZone: "UTC",
+        viewer: { userId: authUser.id, userGroups: [], isAdmin: true },
+        maxRows: 1,
+        maxResultBytes: 64_000,
+      });
+      if (!directAvailability.ok) throw new Error(directAvailability.diagnostics[0]?.message);
+      expect(directAvailability.ok).toBe(true);
+      expect(directAvailability.rows).toHaveLength(1);
+      const changedPlanCapability = await executePublishedCustomAppQuery({
+        baseId,
+        source: actionAvailability,
+        capability: { ...actionCapability, planHash: "0".repeat(64) },
+        context: actionContext.query,
+        signal: new AbortController().signal,
+        timeZone: "UTC",
+        viewer: { userId: authUser.id, userGroups: [] },
+        maxRows: 1,
+        maxResultBytes: 64_000,
+      });
+      expect(changedPlanCapability).toEqual({
+        ok: false,
+        diagnostics: [{ message: "This published data source no longer matches its query plan capability snapshot." }],
+      });
+      const changedTableCapability = await executePublishedCustomAppQuery({
+        baseId,
+        source: actionAvailability,
+        capability: { ...actionCapability, tableIds: [baseId] },
+        context: actionContext.query,
+        signal: new AbortController().signal,
+        timeZone: "UTC",
+        viewer: { userId: authUser.id, userGroups: [] },
+        maxRows: 1,
+        maxResultBytes: 64_000,
+      });
+      expect(changedTableCapability).toEqual({
+        ok: false,
+        diagnostics: [{ message: "This published data source no longer matches its table capability snapshot." }],
+      });
       const actionResponse = await api.request(
         `/apps/runtime/${applied.data.shortId}/request/actions/actions/approve?request_id=${body.recordId}`,
         {
@@ -306,6 +431,93 @@ describe("Custom App Form runtime", () => {
       );
       expect(hiddenAction.status).toBe(404);
       expect(actionInvocation).toBeNull();
+
+      const blockAvailability = `from table {${tableId}}\nwhere {${fieldId}} = 'No matching form record'\nlimit 1`;
+      const unavailableFormDefinition = structuredClone(actionDefinition);
+      const unavailableForm = unavailableFormDefinition.pages[0]!.rows[0]!.columns[0]!.blocks[0]!;
+      unavailableForm.availableWhen = { query: blockAvailability };
+      const compiledBlockAvailability = await compileCustomAppQuery({
+        baseId,
+        source: blockAvailability,
+        context: actionContext.query,
+      });
+      if (!compiledBlockAvailability.ok) throw new Error(compiledBlockAvailability.error);
+      const [actionCapabilities] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
+        SELECT published_capabilities FROM grids.custom_apps WHERE id = ${appId}::uuid
+      `;
+      if (!actionCapabilities) throw new Error("Published Custom App capabilities are missing");
+      const unavailableFormCapabilities = {
+        ...actionCapabilities.published_capabilities,
+        availability: [
+          ...((actionCapabilities.published_capabilities.availability as unknown[]) ?? []),
+          {
+            target: "block",
+            pageId: "home",
+            blockId: "apply",
+            sourceHash: customAppViewSourceHash(baseId, blockAvailability),
+            planHash: compiledBlockAvailability.data.planHash,
+            tableIds: [tableId],
+          },
+        ],
+      };
+      await sql`
+        UPDATE grids.custom_apps
+        SET published_definition = ${unavailableFormDefinition}::jsonb,
+            published_capabilities = ${unavailableFormCapabilities}::jsonb
+        WHERE id = ${appId}::uuid
+      `;
+      const unavailableFormResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-block-${baseId}` },
+        body: JSON.stringify({ [fieldId]: "Must not be created" }),
+      });
+      expect(unavailableFormResponse.status).toBe(404);
+
+      const pageAvailability = `from table {${tableId}}\nwhere {${fieldId}} = 'No matching page record'\nlimit 1`;
+      const unavailablePageDefinition = structuredClone(unavailableFormDefinition);
+      unavailablePageDefinition.pages[0]!.availableWhen = { query: pageAvailability };
+      const compiledPageAvailability = await compileCustomAppQuery({
+        baseId,
+        source: pageAvailability,
+        context: actionContext.query,
+      });
+      if (!compiledPageAvailability.ok) throw new Error(compiledPageAvailability.error);
+      await sql`
+        UPDATE grids.custom_apps
+        SET published_definition = ${unavailablePageDefinition}::jsonb,
+            published_capabilities = ${{
+              ...unavailableFormCapabilities,
+              availability: [
+                ...((unavailableFormCapabilities.availability as unknown[]) ?? []),
+                {
+                  target: "page",
+                  pageId: "home",
+                  sourceHash: customAppViewSourceHash(baseId, pageAvailability),
+                  planHash: compiledPageAvailability.data.planHash,
+                  tableIds: [tableId],
+                },
+              ],
+            }}::jsonb
+        WHERE id = ${appId}::uuid
+      `;
+      const unavailablePageResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-page-${baseId}` },
+        body: JSON.stringify({ [fieldId]: "Must not be created" }),
+      });
+      expect(unavailablePageResponse.status).toBe(404);
+
+      await sql`
+        UPDATE grids.custom_apps
+        SET published_definition = ${{ schemaVersion: 1, kind: "grids.custom-app" }}::jsonb
+        WHERE id = ${appId}::uuid
+      `;
+      const legacyRuntime = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-v1-${baseId}` },
+        body: JSON.stringify({ [fieldId]: "Must not be created" }),
+      });
+      expect(legacyRuntime.status).toBe(404);
     } finally {
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.record_event_outbox WHERE base_id = ${baseId}::uuid`;

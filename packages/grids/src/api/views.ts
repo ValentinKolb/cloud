@@ -5,42 +5,25 @@ import { describeRoute } from "hono-openapi";
 import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "../contracts";
 import { gridsService } from "../service";
 import { compileGqlViewWrite } from "./gql-runtime";
-import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { currentActorUser, currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 import { requireUuidParam } from "./route-params";
 
 const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
 
-export const canAdministerView = (params: { level: PermissionLevel; isOwner: boolean; hasDirectViewGrant: boolean }): boolean =>
-  gridsService.permission.hasAtLeast(params.level, "admin") ||
-  (params.isOwner && !params.hasDirectViewGrant && gridsService.permission.hasAtLeast(params.level, "read"));
+export const canAdministerView = (params: { level: PermissionLevel }): boolean => gridsService.permission.hasAtLeast(params.level, "admin");
 
 export const changesViewSharing = (shared: boolean | undefined, ownerUserId: string | null): boolean =>
   shared !== undefined && shared !== (ownerUserId === null);
 
-export const isViewOwner = (ownerUserId: string | null, actorUserId: string | null): boolean =>
-  ownerUserId !== null && ownerUserId === actorUserId;
-
 const canAdministerViewForRequest = async (
   c: Context<AuthContext>,
-  view: { id: string; tableId: string; ownerUserId: string | null },
+  _view: { id: string; tableId: string; ownerUserId: string | null },
   baseId: string,
 ): Promise<boolean> => {
-  const { level, grants } = await resolveWithGrants(c, {
-    baseId,
-    tableId: view.tableId,
-    viewId: view.id,
-  });
-  return canAdministerView({
-    level,
-    isOwner: isViewOwner(view.ownerUserId, currentActorViewer(c).userId),
-    hasDirectViewGrant: grants.some(
-      (grant) =>
-        grant.resourceType === "view" &&
-        grant.resourceId === view.id &&
-        (grant.principalTier === "user" || grant.principalTier === "serviceAccount"),
-    ),
-  });
+  const gate = await gateAt(c, { baseId }, "admin");
+  if (!gate.ok) return false;
+  return canAdministerView({ level: gate.data });
 };
 
 const app = new Hono<AuthContext>()
@@ -62,7 +45,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const list = await gridsService.view.listForTable({
         tableId,
@@ -91,15 +74,8 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      // Personal views: any table-reader can save their own preset.
-      // Shared views: structural change to the table's catalog → only
-      // base-admin can publish them. Mirrors the rule that all other
-      // structural ops on a base (fields, forms, ACLs) live at
-      // base-admin.
       const body = c.req.valid("json");
-      const gate = body.shared
-        ? await gateAt(c, { baseId: table.baseId }, "admin")
-        : await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const compiled = await compileGqlViewWrite(c, {
         baseId: table.baseId,
@@ -147,26 +123,8 @@ const app = new Hono<AuthContext>()
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
 
-      // Gate at the view scope (most specific), including view-level
-      // deny grants. We translate gate failure to 404 instead of 403
-      // so deny semantics don't leak the resource's existence — same
-      // policy listings already use.
-      const viewer = currentActorViewer(c);
-      const { level, grants } = await resolveWithGrants(c, {
-        baseId: table.baseId,
-        tableId: view.tableId,
-        viewId: view.id,
-      });
-      if (!gridsService.permission.hasAtLeast(level, "read")) {
-        return c.json({ message: "View not found" }, 404);
-      }
-
-      // Personal views: visible to the owner OR via an explicit view-
-      // level grant. Inherited table-read alone does NOT make a personal
-      // view visible to a non-owner.
-      const isOwner = view.ownerUserId === viewer.userId;
-      const explicitGrant = hasExplicitGrant(grants, "view", view.id);
-      if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
+      if (!gate.ok) {
         return c.json({ message: "View not found" }, 404);
       }
       return c.json(view);

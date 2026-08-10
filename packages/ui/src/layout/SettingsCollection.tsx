@@ -1,4 +1,5 @@
 import { children, createMemo, createUniqueId, For, type JSX, Show } from "solid-js";
+import { IconButton } from "../actions/Button";
 import Placeholder from "../surfaces/Placeholder";
 
 const SETTINGS_COLLECTION_ACTION = Symbol("SettingsCollection.Action");
@@ -38,6 +39,14 @@ export type SettingsCollectionItemActionsProps = {
   children: JSX.Element;
 };
 
+export type SettingsCollectionItemReorderProps = {
+  label: string;
+  index: number;
+  count: number;
+  disabled?: boolean;
+  onMove: (direction: -1 | 1) => void;
+};
+
 type SettingsCollectionActionDefinition = SlotDefinition<typeof SETTINGS_COLLECTION_ACTION, SettingsCollectionActionProps>;
 type SettingsCollectionItemDefinition = SlotDefinition<typeof SETTINGS_COLLECTION_ITEM, SettingsCollectionItemProps>;
 type SettingsCollectionItemStatusDefinition = SlotDefinition<typeof SETTINGS_COLLECTION_ITEM_STATUS, SettingsCollectionItemStatusProps>;
@@ -46,6 +55,7 @@ type SettingsCollectionItemActionsDefinition = SlotDefinition<typeof SETTINGS_CO
 type SettingsCollectionItemComponent = ((props: SettingsCollectionItemProps) => JSX.Element) & {
   Status: (props: SettingsCollectionItemStatusProps) => JSX.Element;
   Actions: (props: SettingsCollectionItemActionsProps) => JSX.Element;
+  Reorder: (props: SettingsCollectionItemReorderProps) => JSX.Element;
 };
 
 type SettingsCollectionComponent = ((props: SettingsCollectionProps) => JSX.Element) & {
@@ -72,11 +82,35 @@ const SettingsCollectionItemStatus = (props: SettingsCollectionItemStatusProps):
 const SettingsCollectionItemActions = (props: SettingsCollectionItemActionsProps): JSX.Element =>
   definition(SETTINGS_COLLECTION_ITEM_ACTIONS, props);
 
+const SettingsCollectionItemReorder = (props: SettingsCollectionItemReorderProps): JSX.Element => (
+  <>
+    <IconButton
+      label={`Move ${props.label} up`}
+      size="sm"
+      title="Move up"
+      disabled={props.disabled || props.index <= 0}
+      onClick={() => props.onMove(-1)}
+    >
+      <i class="ti ti-arrow-up" aria-hidden="true" />
+    </IconButton>
+    <IconButton
+      label={`Move ${props.label} down`}
+      size="sm"
+      title="Move down"
+      disabled={props.disabled || props.index >= props.count - 1}
+      onClick={() => props.onMove(1)}
+    >
+      <i class="ti ti-arrow-down" aria-hidden="true" />
+    </IconButton>
+  </>
+);
+
 const SettingsCollectionItem = ((props: SettingsCollectionItemProps): JSX.Element =>
   definition(SETTINGS_COLLECTION_ITEM, props)) as SettingsCollectionItemComponent;
 
 SettingsCollectionItem.Status = SettingsCollectionItemStatus;
 SettingsCollectionItem.Actions = SettingsCollectionItemActions;
+SettingsCollectionItem.Reorder = SettingsCollectionItemReorder;
 
 const SettingsCollection = ((props: SettingsCollectionProps): JSX.Element => {
   const resolved = children(() => props.children);

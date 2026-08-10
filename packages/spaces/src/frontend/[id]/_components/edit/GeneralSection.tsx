@@ -1,25 +1,37 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
-import { createSignal, Show } from "solid-js";
+import { ColorInput, prompts, SettingsField, SettingsGroup, SettingsModal, SettingsPanelFooter, TextInput, toast } from "@k2b/ui";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceDetail } from "@/contracts";
 import { readErrorMessage } from "./utils";
 
-export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: () => void }) {
-  const [name, setName] = createSignal(props.space.name);
-  const [description, setDescription] = createSignal(props.space.description ?? "");
-  const [color, setColor] = createSignal(props.space.color);
-  const [hasChanges, setHasChanges] = createSignal(false);
+export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: () => void; onDirtyChange: (dirty: boolean) => void }) {
+  const [base, setBase] = createSignal({
+    name: props.space.name,
+    description: props.space.description ?? "",
+    color: props.space.color,
+  });
+  const [name, setName] = createSignal(base().name);
+  const [description, setDescription] = createSignal(base().description);
+  const [color, setColor] = createSignal(base().color);
+  const nameChanged = () => name() !== base().name;
+  const descriptionChanged = () => description() !== base().description;
+  const colorChanged = () => color() !== base().color;
+  const changeCount = () => Number(nameChanged()) + Number(descriptionChanged()) + Number(colorChanged());
 
-  const updateField =
-    <T,>(setter: (v: T) => void) =>
-    (value: T) => {
-      setter(value);
-      setHasChanges(true);
-    };
+  createEffect(() => props.onDirtyChange(changeCount() > 0));
+  onCleanup(() => props.onDirtyChange(false));
+
+  const discard = () => {
+    const current = base();
+    setName(current.name);
+    setDescription(current.description);
+    setColor(current.color);
+  };
 
   const mutation = mutations.create({
     mutation: async () => {
+      if (!name().trim()) throw new Error("Name is required");
       const res = await apiClient[":id"].$patch({
         param: { id: props.space.id },
         json: {
@@ -28,47 +40,71 @@ export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: 
           color: color(),
         },
       });
-      if (!res.ok) {
-        throw new Error(await readErrorMessage(res, "Failed to save"));
-      }
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to save Space settings"));
     },
     onSuccess: () => {
-      setHasChanges(false);
+      setBase({ name: name(), description: description(), color: color() });
       toast.success("Space settings saved");
       props.onWorkspaceChange?.();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleSubmit = (e: Event) => {
-    e.preventDefault();
-    if (!name().trim()) {
-      prompts.error("Name is required");
-      return;
-    }
-    mutation.mutate({});
-  };
-
   return (
-    <form onSubmit={handleSubmit} class="flex flex-col gap-3">
-      <TextInput label="Name" placeholder="My Space" icon="ti ti-typography" value={name} onValueChange={updateField(setName)} required />
+    <>
+      <SettingsGroup title="Identity" description="Describe this Space wherever it appears in Cloud.">
+        <SettingsField
+          label="Name"
+          description="Shown in navigation, overviews, and destination pickers."
+          error={() => (!name().trim() ? "Name is required" : undefined)}
+          changed={nameChanged}
+        >
+          <TextInput
+            aria-label="Name"
+            placeholder="Product planning"
+            icon="ti ti-typography"
+            value={name}
+            onValueChange={setName}
+            onSubmit={() => mutation.mutate(undefined)}
+            required
+          />
+        </SettingsField>
 
-      <TextInput
-        label="Description"
-        placeholder="Optional description..."
-        icon="ti ti-align-left"
-        value={description}
-        onValueChange={updateField(setDescription)}
-        multiline
-      />
+        <SettingsField
+          label="Description"
+          description="Optional context for people who can access this Space."
+          error={() => undefined}
+          changed={descriptionChanged}
+        >
+          <TextInput
+            aria-label="Description"
+            placeholder="What belongs in this Space?"
+            icon="ti ti-align-left"
+            value={description}
+            onValueChange={setDescription}
+            multiline
+            lines={3}
+          />
+        </SettingsField>
 
-      <ColorInput label="Color" value={color} onValueChange={updateField(setColor)} />
+        <SettingsField
+          label="Color"
+          description="Identifies this Space in navigation and overview surfaces."
+          error={() => undefined}
+          changed={colorChanged}
+        >
+          <ColorInput aria-label="Color" value={color} onValueChange={setColor} />
+        </SettingsField>
+      </SettingsGroup>
 
-      <Show when={hasChanges()}>
-        <Button type="submit" disabled={mutation.loading()} size="sm" class="self-start mt-2">
-          {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-        </Button>
-      </Show>
-    </form>
+      <SettingsModal.Footer>
+        <SettingsPanelFooter
+          changeCount={changeCount}
+          loading={mutation.loading}
+          onDiscard={discard}
+          onSave={() => mutation.mutate(undefined)}
+        />
+      </SettingsModal.Footer>
+    </>
   );
 }

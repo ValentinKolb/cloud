@@ -211,12 +211,6 @@ const cloudPages: UiCatalogPage[] = [
     summary: "Cloud AI messages and composer adapters bound to Cloud sessions, turns, tools, and attachments.",
   },
   {
-    slug: "ai-skills",
-    title: "AI skills manager",
-    icon: "ti ti-tool",
-    summary: "Cloud skill discovery and management backed by the platform AI APIs.",
-  },
-  {
     slug: "permissions",
     title: "Permissions and API keys",
     icon: "ti ti-lock-access",

@@ -335,24 +335,19 @@ export type MemoryToolPresentation = {
   failed: boolean;
 };
 
-const withoutMemoryDate = (value: string): string => value.replace(/^\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim();
-
 /** End-user copy for memory updates; full tool input/result remains available in persisted audit data. */
 export const memoryToolPresentation = (args: unknown, result: unknown): MemoryToolPresentation | null => {
-  if (!isRecord(args) || (args.action !== "add" && args.action !== "remove") || typeof args.content !== "string") return null;
+  if (!isRecord(args) || !["list", "search", "add", "update", "delete"].includes(String(args.action))) return null;
   if (!isRecord(result) || typeof result.ok !== "boolean" || typeof result.message !== "string") return null;
 
   if (!result.ok) return { label: "Memory not updated", description: result.message, failed: true };
-  if (args.action === "add") return { label: "Remembered", description: args.content.trim(), failed: false };
-
-  const match = /^Forgot (\d+) memor(?:y|ies):\s*(.*)$/s.exec(result.message);
-  const count = Number(match?.[1] ?? 1);
-  const removed = (match?.[2] ?? args.content).split(" | ").map(withoutMemoryDate).filter(Boolean).join(" · ");
-  return {
-    label: count === 1 ? "Forgot memory" : `Forgot ${count} memories`,
-    description: removed,
-    failed: false,
-  };
+  if (args.action === "add")
+    return { label: "Remembered", description: typeof args.content === "string" ? args.content.trim() : result.message, failed: false };
+  if (args.action === "update")
+    return { label: "Updated memory", description: result.message.replace(/^Updated memory:\s*/, ""), failed: false };
+  if (args.action === "delete")
+    return { label: "Forgot memory", description: result.message.replace(/^Forgot memory:\s*/, ""), failed: false };
+  return { label: args.action === "search" ? "Searched memories" : "Listed memories", description: result.message, failed: false };
 };
 
 export const toolResultSummary = (message: AssistantToolResultMessage | null | undefined): string => {

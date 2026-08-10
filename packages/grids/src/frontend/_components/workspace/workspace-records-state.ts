@@ -9,7 +9,7 @@ import { activeDisplayConfig } from "../records-view/display-mode";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 import { emptyRecordDetail, loadRecordDetailData, writableDocumentTemplates } from "./workspace-record-detail-state";
 import { compileViewSource, isComputedColumn, loadInitialRecords, outputFieldsForQuery } from "./workspace-records-query";
-import { recordAccessForUser, viewLevelForUser, workflowLevelForUser } from "./workspace-state-access";
+import { recordAccessForUser, resolveBaseLevel } from "./workspace-state-access";
 import { buildViewer, okState } from "./workspace-state-helpers";
 import type {
   AuthUser,
@@ -28,11 +28,11 @@ const diagnosticsMessage = (diagnostics: Array<Pick<DslResolverDiagnostic, "mess
 
 const bulkSelectionLaunchersForTable = async (user: AuthUser, baseId: string, tableId: string): Promise<WorkspaceBulkLauncher[]> => {
   if (!gridsService.workflow?.listEnabledForBase) return [];
+  const level = await resolveBaseLevel(user, baseId);
+  if (!gridsService.permission.hasAtLeast(level, "write")) return [];
   const workflows = await gridsService.workflow.listEnabledForBase(baseId);
   const matches: WorkspaceBulkLauncher[] = [];
   for (const workflow of workflows) {
-    const level = await workflowLevelForUser(user, baseId, workflow.id);
-    if (!gridsService.permission.hasAtLeast(level, "write")) continue;
     for (const launcher of await gridsService.workflow.launcher.list(workflow.id, true)) {
       if (launcher.config.kind !== "bulk") continue;
       if (workflow.plan.bindings[`inputs.${launcher.config.input}.table`] !== tableId) continue;
@@ -129,9 +129,7 @@ const resolveRecordsView = async (
   const viewsForTable = common.catalog.viewsByTable[activeTable.id] ?? [];
   const candidateView = activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug) : null;
   const catalogView = candidateView ? (viewsForTable.find((view) => view.id === candidateView.id) ?? null) : null;
-  const candidateViewLevel = candidateView
-    ? await viewLevelForUser(common.params.user, common.base.id, activeTable.id, candidateView.id)
-    : "none";
+  const candidateViewLevel = candidateView ? await resolveBaseLevel(common.params.user, common.base.id) : "none";
   const activeView =
     catalogView ?? (candidateView && gridsService.permission.hasAtLeast(candidateViewLevel, "read") ? candidateView : null);
   const allFields =
@@ -169,11 +167,7 @@ const resolveRecordsView = async (
         }
       : null;
   const queryResultFieldIds = compiledView?.ok && compiledView.kind === "queryResult" ? new Set(compiledView.fieldIds) : null;
-  const recordAccess = await recordAccessForUser(common.params.user, {
-    baseId: common.base.id,
-    tableId: activeTable.id,
-    ...(activeView ? { viewId: activeView.id } : {}),
-  });
+  const recordAccess = await recordAccessForUser(common.params.user, common.base.id);
   return {
     activeTableLevel,
     activeView,
@@ -204,7 +198,6 @@ const buildQueryResultViewRoute = async (
     fields: view.fields,
     canManageActiveTable: canManageTable,
     canEditActiveView: view.canEditActiveView,
-    activeViewAccessEntries: view.canEditActiveView ? await gridsService.access.listForView(view.queryResultView.id) : [],
     initialCursor: common.chrome.url.searchParams.get("cursor"),
     initialResult: null,
   };
@@ -251,15 +244,6 @@ const buildRecordsRoute = async (params: {
   const { common, activeTable, view, recordsState, displayConfig, initial, selectedRecord } = params;
   const canReadTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "read");
   const canManageTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "admin");
-  const activeFormAccessEntries = canManageTable
-    ? Object.fromEntries(
-        await Promise.all(
-          (common.catalog.formsByTable[activeTable.id] ?? [])
-            .filter((form) => !form.isDefault)
-            .map(async (form) => [form.id, await gridsService.access.listForForm(form.id)] as const),
-        ),
-      )
-    : {};
   const initialSelectedRecordDetail = selectedRecord
     ? canReadTable
       ? await loadRecordDetailData({ tableId: activeTable.id, recordId: selectedRecord.id, fields: view.fields })
@@ -283,11 +267,6 @@ const buildRecordsRoute = async (params: {
     canReadTable,
     canWriteRecords: activeTable.kind === "stored" && gridsService.permission.hasAtLeast(view.activeTableLevel, "write"),
     canManageActiveTable: canManageTable,
-    activeTableAccessEntries: gridsService.permission.hasAtLeast(view.activeTableLevel, "admin")
-      ? await gridsService.access.listForTable(activeTable.id)
-      : [],
-    activeFormAccessEntries,
-    activeViewAccessEntries: view.activeView && view.canEditActiveView ? await gridsService.access.listForView(view.activeView.id) : [],
     canEditActiveView: view.canEditActiveView,
     otherTables: common.catalog.tables.map((table) => ({ id: table.id, name: table.name })),
     initialState: {

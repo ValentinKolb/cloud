@@ -90,7 +90,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
         const gate = await gateAt(c, { baseId }, "read");
-        if (!gate.ok && (await visibleWorkflowsForBase(c, baseId)).length === 0) return respond(c, () => Promise.resolve(gate));
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const result = await validatePermissionedWorkflowSource(c, baseId, c.req.valid("json").source);
         return c.json(result.ok ? { ok: true as const, plan: result.plan } : result);
       },
@@ -113,7 +113,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
         const gate = await gateAt(c, { baseId }, "read");
-        if (!gate.ok && (await visibleWorkflowsForBase(c, baseId)).length === 0) return respond(c, () => Promise.resolve(gate));
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const body = c.req.valid("json");
         const catalog = await permissionedWorkflowCatalog(c, baseId);
         const validation = await validatePermissionedWorkflowSource(c, baseId, body.source, catalog);
@@ -140,11 +140,9 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         const baseId = uuidParam(c, "baseId");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
+        const gate = await gateAt(c, { baseId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visible = await visibleWorkflowsForBase(c, baseId);
-        if (visible.length === 0) {
-          const gate = await gateAt(c, { baseId }, "read");
-          if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        }
         return c.json(visible);
       },
     )
@@ -236,7 +234,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await dependencies.getWorkflow(workflowId);
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "admin");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const expectedRevision = Number(c.req.header(WORKFLOW_REVISION_HEADER));
         if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
@@ -294,7 +292,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         }
         const workflow = await dependencies.getWorkflow(workflowId);
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "admin");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const input = c.req.valid("json");
         return respond(c, () => dependencies.restoreWorkflowRevision(workflowId, revision, currentActorUserId(c), input.expectedRevision));
@@ -340,7 +338,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await dependencies.getWorkflow(workflowId);
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "admin");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const result = await removeWorkflow(workflowId, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
@@ -384,7 +382,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await dependencies.getWorkflow(workflowId);
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "admin");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         return respond(c, () => createLauncher(workflow, c.req.valid("json"), currentActorUserId(c)), 201);
       },
@@ -427,7 +425,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!launcher) return c.json({ message: "Workflow launcher not found" }, 404);
         const workflow = await dependencies.getWorkflow(launcher.workflowId);
         if (!workflow) return c.json({ message: "Workflow launcher not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "admin");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         return respond(c, () => updateLauncher(launcher, workflow, c.req.valid("json"), currentActorUserId(c)));
       },
@@ -451,7 +449,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         if (!launcher) return c.json({ message: "Workflow launcher not found" }, 404);
         const workflow = await dependencies.getWorkflow(launcher.workflowId);
         if (!workflow) return c.json({ message: "Workflow launcher not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "admin");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         await removeLauncher(launcher, currentActorUserId(c));
         return c.body(null, 204);

@@ -1,8 +1,8 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Dropdown, prompts, Tooltip, toast, IconButton } from "@k2b/ui";
+import { Dropdown, IconButton, prompts, toast } from "@k2b/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
@@ -12,7 +12,7 @@ type AdminGridsActionsProps = {
 };
 
 type ScopedAccessEntry = AccessEntry & {
-  resourceType: "base" | "table" | "view" | "form" | "documentTemplate" | "customApp";
+  resourceType: "base" | "customApp";
   resourceId: string;
   resourceName: string;
   tableId: string | null;
@@ -37,12 +37,6 @@ const listBaseAccess = async (baseId: string): Promise<ScopedAccessEntry[]> => {
   return (await response.json()) as ScopedAccessEntry[];
 };
 
-const resourceTypeLabel = (type: ScopedAccessEntry["resourceType"]): string => {
-  if (type === "documentTemplate") return "Document template";
-  if (type === "customApp") return "Custom app";
-  return type.charAt(0).toUpperCase() + type.slice(1);
-};
-
 const entryLabel = (entry: AccessEntry): string => {
   if (entry.displayName) return entry.displayName;
   if (entry.principal.type === "authenticated") return "Signed-in users";
@@ -56,19 +50,19 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
   const PermissionDialog = () => {
     const [scopedEntries, setScopedEntries] = createSignal(entries);
     const baseEntries = createMemo(() => scopedEntries().filter((entry) => entry.resourceType === "base"));
-    const childEntries = createMemo(() => scopedEntries().filter((entry) => entry.resourceType !== "base"));
+    const customAppEntries = createMemo(() => scopedEntries().filter((entry) => entry.resourceType === "customApp"));
 
-    const clearChildEntryMutation = mutations.create<ScopedAccessEntry, ScopedAccessEntry>({
+    const revokeCustomAppEntryMutation = mutations.create<ScopedAccessEntry, ScopedAccessEntry>({
       mutation: async (entry) => {
         const response = await apiClient.admin.bases[":baseId"].access[":accessId"].$delete({
           param: { baseId: props.baseId, accessId: entry.id },
         });
-        if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to clear resource override."));
+        if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke Custom App access."));
         return entry;
       },
       onSuccess: (entry) => {
         setScopedEntries((current) => current.filter((item) => item.id !== entry.id));
-        toast.success("Resource override cleared");
+        toast.success("Custom App access revoked");
       },
       onError: (err) => prompts.error(err.message),
     });
@@ -76,10 +70,11 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
     return (
       <div class="flex w-full max-w-full flex-col gap-4">
         <div class="flex flex-col gap-2">
-          <p class="text-xs text-dimmed">Manage base access. Resource-specific entries below can still override inherited base access.</p>
+          <p class="text-xs text-dimmed">Base grants control direct access to every table, view, form, and document in this Base.</p>
           <PermissionEditor
             initialEntries={baseEntries()}
             canEdit
+            allowPublic={false}
             grantAccess={async (principal, permission) => {
               const response = await apiClient.admin.bases[":baseId"].access.$post({
                 param: { baseId: props.baseId },
@@ -121,23 +116,19 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
           />
         </div>
 
-        <Show when={childEntries().length > 0}>
+        <Show when={customAppEntries().length > 0}>
           <div class="flex flex-col gap-2 pt-1">
             <div>
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Resource overrides</h3>
-              <p class="text-xs text-dimmed">These entries are more specific than base access and can shadow it.</p>
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Custom App access</h3>
+              <p class="text-xs text-dimmed">Custom Apps have independent grants and never inherit access from the Base.</p>
             </div>
             <div class="flex flex-col">
-              <For each={childEntries()}>
+              <For each={customAppEntries()}>
                 {(entry) => (
                   <div class="grid grid-cols-[1fr_auto] items-center gap-3 px-1 py-2">
                     <div class="min-w-0">
-                      <div class="truncate text-sm font-medium text-default">
-                        {entry.resourceName}
-                        <span class="ml-2 text-xs font-normal text-dimmed">{resourceTypeLabel(entry.resourceType)}</span>
-                      </div>
+                      <div class="truncate text-sm font-medium text-default">{entry.resourceName}</div>
                       <div class="truncate text-xs text-dimmed">
-                        {entry.tableName ? `${entry.tableName} · ` : ""}
                         {entryLabel(entry)} · {entry.permission}
                       </div>
                     </div>
@@ -145,9 +136,9 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
                       variant="ghost"
                       size="xs"
                       class="text-dimmed hover:text-default"
-                      label={`Clear override for ${entry.resourceName}`}
-                      disabled={clearChildEntryMutation.loading()}
-                      onClick={() => clearChildEntryMutation.mutate(entry)}
+                      label={`Revoke Custom App access for ${entryLabel(entry)}`}
+                      disabled={revokeCustomAppEntryMutation.loading()}
+                      onClick={() => revokeCustomAppEntryMutation.mutate(entry)}
                     >
                       <i class="ti ti-x text-sm" />
                     </IconButton>

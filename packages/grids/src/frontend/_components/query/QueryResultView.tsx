@@ -41,8 +41,6 @@ export default function QueryResultView(props: {
       tableName: props.route.activeTable.name,
       initialView: props.route.activeView,
       fields: props.route.fields,
-      initialAccessEntries: props.route.activeViewAccessEntries,
-      canEditAccess: props.route.canManageActiveTable,
       onSaved: () => window.location.reload(),
     });
   };

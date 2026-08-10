@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, ColorInput, IconButton, prompts, Select, toast } from "@k2b/ui";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { Button, ColorInput, IconButton, prompts, Select, SettingsCollection, SettingsGroup, toast } from "@k2b/ui";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceWormhole, SpaceWormholeDestination } from "@/contracts";
 import { readErrorMessage } from "./utils";
@@ -72,9 +72,12 @@ function WormholeForm(props: {
   );
 }
 
-export function WormholesSection(props: { spaceId: string; initialWormholes: SpaceWormhole[] }) {
+export function WormholesSection(props: { spaceId: string; initialWormholes: SpaceWormhole[]; onDirtyChange: (dirty: boolean) => void }) {
   const [wormholes, setWormholes] = createSignal([...props.initialWormholes]);
   const [editingId, setEditingId] = createSignal<string | "new" | null>(null);
+
+  createEffect(() => props.onDirtyChange(editingId() !== null));
+  onCleanup(() => props.onDirtyChange(false));
 
   const destinationsMutation = mutations.create<SpaceWormholeDestination[], void>({
     mutation: async (_vars, ctx) => {
@@ -179,144 +182,116 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
   const destinations = () => destinationsMutation.data() ?? [];
   const formLoading = () => createMutation.loading() || updateMutation.loading();
 
+  const editingWormhole = () => {
+    const id = editingId();
+    return id && id !== "new" ? wormholes().find((wormhole) => wormhole.id === id) : undefined;
+  };
+
   return (
-    <div class="flex flex-col gap-3">
-      <div>
-        <p class="text-sm text-secondary">
-          Move items directly into a status in another Space. Content and comments stay with the item; source tags and assignees without
-          destination access are removed.
-        </p>
-      </div>
-
-      <For each={wormholes()}>
-        {(wormhole, index) => (
-          <div>
-            <Show
-              when={editingId() !== wormhole.id}
-              fallback={
-                <WormholeForm
-                  destinations={destinations()}
-                  initial={wormhole}
-                  loading={formLoading()}
-                  onCancel={() => setEditingId(null)}
-                  onSave={(value) => updateMutation.mutate({ id: wormhole.id, ...value })}
-                />
-              }
-            >
-              <div class="flex min-h-10 items-center gap-3">
-                <span class="h-3 w-3 shrink-0 rounded-full" style={`background-color:${wormhole.color}`} />
-                <div class="min-w-0 flex-1">
-                  <Show
-                    when={wormhole.target}
-                    fallback={
-                      <>
-                        <p class="text-sm font-medium text-primary">Unavailable destination</p>
-                        <p class="text-xs text-dimmed">Restore destination admin access or delete this wormhole.</p>
-                      </>
-                    }
-                  >
-                    {(target) => (
-                      <>
-                        <p class="truncate text-sm font-medium text-primary">
-                          {target().spaceName} / {target().columnName}
-                        </p>
-                        <p class="text-xs text-dimmed">Items move completely to this destination.</p>
-                      </>
-                    )}
-                  </Show>
-                </div>
-                <div class="flex shrink-0 items-center gap-1">
-                  <IconButton
-                    label="Move wormhole up"
-                    size="sm"
-                    class="h-7 w-7"
-                    title="Move up"
-                    disabled={index() === 0 || reorderMutation.loading()}
-                    onClick={() => move(index(), -1)}
-                  >
-                    <i class="ti ti-arrow-up text-sm" />
-                  </IconButton>
-                  <IconButton
-                    label="Move wormhole down"
-                    size="sm"
-                    class="h-7 w-7"
-                    title="Move down"
-                    disabled={index() === wormholes().length - 1 || reorderMutation.loading()}
-                    onClick={() => move(index(), 1)}
-                  >
-                    <i class="ti ti-arrow-down text-sm" />
-                  </IconButton>
-                  <Show when={wormhole.target}>
-                    <IconButton
-                      label="Edit wormhole"
-                      size="sm"
-                      class="h-7 w-7"
-                      title="Edit"
-                      disabled={destinationsMutation.loading() || destinations().length === 0}
-                      onClick={() => setEditingId(wormhole.id)}
-                    >
-                      <i class="ti ti-pencil text-sm" />
-                    </IconButton>
-                  </Show>
-                  <IconButton
-                    label="Delete wormhole"
-                    size="sm"
-                    class="h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
-                    title="Delete"
-                    disabled={deleteMutation.loading()}
-                    onClick={() => deleteMutation.mutate(wormhole)}
-                  >
-                    <i class="ti ti-trash text-sm" />
-                  </IconButton>
-                </div>
-              </div>
-            </Show>
-          </div>
-        )}
-      </For>
-
-      <Show
-        when={editingId() === "new"}
-        fallback={
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            class="self-start"
-            disabled={destinationsMutation.loading() || destinations().length === 0}
-            onClick={() => setEditingId("new")}
+    <>
+      <Show when={editingId()}>
+        {(id) => (
+          <SettingsGroup
+            title={id() === "new" ? "New wormhole" : "Edit wormhole"}
+            description="Choose the destination status and the color shown on this Space's Kanban board."
           >
-            <i class={`ti ${destinationsMutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
-            Add wormhole
-          </Button>
-        }
-      >
-        <WormholeForm
-          destinations={destinations()}
-          loading={formLoading()}
-          onCancel={() => setEditingId(null)}
-          onSave={(value) => createMutation.mutate(value)}
-        />
+            <WormholeForm
+              destinations={destinations()}
+              initial={editingWormhole()}
+              loading={formLoading()}
+              onCancel={() => setEditingId(null)}
+              onSave={(value) => {
+                const wormhole = editingWormhole();
+                if (id() === "new") createMutation.mutate(value);
+                else if (wormhole) updateMutation.mutate({ id: wormhole.id, ...value });
+              }}
+            />
+          </SettingsGroup>
+        )}
       </Show>
 
+      <SettingsCollection
+        title="Destinations"
+        description="Move items directly into a status in another Space. Changes save immediately."
+        empty="No wormholes yet. Create one to connect this workflow to another Space."
+      >
+        <SettingsCollection.Action>
+          <Button
+            type="button"
+            size="sm"
+            disabled={editingId() !== null || destinationsMutation.loading() || destinations().length === 0}
+            onClick={() => setEditingId("new")}
+          >
+            <i class={`ti ${destinationsMutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"}`} aria-hidden="true" />
+            New wormhole
+          </Button>
+        </SettingsCollection.Action>
+        <For each={wormholes()}>
+          {(wormhole, index) => (
+            <SettingsCollection.Item
+              title={wormhole.target ? `${wormhole.target.spaceName} / ${wormhole.target.columnName}` : "Unavailable destination"}
+              description={
+                wormhole.target
+                  ? `Position ${index() + 1} of ${wormholes().length} · Items move completely to this destination.`
+                  : "Restore destination admin access or delete this wormhole."
+              }
+              icon={<span class="h-3 w-3 rounded-full" style={`background-color:${wormhole.color}`} />}
+            >
+              <SettingsCollection.Item.Actions>
+                <SettingsCollection.Item.Reorder
+                  label={wormhole.target ? `${wormhole.target.spaceName} / ${wormhole.target.columnName}` : "wormhole"}
+                  index={index()}
+                  count={wormholes().length}
+                  disabled={reorderMutation.loading()}
+                  onMove={(direction) => move(index(), direction)}
+                />
+                <Show when={wormhole.target}>
+                  <IconButton
+                    label="Edit wormhole"
+                    size="sm"
+                    title="Edit"
+                    disabled={editingId() !== null || destinationsMutation.loading() || destinations().length === 0}
+                    onClick={() => setEditingId(wormhole.id)}
+                  >
+                    <i class="ti ti-pencil" aria-hidden="true" />
+                  </IconButton>
+                </Show>
+                <IconButton
+                  label="Delete wormhole"
+                  size="sm"
+                  title="Delete"
+                  disabled={deleteMutation.loading()}
+                  onClick={() => deleteMutation.mutate(wormhole)}
+                >
+                  <i class="ti ti-trash" aria-hidden="true" />
+                </IconButton>
+              </SettingsCollection.Item.Actions>
+            </SettingsCollection.Item>
+          )}
+        </For>
+      </SettingsCollection>
+
       <Show when={destinationsMutation.error()}>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          class="self-start"
-          onClick={() => {
-            destinationsMutation.abort();
-            destinationsMutation.mutate(undefined);
-          }}
-        >
-          <i class="ti ti-refresh" /> Retry destinations
-        </Button>
+        <SettingsGroup title="Destinations unavailable" description="Spaces could not load the destinations you can administer.">
+          <SettingsGroup.Action>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                destinationsMutation.abort();
+                destinationsMutation.mutate(undefined);
+              }}
+            >
+              <i class="ti ti-refresh" aria-hidden="true" /> Retry
+            </Button>
+          </SettingsGroup.Action>
+        </SettingsGroup>
       </Show>
 
       <Show when={!destinationsMutation.loading() && !destinationsMutation.error() && destinations().length === 0}>
-        <p class="text-xs text-dimmed">No other Space with admin access and at least one status is available.</p>
+        <p class="text-sm text-dimmed">No other Space with admin access and at least one status is available.</p>
       </Show>
-    </div>
+    </>
   );
 }

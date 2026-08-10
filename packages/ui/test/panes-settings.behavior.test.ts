@@ -219,4 +219,41 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     dispose();
     dom.cleanup();
   });
+
+  test("moves ordered settings items only in available directions", async () => {
+    const dom = createDomTestHarness();
+    const { default: SettingsCollection } = await import("../src/layout/SettingsCollection");
+    const moves: number[] = [];
+
+    const dispose = render(
+      () =>
+        createComponent(SettingsCollection, {
+          title: "Statuses",
+          children: createComponent(SettingsCollection.Item, {
+            title: "Open",
+            children: createComponent(SettingsCollection.Item.Actions, {
+              children: createComponent(SettingsCollection.Item.Reorder, {
+                label: "Open",
+                index: 0,
+                count: 2,
+                onMove: (direction) => moves.push(direction),
+              }),
+            }),
+          }),
+        }),
+      dom.root,
+    );
+
+    const up = dom.root.querySelector<HTMLButtonElement>('[aria-label="Move Open up"]');
+    const down = dom.root.querySelector<HTMLButtonElement>('[aria-label="Move Open down"]');
+    expect(up?.disabled).toBe(true);
+    expect(down?.disabled).toBe(false);
+
+    up?.click();
+    down?.click();
+    expect(moves).toEqual([1]);
+
+    dispose();
+    dom.cleanup();
+  });
 });

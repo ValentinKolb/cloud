@@ -1,8 +1,11 @@
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import type { CustomAppBlock } from "../custom-apps/contracts";
+import { customAppPageHref } from "../custom-apps/routing";
+import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
 import type { GridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
 import { type DslCurrentSource, executeGqlSource, executeSavedViewSource } from "./gql-runtime";
+import { gridsAccessContext } from "./permissions";
 
 type OkWorkspaceState = Extract<GridsWorkspaceState, { kind: "ok" }>;
 type QueryRoute = Extract<OkWorkspaceState["route"], { kind: "query" }>;
@@ -18,18 +21,28 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
   const authContext = c as unknown as Context<AuthContext>;
   const route = state.route;
   if (route.kind === "customApp") {
-    const blocks = route.app.draftDefinition.pages.flatMap((page) =>
-      page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)),
+    const definition = route.app.draftDefinition;
+    if (!definition) return { ...state, route: { ...route, initialPreviewResults: {} } } as T;
+    const blocks = definition.pages.flatMap((page) =>
+      page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks.map((block) => ({ page, block })))),
     );
     const sourceBlocks = blocks.filter(
-      (block): block is SourceBlock =>
-        (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-        !(block.source.kind === "gql" && Object.keys(block.source.inputs ?? {}).length > 0),
+      (entry): entry is { page: (typeof definition.pages)[number]; block: SourceBlock } =>
+        entry.block.type === "records" || entry.block.type === "metrics" || entry.block.type === "chart",
     );
     const entries = await Promise.all(
-      sourceBlocks.map(async (block) => {
+      sourceBlocks.map(async ({ page, block }) => {
         const maxRows = block.type === "chart" ? block.limit : block.source.kind === "gql" ? block.source.maxRows : 100;
         try {
+          const runtime = buildCustomAppRuntimeContext({
+            access: gridsAccessContext(authContext),
+            app: { id: route.app.id, shortId: route.app.shortId, name: route.app.name },
+            base: state.base,
+            page,
+            pageUrl: customAppPageHref(route.app.shortId, page.id),
+            pageParams: Object.fromEntries(Object.keys(page.parameters).map((name) => [name, "00000000-0000-4000-8000-000000000000"])),
+            dateConfig: getDateConfig(authContext),
+          });
           const result =
             block.source.kind === "view"
               ? await executeSavedViewSource(authContext, state.base.id, block.source.viewId, {
@@ -43,7 +56,7 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
                     authContext,
                     state.base.id,
                     { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
-                    { maxRows, operation: "initial-preview" },
+                    { maxRows, operation: "initial-preview", context: runtime.query },
                   )
                 ).response;
           return [block.id, result] as const;

@@ -10,7 +10,6 @@ import aiChat from "./ai/chat.md" with { type: "text" };
 import aiContextUsage from "./ai/context-usage.md" with { type: "text" };
 import cloudAssistantChat from "./cloud/assistant-chat.md" with { type: "text" };
 import cloudDashboardWidgets from "./cloud/dashboard-widgets.md" with { type: "text" };
-import contentAiSkills from "./content/ai-skills.md" with { type: "text" };
 import contentCharts from "./content/charts.md" with { type: "text" };
 import contentCode from "./content/code.md" with { type: "text" };
 import contentDocs from "./content/docs.md" with { type: "text" };
@@ -127,7 +126,6 @@ const catalogContextSources = {
   "content/markdown": { file: "content/markdown.md", content: contentMarkdown },
   "widgets/composition": { file: "widgets/dashboard.md", content: widgetDashboard },
   "cloud/assistant-chat": { file: "cloud/assistant-chat.md", content: cloudAssistantChat },
-  "cloud/ai-skills": { file: "content/ai-skills.md", content: contentAiSkills },
   "cloud/permissions": { file: "layout/permissions.md", content: layoutPermissions },
   "cloud/dashboard-widgets": { file: "cloud/dashboard-widgets.md", content: cloudDashboardWidgets },
 } as const satisfies Record<string, { file: string; content: string }>;

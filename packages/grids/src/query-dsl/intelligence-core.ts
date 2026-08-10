@@ -1,4 +1,5 @@
 import type { DslQueryCompletionItem, DslQueryCompletionKind, DslQueryTextRange } from "../contracts";
+import type { DslQueryContextKey } from "./parameters";
 import type { DslResolverContext } from "./resolver";
 
 export type CompletionPurpose = "output" | "predicate" | "group" | "aggregate" | "search" | "sort" | "join";
@@ -8,6 +9,7 @@ export type CompletionRequest = {
   caret: number;
   ctx: DslResolverContext;
   currentSource?: { kind: "table"; tableId: string } | { kind: "view"; viewId: string };
+  contextKeys?: readonly DslQueryContextKey[];
 };
 
 export const isDiagnostic = (value: unknown): value is { message: string } =>
@@ -96,6 +98,7 @@ export const tokenRangeAt = (query: string, caret: number): DslQueryTextRange =>
   let start = caret;
   while (start > 0 && !/[\s,();=<>+\-*/%]/.test(query[start - 1]!)) start--;
   const token = query.slice(start, caret);
+  if (token.startsWith("@")) return { start, end: caret };
   const dot = token.lastIndexOf(".");
   if (dot >= 0) start += dot + 1;
   return { start, end: caret };

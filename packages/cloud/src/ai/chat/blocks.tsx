@@ -352,7 +352,7 @@ function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
 function MemoryToolView(props: { block: ToolBlock }) {
   const presentation = () => memoryToolPresentation(props.block.args, props.block.result);
   return (
-    <Show when={props.block.status !== "running"} fallback={<Chat.Activity label="Updating memory" icon="ti ti-brain" tone="ai" busy />}>
+    <Show when={props.block.status !== "running"} fallback={<Chat.Activity label="Using memory" icon="ti ti-brain" tone="ai" busy />}>
       <Show
         when={presentation()}
         fallback={

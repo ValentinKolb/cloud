@@ -17,8 +17,10 @@ import {
   toAiErrorResponse,
 } from "./http";
 import { aiMaintenanceJobs } from "./maintenance";
+import { AI_MEMORY_CONTENT_MAX_CHARS, aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
-import { AI_USER_INSTRUCTIONS_MAX_CHARS, AI_USER_MEMORY_MAX_CHARS, aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
+import { aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
+import { aiProjects } from "./projects";
 import {
   AiTurnActionSchema,
   abortAiTurn,
@@ -28,7 +30,6 @@ import {
   submitAiTurnAction,
 } from "./runtime";
 import { listAiModels, readAiSettingsState, selectAiModelProfile, toPublicAiSettingsState } from "./settings";
-import { aiSkillStore } from "./skills-store";
 import { aiConversationStore } from "./store";
 import { createAiConversationStreamResponse, loadAiStreamState } from "./stream";
 import { composeAiSystemPrompt } from "./system-prompt";
@@ -99,10 +100,21 @@ const FileWriteSchema = z.object({
 const FileRenameSchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
 
 const AiUserPrefsInputSchema = z.object({
-  instructions: z.string().max(AI_USER_INSTRUCTIONS_MAX_CHARS).optional(),
-  memory: z.string().max(AI_USER_MEMORY_MAX_CHARS).optional(),
   memoryEnabled: z.boolean().optional(),
+  memoryLearningEnabled: z.boolean().optional(),
 });
+
+const MemoryListQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+const MemoryCreateSchema = z.object({
+  kind: z.enum(["fact", "preference"]),
+  content: z.string().trim().min(1).max(AI_MEMORY_CONTENT_MAX_CHARS),
+  priority: z.enum(["normal", "pinned"]).optional(),
+});
+const MemoryUpdateSchema = MemoryCreateSchema.partial().refine((value) => Object.keys(value).length > 0, "Pass a changed field.");
+const MemoryIdSchema = z.uuid();
 
 const notFound = (c: Context<AuthContext>) => respond(c, fail(err.notFound("Conversation")));
 
@@ -172,6 +184,43 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         if (!userId) return respond(c, fail(err.forbidden("AI preferences require a user context.")));
         return respond(c, ok(await aiUserPrefs.update(userId, c.req.valid("json"))));
       })
+      .get("/memories", v("query", MemoryListQuerySchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const userId = aiPrefsUserId(ctx.actor);
+        if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
+        const query = c.req.valid("query");
+        return respond(c, ok(await aiMemories.list({ userId, query: query.q, limit: query.limit })));
+      })
+      .post("/memories", v("json", MemoryCreateSchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const userId = aiPrefsUserId(ctx.actor);
+        if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
+        const body = c.req.valid("json");
+        return respond(c, ok(await aiMemories.create({ userId, ...body, priority: body.priority ?? "pinned", source: "user" })));
+      })
+      .patch("/memories/:memoryId", v("json", MemoryUpdateSchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const userId = aiPrefsUserId(ctx.actor);
+        if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
+        const memoryId = MemoryIdSchema.safeParse(c.req.param("memoryId"));
+        if (!memoryId.success) return respond(c, fail(err.badInput("Invalid memory id.")));
+        const memory = await aiMemories.update(userId, memoryId.data, { ...c.req.valid("json"), source: "user" });
+        return memory ? respond(c, ok(memory)) : respond(c, fail(err.notFound("Memory")));
+      })
+      .delete("/memories/:memoryId", async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const userId = aiPrefsUserId(ctx.actor);
+        if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
+        const memoryId = MemoryIdSchema.safeParse(c.req.param("memoryId"));
+        if (!memoryId.success) return respond(c, fail(err.badInput("Invalid memory id.")));
+        return (await aiMemories.delete(userId, memoryId.data))
+          ? respond(c, ok({ deleted: true }))
+          : respond(c, fail(err.notFound("Memory")));
+      })
       .get("/prefs/system-prompt", async (c) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;
@@ -183,6 +232,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const isDefaultToolSource = ctx.toolSource.kind === "default";
         const prefs = isDefaultToolSource ? await aiUserPrefs.get(user.id) : null;
         const memoryEnabled = Boolean(prefs?.memoryEnabled);
+        const memory = memoryEnabled ? await aiMemories.selectHot(user.id, "") : null;
         const state = await readAiSettingsState();
         let previewProfile: ReturnType<typeof selectAiModelProfile> | null = null;
         if (state.ok && state.enabled) {
@@ -209,8 +259,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           helpEnabled: isDefaultToolSource && toolsSupported,
           capabilitiesEnabled: ctx.toolSource.kind === "default" && toolsSupported && ctx.toolSource.capabilities === true,
           toolHints: aiToolPromptHints(tools),
-          userInstructions: prefs?.instructions,
-          memory: prefs?.memory,
+          memory: memory?.text,
         });
         return respond(c, ok({ prompt, renderedAt: new Date().toISOString() }));
       })
@@ -257,6 +306,9 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const body = c.req.valid("json");
+        if (body.projectId && !(await aiProjects.get(body.projectId, c.get("accessSubject"), "read"))) {
+          return respond(c, fail(err.notFound("Project")));
+        }
         return respond(
           c,
           ok(
@@ -265,6 +317,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
               ownerUserId: ctx.ownerUserId,
               title: body.title ?? config.defaultTitle?.(ctx),
               resource: ctx.resource,
+              projectId: body.projectId,
             }),
           ),
           201,
@@ -392,27 +445,18 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         if (!conversation) return notFound(c);
         const body = c.req.valid("json");
         const { input, message } = aiInputToUserMessage(aiTurnInputToContent(body));
-        const actorUser = aiActorUser(ctx.actor);
-        const selectedSkill =
-          body.skillId && actorUser ? await aiSkillStore.getVisible({ skillId: body.skillId, userId: actorUser.id }) : null;
-        if (body.skillId && !selectedSkill) return respond(c, fail(err.notFound("Skill")));
+        const project = conversation.projectId ? await aiProjects.snapshot(conversation.projectId, c.get("accessSubject")) : null;
+        if (conversation.projectId && !project) return respond(c, fail(err.notFound("Project")));
         try {
           const result = await submitAiChatTurn({
             conversationId: conversation.id,
             input,
             userMessage: message,
             actor: ctx.actor,
-            requestedModelId: body.modelProfileId,
+            requestedModelId: body.modelProfileId ?? project?.defaultModelProfileId ?? undefined,
             modelPolicy: ctx.modelPolicy,
             systemPrompt: ctx.systemPrompt,
-            skill: selectedSkill
-              ? {
-                  id: selectedSkill.id,
-                  name: selectedSkill.name,
-                  instructions: selectedSkill.instructions,
-                  revision: selectedSkill.revision,
-                }
-              : undefined,
+            project: project ?? undefined,
             clientToolIds: body.clientToolIds,
             toolSource: ctx.toolSource,
             toolApprovalContext: ctx.toolApprovalContext,
@@ -465,10 +509,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const { input, message } = aiInputToUserMessage(content as never);
         const instruction = config.retryInstruction?.(body.mode) ?? null;
         const systemPrompt = [ctx.systemPrompt, instruction].filter(Boolean).join("\n\n") || undefined;
-        const actorUser = aiActorUser(ctx.actor);
-        const selectedSkill =
-          body.skillId && actorUser ? await aiSkillStore.getVisible({ skillId: body.skillId, userId: actorUser.id }) : null;
-        if (body.skillId && !selectedSkill) return respond(c, fail(err.notFound("Skill")));
+        const project = conversation.projectId ? await aiProjects.snapshot(conversation.projectId, c.get("accessSubject")) : null;
+        if (conversation.projectId && !project) return respond(c, fail(err.notFound("Project")));
 
         try {
           const result = await submitAiChatTurn({
@@ -476,17 +518,10 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             input,
             userMessage: message,
             actor: ctx.actor,
-            requestedModelId: body.modelProfileId,
+            requestedModelId: body.modelProfileId ?? project?.defaultModelProfileId ?? undefined,
             modelPolicy: ctx.modelPolicy,
             systemPrompt,
-            skill: selectedSkill
-              ? {
-                  id: selectedSkill.id,
-                  name: selectedSkill.name,
-                  instructions: selectedSkill.instructions,
-                  revision: selectedSkill.revision,
-                }
-              : undefined,
+            project: project ?? undefined,
             toolSource: ctx.toolSource,
             toolApprovalContext: ctx.toolApprovalContext,
             truncateFromSeq: target.seq,
@@ -512,6 +547,9 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         }
 
         const body = c.req.valid("json");
+        if (conversation.projectId && !(await aiProjects.get(conversation.projectId, c.get("accessSubject"), "read"))) {
+          return respond(c, fail(err.notFound("Project")));
+        }
         const forked = await aiConversationStore.createConversation({
           appId: config.appId,
           ownerUserId: ctx.ownerUserId,
@@ -519,6 +557,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           icon: conversation.icon,
           description: conversation.description,
           resource: ctx.resource,
+          projectId: conversation.projectId ?? undefined,
         });
         await aiConversationStore.copyMessages({
           sourceConversationId: conversation.id,

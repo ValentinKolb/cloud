@@ -1082,6 +1082,59 @@ suite("AI conversation store integration", () => {
     }
   });
 
+  test("searches raw message text and the internal enrichment summary without changing user descriptions", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+    try {
+      const conversation = await aiConversationStore.createConversation({
+        appId: "ai-test",
+        ownerUserId: userId,
+        title: "Unrelated title",
+        description: "User-written description",
+      });
+      conversationIds.push(conversation.id);
+      await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("Investigate the zygomatic quasar incident"),
+      });
+      await sql`DELETE FROM ai.turns WHERE conversation_id = ${conversation.id}::uuid`;
+      await aiConversationStore
+        .createSessionStore({ conversationId: conversation.id })
+        .append(assistantMessage("The visible assistant conclusion names the caladrius fallback"));
+
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, search: "zygomatic" })).toHaveLength(1);
+      expect(
+        await aiConversationStore.listConversationsPage({
+          appId: "ai-test",
+          ownerUserId: userId,
+          search: "quasar",
+          page: 1,
+          perPage: 20,
+        }),
+      ).toMatchObject({ total: 1, items: [{ id: conversation.id }] });
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, search: "caladrius" })).toHaveLength(1);
+
+      const dirtyRows = await sql<{ dirtyAsOf: string }[]>`
+        SELECT updated_at::text AS "dirtyAsOf" FROM ai.conversations WHERE id = ${conversation.id}::uuid
+      `;
+      const dirtyAsOf = dirtyRows[0]!.dirtyAsOf;
+      await aiConversationStore.applyEnrichment({
+        conversationId: conversation.id,
+        searchSummary: "Resolved the heliotrope indexing failure",
+        keywords: ["indexing"],
+        dirtyAsOf: dirtyAsOf!,
+      });
+      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, search: "heliotrope" })).toHaveLength(1);
+      expect((await aiConversationStore.getConversation({ conversationId: conversation.id }))?.description).toBe(
+        "User-written description",
+      );
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
   test("tool approval preferences remember, list, revoke, and preserve ownership", async () => {
     const userId = await insertUser();
     const otherUserId = await insertUser();

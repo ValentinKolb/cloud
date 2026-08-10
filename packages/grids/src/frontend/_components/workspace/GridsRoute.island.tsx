@@ -98,10 +98,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
         canManageBase={state.canManageBase}
         trashMode={records.initialState.query.deletedOnly === true}
         initialAdminMode={state.adminModeRequested}
-        initialAccessEntries={records.activeTableAccessEntries}
-        initialFormAccessEntries={records.activeFormAccessEntries}
         activeView={records.activeView}
-        activeViewAccessEntries={records.activeViewAccessEntries}
         canEditActiveView={records.canEditActiveView}
         otherTables={records.otherTables}
         fieldsByTable={state.catalog.fieldsByTable}

@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { CustomAppDefinitionSchema } from "../custom-apps/contracts";
+import { customAppFormFieldHash, customAppFormSecurityHash } from "../custom-apps/form-capability";
+import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { grantAccess, listCustomAppAccess, listDocumentTemplateAccess, listFormAccess, listTableAccess, listViewAccess } from "./access";
+import { grantAccess, listCustomAppAccess } from "./access";
 import { apply, compile, get, plan, publish } from "./custom-apps";
 
 const CERTIFICATE = {
@@ -121,7 +123,16 @@ describe("Custom App Golden fixtures", () => {
       expect(validation.ok).toBe(true);
       if (!validation.ok) throw new Error(validation.diagnostics.map((item) => item.message).join("; "));
       expect(validation.compiled.capabilities).toEqual({
-        views: [{ viewId: CERTIFICATE.viewId, tableId: CERTIFICATE.tableId }],
+        availability: [],
+        views: [
+          {
+            viewId: CERTIFICATE.viewId,
+            tableId: CERTIFICATE.tableId,
+            sourceHash: customAppViewSourceHash(CERTIFICATE.tableId, `from table {${CERTIFICATE.tableId}}`),
+            planHash: expect.any(String),
+            tableIds: [CERTIFICATE.tableId],
+          },
+        ],
         insights: [],
         recordQueries: [],
         records: [
@@ -130,6 +141,7 @@ describe("Custom App Golden fixtures", () => {
             tableId: CERTIFICATE.tableId,
             fieldIds: [...CERTIFICATE.fieldIds],
             editableFieldIds: [],
+            relationLabels: [],
           },
         ],
         forms: [
@@ -140,6 +152,30 @@ describe("Custom App Golden fixtures", () => {
             tableId: CERTIFICATE.tableId,
             userInputFieldIds: CERTIFICATE.fieldIds.slice(0, 3),
             fixedFieldIds: [],
+            fieldHash: customAppFormFieldHash(
+              CERTIFICATE.fieldIds.slice(0, 3),
+              CERTIFICATE.fieldIds.slice(0, 3).map((id, index) => ({
+                id,
+                type: index === 1 ? "longtext" : "text",
+                config: {},
+                deletedAt: null,
+              })),
+            ),
+            formSecurityHash: customAppFormSecurityHash({
+              tableId: CERTIFICATE.tableId,
+              config: {
+                fields: CERTIFICATE.fieldIds.slice(0, 3).map((fieldId) => ({ kind: "user_input", fieldId })),
+              },
+              fields: CERTIFICATE.fieldIds.slice(0, 3).map((id, index) => ({
+                id,
+                tableId: CERTIFICATE.tableId,
+                type: index === 1 ? "longtext" : "text",
+                config: {},
+                required: false,
+                defaultValue: null,
+                deletedAt: null,
+              })),
+            }),
           },
         ],
         comments: [{ pageId: "request", blockId: "comments", tableId: CERTIFICATE.tableId }],
@@ -185,56 +221,10 @@ describe("Custom App Golden fixtures", () => {
           permission: "read",
         },
         {
-          resourceType: "table",
-          resourceId: CERTIFICATE.tableId,
-          principal: { type: "group", groupId: CERTIFICATE.requesterGroupId },
-          permission: "read",
-          recordScope: { kind: "created_by" },
-        },
-        {
-          resourceType: "view",
-          resourceId: CERTIFICATE.viewId,
-          principal: { type: "group", groupId: CERTIFICATE.requesterGroupId },
-          permission: "read",
-          recordScope: { kind: "created_by" },
-        },
-        {
-          resourceType: "form",
-          resourceId: CERTIFICATE.formId,
-          principal: { type: "group", groupId: CERTIFICATE.requesterGroupId },
-          permission: "write",
-        },
-        {
-          resourceType: "documentTemplate",
-          resourceId: CERTIFICATE.documentTemplateId,
-          principal: { type: "group", groupId: CERTIFICATE.requesterGroupId },
-          permission: "read",
-        },
-        {
           resourceType: "customApp",
           resourceId: CERTIFICATE.appId,
           principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
           permission: "read",
-        },
-        {
-          resourceType: "table",
-          resourceId: CERTIFICATE.tableId,
-          principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
-          permission: "write",
-          recordScope: { kind: "all" },
-        },
-        {
-          resourceType: "view",
-          resourceId: CERTIFICATE.viewId,
-          principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
-          permission: "read",
-          recordScope: { kind: "all" },
-        },
-        {
-          resourceType: "documentTemplate",
-          resourceId: CERTIFICATE.documentTemplateId,
-          principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
-          permission: "write",
         },
       ] satisfies Array<Parameters<typeof grantAccess>[0]>;
       for (const grant of grants) {
@@ -244,28 +234,6 @@ describe("Custom App Golden fixtures", () => {
       }
 
       expect(await listCustomAppAccess(CERTIFICATE.appId)).toHaveLength(2);
-      expect(await listTableAccess(CERTIFICATE.tableId)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            principal: { type: "group", groupId: CERTIFICATE.requesterGroupId },
-            permission: "read",
-            recordScope: { kind: "created_by" },
-          }),
-          expect.objectContaining({
-            principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
-            permission: "write",
-            recordScope: { kind: "all" },
-          }),
-        ]),
-      );
-      expect(await listViewAccess(CERTIFICATE.viewId)).toHaveLength(2);
-      expect(await listFormAccess(CERTIFICATE.formId)).toEqual([
-        expect.objectContaining({
-          principal: { type: "group", groupId: CERTIFICATE.requesterGroupId },
-          permission: "write",
-        }),
-      ]);
-      expect(await listDocumentTemplateAccess(CERTIFICATE.documentTemplateId)).toHaveLength(2);
 
       const published = await publish(CERTIFICATE.appId);
       expect(published.ok).toBe(true);

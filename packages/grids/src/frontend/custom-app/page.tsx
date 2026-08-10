@@ -1,30 +1,24 @@
 import { MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { executeGqlSourceForContext, executeSavedViewSourceForContext } from "../../api/gql-runtime";
-import {
-  actorViewerFor,
-  gateAtAccess,
-  gridsAccessContext,
-  hasExplicitGrant,
-  resolveRecordAccessForAccess,
-  resolveWithGrantsForAccess,
-} from "../../api/permissions";
+import { accessActorUser, actorViewerFor, gateCustomAppAtAccess, gridsAccessContext } from "../../api/permissions";
 import { ssr } from "../../config";
 import type { DocumentRunSummary, DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
-import { customAppPageRecordFieldIds, visibleCustomAppPage } from "../../custom-apps/conditions";
+import { customAppPageRecordFieldIds } from "../../custom-apps/conditions";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
+import { customAppFormInlineTargetTableIds } from "../../custom-apps/form-capability";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
-import { customAppViewSourceHash } from "../../custom-apps/insight-source";
 import {
   customAppActionHref,
   customAppActionUrl,
   customAppCommentsUrl,
   customAppFormSubmitUrl,
+  customAppPageHref,
   customAppRecordUpdateUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
+import { buildCustomAppRuntimeContext, customAppDefinitionWithAvailableNavigation } from "../../custom-apps/runtime-context";
 import { gridsService } from "../../service";
 import {
   type CustomAppChartData,
@@ -32,7 +26,14 @@ import {
   chartDataFromPreview,
   metricCellsFromPreview,
 } from "../../service/custom-app-insights";
+import {
+  customAppRecordRelationSnapshot,
+  customAppRelationLabelFieldIdsByTableId,
+  sameCustomAppRecordRelationSnapshot,
+} from "../../service/custom-app-record-relations";
+import { executePublishedCustomAppQuery, publishedCustomAppAvailability } from "../../service/custom-app-runtime-query";
 import type { PublicRenderableForm } from "../../service/forms";
+import { ALL_RECORD_ACCESS } from "../../service/record-access";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import RecordComments from "../_components/records/RecordComments.island";
 import Actions, { type CustomAppRenderedAction } from "./Actions.island";
@@ -70,6 +71,19 @@ type FormBlockData =
       submitUrl: string;
     }
   | { ok: false; message: string };
+
+const availableIdsInBatches = async <T extends { id: string }>(
+  items: readonly T[],
+  predicate: (item: T) => Promise<boolean>,
+): Promise<Set<string>> => {
+  const available = new Set<string>();
+  for (let start = 0; start < items.length; start += 8) {
+    const batch = items.slice(start, start + 8);
+    const results = await Promise.all(batch.map(predicate));
+    for (const [index, allowed] of results.entries()) if (allowed) available.add(batch[index]!.id);
+  }
+  return available;
+};
 
 const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: string }) => {
   if (!props.data.ok) {
@@ -232,12 +246,10 @@ const CustomAppPage = (props: {
 export default ssr<AuthContext>(async (c) => {
   const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
   if (!app?.publishedDefinition || !app.publishedCapabilities) return c.notFound();
+  const capabilities = app.publishedCapabilities;
 
   const requestAccess = gridsAccessContext(c);
-  const access = await resolveWithGrantsForAccess(requestAccess, { baseId: app.baseId, customAppId: app.id });
-  if (!hasExplicitGrant(access.grants, "customApp", app.id) || !gridsService.permission.hasAtLeast(access.level, "read")) {
-    return c.notFound();
-  }
+  if (!(await gateCustomAppAtAccess(requestAccess, app.id)).ok) return c.notFound();
 
   const definition = app.publishedDefinition;
   const page = resolveCustomAppPage(definition, c.req.param("pageId"));
@@ -245,14 +257,97 @@ export default ssr<AuthContext>(async (c) => {
   const dateConfig = getDateConfig(c);
   const pageParams = resolveCustomAppPageParams(page, c.req.query());
   if (!pageParams) return c.notFound();
-  const viewer = actorViewerFor(requestAccess);
+  const base = await gridsService.base.get(app.baseId);
+  if (!base) return c.notFound();
+  const pageUrl = customAppPageHref(app.shortId, page.id, pageParams);
+  const runtimeContext = buildCustomAppRuntimeContext({
+    access: requestAccess,
+    app,
+    base,
+    page,
+    pageUrl,
+    pageParams,
+    dateConfig,
+  });
+  const viewer = {
+    ...actorViewerFor(requestAccess),
+    isAdmin: true,
+  };
+  const availabilityCapability = (pageId: string, target: "page" | "block" | "action", blockId?: string, actionId?: string) =>
+    capabilities.availability.find(
+      (candidate) =>
+        candidate.target === target &&
+        candidate.pageId === pageId &&
+        (target === "page" || (candidate.target !== "page" && candidate.blockId === blockId)) &&
+        (target !== "action" || (candidate.target === "action" && candidate.actionId === actionId)),
+    );
+  const evaluateAvailability = async (
+    targetPageId: string,
+    queryContext: typeof runtimeContext.query,
+    target: "page" | "block" | "action",
+    query: string | undefined,
+    blockId?: string,
+    actionId?: string,
+  ) => {
+    if (!query) return true;
+    const capability = availabilityCapability(targetPageId, target, blockId, actionId);
+    if (!capability) return false;
+    return publishedCustomAppAvailability({
+      baseId: app.baseId,
+      source: query,
+      capability,
+      context: queryContext,
+      signal: c.req.raw.signal,
+      timeZone: runtimeContext.query["time.timeZone"],
+      viewer,
+    });
+  };
+  const available = (target: "page" | "block" | "action", query: string | undefined, blockId?: string, actionId?: string) =>
+    evaluateAvailability(page.id, runtimeContext.query, target, query, blockId, actionId);
+  if (!(await available("page", page.availableWhen?.query))) return c.notFound();
+
+  const availableNavigationPageIds = await availableIdsInBatches(
+    definition.pages.filter((item) => item.navigation.visible),
+    async (candidate) => {
+      if (candidate.id === page.id) return true;
+      const candidateParams: Record<string, string> = {};
+      const candidateContext = buildCustomAppRuntimeContext({
+        access: requestAccess,
+        app,
+        base,
+        page: candidate,
+        pageUrl: customAppPageHref(app.shortId, candidate.id, candidateParams),
+        pageParams: candidateParams,
+        dateConfig,
+        now: runtimeContext.now,
+      });
+      return evaluateAvailability(candidate.id, candidateContext.query, "page", candidate.availableWhen?.query);
+    },
+  );
+  const runtimeDefinition = customAppDefinitionWithAvailableNavigation(definition, availableNavigationPageIds);
+
+  const visibleBlockIds = await availableIdsInBatches(
+    page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)),
+    (block) =>
+      block.type === "comments" && !accessActorUser(requestAccess)
+        ? Promise.resolve(false)
+        : available("block", block.availableWhen?.query, block.id),
+  );
+  const runtimePage: CustomAppPage = {
+    ...page,
+    rows: page.rows.flatMap((row) => {
+      const columns = row.columns.flatMap((column) => {
+        const blocks = column.blocks.filter((block) => visibleBlockIds.has(block.id));
+        return blocks.length > 0 ? [{ ...column, blocks }] : [];
+      });
+      return columns.length > 0 ? [{ ...row, columns }] : [];
+    }),
+  };
   const parameterRecords = new Map<string, GridRecord>();
   for (const [parameterId, parameter] of Object.entries(page.parameters)) {
-    const parameterAccess = await resolveRecordAccessForAccess(requestAccess, { baseId: app.baseId, tableId: parameter.tableId }, "read");
-    if (!parameterAccess.ok) return c.notFound();
     const record = await gridsService.record.get(parameter.tableId, pageParams[parameterId]!, {
       viewer,
-      recordAccess: parameterAccess.data.recordAccess,
+      recordAccess: ALL_RECORD_ACCESS,
       dateConfig,
     });
     if (!record) return c.notFound();
@@ -260,13 +355,10 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   let pageRecord: PageRecord | null = null;
-  let runtimePage = visibleCustomAppPage(page, { params: pageParams, record: null });
   const recordUpdateEndpoints = new Map<string, string>();
   const documentRuns = new Map<string, DocumentRunSummary[]>();
   if (page.record) {
-    const capability = app.publishedCapabilities.records.find(
-      (candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId,
-    );
+    const capability = capabilities.records.find((candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId);
     const expectedFieldIds = customAppPageRecordFieldIds(page);
     const expectedEditableFieldIds = [
       ...new Set(
@@ -289,26 +381,33 @@ export default ssr<AuthContext>(async (c) => {
     if (fields.length !== allowed.size) return c.notFound();
     const table = await gridsService.table.get(page.record.tableId);
     if (!table) return c.notFound();
-    const relationLabels = await gridsService.relations.buildLabelCache([record], fields, viewer);
+    const relationTargetTableIds = [...new Set(capability.relationLabels.map((relation) => relation.targetTableId))];
+    const relationTargetTables = await Promise.all(relationTargetTableIds.map((tableId) => gridsService.table.get(tableId)));
+    if (relationTargetTables.some((target) => !target || target.baseId !== app.baseId)) return c.notFound();
+    const targetFieldsByTableId = await gridsService.field.listByTables(relationTargetTableIds);
+    const liveRelationLabels = customAppRecordRelationSnapshot(fields, targetFieldsByTableId);
+    if (!sameCustomAppRecordRelationSnapshot(capability.relationLabels, liveRelationLabels)) return c.notFound();
+    const relationTableIds = [page.record.tableId, ...relationTargetTableIds];
+    const relationViewer = {
+      ...actorViewerFor(requestAccess),
+      isAdmin: false,
+      readableTableIds: new Set(relationTableIds),
+      recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
+    };
+    const relationLabels = await gridsService.relations.buildPinnedLabelCache(
+      [record],
+      fields,
+      customAppRelationLabelFieldIdsByTableId(capability.relationLabels),
+      relationViewer,
+    );
     pageRecord = { record, fields, relationLabels, tableName: table.name, auditPolicy: table.auditPolicy };
-    runtimePage = visibleCustomAppPage(page, { params: pageParams, record });
 
-    if (expectedEditableFieldIds.length > 0) {
-      const writeAccess = await resolveRecordAccessForAccess(requestAccess, { baseId: app.baseId, tableId: page.record.tableId }, "write");
-      const writableRecord = writeAccess.ok
-        ? await gridsService.record.get(page.record.tableId, record.id, {
-            viewer,
-            recordAccess: writeAccess.data.recordAccess,
-            dateConfig,
-          })
-        : null;
-      if (writableRecord) {
-        for (const block of runtimePage.rows.flatMap((row) =>
-          row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
-        )) {
-          if (block.editableFieldIds.length > 0) {
-            recordUpdateEndpoints.set(block.id, customAppRecordUpdateUrl(app.shortId, page.id, block.id, pageParams));
-          }
+    if (expectedEditableFieldIds.length > 0 && accessActorUser(requestAccess)) {
+      for (const block of runtimePage.rows.flatMap((row) =>
+        row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
+      )) {
+        if (block.editableFieldIds.length > 0) {
+          recordUpdateEndpoints.set(block.id, customAppRecordUpdateUrl(app.shortId, page.id, block.id, pageParams));
         }
       }
     }
@@ -321,7 +420,7 @@ export default ssr<AuthContext>(async (c) => {
     const configuredTemplateIds = new Set<string>();
     for (const block of documentBlocks) {
       const expectedTemplateIds = [...(block.documents?.templateIds ?? [])].sort();
-      const capability = app.publishedCapabilities.documents.find(
+      const capability = capabilities.documents.find(
         (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record!.tableId,
       );
       if (!capability || capability.templateIds.join("\0") !== expectedTemplateIds.join("\0")) return c.notFound();
@@ -331,12 +430,7 @@ export default ssr<AuthContext>(async (c) => {
     for (const templateId of configuredTemplateIds) {
       const template = await gridsService.document.getTemplate(templateId);
       if (!template || template.tableId !== page.record.tableId) continue;
-      const templateAccess = await gateAtAccess(
-        requestAccess,
-        { baseId: app.baseId, tableId: page.record.tableId, documentTemplateId: templateId },
-        "read",
-      );
-      if (templateAccess.ok) readableTemplateIds.push(templateId);
+      readableTemplateIds.push(templateId);
     }
     const runs = await gridsService.document.listRunSummariesForRecordByTemplates(page.record.tableId, record.id, readableTemplateIds);
     for (const block of documentBlocks) {
@@ -348,56 +442,34 @@ export default ssr<AuthContext>(async (c) => {
     }
   }
 
-  const allowedViews = new Set(app.publishedCapabilities.views.map((view) => view.viewId));
   const blocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is RecordsBlock => block.type === "records")),
   );
   const entries = await Promise.all(
     blocks.map(async (block): Promise<[string, BlockResult]> => {
       const maxRows = block.source.kind === "gql" ? block.source.maxRows : 100;
-      const queryCapability =
-        block.source.kind === "gql"
-          ? app.publishedCapabilities!.recordQueries.find((candidate) => candidate.pageId === page.id && candidate.blockId === block.id)
-          : undefined;
-      if (block.source.kind === "gql" && !queryCapability) {
-        return [block.id, { ok: false, message: "This data source is not part of the published app." }];
-      }
       try {
-        const result =
-          block.source.kind === "view"
-            ? allowedViews.has(block.source.viewId)
-              ? await executeSavedViewSourceForContext(
-                  { access: requestAccess, dateConfig, signal: c.req.raw.signal },
-                  app.baseId,
-                  block.source.viewId,
-                  { maxRows, pageSize: maxRows, maxResultBytes: 512_000, operation: "execute", surface: "ssr" },
-                )
-              : null
-            : (
-                await executeGqlSourceForContext(
-                  { access: requestAccess, dateConfig, signal: c.req.raw.signal },
-                  app.baseId,
-                  { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
-                  {
-                    maxRows,
-                    maxResultBytes: 512_000,
-                    operation: "execute",
-                    labelRelationValues: true,
-                    parameters: Object.fromEntries(
-                      Object.entries(block.source.inputs ?? {}).map(([name, value]) => [name, pageParams[value.path]!]),
-                    ),
-                  },
-                )
-              ).response;
-        if (!result) return [block.id, { ok: false, message: "This view is not part of the published app." }];
+        const source = block.source;
+        const view = source.kind === "view" ? await gridsService.view.get(source.viewId) : null;
+        const published =
+          source.kind === "view"
+            ? capabilities.views.find((candidate) => candidate.viewId === source.viewId && candidate.tableId === view?.tableId)
+            : capabilities.recordQueries.find((candidate) => candidate.pageId === page.id && candidate.blockId === block.id);
+        if (!published) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
+        const result = await executePublishedCustomAppQuery({
+          baseId: app.baseId,
+          source: view?.source ?? (source.kind === "gql" ? source.query : ""),
+          capability: published,
+          context: runtimeContext.query,
+          signal: c.req.raw.signal,
+          timeZone: runtimeContext.query["time.timeZone"],
+          viewer,
+          ...(view ? { currentTableId: view.tableId, sourceHashScope: view.tableId } : {}),
+          maxRows,
+          maxResultBytes: 512_000,
+          labelRelationValues: true,
+        });
         if (!result.ok) return [block.id, { ok: false, message: result.diagnostics[0]?.message ?? "This data source is unavailable." }];
-        if (block.source.kind === "gql") {
-          const allowedTableIds = new Set(queryCapability!.tableIds);
-          const outputTableIds = [...new Set(result.columns.flatMap((column) => (column.tableId ? [column.tableId] : [])))];
-          if (outputTableIds.some((tableId) => !allowedTableIds.has(tableId))) {
-            return [block.id, { ok: false, message: "This data source changed after the app was published." }];
-          }
-        }
         return [block.id, { ok: true, result }];
       } catch {
         return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
@@ -412,59 +484,39 @@ export default ssr<AuthContext>(async (c) => {
   );
   const insightEntries = await Promise.all(
     insightBlocks.map(async (block): Promise<[string, MetricsBlockData | ChartBlockData]> => {
-      const capability = app.publishedCapabilities!.insights.find(
+      const source = block.source;
+      const capability = capabilities.insights.find(
         (candidate) =>
           candidate.pageId === page.id &&
           candidate.blockId === block.id &&
           candidate.blockType === block.type &&
-          candidate.source.kind === block.source.kind &&
-          (candidate.source.kind !== "view" || (block.source.kind === "view" && candidate.source.viewId === block.source.viewId)),
+          candidate.source.kind === source.kind &&
+          (candidate.source.kind !== "view" || (source.kind === "view" && candidate.source.viewId === source.viewId)),
       );
       if (!capability) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
-      const maxRows = block.type === "metrics" ? 1 : Math.min(block.limit, block.source.kind === "gql" ? block.source.maxRows : 100);
+      const maxRows = block.type === "metrics" ? 1 : Math.min(block.limit, source.kind === "gql" ? source.maxRows : 100);
       try {
-        if (block.source.kind === "view") {
-          const view = await gridsService.view.get(block.source.viewId);
-          if (
-            !view ||
-            capability.source.kind !== "view" ||
-            customAppViewSourceHash(view.tableId, view.source) !== capability.source.sourceHash
-          ) {
-            return [block.id, { ok: false, message: "This saved view changed after the app was published. Republish the app." }];
-          }
+        const view = source.kind === "view" ? await gridsService.view.get(source.viewId) : null;
+        if (source.kind === "view" && (!view || capability.source.kind !== "view")) {
+          return [block.id, { ok: false, message: "This saved view changed after the app was published. Republish the app." }];
         }
-        const response =
-          block.source.kind === "view"
-            ? await executeSavedViewSourceForContext(
-                { access: requestAccess, dateConfig, signal: c.req.raw.signal },
-                app.baseId,
-                block.source.viewId,
-                { maxRows, pageSize: maxRows, maxResultBytes: 512_000, operation: "execute", surface: "ssr" },
-              )
-            : (
-                await executeGqlSourceForContext(
-                  { access: requestAccess, dateConfig, signal: c.req.raw.signal },
-                  app.baseId,
-                  { query: block.source.query, limit: maxRows, pageSize: maxRows, surface: "ssr" },
-                  {
-                    maxRows,
-                    maxResultBytes: 512_000,
-                    operation: "execute",
-                    labelRelationValues: true,
-                    parameters: Object.fromEntries(
-                      Object.entries(block.source.inputs ?? {}).map(([name, value]) => [name, pageParams[value.path]!]),
-                    ),
-                  },
-                )
-              ).response;
+        const response = await executePublishedCustomAppQuery({
+          baseId: app.baseId,
+          source: view?.source ?? (source.kind === "gql" ? source.query : ""),
+          capability: capability.source,
+          context: runtimeContext.query,
+          signal: c.req.raw.signal,
+          timeZone: runtimeContext.query["time.timeZone"],
+          viewer,
+          ...(view ? { currentTableId: view.tableId, sourceHashScope: view.tableId } : {}),
+          maxRows,
+          maxResultBytes: 512_000,
+          labelRelationValues: true,
+        });
         if (!response.ok) {
           return [block.id, { ok: false, message: response.diagnostics[0]?.message ?? "This data source is unavailable." }];
         }
-        const allowedTableIds = new Set(capability.source.tableIds);
         const outputTableIds = [...new Set(response.columns.flatMap((column) => (column.tableId ? [column.tableId] : [])))];
-        if (outputTableIds.some((tableId) => !allowedTableIds.has(tableId))) {
-          return [block.id, { ok: false, message: "This data source changed after the app was published." }];
-        }
         const fieldGroups = await gridsService.field.listByTables(outputTableIds);
         const sourceFields = outputTableIds.flatMap((tableId) => fieldGroups.get(tableId) ?? []);
         if (block.type === "metrics") return [block.id, { ok: true, cells: metricCellsFromPreview(response, sourceFields) }];
@@ -490,7 +542,7 @@ export default ssr<AuthContext>(async (c) => {
   );
   const commentEndpoints = new Map<string, string>();
   for (const block of commentBlocks) {
-    const capability = app.publishedCapabilities.comments.find(
+    const capability = capabilities.comments.find(
       (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.tableId === page.record?.tableId,
     );
     if (!capability || !page.record || !pageRecord) return c.notFound();
@@ -501,22 +553,33 @@ export default ssr<AuthContext>(async (c) => {
   );
   const formEntries = await Promise.all(
     formBlocks.map(async (block): Promise<[string, FormBlockData]> => {
-      const capability = app.publishedCapabilities!.forms.find(
+      const capability = capabilities.forms.find(
         (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
       );
       const form = capability ? await gridsService.form.get(block.formId) : null;
-      const liveFields = form ? await gridsService.field.listByTable(form.tableId) : [];
-      if (!capability || !form || !customAppFormMatchesPublishedCapability({ block, page, form, fields: liveFields, capability })) {
+      const liveFields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
+      const securityTargetFields = form
+        ? (
+            await Promise.all(
+              customAppFormInlineTargetTableIds(form.config, liveFields).map((tableId) => gridsService.field.listByTable(tableId, true)),
+            )
+          ).flat()
+        : [];
+      if (
+        !capability ||
+        !form ||
+        !customAppFormMatchesPublishedCapability({
+          block,
+          page,
+          form,
+          fields: liveFields,
+          inlineTargetFields: securityTargetFields,
+          capability,
+        })
+      ) {
         return [block.id, { ok: false, message: "This form is unavailable." }];
       }
       const fixedFieldIds = Object.keys(block.fixedValues).sort();
-      const formAccess = await resolveRecordAccessForAccess(
-        requestAccess,
-        { baseId: app.baseId, tableId: form.tableId, formId: form.id },
-        "write",
-      );
-      if (!formAccess.ok) return [block.id, { ok: false, message: "You cannot submit this form." }];
-
       const fixed = new Set(fixedFieldIds);
       const renderable = gridsService.form.toPublicRenderableForm(form);
       renderable.config = {
@@ -538,8 +601,8 @@ export default ssr<AuthContext>(async (c) => {
         const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
         if (typeof targetTableId !== "string") continue;
         const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((inlineField) => inlineField.fieldId));
-        inlineTargetFields[targetTableId] = (await gridsService.field.listByTable(targetTableId)).filter((field) =>
-          allowedIds.has(field.id),
+        inlineTargetFields[targetTableId] = securityTargetFields.filter(
+          (field) => field.tableId === targetTableId && !field.deletedAt && allowedIds.has(field.id),
         );
       }
       return [
@@ -560,37 +623,39 @@ export default ssr<AuthContext>(async (c) => {
   );
   const actions = new Map<string, CustomAppRenderedAction[]>();
   for (const block of actionBlocks) {
-    const rendered = block.actions.flatMap((action): CustomAppRenderedAction[] => {
+    const rendered: CustomAppRenderedAction[] = [];
+    for (const action of block.actions) {
+      if (!(await available("action", action.availableWhen?.query, block.id, action.id))) continue;
       if (action.kind === "navigate") {
         const href = customAppActionHref(app.shortId, action, pageParams, pageRecord?.record.id);
-        return href ? [{ id: action.id, kind: "navigate", label: action.label, icon: action.icon, href, history: action.history }] : [];
+        if (href) rendered.push({ id: action.id, kind: "navigate", label: action.label, icon: action.icon, href, history: action.history });
+        continue;
       }
-      const capability = app.publishedCapabilities!.workflowLaunchers.find(
+      if (!accessActorUser(requestAccess)) continue;
+      const capability = capabilities.workflowLaunchers.find(
         (candidate) =>
           candidate.pageId === page.id &&
           candidate.blockId === block.id &&
           candidate.actionId === action.id &&
           candidate.launcherId === action.launcherId,
       );
-      return capability
-        ? [
-            {
-              id: action.id,
-              kind: "workflow",
-              label: action.label,
-              icon: action.icon,
-              endpoint: customAppActionUrl(app.shortId, page.id, block.id, action.id, pageParams),
-              confirm: action.confirm,
-            },
-          ]
-        : [];
-    });
+      if (capability) {
+        rendered.push({
+          id: action.id,
+          kind: "workflow",
+          label: action.label,
+          icon: action.icon,
+          endpoint: customAppActionUrl(app.shortId, page.id, block.id, action.id, pageParams),
+          confirm: action.confirm,
+        });
+      }
+    }
     actions.set(block.id, rendered);
   }
   return () => (
     <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
-        definition={definition}
+        definition={runtimeDefinition}
         page={runtimePage}
         shortId={app.shortId}
         results={results}

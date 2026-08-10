@@ -10,6 +10,7 @@ type RawToken =
   | { kind: "str"; value: string }
   | { kind: "ident"; value: string }
   | { kind: "field"; value: string }
+  | { kind: "context"; value: string }
   | { kind: "true" }
   | { kind: "false" }
   | { kind: "null" }
@@ -20,7 +21,7 @@ type RawToken =
   | { kind: "eof" };
 
 type Token = RawToken & { span: SourceSpan };
-type ParseFormulaOptions = { scopedRefs?: boolean };
+type ParseFormulaOptions = { scopedRefs?: boolean; contextRefs?: boolean };
 
 type FormulaParseDiagnostic = {
   message: string;
@@ -186,6 +187,20 @@ const scanSlugField: Scanner = (src, i) => {
   return { token: { kind: "field", value: src.slice(i + 1, j) }, next: j };
 };
 
+const scanContextRef: Scanner = (src, i) => {
+  if (src[i] !== "@") return null;
+  let j = i + 1;
+  if (!isIdentStart(src[j]!)) throw syntaxError("invalid context reference", i);
+  j = readIdentEnd(src, j);
+  if (src[j] !== ".") throw syntaxError("context reference needs a namespace and name", i, j);
+  while (src[j] === ".") {
+    const partStart = j + 1;
+    if (!isIdentStart(src[partStart]!)) throw syntaxError("invalid context reference", i, partStart + 1);
+    j = readIdentEnd(src, partStart);
+  }
+  return { token: { kind: "context", value: src.slice(i + 1, j) }, next: j };
+};
+
 const identToken = (ident: string): RawToken => {
   const upper = ident.toUpperCase();
   if (upper === "TRUE") return { kind: "true" };
@@ -238,8 +253,13 @@ const SCOPED_SCANNERS: Scanner[] = [
   scanOperator,
 ];
 
+const scannersFor = (options: ParseFormulaOptions): Scanner[] => {
+  const scanners = options.scopedRefs ? SCOPED_SCANNERS : SCANNERS;
+  return options.contextRefs ? [scanContextRef, ...scanners] : scanners;
+};
+
 const scanToken = (src: string, i: number, options: ParseFormulaOptions = {}): ScanResult => {
-  for (const scanner of options.scopedRefs ? SCOPED_SCANNERS : SCANNERS) {
+  for (const scanner of scannersFor(options)) {
     const result = scanner(src, i);
     if (result) return result;
   }
@@ -350,6 +370,8 @@ class Parser {
         return withSpan({ kind: "literal", value: null }, t.span);
       case "field":
         return withSpan({ kind: "field", fieldId: t.value }, t.span);
+      case "context":
+        return withSpan({ kind: "call", fn: "@", args: [{ kind: "literal", value: t.value }] }, t.span);
       case "lparen": {
         const inner = this.parseExpr(0);
         if (this.peek().kind !== "rparen") throw new FormulaSyntaxError("expected ')'", this.peek().span);

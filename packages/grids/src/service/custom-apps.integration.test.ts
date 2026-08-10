@@ -12,6 +12,7 @@ import {
   createBlank,
   get,
   getPublishedByShortId,
+  listSummariesByBase,
   plan,
   publish,
   remove,
@@ -32,6 +33,54 @@ beforeAll(async () => {
 });
 
 describe("Custom App lifecycle", () => {
+  postgresTest("keeps legacy definitions stored without rewriting and fails published lookup closed", async () => {
+    const baseId = testUuid();
+    const appId = testUuid();
+    const shortId = testShortId("A");
+    const legacyDefinition = {
+      schemaVersion: 1,
+      kind: "grids.custom-app",
+      id: appId,
+      baseId,
+      name: "Legacy app",
+      startPageId: "home",
+      pages: [{ id: "home", title: "Home", rows: [] }],
+    };
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Legacy app base')`;
+      await sql`
+        INSERT INTO grids.custom_apps (
+          id, short_id, base_id, name, draft_definition, draft_capabilities, published_definition, published_capabilities, published_at
+        ) VALUES (
+          ${appId}::uuid, ${shortId}, ${baseId}::uuid, 'Legacy app', ${legacyDefinition}::jsonb, '{}'::jsonb,
+          ${legacyDefinition}::jsonb, '{}'::jsonb, now()
+        )
+      `;
+
+      const app = await get(appId);
+      expect(app).not.toBeNull();
+      expect(app?.draftDefinitionRaw).toEqual(legacyDefinition);
+      expect(app?.publishedDefinitionRaw).toEqual(legacyDefinition);
+      expect(app?.draftDefinition).toBeNull();
+      expect(app?.publishedDefinition).toBeNull();
+      expect(app?.draftValid).toBe(false);
+      expect(app?.publishedValid).toBe(false);
+      expect(app?.draftDiagnostics[0]?.message).toContain("schemaVersion 1");
+      expect(app?.draftDiagnostics[0]?.message).toContain("replace");
+      expect((await listSummariesByBase(baseId))[0]?.publishedValid).toBe(false);
+      expect(await getPublishedByShortId(shortId)).toBeNull();
+      expect((await publish(appId)).ok).toBe(false);
+
+      const [stored] = await sql<Array<{ draft_definition: unknown; published_definition: unknown }>>`
+        SELECT draft_definition, published_definition FROM grids.custom_apps WHERE id = ${appId}::uuid
+      `;
+      expect(stored?.draft_definition).toEqual(legacyDefinition);
+      expect(stored?.published_definition).toEqual(legacyDefinition);
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
   postgresTest("autosaves invalid referenced drafts and restores the live snapshot", async () => {
     const baseId = testUuid();
     try {
@@ -39,6 +88,7 @@ describe("Custom App lifecycle", () => {
       const created = await createBlank(baseId, "Draft app");
       expect(created.ok).toBe(true);
       if (!created.ok) return;
+      if (!created.data.draftDefinition) throw new Error("New Custom App draft must be valid");
       const published = await publish(created.data.id);
       expect(published.ok).toBe(true);
 
@@ -192,7 +242,7 @@ describe("Custom App lifecycle", () => {
       const launcherId = launcherResult.data.id;
 
       const definition: CustomAppDefinition = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: "grids.custom-app",
         id: appId,
         baseId,
@@ -204,6 +254,7 @@ describe("Custom App lifecycle", () => {
             title: "My requests",
             navigation: { visible: true, order: 0 },
             parameters: {},
+            availableWhen: { query: `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1` },
             rows: [
               {
                 id: "content",
@@ -212,7 +263,12 @@ describe("Custom App lifecycle", () => {
                     id: "main",
                     span: 12,
                     blocks: [
-                      { id: "intro", type: "markdown", markdown: "Welcome" },
+                      {
+                        id: "intro",
+                        type: "markdown",
+                        markdown: "Welcome",
+                        availableWhen: { query: `from table {${tableId}}\nwhere record.id = @base.id\nlimit 1` },
+                      },
                       {
                         id: "request-count",
                         type: "metrics",
@@ -275,7 +331,7 @@ describe("Custom App lifecycle", () => {
                       {
                         id: "request-details",
                         type: "record",
-                        fieldIds: [fieldId],
+                        fieldIds: [fieldId, relationFieldId],
                         editableFieldIds: [fieldId],
                         documents: { templateIds: [documentTemplateId] },
                       },
@@ -290,6 +346,7 @@ describe("Custom App lifecycle", () => {
                             kind: "workflow",
                             launcherId,
                             inputs: { request: { source: "RECORD", path: "id" } },
+                            availableWhen: { query: `from table {${tableId}}\nwhere record.id = @params.request_id\nlimit 1` },
                           },
                         ],
                       },
@@ -309,12 +366,64 @@ describe("Custom App lifecycle", () => {
       };
 
       const created = await apply(definition);
-      expect(created.ok).toBe(true);
-      if (!created.ok) return;
+      expect(created.ok, created.ok ? undefined : created.error.message).toBe(true);
+      if (!created.ok) throw new Error(created.error.message);
+      if (!created.data.draftDefinition) throw new Error("Applied Custom App draft must be valid");
       expect(created.data.shortId).toHaveLength(5);
       expect(created.data.publishedDefinition).toBeNull();
-      expect(created.data.draftCapabilities).toEqual({
-        views: [{ viewId, tableId }],
+      const capabilities = created.data.draftCapabilities;
+      if (!capabilities) throw new Error("Applied Custom App capabilities must be valid");
+      const planHashes = [
+        ...capabilities.availability.map((capability) => capability.planHash),
+        ...capabilities.views.map((capability) => capability.planHash),
+        ...capabilities.insights.map((capability) => capability.source.planHash),
+        ...capabilities.recordQueries.map((capability) => capability.planHash),
+      ];
+      expect(planHashes.every((hash) => /^[a-f0-9]{64}$/.test(hash))).toBe(true);
+      expect(new Set(capabilities.forms.map((capability) => capability.fieldHash)).size).toBe(1);
+      expect(new Set(capabilities.forms.map((capability) => capability.formSecurityHash)).size).toBe(1);
+      expect({
+        ...capabilities,
+        availability: capabilities.availability.map(({ planHash: _, ...capability }) => capability),
+        views: capabilities.views.map(({ planHash: _, ...capability }) => capability),
+        insights: capabilities.insights.map((capability) => ({
+          ...capability,
+          source: (({ planHash: _, ...source }) => source)(capability.source),
+        })),
+        recordQueries: capabilities.recordQueries.map(({ planHash: _, ...capability }) => capability),
+        forms: capabilities.forms.map(({ fieldHash: _, formSecurityHash: __, ...capability }) => capability),
+      }).toEqual({
+        availability: [
+          {
+            target: "page",
+            pageId: "home",
+            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1`),
+            tableIds: [tableId],
+          },
+          {
+            target: "block",
+            pageId: "home",
+            blockId: "intro",
+            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere record.id = @base.id\nlimit 1`),
+            tableIds: [tableId],
+          },
+          {
+            target: "action",
+            pageId: "request",
+            blockId: "actions",
+            actionId: "approve",
+            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere record.id = @params.request_id\nlimit 1`),
+            tableIds: [tableId],
+          },
+        ],
+        views: [
+          {
+            viewId,
+            tableId,
+            sourceHash: customAppViewSourceHash(tableId, `from table {${tableId}}`),
+            tableIds: [tableId],
+          },
+        ],
         insights: [
           {
             pageId: "home",
@@ -335,7 +444,15 @@ describe("Custom App lifecycle", () => {
           },
         ],
         recordQueries: [],
-        records: [{ pageId: "request", tableId, fieldIds: [fieldId], editableFieldIds: [fieldId] }],
+        records: [
+          {
+            pageId: "request",
+            tableId,
+            fieldIds: [fieldId, relationFieldId].sort(),
+            editableFieldIds: [fieldId],
+            relationLabels: [{ fieldId: relationFieldId, targetTableId: tableId, labelFieldIds: [fieldId] }],
+          },
+        ],
         comments: [{ pageId: "request", blockId: "discussion", tableId }],
         documents: [{ pageId: "request", blockId: "request-details", tableId, templateIds: [documentTemplateId] }],
         forms: [
@@ -378,6 +495,7 @@ describe("Custom App lifecycle", () => {
       expect(firstPublish.ok).toBe(true);
       if (!firstPublish.ok) return;
       expect(firstPublish.data.publishedDefinition?.name).toBe("Request portal");
+      expect((await listSummariesByBase(baseId)).find((app) => app.id === appId)?.publishedValid).toBe(true);
 
       const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
       if (!authUser) throw new Error("Custom App lifecycle test needs one auth user");

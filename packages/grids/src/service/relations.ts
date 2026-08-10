@@ -3,6 +3,7 @@ export { attachRelationExpansion, buildRelationExpansionCache } from "./relation
 export { enrichRecordsWithComputedColumns, enrichRecordsWithFormulas } from "./relation-formulas";
 export {
   buildLabelCacheForGroupedKeys,
+  buildPinnedRelationLabelCache,
   buildRelationLabelCache,
   buildRelationLabelCacheForIds,
   lookupRecords,

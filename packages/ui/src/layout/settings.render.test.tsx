@@ -200,7 +200,17 @@ describe("@k2b/ui complete settings surfaces", () => {
             icon: "view icon",
             children: [
               createComponent(SettingsCollection.Item.Status, { children: "Private" }),
-              createComponent(SettingsCollection.Item.Actions, { children: "Edit view" }),
+              createComponent(SettingsCollection.Item.Actions, {
+                children: [
+                  createComponent(SettingsCollection.Item.Reorder, {
+                    label: "Open conversations",
+                    index: 0,
+                    count: 2,
+                    onMove: () => undefined,
+                  }),
+                  "Edit view",
+                ],
+              }),
             ],
           }),
         ],
@@ -221,6 +231,10 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(collection).toContain("New view");
     expect(collection).toContain("Private");
     expect(collection).toContain("Edit view");
+    expect(collection).toContain('aria-label="Move Open conversations up"');
+    expect(collection).toContain('aria-label="Move Open conversations down"');
+    expect(collection).toMatch(/aria-label="Move Open conversations up"[^>]*disabled/);
+    expect(collection).not.toMatch(/aria-label="Move Open conversations down"[^>]*disabled/);
     expect(collection).not.toContain("No saved views yet");
     expect(empty).toContain("No templates yet");
     expect(empty).toContain('data-variant="compact"');

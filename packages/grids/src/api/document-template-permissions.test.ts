@@ -95,8 +95,6 @@ const field = {
 };
 
 let baseLevel: "none" | "read" = "read";
-let tableLevel: "none" | "read" = "none";
-let templateLevel: "none" | "read" = "read";
 let fieldListCalls = 0;
 let snapshotListCalls = 0;
 let snapshotCreateCalls = 0;
@@ -138,8 +136,6 @@ const context = {
 describe("document template permission surfaces", () => {
   beforeEach(() => {
     baseLevel = "read";
-    tableLevel = "none";
-    templateLevel = "read";
     fieldListCalls = 0;
     snapshotListCalls = 0;
     snapshotCreateCalls = 0;
@@ -186,21 +182,13 @@ describe("document template permission surfaces", () => {
       updatedAt: row.updatedAt,
     })) as never);
     spyOn(gridsService.emailTemplate, "listForBase").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
-      if ("documentTemplateId" in target) return templateLevel;
-      if ("tableId" in target) return tableLevel;
-      return baseLevel;
-    });
-    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target) => {
-      const level = "documentTemplateId" in target ? templateLevel : "tableId" in target ? tableLevel : baseLevel;
-      return { level, recordAccess: level === "none" ? null : { kind: "all" } };
-    });
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
   });
 
   afterEach(() => mock.restore());
 
-  test("lists readable document templates without table read access", async () => {
+  test("lists document templates with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/templates/by-table/${tableId}`);
@@ -222,7 +210,7 @@ describe("document template permission surfaces", () => {
     ]);
   });
 
-  test("keeps workflow autocomplete template-aware without leaking fields from hidden tables", async () => {
+  test("keeps workflow autocomplete complete for a readable base", async () => {
     const catalog = await permissionedWorkflowCatalog(context as never, baseId, {
       listTablesByBase: async (id) => (id === baseId ? [table] : []),
       listTemplatesForTable: async (id) => (id === tableId ? [template] : []),
@@ -235,12 +223,12 @@ describe("document template permission surfaces", () => {
 
     expect([...catalog.tables.refs.values()].map((entry) => entry.name)).toContain(table.name);
     expect([...catalog.templates.refs.values()].map((entry) => entry.name)).toContain(template.name);
-    expect(catalog.fieldsByTable.has(tableId)).toBe(false);
-    expect(fieldListCalls).toBe(0);
+    expect(catalog.fieldsByTable.has(tableId)).toBe(true);
+    expect(fieldListCalls).toBe(1);
   });
 
-  test("denies table-scoped template listing when neither table nor template is readable", async () => {
-    templateLevel = "none";
+  test("denies template listing without base read access", async () => {
+    baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/templates/by-table/${tableId}`);
@@ -248,7 +236,8 @@ describe("document template permission surfaces", () => {
     expect(response.status).toBe(403);
   });
 
-  test("requires table read access to list standalone snapshots", async () => {
+  test("requires base read access to list standalone snapshots", async () => {
+    baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`);
@@ -283,8 +272,7 @@ describe("document template permission surfaces", () => {
     });
   }
 
-  test("lists standalone snapshots with table read access", async () => {
-    tableLevel = "read";
+  test("lists standalone snapshots with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`);
@@ -294,7 +282,8 @@ describe("document template permission surfaces", () => {
     expect(snapshotListCalls).toBe(1);
   });
 
-  test("requires table read access to create standalone snapshots", async () => {
+  test("requires base read access to create standalone snapshots", async () => {
+    baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`, { method: "POST" });
@@ -304,8 +293,7 @@ describe("document template permission surfaces", () => {
     expect(snapshotCreateCalls).toBe(0);
   });
 
-  test("creates standalone snapshots with table read access", async () => {
-    tableLevel = "read";
+  test("creates standalone snapshots with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`, { method: "POST" });
@@ -331,11 +319,12 @@ describe("document template permission surfaces", () => {
     });
     expect(viewer).toMatchObject({ userId: user.id });
     expect(await resolveRecordAccess({ baseId, tableId })).toEqual({ kind: "all" });
-    tableLevel = "none";
+    baseLevel = "none";
     expect(await resolveRecordAccess({ baseId, tableId })).toBeNull();
   });
 
-  test("requires table read access to open a standalone snapshot", async () => {
+  test("requires base read access to open a standalone snapshot", async () => {
+    baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/snapshots/${snapshotId}`);
@@ -344,8 +333,7 @@ describe("document template permission surfaces", () => {
     expect(await response.json()).toEqual(forbiddenResponse);
   });
 
-  test("opens standalone snapshots with table read access", async () => {
-    tableLevel = "read";
+  test("opens standalone snapshots with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
     const response = await app.request(`/snapshots/${snapshotId}`);
@@ -359,12 +347,11 @@ describe("document template permission surfaces", () => {
     };
     expect(filterInput.input).toBe(snapshot);
     expect(await filterInput.resolveRecordAccess({ baseId, tableId })).toEqual({ kind: "all" });
-    tableLevel = "none";
+    baseLevel = "none";
     expect(await filterInput.resolveRecordAccess({ baseId, tableId })).toBeNull();
   });
 
   test("returns 404 for an unknown standalone snapshot", async () => {
-    tableLevel = "read";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
     const unknownSnapshotId = "88888888-8888-4888-8888-888888888888";
 

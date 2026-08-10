@@ -106,7 +106,7 @@ describe("document link routes", () => {
       revokeInput = input;
       return { ok: true, data: revokedLink } as never;
     });
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async (input) => {
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async (input) => {
       permissionLoadInput = input;
       return [];
     });
@@ -141,15 +141,15 @@ describe("document link routes", () => {
     });
   }
 
-  test("keeps template-scoped permission for a run whose template no longer loads", async () => {
+  test("uses the owning base permission for a run whose template no longer loads", async () => {
     currentRun = { ...run, templateId };
     permissionLevel = "read";
 
     const response = await app().request(documentsPath(`/runs/${runId}/links`));
 
     expect(response.status).toBe(403);
-    expect(permissionLoadInput).toMatchObject({ baseId, tableId, documentTemplateId: templateId });
-    expect(permissionTarget).toEqual({ baseId, tableId, documentTemplateId: templateId });
+    expect(permissionLoadInput).toMatchObject({ baseId });
+    expect(permissionTarget).toEqual({ baseId });
   });
 
   for (const method of ["GET", "POST"] as const) {

@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { gridsService } from "../service";
+import { ALL_RECORD_ACCESS } from "../service/record-access";
 import {
   CreateFormSchema,
   FormListSchema,
@@ -13,21 +14,19 @@ import {
   submitFormResponse,
   UpdateFormSchema,
 } from "./form-api-shared";
-import { currentActorUserId, currentActorViewer, gateAt, resolveRecordAccess } from "./permissions";
+import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 import { uuidParam } from "./route-params";
 
 type AuthenticatedFormRoutesDeps = SubmitFormDeps & {
   service?: typeof gridsService;
   gate?: typeof gateAt;
   actorId?: typeof currentActorUserId;
-  resolveRecordAccess?: typeof resolveRecordAccess;
 };
 
 export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps = {}) => {
   const service = deps.service ?? gridsService;
   const gateAtTarget = deps.gate ?? gateAt;
   const actorId = deps.actorId ?? currentActorUserId;
-  const resolveRecords = deps.resolveRecordAccess ?? resolveRecordAccess;
 
   return new Hono<AuthContext>()
     .get(
@@ -42,7 +41,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
-        const gate = await gateAtTarget(context, { baseId: table.baseId, tableId }, "read");
+        const gate = await gateAtTarget(context, { baseId: table.baseId }, "read");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
         return context.json(await service.form.listForTable(tableId));
       },
@@ -59,7 +58,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
-        const gate = await gateAtTarget(context, { baseId: table.baseId, tableId }, "read");
+        const gate = await gateAtTarget(context, { baseId: table.baseId }, "read");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
         return context.json(await service.form.buildDefault(tableId));
       },
@@ -68,7 +67,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       "/:formId/submit",
       describeRoute({
         tags: ["Grids:Form"],
-        summary: "Submit a form (authenticated, form-write or table-write)",
+        summary: "Submit a form with authenticated Base write access",
         responses: {
           201: jsonResponse(z.object({ recordId: z.string().uuid() }), "Created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
@@ -84,10 +83,10 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!form || !form.isActive) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
         if (!table) return context.json({ message: "Form not found" }, 404);
-        const gate = await resolveRecords(context, { baseId: table.baseId, tableId: table.id, formId }, "write");
+        const gate = await gateAtTarget(context, { baseId: table.baseId }, "write");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
         return submitFormResponse(context, form, context.req.valid("json"), actorId(context), deps, {
-          recordAccess: gate.data.recordAccess,
+          recordAccess: ALL_RECORD_ACCESS,
           viewer: currentActorViewer(context),
         });
       },
@@ -109,12 +108,8 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!form) return context.json({ message: "Form not found" }, 404);
         const table = await service.table.get(form.tableId);
         if (!table) return context.json({ message: "Form not found" }, 404);
-        const tableGate = await gateAtTarget(context, { baseId: table.baseId, tableId: table.id }, "read");
-        if (!tableGate.ok) {
-          const formGate = await gateAtTarget(context, { baseId: table.baseId, tableId: table.id, formId }, "write");
-          if (!formGate.ok) return respond(context, () => Promise.resolve(formGate));
-          return context.json(service.form.toRenderableForm(form));
-        }
+        const tableGate = await gateAtTarget(context, { baseId: table.baseId }, "read");
+        if (!tableGate.ok) return respond(context, () => Promise.resolve(tableGate));
         return context.json(form);
       },
     )

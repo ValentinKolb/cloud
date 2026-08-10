@@ -5,11 +5,11 @@ icon: ti ti-app-window
 description: Publish focused apps from Forms, bounded records, and record details.
 order: 137
 ---
-Custom Apps give signed-in Cloud accounts a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one base and reuses that base's records and saved views. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
+Custom Apps give authenticated or public audiences a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one Base and uses selected records, Views, Forms, documents, and actions from that Base. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
 
-Custom Apps do not copy data. A publication stores an immutable definition and the exact resources it may use. Every request checks the app grant plus the current Form, saved-view, table, and row-level record access.
+Custom Apps do not copy data. A publication stores an immutable definition and a compiled capability snapshot containing the exact resources it may use. Every request checks the app grant, published capability, and server-enforced availability rules. App readers do not need Base access, and app access never grants raw Grids or arbitrary GQL access.
 
-## Pages and blocks {icon="layout-Custom App"}
+## Pages and blocks {icon="layout"}
 
 An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in the app navigation.
 
@@ -21,7 +21,7 @@ A column may contain:
 - **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
-- **Comments**, for a permission-inheriting discussion on the current detail record.
+- **Comments**, for a signed-in app reader's discussion on the current detail record.
 - **Actions**, for internal navigation or an exact published workflow launcher.
 
 Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
@@ -35,7 +35,7 @@ Scripts, custom HTML and CSS, arbitrary URLs, and direct record mutations are no
 You need **Admin** access to the app's base. Start with UUIDs for the base, saved view, table, and fields you want to display.
 
 ```yaml
-schemaVersion: 1
+schemaVersion: 2
 kind: grids.custom-app
 id: 00000000-0000-4000-8000-000000000001
 baseId: 00000000-0000-4000-8000-000000000002
@@ -122,7 +122,7 @@ pages:
 
 The Form, saved view, and `request_id` parameter must use the same records table. After a successful submit, Grids replaces the current URL with the new record's detail page. Clicking an existing row opens the same detail page.
 
-The Record block may also list existing PDFs generated for that record by exact template ID. Generation remains a Workflow responsibility; the block only offers protected downloads when the account can read the app, record, and document template.
+The Record block may also list existing PDFs generated for that record by exact template ID. Generation remains a Workflow responsibility; the block offers downloads only when the published app capability includes that template and the current app grant is valid.
 
 A Form block may hide one of the Form's relation inputs and set it from a Record parameter declared by the current page. The server resolves this value and rejects browser attempts to override it:
 
@@ -135,7 +135,9 @@ fixedValues:
 
 The fixed field must be a user-input relation field targeting the parameter's table. `fixedValues` accepts `PARAMS` only. Success navigation accepts declared `PARAMS` plus the submitted Form's `RESULT.recordId`; it always stays inside the same Custom App and uses replace navigation.
 
-Blocks and Actions entries may use an optional `visibleWhen` list for small presentation rules. Every condition must match. Conditions read literals, declared page parameters, or allowlisted fields from the current page record and support `eq`, `notEq`, `in`, `isEmpty`, and `isNotEmpty`. Missing context hides the item. This never grants access or replaces a Form or Workflow rule.
+Pages, blocks, and actions may use one optional `availableWhen.query`. The server runs this bounded GQL with the same implicit context as the page. At least one returned row means available; an empty result, invalid query, missing context, timeout, or cancellation means unavailable. Unavailable resources are omitted and cannot be called directly.
+
+Custom App GQL receives `@auth.id`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `@auth.id = null`. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
 
 Inspect the current contract, then validate and plan the file:
 
@@ -161,16 +163,14 @@ The builder saves every structurally complete change automatically. A notice app
 
 ## Grant access and publish {icon="lock"}
 
-Grant the intended Cloud user or group access to the app and its data. The same normal Grids permissions apply; Custom Apps do not create another account or role model.
+Grant the intended principal access to the app. The published capability snapshot supplies its data and operations; do not grant the audience raw Base access unless they also need the full Grids workspace.
 
 ```bash
 cld grids access grant custom-app MyBase "Request overview" --group "Request team" --permission read
-cld grids access grant view MyBase Requests "My requests" --group "Request team" --permission read
-cld grids access grant form MyBase Requests Apply --group "Request team" --permission write
-cld grids access grant table MyBase Requests --group "Request team" --permission read --record-scope all
+cld grids access grant custom-app MyBase "Public catalog" --public --permission read
 ```
 
-Custom Apps accept signed-in Cloud accounts only. Table grants may include Grids record scopes such as `created-by`. The detail page returns **Not Found** for a missing, deleted, invalid, or unauthorized record id. Public grants are rejected; normal Cloud accounts, including Cloud guest accounts, use the same permission checks.
+Custom App grants support users, groups, all authenticated accounts, and the public. They do not support service accounts; delegated credentials use their user identity. A public grant includes anonymous visitors. The detail page returns **Not Found** for a missing, deleted, invalid, unavailable, or unauthorized record id. Arbitrary Workflow actions require an authenticated account even when the app itself is public.
 
 Publish the validated draft:
 
@@ -189,7 +189,7 @@ cld grids apps delete MyBase "Request overview" --yes
 
 ## Keep publication predictable {icon="versions"}
 
-`validate` checks the strict definition and every referenced base, table, view, Form, and field. It verifies table compatibility for row navigation, Form results, and fixed relation values. Unknown properties are rejected. `plan` reports `create`, `update`, `noop`, or `invalid` without saving. `apply` writes the draft, and `publish` atomically replaces the published snapshot with the current valid draft.
+`validate` checks the strict definition, implicit context references, availability queries, and every referenced Base, table, View, Form, field, template, and Workflow launcher. It verifies table compatibility for row navigation, Form results, and fixed relation values. Unknown properties are rejected. `plan` reports `create`, `update`, `noop`, or `invalid` without saving. `apply` writes the draft, and `publish` atomically replaces the published definition and capability snapshot with the current valid draft.
 
 ```bash
 cld grids apps list MyBase

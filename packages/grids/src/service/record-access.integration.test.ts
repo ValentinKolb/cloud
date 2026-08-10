@@ -2,7 +2,7 @@ import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import type { AuthorizedRecordAccess } from "./record-access";
+import { ALL_RECORD_ACCESS } from "./record-access";
 import { createReader } from "./record-read";
 import { createInTransaction, updateInTransaction } from "./record-write";
 import { countAccessibleByTable, list } from "./records";
@@ -116,56 +116,39 @@ beforeAll(async () => {
 });
 
 describe("record access integration", () => {
-  postgresTest("filters direct and one-hop reads and counts with one shared predicate", async () => {
+  postgresTest("reads and counts every record after row scopes are removed", async () => {
     const fixture = createFixture();
     try {
       await insertFixture(fixture);
-      const createdBy: AuthorizedRecordAccess = {
-        kind: "restricted",
-        userId: fixture.userId,
-        scopes: [{ kind: "created_by" }],
-      };
-      const related: AuthorizedRecordAccess = {
-        kind: "restricted",
-        userId: fixture.userId,
-        scopes: [{ kind: "related_created_by", relationFieldId: fixture.relationFieldId }],
-      };
-
-      const parents = await list({ tableId: fixture.parentTableId, recordAccess: createdBy });
+      const parents = await list({ tableId: fixture.parentTableId, recordAccess: ALL_RECORD_ACCESS });
       expect(parents.ok).toBe(true);
       if (!parents.ok) throw new Error(parents.error.message);
-      expect(parents.data.items.map((record) => record.id)).toEqual([fixture.ownedParentId]);
+      expect(parents.data.items.map((record) => record.id).sort()).toEqual([fixture.otherParentId, fixture.ownedParentId].sort());
 
-      const children = await list({ tableId: fixture.childTableId, recordAccess: related });
+      const children = await list({ tableId: fixture.childTableId, recordAccess: ALL_RECORD_ACCESS });
       expect(children.ok).toBe(true);
       if (!children.ok) throw new Error(children.error.message);
-      expect(children.data.items.map((record) => record.id)).toEqual([fixture.linkedChildId]);
+      expect(children.data.items.map((record) => record.id).sort()).toEqual([fixture.linkedChildId, fixture.otherChildId].sort());
 
-      const reader = await createReader(fixture.childTableId, { recordAccess: related });
-      expect((await reader.getMany([fixture.linkedChildId, fixture.otherChildId])).map((record) => record.id)).toEqual([
-        fixture.linkedChildId,
-      ]);
+      const reader = await createReader(fixture.childTableId, { recordAccess: ALL_RECORD_ACCESS });
+      expect((await reader.getMany([fixture.linkedChildId, fixture.otherChildId])).map((record) => record.id).sort()).toEqual(
+        [fixture.linkedChildId, fixture.otherChildId].sort(),
+      );
       expect(
         await countAccessibleByTable([
-          { tableId: fixture.parentTableId, recordAccess: createdBy },
-          { tableId: fixture.childTableId, recordAccess: related },
+          { tableId: fixture.parentTableId, recordAccess: ALL_RECORD_ACCESS },
+          { tableId: fixture.childTableId, recordAccess: ALL_RECORD_ACCESS },
         ]),
-      ).toEqual({ [fixture.parentTableId]: 1, [fixture.childTableId]: 1 });
+      ).toEqual({ [fixture.parentTableId]: 2, [fixture.childTableId]: 2 });
     } finally {
       await cleanupFixture(fixture);
     }
   });
 
-  postgresTest("rejects creates and updates whose post-state leaves the related scope", async () => {
+  postgresTest("allows creates and updates independently of record ownership", async () => {
     const fixture = createFixture();
     try {
       await insertFixture(fixture);
-      const access: AuthorizedRecordAccess = {
-        kind: "restricted",
-        userId: fixture.userId,
-        scopes: [{ kind: "related_created_by", relationFieldId: fixture.relationFieldId }],
-      };
-
       const accepted = await sql.begin((tx) =>
         createInTransaction(
           tx,
@@ -175,12 +158,12 @@ describe("record access integration", () => {
             [fixture.relationFieldId]: [fixture.ownedParentId],
           },
           fixture.userId,
-          { recordAccess: access },
+          { recordAccess: ALL_RECORD_ACCESS },
         ),
       );
       expect(accepted.ok).toBe(true);
 
-      const rejectedCreate = await sql.begin((tx) =>
+      const otherParentCreate = await sql.begin((tx) =>
         createInTransaction(
           tx,
           fixture.childTableId,
@@ -189,13 +172,12 @@ describe("record access integration", () => {
             [fixture.relationFieldId]: [fixture.otherParentId],
           },
           fixture.userId,
-          { recordAccess: access },
+          { recordAccess: ALL_RECORD_ACCESS },
         ),
       );
-      expect(rejectedCreate.ok).toBe(false);
-      if (!rejectedCreate.ok) expect(rejectedCreate.error.code).toBe("FORBIDDEN");
+      expect(otherParentCreate.ok).toBe(true);
 
-      const rejectedUpdate = await sql.begin((tx) =>
+      const updated = await sql.begin((tx) =>
         updateInTransaction(
           tx,
           fixture.childTableId,
@@ -203,11 +185,10 @@ describe("record access integration", () => {
           { [fixture.relationFieldId]: [fixture.otherParentId] },
           fixture.userId,
           undefined,
-          { recordAccess: access },
+          { recordAccess: ALL_RECORD_ACCESS },
         ),
       );
-      expect(rejectedUpdate.ok).toBe(false);
-      if (!rejectedUpdate.ok) expect(rejectedUpdate.error.code).toBe("FORBIDDEN");
+      expect(updated.ok).toBe(true);
 
       const [link] = await sql<Array<{ to_record_id: string }>>`
         SELECT to_record_id::text
@@ -215,7 +196,7 @@ describe("record access integration", () => {
         WHERE from_record_id = ${fixture.linkedChildId}::uuid
           AND from_field_id = ${fixture.relationFieldId}::uuid
       `;
-      expect(link?.to_record_id).toBe(fixture.ownedParentId);
+      expect(link?.to_record_id).toBe(fixture.otherParentId);
     } finally {
       await cleanupFixture(fixture);
     }

@@ -21,9 +21,11 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppDiagnostic } from "../../../custom-apps/contracts";
+import type { DslQueryContextKey } from "../../../query-dsl/parameters";
 import type { CustomApp, Field, View } from "../../../service";
 import type { CustomAppDraftSave } from "../../../service/custom-apps";
 import { type CustomAppBlockDragMeta, type CustomAppBlockDropMeta, CustomAppPageLayout } from "../../custom-app/PageLayout";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
@@ -86,6 +88,138 @@ const blockMeta: Record<CustomAppBlock["type"], { icon: string; label: string }>
   records: { icon: "ti ti-table", label: "Records" },
 };
 
+export const isCustomAppBlockSourceDiagnostic = (diagnostic: CustomAppDiagnostic, blockId: string): boolean =>
+  diagnostic.path.includes(blockId) && diagnostic.path.includes("source");
+
+export const isCustomAppAvailabilityDiagnostic = (diagnostic: CustomAppDiagnostic, targetId: string): boolean =>
+  diagnostic.path.includes(targetId) && diagnostic.path.includes("availableWhen");
+
+const FIXED_CUSTOM_APP_CONTEXT_KEYS = [
+  "auth.id",
+  "page.id",
+  "page.title",
+  "page.url",
+  "app.id",
+  "app.shortId",
+  "app.name",
+  "base.id",
+  "base.name",
+  "time.now",
+  "time.today",
+  "time.timeZone",
+] as const satisfies readonly DslQueryContextKey[];
+
+export const customAppContextKeys = (page: CustomAppPage): DslQueryContextKey[] => [
+  ...FIXED_CUSTOM_APP_CONTEXT_KEYS,
+  ...Object.keys(page.parameters).map((parameterId): DslQueryContextKey => `params.${parameterId}`),
+];
+
+export const blankCustomAppDefinition = (app: CustomApp): CustomAppDefinition => ({
+  schemaVersion: 2,
+  kind: "grids.custom-app",
+  id: app.id,
+  shortId: app.shortId,
+  baseId: app.baseId,
+  name: app.name,
+  ...(app.icon ? { icon: app.icon } : {}),
+  startPageId: "home",
+  pages: [
+    {
+      id: "home",
+      title: "Home",
+      navigation: { visible: true, order: 0 },
+      parameters: {},
+      rows: [
+        {
+          id: "content",
+          columns: [{ id: "main", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "" }] }],
+        },
+      ],
+    },
+  ],
+});
+
+const downloadRawDefinition = (app: CustomApp) => {
+  const href = URL.createObjectURL(new Blob([`${JSON.stringify(app.draftDefinitionRaw, null, 2)}\n`], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = `custom-app-${app.shortId}-draft.json`;
+  anchor.click();
+  URL.revokeObjectURL(href);
+};
+
+function InvalidCustomAppDraft(props: { app: CustomApp }) {
+  const replaceMutation = mutations.create<void, void>({
+    mutation: async (_, { abortSignal }) => {
+      const confirmed = await prompts.confirm(
+        "Replace the stored draft with a new blank schema v2 definition? Download the stored JSON first if you still need it.",
+        {
+          title: "Replace incompatible draft",
+          icon: "ti ti-file-plus",
+          confirmText: "Replace draft",
+          variant: "danger",
+        },
+      );
+      if (!confirmed) return;
+      const response = await apiClient.apps[":appId"].draft.$put(
+        { param: { appId: props.app.id }, json: { definition: blankCustomAppDefinition(props.app) } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not replace the incompatible draft."));
+      window.location.reload();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const restoreMutation = mutations.create<void, void>({
+    mutation: async (_, { abortSignal }) => {
+      const response = await apiClient.apps[":appId"].restore.$post({ param: { appId: props.app.id } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not restore the live version."));
+      window.location.reload();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  return (
+    <AppWorkspace.Main class="p-4" mobilePane="main">
+      <div class="mx-auto flex w-full max-w-2xl flex-col gap-4">
+        <NoticeCard
+          tone="danger"
+          title="This draft cannot be opened"
+          detail="The stored definition is preserved, but this editor only accepts Custom App schema v2. Nothing will run or publish until you choose a recovery action."
+          role="alert"
+        >
+          <ul class="list-disc space-y-1 pl-4 text-sm">
+            <For each={props.app.draftDiagnostics}>{(diagnostic) => <li>{diagnostic.message}</li>}</For>
+          </ul>
+        </NoticeCard>
+        <div class="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => downloadRawDefinition(props.app)}>
+            <i class="ti ti-download" aria-hidden="true" /> Download stored JSON
+          </Button>
+          <Show when={props.app.publishedDefinition}>
+            <Button
+              variant="secondary"
+              loading={restoreMutation.loading()}
+              disabled={replaceMutation.loading()}
+              onClick={() => restoreMutation.mutate(undefined)}
+            >
+              <i class="ti ti-restore" aria-hidden="true" /> Restore live version
+            </Button>
+          </Show>
+          <Button
+            variant="danger"
+            loading={replaceMutation.loading()}
+            disabled={restoreMutation.loading()}
+            onClick={() => replaceMutation.mutate(undefined)}
+          >
+            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v2 draft
+          </Button>
+        </div>
+      </div>
+    </AppWorkspace.Main>
+  );
+}
+
 const newPage = (definition: CustomAppDefinition): CustomAppPage => {
   const pageNumber = definition.pages.length + 1;
   return {
@@ -111,15 +245,22 @@ const newPage = (definition: CustomAppDefinition): CustomAppPage => {
   };
 };
 
-export default function CustomAppBuilder(props: {
+type CustomAppBuilderProps = {
   app: CustomApp;
   catalog: WorkspaceCatalog;
   dateConfig?: DateContext;
   initialPreviewResults?: Record<string, DslQueryPreviewResponse>;
   initialInspectorMode?: "app" | "page";
-}) {
+};
+
+export default function CustomAppBuilder(props: CustomAppBuilderProps) {
+  if (!props.app.draftDefinition) return <InvalidCustomAppDraft app={props.app} />;
+  return <CustomAppBuilderEditor {...props} initialDefinition={props.app.draftDefinition} />;
+}
+
+function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefinition: CustomAppDefinition }) {
   const [app, setApp] = createSignal(props.app);
-  const draft = createCustomAppBuilderState(props.app.draftDefinition);
+  const draft = createCustomAppBuilderState(props.initialDefinition);
   const [diagnostics, setDiagnostics] = createSignal<CustomAppDiagnostic[]>([]);
   const [saveState, setSaveState] = createSignal<"idle" | "saving" | "saved" | "error" | "invalid">(
     props.app.draftValid === false ? "invalid" : "idle",
@@ -127,7 +268,7 @@ export default function CustomAppBuilder(props: {
   const [saveError, setSaveError] = createSignal<string | null>(
     props.app.draftValid === false ? "The saved draft must be fixed before it can be published." : null,
   );
-  const [selectedPageId, setSelectedPageId] = createSignal(props.app.draftDefinition.startPageId);
+  const [selectedPageId, setSelectedPageId] = createSignal(props.initialDefinition.startPageId);
   const [selectedBlockId, setSelectedBlockId] = createSignal<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = createSignal(true);
   const [inspectorMode, setInspectorMode] = createSignal<"app" | "page" | "block">(props.initialInspectorMode ?? "page");
@@ -155,6 +296,7 @@ export default function CustomAppBuilder(props: {
     const block = selectedBlock()?.block;
     return block?.type === "actions" ? block : null;
   });
+  const contextKeys = createMemo(() => customAppContextKeys(selectedPage()));
   const blockCount = createMemo(() =>
     selectedPage().rows.reduce((total, row) => total + row.columns.reduce((sum, column) => sum + column.blocks.length, 0), 0),
   );
@@ -230,6 +372,19 @@ export default function CustomAppBuilder(props: {
       return !diagnostic.path.includes("blocks") && !diagnostic.path.includes("pages");
     });
   });
+  const panelDiagnostics = createMemo(() => {
+    if (inspectorMode() === "page") {
+      return diagnosticsForSelection().filter((diagnostic) => !isCustomAppAvailabilityDiagnostic(diagnostic, selectedPage().id));
+    }
+    const block = selectedSourceBlock();
+    const selected = selectedBlock()?.block;
+    if (!selected) return diagnosticsForSelection();
+    return diagnosticsForSelection().filter(
+      (diagnostic) =>
+        !isCustomAppAvailabilityDiagnostic(diagnostic, selected.id) &&
+        !(block?.source.kind === "gql" && isCustomAppBlockSourceDiagnostic(diagnostic, block.id)),
+    );
+  });
   const diagnosticFor = (blockId: string, segment: string) =>
     diagnostics().find((diagnostic) => diagnostic.path.includes(blockId) && diagnostic.path.includes(segment))?.message;
 
@@ -251,18 +406,19 @@ export default function CustomAppBuilder(props: {
     draft.set(update(draft.snapshot()));
   };
 
-  const patchPage = (patch: Partial<CustomAppPage>) => {
+  const patchPage = (patch: Partial<CustomAppPage>, preserveDiagnostics = false) => {
     const pageId = selectedPage().id;
-    setDefinition((definition) => ({
+    const update = (definition: CustomAppDefinition): CustomAppDefinition => ({
       ...definition,
       pages: definition.pages.map((page) => (page.id === pageId ? { ...page, ...patch } : page)),
-    }));
+    });
+    if (preserveDiagnostics) draft.set(update(draft.snapshot()));
+    else setDefinition(update);
   };
 
   const updateSelectedBlock = (update: (block: CustomAppBlock) => CustomAppBlock) => {
     const selected = selectedBlock();
     if (!selected) return;
-    setDiagnostics([]);
     draft.updateBlock(selectedPage().id, selected.block.id, update);
   };
 
@@ -428,6 +584,9 @@ export default function CustomAppBuilder(props: {
         const response = await apiClient.apps[":appId"].draft.$put({ param: { appId: app().id }, json: { definition } });
         if (!response.ok) throw new Error(await errorMessage(response, "Could not save the Custom App draft."));
         const saved = (await response.json()) as CustomAppDraftSave;
+        if (!saved.app.draftDefinition) {
+          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v2 definition.");
+        }
         setApp(saved.app);
         setDiagnostics(saved.diagnostics);
         draft.markSaved(saved.app.draftDefinition);
@@ -478,6 +637,10 @@ export default function CustomAppBuilder(props: {
       return (await response.json()) as CustomApp;
     },
     onSuccess: (published) => {
+      if (!published.draftDefinition) {
+        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v2 definition.");
+        return;
+      }
       setApp(published);
       draft.markSaved(published.draftDefinition);
       prompts.success("Custom App published.");
@@ -523,6 +686,10 @@ export default function CustomAppBuilder(props: {
       return (await response.json()) as CustomApp;
     },
     onSuccess: (restored) => {
+      if (!restored.draftDefinition) {
+        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v2 definition.");
+        return;
+      }
       saveQueued = false;
       setApp(restored);
       draft.replace(restored.draftDefinition);
@@ -699,11 +866,11 @@ export default function CustomAppBuilder(props: {
           <DetailPanel.Body
             scrollPreserveKey={`grids-custom-app-inspector-${app().id}-${inspectorMode()}-${selectedBlockId() ?? selectedPage().id}`}
           >
-            <Show when={diagnosticsForSelection().length > 0}>
+            <Show when={panelDiagnostics().length > 0}>
               <NoticeCard tone="danger" icon={false} role="alert">
                 <p class="font-medium">This draft needs attention</p>
                 <ul class="mt-2 list-disc space-y-1 pl-4 text-sm">
-                  <For each={diagnosticsForSelection()}>{(diagnostic) => <li>{diagnostic.message}</li>}</For>
+                  <For each={panelDiagnostics()}>{(diagnostic) => <li>{diagnostic.message}</li>}</For>
                 </ul>
               </NoticeCard>
             </Show>
@@ -725,6 +892,14 @@ export default function CustomAppBuilder(props: {
                     />
                   </div>
                 </DetailPanel.Section>
+                <DetailPanel.Section title="Access" icon="ti ti-shield">
+                  <div class="flex flex-col gap-3">
+                    <p class="text-xs text-dimmed">
+                      Custom App grants are independent from Base access. Public allows anonymous visitors to open the published app.
+                    </p>
+                    <ScopedPermissionEditor scope={{ type: "customApp", id: app().id }} canEdit />
+                  </div>
+                </DetailPanel.Section>
               </DetailPanel.Group>
             </Show>
 
@@ -733,6 +908,17 @@ export default function CustomAppBuilder(props: {
                 <DetailPanel.Section title="Page" icon="ti ti-file-settings" tone="accent">
                   <div class="flex flex-col gap-3">
                     <TextInput label="Title" value={() => selectedPage().title} onValueChange={(title) => patchPage({ title })} required />
+                    <GqlSourceEditor
+                      baseId={draft.draft().baseId}
+                      contextKeys={contextKeys()}
+                      label="Available when (GQL)"
+                      description="Optional. The page is available only when this query returns at least one row. Use @auth.id, @params.*, @page.*, @app.*, @base.*, and @time.* context."
+                      error={() => diagnosticFor(selectedPage().id, "availableWhen")}
+                      lines={5}
+                      spellcheck={false}
+                      value={() => selectedPage().availableWhen?.query ?? ""}
+                      onValueChange={(query) => patchPage({ availableWhen: query.trim() ? { query } : undefined }, true)}
+                    />
                     <Switch
                       label="Show in app navigation"
                       value={() => selectedPage().navigation.visible}
@@ -800,6 +986,21 @@ export default function CustomAppBuilder(props: {
                         }
                         clearable
                       />
+                      <GqlSourceEditor
+                        baseId={draft.draft().baseId}
+                        contextKeys={contextKeys()}
+                        label="Available when (GQL)"
+                        description="Optional. The block is available only when this query returns at least one row."
+                        error={() => diagnosticFor(selected().block.id, "availableWhen")}
+                        lines={5}
+                        spellcheck={false}
+                        value={() => selected().block.availableWhen?.query ?? ""}
+                        onValueChange={(query) =>
+                          updateSelectedBlock(
+                            (block) => ({ ...block, availableWhen: query.trim() ? { query } : undefined }) as CustomAppBlock,
+                          )
+                        }
+                      />
                       <Show when={selected().block.type === "markdown"}>
                         <TextInput
                           label="Content"
@@ -858,8 +1059,15 @@ export default function CustomAppBuilder(props: {
                         <Show when={selectedSourceBlock()?.source.kind === "gql"}>
                           <GqlSourceEditor
                             baseId={draft.draft().baseId}
+                            contextKeys={contextKeys()}
                             label="GQL"
-                            description="Use params with param('name'); parameterized queries preview once a page value exists."
+                            description="Use implicit @auth, @params, @page, @app, @base, and @time context."
+                            error={() => {
+                              const block = selected().block;
+                              return block.type === "records" || block.type === "metrics" || block.type === "chart"
+                                ? diagnosticFor(block.id, "source")
+                                : undefined;
+                            }}
                             lines={10}
                             spellcheck={false}
                             value={() => {
@@ -1122,6 +1330,30 @@ export default function CustomAppBuilder(props: {
                                   }
                                 />
                               </Show>
+                              <GqlSourceEditor
+                                baseId={draft.draft().baseId}
+                                contextKeys={contextKeys()}
+                                label="Available when (GQL)"
+                                description="Optional. The action is available only when this query returns at least one row."
+                                error={() => diagnosticFor(action.id, "availableWhen")}
+                                lines={5}
+                                spellcheck={false}
+                                value={() => action.availableWhen?.query ?? ""}
+                                onValueChange={(query) =>
+                                  updateSelectedBlock((block) =>
+                                    block.type === "actions"
+                                      ? {
+                                          ...block,
+                                          actions: block.actions.map((candidate) =>
+                                            candidate.id === action.id
+                                              ? { ...candidate, availableWhen: query.trim() ? { query } : undefined }
+                                              : candidate,
+                                          ),
+                                        }
+                                      : block,
+                                  )
+                                }
+                              />
                             </div>
                           )}
                         </For>

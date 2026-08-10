@@ -11,11 +11,11 @@ import { createAccessResourceRoutes } from "./access-resource-routes";
 type Fixture = {
   userId: string;
   baseId: string;
-  tableId: string;
-  relationFieldId: string;
-  tableAccessId: string;
+  customAppId: string;
+  baseAccessId: string;
+  customAppAccessId: string;
   foreignBaseId: string;
-  foreignTableId: string;
+  foreignCustomAppId: string;
   foreignAccessId: string;
   accessIds: string[];
 };
@@ -45,11 +45,9 @@ const insertFixture = async (): Promise<Fixture> => {
   const [authUser] = await sql<{ id: string }[]>`SELECT id::text AS id FROM auth.users ORDER BY id LIMIT 1`;
   if (!authUser) throw new Error("Access route integration test needs one auth user");
   const baseId = uuid();
-  const tableId = uuid();
-  const parentTableId = uuid();
-  const relationFieldId = uuid();
+  const customAppId = uuid();
   const foreignBaseId = uuid();
-  const foreignTableId = uuid();
+  const foreignCustomAppId = uuid();
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
     VALUES
@@ -57,40 +55,28 @@ const insertFixture = async (): Promise<Fixture> => {
       (${foreignBaseId}::uuid, ${shortId("F")}, 'Foreign access routes')
   `;
   await sql`
-    INSERT INTO grids.tables (id, short_id, base_id, name)
+    INSERT INTO grids.custom_apps (id, short_id, base_id, name, draft_definition, draft_capabilities)
     VALUES
-      (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Items'),
-      (${parentTableId}::uuid, ${shortId("P")}, ${baseId}::uuid, 'Owners'),
-      (${foreignTableId}::uuid, ${shortId("X")}, ${foreignBaseId}::uuid, 'Foreign items')
-  `;
-  await sql`
-    INSERT INTO grids.fields (id, short_id, table_id, name, type, config)
-    VALUES (
-      ${relationFieldId}::uuid,
-      ${shortId("R")},
-      ${tableId}::uuid,
-      'Owner',
-      'relation',
-      ${{ targetTableId: parentTableId }}::jsonb
-    )
+      (${customAppId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Portal', '{}'::jsonb, '{}'::jsonb),
+      (${foreignCustomAppId}::uuid, ${shortId("X")}, ${foreignBaseId}::uuid, 'Foreign portal', '{}'::jsonb, '{}'::jsonb)
   `;
 
-  const baseAdminId = await insertAccess("admin", authUser.id);
-  const tableAccessId = await insertAccess("read", null);
+  const baseAccessId = await insertAccess("admin", authUser.id);
+  const customAppAccessId = await insertAccess("read", null);
   const foreignAccessId = await insertAccess("read", null);
-  await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${baseAdminId}::uuid)`;
-  await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${tableId}::uuid, ${tableAccessId}::uuid)`;
-  await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${foreignTableId}::uuid, ${foreignAccessId}::uuid)`;
+  await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${baseAccessId}::uuid)`;
+  await sql`INSERT INTO grids.custom_app_access (custom_app_id, access_id) VALUES (${customAppId}::uuid, ${customAppAccessId}::uuid)`;
+  await sql`INSERT INTO grids.custom_app_access (custom_app_id, access_id) VALUES (${foreignCustomAppId}::uuid, ${foreignAccessId}::uuid)`;
   return {
     userId: authUser.id,
     baseId,
-    tableId,
-    relationFieldId,
-    tableAccessId,
+    customAppId,
+    baseAccessId,
+    customAppAccessId,
     foreignBaseId,
-    foreignTableId,
+    foreignCustomAppId,
     foreignAccessId,
-    accessIds: [baseAdminId, tableAccessId, foreignAccessId],
+    accessIds: [baseAccessId, customAppAccessId, foreignAccessId],
   };
 };
 
@@ -105,18 +91,18 @@ beforeAll(async () => {
 });
 
 describe("access routes integration", () => {
-  postgresTest("preserves list and mutation permission boundaries after route extraction", async () => {
+  postgresTest("preserves Base list and mutation permission boundaries after route extraction", async () => {
     const fixture = await insertFixture();
     const app = appFor(fixture);
     try {
-      const listed = await app.request(`/by-table/${fixture.tableId}`);
+      const listed = await app.request(`/by-base/${fixture.baseId}`);
       expect(listed.status).toBe(200);
       expect(await listed.json()).toHaveLength(1);
 
-      expect((await app.request(`/by-table/${uuid()}`)).status).toBe(404);
-      expect((await app.request(`/by-table/${fixture.foreignTableId}`)).status).toBe(403);
+      expect((await app.request(`/by-base/${uuid()}`)).status).toBe(403);
+      expect((await app.request(`/by-base/${fixture.foreignBaseId}`)).status).toBe(403);
 
-      const updated = await app.request(`/${fixture.tableAccessId}`, {
+      const updated = await app.request(`/${fixture.baseAccessId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ permission: "write" }),
@@ -130,58 +116,46 @@ describe("access routes integration", () => {
     }
   });
 
-  postgresTest("creates, lists, and updates validated record scopes", async () => {
+  postgresTest("keeps Custom App grants exact and separate from Base grants", async () => {
     const fixture = await insertFixture();
     const app = appFor(fixture);
     try {
-      const createdResponse = await app.request(`/by-table/${fixture.tableId}`, {
+      const createdResponse = await app.request(`/by-custom-app/${fixture.customAppId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           principal: { type: "user", userId: fixture.userId },
           permission: "read",
-          recordScope: { kind: "created_by" },
         }),
       });
       expect(createdResponse.status).toBe(201);
       const created = (await createdResponse.json()) as { accessId: string };
       fixture.accessIds.push(created.accessId);
 
-      const listed = (await (await app.request(`/by-table/${fixture.tableId}`)).json()) as Array<{
+      const appEntries = (await (await app.request(`/by-custom-app/${fixture.customAppId}`)).json()) as Array<{
         id: string;
-        recordScope: unknown;
+        permission: string;
       }>;
-      expect(listed.find((entry) => entry.id === created.accessId)?.recordScope).toEqual({ kind: "created_by" });
+      expect(appEntries.map((entry) => entry.id).sort()).toEqual([fixture.customAppAccessId, created.accessId].sort());
+      expect(appEntries.find((entry) => entry.id === created.accessId)?.permission).toBe("read");
+
+      const baseEntries = (await (await app.request(`/by-base/${fixture.baseId}`)).json()) as Array<{ id: string }>;
+      expect(baseEntries.map((entry) => entry.id)).toEqual([fixture.baseAccessId]);
 
       const updated = await app.request(`/${created.accessId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          permission: "write",
-          recordScope: { kind: "related_created_by", relationFieldId: fixture.relationFieldId },
-        }),
+        body: JSON.stringify({ permission: "none" }),
       });
       expect(updated.status).toBe(204);
-
-      const afterUpdate = (await (await app.request(`/by-table/${fixture.tableId}`)).json()) as Array<{
-        id: string;
-        permission: string;
-        recordScope: unknown;
-      }>;
-      expect(afterUpdate.find((entry) => entry.id === created.accessId)).toMatchObject({
-        permission: "write",
-        recordScope: { kind: "related_created_by", relationFieldId: fixture.relationFieldId },
-      });
 
       const invalid = await app.request(`/${created.accessId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          permission: "write",
-          recordScope: { kind: "related_created_by", relationFieldId: uuid() },
-        }),
+        body: JSON.stringify({ permission: "write" }),
       });
       expect(invalid.status).toBe(400);
+      expect((await app.request(`/by-custom-app/${fixture.foreignCustomAppId}`)).status).toBe(403);
     } finally {
       await cleanup(fixture);
     }

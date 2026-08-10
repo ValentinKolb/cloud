@@ -31,12 +31,32 @@ describe("Assistant frontend contracts", () => {
     }
   });
 
-  test("loads composer skills only through slash commands", async () => {
-    const workspace = await read("./AssistantWorkspace.island.tsx");
+  test("keeps the Projects frontend deliberately minimal", async () => {
+    const [workspace, projects] = await Promise.all([read("./AssistantWorkspace.island.tsx"), read("./AssistantProjectsDialog.tsx")]);
 
-    expect(workspace).toContain('name: `skill:${skill.name.replace(/\\s+/g, "-")}`');
-    expect(workspace).toContain("<Tag");
-    expect(workspace).not.toContain("<SelectChip");
-    expect(workspace).not.toContain("No skill");
+    expect(workspace).toContain("openAssistantProjectsDialog");
+    expect(projects).toContain("Create Project");
+    expect(projects).toContain("New chat");
+    expect(projects).not.toContain("PanelDialog");
+  });
+
+  test("frames structured memories as personalization", async () => {
+    const [preferences, client] = await Promise.all([read("./AssistantPrefsModals.tsx"), read("../api/client.ts")]);
+
+    expect(preferences).toContain("Learn personalization from private chats");
+    expect(preferences).toContain("Search personalization");
+    expect(preferences).toContain("Add personalization");
+    expect(preferences).toContain("+ Add");
+    expect(preferences).toContain("System prompt");
+    expect(preferences).not.toContain("Custom instructions");
+    expect(preferences).not.toContain("PanelDialog");
+    expect(preferences).toContain('size: "medium"');
+    expect(preferences).toContain("lines={4}");
+    expect(preferences).toContain("Pin");
+    expect(preferences).toContain("Forget");
+    expect(client).toContain("createMemory");
+    expect(client).toContain("updateMemory");
+    expect(client).toContain("deleteMemory");
+    expect(client).not.toContain("memory?: string");
   });
 });

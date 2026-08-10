@@ -4,8 +4,9 @@ import { z } from "zod";
 import type { DocumentTemplateDraftPreviewSchema } from "../contracts";
 import { gridsService } from "../service";
 import { decodeDocumentRunCursor } from "../service/document-run-values";
+import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { pdfResponse } from "./download-response";
-import { currentActorViewer, gateAt, gridsAccessContext, resolveRecordAccessForAccess } from "./permissions";
+import { currentActorViewer, gateAt } from "./permissions";
 import { isUuid } from "./route-params";
 
 export { uuidParam } from "./route-params";
@@ -86,25 +87,18 @@ export const gateTemplate = async (
   c: Context<AuthContext>,
   loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>,
   required: "read" | "write" | "admin",
-) => gateAt(c, { baseId: loaded.table.baseId, tableId: loaded.table.id, documentTemplateId: loaded.template.id }, required);
+) => gateAt(c, { baseId: loaded.table.baseId }, required);
 
 export const snapshotRecordAccessResolver = (c: Context<AuthContext>) => async (target: { baseId: string; tableId: string }) => {
-  const resolved = await resolveRecordAccessForAccess(gridsAccessContext(c), target, "read");
-  return resolved.ok ? resolved.data.recordAccess : null;
+  const resolved = await gateAt(c, { baseId: target.baseId }, "read");
+  return resolved.ok ? ALL_RECORD_ACCESS : null;
 };
 
 export const gateRun = async (
   c: Context<AuthContext>,
   run: NonNullable<Awaited<ReturnType<typeof gridsService.document.getRun>>>,
   required: "read" | "write",
-) =>
-  gateAt(
-    c,
-    run.templateId
-      ? { baseId: run.baseId, tableId: run.tableId, documentTemplateId: run.templateId }
-      : { baseId: run.baseId, tableId: run.tableId },
-    required,
-  );
+) => gateAt(c, { baseId: run.baseId }, required);
 
 export const gateEnabledTemplateWrite = async (
   c: Context<AuthContext>,
@@ -131,13 +125,13 @@ export const liveRenderData = async (
 ) => {
   const table = await gridsService.table.get(params.tableId);
   if (!table) return { ok: false as const, status: 404, phase: "data" as const, message: "Table not found" };
-  const recordAccess = await resolveRecordAccessForAccess(gridsAccessContext(c), { baseId: table.baseId, tableId: table.id }, "read");
+  const recordAccess = await gateAt(c, { baseId: table.baseId }, "read");
   if (!recordAccess.ok) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
   const dateConfig = params.dateConfig ?? (await getDateConfig(c));
   const record = await gridsService.record.get(params.tableId, params.recordId, {
     dateConfig,
     viewer: currentActorViewer(c),
-    recordAccess: recordAccess.data.recordAccess,
+    recordAccess: ALL_RECORD_ACCESS,
   });
   if (!record) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
 

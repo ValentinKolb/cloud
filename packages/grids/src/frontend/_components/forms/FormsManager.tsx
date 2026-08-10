@@ -1,5 +1,4 @@
 import { Button, CopyButton, IconButton, Placeholder, prompts, Tooltip } from "@k2b/ui";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -22,11 +21,6 @@ type Props = {
   initialForms: Form[];
   canManage: boolean;
   onFormsChanged?: (forms: Form[]) => void;
-  /** Pre-fetched ACL entries for each form, keyed by form id. The
-   *  PermissionEditor inside the per-form expanded body uses
-   *  `allowedLevels=["write"]` so it renders as inline badges (no
-   *  dropdown) — read/admin on a form are rejected by the API. */
-  initialFormAccessEntries?: Record<string, AccessEntry[]>;
 };
 
 /**
@@ -59,8 +53,6 @@ export default function FormsManager(props: Props) {
     openFormEditorDialog({
       form,
       tableFields: props.fields,
-      initialAccessEntries: props.initialFormAccessEntries?.[form.id] ?? [],
-      canManageAccess: props.canManage,
       onSaved: (next) => updateForms(forms().map((f) => (f.id === next.id ? next : f))),
       onDelete: () => handleDelete(form),
     });

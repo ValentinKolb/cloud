@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 kind: grids.custom-app
 id: 30000000-0000-4000-8000-000000000102
 baseId: 30000000-0000-4000-8000-000000000001
@@ -67,7 +67,6 @@ pages:
                   templateIds:
                     - 30000000-0000-4000-8000-000000000601
                     - 30000000-0000-4000-8000-000000000602
-                  emptyText: No generated documents are available yet.
               - id: loan-items
                 type: records
                 source:
@@ -75,12 +74,10 @@ pages:
                   query: |
                     from table "Loan items"
                     select Item, "Condition on return", "Damage note"
-                    where Loan = param('loan_id')
+                    where Loan = @params.loan_id
                     sort record.createdAt asc
                     limit 100
                   maxRows: 100
-                  inputs:
-                    loan_id: { source: RECORD, path: id }
                 display:
                   kind: table
                   columnIds:
@@ -102,10 +99,11 @@ pages:
                     launcherId: 30000000-0000-4000-8000-000000000702
                     inputs:
                       loan_id: { source: RECORD, path: id }
-                    visibleWhen:
-                      - left: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000306 }
-                        operator: eq
-                        right: { source: LITERAL, value: Submitted }
+                    availableWhen:
+                      query: |
+                        from table Loans
+                        where record.id = @params.loan_id and {30000000-0000-4000-8000-000000000306} = 'Submitted'
+                        limit 1
                   - id: record-return
                     label: Record return
                     icon: package-import
@@ -113,10 +111,11 @@ pages:
                     launcherId: 30000000-0000-4000-8000-000000000703
                     inputs:
                       loan_id: { source: RECORD, path: id }
-                    visibleWhen:
-                      - left: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000306 }
-                        operator: eq
-                        right: { source: LITERAL, value: Active }
+                    availableWhen:
+                      query: |
+                        from table Loans
+                        where record.id = @params.loan_id and {30000000-0000-4000-8000-000000000306} = 'Active'
+                        limit 1
                   - id: adjust-items
                     label: Adjust items
                     icon: packages

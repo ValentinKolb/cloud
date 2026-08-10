@@ -19,11 +19,8 @@ import { getOperationalHealth } from "./operational-health";
 import {
   hasAtLeast,
   hasGrantsForResource,
-  loadBaseTableGrantsForSubject,
-  loadBaseWorkflowGrantsForSubject,
-  loadGrantsForSubject,
-  loadGrantsForUser,
-  resolveAuthorizedRecordAccess,
+  loadBaseGrantsForSubject,
+  loadCustomAppGrantsForSubject,
   resolveEffectivePermission,
 } from "./permission-resolver";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
@@ -144,11 +141,8 @@ export const gridsService = {
   },
   permission: {
     resolve: resolveEffectivePermission,
-    resolveRecordAccess: resolveAuthorizedRecordAccess,
-    loadGrants: loadGrantsForUser,
-    loadGrantsForSubject,
-    loadBaseTableGrantsForSubject,
-    loadBaseWorkflowGrantsForSubject,
+    loadBaseGrantsForSubject,
+    loadCustomAppGrantsForSubject,
     hasAtLeast,
     hasGrantsForResource,
   },
@@ -160,12 +154,7 @@ export const gridsService = {
     grant: access.grantAccess,
     listForBase: access.listBaseAccess,
     listForBaseTree: access.listAccessForBaseTree,
-    listForTable: access.listTableAccess,
-    listForView: access.listViewAccess,
-    listForForm: access.listFormAccess,
-    listForDocumentTemplate: access.listDocumentTemplateAccess,
     listForCustomApp: access.listCustomAppAccess,
-    listForWorkflow: access.listWorkflowAccess,
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
     resolveBinding: access.resolveAccessBinding,
@@ -326,6 +315,7 @@ export const gridsService = {
   },
   relations: {
     buildLabelCache: relationsModule.buildRelationLabelCache,
+    buildPinnedLabelCache: relationsModule.buildPinnedRelationLabelCache,
     buildLabelCacheForGroupedKeys: relationsModule.buildLabelCacheForGroupedKeys,
     buildExpansionCache: relationsModule.buildRelationExpansionCache,
     lookup: relationsModule.lookupRecords,

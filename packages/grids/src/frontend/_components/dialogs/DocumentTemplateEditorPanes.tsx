@@ -1,8 +1,6 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { NoticeCard, Panes, type PanesValue, PdfPreview, Placeholder, TemplateEditor, type TemplateVariable, Button } from "@k2b/ui";
-import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
-import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
-import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
+import { Panes, type PanesValue, PdfPreview, TemplateEditor, type TemplateVariable } from "@k2b/ui";
+import { type Accessor, createMemo, createSignal, For } from "solid-js";
+import type { DocumentPreviewResponse } from "../../../contracts";
 import { DocumentDataTree, RenderedDocumentSource } from "./DocumentTemplatePreviewData";
 
 type TemplateSnippet = {
@@ -15,7 +13,6 @@ type TemplateSnippet = {
 };
 
 type Props = {
-  template?: DocumentTemplate;
   html: Accessor<string>;
   setHtml: (value: string) => void;
   headerHtml: Accessor<string>;
@@ -31,10 +28,6 @@ type Props = {
   source: Accessor<string>;
   previewRecordId: Accessor<string>;
   previewPdf: () => Promise<Response>;
-  accessEntries: Accessor<AccessEntry[] | undefined>;
-  accessLoading: Accessor<boolean>;
-  accessError: Accessor<string | null>;
-  retryAccess: () => void;
 };
 
 const createPanesValue = (): PanesValue => ({
@@ -54,7 +47,7 @@ const createPanesValue = (): PanesValue => ({
       {
         type: "leaf",
         id: "document-template-preview",
-        elementIds: ["preview", "data", "source", "permissions"],
+        elementIds: ["preview", "data", "source"],
         activeElementId: "preview",
         presentation: "tabs",
       },
@@ -155,42 +148,6 @@ export function DocumentTemplateEditorPanes(props: Props) {
             loading={props.previewDataLoading}
             error={props.previewDataError}
           />
-        </section>
-      </Panes.Element>
-      <Panes.Element id="permissions" title="Access" icon="ti ti-lock">
-        <section class="flex h-full min-h-0 flex-col overflow-y-auto p-3">
-          <Show
-            when={props.template}
-            fallback={<div class="p-3 text-sm text-dimmed">Save the template before configuring document access.</div>}
-          >
-            {(savedTemplate) => (
-              <Show when={!props.accessLoading()} fallback={<Placeholder state="loading" align="left" title="Loading access…" />}>
-                <Show
-                  when={!props.accessError() && props.accessEntries()}
-                  fallback={
-                    <NoticeCard tone="danger" icon={false} bodyClass="flex items-center justify-between gap-3">
-                      <span>{props.accessError() ?? "Could not load document template access."}</span>
-                      <Button variant="secondary" size="sm" type="button" onClick={props.retryAccess}>
-                        <i class="ti ti-refresh" /> Retry
-                      </Button>
-                    </NoticeCard>
-                  }
-                >
-                  {(entries) => (
-                    <ScopedPermissionEditor
-                      scope={{ type: "documentTemplate", id: savedTemplate().id }}
-                      initialEntries={entries()}
-                      allowedLevels={[
-                        { level: "read", label: "Read", icon: "ti ti-eye" },
-                        { level: "write", label: "Write", icon: "ti ti-pencil" },
-                        { level: "admin", label: "Admin", icon: "ti ti-shield" },
-                      ]}
-                    />
-                  )}
-                </Show>
-              </Show>
-            )}
-          </Show>
         </section>
       </Panes.Element>
     </Panes.Root>

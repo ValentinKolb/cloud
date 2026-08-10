@@ -29,7 +29,7 @@ export default function SpaceSettingsButton(props: Props) {
             }}
           />
         ),
-        { surface: "bare", header: false, size: "large" },
+        { surface: "bare", header: false, size: "large", cancelBehavior: "ignore" },
       );
     } finally {
       setOpen(false);

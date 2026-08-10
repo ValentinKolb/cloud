@@ -19,20 +19,20 @@ Grids stores structured operational data in bases made of tables, fields, record
 
 ## Core model
 
-- A **base** is the main data and access boundary. `cld grids use <base>` stores a default base for later commands.
+- A **base** is the complete raw data and access boundary. Base Read sees every record in the Base. `cld grids use <base>` stores a default base for later commands.
 - A **table** owns fields and records. A stored table owns writable records; a Combined table publishes a read-only canonical schema over
   explicitly mapped stored tables. Tables, fields, and most other named resources have a UUID, a short id, and a name.
 - A **field** defines storage, validation, and presentation for one record value. Record write payloads use field UUIDs as keys.
 - A **record** is a versioned row. Relations store target record UUIDs. Computed and system fields are read-only.
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
-- A **Custom App** is an independently shared, base-owned page collection compiled from Markdown, saved-view records, forms, record details, and record comments.
+- A **Custom App** is an independently shared, Base-owned published capability surface. Its readers do not need raw Base access, and it may be public.
 - A **document template** renders GQL data through Liquid HTML and Gotenberg. A generated document keeps a recursive record snapshot.
 - A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and Custom App
   interactions. Grids contributes the actions and the events; the runs themselves live in Cloud's shared workflow kernel, so
   `cld grids workflow-runs` reads one base while `cld admin workflows` reads every app.
 
-Permissions are enforced by the backend on every command. Listing or resolving a resource does not grant access to it.
+Permissions are enforced by the backend on every command. Raw Grids commands require the owning Base permission. Only Base and Custom Apps have Cloud access grants; listing or resolving either resource does not grant access to it.
 
 ## Agent workflow
 
@@ -411,6 +411,17 @@ Conditions use `=`, `!=`, `<`, `<=`, `>`, `>=`, `and`, `or`, `not`, and parenthe
 `field = null` means empty and `field != null` means not empty. Other comparisons with `null` are invalid. A true/false formula may compare
 fields and calculated expressions. Use operators in GQL conditions, not function-style `AND(...)`, `OR(...)`, or `NOT(...)`.
 
+Custom App GQL receives typed request context automatically:
+
+- `@auth.id`: current account UUID or `null` for anonymous visitors;
+- `@params.<name>`: one declared and validated page parameter;
+- `@page.id`, `@page.title`, `@page.url`;
+- `@app.id`, `@app.shortId`, `@app.name`;
+- `@base.id`, `@base.name`;
+- `@time.now`, `@time.today`, `@time.timeZone`.
+
+Use `@auth.id != null` for authenticated-only data and `@auth.id = null` for anonymous data. Unknown namespaces and undeclared parameters fail compilation. Context values are bound separately from query text; Custom App GQL has no `inputs` map or `param()` helper.
+
 Record metadata filters are `record.id`, `record.createdBy`, `record.updatedBy`, and `record.deletedBy`; they accept `=` or `oneof(...)` with
 record or user UUIDs and may be combined only with `and`. Metadata sorts are `record.createdAt`, `record.updatedAt`, and `record.deletedAt`.
 
@@ -554,8 +565,7 @@ record parameter on a detail page. Record and Comments blocks use that page reco
 Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted fixed values from declared
 page parameters. Run the live reference before authoring a definition:
 
-Blocks and Actions entries may use an ANDed `visibleWhen` list with `eq`, `notEq`, `in`, `isEmpty`, and `isNotEmpty`. Values come from
-JSON literals, declared page parameters, or allowlisted current-record fields. Missing context hides the item; conditions never grant access.
+Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 
 ```bash
 cld grids apps reference
@@ -565,18 +575,16 @@ cld grids apps apply Bookshop --source-file app.yaml --json
 ```
 
 The definition chooses a stable UUID. Omit `shortId` on creation; Grids assigns and preserves it, and the original file remains safe to
-apply again. `apply` changes the draft only. Grant explicit read access to the app and read access to every saved view it displays, then
-publish the current validated draft:
+apply again. `apply` changes the draft only. Grant explicit read access to the app, then publish the current validated draft:
 
 ```bash
 cld grids access grant custom-app Bookshop "Request overview" --group "Request team" --permission read
-cld grids access grant view Bookshop Requests "My requests" --group "Request team" --permission read
+cld grids access grant custom-app Bookshop "Public catalog" --public --permission read
 cld grids apps publish Bookshop "Request overview" --yes
 ```
 
-The standalone app is available to signed-in readers at `/apps/<shortId>`; named pages use `/apps/<shortId>/<pageId>` and record parameters
-stay in the query string. Public Custom App grants are rejected. Readers need the explicit Custom App grant plus the existing view and
-record access required by the active page. Applying a later draft does not affect the published snapshot until the next publish. Commands are
+The standalone app is available to authenticated or public readers at `/apps/<shortId>`; named pages use `/apps/<shortId>/<pageId>` and record parameters
+stay in the query string. Readers need only the Custom App grant; the immutable publication capability supplies its declared data and operations without granting raw Base access. Applying a later draft does not affect the published snapshot until the next publish. Commands are
 `apps reference|list|get|validate|plan|apply|export|publish|unpublish|delete`; `export --out <path>` writes normalized deterministic YAML.
 `unpublish --yes` removes only the live snapshot, while `delete --yes` removes the app and its route.
 
@@ -626,29 +634,25 @@ Supported lifetimes are `1d`, `7d`, `30d`, and `90d`; the default is `30d`.
 
 ## Manage access
 
-Grids access grants are attached to one resource. The backend combines direct grants with inherited access when a command runs.
+Grids grants access to one complete raw Base or one published Custom App. Tables, Views, Forms, document templates, and Workflows have no separate Cloud grants.
 
 ```bash
 cld grids access reference
 cld grids access search-principals ada --json
-cld grids access list table Bookshop Authors --json
-cld grids access set table Bookshop Authors \
+cld grids access list base Bookshop --json
+cld grids access set base Bookshop \
   --user ada@example.test \
   --permission write \
   --json
+cld grids access grant custom-app Bookshop "Public catalog" --public --permission read
 ```
 
 Supported resource references are:
 
-- `base <base>`: `read`, `write`, `admin`, or `none`.
-- `table <base> <table>`: `read`, `write`, or `none`.
-- `view <base> <table> <view>`: `read`, `admin`, or `none`.
-- `form <base> <table> <form>`: `write` or `none`.
-- `custom-app <base> <app>`: `read` or `none`; signed-in principals only.
-- `document-template <base> <table> <template>`: `read`, `write`, `admin`, or `none`.
-- `workflow <base> <workflow>`: `read`, `write`, `admin`, or `none`.
+- `base <base>`: `read`, `write`, `admin`, or `none`; applies to the complete raw Base and every record.
+- `custom-app <base> <app>`: `read` or `none`; supports users, groups, authenticated, and public principals. Delegated credentials act as their user.
 
-Choose exactly one principal with `--user`, `--group`, `--service-account`, `--authenticated`, or `--public`. `access grant` creates a direct grant. `access set` updates or creates it. `access revoke` requires `--yes` and either a principal or `--access-id`.
+Choose exactly one principal with `--user`, `--group`, `--service-account`, `--authenticated`, or `--public`. `--service-account` is accepted only for a Base; `--public` is accepted only for a Custom App. Existing Custom App service-account entries can be inspected with `access list --include-service-accounts` and removed with `access revoke --access-id <id> --yes`, but they do not authorize app runtime. `access grant` creates a direct grant. `access set` updates or creates it. `access revoke` requires `--yes` and either a principal or `--access-id`.
 
 ## Build and operate workflows
 
@@ -725,7 +729,7 @@ carry optional JSON only. Field, table, document-template, and email-template re
 entry selects a bound `table`, has 1–20 `where` predicates combined with AND, and uses `assert: empty|notEmpty`; predicates contain
 `field`, `op`, optional `value`, and optional `caseInsensitive`. Optional `message` controls the failed-check text. `changes` contains only
 `createRecord` entries (`table`, non-empty `values`) or `updateRecord` entries (`record`, non-empty `set`, optional `ifVersion`, optional
-`audit`). Grids rechecks current permissions and row scope and commits the writes, relations, audit rows, event outbox, and step outcome
+`audit`). Grids rechecks current Base permission and commits the writes, relations, audit rows, event outbox, and step outcome
 together. A failure rolls back all of them. Dry run validates and evaluates but neither locks nor writes.
 
 An empty query has no row to lock. Competing reservation workflows must therefore name the same stable coordination record in `locks`, then

@@ -1,46 +1,46 @@
 import { describe, expect, test } from "bun:test";
-import type { AccessResource } from "./access-support";
-import { recordScopeFromFlags } from "./access-support";
+import {
+  ACCESS_RESOURCE_TYPES,
+  accessPermissionsForResource,
+  accessResourcePath,
+  assertAccessPermission,
+  assertAccessPrincipal,
+} from "./access-support";
 
-const resource = (type: AccessResource["type"]): AccessResource => ({
-  type,
-  id: Bun.randomUUIDv7(),
-  label: type,
-  allowed: ["read", "none"],
-});
-
-describe("recordScopeFromFlags", () => {
-  test("keeps omitted flags backward compatible", () => {
-    expect(recordScopeFromFlags(resource("table"), {})).toBeUndefined();
+describe("Grids CLI access resources", () => {
+  test("exposes only Base and Custom App access", () => {
+    expect(ACCESS_RESOURCE_TYPES).toEqual(["base", "custom-app"]);
+    expect(accessPermissionsForResource("base")).toEqual(["read", "write", "admin", "none"]);
+    expect(accessPermissionsForResource("custom-app")).toEqual(["read", "none"]);
   });
 
-  test("maps all and creator scopes", () => {
-    expect(recordScopeFromFlags(resource("base"), { recordScope: "all" })).toEqual({ kind: "all" });
-    expect(recordScopeFromFlags(resource("table"), { recordScope: "created-by" })).toEqual({ kind: "created_by" });
+  test("uses the matching Base and Custom App API paths", () => {
+    expect(accessResourcePath({ type: "base", id: "base-id", label: "Base", allowed: ["read"] })).toBe("/access/by-base/base-id");
+    expect(accessResourcePath({ type: "custom-app", id: "app/id", label: "App", allowed: ["read"] })).toBe(
+      "/access/by-custom-app/app%2Fid",
+    );
   });
 
-  test("maps a related creator scope with a UUIDv7 relation field", () => {
-    const relationFieldId = Bun.randomUUIDv7();
-    expect(recordScopeFromFlags(resource("view"), { recordScope: "related-created-by", relationFieldId })).toEqual({
-      kind: "related_created_by",
-      relationFieldId,
-    });
+  test("rejects permission levels outside the selected resource contract", () => {
+    expect(() => assertAccessPermission({ type: "custom-app", id: "app-id", label: "App", allowed: ["read", "none"] }, "write")).toThrow(
+      "custom-app grants only accept: read, none",
+    );
   });
 
-  test("rejects invalid resource and flag combinations", () => {
-    expect(() => recordScopeFromFlags(resource("form"), { recordScope: "created-by" })).toThrow(
-      "Record scopes are only supported on base, table, and view grants.",
+  test("allows public access only for Custom Apps", () => {
+    expect(() => assertAccessPrincipal({ type: "base", id: "base-id", label: "Base", allowed: ["read"] }, { type: "public" })).toThrow(
+      "Public access is only supported for Custom Apps",
     );
     expect(() =>
-      recordScopeFromFlags(resource("base"), { recordScope: "related-created-by", relationFieldId: Bun.randomUUIDv7() }),
-    ).toThrow("requires a table or view resource");
-    expect(() => recordScopeFromFlags(resource("table"), { relationFieldId: Bun.randomUUIDv7() })).toThrow("Pass --record-scope");
-    expect(() => recordScopeFromFlags(resource("table"), { recordScope: "related-created-by" })).toThrow("requires --relation-field-id");
-    expect(() => recordScopeFromFlags(resource("table"), { recordScope: "related-created-by", relationFieldId: "not-a-uuid" })).toThrow(
-      "must be a UUID",
-    );
-    expect(() => recordScopeFromFlags(resource("table"), { recordScope: "all", relationFieldId: Bun.randomUUIDv7() })).toThrow(
-      "only valid with --record-scope related-created-by",
+      assertAccessPrincipal({ type: "custom-app", id: "app-id", label: "App", allowed: ["read"] }, { type: "public" }),
+    ).not.toThrow();
+  });
+
+  test("allows service accounts only for Base grants", () => {
+    const principal = { type: "service_account" as const, serviceAccountId: "service-account-id" };
+    expect(() => assertAccessPrincipal({ type: "base", id: "base-id", label: "Base", allowed: ["read"] }, principal)).not.toThrow();
+    expect(() => assertAccessPrincipal({ type: "custom-app", id: "app-id", label: "App", allowed: ["read"] }, principal)).toThrow(
+      "Custom App access does not support service accounts; grant access to the delegated user instead",
     );
   });
 });

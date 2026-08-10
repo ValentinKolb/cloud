@@ -76,6 +76,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
 
       await aiConversationStore.applyEnrichment({
         conversationId: conversation.id,
+        searchSummary: "First indexed summary",
         description: "A greeting.",
         keywords: ["greeting"],
         title: "Greeting chat",
@@ -122,6 +123,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
       // A successful enrichment clears the backoff.
       await aiConversationStore.applyEnrichment({
         conversationId: conversation.id,
+        searchSummary: "Recovered summary",
         description: "A greeting.",
         keywords: ["greeting"],
         dirtyAsOf: candidate!.dirtyAsOf,

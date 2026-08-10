@@ -3,7 +3,6 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
-import AdminAiSkills from "./_components/AdminAiSkills.island";
 import CoreSettingsForm, { type SettingFieldDef } from "./_components/CoreSettingsForm.island";
 import LegalSettingsForm, { type LegalInitial } from "./_components/LegalSettingsForm.island";
 
@@ -44,13 +43,6 @@ const TABS = [
     description: "Model profiles, provider credentials, and capabilities.",
     icon: "ti ti-sparkles",
     group: "ai" as const,
-  },
-  {
-    id: "ai-skills",
-    title: "AI Skills",
-    description: "Create and maintain reusable workspace instructions for Assistant.",
-    icon: "ti ti-wand",
-    group: null,
   },
   {
     id: "ai-jobs",
@@ -189,8 +181,6 @@ export default ssr<AuthContext>(async (c) => {
             showAiJobsLink={showAiJobsLink}
           />
         ) : null}
-
-        {tab.id === "ai-skills" ? <AdminAiSkills title={tab.title} subtitle={tab.description} icon={tab.icon} /> : null}
 
         {tab.id === "legal" && legalInitial ? (
           <LegalSettingsForm title={tab.title} subtitle={tab.description} icon={tab.icon} initial={legalInitial} entries={entries} />

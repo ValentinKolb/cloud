@@ -198,6 +198,35 @@ select Name, Price, "Purchase price"
 
 Open **Formulas** for expression syntax and the complete function catalog.
 
+## Use Custom App context {icon="app-window"}
+
+Custom App queries receive typed request context automatically. Values are bound separately from the query text.
+
+| Reference | Value |
+| --- | --- |
+| `@auth.id` | Current account UUID, or `null` for an anonymous visitor |
+| `@params.<name>` | A declared and validated page parameter |
+| `@page.id`, `@page.title`, `@page.url` | Current page identity and canonical relative URL |
+| `@app.id`, `@app.shortId`, `@app.name` | Published Custom App identity |
+| `@base.id`, `@base.name` | Owning Base identity |
+| `@time.now`, `@time.today`, `@time.timeZone` | One request timestamp, local date, and IANA timezone |
+
+Use `@auth.id != null` when a query requires a signed-in account. An anonymous app request can be matched explicitly with `@auth.id = null`. Unknown namespaces and undeclared parameters are publish errors.
+
+```gql
+from table Loans
+where record.createdBy = @auth.id and Status = 'Active'
+limit 100
+```
+
+Page, block, Form, and action `availableWhen` rules use the same context. They are available only when their bounded query returns at least one row. Errors, missing values, timeouts, cancellation, and an empty result all mean unavailable.
+
+```gql
+from table Loans
+where record.id = @params.loan_id and Status = 'Active'
+limit 1
+```
+
 ### Predicate compatibility
 
 The simple field predicates below are the clearest choice when they fit. A boolean formula can compare fields or calculated expressions when a direct predicate is not enough.
@@ -260,9 +289,10 @@ Omit `group by` to calculate one summary row for the complete matching set:
 from table Orders
 where Status = 'Paid'
 aggregate count(*) as orders, sum(Total) as revenue
+having orders >= 1
 ```
 
-An aggregate-only query cannot also select record fields or sort its single result row. Add `group by` when you need several sortable summary rows.
+An aggregate-only query may use `having` to keep or remove its summary row. It cannot also select record fields or sort its single result row. Add `group by` when you need several sortable summary rows.
 
 ## Paging and result bounds {icon="point"}
 
@@ -274,9 +304,9 @@ For automated reads, the CLI can request one bounded page with `--page-size` or 
 
 ## Permissions and supported queries {icon="shield-lock"}
 
-Grids checks permissions before running a query and applies filtering, sorting, joins, grouping, and aggregation before returning each result page.
+Raw Grids queries require Base Read and can read the complete Base. Published Custom App queries instead run through the app's immutable capability snapshot and cannot escape to undeclared sources or fields.
 
-Every source, join target, and relation target named directly in the query must be readable in the current context. A readable saved view is an included-data boundary, so its output can be queried without separate access to its parent table. Autocomplete follows the same rules and does not reveal hidden table or field names.
+Autocomplete follows the same boundary: the raw editor uses the current Base schema, while a Custom App editor uses a schema-only catalog for that app definition. It does not execute queries or reveal another Base.
 
 GQL deliberately does not support arbitrary join conditions, subqueries, common table expressions, window functions, or unrestricted expressions. An unsupported query fails with a diagnostic instead of being guessed or partially applied.
 
@@ -284,7 +314,7 @@ GQL deliberately does not support arbitrary join conditions, subqueries, common 
 
 Row-shaped table and view results can be displayed and paged like records. Grouped and aggregate-only results use a summary table and are not editable. Compatible query results can be saved as views and reused by Custom Apps, documents, and exports.
 
-Use a saved view when people revisit the result or it needs independent access. Keep GQL local to a Custom App block or document when the query exists only for that resource.
+Use a saved View when people revisit the result in the raw Base workspace. Keep GQL local to a Custom App block or document when the query exists only for that resource.
 
 ## Troubleshoot a query {icon="lifebuoy"}
 

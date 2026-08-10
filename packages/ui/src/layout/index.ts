@@ -162,6 +162,7 @@ export type {
   SettingsCollectionActionProps,
   SettingsCollectionItemActionsProps,
   SettingsCollectionItemProps,
+  SettingsCollectionItemReorderProps,
   SettingsCollectionItemStatusProps,
   SettingsCollectionProps,
 } from "./SettingsCollection";

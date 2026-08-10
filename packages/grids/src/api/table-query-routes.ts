@@ -19,9 +19,9 @@ import { isBoundedQueryTimeoutError } from "../service/bounded-query";
 import { verifyRevisionScope } from "../service/federated-tables";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import { validateRecordQueryForFields } from "../service/query-validation";
-import type { AuthorizedRecordAccess } from "../service/record-access";
+import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "../service/record-access";
 import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
-import { currentActorViewer, gateAt, hasExplicitGrant, resolveRecordAccess, resolveWithGrants } from "./permissions";
+import { currentActorViewer, gateAt } from "./permissions";
 import { queryAdmissionMiddleware } from "./query-admission";
 import { requireUuidParam } from "./route-params";
 
@@ -44,7 +44,6 @@ type QueryView = {
 type QueryTarget = {
   table: { id: string; baseId: string; kind: "stored" | "federated" };
   view: QueryView | null;
-  trustedView: QueryView | null;
   recordAccess: AuthorizedRecordAccess;
 };
 
@@ -55,10 +54,7 @@ type TableQueryRouteDeps = {
   validateQuery: typeof validateRecordQueryForFields;
   dateConfig: typeof getDateConfig;
   gate: typeof gateAt;
-  resolve: typeof resolveWithGrants;
-  resolveRecordAccess: typeof resolveRecordAccess;
   viewer: typeof currentActorViewer;
-  hasExplicitGrant: typeof hasExplicitGrant;
   verifyFederatedRevision: typeof verifyRevisionScope;
 };
 
@@ -69,10 +65,7 @@ const defaultDeps: TableQueryRouteDeps = {
   validateQuery: validateRecordQueryForFields,
   dateConfig: getDateConfig,
   gate: gateAt,
-  resolve: resolveWithGrants,
-  resolveRecordAccess,
   viewer: currentActorViewer,
-  hasExplicitGrant,
   verifyFederatedRevision: verifyRevisionScope,
 };
 
@@ -280,27 +273,9 @@ const loadQueryTarget = async (
   const view = viewId ? await deps.service.view.get(viewId) : null;
   if (viewId && (!view || view.tableId !== tableId)) return fail(404, "View not found");
 
-  const tableGate = await deps.gate(c, { baseId: table.baseId, tableId }, "read");
-  if (!view) {
-    const access = await deps.resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
-    return access.ok
-      ? { ok: true, data: { table, view: null, trustedView: null, recordAccess: access.data.recordAccess } }
-      : fail(403, access.error.message);
-  }
-
-  const { level, grants } = await deps.resolve(c, { baseId: table.baseId, tableId, viewId: view.id });
-  if (!deps.service.permission.hasAtLeast(level, "read")) {
-    return fail(403, "You do not have permission to access this resource.");
-  }
-  const isOwner = view.ownerUserId === deps.viewer(c).userId;
-  if (view.ownerUserId !== null && !isOwner && !deps.hasExplicitGrant(grants, "view", view.id)) {
-    return fail(404, "View not found");
-  }
-
-  const access = await deps.resolveRecordAccess(c, { baseId: table.baseId, tableId, viewId: view.id }, "read");
-  if (!access.ok) return fail(403, access.error.message);
-
-  return { ok: true, data: { table, view, trustedView: tableGate.ok ? null : view, recordAccess: access.data.recordAccess } };
+  const gate = await deps.gate(c, { baseId: table.baseId }, "read");
+  if (!gate.ok) return fail(403, gate.error.message);
+  return { ok: true, data: { table, view, recordAccess: ALL_RECORD_ACCESS } };
 };
 
 const resolveQuery = async (
@@ -309,18 +284,14 @@ const resolveQuery = async (
   target: QueryTarget,
   body: TableQueryBody,
 ): Promise<RouteSuccess<ResolvedQuery> | RouteFailure> => {
-  const { table, view, trustedView } = target;
+  const { table, view } = target;
   const compiled =
-    body.source !== undefined || trustedView
+    body.source !== undefined || view
       ? await deps.compileGql(c, {
           baseId: table.baseId,
           tableId: table.id,
-          source: trustedView ? trustedView.source : (body.source ?? view?.source ?? `from table {${table.id}}`),
-          ...(trustedView
-            ? { presentation: viewUiPresentation(trustedView), trustedAllSources: true }
-            : body.query
-              ? { presentation: body.query }
-              : {}),
+          source: body.source ?? view?.source ?? `from table {${table.id}}`,
+          ...(body.query ? { presentation: body.query } : view ? { presentation: viewUiPresentation(view) } : {}),
         })
       : null;
   if (compiled && !compiled.ok) {

@@ -154,9 +154,7 @@ describe("built-in template instantiation", () => {
 
           const definition = CustomAppDefinitionSchema.parse(customApp?.published_definition);
           const capabilities = CustomAppCapabilitiesSchema.parse(customApp?.published_capabilities);
-          const blocks = definition.pages.flatMap((page) =>
-            page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)),
-          );
+          const blocks = definition.pages.flatMap((page) => page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)));
           expect(sampleData?.record_count).toBeGreaterThan(0);
           expect(documentTemplates.map((item) => item.name).sort()).toEqual([...expected.documentNames].sort());
           for (const documentTemplate of documentTemplates) {
@@ -184,9 +182,10 @@ describe("built-in template instantiation", () => {
             `${expected.templateId} direct Custom App GQL block`,
           ).toBe(true);
           expect(
-            capabilities.workflowLaunchers.length,
-            `${expected.templateId} Custom App workflow action`,
-          ).toBeGreaterThan(0);
+            blocks.some((block) => block.type === "actions"),
+            `${expected.templateId} unsupported overview workflow action`,
+          ).toBe(false);
+          expect(capabilities.workflowLaunchers).toEqual([]);
           expect(documentAudit?.action).toBe("document_template.created");
           await verifyRuntimeSurfaces(created.data.id, true);
         } finally {

@@ -63,6 +63,7 @@ const sourceTableId = "25252525-2525-4252-8252-252525252525";
 const federatedRevisionId = "27272727-2727-4272-8272-272727272727";
 const federatedSourceId = "28282828-2828-4282-8282-282828282828";
 const workflowLauncherId = "29292929-2929-4292-8292-292929292929";
+const customAppId = "30303030-3030-4030-8030-303030303030";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
@@ -388,6 +389,19 @@ const accessEntry = {
   permission: "read" as const,
   displayName: "Ada Lovelace",
   createdAt: "2026-07-07T00:00:00.000Z",
+};
+
+const customApp = {
+  id: customAppId,
+  shortId: "app01",
+  baseId,
+  name: "Public catalog",
+  definition: {},
+  publishedDefinition: {},
+  publishedCapabilities: {},
+  publishedAt: "2026-07-07T00:00:00.000Z",
+  createdAt: "2026-07-07T00:00:00.000Z",
+  updatedAt: "2026-07-07T00:00:00.000Z",
 };
 
 describe("grids CLI", () => {
@@ -1205,47 +1219,58 @@ describe("grids CLI", () => {
     expect(lines[0]).toContain("snapshots");
   });
 
-  test("sets direct resource access through resolved Grids resources", async () => {
+  test("sets direct Base access", async () => {
     const { ctx, calls, lines } = createContext(
-      ["access", "set", "table", baseId, "Authors"],
+      ["access", "set", "base", baseId],
       { user: accessEntry.principal.userId, permission: "write" },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse([accessEntry]), new Response(null, { status: 204 })],
+      [jsonResponse(base), jsonResponse([accessEntry]), new Response(null, { status: 204 })],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
       `/api/grids/bases/${baseId}`,
-      `/api/grids/tables/by-base/${baseId}`,
-      `/api/grids/access/by-table/${tableId}`,
+      `/api/grids/access/by-base/${baseId}`,
       `/api/grids/access/${accessId}`,
     ]);
-    expect(calls[3]?.init?.method).toBe("PATCH");
-    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({ permission: "write" });
+    expect(calls[2]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ permission: "write" });
     expect(lines).toEqual([`Updated ${accessId} to write.`]);
   });
 
-  test("grants direct access to document templates", async () => {
+  test("grants public read access to a Custom App", async () => {
     const { ctx, calls, lines } = createContext(
-      ["access", "grant", "document-template", baseId, "Authors", "Invoice"],
-      { group: "abababab-abab-4aba-8bab-abababababab", permission: "read" },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse([documentTemplate]), jsonResponse({ accessId }, 201)],
+      ["access", "grant", "custom-app", baseId, "Public catalog"],
+      { public: true, permission: "read" },
+      [jsonResponse(base), jsonResponse([customApp]), jsonResponse({ accessId }, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
       `/api/grids/bases/${baseId}`,
-      `/api/grids/tables/by-base/${baseId}`,
-      `/api/grids/documents/templates/by-table/${tableId}/full`,
-      `/api/grids/access/by-document-template/${documentTemplateId}`,
+      `/api/grids/apps/by-base/${baseId}`,
+      `/api/grids/access/by-custom-app/${customAppId}`,
     ]);
-    expect(calls[3]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
-      principal: { type: "group", groupId: "abababab-abab-4aba-8bab-abababababab" },
+    expect(calls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({
+      principal: { type: "public" },
       permission: "read",
     });
-    expect(lines).toEqual(["Granted read on Invoice (doc01)."]);
+    expect(lines).toEqual(["Granted read on Public catalog (app01)."]);
+  });
+
+  test("documents resource-specific access principals", async () => {
+    const { ctx, jsonValues } = createContext(["access", "reference"], {}, [], { output: "json" });
+
+    await gridsCli.run(ctx);
+
+    expect(jsonValues[0]).toMatchObject({
+      resourceTypes: [
+        { type: "base", principals: ["user", "group", "service_account", "authenticated"] },
+        { type: "custom-app", principals: ["user", "group", "authenticated", "public"] },
+      ],
+    });
   });
 
   test("creates custom forms for resolved tables", async () => {
@@ -1301,7 +1326,6 @@ describe("grids CLI", () => {
 
     await expect(gridsCli.run(ctx)).rejects.toThrow("Form does not belong to the selected base.");
   });
-
 
   test("creates document templates for resolved tables", async () => {
     const { ctx, calls, lines } = createContext(

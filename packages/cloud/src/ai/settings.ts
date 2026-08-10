@@ -242,7 +242,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   defaultModelId: string;
   profilesJson: string;
   globalInstructions?: string;
-  compactionPrompt?: string;
+  compactionInstructions?: string;
   maxToolResultChars?: unknown;
   firecrawlApiKey?: string;
   credentialProfileIds?: readonly string[];
@@ -253,7 +253,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
     enabled: Boolean(input.enabled),
     defaultModelId: input.defaultModelId ?? "",
     globalInstructions: input.globalInstructions ?? "",
-    compactionPrompt: input.compactionPrompt ?? "",
+    compactionInstructions: input.compactionInstructions ?? "",
     maxToolResultChars: normalizeMaxToolResultChars(input.maxToolResultChars),
     firecrawlConfigured: Boolean(input.firecrawlApiKey?.trim()),
   };
@@ -337,13 +337,13 @@ export const resolveAiSettingsStateFromRaw = async (input: {
 };
 
 const readAiSettingsSnapshot = async (): Promise<{ state: AiSettingsState; credentialProfileIds: string[] }> => {
-  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars, firecrawlApiKey] =
+  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionInstructions, maxToolResultChars, firecrawlApiKey] =
     await Promise.all([
       coreSettings.get<boolean>("ai.enabled"),
       coreSettings.get<string>("ai.default_model_id"),
       coreSettings.get<string>("ai.model_profiles_json"),
       coreSettings.get<string>("ai.global_instructions"),
-      coreSettings.get<string>("ai.compaction_prompt"),
+      coreSettings.get<string>("ai.compaction_instructions"),
       coreSettings.get<number>("ai.max_tool_result_chars"),
       coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
     ]);
@@ -362,7 +362,7 @@ const readAiSettingsSnapshot = async (): Promise<{ state: AiSettingsState; crede
     defaultModelId: defaultModelId ?? "",
     profilesJson: profilesJson ?? "[]",
     globalInstructions: globalInstructions ?? "",
-    compactionPrompt: compactionPrompt ?? "",
+    compactionInstructions: compactionInstructions ?? "",
     maxToolResultChars,
     firecrawlApiKey: firecrawlApiKey ?? "",
     credentialProfileIds,

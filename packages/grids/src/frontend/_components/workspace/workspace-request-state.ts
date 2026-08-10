@@ -2,7 +2,7 @@ import type { DocumentTemplate } from "../../../contracts";
 import type { Base, CustomApp, Table, Workflow } from "../../../service";
 import { gridsService } from "../../../service";
 import { canUseEditModeForCatalog, loadCatalog } from "./workspace-catalog-state";
-import { documentTemplateLevelForUser, resolveBaseLevel, viewLevelForUser, workflowLevelForUser } from "./workspace-state-access";
+import { resolveBaseLevel } from "./workspace-state-access";
 import { buildChrome } from "./workspace-state-helpers";
 import type { GridsWorkspaceState, LoadWorkspaceParams, WorkspaceCommon } from "./workspace-state-model";
 
@@ -22,8 +22,9 @@ export const loadWorkspaceRequest = async (
 ): Promise<WorkspaceRequestContext | Extract<GridsWorkspaceState, { kind: "accessDenied" }>> => {
   const level = await resolveBaseLevel(params.user, base.id);
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
-  const catalog = await loadCatalog(base.id, params.user, canManageBase);
   const hasBaseRead = gridsService.permission.hasAtLeast(level, "read");
+  if (!hasBaseRead) return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
+  const catalog = await loadCatalog(base.id, params.user, canManageBase);
   if (params.activeCustomAppSlug && !canManageBase) {
     return { kind: "accessDenied", title: "Access denied", message: "Base admin access is required to edit Custom Apps" };
   }
@@ -48,31 +49,6 @@ export const loadWorkspaceRequest = async (
       ? await gridsService.view.getByIdOrShortId(requestedViewTable.id, params.activeViewSlug)
       : null;
 
-  const hasDocumentTemplateRouteAccess = requestedDocumentTemplate
-    ? gridsService.permission.hasAtLeast(
-        await documentTemplateLevelForUser(params.user, base.id, requestedDocumentTemplate.tableId, requestedDocumentTemplate.id),
-        "read",
-      )
-    : false;
-  const hasWorkflowRouteAccess = requestedWorkflow
-    ? gridsService.permission.hasAtLeast(await workflowLevelForUser(params.user, base.id, requestedWorkflow.id), "read")
-    : false;
-  const hasViewRouteAccess = requestedView
-    ? gridsService.permission.hasAtLeast(await viewLevelForUser(params.user, base.id, requestedView.tableId, requestedView.id), "read")
-    : false;
-  if (
-    !hasBaseRead &&
-    catalog.tables.length === 0 &&
-    catalog.sidebarForms.length === 0 &&
-    !hasViewRouteAccess &&
-    catalog.sidebarDocumentTemplates.length === 0 &&
-    !hasDocumentTemplateRouteAccess &&
-    !hasWorkflowRouteAccess &&
-    catalog.workflows.length === 0
-  ) {
-    return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
-  }
-
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
   return {
     common: {
@@ -90,7 +66,7 @@ export const loadWorkspaceRequest = async (
     requestedDocumentTable,
     requestedDocumentTemplate,
     requestedWorkflow,
-    requestedViewTable: hasViewRouteAccess ? requestedViewTable : null,
+    requestedViewTable: requestedView ? requestedViewTable : null,
     requestedCustomApp,
   };
 };

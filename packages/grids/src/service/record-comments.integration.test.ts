@@ -2,7 +2,7 @@ import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "./record-access";
+import { ALL_RECORD_ACCESS } from "./record-access";
 import * as comments from "./record-comments";
 
 type Fixture = {
@@ -68,18 +68,12 @@ const cleanupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`DELETE FROM auth.users WHERE id IN (${fixture.ownerId}::uuid, ${fixture.otherUserId}::uuid)`;
 };
 
-const ownerOnly = (fixture: Fixture): AuthorizedRecordAccess => ({
-  kind: "restricted",
-  userId: fixture.ownerId,
-  scopes: [{ kind: "created_by" }],
-});
-
 beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
 describe("record comments integration", () => {
-  postgresTest("inherits record visibility and paginates newest-first without counts", async () => {
+  postgresTest("paginates comments newest-first without row-scope filtering", async () => {
     const fixture = createFixture();
     try {
       await insertFixture(fixture);
@@ -90,7 +84,7 @@ describe("record comments integration", () => {
           recordId: fixture.ownerRecordId,
           actorUserId: fixture.ownerId,
           body,
-          recordAccess: ownerOnly(fixture),
+          recordAccess: ALL_RECORD_ACCESS,
         });
         expect(created.ok).toBe(true);
       }
@@ -99,7 +93,7 @@ describe("record comments integration", () => {
         baseId: fixture.baseId,
         tableId: fixture.tableId,
         recordId: fixture.ownerRecordId,
-        recordAccess: ownerOnly(fixture),
+        recordAccess: ALL_RECORD_ACCESS,
         limit: 1,
       });
       expect(firstPage.ok).toBe(true);
@@ -111,7 +105,7 @@ describe("record comments integration", () => {
         baseId: fixture.baseId,
         tableId: fixture.tableId,
         recordId: fixture.ownerRecordId,
-        recordAccess: ownerOnly(fixture),
+        recordAccess: ALL_RECORD_ACCESS,
         cursor: firstPage.data.nextCursor,
         limit: 1,
       });
@@ -122,7 +116,7 @@ describe("record comments integration", () => {
         baseId: fixture.baseId,
         tableId: fixture.tableId,
         recordId: fixture.otherRecordId,
-        recordAccess: ownerOnly(fixture),
+        recordAccess: ALL_RECORD_ACCESS,
       });
       expect(hidden).toEqual({ ok: true, data: { items: [], nextCursor: null } });
 
@@ -166,19 +160,6 @@ describe("record comments integration", () => {
       });
       expect(foreignEdit.ok).toBe(false);
       if (!foreignEdit.ok) expect(foreignEdit.error.code).toBe("FORBIDDEN");
-
-      const hiddenEdit = await comments.update({
-        baseId: fixture.baseId,
-        tableId: fixture.tableId,
-        recordId: fixture.ownerRecordId,
-        commentId: created.data.id,
-        actorUserId: fixture.otherUserId,
-        canModerate: true,
-        body: "Hidden change",
-        recordAccess: { kind: "restricted", userId: fixture.otherUserId, scopes: [{ kind: "created_by" }] },
-      });
-      expect(hiddenEdit.ok).toBe(false);
-      if (!hiddenEdit.ok) expect(hiddenEdit.error.code).toBe("NOT_FOUND");
 
       const moderated = await comments.update({
         baseId: fixture.baseId,

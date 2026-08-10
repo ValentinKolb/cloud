@@ -9,7 +9,7 @@ import { type DslResultCursor, decodeDslResultCursor } from "../query-dsl/result
 import { type FederatedRevisionScope, verifyRevisionScope } from "./federated-tables";
 import { listByTable as listFields } from "./fields";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
-import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import { hasAtLeast, loadBaseGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 import type { AuthorizedRecordAccess } from "./record-access";
 import { list as listRecords } from "./records";
 import { loadRelationTargets } from "./relation-targets";
@@ -217,16 +217,16 @@ const relationIds = (value: unknown): string[] => {
 
 const canReadTargetTable = async (targetTableId: string, viewer?: ExpansionViewer): Promise<boolean> => {
   if (!viewer) return true;
+  if (viewer.readableTableIds) return viewer.readableTableIds.has(targetTableId);
   const table = await getTable(targetTableId);
   if (!table) return false;
-  const grants = await loadGrantsForUser({
-    userId: viewer.userId,
-    userGroups: viewer.userGroups,
-    serviceAccountId: viewer.serviceAccountId,
-    baseId: table.baseId,
-    tableId: targetTableId,
-  });
-  const level = resolveEffectivePermission(grants, { baseId: table.baseId, tableId: targetTableId });
+  const subject = viewer.userId
+    ? { type: "user" as const, userId: viewer.userId }
+    : viewer.serviceAccountId
+      ? { type: "service_account" as const, serviceAccountId: viewer.serviceAccountId }
+      : null;
+  const grants = await loadBaseGrantsForSubject({ baseId: table.baseId, subject });
+  const level = resolveEffectivePermission(grants, { baseId: table.baseId });
   return hasAtLeast(level, "read");
 };
 

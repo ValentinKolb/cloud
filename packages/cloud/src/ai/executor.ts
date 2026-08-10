@@ -2,15 +2,18 @@ import type { CompactEvent, NessiLoop, OutboundEvent } from "@k2b/nessi";
 import { compact, nessi } from "@k2b/nessi";
 import { loadCurrentHelp } from "../_internal/help-catalog";
 import { listCapabilities } from "../_internal/registry";
-import type { RequestActor } from "../server";
+import type { AccessSubject, RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
 import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
 import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
 import { createCloudAiLocalBashTool, createConfiguredDefaultCloudAiTools } from "./default-tools";
+import { aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { type AiUserPrefs, aiActorUser, aiUserPrefs } from "./prefs";
+import { createCloudAiProjectContextTool } from "./project-tool";
+import { aiProjects } from "./projects";
 import {
   type AiTurnBlock,
   type AiWireEvent,
@@ -50,6 +53,28 @@ const AI_COALESCE_MS = 25;
 const AI_COALESCE_MAX_CHARS = 512;
 const AI_SNAPSHOT_INTERVAL_MS = 1_000;
 const AI_ACTION_BUDGET_MS = 24 * 60 * 60_000;
+
+const memoryQueryFromInput = (input: unknown): string => {
+  if (typeof input === "string") return input;
+  if (!Array.isArray(input)) return "";
+  return input
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (typeof part !== "object" || part === null || !("type" in part)) return "";
+      return part.type === "text" && "text" in part && typeof part.text === "string" ? part.text : "";
+    })
+    .join(" ")
+    .trim();
+};
+
+const accessSubjectForActor = (actor: RequestActor | undefined): AccessSubject | null => {
+  if (!actor) return null;
+  if (actor.kind === "user") return { type: "user", userId: actor.user.id };
+  if (actor.delegatedUser) {
+    return { type: "user", userId: actor.delegatedUser.id, delegatedByServiceAccountId: actor.serviceAccount.id };
+  }
+  return { type: "service_account", serviceAccountId: actor.serviceAccount.id };
+};
 
 export type ExecutorConfig = {
   leaseOwner: string;
@@ -370,6 +395,12 @@ export class AiTurnExecutor {
     let validated: ValidatedTurn;
     try {
       material = await materializeChatConfig(config, abortController.signal);
+      if (config.project) {
+        const subject = accessSubjectForActor(material.actor);
+        if (!subject || !(await aiProjects.get(config.project.id, subject, "read"))) {
+          throw new Error("Project access is no longer available.");
+        }
+      }
       validated = await (this.config.validateTurn ?? validateAiTurnRequest)({
         input: config.input,
         modelPolicy: material.modelPolicy,
@@ -406,17 +437,24 @@ export class AiTurnExecutor {
     }
     if (capabilityAuthority) material.actor = capabilityAuthority.actor;
 
-    // User prefs (custom instructions + memory) apply to direct chats with the default toolset.
+    // Personalization applies to direct chats with the default toolset.
     const user = aiActorUser(material.actor);
     let prefs: AiUserPrefs | null = null;
     if (user && config.toolSource?.kind === "default") {
-      prefs = await aiUserPrefs.get(user.id).catch(() => null);
+      prefs = await aiUserPrefs.get(user.id);
     }
     const memoryActive = Boolean(prefs?.memoryEnabled);
-    const runtimeTools = memoryActive ? [...material.tools, createCloudAiMemoryTool()] : material.tools;
+    const memory = memoryActive && user ? await aiMemories.selectHot(user.id, memoryQueryFromInput(config.input)) : null;
+    const projectSubject = config.project ? accessSubjectForActor(material.actor) : null;
+    const runtimeTools = [
+      ...material.tools,
+      ...(memoryActive ? [createCloudAiMemoryTool()] : []),
+      ...(config.project && projectSubject ? [createCloudAiProjectContextTool(config.project.id, projectSubject)] : []),
+    ];
     const toolsSupported = resolved.profile.capabilities.includes("tools");
     const activeTools = toolsSupported ? runtimeTools : [];
     const memoryToolEnabled = activeTools.some((tool) => tool.def.name === "memory");
+    const projectToolEnabled = activeTools.some((tool) => tool.def.name === "project_context");
 
     const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
     const rememberableCapabilityApprovals = new Map<string, string>();
@@ -514,7 +552,8 @@ export class AiTurnExecutor {
         globalInstructions: settings.globalInstructions,
         appPrompt: material.systemPrompt,
         resourceContext: material.resourceContext,
-        skill: config.skill,
+        project: config.project,
+        projectToolEnabled,
         user,
         appId: material.toolApprovalContext?.appId,
         memoryEnabled: memoryActive,
@@ -522,8 +561,7 @@ export class AiTurnExecutor {
         helpEnabled,
         capabilitiesEnabled,
         toolHints: aiToolPromptHints(activeTools),
-        userInstructions: prefs?.instructions,
-        memory: prefs?.memory,
+        memory: memory?.text,
       }),
       store,
       steering: async ({ signal: steeringSignal }) => {
@@ -544,7 +582,7 @@ export class AiTurnExecutor {
       compact: createCloudCompactFn({
         conversationId,
         modelProfileId: resolved.profile.id,
-        prompt: settings.compactionPrompt,
+        additionalInstructions: settings.compactionInstructions,
         maxOutputTokens: resolved.profile.maxOutputTokens,
         signal: abortController.signal,
       }),
@@ -864,7 +902,7 @@ export class AiTurnExecutor {
       compact: createCloudCompactFn({
         conversationId,
         modelProfileId: resolved.profile.id,
-        prompt: settings.compactionPrompt,
+        additionalInstructions: settings.compactionInstructions,
         maxOutputTokens: resolved.profile.maxOutputTokens,
         signal: abortController.signal,
         // Manual /compact means "make the context small": summarize everything

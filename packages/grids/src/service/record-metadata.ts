@@ -58,13 +58,6 @@ const listTableAccessIds = async (tableId: string): Promise<string[]> => {
     FROM grids.tables t
     JOIN grids.base_access ba ON ba.base_id = t.base_id
     WHERE t.id = ${tableId}::uuid AND t.deleted_at IS NULL
-
-    UNION
-
-    SELECT ta.access_id::text AS access_id
-    FROM grids.table_access ta
-    JOIN grids.tables t ON t.id = ta.table_id
-    WHERE ta.table_id = ${tableId}::uuid AND t.deleted_at IS NULL
   `;
   return rows.map((row) => row.access_id);
 };

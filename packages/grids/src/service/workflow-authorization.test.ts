@@ -4,7 +4,7 @@ import type { ServiceAccount, ServiceAccountCredentialOverview } from "@valentin
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
-import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, type WorkflowAuthorizationDeps } from "./workflow-authorization";
+import { authorizeWorkflowBase, revalidateWorkflowPrincipal, type WorkflowAuthorizationDeps } from "./workflow-authorization";
 
 const BASE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -97,9 +97,9 @@ describe("workflow principal revalidation", () => {
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
 
       await sql.begin(async (tx) => {
-        expect(await authorizeWorkflowTarget(actor, { baseId }, "write", tx)).toBe(true);
+        expect(await authorizeWorkflowBase(actor, baseId, "write", tx)).toBe(true);
         await tx`UPDATE auth.access SET permission = 'none'::auth.permission_level WHERE id = ${accessId}::uuid`;
-        expect(await authorizeWorkflowTarget(actor, { baseId }, "write", tx)).toBe(false);
+        expect(await authorizeWorkflowBase(actor, baseId, "write", tx)).toBe(false);
       });
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;

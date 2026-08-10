@@ -1,4 +1,3 @@
-import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
@@ -63,20 +62,7 @@ export const getByIdOrShortId = async (tableId: string, idOrSlug: string): Promi
   return getByShortId(tableId, idOrSlug);
 };
 
-/**
- * Lists views visible to a user on a table. Visibility rules:
- *   1. Shared views (owner_user_id NULL) and the user's own personal
- *      views are visible by default.
- *   2. View-level ACL grants OVERRIDE that default — an explicit
- *      level=read on someone else's personal view makes it visible to
- *      the grantee, and an explicit level=none on a shared view hides
- *      it from the denied user.
- *
- * Most-specific-wins: a view-level grant for this user (or any of their
- *   groups) supersedes the default-visibility check. If the highest
- *   matching grant is `none`, the view is hidden even if it would
- *   otherwise be a default-shared view.
- */
+/** Lists every live view in tables whose owning base was already authorized. */
 export const listForTables = async (params: {
   tableIds: readonly string[];
   userId: string | null;
@@ -84,89 +70,14 @@ export const listForTables = async (params: {
   serviceAccountId?: string | null;
 }): Promise<View[]> => {
   if (params.tableIds.length === 0) return [];
-  const serviceAccountId = params.serviceAccountId ?? null;
-  const subject: AccessSubject | null = params.userId
-    ? { type: "user", userId: params.userId }
-    : serviceAccountId
-      ? { type: "service_account", serviceAccountId }
-      : null;
-  const principalTiers = buildAccessPrincipalTierConditions({
-    subject,
-    columns: {
-      userId: sql`a.user_id`,
-      groupId: sql`a.group_id`,
-      serviceAccountId: sql`a.service_account_id`,
-      authenticatedOnly: sql`a.authenticated_only`,
-    },
-  });
-
-  // Most-specific-wins per principal tier (user > group > authenticated >
-  // public). Within a tier: any deny wins over any read — needed because
-  // (a) `grantAccess` inserts a fresh auth.access row per POST so duplicate
-  // principal rows are possible, and (b) a user can be in multiple groups
-  // that disagree. Per-tier rule: NULL if no rows, 0 if any deny, else
-  // MAX(positive rank).
   const rows = await sql<DbRow[]>`
-    WITH ranked AS (
-      SELECT v.id, v.short_id, v.table_id, v.name, v.description, v.icon, v.source, v.ui, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
-        (
-          SELECT CASE
-            WHEN COUNT(*) = 0 THEN NULL
-            WHEN bool_or(a.permission = 'none') THEN 0
-            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-          END
-          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND ${principalTiers.serviceAccount}
-        ) AS service_account_rank,
-        (
-          SELECT CASE
-            WHEN COUNT(*) = 0 THEN NULL
-            WHEN bool_or(a.permission = 'none') THEN 0
-            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-          END
-          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND ${principalTiers.user}
-        ) AS user_rank,
-        (
-          SELECT CASE
-            WHEN COUNT(*) = 0 THEN NULL
-            WHEN bool_or(a.permission = 'none') THEN 0
-            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-          END
-          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND ${principalTiers.group}
-        ) AS group_rank,
-        (
-          SELECT CASE
-            WHEN COUNT(*) = 0 THEN NULL
-            WHEN bool_or(a.permission = 'none') THEN 0
-            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-          END
-          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND ${principalTiers.authenticated}
-        ) AS auth_rank,
-        (
-          SELECT CASE
-            WHEN COUNT(*) = 0 THEN NULL
-            WHEN bool_or(a.permission = 'none') THEN 0
-            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-          END
-          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-          WHERE va.view_id = v.id AND ${principalTiers.public}
-        ) AS public_rank
-      FROM grids.views v
-      JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
-      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE v.table_id = ANY(${toPgUuidArray([...params.tableIds])}::uuid[]) AND v.deleted_at IS NULL
-    )
-    SELECT id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
-    FROM ranked
-    WHERE COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank) >= 1
-       OR (
-         COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank) IS NULL
-         AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid)
-       )
-    ORDER BY position, created_at
+    SELECT v.*
+    FROM grids.views v
+    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE v.table_id = ANY(${toPgUuidArray([...params.tableIds])}::uuid[])
+      AND v.deleted_at IS NULL
+    ORDER BY v.position, v.created_at
   `;
 
   return rows.map(mapRow);
@@ -186,29 +97,7 @@ export const listForTable = async (params: {
   });
 
 // ──────────────────────────────────────────────────────────────────
-// Pure ACL tier resolution (testable)
 // ──────────────────────────────────────────────────────────────────
-
-type TierRanks = {
-  /** Highest matching rank from direct user grants, or 0 if any user-deny exists, or null when no user rows match. */
-  userRank: number | null;
-  groupRank: number | null;
-  authRank: number | null;
-  publicRank: number | null;
-};
-
-/**
- * Walks ACL specificity tiers top-down (user > group > authenticated >
- * public). The first tier with any matching grant decides. If that tier's
- * rank is >= 1 (read/write/admin), the view is visible; rank 0 (deny)
- * hides it. If no tier matched, falls back to default visibility (shared
- * view or own personal view). Pure logic — no DB.
- */
-export const isVisibleByAclTiers = (ranks: TierRanks, defaults: { ownerUserId: string | null; viewerUserId: string | null }): boolean => {
-  const winning = ranks.userRank ?? ranks.groupRank ?? ranks.authRank ?? ranks.publicRank;
-  if (winning !== null && winning !== undefined) return winning >= 1;
-  return defaults.ownerUserId === null || defaults.ownerUserId === defaults.viewerUserId;
-};
 
 export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<View | null> => {
   // SELECT v.* keeps the slug in the projection for mapRow. Live-parent

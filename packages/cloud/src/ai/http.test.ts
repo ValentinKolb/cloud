@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AiSteerInputSchema, AiTurnInputSchema, aiTurnInputToContent } from "./http";
+import { AiCreateConversationInputSchema, AiSteerInputSchema, AiTurnInputSchema, aiTurnInputToContent } from "./http";
 
 describe("AI HTTP input helpers", () => {
   test("keeps the message when content contains only files", () => {
@@ -37,11 +37,11 @@ describe("AI HTTP input helpers", () => {
     ).toThrow();
   });
 
-  test("accepts one explicit skill id and rejects malformed ids", () => {
-    expect(AiTurnInputSchema.parse({ message: "Use it", skillId: "11111111-1111-4111-8111-111111111111" }).skillId).toBe(
+  test("accepts a project only when creating a conversation", () => {
+    expect(AiCreateConversationInputSchema.parse({ projectId: "11111111-1111-4111-8111-111111111111" }).projectId).toBe(
       "11111111-1111-4111-8111-111111111111",
     );
-    expect(() => AiTurnInputSchema.parse({ message: "Use it", skillId: "meeting-summary" })).toThrow();
+    expect(() => AiCreateConversationInputSchema.parse({ projectId: "meeting-summary" })).toThrow();
   });
 
   test("accepts only the predefined optional local client tool", () => {

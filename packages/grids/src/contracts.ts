@@ -11,13 +11,6 @@ import { AGGREGATE_KINDS } from "./aggregate-catalog";
 export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
 const IconNameSchema = z.string().max(200).nullable().optional();
 
-export const RecordScopeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("all") }).strict(),
-  z.object({ kind: z.literal("created_by") }).strict(),
-  z.object({ kind: z.literal("related_created_by"), relationFieldId: z.string().uuid() }).strict(),
-]);
-export type RecordScope = z.infer<typeof RecordScopeSchema>;
-
 export const DocumentProfileSchema = z
   .object({
     legalName: z.string().max(200).optional(),
@@ -912,6 +905,31 @@ const DslQueryAutocompleteBaseBodySchema = z.object({
   /** Optional table scope for table/view pages where `from` is implicit. */
   currentTableId: z.string().uuid().optional(),
   currentSource: DslQueryCurrentSourceSchema,
+  contextKeys: z
+    .array(
+      z.custom<import("./query-dsl/parameters").DslQueryContextKey>(
+        (value) =>
+          typeof value === "string" &&
+          (/^params\.[a-z][a-z0-9_]*$/.test(value) ||
+            [
+              "auth.id",
+              "page.id",
+              "page.title",
+              "page.url",
+              "app.id",
+              "app.shortId",
+              "app.name",
+              "base.id",
+              "base.name",
+              "time.now",
+              "time.today",
+              "time.timeZone",
+            ].includes(value)),
+        "Invalid GQL context key",
+      ),
+    )
+    .max(100)
+    .optional(),
 });
 
 export const DslQueryAutocompleteBodySchema = DslQueryAutocompleteBaseBodySchema.refine(

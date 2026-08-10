@@ -135,7 +135,7 @@ export const CORE_SETTINGS = {
     kind: "string",
     label: "Background Model ID",
     default: "",
-    description: "Model profile id used for background AI jobs (chat enrichment). Empty = platform default model.",
+    description: "Model profile id used for background AI jobs. Empty = platform default model.",
     placeholder: "e.g. openrouter-fast",
   },
   "ai.workflow_model_id": {
@@ -151,6 +151,26 @@ export const CORE_SETTINGS = {
     default: "*/10 * * * *",
     description: "How often dirty chats get an AI-generated summary, keywords, and title refresh for search.",
   },
+  "ai.memory_learning_cron": {
+    kind: "cron",
+    label: "Personalization Learning Schedule",
+    default: "*/10 * * * *",
+    description: "How often eligible private chats are checked for durable personal facts and preferences.",
+  },
+  "ai.chat_enrichment_instructions": {
+    kind: "text",
+    label: "Chat Enrichment Instructions",
+    default: "",
+    description: "Optional organization guidance added to the fixed chat enrichment task and output contract.",
+    placeholder: "Prefer organization-specific terminology when it is present in the chat.",
+  },
+  "ai.memory_learning_instructions": {
+    kind: "text",
+    label: "Personalization Learning Instructions",
+    default: "",
+    description: "Optional organization guidance added to the fixed personalization learning task and privacy contract.",
+    placeholder: "Keep learned preferences concise and use the user's language.",
+  },
   "ai.global_instructions": {
     kind: "template",
     label: "Global Instructions",
@@ -160,13 +180,12 @@ export const CORE_SETTINGS = {
     placeholder: "Keep answers concise. The current user is {{ user.displayName }} and today is {{ today }}.",
     templateVars: ["user.displayName", "user.uid", "user.mail", "appId", "now", "today", "time"],
   },
-  "ai.compaction_prompt": {
+  "ai.compaction_instructions": {
     kind: "text",
-    label: "Compaction Prompt",
+    label: "Compaction Instructions",
     default: "",
-    description:
-      "Optional custom prompt used when Cloud AI summarizes old chat context before continuing a long conversation. Leave empty for the built-in structured handoff prompt.",
-    placeholder: "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step).",
+    description: "Optional organization guidance added to the fixed long-chat compaction task and completeness contract.",
+    placeholder: "Preserve internal ticket ids and use the organization's canonical team names.",
   },
   "ai.max_tool_result_chars": {
     kind: "number",

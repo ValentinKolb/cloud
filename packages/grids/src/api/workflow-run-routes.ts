@@ -37,21 +37,13 @@ const loadReadableRun = async (c: Parameters<typeof gateAt>[0], runId: string) =
   if (!run?.workflowId) return null;
   const workflow = await getWorkflow(run.workflowId, true);
   if (!workflow) return null;
-  const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "read");
+  const gate = await gateAt(c, { baseId: workflow.baseId }, "read");
   return gate.ok ? { run, workflow } : gate;
 };
 
 const canReadDocumentRun =
   (c: Parameters<typeof gateAt>[0]) => async (run: { baseId: string; tableId: string; templateId: string | null }) =>
-    (
-      await gateAt(
-        c,
-        run.templateId
-          ? { baseId: run.baseId, tableId: run.tableId, documentTemplateId: run.templateId }
-          : { baseId: run.baseId, tableId: run.tableId },
-        "read",
-      )
-    ).ok;
+    (await gateAt(c, { baseId: run.baseId }, "read")).ok;
 
 export const createWorkflowRunRoutes = () =>
   new Hono<AuthContext>()
@@ -72,11 +64,9 @@ export const createWorkflowRunRoutes = () =>
         const baseId = uuidParam(c, "baseId");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
+        const gate = await gateAt(c, { baseId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visibleIds = await visibleWorkflowIdsForBase(c, baseId, { includeDeleted: true });
-        if (visibleIds.length === 0) {
-          const gate = await gateAt(c, { baseId }, "read");
-          if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        }
         const query = c.req.valid("query");
         if (query.workflowId && !visibleIds.includes(query.workflowId)) return c.json({ message: "Workflow not found" }, 404);
         return c.json(
@@ -110,11 +100,9 @@ export const createWorkflowRunRoutes = () =>
         const baseId = uuidParam(c, "baseId");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
+        const gate = await gateAt(c, { baseId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visibleIds = await visibleWorkflowIdsForBase(c, baseId, { includeDeleted: true });
-        if (visibleIds.length === 0) {
-          const gate = await gateAt(c, { baseId }, "read");
-          if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        }
         return c.json(await getWorkflowRunStats(baseId, visibleIds, { window: c.req.valid("query").window }));
       },
     )
@@ -135,11 +123,9 @@ export const createWorkflowRunRoutes = () =>
         const baseId = uuidParam(c, "baseId");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
+        const gate = await gateAt(c, { baseId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visibleIds = await visibleWorkflowIdsForBase(c, baseId, { includeDeleted: true });
-        if (visibleIds.length === 0) {
-          const gate = await gateAt(c, { baseId }, "read");
-          if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        }
         const query = c.req.valid("query");
         if (query.workflowId && !visibleIds.includes(query.workflowId)) return c.json({ message: "Workflow not found" }, 404);
         return c.json(
@@ -171,7 +157,7 @@ export const createWorkflowRunRoutes = () =>
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await getWorkflow(workflowId, true);
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const query = c.req.valid("query");
         return c.json(
@@ -228,7 +214,7 @@ export const createWorkflowRunRoutes = () =>
         if (!run?.workflowId) return c.json({ message: "Workflow run not found" }, 404);
         const workflow = await getWorkflow(run.workflowId, true);
         if (!workflow) return c.json({ message: "Workflow run not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "write");
+        const gate = await gateAt(c, { baseId: workflow.baseId }, "write");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const outcome = await cancelWorkflowRun(runId, currentActorUserId(c));
         if (outcome.state === "notFound") return c.json({ message: "Workflow run not found" }, 404);

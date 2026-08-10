@@ -3,9 +3,9 @@ title: Grids
 navTitle: Grids
 section: Work
 order: 140
-description: Flexible application data with tables, views, forms, dashboards, documents, and workflows.
+description: Structured data with Bases, Views, Forms, Custom Apps, documents, and workflows.
 tags: [grids, tables, workflows]
-updated: 2026-08-02
+updated: 2026-08-10
 ---
 
 # Grids
@@ -19,7 +19,7 @@ documents, and workflows without splitting the domain across unrelated tools.
 - Create a base for one operational domain, then define tables, fields, and
   relationships around its records.
 - Save filtered or grouped views for recurring work and reporting.
-- Publish forms for guided record creation and dashboards for focused metrics,
+- Publish Forms for guided record creation and Custom Apps for focused metrics,
   lists, instructions, and actions.
 - Generate documents or PDFs from reviewed templates and record data.
 - Run typed, versioned workflows for repeatable record changes, document
@@ -35,12 +35,22 @@ inputs, permissions, revisions, and observable runs.
 | Base | Permission boundary and catalog for one structured application |
 | Table, field, and record | Schema, typed columns, and stored domain rows |
 | View and form | Reusable read perspective and guided record submission |
-| Dashboard | Bounded operating surface composed from data and actions |
+| Custom App | Immutable published capability surface for a focused audience |
 | Document and workflow | Generated output and a versioned sequence of checked effects |
 
-Access starts at the base, while selected views, forms, dashboards, documents,
-and workflow launchers can add narrower public or shared surfaces. Opening a
-linked resource checks that target's access separately.
+Base access opens the complete raw workspace and every record in that Base.
+Tables, Views, Forms, document templates, and Workflows do not have separate
+Cloud grants. Use a published Custom App when an authenticated or public
+audience needs only selected data, Forms, documents, and actions. App readers
+do not need Base access, and an app grant never opens raw Grids APIs or GQL.
+Base grants support service accounts. Custom App grants support users, groups,
+all authenticated accounts, or the public, but not service accounts. Delegated
+credentials access a Custom App through their user identity.
+
+Custom App pages, blocks, Forms, and actions can use server-enforced GQL
+availability rules with request context such as `@auth.id`, `@params.*`, and
+`@time.now`. Public apps receive `@auth.id = null`; Workflow actions still
+require an authenticated account.
 
 ## How Grids fits Cloud
 
@@ -51,8 +61,8 @@ rendering, application discovery, and shared Help and administration surfaces.
 
 ## Find detailed product help
 
-Open **Help** inside Grids for the core model, schema, formulas, views, forms,
-dashboards, documents, permissions, GQL, workflows, and troubleshooting.
+Open **Help** inside Grids for the core model, schema, formulas, Views, Forms,
+Custom Apps, public publishing, documents, permissions, GQL, workflows, and troubleshooting.
 Developers can read [Resource authorization](/en/docs/identity/authorization),
 [Workflow overview](/en/docs/automation/workflow-overview), and
 [PDF and templates](/en/docs/platform/pdf-and-templates) for shared contracts

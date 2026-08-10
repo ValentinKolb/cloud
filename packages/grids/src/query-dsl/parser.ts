@@ -420,7 +420,7 @@ const parseExpression = (
   if (!expressionSource) return { ok: false, diagnostic: error(line, "missing expression") };
   const issue = gqlExpressionSyntaxIssue(expressionSource);
   if (issue) return { ok: false, diagnostic: error(line, issue.message, expressionColumn + issue.offset, issue.length) };
-  const parsed = parseFormula(expressionSource, { scopedRefs: true });
+  const parsed = parseFormula(expressionSource, { scopedRefs: true, contextRefs: true });
   if (!parsed.ok) {
     const { span } = parsed.diagnostic;
     return {

@@ -83,7 +83,30 @@ const labelsForCurrentSource = (query: string, currentSource: { kind: "table"; t
 const item = (query: string, label: string, context = ctx()) =>
   buildDslQueryIntelligence({ query, caret: query.length, ctx: context }).find((candidate) => candidate.label === label);
 
+const contextItems = (query: string) =>
+  buildDslQueryIntelligence({
+    query,
+    caret: query.length,
+    ctx: ctx(),
+    contextKeys: ["auth.id", "params.record_id", "page.id", "time.today"],
+  });
+
 describe("GQL query intelligence", () => {
+  test("suggests only explicitly available context references", () => {
+    expect(labels("where @")).not.toContain("@auth.id");
+
+    const auth = contextItems("where @au").find((candidate) => candidate.label === "@auth.id");
+    expect(auth?.textEdit).toEqual({ start: "where ".length, end: "where @au".length, text: "@auth.id" });
+
+    const param = contextItems("where Amount = @params.").find((candidate) => candidate.label === "@params.record_id");
+    expect(param?.textEdit).toEqual({
+      start: "where Amount = ".length,
+      end: "where Amount = @params.".length,
+      text: "@params.record_id",
+    });
+    expect(contextItems("where @params.").map((candidate) => candidate.label)).not.toContain("@params.other");
+  });
+
   test("suggests only typed sources after from and never offers untyped source refs", () => {
     expect(labels("from ")).toEqual(expect.arrayContaining(["table", "view"]));
     expect(labels("from Or")).not.toContain("Orders");

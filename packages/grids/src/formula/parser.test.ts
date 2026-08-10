@@ -13,6 +13,28 @@ test("parses string literal", () => {
   if (r.ok) expect(r.ast).toEqual({ kind: "literal", value: "hello" });
 });
 
+test("parses context references only when explicitly enabled", () => {
+  expect(parseFormula("@auth.id").ok).toBe(false);
+
+  const result = parseFormula("@params.record_id = @auth.id", { contextRefs: true });
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.ast).toEqual({
+    kind: "binop",
+    op: "=",
+    left: { kind: "call", fn: "@", args: [{ kind: "literal", value: "params.record_id" }] },
+    right: { kind: "call", fn: "@", args: [{ kind: "literal", value: "auth.id" }] },
+  });
+});
+
+test("rejects malformed context references", () => {
+  const missingName = parseFormula("@auth", { contextRefs: true });
+  expect(missingName).toMatchObject({ ok: false, error: "context reference needs a namespace and name" });
+
+  const emptyPart = parseFormula("@params.", { contextRefs: true });
+  expect(emptyPart).toMatchObject({ ok: false, error: "invalid context reference" });
+});
+
 test("parses quoted field name references", () => {
   const r = parseFormula('"Unit price" * Quantity');
   expect(r.ok).toBe(true);

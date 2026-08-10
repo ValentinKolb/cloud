@@ -6,16 +6,17 @@ import type { CustomApp } from "../../../service";
 import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
 import "../ssr-test-plugin";
 
-const { default: CustomAppBuilder } = await import("./CustomAppBuilder");
+const {
+  default: CustomAppBuilder,
+  blankCustomAppDefinition,
+  customAppContextKeys,
+  isCustomAppAvailabilityDiagnostic,
+  isCustomAppBlockSourceDiagnostic,
+} = await import("./CustomAppBuilder");
 
-const app = (): CustomApp => ({
-  id: "33333333-3333-4333-8333-333333333333",
-  shortId: "APP1",
-  baseId: "11111111-1111-4111-8111-111111111111",
-  name: "Loan desk",
-  icon: "clipboard",
-  draftDefinition: {
-    schemaVersion: 1,
+const app = (): CustomApp => {
+  const draftDefinition: NonNullable<CustomApp["draftDefinition"]> = {
+    schemaVersion: 2 as const,
     kind: "grids.custom-app",
     id: "33333333-3333-4333-8333-333333333333",
     shortId: "APP1",
@@ -29,6 +30,7 @@ const app = (): CustomApp => ({
         title: "Overview",
         navigation: { visible: true, order: 0 },
         parameters: {},
+        availableWhen: { query: "from table Loans\nwhere created_by = @auth.id\nlimit 1" },
         rows: [
           {
             id: "summary-row",
@@ -43,25 +45,39 @@ const app = (): CustomApp => ({
         ],
       },
     ],
-  },
-  draftCapabilities: {
-    views: [],
-    insights: [],
-    recordQueries: [],
-    records: [],
-    forms: [],
-    comments: [],
-    documents: [],
-    workflowLaunchers: [],
-  },
-  publishedDefinition: null,
-  publishedCapabilities: null,
-  publishedAt: null,
-  createdAt: "2026-08-07T00:00:00.000Z",
-  updatedAt: "2026-08-07T00:00:00.000Z",
-  draftValid: true,
-  hasUnpublishedChanges: true,
-});
+  };
+  return {
+    id: "33333333-3333-4333-8333-333333333333",
+    shortId: "APP1",
+    baseId: "11111111-1111-4111-8111-111111111111",
+    name: "Loan desk",
+    icon: "clipboard",
+    draftDefinition,
+    draftDefinitionRaw: draftDefinition,
+    draftDiagnostics: [],
+    draftCapabilities: {
+      availability: [],
+      views: [],
+      insights: [],
+      recordQueries: [],
+      records: [],
+      forms: [],
+      comments: [],
+      documents: [],
+      workflowLaunchers: [],
+    },
+    publishedDefinition: null,
+    publishedDefinitionRaw: null,
+    publishedDiagnostics: [],
+    publishedCapabilities: null,
+    publishedAt: null,
+    createdAt: "2026-08-07T00:00:00.000Z",
+    updatedAt: "2026-08-07T00:00:00.000Z",
+    draftValid: true,
+    publishedValid: false,
+    hasUnpublishedChanges: true,
+  };
+};
 
 const catalog = (): WorkspaceCatalog => ({
   customApps: [],
@@ -168,6 +184,104 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
 };
 
 describe("CustomAppBuilder", () => {
+  test("creates a blank schema v2 draft without legacy condition inputs", () => {
+    const blank = blankCustomAppDefinition(app());
+
+    expect(blank.schemaVersion).toBe(2);
+    expect(blank.pages[0]?.rows[0]?.columns[0]?.blocks[0]).toEqual({
+      id: "intro",
+      type: "markdown",
+      markdown: "",
+    });
+    expect(JSON.stringify(blank)).not.toContain("visibleWhen");
+    expect(JSON.stringify(blank)).not.toContain('"inputs"');
+  });
+
+  test("lists exact implicit context keys for the selected page", () => {
+    const page = app().draftDefinition!.pages[0]!;
+    page.parameters = {
+      record_id: {
+        type: "record",
+        tableId: "11111111-1111-4111-8111-111111111112",
+        required: true,
+      },
+    };
+
+    expect(customAppContextKeys(page)).toEqual([
+      "auth.id",
+      "page.id",
+      "page.title",
+      "page.url",
+      "app.id",
+      "app.shortId",
+      "app.name",
+      "base.id",
+      "base.name",
+      "time.now",
+      "time.today",
+      "time.timeZone",
+      "params.record_id",
+    ]);
+  });
+
+  test("renders independent Custom App access in app settings", () => {
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), catalog: catalog(), initialInspectorMode: "app" }));
+
+    expect(html).toContain("Custom App grants are independent from Base access");
+    expect(html).toContain("Loading access");
+  });
+
+  test("recognizes source diagnostics for one selected block", () => {
+    expect(
+      isCustomAppBlockSourceDiagnostic({ path: ["pages", "overview", "blocks", "records", "source"], message: "Invalid" }, "records"),
+    ).toBe(true);
+    expect(
+      isCustomAppBlockSourceDiagnostic({ path: ["pages", "overview", "blocks", "records", "display"], message: "Invalid" }, "records"),
+    ).toBe(false);
+    expect(
+      isCustomAppBlockSourceDiagnostic({ path: ["pages", "overview", "blocks", "other", "source"], message: "Invalid" }, "records"),
+    ).toBe(false);
+  });
+
+  test("recognizes availability diagnostics for one selected target", () => {
+    expect(
+      isCustomAppAvailabilityDiagnostic(
+        { path: ["pages", "overview", "blocks", "records", "availableWhen"], message: "Invalid" },
+        "records",
+      ),
+    ).toBe(true);
+    expect(
+      isCustomAppAvailabilityDiagnostic({ path: ["pages", "overview", "blocks", "records", "source"], message: "Invalid" }, "records"),
+    ).toBe(false);
+  });
+
+  test("renders fail-closed recovery for an incompatible stored draft", () => {
+    const legacy = app();
+    legacy.draftDefinition = null;
+    legacy.draftDefinitionRaw = { ...(legacy.draftDefinitionRaw as Record<string, unknown>), schemaVersion: 1 };
+    legacy.draftDiagnostics = [
+      {
+        path: ["draft", "schemaVersion"],
+        message: "Stored draft uses unsupported Custom App schemaVersion 1.",
+      },
+    ];
+    legacy.draftValid = false;
+    legacy.publishedDefinition = app().draftDefinition;
+    legacy.publishedDefinitionRaw = legacy.publishedDefinition;
+    legacy.publishedCapabilities = legacy.draftCapabilities;
+    legacy.publishedAt = "2026-08-07T00:00:00.000Z";
+    legacy.publishedValid = true;
+
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: legacy, catalog: catalog() }));
+
+    expect(html).toContain("This draft cannot be opened");
+    expect(html).toContain("schemaVersion 1");
+    expect(html).toContain("Download stored JSON");
+    expect(html).toContain("Restore live version");
+    expect(html).toContain("Replace with blank schema v2 draft");
+    expect(html).not.toContain("Custom App canvas");
+  });
+
   test("renders pages, canvas, toolbar, and inspector from the canonical draft", () => {
     const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), catalog: catalog() }));
 
@@ -201,6 +315,8 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("k2b-detail-panel__body");
     expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page settings"');
     expect(html).toContain("Show in app navigation");
+    expect(html).toContain("Available when (GQL)");
+    expect(html).toContain("@auth.id");
     expect(html).toMatch(/k2b-app-workspace__sidebar-body[\s\S]*k2b-app-workspace__sidebar-footer[\s\S]*This app is a draft/);
     expect(html).toMatch(/k2b-app-workspace__sidebar-footer[^>]*>[\s\S]*k2b-notice-card/);
     expect(html).not.toContain("grids-builder-block");
@@ -218,7 +334,11 @@ describe("CustomAppBuilder", () => {
 
     expect(gqlSettings).toContain("<GqlSourceEditor");
     expect(gqlSettings).toContain("baseId={draft.draft().baseId}");
+    expect(gqlSettings).toContain("contextKeys={contextKeys()}");
     expect(gqlSettings).not.toMatch(/<TextInput[\s\S]{0,240}label="GQL"/);
+    expect(source).not.toContain("param('name')");
+    expect(source).not.toContain("visibleWhen");
+    expect(source).not.toContain("source.inputs");
   });
 
   test("uses the workspace edit accent for selected and focused blocks", async () => {
@@ -260,7 +380,7 @@ describe("CustomAppBuilder", () => {
 
   test("uses the represented pair height as the pair collision zone", () => {
     const pairApp = app();
-    pairApp.draftDefinition.pages[0]!.rows[0]!.columns[0]!.blocks.push({
+    pairApp.draftDefinition!.pages[0]!.rows[0]!.columns[0]!.blocks.push({
       id: "actions",
       type: "actions",
       actions: [],
@@ -283,7 +403,7 @@ describe("CustomAppBuilder", () => {
 
   test("renders one canonical target for every multi-column insertion gap", () => {
     const columnApp = app();
-    columnApp.draftDefinition.pages[0]!.rows[0]!.columns = ["A", "B", "C"].map((id) => ({
+    columnApp.draftDefinition!.pages[0]!.rows[0]!.columns = ["A", "B", "C"].map((id) => ({
       id: `column-${id}`,
       span: 4,
       blocks: [{ id, type: "markdown" as const, markdown: id }],
@@ -313,7 +433,7 @@ describe("CustomAppBuilder", () => {
 
   test("renders the complete shared Form UI without enabling submission", () => {
     const formApp = app();
-    formApp.draftDefinition.pages[0]!.rows[0]!.columns[0]!.blocks = [
+    formApp.draftDefinition!.pages[0]!.rows[0]!.columns[0]!.blocks = [
       {
         id: "request-form",
         type: "form",

@@ -1,17 +1,15 @@
-import { mutation } from "@k2b/stdlib/solid";
-import { Button, Placeholder, prompts, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
-import type { AiApprovalPreferenceView, AiUserPrefs } from "@valentinkolb/cloud/ai";
+import { Link } from "@k2b/ssr/nav";
+import { Button, Placeholder, prompts, Select, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
+import type { AiApprovalPreferenceView, AiMemory, AiMemoryKind, AiUserPrefs } from "@valentinkolb/cloud/ai";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
+import { assistantConversationHref } from "./assistant-navigation";
 
-// Kept in sync with AI_USER_*_MAX_CHARS in @valentinkolb/cloud/ai/prefs — the
-// server clamps too; these are value constants and must not be imported from
-// the server-only ai index in browser code.
-const INSTRUCTIONS_MAX_CHARS = 4_000;
-const MEMORY_MAX_CHARS = 24_000;
+// Kept in sync with the server limits; browser code does not import server-only constants.
+const MEMORY_MAX_CHARS = 500;
 
-type AssistantPrefsTab = "personalization" | "memory" | "approvals";
+type AssistantPrefsTab = "personalization" | "system-prompt" | "approvals";
 
 const readApiError = async (response: Response, fallback: string): Promise<string> => {
   const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
@@ -97,165 +95,297 @@ function ApprovalPreferences() {
   );
 }
 
-function SystemPromptDisclosure() {
-  const [prompt, setPrompt] = createSignal<string | null>(null);
-  const [error, setError] = createSignal<string | null>(null);
+function SystemPromptPanel() {
+  const [prompt, { refetch }] = createResource(() => assistantApi.getSystemPromptPreview());
+  return (
+    <div class="flex flex-col gap-3">
+      <p class="text-sm text-secondary">
+        This is the complete prompt a new Assistant chat starts with right now, including active personalization and organization rules.
+      </p>
+      <Show when={prompt.loading}>
+        <Placeholder state="loading" title="Loading system prompt" />
+      </Show>
+      <Show when={prompt.error}>
+        <div class="flex flex-col items-center gap-2">
+          <Placeholder state="error" title="Could not load system prompt" description={prompt.error.message} />
+          <Button size="xs" variant="secondary" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Show>
+      <Show when={prompt()?.prompt}>
+        {(value) => (
+          <pre class="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-3 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-900 dark:text-zinc-300">
+            {value()}
+          </pre>
+        )}
+      </Show>
+    </div>
+  );
+}
 
-  const load = async () => {
-    if (prompt() || error()) return;
+const openAddPersonalizationDialog = (): Promise<{ kind: AiMemoryKind; content: string } | undefined> =>
+  prompts.dialog<{ kind: AiMemoryKind; content: string } | undefined>(
+    (close) => {
+      const [kind, setKind] = createSignal<AiMemoryKind>("fact");
+      const [content, setContent] = createSignal("");
+      return (
+        <form
+          class="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = content().trim();
+            if (value) close({ kind: kind(), content: value });
+          }}
+        >
+          <p class="text-sm text-secondary">Add a durable fact about you or a preference for future answers. New entries start pinned.</p>
+          <Select
+            label="Type"
+            value={kind}
+            onValueChange={(value) => setKind(value as AiMemoryKind)}
+            options={[
+              { value: "fact", label: "Fact" },
+              { value: "preference", label: "Preference" },
+            ]}
+          />
+          <TextInput
+            label="Personalization"
+            value={content}
+            onValueChange={setContent}
+            multiline
+            lines={4}
+            maxLength={MEMORY_MAX_CHARS}
+            placeholder="Prefers concise answers in German."
+            autofocus
+          />
+          <div class="flex items-center justify-end gap-2">
+            <Button variant="secondary" size="sm" type="button" onClick={() => close()}>
+              Cancel
+            </Button>
+            <Button size="sm" type="submit" disabled={!content().trim()}>
+              Add personalization
+            </Button>
+          </div>
+        </form>
+      );
+    },
+    { title: "Add personalization", icon: "ti ti-user-cog", size: "medium" },
+  );
+
+function MemorySettings(props: { prefs: AiUserPrefs }) {
+  const [query, setQuery] = createSignal("");
+  const [memories, { refetch }] = createResource(query, (q) => assistantApi.listMemories({ q: q.trim() || undefined, limit: 50 }));
+  const [memoryEnabled, setMemoryEnabled] = createSignal(props.prefs.memoryEnabled);
+  const [learningEnabled, setLearningEnabled] = createSignal(props.prefs.memoryLearningEnabled);
+  const [busyId, setBusyId] = createSignal<string | null>(null);
+
+  const saveSettings = async () => {
+    setBusyId("settings");
     try {
-      setPrompt((await assistantApi.getSystemPromptPreview()).prompt);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load system prompt");
+      await assistantApi.updatePrefs({ memoryEnabled: memoryEnabled(), memoryLearningEnabled: learningEnabled() });
+      toast.success("Personalization settings saved");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to save personalization settings");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const addMemory = async () => {
+    if (busyId()) return;
+    const value = await openAddPersonalizationDialog();
+    if (!value || busyId()) return;
+    setBusyId("new");
+    try {
+      await assistantApi.createMemory({ ...value, priority: "pinned" });
+      await refetch();
+      toast.success("Personalization added");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to add personalization");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const editMemory = async (memory: AiMemory) => {
+    const value = await prompts.prompt("Edit this personalization entry.", memory.content, { title: "Edit personalization" });
+    if (value === null || value.trim() === memory.content || !value.trim()) return;
+    setBusyId(memory.id);
+    try {
+      await assistantApi.updateMemory(memory.id, { content: value.trim() });
+      await refetch();
+      toast.success("Personalization updated");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to update personalization");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const togglePinned = async (memory: AiMemory) => {
+    setBusyId(memory.id);
+    try {
+      await assistantApi.updateMemory(memory.id, { priority: memory.priority === "pinned" ? "normal" : "pinned" });
+      await refetch();
+      toast.success(memory.priority === "pinned" ? "Personalization unpinned" : "Personalization pinned");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to update personalization");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const removeMemory = async (memory: AiMemory) => {
+    if (!(await prompts.confirm(`Forget "${memory.content}"?`, { title: "Forget personalization", variant: "danger" }))) return;
+    setBusyId(memory.id);
+    try {
+      await assistantApi.deleteMemory(memory.id);
+      await refetch();
+      toast.success("Personalization forgotten");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Failed to delete personalization");
+    } finally {
+      setBusyId(null);
     }
   };
 
   return (
-    <details class="group" onToggle={(event) => event.currentTarget.open && void load()}>
-      <summary class="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-secondary hover:text-primary">
-        <i class="ti ti-chevron-right transition-transform group-open:rotate-90" aria-hidden="true" />
-        Show the current system prompt
-      </summary>
-      <div class="mt-2 flex flex-col gap-1.5">
-        <p class="text-xs text-dimmed">
-          This is what a new Assistant chat starts with right now — including your instructions and memories. Use it to see what is already
-          covered before adding your own instructions.
-        </p>
-        <Show when={error()}>
-          <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
-        </Show>
-        <Show
-          when={prompt()}
-          fallback={
-            <Show when={!error()}>
-              <p class="text-xs text-dimmed">Loading…</p>
-            </Show>
-          }
-        >
-          <pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-900 dark:text-zinc-300">
-            {prompt()}
-          </pre>
-        </Show>
+    <div class="flex flex-col gap-5" aria-busy={Boolean(busyId()) || memories.loading}>
+      <div class="flex flex-col gap-3">
+        <Switch
+          label="Use personalization in Assistant chats"
+          description="Relevant personal facts and preferences are added to the context of new turns."
+          value={memoryEnabled}
+          onValueChange={setMemoryEnabled}
+          disabled={Boolean(busyId())}
+        />
+        <Switch
+          label="Learn personalization from private chats"
+          description="After a chat becomes idle, Assistant may save durable facts and preferences with a link to that chat."
+          value={learningEnabled}
+          onValueChange={setLearningEnabled}
+          disabled={Boolean(busyId())}
+        />
+        <div class="flex justify-end">
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={busyId() === "settings"}
+            loadingLabel="Saving settings"
+            onClick={() => void saveSettings()}
+          >
+            Save settings
+          </Button>
+        </div>
       </div>
-    </details>
+
+      <div class="flex items-end gap-2">
+        <div class="min-w-0 flex-1">
+          <TextInput
+            label="Search personalization"
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Search facts and preferences"
+            disabled={Boolean(busyId())}
+          />
+        </div>
+        <Button variant="secondary" loading={busyId() === "new"} disabled={Boolean(busyId())} onClick={() => void addMemory()}>
+          + Add
+        </Button>
+      </div>
+
+      <Show when={memories.loading}>
+        <Placeholder state="loading" title="Loading memories" />
+      </Show>
+      <Show when={memories.error}>
+        <div class="flex flex-col items-center gap-2">
+          <Placeholder state="error" title="Could not load personalization" description={memories.error.message} />
+          <Button size="xs" variant="secondary" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      </Show>
+      <Show when={!memories.loading && !memories.error && (memories()?.length ?? 0) === 0}>
+        <Placeholder
+          title={query().trim() ? "No matching personalization" : "No personalization yet"}
+          description={
+            query().trim() ? "Try a different search." : "Add a durable fact or preference, or enable learning from private chats."
+          }
+        />
+      </Show>
+      <Show when={!memories.error && (memories()?.length ?? 0) > 0}>
+        <ul class="flex flex-col gap-3">
+          <For each={memories()}>
+            {(memory) => (
+              <li class="rounded-lg bg-muted p-3">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm text-primary">{memory.content}</p>
+                    <p class="mt-1 text-xs text-secondary">
+                      {memory.kind === "preference" ? "Preference" : "Fact"}
+                      {memory.priority === "pinned" ? " · Pinned" : ""} · Updated {new Date(memory.updatedAt).toLocaleDateString()}
+                      <Show when={memory.sourceConversationId}>
+                        {(conversationId) => (
+                          <>
+                            {" · "}
+                            <Link href={assistantConversationHref(globalThis.location?.href ?? "/app/assistant", conversationId())}>
+                              Source chat
+                            </Link>
+                          </>
+                        )}
+                      </Show>
+                    </p>
+                  </div>
+                  <div class="flex shrink-0 flex-wrap justify-end gap-1">
+                    <Button size="xs" variant="ghost" disabled={Boolean(busyId())} onClick={() => void togglePinned(memory)}>
+                      {memory.priority === "pinned" ? "Unpin" : "Pin"}
+                    </Button>
+                    <Button size="xs" variant="ghost" disabled={Boolean(busyId())} onClick={() => void editMemory(memory)}>
+                      Edit
+                    </Button>
+                    <Button size="xs" variant="ghost" disabled={Boolean(busyId())} onClick={() => void removeMemory(memory)}>
+                      Forget
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+    </div>
   );
 }
 
 function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab; close: () => void }) {
-  const [instructions, setInstructions] = createSignal(props.prefs.instructions);
-  const [memory, setMemory] = createSignal(props.prefs.memory);
-  const [memoryEnabled, setMemoryEnabled] = createSignal(props.prefs.memoryEnabled);
-
-  const instructionsDirty = () => instructions().trim() !== props.prefs.instructions.trim();
-  const memoryDirty = () => memory().trim() !== props.prefs.memory.trim() || memoryEnabled() !== props.prefs.memoryEnabled;
-
-  const saveInstructions = mutation.create<AiUserPrefs, void>({
-    mutation: async () => assistantApi.updatePrefs({ instructions: instructions().trim() }),
-    onSuccess: () => {
-      toast.success("Instructions saved");
-      props.close();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const saveMemory = mutation.create<AiUserPrefs, void>({
-    mutation: async () => assistantApi.updatePrefs({ memory: memory().trim(), memoryEnabled: memoryEnabled() }),
-    onSuccess: () => {
-      toast.success("Memory settings saved");
-      props.close();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-  const busy = () => saveInstructions.loading() || saveMemory.loading();
-
+  const [activeTab, setActiveTab] = createSignal<AssistantPrefsTab>(props.initialTab);
   return (
     <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
-      <SettingsModal title="Personalization" defaultTab={props.initialTab} onClose={props.close} closeLabel="Close personalization">
+      <SettingsModal
+        title="Assistant settings"
+        activeTab={activeTab()}
+        onTabChange={(tab) => setActiveTab(tab as AssistantPrefsTab)}
+        onClose={props.close}
+        closeLabel="Close Assistant settings"
+      >
         <SettingsModal.Tab
           id="personalization"
-          title="Instructions"
+          title="Personalization"
           icon="ti ti-user-cog"
-          description="Choose how the assistant should answer and what it should focus on."
+          description="Manage the facts and preferences Assistant can carry into future conversations."
         >
-          <form
-            class="flex flex-col gap-4"
-            aria-busy={busy()}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveInstructions.mutate(undefined);
-            }}
-          >
-            <TextInput
-              label="Custom instructions"
-              description="Added to every new chat. Tell the assistant who you are, how to answer, and what to focus on."
-              value={instructions}
-              onValueChange={setInstructions}
-              markdown
-              lines={9}
-              maxLength={INSTRUCTIONS_MAX_CHARS}
-              placeholder={"I study computer science and prefer short, technical answers.\nAlways answer in German."}
-              disabled={busy()}
-            />
-            <SystemPromptDisclosure />
-            <div class="flex justify-end pt-2">
-              <Button
-                type="submit"
-                size="sm"
-                loading={saveInstructions.loading()}
-                loadingLabel="Saving instructions"
-                disabled={busy() || !instructionsDirty()}
-              >
-                <i class="ti ti-device-floppy" aria-hidden="true" />
-                Save instructions
-              </Button>
-            </div>
-          </form>
+          <MemorySettings prefs={props.prefs} />
         </SettingsModal.Tab>
 
         <SettingsModal.Tab
-          id="memory"
-          title="Memory"
-          icon="ti ti-brain"
-          description="Control what the assistant carries into future conversations."
+          id="system-prompt"
+          title="System prompt"
+          icon="ti ti-code"
+          description="Inspect the complete instructions and context applied to new chats."
         >
-          <form
-            class="flex flex-col gap-4"
-            aria-busy={busy()}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveMemory.mutate(undefined);
-            }}
-          >
-            <Switch
-              label="Let the assistant remember things about you"
-              value={memoryEnabled}
-              onValueChange={setMemoryEnabled}
-              disabled={busy()}
-            />
-            <TextInput
-              label="Memories"
-              description="One memory per line, stamped with the date it was saved. The assistant reads this list in every chat and can add or remove entries."
-              value={memory}
-              onValueChange={setMemory}
-              markdown
-              lines={9}
-              maxLength={MEMORY_MAX_CHARS}
-              placeholder={"Studies computer science at Uni Ulm.\nPrefers answers in German."}
-              disabled={busy()}
-            />
-            <div class="flex justify-end pt-2">
-              <Button
-                type="submit"
-                size="sm"
-                loading={saveMemory.loading()}
-                loadingLabel="Saving memory"
-                disabled={busy() || !memoryDirty()}
-              >
-                <i class="ti ti-device-floppy" aria-hidden="true" />
-                Save memory
-              </Button>
-            </div>
-          </form>
+          <Show when={activeTab() === "system-prompt"}>
+            <SystemPromptPanel />
+          </Show>
         </SettingsModal.Tab>
 
         <SettingsModal.Tab

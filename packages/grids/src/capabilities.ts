@@ -24,9 +24,8 @@ import {
   accessActorUser,
   actorViewerFor,
   type GridsAccessContext,
-  gateAtAccess,
+  gateBaseAtAccess,
   gateCredentialScopeFor,
-  resolveRecordAccessForAccess,
   resourceBoundBaseIdFor,
 } from "./api/permissions";
 import { isQueryAdmissionError } from "./api/query-admission";
@@ -50,6 +49,7 @@ import {
 import type { DslQueryPreviewResponse } from "./contracts";
 import { isRecordWritableFieldType } from "./field-types";
 import { gridsService } from "./service";
+import { ALL_RECORD_ACCESS } from "./service/record-access";
 import type { Base, Field, GridRecord, Table } from "./service/types";
 
 const GQL_CAPABILITY_RESULT_BUDGET_BYTES = CAPABILITY_MAX_RESULT_BYTES - 32 * 1024;
@@ -161,7 +161,7 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
 };
 
 const requireBase = async (baseId: string, access: GridsAccessContext) => {
-  const gate = await gateAtAccess(access, { baseId }, "read");
+  const gate = await gateBaseAtAccess(access, baseId, "read");
   if (!gate.ok) return gate;
   const base = await gridsService.base.get(baseId);
   return base ? ok(base) : fail(err.notFound("Base"));
@@ -170,15 +170,15 @@ const requireBase = async (baseId: string, access: GridsAccessContext) => {
 const requireTable = async (tableId: string, access: GridsAccessContext, required: "read" | "write") => {
   const table = await gridsService.table.get(tableId);
   if (!table) return fail(err.notFound("Table"));
-  const gate = await gateAtAccess(access, { baseId: table.baseId, tableId }, required);
+  const gate = await gateBaseAtAccess(access, table.baseId, required);
   return gate.ok ? ok(table) : gate;
 };
 
 const requireTableRecordAccess = async (tableId: string, access: GridsAccessContext, required: "read" | "write") => {
   const table = await gridsService.table.get(tableId);
   if (!table) return fail(err.notFound("Table"));
-  const authorization = await resolveRecordAccessForAccess(access, { baseId: table.baseId, tableId }, required);
-  return authorization.ok ? ok({ table, recordAccess: authorization.data.recordAccess }) : authorization;
+  const authorization = await gateBaseAtAccess(access, table.baseId, required);
+  return authorization.ok ? ok({ table, recordAccess: ALL_RECORD_ACCESS }) : authorization;
 };
 
 const runBaseGet = async (input: z.infer<typeof BaseGetInputSchema>, context: CapabilityExecutionContext) => {

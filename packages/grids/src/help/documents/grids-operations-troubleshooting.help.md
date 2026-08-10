@@ -11,9 +11,9 @@ Grids rejects ambiguous queries, stale writes, invalid automation, and unauthori
 
 ## A resource is missing or will not open {icon="lifebuoy"}
 
-Check that it is not in trash or disabled, then check access on the resource itself. A specific `None` grant can override broader base access. Cloud administrator status does not bypass Grids access on normal app pages.
+Check that it is not in trash or disabled, then identify the boundary. Raw tables, Views, Forms, documents, and Workflows require the owning Base permission. A published Custom App requires its own Read grant. Cloud administrator status does not bypass Grids access on normal app pages.
 
-For a link opened from a Custom App or relation, remember that the target authorizes separately. Seeing included data or a relation label does not guarantee access to the linked resource.
+For a Custom App, confirm that the requested page or block is part of the published snapshot and that its `availableWhen` query returns a row. An unavailable resource deliberately returns **Not Found** and executes no data source or action.
 
 ## Records are missing, duplicated, or out of order {icon="lifebuoy"}
 
@@ -29,7 +29,7 @@ Another user or tab may have saved a newer version. Reload the record, compare t
 
 If the message asks for change context, answer the questions configured under **Table settings → Data integrity**. Protected updates, trash actions, and restores cannot proceed without the required answers.
 
-## A view or Custom App result is wrong {icon="layout-Custom App"}
+## A view or Custom App result is wrong {icon="layout"}
 
 Open the source query and verify it before changing presentation:
 
@@ -42,7 +42,7 @@ An empty result is different from a failed result. Query diagnostics explain syn
 
 ## A form will not submit {icon="forms"}
 
-Confirm that the form is active. A signed-in user needs Form **Write/Use** or inherited table write access. A public form must still be enabled for public access and opened through its current public URL.
+Confirm that the Form is active. A raw Base user needs Base Write. A Custom App submission must use an included available Form block. A public Form must still be enabled for token access and opened through its current public URL.
 
 Check required fields, relation inline-create rules, and hidden values. People submitting the form cannot override its hidden values.
 
@@ -80,7 +80,7 @@ An automatic run only exists if the workflow's published revision was listening 
 3. **Trigger match:** Compare the record event, its optional table restriction, and its filter against the change you made; compare the cron expression and timezone against the time you expected.
 4. **Activation window:** A record change is only picked up if it happened after the trigger became active. Enabling the workflow or publishing a changed record-event trigger restarts that window — changes from before it are not replayed.
 5. **Missed schedule:** A slot that passes while Grids is unavailable is skipped, not caught up later. The next slot runs normally.
-6. **Owner permission:** Schedules and record events run as the workflow owner. If the owner no longer has write access to the workflow, or cannot read a record the trigger binds to an input, the invocation is refused before any run is created.
+6. **Owner permission:** Schedules and record events run as the workflow owner. If the owner no longer has Base Write, or cannot read a record the trigger binds to an input, the invocation is refused before any run is created.
 :::
 
 If all six hold and there is still nothing, ask a Cloud administrator to check **Observability → Workflows**, which lists recorded occurrences that never became runs.
@@ -109,7 +109,7 @@ Open **Combined data**, inspect the affected source and field diagnostics, repai
 
 ## Files, exports, and large results {icon="paperclip"}
 
-Files follow their table or Combined-table permission boundary. Store facts people need to search or filter in normal fields rather than only in a filename.
+Files follow the owning Base or the exact published Custom App capability. Store facts people need to search or filter in normal fields rather than only in a filename.
 
 Exports and result pages load in pages. A query without `limit` can continue through all matching rows; a `limit` intentionally caps the complete result. Use bounded exports and CLI `--max-rows` options when an automated process must enforce its own maximum.
 

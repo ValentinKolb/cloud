@@ -12,7 +12,7 @@ beforeAll(async () => {
 });
 
 describe("relation expansion integration", () => {
-  postgresTest("does not expose relation labels without target-table read access", async () => {
+  postgresTest("exposes every relation label in a readable Base and denies it without Base read access", async () => {
     const userId = testUuid();
     const baseId = testUuid();
     const sourceTableId = testUuid();
@@ -75,7 +75,7 @@ describe("relation expansion integration", () => {
         INSERT INTO auth.access (id, user_id, permission)
         VALUES (${accessId}::uuid, ${userId}::uuid, 'read'::auth.permission_level)
       `;
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${targetTableId}::uuid, ${accessId}::uuid)`;
+      await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
       const readable = record();
       await attachRelationExpansion([readable], sourceFields, { userId, userGroups: [] });
       expect(readable.expanded).toEqual({ [targetRecordId]: { [labelFieldId]: "Secret target" } });

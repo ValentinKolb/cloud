@@ -24,7 +24,7 @@ Assistant keeps recent chats in the sidebar and stores older chats on the All Ch
 - **Retry:** Retry reruns a user message and replaces later messages in that chat branch.
 - **Fork:** Fork creates a new chat copied through the selected message.
 - **Compact:** Use the `/compact` command to summarize the current chat context before continuing.
-- **Skills:** Type `/` and choose a `/skill:<name>` command to apply that personal or workspace skill to your next message. Skills are selected only from this command list; remove the shown tag to cancel before sending.
+- **Projects:** Open Projects from the sidebar to create shared instructions and context or start a private chat in an accessible Project.
 :::
 
 :::info Approvals and client actions

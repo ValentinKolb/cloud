@@ -25,6 +25,7 @@ describe("backend GQL autocomplete adapter", () => {
     const source = { kind: "table" as const, tableId: "8f65ee89-0b2e-4010-a177-92bdb0c21e87" };
     const completions = buildBackendGqlCompletions({
       currentSource: source,
+      contextKeys: ["auth.id", "params.record_id", "time.now"],
       fetchAutocomplete: async (request) => {
         seen.push(request);
         return {
@@ -54,6 +55,8 @@ describe("backend GQL autocomplete adapter", () => {
     expect(request.caret).toBe(7);
     expect(request.currentTableId).toBe(source.tableId);
     expect(request.currentSource).toEqual(source);
+    expect(request.contextKeys).toEqual(["auth.id", "params.record_id", "time.now"]);
+    expect(completions.every((completion) => completion.debounceMs === 180)).toBe(true);
     expect(suggestions).toEqual([
       {
         text: "Amount",

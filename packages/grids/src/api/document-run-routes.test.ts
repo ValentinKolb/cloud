@@ -97,9 +97,7 @@ const forbiddenResponse = {
   code: "FORBIDDEN",
 };
 
-let templateLevel: PermissionLevel = "read";
 let tableLevel: PermissionLevel = "read";
-let deniedTemplateIds = new Set<string>();
 let currentTemplate: typeof template | null = template;
 let currentTable: typeof table | null = table;
 let currentRun: RunFixture | null = run;
@@ -133,9 +131,7 @@ const expectForbidden = async (response: Response) => {
 
 describe("document run routes", () => {
   beforeEach(() => {
-    templateLevel = "read";
     tableLevel = "read";
-    deniedTemplateIds = new Set();
     currentTemplate = template;
     currentTable = table;
     currentRun = run;
@@ -182,13 +178,8 @@ describe("document run routes", () => {
       return renderRunResult as never;
     });
     spyOn(gridsService.document, "summarizeRun").mockImplementation(summarizeRun as never);
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
-      if ("documentTemplateId" in target) {
-        return deniedTemplateIds.has(target.documentTemplateId) ? "none" : templateLevel;
-      }
-      return tableLevel;
-    });
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => tableLevel);
   });
 
   afterEach(() => mock.restore());
@@ -234,8 +225,8 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual({ message: "Document template not found" });
     });
 
-    test("requires template read permission", async () => {
-      templateLevel = "none";
+    test("requires base read permission", async () => {
+      tableLevel = "none";
       await expectForbidden(await app().request(path(`/runs/by-template/${templateId}`)));
     });
 
@@ -295,8 +286,8 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual({ message: "Document template not found" });
     });
 
-    test("requires template read permission", async () => {
-      templateLevel = "none";
+    test("requires base read permission", async () => {
+      tableLevel = "none";
       await expectForbidden(await app().request(path(`/runs/by-template/${templateId}/browse`)));
     });
 
@@ -355,8 +346,8 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual({ message: "Record not found" });
     });
 
-    test("requires template read permission", async () => {
-      templateLevel = "none";
+    test("requires base read permission", async () => {
+      tableLevel = "none";
       await expectForbidden(await app().request(path(`/runs/by-template/${templateId}/${recordId}`)));
     });
 
@@ -388,14 +379,6 @@ describe("document run routes", () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ items: [summarizeRun(run), summarizeRun(otherTemplateRun)] });
     });
-
-    test("omits runs from document templates the caller cannot read", async () => {
-      deniedTemplateIds.add(otherTemplateId);
-      const response = await app().request(path(`/runs/by-record/${tableId}/${recordId}`));
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ items: [summarizeRun(run)] });
-    });
   });
 
   describe("PATCH /runs/:runId", () => {
@@ -407,23 +390,22 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual({ message: "Document run not found" });
     });
 
-    test("requires template write permission", async () => {
-      templateLevel = "read";
+    test("requires base write permission", async () => {
+      tableLevel = "read";
       await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
       expect(updateInput).toBeUndefined();
     });
 
-    test("keeps template permissions after the source template is deleted", async () => {
+    test("keeps base permissions after the source template is deleted", async () => {
       currentTemplate = null;
-      templateLevel = "read";
-      tableLevel = "write";
+      tableLevel = "read";
 
       await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
       expect(updateInput).toBeUndefined();
     });
 
     test("updates metadata and returns the mapped summary", async () => {
-      templateLevel = "write";
+      tableLevel = "write";
       const response = await app().request(path(`/runs/${runId}`), patchJson({ filename: " Updated.pdf ", tags: ["paid"] }));
 
       expect(response.status).toBe(200);
@@ -431,7 +413,7 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual(summarizeRun({ ...run, filename: "Updated.pdf", tags: ["paid"] }));
     });
 
-    test("uses table write permission for a template-less run", async () => {
+    test("uses base write permission for a template-less run", async () => {
       currentRun = { ...run, templateId: null };
       tableLevel = "read";
       await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
@@ -453,16 +435,15 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual({ message: "Document run not found" });
     });
 
-    test("requires template read permission", async () => {
-      templateLevel = "none";
+    test("requires base read permission", async () => {
+      tableLevel = "none";
       await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
       expect(renderedRun).toBeUndefined();
     });
 
-    test("keeps template permissions after the source template is deleted", async () => {
+    test("keeps base permissions after the source template is deleted", async () => {
       currentTemplate = null;
-      templateLevel = "none";
-      tableLevel = "read";
+      tableLevel = "none";
 
       await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
       expect(renderedRun).toBeUndefined();
@@ -484,7 +465,7 @@ describe("document run routes", () => {
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([37, 80, 68, 70]));
     });
 
-    test("uses table read permission for a template-less run", async () => {
+    test("uses base read permission for a template-less run", async () => {
       const tableRun = { ...run, templateId: null };
       currentRun = tableRun;
       tableLevel = "none";

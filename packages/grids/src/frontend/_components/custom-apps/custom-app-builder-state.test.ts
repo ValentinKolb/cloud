@@ -4,7 +4,7 @@ import type { CustomAppDefinition } from "../../../custom-apps/contracts";
 import { createCustomAppBuilderState } from "./custom-app-builder-state";
 
 const definition = (): CustomAppDefinition => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "grids.custom-app",
   id: "10000000-0000-4000-8000-000000000001",
   baseId: "10000000-0000-4000-8000-000000000002",

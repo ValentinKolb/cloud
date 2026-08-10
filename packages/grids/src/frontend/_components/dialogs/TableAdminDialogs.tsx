@@ -14,7 +14,6 @@ import {
   TextInput,
   Tooltip,
 } from "@k2b/ui";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FederatedSourcePublication } from "../../../contracts";
@@ -22,7 +21,7 @@ import type { Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
-import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
+import type { TableHeader } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
 import { auditPolicySummary, openAuditPolicyDialog } from "./AuditPolicyDialog";
@@ -34,7 +33,6 @@ export { openDocumentTemplateEditorDialog, openDocumentTemplatesDialog } from ".
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
   fields: Field[];
-  initialAccessEntries: AccessEntry[];
   canManageBase: boolean;
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
@@ -44,7 +42,6 @@ function TableSettingsDialog(props: {
   args: {
     table: TableHeader;
     fields: Field[];
-    initialAccessEntries: AccessEntry[];
     canManageBase: boolean;
     onSaved: (table: Table) => void;
     onDeleted?: () => void;
@@ -61,7 +58,6 @@ function TableSettingsDialog(props: {
       <TableSettingsBody
         table={props.args.table}
         fields={props.args.fields}
-        initialAccessEntries={props.args.initialAccessEntries}
         canManageBase={props.args.canManageBase}
         onDirtyChange={setDirty}
         onSaved={(table) => {
@@ -177,7 +173,6 @@ export const openFormsDialog = (args: {
   tableName: string;
   fields: Field[];
   initialForms: Form[];
-  initialFormAccessEntries: Record<string, AccessEntry[]>;
   onFormsChanged?: (forms: Form[]) => void;
 }) =>
   dialogCore.open<void>(
@@ -189,7 +184,6 @@ export const openFormsDialog = (args: {
             tableId={args.tableId}
             fields={args.fields}
             initialForms={args.initialForms}
-            initialFormAccessEntries={args.initialFormAccessEntries}
             onFormsChanged={args.onFormsChanged}
             canManage
           />
@@ -229,7 +223,6 @@ export const deleteFieldWithChecks = async (field: Field): Promise<boolean> => {
 function TableSettingsBody(props: {
   table: TableHeader;
   fields: Field[];
-  initialAccessEntries: AccessEntry[];
   canManageBase: boolean;
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
@@ -479,10 +472,6 @@ function TableSettingsBody(props: {
             </button>
           </PanelDialog.Section>
         </Show>
-
-        <PanelDialog.Section title="Permissions" subtitle="These permissions apply only to this table." icon="ti ti-lock">
-          <TablePermissions tableId={props.table.id} tableKind={props.table.kind} initialEntries={props.initialAccessEntries} />
-        </PanelDialog.Section>
 
         <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">
           <Button variant="danger" size="sm" type="button" class="self-start" onClick={deleteTable} disabled={deleteMut.loading()}>

@@ -1,11 +1,9 @@
-import { AppWorkspace, prompts, Button } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
-import { apiClient } from "../../../api/client";
+import { AppWorkspace, Button, prompts } from "@k2b/ui";
 import type { Field, Form } from "../../../service";
 import { openFormEditorDialog } from "../forms/FormsManager";
 import { openFormModal } from "../records/FormSubmitModal";
-import { errorMessage } from "../utils/api-helpers";
 import SidebarTableMeta from "./SidebarTableMeta";
 
 type Props = {
@@ -53,18 +51,13 @@ export default function FormSidebarEntry(props: Props) {
       dateConfig: props.dateConfig,
     });
 
-  const openEditor = async () => {
-    const response = await apiClient.access["by-form"][":formId"].$get({ param: { formId: props.form.id } });
-    if (!response.ok) throw new Error(await errorMessage(response, "Could not load form permissions"));
-    return openFormEditorDialog({
+  const openEditor = () =>
+    openFormEditorDialog({
       form: props.form,
       tableFields: props.fields,
-      initialAccessEntries: await response.json(),
-      canManageAccess: true,
       onSaved: refreshCurrentPath,
       onDelete: refreshCurrentPath,
     });
-  };
 
   const handleClick = async () => {
     if (props.editMode) {

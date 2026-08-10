@@ -3,10 +3,12 @@ import { coreSettings } from "../services";
 import { logger, trace } from "../services/logging";
 import type { AiEnrichmentRunSummary } from "./enrich";
 import { enrichDirtyAiConversations } from "./enrich";
+import { type AiMemoryLearningRunSummary, learnAiMemoriesFromPrivateChats } from "./memory-learning";
 
 const log = logger("ai:maintenance");
 
 export const AI_ENRICH_CRON_SETTING_KEY = "ai.enrich_cron";
+export const AI_MEMORY_LEARNING_CRON_SETTING_KEY = "ai.memory_learning_cron";
 const DEFAULT_ENRICH_CRON = "*/10 * * * *";
 
 const getCronSetting = async (key: string, fallback: string): Promise<string> => {
@@ -74,6 +76,26 @@ const reindexJob = job<{ conversationId: string }, AiEnrichmentRunSummary>({
   },
 });
 
+const memoryLearningJob = job<void, AiMemoryLearningRunSummary>({
+  id: "ai:memory:learn",
+  defaults: { leaseMs: 900_000 },
+  trace: trace.fromSyncJob<void, AiMemoryLearningRunSummary>({
+    name: "AI memory learning",
+    source: "ai:memory:learn",
+    appId: "assistant",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
+  process: async ({ ctx }) => {
+    const summary = await learnAiMemoriesFromPrivateChats({ signal: ctx.signal, heartbeat: () => ctx.heartbeat() });
+    if (summary.scanned > 0) log.info("Memory learning run complete", { ...summary });
+    return summary;
+  },
+  after: ({ ctx }) => {
+    if (!ctx.error || ctx.failureCount >= 2) return;
+    ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 2_000, maxMs: 60_000 }) });
+  },
+});
+
 // ── Schedule ───────────────────────────────────────────────────────────
 
 const aiScheduler = scheduler({ id: "ai-maintenance" });
@@ -87,6 +109,10 @@ const createSchedule = async (config: {
   cron: string;
   tz: string;
   submit: (key: string) => Promise<string>;
+  label: string;
+  family: string;
+  resourceKind: string;
+  resourceId: string;
 }): Promise<void> => {
   await aiScheduler.create({
     id: config.id,
@@ -94,12 +120,12 @@ const createSchedule = async (config: {
     tz: config.tz,
     meta: {
       appId: "assistant",
-      family: "ai:chat",
-      label: "Chat enrichment",
+      family: config.family,
+      label: config.label,
       source: config.id,
-      resourceKind: "ai-enrichment",
-      resourceId: "chat-enrichment",
-      resourceLabel: "Assistant chats",
+      resourceKind: config.resourceKind,
+      resourceId: config.resourceId,
+      resourceLabel: config.label,
       detailHref: "/admin/settings?tab=ai",
     },
     trace: trace.fromSyncSchedule<void>({ name: config.id, source: config.id, appId: "assistant" }),
@@ -117,11 +143,25 @@ const createSchedule = async (config: {
  * The key is released on completion; the TTL is only a crash backstop.
  */
 const submitScheduledRun = (): Promise<string> => enrichJob.submit({ key: "scheduled", keyTtlMs: 30 * 60_000 });
+const submitMemoryLearning = (): Promise<string> => memoryLearningJob.submit({ key: "run", keyTtlMs: 30 * 60_000 });
 
 const doRegister = async (): Promise<void> => {
-  const [tz, enrichCron] = await Promise.all([getTimezoneSetting(), getCronSetting(AI_ENRICH_CRON_SETTING_KEY, DEFAULT_ENRICH_CRON)]);
+  const [tz, enrichCron, memoryLearningCron] = await Promise.all([
+    getTimezoneSetting(),
+    getCronSetting(AI_ENRICH_CRON_SETTING_KEY, DEFAULT_ENRICH_CRON),
+    getCronSetting(AI_MEMORY_LEARNING_CRON_SETTING_KEY, DEFAULT_ENRICH_CRON),
+  ]);
   try {
-    await createSchedule({ id: "ai:chat:enrich", cron: enrichCron, tz, submit: () => submitScheduledRun() });
+    await createSchedule({
+      id: "ai:chat:enrich",
+      cron: enrichCron,
+      tz,
+      submit: () => submitScheduledRun(),
+      label: "Chat enrichment",
+      family: "ai:chat",
+      resourceKind: "ai-enrichment",
+      resourceId: "chat-enrichment",
+    });
   } catch (error) {
     if (enrichCron === DEFAULT_ENRICH_CRON) throw error;
     log.warn("Invalid configured enrichment cron, falling back to default", {
@@ -130,7 +170,46 @@ const doRegister = async (): Promise<void> => {
       fallbackCron: DEFAULT_ENRICH_CRON,
       error: error instanceof Error ? error.message : String(error),
     });
-    await createSchedule({ id: "ai:chat:enrich", cron: DEFAULT_ENRICH_CRON, tz, submit: () => submitScheduledRun() });
+    await createSchedule({
+      id: "ai:chat:enrich",
+      cron: DEFAULT_ENRICH_CRON,
+      tz,
+      submit: () => submitScheduledRun(),
+      label: "Chat enrichment",
+      family: "ai:chat",
+      resourceKind: "ai-enrichment",
+      resourceId: "chat-enrichment",
+    });
+  }
+  try {
+    await createSchedule({
+      id: "ai:memory:learn",
+      cron: memoryLearningCron,
+      tz,
+      submit: () => submitMemoryLearning(),
+      label: "Personal memory learning",
+      family: "ai:memory",
+      resourceKind: "ai-memory-learning",
+      resourceId: "personal-memory-learning",
+    });
+  } catch (error) {
+    if (memoryLearningCron === DEFAULT_ENRICH_CRON) throw error;
+    log.warn("Invalid configured memory learning cron, falling back to default", {
+      key: AI_MEMORY_LEARNING_CRON_SETTING_KEY,
+      configuredCron: memoryLearningCron,
+      fallbackCron: DEFAULT_ENRICH_CRON,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await createSchedule({
+      id: "ai:memory:learn",
+      cron: DEFAULT_ENRICH_CRON,
+      tz,
+      submit: () => submitMemoryLearning(),
+      label: "Personal memory learning",
+      family: "ai:memory",
+      resourceKind: "ai-memory-learning",
+      resourceId: "personal-memory-learning",
+    });
   }
   registered = true;
 };
@@ -160,6 +239,7 @@ export const aiMaintenanceJobs = {
     // catches up on dirty chats immediately and (b) reindex requests queued
     // before a restart drain without waiting for the next user click.
     await submitScheduledRun().catch(() => undefined);
+    await submitMemoryLearning().catch(() => undefined);
     await reindexJob
       .submit({ key: "boot-warmup", keyTtlMs: 60_000, input: { conversationId: WARMUP_CONVERSATION_ID } })
       .catch(() => undefined);
@@ -170,6 +250,7 @@ export const aiMaintenanceJobs = {
     await aiScheduler.stop();
     enrichJob.stop();
     reindexJob.stop();
+    memoryLearningJob.stop();
     started = false;
     registered = false;
     registerPromise = null;
@@ -177,6 +258,9 @@ export const aiMaintenanceJobs = {
 
   /** Manual full run (admin/testing). */
   submitEnrichmentRun: (): Promise<string> => enrichJob.submit({ key: `manual:${Date.now()}` }),
+
+  /** Manual full memory-learning run (admin/testing). */
+  submitMemoryLearningRun: (): Promise<string> => submitMemoryLearning(),
 
   /**
    * User-triggered reindex of one conversation on the dedicated reindex queue

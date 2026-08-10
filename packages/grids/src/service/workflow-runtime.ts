@@ -45,8 +45,7 @@ import type {
 } from "../workflows/contracts";
 import { GRIDS_EVENT } from "../workflows/events";
 import { gridsWorkflows } from "../workflows/module";
-import { canExecuteWorkflow } from "./workflow-action-scope";
-import { resolveWorkflowTargetRecordAccess } from "./workflow-authorization";
+import { canExecuteWorkflow, resolveWorkflowExecutionRecordAccess, resolveWorkflowRunRecordAccess } from "./workflow-action-scope";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
 import { createWorkflowRecordEventRuntime } from "./workflow-record-events";
@@ -286,7 +285,10 @@ export const invokeGridsWorkflow = async (input: InvokeGridsWorkflowInput): Prom
     preparedInputs = await prepareWorkflowInputs(
       workflow.plan,
       input.inputs,
-      createWorkflowInputPreparationDeps(workflow.baseId, input.principal, { trustedRecordIds: input.trustedRecordIds }),
+      createWorkflowInputPreparationDeps(workflow.baseId, input.principal, {
+        trustedRecordIds: input.trustedRecordIds,
+        resolveRecordAccess: (tableId) => resolveWorkflowExecutionRecordAccess(claim, tableId, "read"),
+      }),
     );
   } catch (error) {
     if (error instanceof WorkflowInputPreparationError) {
@@ -352,7 +354,7 @@ const workflowValues = (claim: WorkflowRunClaim) =>
     const scope = await getWorkflowRunScope(claim.runId);
     if (!scope) throw workflowConflict("Workflow run is no longer available.");
     return createGridsWorkflowValueResolver(scope.baseId, scope.principal, {
-      resolveRecordAccess: (tableId) => resolveWorkflowTargetRecordAccess(scope.principal, { baseId: scope.baseId, tableId }, "read"),
+      resolveRecordAccess: (tableId) => resolveWorkflowRunRecordAccess(scope, tableId, "read"),
     });
   });
 

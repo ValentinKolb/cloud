@@ -23,14 +23,8 @@ import {
   ValidateFederatedDraftSchema,
 } from "../contracts";
 import { gridsService } from "../service";
-import {
-  currentAccessSubject,
-  currentActorUserId,
-  currentCredentialPermission,
-  currentResourceBoundBaseId,
-  gateAt,
-  resolveRecordAccess,
-} from "./permissions";
+import { ALL_RECORD_ACCESS } from "../service/record-access";
+import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 import { requireUuidParam } from "./route-params";
 import { tableQueryRoutes } from "./table-query-routes";
 
@@ -362,13 +356,7 @@ const app = new Hono<AuthContext>()
       const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const tables = await gridsService.table.listByBase(baseId);
-      const visible = [];
-      for (const table of tables) {
-        const tableGate = await gateAt(c, { baseId, tableId: table.id }, "read");
-        if (tableGate.ok) visible.push(table);
-      }
-      return c.json(visible);
+      return c.json(await gridsService.table.listByBase(baseId));
     },
   )
 
@@ -429,7 +417,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(table);
     },
@@ -547,7 +535,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const { kind, q, ids, limit } = c.req.valid("query");
@@ -597,7 +585,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const access = await resolveRecordAccess(c, { baseId: table.baseId, tableId }, "read");
+      const access = await gateAt(c, { baseId: table.baseId }, "read");
       if (!access.ok) return respond(c, () => Promise.resolve(access));
 
       const { q, limit, excludeIds, includeDeleted } = c.req.valid("query");
@@ -608,7 +596,7 @@ const app = new Hono<AuthContext>()
         limit,
         excludeIds,
         includeDeleted: includeDeleted === "true",
-        recordAccess: access.data.recordAccess,
+        recordAccess: ALL_RECORD_ACCESS,
       });
       return c.json(result);
     },

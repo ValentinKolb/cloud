@@ -1,6 +1,5 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { prompts } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { prompts } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";
@@ -44,10 +43,7 @@ type RecordsAdminControllerOptions = {
   setForms: Setter<Form[]>;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
-  initialAccessEntries: AccessEntry[];
-  initialFormAccessEntries: Record<string, AccessEntry[]>;
   activeView?: View | null;
-  activeViewAccessEntries?: AccessEntry[];
   canEditActiveView?: boolean;
   canManageTable: boolean;
   canManageBase: boolean;
@@ -99,7 +95,6 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
     openTableSettingsDialog({
       table: tableHeader(),
       fields: options.fields(),
-      initialAccessEntries: options.initialAccessEntries,
       canManageBase: options.canManageBase,
       onSaved: (table) => {
         options.setTableName(table.name);
@@ -141,7 +136,6 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
       tableName: options.tableName(),
       fields: options.fields(),
       initialForms: options.forms(),
-      initialFormAccessEntries: options.initialFormAccessEntries,
       onFormsChanged: (nextCustomForms) => {
         const defaults = options.forms().filter((form) => form.isDefault);
         options.setForms([...defaults, ...nextCustomForms]);
@@ -168,8 +162,6 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
       tableName: options.tableName(),
       initialView: view,
       fields: options.fields(),
-      initialAccessEntries: options.activeViewAccessEntries ?? [],
-      canEditAccess: options.canManageTable,
       onSaved: (next) => {
         options.setViewDisplayConfig(next.ui.displayConfig ?? { mode: "table" });
         if (next.source !== view.source) window.location.reload();

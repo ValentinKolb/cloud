@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 kind: grids.custom-app
 id: 20000000-0000-4000-8000-000000000101
 baseId: 20000000-0000-4000-8000-000000000001
@@ -67,12 +67,10 @@ pages:
                   query: |
                     from table "Articles"
                     select Name, Weight, Description
-                    where List = param('list_id')
+                    where List = @params.list_id
                     sort record.createdAt asc
                     limit 100
                   maxRows: 100
-                  inputs:
-                    list_id: { source: PARAMS, path: list_id }
                 display:
                   kind: table
                   columnIds:

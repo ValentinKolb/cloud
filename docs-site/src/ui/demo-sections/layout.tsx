@@ -329,7 +329,7 @@ const SettingsDemo = () => {
         { kind: "component", name: "SettingsField", from: "@k2b/ui" },
         { kind: "component", name: "SettingsPanelFooter", from: "@k2b/ui" },
       ]}
-      description="Grouped category navigation, flat form groups, compact entity collections, empty states, item status and actions, and a panel-owned save footer."
+      description="Grouped category navigation, flat form groups, compact entity collections, boundary-aware reorder controls, and a panel-owned save footer."
       code={`<SettingsModal title="Mailbox settings" activeTab={active()} onTabChange={setActive}>
   <SettingsModal.Group title="Personal">
     <SettingsModal.Tab id="preferences" title="Preferences" icon="ti ti-adjustments" description="Defaults for this browser.">
@@ -357,7 +357,17 @@ const SettingsDemo = () => {
         <SettingsCollection.Action><Button size="xs">New view</Button></SettingsCollection.Action>
         <SettingsCollection.Item title="Open conversations" description="Private view · 3 filters" icon={<i class="ti ti-filter" />}>
           <SettingsCollection.Item.Status><StatusBadge tone="neutral" label="Private" variant="text" /></SettingsCollection.Item.Status>
-          <SettingsCollection.Item.Actions><IconButton size="xs" label="Edit Open conversations"><i class="ti ti-pencil" /></IconButton></SettingsCollection.Item.Actions>
+          <SettingsCollection.Item.Actions>
+            <SettingsCollection.Item.Reorder label="Open conversations" index={0} count={2} onMove={() => {}} />
+            <IconButton size="xs" label="Edit Open conversations"><i class="ti ti-pencil" /></IconButton>
+          </SettingsCollection.Item.Actions>
+        </SettingsCollection.Item>
+        <SettingsCollection.Item title="Waiting on customer" description="Shared view · 2 filters" icon={<i class="ti ti-filter" />}>
+          <SettingsCollection.Item.Status><StatusBadge tone="neutral" label="Shared" variant="text" /></SettingsCollection.Item.Status>
+          <SettingsCollection.Item.Actions>
+            <SettingsCollection.Item.Reorder label="Waiting on customer" index={1} count={2} onMove={() => {}} />
+            <IconButton size="xs" label="Edit Waiting on customer"><i class="ti ti-pencil" /></IconButton>
+          </SettingsCollection.Item.Actions>
         </SettingsCollection.Item>
       </SettingsCollection>
       <SettingsCollection title="Conversation tags" description="Shared across views and automations." empty="No tags yet.">
@@ -461,7 +471,23 @@ const SettingsDemo = () => {
                     <StatusBadge tone="neutral" label="Private" variant="text" />
                   </SettingsCollection.Item.Status>
                   <SettingsCollection.Item.Actions>
+                    <SettingsCollection.Item.Reorder label="Open conversations" index={0} count={2} onMove={() => undefined} />
                     <IconButton size="xs" label="Edit Open conversations">
+                      <i class="ti ti-pencil" />
+                    </IconButton>
+                  </SettingsCollection.Item.Actions>
+                </SettingsCollection.Item>
+                <SettingsCollection.Item
+                  title="Waiting on customer"
+                  description="Shared view · 2 filters"
+                  icon={<i class="ti ti-filter" />}
+                >
+                  <SettingsCollection.Item.Status>
+                    <StatusBadge tone="neutral" label="Shared" variant="text" />
+                  </SettingsCollection.Item.Status>
+                  <SettingsCollection.Item.Actions>
+                    <SettingsCollection.Item.Reorder label="Waiting on customer" index={1} count={2} onMove={() => undefined} />
+                    <IconButton size="xs" label="Edit Waiting on customer">
                       <i class="ti ti-pencil" />
                     </IconButton>
                   </SettingsCollection.Item.Actions>

@@ -65,7 +65,7 @@ export type SubmitAiChatTurnInput = {
   requestedModelId?: string;
   systemPrompt?: string;
   resourceContext?: string;
-  skill?: AiChatTurnRunConfig["skill"];
+  project?: AiChatTurnRunConfig["project"];
   clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: AiToolApprovalContext;
@@ -90,7 +90,7 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
     requestedModelId: input.requestedModelId,
     systemPrompt: input.systemPrompt,
     resourceContext: input.resourceContext,
-    skill: input.skill,
+    project: input.project,
     clientToolIds: input.clientToolIds,
     toolSource: input.toolSource ?? { kind: "none" },
     toolApprovalContext: input.toolApprovalContext,

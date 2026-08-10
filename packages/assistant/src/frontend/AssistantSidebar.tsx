@@ -1,7 +1,6 @@
 import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
 import { AppWorkspace, Dropdown, isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE } from "@k2b/ui";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
-import { openAiSkillsManager } from "@valentinkolb/cloud/ai/ui";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";
@@ -17,6 +16,7 @@ type AssistantSidebarProps = {
   activeView?: "chat" | "all";
   creatingConversation?: Accessor<boolean>;
   onNewConversation?: () => void | Promise<void>;
+  onOpenProjects?: () => void | Promise<void>;
   onOpenConversation?: (conversationId: string) => Promise<boolean>;
   canArchiveConversation?: (conversation: AiConversation) => boolean;
   onConversationUpdated?: (conversation: AiConversation) => void;
@@ -191,8 +191,8 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           <AppWorkspace.SidebarItem icon="ti ti-user-cog" onClick={() => void openAssistantPrefsModal()}>
             Personalize
           </AppWorkspace.SidebarItem>
-          <AppWorkspace.SidebarItem icon="ti ti-wand" onClick={() => void openAiSkillsManager()}>
-            Skills
+          <AppWorkspace.SidebarItem icon="ti ti-folders" onClick={() => void props.onOpenProjects?.()}>
+            Projects
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="assistant-sidebar-mobile">
@@ -272,14 +272,14 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           <AppWorkspace.SidebarItem icon="ti ti-user-cog" onClick={() => void openAssistantPrefsModal()}>
             Personalize
           </AppWorkspace.SidebarItem>
-          <AppWorkspace.SidebarItem icon="ti ti-wand" onClick={() => void openAiSkillsManager()}>
-            Skills
+          <AppWorkspace.SidebarItem icon="ti ti-folders" onClick={() => void props.onOpenProjects?.()}>
+            Projects
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarFooter>
         <AppWorkspace.SidebarFooter sidebarMode="collapsed">
           <AppWorkspace.SidebarIconGrid>
             <AppWorkspace.SidebarIconAction icon="ti ti-user-cog" label="Personalize" onClick={() => void openAssistantPrefsModal()} />
-            <AppWorkspace.SidebarIconAction icon="ti ti-wand" label="Skills" onClick={() => void openAiSkillsManager()} />
+            <AppWorkspace.SidebarIconAction icon="ti ti-folders" label="Projects" onClick={() => void props.onOpenProjects?.()} />
           </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>

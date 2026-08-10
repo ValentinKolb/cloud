@@ -1,8 +1,9 @@
-import { AutocompleteEditor, type AutocompleteEditorProps } from "@k2b/ui";
 import { highlight } from "@k2b/stdlib";
+import { AutocompleteEditor, type AutocompleteEditorProps } from "@k2b/ui";
 import { createMemo, splitProps } from "solid-js";
 import { aggregateKindPattern } from "../../../aggregate-catalog";
 import { apiClient } from "../../../api/client";
+import type { DslQueryContextKey } from "../../../query-dsl/parameters";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendGqlCompletions, type GqlCurrentSource } from "./query-autocomplete";
 
@@ -26,13 +27,15 @@ const gqlHighlight = highlight.compile(
 type Props = Omit<AutocompleteEditorProps, "completions" | "highlight"> & {
   baseId: string;
   currentSource?: GqlCurrentSource;
+  contextKeys?: readonly DslQueryContextKey[];
 };
 
 export function GqlSourceEditor(props: Props) {
-  const [scope, editorProps] = splitProps(props, ["baseId", "currentSource"]);
+  const [scope, editorProps] = splitProps(props, ["baseId", "currentSource", "contextKeys"]);
   const completions = createMemo(() =>
     buildBackendGqlCompletions({
       currentSource: scope.currentSource,
+      contextKeys: scope.contextKeys,
       fetchAutocomplete: async (request, signal) => {
         const response = await apiClient.gql["by-base"][":baseId"].autocomplete.$post(
           { param: { baseId: scope.baseId }, json: request },

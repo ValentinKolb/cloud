@@ -3,7 +3,7 @@ title: Assistant
 navTitle: Assistant
 section: Work
 order: 100
-description: A personal AI workspace for conversations, files, skills, and reusable preferences.
+description: A personal AI workspace for conversations, files, Projects, and reusable preferences.
 tags: [assistant, ai, chats]
 updated: 2026-08-05
 ---
@@ -36,7 +36,7 @@ proposed actions before relying on them.
 | Chat files | Source files and editable artifacts kept with one conversation |
 | Preferences and memory | Reusable personal context applied across conversations when enabled |
 | Remembered approvals | User-managed choices for bounded Actions that may run without asking each time |
-| Skill | A managed set of instructions and files available to Assistant |
+| Project | Shared instructions, knowledge, files, references, and defaults used by private chats |
 
 A model profile selects the provider model and available capabilities for a
 turn. Retry reruns a message in the current branch. Fork copies the conversation
@@ -45,8 +45,8 @@ through a selected message into a new chat.
 ## How Assistant fits Cloud
 
 Assistant owns its chat workspace and user experience. It uses Cloud's shared
-AI runtime for conversations, model selection, streaming turns, files, skills,
-memory, tool approvals, maintenance, and completion notifications. Cloud
+AI runtime for conversations, model selection, streaming turns, files, Projects,
+personalization, tool approvals, maintenance, and completion notifications. Cloud
 identity keeps each personal workspace bound to a user.
 
 ## Find detailed product help
@@ -54,7 +54,7 @@ identity keeps each personal workspace bound to a user.
 Open **Help** inside Assistant for chats, message actions, files,
 personalization, and guidance for better requests. Developers can read
 [Chat runtime and streaming](/en/docs/ai/chat-runtime-and-streaming),
-[Files, skills, and memory](/en/docs/ai/files-skills-and-memory), and
+[Files, Projects, and personalization](/en/docs/ai/files-projects-and-personalization), and
 [Tools and approvals](/en/docs/ai/tools-and-approvals) for the shared contracts
 Assistant adopts.
 
@@ -81,10 +81,9 @@ later prompts. Use `--print` or `-p` for scripts, pipelines, structured output,
 or one request without a prompt loop. Its startup line shows the effective
 model. A new chat prints its stable `cld assistant --chat <chat-id>` resume
 command, and the CLI repeats that command when the session ends. Blue `Info:`
-messages confirm non-error state changes such as attachments, model or skill
-selection, and stopped turns. Run `/model` or `/skill` without an argument to
-select an available model or visible skill by number. The model remains active
-for the session; the skill applies only to the next message.
+messages confirm non-error state changes such as attachments, model selection,
+and stopped turns. Run `/model` without an argument to select an available
+model by number. The model remains active for the session.
 
 Use `cld assistant --allow-bash` when the Assistant must work on the computer
 running the CLI. This exposes a local Bash tool only for that interactive
@@ -105,5 +104,5 @@ cld assistant models --json
 ```
 
 Run `cld assistant help` for chat flags and the management commands for chats,
-messages, files, preferences, skills, and turn actions. Run
+messages, files, preferences, Projects, and turn actions. Run
 `cld assistant <command> --help` before approving or changing stored state.

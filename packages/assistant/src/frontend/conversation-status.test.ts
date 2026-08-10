@@ -16,6 +16,7 @@ const conversation = (overrides: Partial<AiConversation> = {}): AiConversation =
   runStatus: "idle",
   runError: null,
   unreadCompletion: false,
+  projectId: null,
   resource: { kind: "direct" },
   createdByUserId: "user-1",
   createdAt: "2026-07-12T00:00:00.000Z",

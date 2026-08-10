@@ -8,7 +8,6 @@ import { get as getBase } from "../service/bases";
 import { listTemplatesForTable } from "../service/document-templates";
 import { listForBase as listEmailTemplatesForBase } from "../service/email-templates";
 import { listByTable as listFieldsByTable } from "../service/field-read";
-import { hasAtLeast, loadBaseWorkflowGrantsForSubject, resolveEffectivePermission } from "../service/permission-resolver";
 import { listByBase as listTablesByBase } from "../service/tables";
 import { buildWorkflowCatalog, type WorkflowCatalog, type WorkflowCatalogEntry } from "../service/workflow-catalog";
 import { listWorkflowScopes, listWorkflows } from "../service/workflow-definitions";
@@ -21,14 +20,7 @@ import {
   WorkflowDiagnosticSchema,
 } from "../workflows/contracts";
 import { gridsWorkflows } from "../workflows/module";
-import {
-  currentAccessSubject,
-  currentCredentialPermission,
-  currentResourceBoundBaseId,
-  currentWorkflowPrincipal,
-  gateAt,
-  minPermission,
-} from "./permissions";
+import { currentWorkflowPrincipal, gateAt } from "./permissions";
 
 export const WorkflowValidateSchema = z.object({ source: z.string().min(1).max(200_000) });
 
@@ -82,7 +74,7 @@ export const BulkLauncherRequestSchema = z.union([BulkLauncherRecordIdsRequestSc
 export const CustomAppLauncherRequestSchema = LauncherInvocationBaseSchema.strict();
 
 export const canReadWorkflow = async (c: Context<AuthContext>, workflow: { baseId: string; id: string }): Promise<boolean> => {
-  const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "read");
+  const gate = await gateAt(c, { baseId: workflow.baseId }, "read");
   return gate.ok;
 };
 
@@ -91,18 +83,8 @@ const readableWorkflowIds = async (
   baseId: string,
   workflows: Array<{ id: string; baseId: string }>,
 ): Promise<Set<string>> => {
-  const boundBaseId = currentResourceBoundBaseId(c);
-  if (boundBaseId !== undefined && boundBaseId !== baseId) return new Set();
-  const grants = await loadBaseWorkflowGrantsForSubject({ baseId, subject: currentAccessSubject(c) });
-  const credentialLevel = currentCredentialPermission(c);
-  return new Set(
-    workflows
-      .filter((workflow) => {
-        const level = minPermission(resolveEffectivePermission(grants, { baseId, workflowId: workflow.id }), credentialLevel);
-        return hasAtLeast(level, "read");
-      })
-      .map((workflow) => workflow.id),
-  );
+  const gate = await gateAt(c, { baseId }, "read");
+  return gate.ok ? new Set(workflows.filter((workflow) => workflow.baseId === baseId).map((workflow) => workflow.id)) : new Set();
 };
 
 export const visibleWorkflowsForBase = async (c: Context<AuthContext>, baseId: string, options: { includeDeleted?: boolean } = {}) => {
@@ -139,35 +121,25 @@ export const permissionedWorkflowCatalog = async (
   baseId: string,
   deps: WorkflowCatalogDeps = workflowCatalogDeps,
 ): Promise<WorkflowCatalog> => {
+  const gate = await gateAt(c, { baseId }, "read");
+  if (!gate.ok) return buildWorkflowCatalog({ tables: [], fieldsByTable: new Map(), templates: [], emailTemplates: [] });
   const visibleTables = [];
   const fieldsByTable = new Map<string, Array<{ id: string; shortId: string; name: string }>>();
   const templates = [];
   const emailTemplates = [];
   for (const table of await deps.listTablesByBase(baseId)) {
-    const tableGate = await gateAt(c, { baseId, tableId: table.id }, "read");
-    let hasVisibleTemplate = false;
     for (const template of await deps.listTemplatesForTable(table.id)) {
-      const templateGate = await gateAt(c, { baseId, tableId: table.id, documentTemplateId: template.id }, "read");
-      if (templateGate.ok) {
-        hasVisibleTemplate = true;
-        templates.push({ id: template.id, shortId: template.shortId, name: template.name, tableId: template.tableId });
-      }
+      templates.push({ id: template.id, shortId: template.shortId, name: template.name, tableId: template.tableId });
     }
-    if (!tableGate.ok && !hasVisibleTemplate) continue;
     visibleTables.push({ id: table.id, shortId: table.shortId, name: table.name });
-    if (tableGate.ok) {
-      const fields = await deps.listFieldsByTable(table.id);
-      fieldsByTable.set(
-        table.id,
-        fields.filter((field) => !field.deletedAt).map((field) => ({ id: field.id, shortId: field.shortId, name: field.name })),
-      );
-    }
+    const fields = await deps.listFieldsByTable(table.id);
+    fieldsByTable.set(
+      table.id,
+      fields.filter((field) => !field.deletedAt).map((field) => ({ id: field.id, shortId: field.shortId, name: field.name })),
+    );
   }
-  const emailTemplateGate = await gateAt(c, { baseId }, "admin");
-  if (emailTemplateGate.ok) {
-    for (const template of await deps.listEmailTemplatesForBase(baseId)) {
-      if (template.enabled) emailTemplates.push({ id: template.id, shortId: template.shortId, name: template.name });
-    }
+  for (const template of await deps.listEmailTemplatesForBase(baseId)) {
+    if (template.enabled) emailTemplates.push({ id: template.id, shortId: template.shortId, name: template.name });
   }
   return buildWorkflowCatalog({ tables: visibleTables, fieldsByTable, templates, emailTemplates });
 };

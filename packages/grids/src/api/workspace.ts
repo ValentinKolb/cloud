@@ -2,52 +2,10 @@ import { type AuthContext, auth, v } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { loadRecordDetailData } from "../frontend/_components/workspace/workspace-record-detail-state";
-import { outputFieldsForQuery } from "../frontend/_components/workspace/workspace-records-query";
 import { loadWorkflowRunDetail } from "../frontend/_components/workspace/workspace-workflow-state";
 import { gridsService } from "../service";
-import { hasAtLeast } from "../service/permission-resolver";
-import { compileGqlToRecordQuery, executeSavedViewSource } from "./gql-runtime";
-import {
-  currentActorViewer,
-  gateAt,
-  gridsAccessContext,
-  hasExplicitGrant,
-  resolveRecordAccessForAccess,
-  resolveWithGrants,
-} from "./permissions";
-
-const recordMetaFor = (recordMeta: { ids?: string[] } | null | undefined, recordId: string) => {
-  if (recordMeta?.ids?.length && !recordMeta.ids.includes(recordId)) return null;
-  return { ...(recordMeta ?? {}), ids: [recordId] };
-};
-
-const recordVisibleWithinSavedLimit = async (
-  executeView: typeof executeSavedViewSource,
-  c: Parameters<typeof executeSavedViewSource>[0],
-  baseId: string,
-  viewId: string,
-  recordId: string,
-  limit: number,
-): Promise<boolean> => {
-  let cursor: string | undefined;
-  let remaining = limit;
-  while (remaining > 0) {
-    const pageSize = Math.min(remaining, 200);
-    const result = await executeView(c, baseId, viewId, {
-      cursor,
-      maxRows: pageSize,
-      pageSize,
-      operation: "execute",
-      surface: "records-view",
-    });
-    if (!result.ok || result.mode !== "rows") return false;
-    if (result.rows.some((row) => row.recordId === recordId)) return true;
-    remaining -= result.rows.length;
-    cursor = result.page?.nextCursor ?? undefined;
-    if (!cursor || result.rows.length === 0) return false;
-  }
-  return false;
-};
+import { ALL_RECORD_ACCESS } from "../service/record-access";
+import { currentActorViewer, gateAt } from "./permissions";
 
 export const createWorkspaceApi = (
   deps: {
@@ -56,13 +14,7 @@ export const createWorkspaceApi = (
     getRecord?: typeof gridsService.record.get;
     listFields?: typeof gridsService.field.listByTable;
     gate?: typeof gateAt;
-    resolveRecordAccess?: typeof resolveRecordAccessForAccess;
     loadRecordDetail?: typeof loadRecordDetailData;
-    getView?: typeof gridsService.view.get;
-    resolve?: typeof resolveWithGrants;
-    compileView?: typeof compileGqlToRecordQuery;
-    executeView?: typeof executeSavedViewSource;
-    hasExplicitViewGrant?: typeof hasExplicitGrant;
     viewer?: typeof currentActorViewer;
     getWorkflowRun?: typeof gridsService.workflow.getRun;
     getWorkflow?: typeof gridsService.workflow.get;
@@ -80,90 +32,32 @@ export const createWorkspaceApi = (
         z.object({
           tableId: z.string().uuid(),
           recordId: z.string().uuid(),
-          viewId: z.string().uuid().optional(),
           deletedOnly: z.enum(["true"]).optional(),
         }),
       ),
       async (c) => {
         const getTable = deps.getTable ?? gridsService.table.get;
-        const { tableId, recordId, viewId, deletedOnly } = c.req.valid("query");
+        const { tableId, recordId, deletedOnly } = c.req.valid("query");
         const table = await getTable(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
-        const tableAccess = await gate(c, { baseId: table.baseId, tableId }, "read");
-        let historyOnly = false;
-        let detailFields: Awaited<ReturnType<typeof gridsService.field.listByTable>> | null = null;
+        const tableAccess = await gate(c, { baseId: table.baseId }, "read");
+        if (!tableAccess.ok) return c.json({ message: "Record not found" }, 404);
         const loadFields = () => (deps.listFields ?? gridsService.field.listByTable)(tableId);
-        if (tableAccess.ok) {
-          const recordAccess = await (deps.resolveRecordAccess ?? resolveRecordAccessForAccess)(
-            gridsAccessContext(c),
-            { baseId: table.baseId, tableId },
-            "read",
-          );
-          if (!recordAccess.ok) return c.json({ message: "Record not found" }, 404);
-          const getRecord = deps.getRecord ?? gridsService.record.get;
-          const record = await getRecord(tableId, recordId, {
-            deleted: deletedOnly ? "only" : "live",
-            viewer: (deps.viewer ?? currentActorViewer)(c),
-            recordAccess: recordAccess.data.recordAccess,
-          });
-          if (!record) return c.json({ message: "Record not found" }, 404);
-          detailFields = await loadFields();
-        } else {
-          if (!viewId || table.kind !== "federated") return c.json({ message: "Record not found" }, 404);
-          const getView = deps.getView ?? gridsService.view.get;
-          const view = await getView(viewId);
-          if (!view || view.tableId !== tableId) return c.json({ message: "Record not found" }, 404);
-          const resolve = deps.resolve ?? resolveWithGrants;
-          const { level, grants } = await resolve(c, { baseId: table.baseId, tableId, viewId: view.id });
-          const viewer = (deps.viewer ?? currentActorViewer)(c);
-          const explicitGrant = deps.hasExplicitViewGrant ?? hasExplicitGrant;
-          if (
-            !hasAtLeast(level, "read") ||
-            (view.ownerUserId !== null && view.ownerUserId !== viewer.userId && !explicitGrant(grants, "view", view.id))
-          ) {
-            return c.json({ message: "Record not found" }, 404);
-          }
-          const compiled = await (deps.compileView ?? compileGqlToRecordQuery)(c, {
-            baseId: table.baseId,
-            tableId,
-            source: view.source,
-            trustedAllSources: true,
-          });
-          if (!compiled.ok) return c.json({ message: "Record not found" }, 404);
-          const recordMeta = recordMetaFor(compiled.query.recordMeta, recordId);
-          if (!recordMeta) return c.json({ message: "Record not found" }, 404);
-          let visible: boolean;
-          if (compiled.query.limit !== undefined) {
-            visible = await recordVisibleWithinSavedLimit(
-              deps.executeView ?? executeSavedViewSource,
-              c,
-              table.baseId,
-              view.id,
-              recordId,
-              compiled.query.limit,
-            );
-          } else {
-            const result = await (deps.executeView ?? executeSavedViewSource)(c, table.baseId, view.id, {
-              recordId,
-              maxRows: 1,
-              pageSize: 1,
-              operation: "execute",
-              surface: "records-view",
-            });
-            visible = result.ok && result.mode === "rows" && result.rows.some((row) => row.recordId === recordId);
-          }
-          if (!visible) return c.json({ message: "Record not found" }, 404);
-          historyOnly = true;
-          detailFields = await loadFields();
-          detailFields = outputFieldsForQuery(detailFields, compiled.query);
-        }
+        const getRecord = deps.getRecord ?? gridsService.record.get;
+        const record = await getRecord(tableId, recordId, {
+          deleted: deletedOnly ? "only" : "live",
+          viewer: (deps.viewer ?? currentActorViewer)(c),
+          recordAccess: ALL_RECORD_ACCESS,
+        });
+        if (!record) return c.json({ message: "Record not found" }, 404);
+        const detailFields = await loadFields();
         const loadRecordDetail = deps.loadRecordDetail ?? loadRecordDetailData;
         return c.json(
           await loadRecordDetail({
             tableId,
             recordId,
             fields: detailFields ?? [],
-            scope: historyOnly ? "history" : "full",
+            scope: "full",
           }),
         );
       },
@@ -172,22 +66,13 @@ export const createWorkspaceApi = (
       const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
       const run = await getWorkflowRun(c.req.valid("query").runId);
       if (!run?.workflowId) return c.json({ message: "Workflow run not found" }, 404);
-      const access = await gate(c, { baseId: run.baseId, workflowId: run.workflowId }, "read");
+      const access = await gate(c, { baseId: run.baseId }, "read");
       if (!access.ok) return c.json({ message: "Workflow run not found" }, 404);
       const loadWorkflowDetail = deps.loadWorkflowDetail ?? loadWorkflowRunDetail;
       const workflow = await (deps.getWorkflow ?? gridsService.workflow.get)(run.workflowId, true);
       return c.json(
         await loadWorkflowDetail(run, {
-          canReadDocument: async (document) =>
-            (
-              await gate(
-                c,
-                document.templateId
-                  ? { baseId: document.baseId, tableId: document.tableId, documentTemplateId: document.templateId }
-                  : { baseId: document.baseId, tableId: document.tableId },
-                "read",
-              )
-            ).ok,
+          canReadDocument: async (document) => (await gate(c, { baseId: document.baseId }, "read")).ok,
           workflow,
           viewer: (deps.viewer ?? currentActorViewer)(c),
         }),

@@ -41,9 +41,8 @@ describe.skipIf(!(await canUseAiDatabase()))("aiUserPrefs (integration)", () => 
     const userId = await insertUser();
     try {
       const prefs = await aiUserPrefs.get(userId);
-      expect(prefs.instructions).toBe("");
-      expect(prefs.memory).toBe("");
       expect(prefs.memoryEnabled).toBe(true);
+      expect(prefs.memoryLearningEnabled).toBe(false);
     } finally {
       await cleanupUser(userId);
     }
@@ -52,39 +51,14 @@ describe.skipIf(!(await canUseAiDatabase()))("aiUserPrefs (integration)", () => 
   test("update upserts partial patches", async () => {
     const userId = await insertUser();
     try {
-      const first = await aiUserPrefs.update(userId, { instructions: "Answer in German." });
-      expect(first.instructions).toBe("Answer in German.");
+      const first = await aiUserPrefs.update(userId, { memoryEnabled: true });
       expect(first.memoryEnabled).toBe(true);
 
       const second = await aiUserPrefs.update(userId, { memoryEnabled: false });
-      expect(second.instructions).toBe("Answer in German.");
       expect(second.memoryEnabled).toBe(false);
-    } finally {
-      await cleanupUser(userId);
-    }
-  });
-
-  test("addMemory appends date-stamped lines and removeMemory deletes matches", async () => {
-    const userId = await insertUser();
-    const now = new Date("2026-07-09T12:00:00Z");
-    try {
-      expect(await aiUserPrefs.addMemory(userId, "Studies computer science.", now)).toBe("[2026-07-09] Studies computer science.");
-      expect(await aiUserPrefs.addMemory(userId, "  Prefers   German answers. ", now)).toBe("[2026-07-09] Prefers German answers.");
-      // A model echoing an existing stamp must not double-prefix.
-      expect(await aiUserPrefs.addMemory(userId, "[2025-01-01] Works at the library.", now)).toBe("[2026-07-09] Works at the library.");
-      expect(await aiUserPrefs.addMemory(userId, "   ", now)).toBeNull();
-
-      const prefs = await aiUserPrefs.get(userId);
-      expect(prefs.memory).toBe(
-        "[2026-07-09] Studies computer science.\n[2026-07-09] Prefers German answers.\n[2026-07-09] Works at the library.",
-      );
-
-      // Matching ignores the date prefix on both sides.
-      const removed = await aiUserPrefs.removeMemory(userId, "[2026-07-09] german");
-      expect(removed).toEqual(["[2026-07-09] Prefers German answers."]);
-      expect((await aiUserPrefs.get(userId)).memory).toBe("[2026-07-09] Studies computer science.\n[2026-07-09] Works at the library.");
-
-      expect(await aiUserPrefs.removeMemory(userId, "does-not-exist")).toEqual([]);
+      const third = await aiUserPrefs.update(userId, { memoryLearningEnabled: true });
+      expect(third.memoryEnabled).toBe(false);
+      expect(third.memoryLearningEnabled).toBe(true);
     } finally {
       await cleanupUser(userId);
     }

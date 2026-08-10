@@ -11,13 +11,11 @@ import {
   prompts,
   TextInput,
 } from "@k2b/ui";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DslQueryPreviewDiagnostic } from "../../../contracts";
 import type { Field, View } from "../../../service";
 import { createDraft } from "../editor-draft";
-import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
@@ -34,10 +32,6 @@ type Props = {
   tableName: string;
   initialView: View;
   fields: Field[];
-  /** Pre-fetched ACL entries for this view (server-side load). */
-  initialAccessEntries: AccessEntry[];
-  /** Whether the current user can mutate the view's ACL. */
-  canEditAccess: boolean;
   onSaved?: (view: View) => void;
 };
 
@@ -79,15 +73,6 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
         onSaved={props.onSaved}
         onDirtyChange={setQueryDirty}
       />
-
-      <PanelDialog.Section title="Permissions" subtitle="Choose who can open this view. Views only support View access." icon="ti ti-lock">
-        <ViewPermissions
-          viewId={props.initialView.id}
-          tableId={props.initialView.tableId}
-          initialEntries={props.initialAccessEntries}
-          canEdit={props.canEditAccess}
-        />
-      </PanelDialog.Section>
 
       <PanelDialog.Section
         title="Danger zone"
@@ -379,26 +364,5 @@ function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId
     <Button variant="danger" size="sm" type="button" class="self-start" onClick={handleDelete} disabled={mut.loading()}>
       <i class="ti ti-trash" /> Delete view
     </Button>
-  );
-}
-
-// =============================================================================
-// ViewPermissions — wraps the platform PermissionEditor with view-API wires
-// =============================================================================
-// Views intentionally expose read/admin only. There is no view-write level:
-// editing the view definition is an admin action.
-
-function ViewPermissions(props: { viewId: string; tableId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
-  return (
-    <ScopedPermissionEditor
-      scope={{ type: "view", id: props.viewId }}
-      tableId={props.tableId}
-      initialEntries={props.initialEntries}
-      canEdit={props.canEdit}
-      allowedLevels={[
-        { level: "read", label: "Read" },
-        { level: "admin", label: "Admin" },
-      ]}
-    />
   );
 }

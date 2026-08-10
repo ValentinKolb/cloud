@@ -506,6 +506,8 @@ const customAppSource = (source: unknown, ctx: TemplateContext): unknown => {
   return resolveCustomAppValue(source, ctx);
 };
 
+const customAppLocalId = (templateId: string): string => templateId.replaceAll("_", "-");
+
 const createCustomApps = async (
   template: GridTemplate,
   baseId: string,
@@ -515,82 +517,85 @@ const createCustomApps = async (
   for (const definition of template.customApps ?? []) {
     const appId = crypto.randomUUID();
     const pageId = "overview";
-    const rows = definition.rows.map((row) => ({
-      id: row.id,
-      columns: row.columns.map((column) => {
-        const source = customAppSource(column.source, ctx);
-        const block =
-          column.type === "metrics"
-            ? { id: column.id, type: "metrics", title: column.title, source }
-            : column.type === "chart"
-            ? {
-                id: column.id,
-                type: "chart",
-                title: column.title,
-                subtitle: column.subtitle,
-                chartType: column.chartType,
-                source,
-                limit: 100,
-                valueFormat: column.valueFormat,
-                xAxisLabel: column.xAxisLabel,
-                yAxisLabel: column.yAxisLabel,
-              }
-            : column.type === "records"
-            ? {
-                id: column.id,
-                type: "records",
-                title: column.title,
-                source,
-                display: {
-                  kind: "table",
-                  columnIds:
-                    source &&
-                    typeof source === "object" &&
-                    (source as { kind?: unknown }).kind === "view" &&
-                    isRef(
-                      column.source && typeof column.source === "object"
-                        ? (column.source as { viewId?: unknown }).viewId
-                        : null
-                    )
-                      ? ctx.viewColumns.get(
-                          (column.source as { viewId: TemplateRef }).viewId.key
-                        ) ?? []
-                      : [],
-                },
-              }
-            : column.type === "form"
-            ? {
-                id: column.id,
-                type: "form",
-                title: column.title,
-                formId: resolveRef(column.formId!, ctx),
-                fixedValues: {},
-              }
-            : {
-                id: column.id,
-                type: "actions",
-                title: column.title,
-                actions: [
-                  {
-                    id: `${column.id}-run`,
-                    label: column.buttonLabel ?? column.title ?? "Run",
-                    kind: "workflow",
-                    launcherId: resolveRef(column.launcherId!, ctx),
-                    inputs: {},
-                  },
-                ],
-              };
-        return {
-          id: `${column.id}-column`,
-          span: column.span,
-          blocks: [block],
-        };
-      }),
-    }));
+    const rows = definition.rows
+      .map((row) => ({
+        id: customAppLocalId(row.id),
+        columns: row.columns.filter((column) => column.type !== "actions").map((column) => {
+          const columnId = customAppLocalId(column.id);
+          const source = customAppSource(column.source, ctx);
+          const block =
+            column.type === "metrics"
+              ? { id: columnId, type: "metrics", title: column.title, source }
+              : column.type === "chart"
+                ? {
+                    id: columnId,
+                    type: "chart",
+                    title: column.title,
+                    subtitle: column.subtitle,
+                    chartType: column.chartType,
+                    source,
+                    limit: 100,
+                    valueFormat: column.valueFormat,
+                    xAxisLabel: column.xAxisLabel,
+                    yAxisLabel: column.yAxisLabel,
+                  }
+                : column.type === "records"
+                  ? {
+                      id: columnId,
+                      type: "records",
+                      title: column.title,
+                      source,
+                      display: {
+                        kind: "table",
+                        columnIds:
+                          source &&
+                          typeof source === "object" &&
+                          (source as { kind?: unknown }).kind === "view" &&
+                          isRef(
+                            column.source && typeof column.source === "object"
+                              ? (column.source as { viewId?: unknown }).viewId
+                              : null
+                          )
+                            ? ctx.viewColumns.get(
+                                (column.source as { viewId: TemplateRef }).viewId.key
+                              ) ?? []
+                            : [],
+                      },
+                    }
+                  : column.type === "form"
+                    ? {
+                        id: columnId,
+                        type: "form",
+                        title: column.title,
+                        formId: resolveRef(column.formId!, ctx),
+                        fixedValues: {},
+                      }
+                    : {
+                        id: columnId,
+                        type: "actions",
+                        title: column.title,
+                        actions: [
+                          {
+                            id: `${columnId}-run`,
+                            label: column.buttonLabel ?? column.title ?? "Run",
+                            kind: "workflow",
+                            launcherId: resolveRef(column.launcherId!, ctx),
+                            inputs: {},
+                          },
+                        ],
+                      };
+          return {
+            id: `${columnId}-column`,
+            span: column.span,
+            blocks: [block],
+          };
+        }),
+      }))
+      .filter((row) => row.columns.length > 0);
     const created = requireResult(
       await customApps.apply(
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
           kind: "grids.custom-app",
           id: appId,
           baseId,

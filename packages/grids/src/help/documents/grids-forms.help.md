@@ -22,7 +22,7 @@ In a custom form you can:
 - redirect after a successful submission;
 - pause submissions without deleting the form.
 
-A signed-in user can submit with **Write/Use** access to the form or inherited table write access. They do not need permission to browse the table when the form itself grants use.
+A signed-in Base user can submit with Base Write. A narrower authenticated audience submits only through a Custom App that explicitly includes the Form. The public token remains the standalone anonymous submission path.
 
 Turn on **Public form** only when anonymous submissions are intended. The unique public URL accepts only the form's configured fields and always applies its hidden values. Turning public access off invalidates the existing link; enabling it again creates a new one.
 
@@ -34,4 +34,4 @@ A Custom App may render an existing active Form as one block. The Form keeps own
 
 Use this composition when people need context before entering data, a repeated “add another” flow, or a detail page after creation. Keep the Form useful on its own and put multi-page navigation in the Custom App.
 
-Form access is still checked when the app renders or submits it. App access does not turn an inactive or inaccessible Form into a writable endpoint.
+The published capability and the Form block's optional `availableWhen` query are checked when the app renders and again when it submits. App access does not turn an inactive or undeclared Form into a writable endpoint.

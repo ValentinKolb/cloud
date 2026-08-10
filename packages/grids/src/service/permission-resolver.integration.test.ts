@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { loadGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
+import { loadBaseGrantsForSubject, loadCustomAppGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -37,19 +37,45 @@ describe("recursive Grids permission loading", () => {
       `;
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
 
-      const nested = await loadGrantsForSubject({ subject: { type: "user", userId: user.id }, baseId });
+      const nested = await loadBaseGrantsForSubject({ subject: { type: "user", userId: user.id }, baseId });
       expect(resolveEffectivePermission(nested, { baseId })).toBe("write");
 
       await sql`
         DELETE FROM auth.group_groups_v2
         WHERE parent_group_id = ${parentGroupId}::uuid AND child_group_id = ${childGroupId}::uuid
       `;
-      const revoked = await loadGrantsForSubject({ subject: { type: "user", userId: user.id }, baseId });
+      const revoked = await loadBaseGrantsForSubject({ subject: { type: "user", userId: user.id }, baseId });
       expect(resolveEffectivePermission(revoked, { baseId })).toBe("none");
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
       await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
       await sql`DELETE FROM auth.groups WHERE id IN (${childGroupId}::uuid, ${parentGroupId}::uuid)`;
+    }
+  });
+
+  postgresTest("keeps public grants effective only for Custom Apps", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+    const customAppId = Bun.randomUUIDv7();
+    const accessId = Bun.randomUUIDv7();
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'PP001', 'Public permission boundary')`;
+      await sql`
+        INSERT INTO grids.custom_apps (id, short_id, base_id, name, draft_definition)
+        VALUES (${customAppId}::uuid, 'PA001', ${baseId}::uuid, 'Public app', '{}'::jsonb)
+      `;
+      await sql`INSERT INTO auth.access (id, permission) VALUES (${accessId}::uuid, 'read'::auth.permission_level)`;
+      await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
+      await sql`INSERT INTO grids.custom_app_access (custom_app_id, access_id) VALUES (${customAppId}::uuid, ${accessId}::uuid)`;
+
+      const baseGrants = await loadBaseGrantsForSubject({ subject: null, baseId });
+      const appGrants = await loadCustomAppGrantsForSubject({ subject: null, customAppId });
+      expect(resolveEffectivePermission(baseGrants, { baseId })).toBe("none");
+      expect(resolveEffectivePermission(appGrants, { customAppId })).toBe("read");
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+      await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
     }
   });
 });

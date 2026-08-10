@@ -45,6 +45,7 @@ const chat: AiConversation = {
   runStatus: "idle",
   runError: null,
   unreadCompletion: false,
+  projectId: null,
   resource: { kind: "direct" },
   createdByUserId: user.id,
   createdAt: "2026-08-04T12:00:00.000Z",

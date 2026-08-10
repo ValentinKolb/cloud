@@ -106,7 +106,27 @@ export {
   toAiActionFailureResponse,
   toAiErrorResponse,
 } from "./http";
-export { AI_ENRICH_CRON_SETTING_KEY, aiMaintenanceJobs } from "./maintenance";
+export { AI_ENRICH_CRON_SETTING_KEY, AI_MEMORY_LEARNING_CRON_SETTING_KEY, aiMaintenanceJobs } from "./maintenance";
+export {
+  AI_MEMORY_CONTENT_MAX_CHARS,
+  AI_MEMORY_HOT_MAX_CHARS,
+  AI_MEMORY_HOT_MAX_ITEMS,
+  type AiMemory,
+  type AiMemoryKind,
+  type AiMemoryPriority,
+  type AiMemorySource,
+  aiMemories,
+  formatAiMemories,
+  getAiMemorySearchBackend,
+  isAiMemoryBm25CapabilityError,
+  resetAiMemorySearchBackend,
+} from "./memories";
+export {
+  type AiLearnedMemories,
+  AiLearnedMemoriesSchema,
+  type AiMemoryLearningRunSummary,
+  learnAiMemoriesFromPrivateChats,
+} from "./memory-learning";
 export {
   type CloudAiMemoryInput,
   CloudAiMemoryInputSchema,
@@ -115,14 +135,25 @@ export {
   createCloudAiMemoryTool,
 } from "./memory-tool";
 export { migrateCloudAi } from "./migrate";
+export { type AiUserPrefs, aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
 export {
-  AI_USER_INSTRUCTIONS_MAX_CHARS,
-  AI_USER_MEMORY_MAX_CHARS,
-  type AiUserPrefs,
-  aiActorUser,
-  aiPrefsUserId,
-  aiUserPrefs,
-} from "./prefs";
+  AI_PROJECT_DESCRIPTION_MAX_CHARS,
+  AI_PROJECT_FILE_MAX_BYTES,
+  AI_PROJECT_INSTRUCTIONS_MAX_CHARS,
+  AI_PROJECT_KNOWLEDGE_MAX_CHARS,
+  AI_PROJECT_NAME_MAX_CHARS,
+  type AiProject,
+  type AiProjectAccess,
+  type AiProjectFile,
+  type AiProjectKnowledge,
+  type AiProjectPermission,
+  type AiProjectReference,
+  aiProjects,
+} from "./projects";
+export {
+  type AiProjectsRoutes,
+  createAiProjectsRoutes,
+} from "./projects-routes";
 export {
   AI_WIRE_VERSION,
   type AiStreamSseEvent,
@@ -162,16 +193,6 @@ export {
   selectAiModelProfile,
   toPublicAiSettingsState,
 } from "./settings";
-export { type AiSkillsRoutes, createAiSkillsRoutes } from "./skills-routes";
-export {
-  AI_SKILL_DESCRIPTION_MAX_CHARS,
-  AI_SKILL_INSTRUCTIONS_MAX_CHARS,
-  AI_SKILL_NAME_MAX_CHARS,
-  type AiSkill,
-  type AiSkillScope,
-  type AiSkillSummary,
-  aiSkillStore,
-} from "./skills-store";
 export { aiConversationStore } from "./store";
 export {
   aiStreamTopic,
@@ -218,6 +239,7 @@ export type {
   AiModelPolicy,
   AiModelProfile,
   AiPendingTurnAction,
+  AiProjectPromptSnapshot,
   AiProviderId,
   AiPublicModelProfile,
   AiResolvedModel,
@@ -227,7 +249,6 @@ export type {
   AiSettingsError,
   AiSettingsErrorCode,
   AiSettingsState,
-  AiSkillSnapshot,
   AiStoredMessage,
   AiToolApprovalPolicy,
   AiToolDefinition,

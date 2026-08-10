@@ -1,94 +1,22 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, IconButton, prompts, toast } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { Button, IconButton, prompts, SettingsCollection, SettingsGroup, toast } from "@k2b/ui";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn } from "@/contracts";
 import { NameColorForm } from "./NameColorForm";
 import { readErrorMessage } from "./utils";
 
-function StatusRow(props: {
-  column: SpaceColumn;
-  index: number;
-  total: number;
-  onEdit: () => void;
-  onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
+export function StatusesSection(props: {
+  spaceId: string;
+  columns: SpaceColumn[];
+  onWorkspaceChange?: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
-  return (
-    <div class="group/status flex items-center gap-2 py-0.5">
-      <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.column.color || "#6b7280"}`} />
-      <span class="flex-1 text-sm truncate">{props.column.name}</span>
-      <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/status:opacity-100 sm:group-focus-within/status:opacity-100">
-        <IconButton
-          label={`Move ${props.column.name} up`}
-          size="sm"
-          onClick={props.onMoveUp}
-          disabled={props.index === 0}
-          class="h-7 w-7"
-          title="Move up"
-        >
-          <i class="ti ti-arrow-up text-sm" />
-        </IconButton>
-        <IconButton
-          label={`Move ${props.column.name} down`}
-          size="sm"
-          onClick={props.onMoveDown}
-          disabled={props.index === props.total - 1}
-          class="h-7 w-7"
-          title="Move down"
-        >
-          <i class="ti ti-arrow-down text-sm" />
-        </IconButton>
-        <IconButton label={`Edit ${props.column.name}`} size="sm" onClick={props.onEdit} class="h-7 w-7" title="Edit status">
-          <i class="ti ti-pencil text-sm" />
-        </IconButton>
-        <IconButton
-          label={`Delete ${props.column.name}`}
-          size="sm"
-          onClick={props.onDelete}
-          class="h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
-          title="Delete status"
-        >
-          <i class="ti ti-x text-sm" />
-        </IconButton>
-      </div>
-    </div>
-  );
-}
-
-function AddStatusButton(props: { onSave: (data: { name: string; color?: string }) => void; loading: boolean }) {
-  const [isOpen, setIsOpen] = createSignal(false);
-
-  return (
-    <Show
-      when={isOpen()}
-      fallback={
-        <Button type="button" variant="ghost" size="sm" onClick={() => setIsOpen(true)} class="self-start">
-          <i class="ti ti-plus" />
-          <span>Add status</span>
-        </Button>
-      }
-    >
-      <NameColorForm
-        mode="create"
-        nameLabel="Name"
-        namePlaceholder="Status name"
-        createLabel="Create"
-        onSave={(data) => {
-          props.onSave(data);
-          setIsOpen(false);
-        }}
-        onCancel={() => setIsOpen(false)}
-        loading={props.loading}
-      />
-    </Show>
-  );
-}
-
-export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]; onWorkspaceChange?: () => void }) {
   const [columns, setColumns] = createSignal([...props.columns]);
-  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const [editingId, setEditingId] = createSignal<string | "new" | null>(null);
+
+  createEffect(() => props.onDirtyChange(editingId() !== null));
+  onCleanup(() => props.onDirtyChange(false));
 
   const createMut = mutations.create({
     mutation: async (data: { name: string; color?: string }) => {
@@ -103,6 +31,7 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
     },
     onSuccess: (newColumn) => {
       setColumns([...columns(), newColumn as SpaceColumn]);
+      setEditingId(null);
       toast.success("Status created");
       props.onWorkspaceChange?.();
     },
@@ -181,45 +110,72 @@ export function StatusesSection(props: { spaceId: string; columns: SpaceColumn[]
   };
 
   return (
-    <div class="flex flex-col gap-1">
-      <For each={columns()}>
-        {(column, index) => (
-          <Show
-            when={editingId() === column.id}
-            fallback={
-              <StatusRow
-                column={column}
-                index={index()}
-                total={columns().length}
-                onEdit={() => setEditingId(column.id)}
-                onDelete={() => deleteMut.mutate(column)}
-                onMoveUp={() => moveColumn(index(), -1)}
-                onMoveDown={() => moveColumn(index(), 1)}
+    <>
+      <Show when={editingId()}>
+        {(id) => {
+          const column = () => columns().find((item) => item.id === id());
+          return (
+            <SettingsGroup
+              title={id() === "new" ? "New status" : `Edit ${column()?.name ?? "status"}`}
+              description="Choose a concise workflow label and recognizable color."
+            >
+              <NameColorForm
+                mode={id() === "new" ? "create" : "edit"}
+                initialName={column()?.name}
+                initialColor={column()?.color}
+                nameLabel="Name"
+                namePlaceholder="In progress"
+                createLabel="Create status"
+                onSave={(data) => {
+                  const current = column();
+                  if (id() === "new") createMut.mutate(data);
+                  else if (current) updateMut.mutate({ id: current.id, name: data.name, color: data.color ?? null });
+                }}
+                onCancel={() => setEditingId(null)}
+                loading={createMut.loading() || updateMut.loading()}
               />
-            }
-          >
-            <NameColorForm
-              mode="edit"
-              initialName={column.name}
-              initialColor={column.color}
-              nameLabel="Name"
-              namePlaceholder="Status name"
-              createLabel="Create"
-              onSave={(data) =>
-                updateMut.mutate({
-                  id: column.id,
-                  name: data.name,
-                  color: data.color ?? null,
-                })
-              }
-              onCancel={() => setEditingId(null)}
-              loading={updateMut.loading()}
-            />
-          </Show>
-        )}
-      </For>
+            </SettingsGroup>
+          );
+        }}
+      </Show>
 
-      <AddStatusButton onSave={createMut.mutate} loading={createMut.loading()} />
-    </div>
+      <SettingsCollection
+        title="Workflow statuses"
+        description="Ordered stages used by Kanban and item status controls. Changes save immediately."
+        empty="No statuses yet. Create one to organize work."
+      >
+        <SettingsCollection.Action>
+          <Button type="button" size="sm" disabled={editingId() !== null} onClick={() => setEditingId("new")}>
+            <i class="ti ti-plus" aria-hidden="true" />
+            New status
+          </Button>
+        </SettingsCollection.Action>
+        <For each={columns()}>
+          {(column, index) => (
+            <SettingsCollection.Item
+              title={column.name}
+              description={`Position ${index() + 1} of ${columns().length}`}
+              icon={<span class="h-3 w-3 rounded-full" style={`background-color:${column.color || "#6b7280"}`} />}
+            >
+              <SettingsCollection.Item.Actions>
+                <SettingsCollection.Item.Reorder
+                  label={column.name}
+                  index={index()}
+                  count={columns().length}
+                  disabled={reorderMut.loading()}
+                  onMove={(direction) => moveColumn(index(), direction)}
+                />
+                <IconButton label={`Edit ${column.name}`} size="sm" onClick={() => setEditingId(column.id)} title="Edit status">
+                  <i class="ti ti-pencil" aria-hidden="true" />
+                </IconButton>
+                <IconButton label={`Delete ${column.name}`} size="sm" onClick={() => deleteMut.mutate(column)} title="Delete status">
+                  <i class="ti ti-trash" aria-hidden="true" />
+                </IconButton>
+              </SettingsCollection.Item.Actions>
+            </SettingsCollection.Item>
+          )}
+        </For>
+      </SettingsCollection>
+    </>
   );
 }

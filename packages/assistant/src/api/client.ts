@@ -4,6 +4,9 @@ import type {
   AiConversationStatusFilter,
   AiEnrichmentRun,
   AiEnrichmentStatus,
+  AiMemory,
+  AiMemoryKind,
+  AiMemoryPriority,
   AiUserPrefs,
 } from "@valentinkolb/cloud/ai";
 import { api } from "@valentinkolb/cloud/browser";
@@ -64,7 +67,7 @@ export const assistantApi = {
     return response.json();
   },
 
-  createConversation: async (input: { title?: string } = {}): Promise<AiConversation> => {
+  createConversation: async (input: { title?: string; projectId?: string } = {}): Promise<AiConversation> => {
     const response = await client.conversations.$post({ json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to create chat"));
     return response.json();
@@ -91,10 +94,39 @@ export const assistantApi = {
     return response.json();
   },
 
-  updatePrefs: async (input: { instructions?: string; memory?: string; memoryEnabled?: boolean }): Promise<AiUserPrefs> => {
+  updatePrefs: async (input: { memoryEnabled?: boolean; memoryLearningEnabled?: boolean }): Promise<AiUserPrefs> => {
     const response = await client.prefs.$put({ json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to save AI preferences"));
     return response.json();
+  },
+
+  listMemories: async (input: { q?: string; limit?: number; signal?: AbortSignal } = {}): Promise<AiMemory[]> => {
+    const response = await client.memories.$get(
+      { query: { q: input.q, limit: input.limit ? String(input.limit) : undefined } },
+      { init: { signal: input.signal } },
+    );
+    if (!response.ok) throw new Error(await readError(response, "Failed to load memories"));
+    return response.json();
+  },
+
+  createMemory: async (input: { kind: AiMemoryKind; content: string; priority?: AiMemoryPriority }): Promise<AiMemory> => {
+    const response = await client.memories.$post({ json: input });
+    if (!response.ok) throw new Error(await readError(response, "Failed to create memory"));
+    return response.json();
+  },
+
+  updateMemory: async (
+    memoryId: string,
+    input: { kind?: AiMemoryKind; content?: string; priority?: AiMemoryPriority },
+  ): Promise<AiMemory> => {
+    const response = await client.memories[":memoryId"].$patch({ param: { memoryId }, json: input });
+    if (!response.ok) throw new Error(await readError(response, "Failed to update memory"));
+    return response.json();
+  },
+
+  deleteMemory: async (memoryId: string): Promise<void> => {
+    const response = await client.memories[":memoryId"].$delete({ param: { memoryId } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to delete memory"));
   },
 
   setConversationPinned: async (conversationId: string, pinned: boolean): Promise<AiConversation> => {

@@ -1,5 +1,10 @@
+import {
+  canonicalCustomAppQueryContext,
+  customAppQueryPlanHash,
+  customAppQueryPlanRelationTargetTableIds,
+} from "../custom-apps/query-plan-hash";
+import { bindDslQueryContext, type DslQueryContextValues } from "../query-dsl/parameters";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
-import { bindDslQueryParameters, type DslQueryParameters } from "../query-dsl/parameters";
 import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
 import * as fields from "./fields";
@@ -8,6 +13,7 @@ import type { Field } from "./types";
 
 type CompiledCustomAppQuery = {
   plan: DslResolvedSqlQueryPlan;
+  planHash: string;
   fieldsByTableId: Record<string, Field[]>;
   tableShortIds: Record<string, string>;
 };
@@ -21,12 +27,14 @@ export const compileCustomAppQuery = async (params: {
   baseId: string;
   source: string;
   currentTableId?: string;
-  parameters?: DslQueryParameters;
+  context: DslQueryContextValues;
 }): Promise<CompileCustomAppQueryResult> => {
   const parsed = parseGridsQueryDsl(params.source);
   if (!parsed.ok) return { ok: false, error: diagnosticMessage(parsed.diagnostics, "invalid GQL source") };
-  const bound = bindDslQueryParameters(parsed.ast, params.parameters ?? {});
+  const bound = bindDslQueryContext(parsed.ast, params.context);
   if (!bound.ok) return { ok: false, error: bound.error };
+  const canonicalBound = bindDslQueryContext(parsed.ast, canonicalCustomAppQueryContext(params.context));
+  if (!canonicalBound.ok) return { ok: false, error: canonicalBound.error };
 
   const context = await buildTrustedGqlResolverContext({
     baseId: params.baseId,
@@ -36,22 +44,37 @@ export const compileCustomAppQuery = async (params: {
   });
   const resolved = resolveDslQueryToQueryPlan(bound.ast, context);
   if (!resolved.ok) return { ok: false, error: diagnosticMessage(resolved.diagnostics, "invalid GQL source") };
+  const canonicalResolved = resolveDslQueryToQueryPlan(canonicalBound.ast, context);
+  if (!canonicalResolved.ok) return { ok: false, error: diagnosticMessage(canonicalResolved.diagnostics, "invalid GQL source") };
 
-  const missingFieldTableIds = collectDslPlanExtraFieldTableIds(resolved.plan).filter(
-    (tableId) => context.fieldsByTableId[tableId] === undefined,
-  );
+  const missingFieldTableIds = [
+    ...new Set([...collectDslPlanExtraFieldTableIds(resolved.plan), ...collectDslPlanExtraFieldTableIds(canonicalResolved.plan)]),
+  ].filter((tableId) => context.fieldsByTableId[tableId] === undefined);
   const missingFields = await Promise.all(
     missingFieldTableIds.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })),
   );
+
+  const fieldsWithPlanExtras = {
+    ...context.fieldsByTableId,
+    ...Object.fromEntries(missingFields.map((group) => [group.tableId, group.fields])),
+  };
+  const relationTargetTableIds = customAppQueryPlanRelationTargetTableIds(canonicalResolved.plan, fieldsWithPlanExtras).filter(
+    (tableId) => fieldsWithPlanExtras[tableId] === undefined,
+  );
+  const relationTargetFields = await Promise.all(
+    relationTargetTableIds.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })),
+  );
+  const fieldsByTableId = {
+    ...fieldsWithPlanExtras,
+    ...Object.fromEntries(relationTargetFields.map((group) => [group.tableId, group.fields])),
+  };
 
   return {
     ok: true,
     data: {
       plan: resolved.plan,
-      fieldsByTableId: {
-        ...context.fieldsByTableId,
-        ...Object.fromEntries(missingFields.map((group) => [group.tableId, group.fields])),
-      },
+      planHash: customAppQueryPlanHash(canonicalResolved.plan, fieldsByTableId),
+      fieldsByTableId,
       tableShortIds: Object.fromEntries(context.tables.map((table) => [table.id, table.shortId])),
     },
   };

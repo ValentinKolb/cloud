@@ -1,5 +1,4 @@
 import type { DateContext } from "@k2b/stdlib";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type {
   DocumentRunBrowseResponse,
   DocumentRunSummary,
@@ -77,9 +76,6 @@ export type WorkspaceRecordsRoute = {
   canReadTable: boolean;
   canWriteRecords: boolean;
   canManageActiveTable: boolean;
-  activeTableAccessEntries: AccessEntry[];
-  activeFormAccessEntries: Record<string, AccessEntry[]>;
-  activeViewAccessEntries: AccessEntry[];
   canEditActiveView: boolean;
   otherTables: Array<{ id: string; name: string }>;
   initialState: RecordsState;
@@ -113,7 +109,6 @@ export type WorkspaceQueryResultViewRoute = {
   fields: Field[];
   canManageActiveTable: boolean;
   canEditActiveView: boolean;
-  activeViewAccessEntries: AccessEntry[];
   initialCursor: string | null;
   initialResult: DslQueryPreviewResponse | null;
 };
@@ -186,7 +181,6 @@ export type WorkspaceDocumentTemplateRoute = {
   editableTemplate: DocumentTemplate | null;
   canWriteTemplate: boolean;
   canManageTemplate: boolean;
-  activeTemplateAccessEntries: AccessEntry[];
   initialRecordId: string | null;
   initialDocumentViewMode: GridsDocumentViewMode;
   initialBrowserPage: DocumentRunBrowseResponse;

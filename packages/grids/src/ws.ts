@@ -7,7 +7,7 @@ import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
 import { gridsWorkspace } from "./lib/workspace-events";
 import { gridsService } from "./service";
-import { type GridsMetadataEvent, latestMetadataEventCursor, liveMetadataEvents } from "./service/metadata-events";
+import { latestMetadataEventCursor, liveMetadataEvents } from "./service/metadata-events";
 import { latestRecordEventCursor, liveRecordEvents } from "./service/record-events";
 import { latestWorkflowRunEventCursor, liveWorkflowRunEvents } from "./service/workflow-run-events";
 
@@ -67,14 +67,12 @@ type AccessResult =
       baseId: string;
       tableId?: string;
       workflowId?: string;
-      recordEventVisibility?: "full" | "cursor_only";
     }
   | { ok: false; code: string; message: string; tableId?: string };
 
 type WorkspaceRuntime = {
   evaluateRecordsAccess: (tableId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateBaseAccess: (baseId: string, sessionToken: string | null) => Promise<AccessResult>;
-  evaluateMetadataEventAccess: (event: GridsMetadataEvent, sessionToken: string | null) => Promise<boolean>;
   evaluateWorkflowAccess: (workflowId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateSubscriptionAccess: (subscription: Subscription, sessionToken: string | null) => Promise<AccessResult>;
   latestRecordCursor: typeof latestRecordEventCursor;
@@ -199,14 +197,11 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
   const table = await gridsService.table.get(tableId);
   if (!table) return { ok: false, code: "not_found", message: "Table not found", tableId };
 
-  const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+  const grants = await gridsService.permission.loadBaseGrantsForSubject({
+    subject: { type: "user", userId: user.id },
     baseId: table.baseId,
-    tableId: table.id,
   });
-  const decision = gridsService.permission.resolveRecordAccess(grants, { baseId: table.baseId, tableId: table.id }, "read", user.id);
-  if (!decision.recordAccess) {
+  if (!gridsService.permission.hasAtLeast(gridsService.permission.resolve(grants, { baseId: table.baseId }), "read")) {
     return { ok: false, code: "access_denied", message: "Access denied", tableId: table.id };
   }
 
@@ -214,7 +209,6 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
     ok: true,
     baseId: table.baseId,
     tableId: table.id,
-    recordEventVisibility: decision.recordAccess.kind === "all" ? "full" : "cursor_only",
   };
 };
 
@@ -225,9 +219,8 @@ const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): 
   const base = await gridsService.base.get(baseId);
   if (!base) return { ok: false, code: "not_found", message: "Base not found" };
 
-  const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+  const grants = await gridsService.permission.loadBaseGrantsForSubject({
+    subject: { type: "user", userId: user.id },
     baseId: base.id,
   });
   const level = gridsService.permission.resolve(grants, { baseId: base.id });
@@ -238,30 +231,6 @@ const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): 
   return { ok: true, baseId: base.id };
 };
 
-const metadataEventTarget = (event: GridsMetadataEvent) => {
-  const tableId = event.resource.tableId ?? (event.resource.kind === "table" ? event.resource.id : undefined);
-  if (event.resource.kind === "view" && tableId) return { baseId: event.baseId, tableId, viewId: event.resource.id } as const;
-  if (event.resource.kind === "form" && tableId) return { baseId: event.baseId, tableId, formId: event.resource.id } as const;
-  if (event.resource.kind === "workflow") return { baseId: event.baseId, workflowId: event.resource.id } as const;
-  return tableId ? ({ baseId: event.baseId, tableId } as const) : ({ baseId: event.baseId } as const);
-};
-
-const evaluateMetadataEventAccess = async (event: GridsMetadataEvent, sessionToken: string | null): Promise<boolean> => {
-  const user = await resolveSessionUser(sessionToken);
-  if (!user) return false;
-  const target = metadataEventTarget(event);
-  const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-    baseId: target.baseId,
-    tableId: "tableId" in target ? target.tableId : null,
-    viewId: "viewId" in target ? target.viewId : null,
-    formId: "formId" in target ? target.formId : null,
-    workflowId: "workflowId" in target ? target.workflowId : null,
-  });
-  return gridsService.permission.hasAtLeast(gridsService.permission.resolve(grants, target), "read");
-};
-
 const evaluateWorkflowAccess = async (workflowId: string, sessionToken: string | null): Promise<AccessResult> => {
   const user = await resolveSessionUser(sessionToken);
   if (!user) return { ok: false, code: "login_required", message: "Login required" };
@@ -269,13 +238,11 @@ const evaluateWorkflowAccess = async (workflowId: string, sessionToken: string |
   const workflow = await gridsService.workflow.get(workflowId);
   if (!workflow) return { ok: false, code: "not_found", message: "Workflow not found" };
 
-  const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+  const grants = await gridsService.permission.loadBaseGrantsForSubject({
+    subject: { type: "user", userId: user.id },
     baseId: workflow.baseId,
-    workflowId: workflow.id,
   });
-  const level = gridsService.permission.resolve(grants, { baseId: workflow.baseId, workflowId: workflow.id });
+  const level = gridsService.permission.resolve(grants, { baseId: workflow.baseId });
   if (!gridsService.permission.hasAtLeast(level, "read")) {
     return { ok: false, code: "access_denied", message: "Access denied" };
   }
@@ -293,7 +260,6 @@ const evaluateSubscriptionAccess = (subscription: Subscription, sessionToken: st
 const workspaceRuntime: WorkspaceRuntime = {
   evaluateRecordsAccess: evaluateTableAccess,
   evaluateBaseAccess,
-  evaluateMetadataEventAccess,
   evaluateWorkflowAccess,
   evaluateSubscriptionAccess,
   latestRecordCursor: latestRecordEventCursor,
@@ -336,20 +302,11 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
           if (event.data.tableId !== tableId) continue;
           const access = await ensureCurrentAccess(ctx, runtime, subscription);
           if (!access) break;
-          const sent = send(
-            ctx.socket,
-            WS_TYPE.recordsEvent,
-            access.recordEventVisibility === "cursor_only"
-              ? {
-                  tableId,
-                  cursor: event.cursor,
-                }
-              : {
-                  tableId,
-                  cursor: event.cursor,
-                  event: event.data,
-                },
-          );
+          const sent = send(ctx.socket, WS_TYPE.recordsEvent, {
+            tableId,
+            cursor: event.cursor,
+            event: event.data,
+          });
           if (!sent) {
             closeWithError(ctx, runtime, "backpressure", "Live updates exceeded the connection capacity", tableId);
             break;
@@ -359,7 +316,6 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
         for await (const event of runtime.metadataEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (!(await ensureCurrentAccess(ctx, runtime, subscription))) break;
-          if (!(await runtime.evaluateMetadataEventAccess(event.data, ctx.sessionToken))) continue;
           const sent = send(ctx.socket, WS_TYPE.metadataEvent, {
             baseId,
             cursor: event.cursor,

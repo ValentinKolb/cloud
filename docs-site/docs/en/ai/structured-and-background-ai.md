@@ -5,7 +5,7 @@ section: AI
 order: 1060
 description: Run validated model tasks outside an interactive chat request.
 tags: [ai, structured-output, background]
-updated: 2026-08-05
+updated: 2026-08-10
 ---
 
 # Structured and background AI
@@ -91,6 +91,16 @@ Model resolution follows this order:
 3. the platform default.
 
 Resolution fails when AI is disabled or the model is unavailable.
+
+Cloud's built-in chat enrichment, personalization learning, and long-chat
+compaction use one prompt model: a code-owned task, optional administrator
+guidance, and a final code-owned output and safety contract. Administrators
+configure the shared background model, chat enrichment schedule,
+personalization learning schedule, and each task's additional instructions in
+**Settings → AI → Background jobs**. Additional instructions can supply local
+terminology or conventions; they cannot replace the task, loosen privacy
+rules, or change the output schema. Compaction uses this same additive model;
+there is no full custom compaction prompt.
 
 Do not silently turn a failed AI result into application truth. Decide whether
 the caller should retry, skip the optional enrichment, or surface the error.

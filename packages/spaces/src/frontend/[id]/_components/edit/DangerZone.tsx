@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, prompts, toast } from "@k2b/ui";
+import { Button, prompts, SettingsGroup, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./utils";
 
@@ -30,18 +30,13 @@ export function DangerZone(props: { spaceId: string; spaceName: string }) {
   });
 
   return (
-    <div class="flex flex-col gap-2">
-      <p class="text-sm text-secondary">Permanently delete this space and all its contents.</p>
-      <Button type="button" variant="danger" onClick={() => deleteMut.mutate(undefined)} disabled={deleteMut.loading()} class="self-start">
-        {deleteMut.loading() ? (
-          <i class="ti ti-loader-2 animate-spin" />
-        ) : (
-          <>
-            <i class="ti ti-trash mr-1" />
-            Delete Space
-          </>
-        )}
-      </Button>
-    </div>
+    <SettingsGroup title="Delete Space" description="Permanently delete this Space, its items, tags, and comments. This cannot be undone.">
+      <SettingsGroup.Action>
+        <Button type="button" variant="danger" onClick={() => deleteMut.mutate(undefined)} disabled={deleteMut.loading()}>
+          <i class={`ti ${deleteMut.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
+          Delete Space
+        </Button>
+      </SettingsGroup.Action>
+    </SettingsGroup>
   );
 }

@@ -12,20 +12,16 @@ import {
   prompts,
   TextInput,
 } from "@k2b/ui";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
-import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { FormFieldsEditor } from "./FormFieldsEditor";
 
 type OpenFormEditorDialogArgs = {
   form: Form;
   tableFields: Field[];
-  initialAccessEntries?: AccessEntry[];
-  canManageAccess: boolean;
   onSaved?: (next: Form) => void;
   onDelete?: () => Promise<void> | void;
 };
@@ -44,8 +40,6 @@ function FormEditorDialog(props: { args: OpenFormEditorDialogArgs; close: () => 
       <FormEditor
         form={props.args.form}
         tableFields={props.args.tableFields}
-        initialAccessEntries={props.args.initialAccessEntries ?? []}
-        canManageAccess={props.args.canManageAccess}
         onDirtyChange={setDirty}
         onSaved={(next) => {
           setDirty(false);
@@ -78,8 +72,6 @@ type SaveFormRequest = {
 function FormEditor(props: {
   form: Form;
   tableFields: Field[];
-  initialAccessEntries: AccessEntry[];
-  canManageAccess: boolean;
   onSaved: (next: Form) => void;
   onDelete: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -187,7 +179,7 @@ function FormEditor(props: {
           transform={bannerTransform}
         />
 
-        <FormEditorSection title="Access" subtitle="Who can submit, and whether the public link is live." icon="ti ti-world">
+        <FormEditorSection title="Availability" subtitle="Control whether submissions and the public link are live." icon="ti ti-world">
           <Checkbox
             label="Active"
             description="Submissions are accepted. Turn this off to pause the form without deleting it."
@@ -223,14 +215,6 @@ function FormEditor(props: {
                 />
               )}
             </Show>
-          </div>
-          <div class="flex flex-col gap-3">
-            <p class="text-xs font-semibold text-primary">Submit access</p>
-            <p class="text-[11px] leading-snug text-dimmed">
-              Grant Write to specific users or groups when this form should be private or internal. Public forms still accept anyone with
-              the link.
-            </p>
-            <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
           </div>
         </FormEditorSection>
 
@@ -308,16 +292,5 @@ function FormEditorSection(props: { title: string; subtitle?: string; icon: stri
     <PanelDialog.Section title={props.title} subtitle={props.subtitle} icon={props.icon}>
       {props.children}
     </PanelDialog.Section>
-  );
-}
-
-function FormPermissions(props: { formId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
-  return (
-    <ScopedPermissionEditor
-      scope={{ type: "form", id: props.formId }}
-      initialEntries={props.initialEntries}
-      canEdit={props.canEdit}
-      allowedLevels={[{ level: "write", label: "Use", icon: "ti-cursor-text" }]}
-    />
   );
 }

@@ -11,7 +11,6 @@ import {
 } from "@valentinkolb/cloud/ai";
 import { arg, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
 import { ASSISTANT_API, jsonRequest, parseJson, printRows, printValue, queryString, readApi, requireConfirmation, shortId } from "./shared";
-import { resolveAssistantSkill } from "./skills";
 import { streamAssistantTurn } from "./stream";
 import { type ConversationDetail, conversationPath, submitAndMaybeWatch } from "./turn";
 
@@ -105,9 +104,13 @@ export const assistantChatCommands = [
   }),
   command("chats create", {
     summary: "Create an empty chat",
-    flags: { title: flag.string() },
+    flags: { title: flag.string(), project: flag.string({ description: "Attach the chat to a Project ID" }) },
     async run({ ctx, flags }) {
-      const chat = await readApi<AiConversation>(ctx, "/conversations", jsonRequest("POST", flags.title ? { title: flags.title } : {}));
+      const chat = await readApi<AiConversation>(
+        ctx,
+        "/conversations",
+        jsonRequest("POST", { ...(flags.title ? { title: flags.title } : {}), ...(flags.project ? { projectId: flags.project } : {}) }),
+      );
       printValue(ctx, chat, `${chat.id}\t${chat.title}`);
     },
   }),
@@ -238,7 +241,6 @@ export const assistantManagementCommands = [
     flags: {
       mode: flag.enum(["retry", "details", "concise"] as const, { default: "retry" }),
       model: flag.string(),
-      skill: flag.string({ description: "Apply one visible skill by exact name or ID" }),
       replacement: flag.input({
         name: "message",
         fileName: "message-file",
@@ -251,7 +253,6 @@ export const assistantManagementCommands = [
       const body = {
         mode: flags.mode,
         ...(flags.model ? { modelProfileId: flags.model } : {}),
-        ...(flags.skill ? { skillId: (await resolveAssistantSkill(ctx, flags.skill)).id } : {}),
         ...(replacement?.trim() ? { content: [{ type: "text", text: replacement.trim() }] } : {}),
       };
       return submitAndMaybeWatch({
@@ -486,35 +487,11 @@ export const assistantManagementCommands = [
     },
   }),
   command("prefs get", {
-    summary: "Show Assistant instructions, memory, and last-used model",
+    summary: "Show Assistant preferences and last-used model",
     async run({ ctx }) {
       printValue(ctx, await readApi<AiUserPrefs>(ctx, "/prefs"));
     },
   }),
-  command("prefs set", {
-    summary: "Update Assistant instructions or memory",
-    flags: {
-      instructions: flag.input({ stdinName: false, description: "Instructions text or --instructions-file" }),
-      memory: flag.input({ stdinName: false, description: "Memory text or --memory-file" }),
-    },
-    async run({ ctx, flags }) {
-      const instructions = await readCliInput(flags.instructions, { label: "instructions" });
-      const memory = await readCliInput(flags.memory, { label: "memory" });
-      if (instructions === undefined && memory === undefined)
-        throw new Error("Pass --instructions/--instructions-file or --memory/--memory-file.");
-      const prefs = await readApi<AiUserPrefs>(ctx, "/prefs", jsonRequest("PUT", { instructions, memory }));
-      printValue(ctx, prefs);
-    },
-  }),
-  ...(["enable", "disable"] as const).map((action) =>
-    command(`prefs memory ${action}`, {
-      summary: `${action === "enable" ? "Enable" : "Disable"} Assistant memory`,
-      async run({ ctx }) {
-        const prefs = await readApi<AiUserPrefs>(ctx, "/prefs", jsonRequest("PUT", { memoryEnabled: action === "enable" }));
-        printValue(ctx, prefs, `Memory ${action}d.`);
-      },
-    }),
-  ),
   command("prefs system-prompt", {
     summary: "Preview the effective system prompt for a new chat",
     async run({ ctx }) {

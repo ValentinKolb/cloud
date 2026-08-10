@@ -17,7 +17,7 @@ import {
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition: CustomAppDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "grids.custom-app",
   id: uuid(1),
   baseId: uuid(2),

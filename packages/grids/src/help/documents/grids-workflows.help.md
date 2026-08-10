@@ -584,10 +584,10 @@ Because of that, an `httpRequest` inside a workflow is worth pointing at a recei
 ## Permissions and limits {icon="shield-lock"}
 
 :::reference
-- **Run permission:** Direct calls and standalone run options require workflow write access. Custom App block runs use included Custom App authorization; actions still check their target resources.
-- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and Custom App run options run as the user or service account that starts them. Direct calls appear under the api channel.
+- **Run permission:** Direct calls and standalone run options require Base Write. A published Custom App may invoke only its exact included launcher, and public visitors cannot run Workflow actions.
+- **Caller run identity:** Direct UI, API, and CLI calls plus scanner and bulk run options run as the user or service account that starts them. Custom App run options use the authenticated user's identity; Custom App grants do not support service accounts. Direct calls appear under the api channel.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
-- **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow. The check happens at the moment of the effect, so access revoked while a run was queued refuses that step rather than the original invocation.
+- **Action permission:** Raw runs use the owning Base permission. Custom App invocation rechecks the immutable app capability and `availableWhen` rule on the server; workflow preconditions still protect state that can change after the run starts.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
 - **Email-template dependencies:** Grids shows which workflows use an email template and refuses to delete a referenced template. Change those workflows first.
 - **HTTP guardrails:** `httpRequest` reaches public internet addresses only. A URL naming a private, local, or otherwise reserved address is refused, and so is a hostname that resolves to one — including a name that also resolves to a public address. There is no allowlist and no setting that opens this up; a service inside your network cannot be called from a workflow.

@@ -1,28 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { canAdministerView, changesViewSharing, isViewOwner } from "./views";
+import { canAdministerView, changesViewSharing } from "./views";
 
 describe("view mutation policy", () => {
-  test("treats an owner without an overriding view ACL as implicit admin", () => {
-    expect(canAdministerView({ level: "read", isOwner: true, hasDirectViewGrant: false })).toBe(true);
-  });
-
-  test("honors a direct read-only view ACL for the owner", () => {
-    expect(canAdministerView({ level: "read", isOwner: true, hasDirectViewGrant: true })).toBe(false);
-  });
-
-  test("requires explicit or inherited admin for non-owners", () => {
-    expect(canAdministerView({ level: "read", isOwner: false, hasDirectViewGrant: true })).toBe(false);
-    expect(canAdministerView({ level: "admin", isOwner: false, hasDirectViewGrant: true })).toBe(true);
-  });
-
-  test("does not preserve implicit owner admin after inherited access is revoked", () => {
-    expect(canAdministerView({ level: "none", isOwner: true, hasDirectViewGrant: false })).toBe(false);
-  });
-
-  test("does not treat a service account as the owner of shared views", () => {
-    expect(isViewOwner(null, null)).toBe(false);
-    expect(isViewOwner("owner-id", null)).toBe(false);
-    expect(isViewOwner("owner-id", "owner-id")).toBe(true);
+  test("requires owning-base admin regardless of legacy view ownership", () => {
+    expect(canAdministerView({ level: "read" })).toBe(false);
+    expect(canAdministerView({ level: "write" })).toBe(false);
+    expect(canAdministerView({ level: "admin" })).toBe(true);
   });
 
   test("requires a separate gate only when shared visibility actually changes", () => {

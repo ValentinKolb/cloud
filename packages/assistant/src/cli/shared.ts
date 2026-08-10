@@ -1,7 +1,7 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 
 export const ASSISTANT_API = "/api/assistant";
-const SKILLS_API = "/api/ai/skills";
+const PROJECTS_API = "/api/ai/projects";
 
 export const queryString = (values: Record<string, string | number | boolean | null | undefined>): string => {
   const search = new URLSearchParams();
@@ -21,8 +21,8 @@ export const jsonRequest = (method: string, body?: unknown): RequestInit => ({
 export const readApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
   ctx.readJson<T>(await ctx.fetch(`${ASSISTANT_API}${path}`, init));
 
-export const readSkillsApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
-  ctx.readJson<T>(await ctx.fetch(`${SKILLS_API}${path}`, init));
+export const readProjectsApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
+  ctx.readJson<T>(await ctx.fetch(`${PROJECTS_API}${path}`, init));
 
 export const printValue = (ctx: CloudCliContext, value: unknown, text?: string): void => {
   if (ctx.options.output === "json") ctx.json(value);

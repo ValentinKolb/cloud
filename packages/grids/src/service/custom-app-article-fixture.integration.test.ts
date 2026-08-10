@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { CustomAppDefinitionSchema } from "../custom-apps/contracts";
+import { customAppFormFieldHash, customAppFormSecurityHash } from "../custom-apps/form-capability";
+import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { grantAccess, listCustomAppAccess, listFormAccess, listTableAccess, listViewAccess } from "./access";
+import { grantAccess, listCustomAppAccess } from "./access";
 import { apply, compile, get, plan, publish } from "./custom-apps";
 
 const ARTICLE = {
@@ -123,13 +125,23 @@ describe("Article Custom App Golden fixture", () => {
       expect(validation.ok).toBe(true);
       if (!validation.ok) throw new Error(validation.diagnostics.map((item) => item.message).join("; "));
       expect(validation.compiled.capabilities).toEqual({
-        views: [{ viewId: ARTICLE.listViewId, tableId: ARTICLE.listTableId }],
+        availability: [],
+        views: [
+          {
+            viewId: ARTICLE.listViewId,
+            tableId: ARTICLE.listTableId,
+            sourceHash: customAppViewSourceHash(ARTICLE.listTableId, `from table {${ARTICLE.listTableId}}`),
+            planHash: expect.any(String),
+            tableIds: [ARTICLE.listTableId],
+          },
+        ],
         insights: [],
         recordQueries: [
           {
             pageId: "list",
             blockId: "articles",
             primaryTableId: ARTICLE.articleTableId,
+            planHash: expect.any(String),
             tableIds: [ARTICLE.articleTableId],
           },
         ],
@@ -139,6 +151,7 @@ describe("Article Custom App Golden fixture", () => {
             tableId: ARTICLE.listTableId,
             fieldIds: [ARTICLE.listNameFieldId],
             editableFieldIds: [],
+            relationLabels: [],
           },
         ],
         forms: [
@@ -154,6 +167,69 @@ describe("Article Custom App Golden fixture", () => {
               ARTICLE.articleDescriptionFieldId,
             ],
             fixedFieldIds: [ARTICLE.articleListFieldId],
+            fieldHash: customAppFormFieldHash(
+              [ARTICLE.articleListFieldId, ARTICLE.articleNameFieldId, ARTICLE.articleWeightFieldId, ARTICLE.articleDescriptionFieldId],
+              [
+                {
+                  id: ARTICLE.articleListFieldId,
+                  type: "relation",
+                  config: { targetTableId: ARTICLE.listTableId, cardinality: "single" },
+                  deletedAt: null,
+                },
+                { id: ARTICLE.articleNameFieldId, type: "text", config: {}, deletedAt: null },
+                { id: ARTICLE.articleWeightFieldId, type: "number", config: {}, deletedAt: null },
+                { id: ARTICLE.articleDescriptionFieldId, type: "longtext", config: {}, deletedAt: null },
+              ],
+            ),
+            formSecurityHash: customAppFormSecurityHash({
+              tableId: ARTICLE.articleTableId,
+              config: {
+                fields: [
+                  ARTICLE.articleListFieldId,
+                  ARTICLE.articleNameFieldId,
+                  ARTICLE.articleWeightFieldId,
+                  ARTICLE.articleDescriptionFieldId,
+                ].map((fieldId) => ({ kind: "user_input", fieldId })),
+              },
+              fields: [
+                {
+                  id: ARTICLE.articleListFieldId,
+                  tableId: ARTICLE.articleTableId,
+                  type: "relation",
+                  config: { targetTableId: ARTICLE.listTableId, cardinality: "single" },
+                  required: false,
+                  defaultValue: null,
+                  deletedAt: null,
+                },
+                {
+                  id: ARTICLE.articleNameFieldId,
+                  tableId: ARTICLE.articleTableId,
+                  type: "text",
+                  config: {},
+                  required: false,
+                  defaultValue: null,
+                  deletedAt: null,
+                },
+                {
+                  id: ARTICLE.articleWeightFieldId,
+                  tableId: ARTICLE.articleTableId,
+                  type: "number",
+                  config: {},
+                  required: false,
+                  defaultValue: null,
+                  deletedAt: null,
+                },
+                {
+                  id: ARTICLE.articleDescriptionFieldId,
+                  tableId: ARTICLE.articleTableId,
+                  type: "longtext",
+                  config: {},
+                  required: false,
+                  defaultValue: null,
+                  deletedAt: null,
+                },
+              ],
+            }),
           },
         ],
         comments: [],
@@ -188,64 +264,10 @@ describe("Article Custom App Golden fixture", () => {
           permission: "read",
         },
         {
-          resourceType: "table",
-          resourceId: ARTICLE.listTableId,
-          principal: { type: "group", groupId: ARTICLE.contributorGroupId },
-          permission: "read",
-          recordScope: { kind: "created_by" },
-        },
-        {
-          resourceType: "view",
-          resourceId: ARTICLE.listViewId,
-          principal: { type: "group", groupId: ARTICLE.contributorGroupId },
-          permission: "read",
-          recordScope: { kind: "created_by" },
-        },
-        {
-          resourceType: "table",
-          resourceId: ARTICLE.articleTableId,
-          principal: { type: "group", groupId: ARTICLE.contributorGroupId },
-          permission: "read",
-          recordScope: { kind: "related_created_by", relationFieldId: ARTICLE.articleListFieldId },
-        },
-        {
-          resourceType: "form",
-          resourceId: ARTICLE.articleFormId,
-          principal: { type: "group", groupId: ARTICLE.contributorGroupId },
-          permission: "write",
-        },
-        {
           resourceType: "customApp",
           resourceId: ARTICLE.appId,
           principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
           permission: "read",
-        },
-        {
-          resourceType: "table",
-          resourceId: ARTICLE.listTableId,
-          principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
-          permission: "write",
-          recordScope: { kind: "all" },
-        },
-        {
-          resourceType: "view",
-          resourceId: ARTICLE.listViewId,
-          principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
-          permission: "read",
-          recordScope: { kind: "all" },
-        },
-        {
-          resourceType: "table",
-          resourceId: ARTICLE.articleTableId,
-          principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
-          permission: "write",
-          recordScope: { kind: "all" },
-        },
-        {
-          resourceType: "form",
-          resourceId: ARTICLE.articleFormId,
-          principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
-          permission: "write",
         },
       ] satisfies Array<Parameters<typeof grantAccess>[0]>;
       for (const grant of grants) {
@@ -255,36 +277,6 @@ describe("Article Custom App Golden fixture", () => {
       }
 
       expect(await listCustomAppAccess(ARTICLE.appId)).toHaveLength(2);
-      expect(await listTableAccess(ARTICLE.listTableId)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            principal: { type: "group", groupId: ARTICLE.contributorGroupId },
-            permission: "read",
-            recordScope: { kind: "created_by" },
-          }),
-          expect.objectContaining({
-            principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
-            permission: "write",
-            recordScope: { kind: "all" },
-          }),
-        ]),
-      );
-      expect(await listTableAccess(ARTICLE.articleTableId)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            principal: { type: "group", groupId: ARTICLE.contributorGroupId },
-            permission: "read",
-            recordScope: { kind: "related_created_by", relationFieldId: ARTICLE.articleListFieldId },
-          }),
-          expect.objectContaining({
-            principal: { type: "group", groupId: ARTICLE.responsibleGroupId },
-            permission: "write",
-            recordScope: { kind: "all" },
-          }),
-        ]),
-      );
-      expect(await listViewAccess(ARTICLE.listViewId)).toHaveLength(2);
-      expect(await listFormAccess(ARTICLE.articleFormId)).toHaveLength(2);
 
       const published = await publish(ARTICLE.appId);
       expect(published.ok).toBe(true);

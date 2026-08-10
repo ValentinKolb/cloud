@@ -28,6 +28,7 @@ import {
   sourceRefExists,
   sourceSuggestions,
 } from "./intelligence-source";
+import type { DslQueryContextKey } from "./parameters";
 import type { DslResolverContext } from "./resolver";
 
 const splitJoinEquality = (input: string): { left: string; right: string } | null => {
@@ -461,6 +462,7 @@ const predicateSuggestions = (
   segment: string,
   includeAggregateAliases = false,
   currentSource?: CompletionRequest["currentSource"],
+  contextKeys: readonly DslQueryContextKey[] = [],
 ): DslQueryCompletionItem[] => {
   const body = segment.trimStart().replace(/^(?:where|having)\b/i, "");
   const trimmedBody = body.trimEnd();
@@ -480,6 +482,7 @@ const predicateSuggestions = (
     ...fieldReferenceSuggestions(ctx, query, range, "predicate", undefined, currentSource),
     ...keywordItems(query, range, PREDICATE_FUNCTIONS, "function"),
     ...keywordItems(query, range, PREDICATE_OPERATORS),
+    ...contextKeys.map((key) => completionItem(range, "literal", `@${key}`, `@${key}`, "query context")),
   ];
   if (includeAggregateAliases) items.push(...aliasSuggestions(query, range, "aggregate"));
   return rankItems(query, range, uniqueItems(items));
@@ -517,6 +520,7 @@ export const clauseSuggestions = (
   range: DslQueryTextRange,
   segment: string,
   currentSource?: CompletionRequest["currentSource"],
+  contextKeys: readonly DslQueryContextKey[] = [],
 ): DslQueryCompletionItem[] => {
   switch (kind) {
     case "":
@@ -528,13 +532,13 @@ export const clauseSuggestions = (
     case "select":
       return selectClauseSuggestions(ctx, query, range, segment, currentSource);
     case "where":
-      return predicateSuggestions(ctx, query, range, segment, false, currentSource);
+      return predicateSuggestions(ctx, query, range, segment, false, currentSource, contextKeys);
     case "group":
       return groupClauseSuggestions(ctx, query, range, segment, currentSource);
     case "aggregate":
       return aggregateClauseSuggestions(ctx, query, range, segment, currentSource);
     case "having":
-      return predicateSuggestions(ctx, query, range, segment, true, currentSource);
+      return predicateSuggestions(ctx, query, range, segment, true, currentSource, contextKeys);
     case "sort":
       return sortClauseSuggestions(ctx, query, range, segment, currentSource);
     case "search":

@@ -31,9 +31,10 @@ const formatLabelPart = (value: unknown): string => {
 const resolveLabelsByTargetTable = async (
   idsByTargetTable: Map<string, Set<string>>,
   recordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>,
+  labelFieldIdsByTableId?: ReadonlyMap<string, readonly string[]>,
 ): Promise<Record<string, string>> => {
   const labels: Record<string, string> = {};
-  const targetsByTable = await loadRelationTargetsBatch(idsByTargetTable, recordAccessByTableId);
+  const targetsByTable = await loadRelationTargetsBatch(idsByTargetTable, recordAccessByTableId, labelFieldIdsByTableId);
   for (const targets of targetsByTable.values()) {
     for (const record of targets.records) {
       const parts = targets.fields.map((field) => formatLabelPart(record.data[field.id])).filter((part) => part.length > 0);
@@ -60,6 +61,17 @@ export const buildRelationLabelCache = async (
   const idsByTargetTable = await collectRelationTargetIds(records, fields);
   const visible = await visibleTargets(idsByTargetTable, viewer);
   return resolveLabelsByTargetTable(visible.ids, visible.access);
+};
+
+export const buildPinnedRelationLabelCache = async (
+  records: GridRecord[],
+  fields: Field[],
+  labelFieldIdsByTableId: ReadonlyMap<string, readonly string[]>,
+  viewer: ExpansionViewer,
+): Promise<Record<string, string>> => {
+  const idsByTargetTable = await collectRelationTargetIds(records, fields);
+  const visible = await visibleTargets(idsByTargetTable, viewer);
+  return resolveLabelsByTargetTable(visible.ids, visible.access, labelFieldIdsByTableId);
 };
 
 export const buildLabelCacheForGroupedKeys = async (

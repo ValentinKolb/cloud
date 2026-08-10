@@ -1,6 +1,6 @@
 # Assistant CLI
 
-Use `cld assistant` for interactive chat and Assistant automation. The root command starts or continues a chat; named management commands inspect chat state and files, resolve pending actions, edit preferences, and manage reusable skills.
+Use `cld assistant` for interactive chat and Assistant automation. The root command starts or continues a chat; named management commands inspect chat state and files, resolve pending actions, edit preferences, and manage Projects.
 
 ## Interactive and print modes
 
@@ -12,7 +12,7 @@ cld assistant "Summarize my open work"
 cld assistant --chat <chat-id>
 ```
 
-The startup line shows the effective model. New chats print their stable resume command, and the CLI repeats it when the session ends. Blue `Info:` messages confirm non-error state changes. The interactive commands are deliberately small: `/help`, `/exit`, `/attach`, `/files`, `/model`, and `/skill`. Run `/model` or `/skill` without an argument to choose from the visible options by number; an empty answer cancels without changing the selection. `/model <profile-id>` and `/skill <name-or-id>` remain direct shortcuts. Attachments and a selected skill apply to the next message. A selected model remains active for the session.
+The startup line shows the effective model. New chats print their stable resume command, and the CLI repeats it when the session ends. Blue `Info:` messages confirm non-error state changes. The interactive commands are deliberately small: `/help`, `/exit`, `/attach`, `/files`, and `/model`. Run `/model` without an argument to choose from the visible options by number. A selected model remains active for the session.
 
 Enable local computer access explicitly:
 
@@ -34,14 +34,14 @@ Use `--print` or `-p` to stream one response and exit:
 cld assistant -p "Summarize my open work"
 cld assistant -p --chat <chat-id> "What changed since then?"
 printf '%s' "Summarize this carefully" | cld assistant -p
-cld assistant -p --skill "Release notes" "Summarize the latest changes"
+cld assistant -p --project <project-id> "Summarize the latest changes"
 ```
 
 Useful options:
 
 - `--title <title>` names a newly created chat.
 - `--model <profile-id>` selects a model from `cld assistant models`.
-- `--skill <skill-id-or-name>` applies one visible skill to this request only.
+- `--project <project-id>` creates the new chat in an accessible Project.
 - Repeat `--attach <local-file>` for images or documents.
 - `--detach` submits the turn and returns its ID without waiting in print mode.
 - Repeat `--approve <exact-tool-name>` in print mode to approve only those tools for that turn. There is deliberately no approve-all flag.
@@ -88,42 +88,31 @@ cld assistant files rename <chat-id> /files/draft.md /files/final.md
 cld assistant files delete <chat-id> /files/final.md --yes
 ```
 
-## Preferences and memory
+## Preferences
 
 ```bash
 cld assistant prefs get
-cld assistant prefs set --instructions-file ./instructions.md
-cld assistant prefs set --memory-file ./memory.md
-cld assistant prefs memory enable
-cld assistant prefs memory disable
 cld assistant prefs system-prompt
 ```
 
-`prefs system-prompt` previews the same composed prompt path used for a fresh Assistant chat. Treat memory and instructions as user data; read before replacing them.
+`prefs system-prompt` previews the same composed prompt path used for a fresh
+Assistant chat. Personal facts and preferences are managed in the Assistant
+Personalization tab; the CLI does not expose personalization mutations yet.
 
-## Skills
+## Projects
 
-Skills are text-only reusable instructions. Personal skills belong to the current user; workspace skills are managed by administrators and are read-only in Assistant.
-
-```bash
-cld assistant skills list
-cld assistant skills get "Release notes"
-cld assistant skills create "Release notes" \
-  --description "Summarize release changes" \
-  --instructions-file ./release-notes.md
-cld assistant skills update "Release notes" --instructions-file ./release-notes.md
-cld assistant skills delete "Release notes" --yes
-```
-
-Administrators use `--workspace` when listing, reading, creating, updating, or deleting workspace skills. Enable and disable commands always target the workspace catalog:
+Projects combine shared instructions, knowledge, files, Cloud references, model defaults, and Cloud access grants. Chats created in a Project remain private.
 
 ```bash
-cld assistant skills list --workspace
-cld assistant skills create "Release notes" --workspace --instructions-file ./release-notes.md
-cld assistant skills disable "Release notes"
-cld assistant skills enable "Release notes"
+cld assistant projects list
+cld assistant projects create "Release notes" --instructions-file ./release-notes.md
+cld assistant projects knowledge add "Release notes" "Editorial guidelines" --content-file ./guidelines.md
+cld assistant projects files put "Release notes" ./glossary.csv
+cld assistant projects references add "Release notes" grids record <record-id> --label "Current catalog"
+cld assistant projects access grant "Release notes" <group-id> --type group --permission write
+cld assistant chats create --project <project-id>
 ```
 
-Names and stable IDs are both accepted. Names must match exactly. A selected skill applies only to the submitted turn; it does not stay active for later messages. `messages retry` also accepts `--skill`.
+Project names and stable IDs are accepted by management commands. Access grants use `read`, `write`, or `admin`; the Project owner is always an administrator.
 
 Run `cld assistant <group> help` or `cld assistant <group> <command> --help` for the complete accepted flags.

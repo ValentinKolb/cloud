@@ -95,6 +95,12 @@ Each `SettingsCollection.Item` accepts scalar title and description data; put
 visual status and controls in `SettingsCollection.Item.Status` and
 `SettingsCollection.Item.Actions`.
 
+Use `SettingsCollection.Item.Reorder` inside the actions slot for an ordered
+collection. Pass the current zero-based `index`, total `count`, and an `onMove`
+callback. It owns accessible move-up and move-down controls and disables moves
+at the collection boundaries. The application still owns the reordered state,
+persistence, optimistic updates, rollback, and announcements after a move.
+
 The collection does not create, update, delete, sort, authorize, or confirm
 anything. The application supplies those behaviors through the controls it
 composes into the named slots. Use a specialized editor such as `TagEditor` or

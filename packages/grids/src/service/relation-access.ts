@@ -1,6 +1,6 @@
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
-import { loadBaseTableGrantsForSubject, resolveAuthorizedRecordAccess } from "./permission-resolver";
+import { hasAtLeast, loadBaseGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 
 export type ExpansionViewer = {
@@ -51,25 +51,20 @@ export const resolveRecordAccessByTableIds = async (
     : viewer.serviceAccountId
       ? { type: "service_account" as const, serviceAccountId: viewer.serviceAccountId }
       : null;
-  const grantsByBase = new Map(
+  const readableBaseIds = new Set(
     await Promise.all(
-      [...new Set(tables.map((table) => table.base_id))].map(
-        async (baseId) => [baseId, await loadBaseTableGrantsForSubject({ baseId, subject }, db)] as const,
-      ),
-    ),
+      [...new Set(tables.map((table) => table.base_id))].map(async (baseId) => {
+        const grants = await loadBaseGrantsForSubject({ baseId, subject }, db as typeof sql);
+        return hasAtLeast(resolveEffectivePermission(grants, { baseId }), "read") ? baseId : null;
+      }),
+    ).then((baseIds) => baseIds.filter((baseId): baseId is string => baseId !== null)),
   );
   const existingIds = new Set(tables.map((table) => table.id));
   for (const tableId of unresolvedIds) {
     if (!existingIds.has(tableId)) cached.set(tableId, null);
   }
   for (const table of tables) {
-    const resolved = resolveAuthorizedRecordAccess(
-      grantsByBase.get(table.base_id) ?? [],
-      { baseId: table.base_id, tableId: table.id },
-      "read",
-      viewer.userId,
-    );
-    cached.set(table.id, resolved.recordAccess);
+    cached.set(table.id, readableBaseIds.has(table.base_id) ? ALL_RECORD_ACCESS : null);
   }
   return new Map(
     candidateIds.flatMap((tableId) => {

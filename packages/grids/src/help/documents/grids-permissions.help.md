@@ -2,103 +2,62 @@
 id: grids-permissions
 title: Permissions
 icon: ti ti-lock
-description: Share bases and resources without exposing unrelated data or actions.
+description: Choose between complete Base access and a bounded Custom App.
 order: 145
 ---
-Grids checks access at the resource a person is using. This makes it possible to share a view, form, Custom App, document template, or workflow without opening the entire base.
+Grids has two Cloud permission boundaries: a **Base** for the complete raw workspace and a **Custom App** for one published, task-focused surface. Tables, Views, Forms, document templates, and Workflows do not have separate Cloud grants.
 
-Cloud administrators are not automatic Grids superusers. They can manage access from the Grids administration area, but ordinary Grids pages still follow the same grants as every other user.
+Cloud administrators are not automatic Grids superusers. They can manage Grids from the administration area, but normal Grids pages still require Base access.
 
-## Understand the access levels {icon="shield-lock"}
+## Grant access to a Base {icon="database"}
 
-Not every resource supports every level:
+A Base grant applies to every table, field, record, View, Form, document template, and Workflow in that Base.
 
-| Resource | Available levels |
+Base grants support users, groups, service accounts, and all authenticated accounts. They do not support public principals.
+
+| Level | What it allows |
 | --- | --- |
-| Base | Read, Write, Admin, None |
-| Stored table | Read, Write, None |
-| Combined table | Read, None |
-| View | Read, Admin, None |
-| Form | Write/Use, None |
-| Custom App | Read, None |
-| Document template | Read, Write, Admin, None |
-| Workflow | Read, Write, Admin, None |
+| **Read** | Read the complete schema and every record in the Base, including Views, GQL results, exports, and generated output. |
+| **Write** | Read plus create, update, and delete records, submit Forms, generate documents, and run allowed Base operations. |
+| **Admin** | Write plus change schema and configuration, manage access, and create, edit, or publish Custom Apps. |
+| **None** | Explicitly deny Base access. |
 
-**Read** allows someone to see that resource and the data included in it. **Write** allows the resource's user action, such as changing records, generating documents, or running a workflow. **Admin** allows its configuration and access to be managed where supported. **None** is an explicit denial.
+Base access cannot be narrowed to one table, View, Form, Workflow, or creator. If an audience must see only selected data or actions, publish a Custom App or separate the data into another Base.
 
-Structural tasks such as creating tables, forms, Custom Apps, document templates, and workflows require base administration even when the resulting resource can later be shared more narrowly.
+Record creator metadata remains available as normal data. For example, GQL can compare `record.createdBy` with `@auth.id` inside a Custom App. That query controls the published result; it is not a hidden row-permission system.
 
-## Inheritance and specific grants {icon="point"}
+## Share a Custom App {icon="app-window"}
 
-A table normally inherits access from its base. A child resource normally inherits through its table or base. When a more specific resource has matching access entries, that resource decides instead of the broader parent.
+A Custom App has its own **Read** or **None** grants. Grant it to a user, group, all authenticated accounts, or the public. A public grant includes anonymous visitors. Custom App grants do not support service accounts; delegated credentials use their user identity.
 
-Within one resource, the most specific matching subject decides: a service account or user grant is considered before groups, then all authenticated users, then public access. An explicit `None` at the winning level prevents a broader allow from leaking through.
+App readers do not need Base access. They receive only the data, Forms, fields, documents, and actions compiled into the immutable published snapshot. App access never grants the raw Grids workspace, direct table or record APIs, arbitrary GQL, or an editable source View.
 
-In practice:
+Only a Base administrator can edit, preview, publish, reset, delete, or manage access for a Custom App. Drafts and previews are never public.
 
-- a user-specific table denial can override access inherited from a group;
-- a readable view can expose its saved result without exposing the source table;
-- a form can accept a submission from a user who cannot browse the table;
-- a Custom App can include data while links from it still check their own targets.
-- a Custom App requires its own explicit grant and separately checks every saved view it displays.
+Before publishing publicly, review the capability summary in the builder. It identifies the data sources, writable Form fields, and other operations exposed by the publication. Use separate public and authenticated apps when the two audiences need different capabilities.
 
-## Limit a grant to owned records {icon="filter-lock"}
+## Understand server enforcement {icon="shield-lock"}
 
-Base, stored-table, and view grants can optionally limit which records the grant covers:
+The published definition and capability snapshot are enforced on the server. Page, block, Form, and action availability is checked again when the resource is requested; hiding a control in the browser is not authorization.
 
-| Record access | Visible records |
-| --- | --- |
-| **All records** | Every record allowed by the resource grant. This is the default and preserves existing grants. |
-| **Created by the user** | Records whose immutable creator is the current Cloud account. |
-| **Linked to the user's record** | Child records whose selected relation points to a record created by the current Cloud account. Available on tables and views. |
+An unavailable page, block, Form, or action returns **Not Found** and does not execute its query or mutation. Public app reads and submissions use the same boundary with anonymous context. Workflow actions require an authenticated account.
 
-Linked ownership follows exactly one live relation field in the same base. It is intended for bounded parent-child data such as request comments or line items, not as a general authorization query language. Ownership-based scopes require a Cloud user identity; service accounts always use **All records**.
+## Keep narrow public links narrow {icon="world"}
 
-Resource and principal precedence is resolved first. If several allowed grants remain at the winning resource and principal level, their record scopes are combined. One **All records** grant therefore makes that decision unrestricted; otherwise the allowed owned scopes form a union. A more specific table or view grant still prevents a broader base grant from widening its rows.
+Public Forms and expiring document links remain token-based surfaces:
 
-The selected scope applies consistently to lists, direct record access, search, counts, groups, aggregates, relations, exports, documents, workflows, and live updates. Creating or editing a record is rejected when the resulting record would fall outside the writer's scope.
+- a public Form token allows submission to that Form, not browsing the Base;
+- an expiring document link allows downloading one generated document until it expires or is revoked.
 
-For a common request workflow, grant requesters table access with **Created by the user** and grant the responsible group the same table access with **All records**. The same Cloud permission editor is used for both; no separate guest or app-specific account model is introduced.
+These links do not create table-, Form-, or template-level Cloud permissions.
 
-## Included data and linked targets {icon="point"}
-
-**Included data** is rendered as part of the resource already opened, such as records in a view or numbers on a Custom App. It follows that resource's access.
-
-Saved views and document templates are deliberate included-data boundaries. Their administrator chooses the stored GQL, including joins. Granting access exposes that saved result or generated document without granting access to browse the source tables or replace the stored query.
-
-A Custom App adds another explicit boundary around its published page. App access alone never grants view access. A reader must be signed in, have a direct matching **Read** grant on the app, and be allowed to read every saved view whose records the app displays. Public Custom App grants are not available.
-
-A **linked target** is a different resource opened separately. A Custom App link, a related record, or the original table checks its own access when opened. Do not assume that seeing a label grants navigation to its source.
-
-## Documents and workflows {icon="route"}
-
-Document template access has distinct purposes:
-
-- **Read** lists generated runs and allows redownload from their stored snapshots.
-- **Write** selects records, previews enabled templates, generates PDFs, and updates generated filenames or tags.
-- **Admin** edits, enables, disables, shares, reorders, or deletes the template.
-
-Workflow **Read** exposes the workflow and its permitted observability. **Write** starts direct or saved-launcher runs. **Admin** changes source, launchers, permissions, and configuration. A Custom App reader may run only the exact enabled launcher saved in a readable Custom App block; this does not grant general workflow access. Every run rechecks access to the records, templates, and other targets its steps use.
-
-## Share safely {icon="shield-lock"}
-
-:::steps
-1. Start with the narrowest useful resource.
-2. Grant a group rather than many individuals when their role is stable.
-3. Use a resource-specific grant when users should not browse its parent.
-4. Test with a non-admin account.
-5. Review links and actions, not only what is visible on the first screen.
-:::
-
-Public forms and expiring public document links are deliberate exceptions. Anyone holding the token can use that public surface until it is disabled, revoked, or expires.
-
-The CLI exposes the same contract:
+## Manage access from the CLI {icon="terminal-2"}
 
 ```text
-cld grids access grant table MyBase Requests --authenticated --permission read --record-scope created-by
-cld grids access grant table MyBase Comments --authenticated --permission read \
-  --record-scope related-created-by --relation-field-id <relation-field-uuid>
-cld grids access grant table MyBase Requests --group "Request team" --permission write --record-scope all
+cld grids access set base MyBase --group "Operations" --permission write
+cld grids access grant custom-app MyBase "Public catalog" --public --permission read
+cld grids access list custom-app MyBase "Public catalog"
+cld grids access revoke custom-app MyBase "Public catalog" --public --yes
 ```
 
-Use `cld grids access list …` to verify the stored record scope. Omitting `--record-scope` keeps **All records** for new grants and preserves the current scope when updating an existing grant.
+Use `cld grids access reference` for the installed resource, permission, and principal contract.

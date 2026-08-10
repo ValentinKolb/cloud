@@ -1,6 +1,6 @@
+import { Chat, type ChatCommand, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@k2b/ui";
 import type { AiPublicModelProfile } from "@valentinkolb/cloud/ai";
 import { AiChatActionsProvider, aiChatModelOptions, createAiChatTimeline } from "@valentinkolb/cloud/ai/ui";
-import { Chat, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus, type ChatCommand } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
@@ -116,28 +116,6 @@ const BackendRequiredNote = (props: { title: string; children: string }) => (
   </div>
 );
 
-const AiSkillsReference = () => (
-  <DemoCard
-    id="ai-skills-manager"
-    chip={{ kind: "component", name: "AiSkillsManagerBody", from: "@valentinkolb/cloud/ai/ui" }}
-    description="Backend-required integration reference. The catalog does not replace the global fetch implementation."
-    code={`import {
-  AiSkillsManagerBody,
-  openAiSkillsManager,
-} from "@valentinkolb/cloud/ai/ui";
-
-// Authenticated Cloud page with /api/ai/skills available:
-<AiSkillsManagerBody isAdmin={false} />;
-
-// User-facing dialog:
-await openAiSkillsManager();`}
-  >
-    <BackendRequiredNote title="Authenticated Cloud backend required">
-      AiSkillsManagerBody owns calls to the platform skills routes. This static reference deliberately renders no manager controls because the catalog has no authenticated skills API or injectable client seam.
-    </BackendRequiredNote>
-  </DemoCard>
-);
-
 const PermissionsReference = () => (
   <DemoCard
     id="permission-editor"
@@ -166,7 +144,8 @@ import { EntitySearch } from "@valentinkolb/cloud/account/ui";
 />;`}
   >
     <BackendRequiredNote title="Real identity and persistence required">
-      PermissionEditor and EntitySearch depend on Cloud accounts routes, while every grant and API-key mutation must be authorized and persisted by the owning service. The catalog therefore shows the public contract without pretending that mutations succeed.
+      PermissionEditor and EntitySearch depend on Cloud accounts routes, while every grant and API-key mutation must be authorized and
+      persisted by the owning service. The catalog therefore shows the public contract without pretending that mutations succeed.
     </BackendRequiredNote>
   </DemoCard>
 );
@@ -226,11 +205,6 @@ const demos: DemoSection = {
   "assistant-chat": () => (
     <DemoGrid columns="one">
       <AssistantDemo />
-    </DemoGrid>
-  ),
-  "ai-skills": () => (
-    <DemoGrid columns="one">
-      <AiSkillsReference />
     </DemoGrid>
   ),
   permissions: () => (

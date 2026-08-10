@@ -22,11 +22,15 @@ const isSupportedImageType = (mediaType: string): mediaType is "image/gif" | "im
 
 export const resolveConversation = async (
   ctx: CloudCliContext,
-  input: { conversationId?: string; title?: string },
+  input: { conversationId?: string; title?: string; projectId?: string },
 ): Promise<AiConversation> =>
   input.conversationId
     ? readConversationDetail(ctx, input.conversationId).then((detail) => detail.conversation)
-    : readApi<AiConversation>(ctx, "/conversations", jsonRequest("POST", input.title ? { title: input.title } : {}));
+    : readApi<AiConversation>(
+        ctx,
+        "/conversations",
+        jsonRequest("POST", { ...(input.title ? { title: input.title } : {}), ...(input.projectId ? { projectId: input.projectId } : {}) }),
+      );
 
 export const uploadAttachment = async (ctx: CloudCliContext, conversationId: string, localPath: string): Promise<AiTurnContentPart> => {
   const file = Bun.file(localPath);

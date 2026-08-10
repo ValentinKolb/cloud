@@ -161,20 +161,10 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
 /**
  * What still hangs off a workflow, now keyed by the kernel's id.
  *
- * Access grants and run options are Grids' own — the kernel has no notion of a
- * scanner button or of who may edit a base's automation — so they stay here and
- * point at the profile.
+ * Run options are Grids' own. Workflow authorization is inherited from the
+ * owning base and therefore needs no workflow-specific access junction.
  */
 const migrateDefinitionLinks = async (sql: SQL): Promise<void> => {
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.workflow_access (
-      workflow_id UUID NOT NULL REFERENCES grids.workflow_profile(id) ON DELETE CASCADE,
-      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      PRIMARY KEY (workflow_id, access_id)
-    )
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_workflow_access_access ON grids.workflow_access(access_id)`.simple();
-
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_launchers (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

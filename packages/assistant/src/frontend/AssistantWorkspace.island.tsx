@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { AppWorkspace, Chat, type ChatCommand, prompts, Tag } from "@k2b/ui";
+import { AppWorkspace, Chat, type ChatCommand, prompts } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationTimelineEntry,
@@ -20,14 +20,14 @@ import {
   aiComposerFileAccept,
   aiComposerSendInput,
   aiLatestUsageSnapshot,
-  aiSkillsApi,
   createAiChatTimeline,
   readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
-import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
+import { openAssistantProjectsDialog } from "./AssistantProjectsDialog";
 import AssistantSidebar from "./AssistantSidebar";
 import {
   assistantArtifactHref,
@@ -108,9 +108,6 @@ export default function AssistantWorkspace(props: Props) {
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
-  const [selectedSkillId, setSelectedSkillId] = createSignal("");
-  const [availableSkills] = createResource(async () => (await aiSkillsApi.list()).skills);
-  const selectedSkill = createMemo(() => (availableSkills() ?? []).find((skill) => skill.id === selectedSkillId()) ?? null);
   const [timelineViewport, setTimelineViewport] = createSignal<HTMLDivElement>();
   const [timelineContent, setTimelineContent] = createSignal<HTMLDivElement>();
 
@@ -149,9 +146,9 @@ export default function AssistantWorkspace(props: Props) {
     if (href === current) return;
     navigate(href, { replace, scroll: "manual", viewTransition: false });
   };
-  const newConversation = mutation.create<AiConversation | null, { focus: boolean }>({
-    mutation: async ({ focus }) => {
-      const conversation = await chat.createConversation();
+  const newConversation = mutation.create<AiConversation | null, { focus: boolean; projectId?: string }>({
+    mutation: async ({ focus, projectId }) => {
+      const conversation = await chat.createConversation(projectId ? { projectId } : undefined);
       if (conversation && chat.activeConversationId() === conversation.id) {
         commitConversationUrl(conversation.id);
         if (focus) focusComposer();
@@ -159,9 +156,9 @@ export default function AssistantWorkspace(props: Props) {
       return conversation;
     },
   });
-  const createConversation = async (focus: boolean) => {
+  const createConversation = async (focus: boolean, projectId?: string) => {
     if (newConversation.loading()) return null;
-    await newConversation.mutate({ focus });
+    await newConversation.mutate({ focus, projectId });
     return newConversation.data();
   };
   const createAndFocusConversation = () => createConversation(true);
@@ -233,9 +230,7 @@ export default function AssistantWorkspace(props: Props) {
     const sent = await chat.send({
       ...input,
       modelProfileId: selectedModelId() || undefined,
-      skillId: selectedSkillId() || undefined,
     });
-    if (sent) setSelectedSkillId("");
     return sent;
   };
   const steer = async (message: string) => {
@@ -296,20 +291,6 @@ export default function AssistantWorkspace(props: Props) {
         void chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
       },
     },
-    ...(!chat.running()
-      ? (availableSkills() ?? []).map(
-          (skill): ChatCommand => ({
-            name: `skill:${skill.name.replace(/\s+/g, "-")}`,
-            description: `${skill.scope === "workspace" ? "Workspace" : "Personal"} skill · ${skill.name}${
-              skill.description ? ` — ${skill.description}` : ""
-            }`,
-            icon: skill.scope === "workspace" ? "ti ti-building" : "ti ti-wand",
-            action: () => {
-              setSelectedSkillId(skill.id);
-            },
-          }),
-        )
-      : []),
     {
       name: "fork",
       description: "Fork this conversation into a new chat",
@@ -341,11 +322,8 @@ export default function AssistantWorkspace(props: Props) {
         void chat
           .retryUserMessage(target.id, {
             modelProfileId: selectedModelId() || undefined,
-            skillId: selectedSkillId() || undefined,
           })
-          .then((retried) => {
-            if (retried) setSelectedSkillId("");
-          });
+          .then(() => undefined);
       },
     },
     {
@@ -455,6 +433,11 @@ export default function AssistantWorkspace(props: Props) {
         activeView="chat"
         creatingConversation={newConversation.loading}
         onNewConversation={() => void createAndFocusConversation()}
+        onOpenProjects={() =>
+          openAssistantProjectsDialog(async (project) => {
+            await createConversation(true, project.id);
+          })
+        }
         onOpenConversation={openAndFocusConversation}
         canArchiveConversation={(conversation) => conversation.id !== chat.activeConversationId() || !chat.activeTurn()}
         onConversationUpdated={updateConversation}
@@ -483,10 +466,8 @@ export default function AssistantWorkspace(props: Props) {
                     const retried = await chat.retryUserMessage(entry.id, {
                       ...input,
                       modelProfileId: selectedModelId() || undefined,
-                      skillId: selectedSkillId() || undefined,
                     });
                     if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
-                    setSelectedSkillId("");
                   },
                   onRetrySteer: async (block) => {
                     if (!(await chat.retrySteer(block))) throw new Error(chat.error() ?? "Could not retry steer message.");
@@ -529,23 +510,6 @@ export default function AssistantWorkspace(props: Props) {
                   models={aiChatModelOptions(props.models)}
                   selectedModelId={selectedModelId()}
                   onModelChange={setSelectedModelId}
-                  footerTools={
-                    <Show when={selectedSkill()}>
-                      {(skill) => (
-                        <Tag
-                          size="sm"
-                          icon={skill().scope === "workspace" ? "ti ti-building" : "ti ti-wand"}
-                          removeLabel={`Remove ${skill().name} skill`}
-                          disabled={chat.running()}
-                          onRemove={() => {
-                            setSelectedSkillId("");
-                          }}
-                        >
-                          {skill().name}
-                        </Tag>
-                      )}
-                    </Show>
-                  }
                   commands={slashCommands()}
                   disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
                   state={chat.runStatus() === "stopping" ? "stopping" : chat.running() ? "running" : "idle"}

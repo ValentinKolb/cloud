@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { gridsHelp } from ".";
 
-const futureHelpFiles = [
+const detailedHelpFiles = [
   "grids-build-custom-app.help.md",
   "grids-custom-app-pages-blocks.help.md",
   "grids-publish-custom-app.help.md",
@@ -39,20 +39,16 @@ const visitObjects = (value: unknown, visit: (object: Record<string, unknown>) =
   for (const child of Object.values(object)) visitObjects(child, visit);
 };
 
-describe("future Custom Apps documentation contract", () => {
-  test("keeps future articles complete but out of live Help until implementation ships", async () => {
-    const knownIds = new Set([
-      ...gridsHelp.documents.map((document) => document.id),
-      ...futureHelpFiles.map((filename) => filename.replace(".help.md", "")),
-    ]);
+describe("Custom Apps documentation contract", () => {
+  test("keeps the detailed articles complete and registered in live Help", async () => {
+    const knownIds = new Set(gridsHelp.documents.map((document) => document.id));
 
-    for (const filename of futureHelpFiles) {
+    for (const filename of detailedHelpFiles) {
       const markdown = await Bun.file(new URL(`./documents/${filename}`, import.meta.url)).text();
       const id = filename.replace(".help.md", "");
 
-      expect(markdown).toContain("Unreleased contract");
       expect(markdown.trim().length, filename).toBeGreaterThan(1_000);
-      expect(gridsHelp.getMarkdown(id), `${id} must not be live yet`).toBeUndefined();
+      expect(gridsHelp.getMarkdown(id), `${id} must be live`).toBeDefined();
 
       for (const link of markdown.matchAll(/\]\(\/app\/grids\/help\/([a-z0-9-]+)\)/g)) {
         expect(knownIds.has(link[1]!), `${filename} link to ${link[1]}`).toBe(true);
@@ -65,7 +61,7 @@ describe("future Custom Apps documentation contract", () => {
       const source = await Bun.file(new URL(`../../docs/custom-apps/${filename}`, import.meta.url)).text();
       const definition = Bun.YAML.parse(source) as DefinitionNode & Record<string, unknown>;
 
-      expect(definition.schemaVersion, filename).toBe(1);
+      expect(definition.schemaVersion, filename).toBe(2);
       expect(definition.kind, filename).toBe("grids.custom-app");
       expect(typeof definition.id, filename).toBe("string");
       expect(typeof definition.baseId, filename).toBe("string");
@@ -88,18 +84,20 @@ describe("future Custom Apps documentation contract", () => {
       }
 
       visitObjects(definition, (object) => {
+        expect(object.visibleWhen, `${filename} removed visibleWhen`).toBeUndefined();
+        if (object.availableWhen !== undefined) {
+          expect(object.availableWhen, `${filename} availableWhen`).toEqual({ query: expect.any(String) });
+        }
         if (object.kind !== "gql") return;
         expect(typeof object.query, `${filename} GQL source`).toBe("string");
         expect(typeof object.maxRows, `${filename} GQL maxRows`).toBe("number");
+        expect(object.inputs, `${filename} removed GQL inputs`).toBeUndefined();
 
         const query = String(object.query);
+        expect(query, `${filename} removed param()`).not.toMatch(/\bparam\s*\(/);
         const limit = query.match(/\blimit\s+(\d+)\s*$/im);
         expect(limit, `${filename} GQL limit`).not.toBeNull();
         expect(Number(limit?.[1]), `${filename} GQL bounded by maxRows`).toBeLessThanOrEqual(Number(object.maxRows));
-
-        const referencedInputs = [...query.matchAll(/\bparam\('([a-z][a-z0-9_-]*)'\)/g)].map((match) => match[1]!);
-        const declaredInputs = Object.keys((object.inputs as Record<string, unknown> | undefined) ?? {});
-        expect([...new Set(referencedInputs)].sort(), `${filename} GQL inputs`).toEqual(declaredInputs.sort());
       });
     }
   });

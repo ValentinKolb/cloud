@@ -77,6 +77,8 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("Edit UI");
     expect(html).toContain("Delete UI");
     expect(html).toContain("Add tag");
+    expect(cssRule(".k2b-ui .k2b-tag-editor__fields button.k2b-color-input__swatch")).toContain("width: 2.25rem");
+    expect(cssRule(".k2b-ui .k2b-tag-editor__fields button.k2b-color-input__swatch")).toContain("height: 2.25rem");
   });
 
   test("renders checkbox, card, and switch semantics", () => {

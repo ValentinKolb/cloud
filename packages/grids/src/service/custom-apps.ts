@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import type { Field } from "../contracts";
 import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import {
   type CustomAppBlock,
@@ -9,13 +10,23 @@ import {
   type CustomAppDefinition,
   CustomAppDefinitionSchema,
   type CustomAppDiagnostic,
+  parseStoredCustomAppDefinition,
 } from "../custom-apps/contracts";
+import {
+  type CustomAppFormSecurityField,
+  customAppFormFieldHash,
+  customAppFormInlineTargetReferences,
+  customAppFormSecurityHash,
+} from "../custom-apps/form-capability";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { isRecordWritableFieldType } from "../field-types";
+import type { DslQueryContextValues } from "../query-dsl/parameters";
 import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
 import { collectDslPlanTableIds } from "../query-dsl/source-plan";
 import { logAudit, type SqlClient } from "./audit";
 import { compileCustomAppQuery } from "./custom-app-query";
+import { customAppRecordRelationSnapshot } from "./custom-app-record-relations";
+import { listByTable as listFields } from "./fields";
 import { normalizeFormConfig } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
@@ -31,20 +42,25 @@ export type CustomApp = {
   baseId: string;
   name: string;
   icon: string | null;
-  draftDefinition: CustomAppDefinition;
+  draftDefinition: CustomAppDefinition | null;
+  draftDefinitionRaw: unknown;
+  draftDiagnostics: CustomAppDiagnostic[];
   draftCapabilities: CustomAppCapabilities | null;
   publishedDefinition: CustomAppDefinition | null;
+  publishedDefinitionRaw: unknown | null;
+  publishedDiagnostics: CustomAppDiagnostic[];
   publishedCapabilities: CustomAppCapabilities | null;
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
   draftValid: boolean;
+  publishedValid: boolean;
   hasUnpublishedChanges: boolean;
 };
 
 export type CustomAppSummary = Pick<
   CustomApp,
-  "id" | "shortId" | "baseId" | "name" | "icon" | "publishedAt" | "updatedAt" | "draftValid" | "hasUnpublishedChanges"
+  "id" | "shortId" | "baseId" | "name" | "icon" | "publishedAt" | "updatedAt" | "draftValid" | "publishedValid" | "hasUnpublishedChanges"
 >;
 
 export type CompiledCustomApp = { definition: CustomAppDefinition; capabilities: CustomAppCapabilities };
@@ -56,29 +72,40 @@ export type CustomAppPlan = {
   changes: string[];
 };
 
+const parseStoredCapabilities = (raw: unknown): CustomAppCapabilities | null => {
+  if (raw === null || raw === undefined) return null;
+  const parsed = CustomAppCapabilitiesSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+};
+
 const mapRow = (row: DbRow): CustomApp => {
-  const draftDefinition = CustomAppDefinitionSchema.parse(parseJsonbRow(row.draft_definition, {}));
-  const publishedDefinition = row.published_definition
-    ? CustomAppDefinitionSchema.parse(parseJsonbRow(row.published_definition, {}))
-    : null;
-  const draftCapabilities = row.draft_capabilities ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.draft_capabilities, {})) : null;
+  const draftDefinitionRaw = parseJsonbRow(row.draft_definition, {});
+  const publishedDefinitionRaw = row.published_definition ? parseJsonbRow(row.published_definition, {}) : null;
+  const draft = parseStoredCustomAppDefinition(draftDefinitionRaw, "draft");
+  const published = publishedDefinitionRaw ? parseStoredCustomAppDefinition(publishedDefinitionRaw, "published") : null;
+  const draftCapabilities = parseStoredCapabilities(parseJsonbRow(row.draft_capabilities, null));
+  const publishedCapabilities = parseStoredCapabilities(parseJsonbRow(row.published_capabilities, null));
   return {
     id: row.id as string,
     shortId: row.short_id as string,
     baseId: row.base_id as string,
     name: row.name as string,
     icon: (row.icon as string | null) ?? null,
-    draftDefinition,
+    draftDefinition: draft.definition,
+    draftDefinitionRaw,
+    draftDiagnostics: draft.diagnostics,
     draftCapabilities,
-    publishedDefinition,
-    publishedCapabilities: row.published_capabilities
-      ? CustomAppCapabilitiesSchema.parse(parseJsonbRow(row.published_capabilities, {}))
-      : null,
+    publishedDefinition: published?.definition ?? null,
+    publishedDefinitionRaw,
+    publishedDiagnostics: published?.diagnostics ?? [],
+    publishedCapabilities,
     publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
-    draftValid: draftCapabilities !== null,
-    hasUnpublishedChanges: !publishedDefinition || stableStringify(draftDefinition) !== stableStringify(publishedDefinition),
+    draftValid: draft.definition !== null && draftCapabilities !== null,
+    publishedValid: published?.definition != null && publishedCapabilities !== null,
+    hasUnpublishedChanges:
+      publishedDefinitionRaw === null || stableStringify(draftDefinitionRaw) !== stableStringify(publishedDefinitionRaw),
   };
 };
 
@@ -90,7 +117,13 @@ const mapSummaryRow = (row: DbRow): CustomAppSummary => ({
   icon: (row.icon as string | null) ?? null,
   publishedAt: row.published_at ? (row.published_at as Date).toISOString() : null,
   updatedAt: (row.updated_at as Date).toISOString(),
-  draftValid: Boolean(row.draft_capabilities),
+  draftValid:
+    CustomAppDefinitionSchema.safeParse(parseJsonbRow(row.draft_definition, {})).success &&
+    CustomAppCapabilitiesSchema.safeParse(parseJsonbRow(row.draft_capabilities, null)).success,
+  publishedValid:
+    row.published_definition != null &&
+    CustomAppDefinitionSchema.safeParse(parseJsonbRow(row.published_definition, {})).success &&
+    CustomAppCapabilitiesSchema.safeParse(parseJsonbRow(row.published_capabilities, null)).success,
   hasUnpublishedChanges:
     !row.published_definition ||
     stableStringify(parseJsonbRow(row.draft_definition, {})) !== stableStringify(parseJsonbRow(row.published_definition, {})),
@@ -127,6 +160,28 @@ const blocksByType = <T extends CustomAppBlock["type"]>(definition: CustomAppDef
     ),
   );
 
+const representativeQueryContext = (
+  definition: CustomAppDefinition,
+  page: CustomAppDefinition["pages"][number],
+  baseName: string,
+): DslQueryContextValues => ({
+  "auth.id": null,
+  "page.id": page.id,
+  "page.title": page.title,
+  "page.url": `/app/grids/custom/${definition.shortId ?? definition.id}/${page.id}`,
+  "app.id": definition.id,
+  "app.shortId": definition.shortId ?? "draft",
+  "app.name": definition.name,
+  "base.id": definition.baseId,
+  "base.name": baseName,
+  "time.now": "2000-01-01T00:00:00.000Z",
+  "time.today": "2000-01-01",
+  "time.timeZone": "UTC",
+  ...Object.fromEntries(
+    Object.keys(page.parameters).map((parameterId) => [`params.${parameterId}`, "00000000-0000-4000-8000-000000000000"]),
+  ),
+});
+
 export const compile = async (input: unknown, client: SqlClient = sql): Promise<CustomAppCompilation> => {
   const parsed = CustomAppDefinitionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
@@ -146,12 +201,13 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 24 Metrics and Chart blocks" }] };
   }
 
-  const [base] = await client<Array<{ id: string }>>`
-    SELECT id FROM grids.bases WHERE id = ${definition.baseId}::uuid AND deleted_at IS NULL
+  const [base] = await client<Array<{ id: string; name: string }>>`
+    SELECT id, name FROM grids.bases WHERE id = ${definition.baseId}::uuid AND deleted_at IS NULL
   `;
   if (!base) return { ok: false, diagnostics: [{ path: ["baseId"], message: "Base not found" }] };
 
   const diagnostics: CustomAppDiagnostic[] = [];
+  const availability: CustomAppCapabilities["availability"] = [];
   const views: CustomAppCapabilities["views"] = [];
   const insights: CustomAppCapabilities["insights"] = [];
   const recordQueries: CustomAppCapabilities["recordQueries"] = [];
@@ -161,6 +217,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const documents: CustomAppCapabilities["documents"] = [];
   const workflowLaunchers: CustomAppCapabilities["workflowLaunchers"] = [];
   const tableBaseIds = new Map<string, string | null>();
+  const fieldsByTableId = new Map<string, Field[]>();
   const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
     const cached = tableBaseIds.get(tableId);
     if (cached !== undefined) return cached;
@@ -171,6 +228,82 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     tableBaseIds.set(tableId, resolved);
     return resolved;
   };
+  const resolveFields = async (tableId: string): Promise<Field[]> => {
+    const cached = fieldsByTableId.get(tableId);
+    if (cached) return cached;
+    const fields = await listFields(tableId, false, client);
+    fieldsByTableId.set(tableId, fields);
+    return fields;
+  };
+
+  const availabilitySources = definition.pages.flatMap((page) => [
+    ...(page.availableWhen ? [{ page, query: page.availableWhen.query, target: { target: "page" as const, pageId: page.id } }] : []),
+    ...page.rows.flatMap((row) =>
+      row.columns.flatMap((column) =>
+        column.blocks.flatMap((block) => [
+          ...(block.availableWhen
+            ? [
+                {
+                  page,
+                  query: block.availableWhen.query,
+                  target: { target: "block" as const, pageId: page.id, blockId: block.id },
+                },
+              ]
+            : []),
+          ...(block.type === "actions"
+            ? block.actions.flatMap((action) =>
+                action.availableWhen
+                  ? [
+                      {
+                        page,
+                        query: action.availableWhen.query,
+                        target: {
+                          target: "action" as const,
+                          pageId: page.id,
+                          blockId: block.id,
+                          actionId: action.id,
+                        },
+                      },
+                    ]
+                  : [],
+              )
+            : []),
+        ]),
+      ),
+    ),
+  ]);
+  if (availabilitySources.length > 256) {
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 256 availability queries" }] };
+  }
+  for (const source of availabilitySources) {
+    const compiled = await compileCustomAppQuery({
+      baseId: definition.baseId,
+      source: source.query,
+      context: representativeQueryContext(definition, source.page, base.name),
+    });
+    const targetPath = [
+      "pages",
+      source.target.pageId,
+      ...(source.target.target === "page" ? [] : ["blocks", source.target.blockId]),
+      ...(source.target.target === "action" ? ["actions", source.target.actionId] : []),
+      "availableWhen",
+    ];
+    if (!compiled.ok) {
+      diagnostics.push({ path: targetPath, message: compiled.error });
+      continue;
+    }
+    const tableIds = collectDslPlanTableIds(compiled.data.plan, compiled.data.fieldsByTableId).sort();
+    if (tableIds.length > 24) {
+      diagnostics.push({ path: targetPath, message: "Availability query may reference at most 24 tables" });
+      continue;
+    }
+    availability.push({
+      ...source.target,
+      sourceHash: customAppViewSourceHash(definition.baseId, source.query),
+      planHash: compiled.data.planHash,
+      tableIds,
+    });
+  }
 
   for (const [pageIndex, page] of definition.pages.entries()) {
     for (const [parameterId, parameter] of Object.entries(page.parameters)) {
@@ -194,12 +327,9 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       });
       continue;
     }
+    let relationLabels: CustomAppCapabilities["records"][number]["relationLabels"] = [];
     if (fieldIds.length > 0) {
-      const fields = await client<Array<{ id: string; type: string }>>`
-        SELECT id, type FROM grids.fields
-        WHERE table_id = ${page.record.tableId}::uuid AND deleted_at IS NULL
-          AND id = ANY(${toPgUuidArray(fieldIds)}::uuid[])
-      `;
+      const fields = (await resolveFields(page.record.tableId)).filter((field) => fieldIds.includes(field.id));
       const found = new Set(fields.map((field) => field.id));
       const fieldsById = new Map(fields.map((field) => [field.id, field]));
       for (const fieldId of fieldIds) {
@@ -219,8 +349,29 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           });
         }
       }
+      const targetTableIds = [
+        ...new Set(
+          fields.flatMap((field) => {
+            if (field.type !== "relation") return [];
+            const targetTableId = (field.config as { targetTableId?: unknown }).targetTableId;
+            return typeof targetTableId === "string" ? [targetTableId] : [];
+          }),
+        ),
+      ];
+      const targetFieldsByTableId = new Map<string, Field[]>();
+      for (const targetTableId of targetTableIds) {
+        if ((await resolveTableBaseId(targetTableId)) !== definition.baseId) {
+          diagnostics.push({
+            path: ["pages", pageIndex, "record", "fieldIds"],
+            message: `Relation target table ${targetTableId} is missing or belongs to another base`,
+          });
+          continue;
+        }
+        targetFieldsByTableId.set(targetTableId, await resolveFields(targetTableId));
+      }
+      relationLabels = customAppRecordRelationSnapshot(fields, targetFieldsByTableId);
     }
-    pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds, editableFieldIds });
+    pageRecords.push({ pageId: page.id, tableId: page.record.tableId, fieldIds, editableFieldIds, relationLabels });
     for (const { block } of commentBlocks.filter((candidate) => candidate.page.id === page.id)) {
       comments.push({ pageId: page.id, blockId: block.id, tableId: page.record.tableId });
     }
@@ -271,14 +422,8 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     const compiled = await compileCustomAppQuery({
       baseId: definition.baseId,
       source: source.query,
+      context: representativeQueryContext(definition, page, base.name),
       ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
-      ...(block.source.kind === "gql"
-        ? {
-            parameters: Object.fromEntries(
-              Object.keys(block.source.inputs ?? {}).map((name) => [name, "00000000-0000-4000-8000-000000000000"]),
-            ),
-          }
-        : {}),
     });
     if (!compiled.ok) {
       diagnostics.push({ path: ["pages", page.id, "blocks", block.id, "source"], message: compiled.error });
@@ -320,8 +465,15 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           message: `Field ${fieldId} is missing or belongs to another table`,
         });
     }
-    if (source.kind === "view") views.push({ viewId: source.viewId, tableId: primaryTableId });
-    else recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, tableIds });
+    if (source.kind === "view") {
+      views.push({
+        viewId: source.viewId,
+        tableId: primaryTableId,
+        sourceHash: customAppViewSourceHash(source.currentTableId, source.query),
+        planHash: compiled.data.planHash,
+        tableIds,
+      });
+    } else recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, planHash: compiled.data.planHash, tableIds });
   }
 
   for (const { page, block } of insightBlocks) {
@@ -348,14 +500,8 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     const compiled = await compileCustomAppQuery({
       baseId: definition.baseId,
       source: source.query,
+      context: representativeQueryContext(definition, page, base.name),
       ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
-      ...(block.source.kind === "gql"
-        ? {
-            parameters: Object.fromEntries(
-              Object.keys(block.source.inputs ?? {}).map((name) => [name, "00000000-0000-4000-8000-000000000000"]),
-            ),
-          }
-        : {}),
     });
     if (!compiled.ok) {
       diagnostics.push({
@@ -414,9 +560,10 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
               kind: "view",
               viewId: source.viewId,
               sourceHash: customAppViewSourceHash(source.currentTableId, source.query),
+              planHash: compiled.data.planHash,
               tableIds,
             }
-          : { kind: "gql", tableIds },
+          : { kind: "gql", planHash: compiled.data.planHash, tableIds },
     });
   }
 
@@ -457,21 +604,97 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       continue;
     }
     const fieldIds = [...new Set([...userInputFieldIds, ...fixedFieldIds])];
+    const formFieldIds = [...new Set(config.fields.map((entry) => entry.fieldId))];
     const fields =
-      fieldIds.length === 0
+      formFieldIds.length === 0
         ? []
-        : await client<Array<{ id: string; type: string; config: unknown }>>`
-            SELECT id, type, config
+        : await client<
+            Array<{
+              id: string;
+              table_id: string;
+              type: string;
+              config: unknown;
+              required: boolean;
+              default_value: unknown;
+              deleted_at: Date | null;
+            }>
+          >`
+            SELECT id, table_id, type, config, required, default_value, deleted_at
             FROM grids.fields
-            WHERE table_id = ${formRow.table_id}::uuid AND deleted_at IS NULL
-              AND id = ANY(${toPgUuidArray(fieldIds)}::uuid[])
+            WHERE table_id = ${formRow.table_id}::uuid
+              AND id = ANY(${toPgUuidArray(formFieldIds)}::uuid[])
           `;
-    const fieldsById = new Map(fields.map((field) => [field.id, field]));
-    for (const fieldId of userInputFieldIds) {
-      if (!fieldsById.has(fieldId)) {
+    const capabilityFields: CustomAppFormSecurityField[] = fields.map((field) => ({
+      id: field.id,
+      tableId: field.table_id,
+      type: field.type,
+      config: field.config,
+      required: field.required,
+      defaultValue: field.default_value,
+      deletedAt: field.deleted_at?.toISOString() ?? null,
+    }));
+    const fieldsById = new Map(capabilityFields.map((field) => [field.id, field]));
+    for (const fieldId of formFieldIds) {
+      const field = fieldsById.get(fieldId);
+      if (!field || field.deletedAt || !isRecordWritableFieldType(field.type)) {
         diagnostics.push({
           path: ["pages", page.id, "blocks", block.id, "formId"],
-          message: `Form field ${fieldId} is missing or belongs to another table`,
+          message: `Form field ${fieldId} is missing, deleted, unwritable, or belongs to another table`,
+        });
+      }
+    }
+    for (const entry of config.fields) {
+      if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
+      const field = fieldsById.get(entry.fieldId);
+      const targetTableId =
+        field?.type === "relation" && field.config && typeof field.config === "object"
+          ? (field.config as { targetTableId?: unknown }).targetTableId
+          : null;
+      if (typeof targetTableId !== "string" || (entry.inlineCreate.fields ?? []).length === 0) {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "formId"],
+          message: `Inline-create field ${entry.fieldId} has no valid relation target or target fields`,
+        });
+      }
+    }
+    const inlineTargetReferences = customAppFormInlineTargetReferences(config, capabilityFields);
+    const inlineTargetFieldIds = [...new Set(inlineTargetReferences.map((reference) => reference.fieldId))];
+    const inlineTargetFields =
+      inlineTargetFieldIds.length === 0
+        ? []
+        : await client<
+            Array<{
+              id: string;
+              table_id: string;
+              type: string;
+              config: unknown;
+              required: boolean;
+              default_value: unknown;
+              deleted_at: Date | null;
+            }>
+          >`
+            SELECT f.id, f.table_id, f.type, f.config, f.required, f.default_value, f.deleted_at
+            FROM grids.fields f
+            JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+            JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+            WHERE f.id = ANY(${toPgUuidArray(inlineTargetFieldIds)}::uuid[])
+          `;
+    const inlineCapabilityFields: CustomAppFormSecurityField[] = inlineTargetFields.map((field) => ({
+      id: field.id,
+      tableId: field.table_id,
+      type: field.type,
+      config: field.config,
+      required: field.required,
+      defaultValue: field.default_value,
+      deletedAt: field.deleted_at?.toISOString() ?? null,
+    }));
+    const inlineFieldsByKey = new Map(inlineCapabilityFields.map((field) => [`${field.tableId}\0${field.id}`, field]));
+    for (const reference of inlineTargetReferences) {
+      const field = inlineFieldsByKey.get(`${reference.tableId}\0${reference.fieldId}`);
+      if (!field || field.deletedAt || !isRecordWritableFieldType(field.type) || field.type === "relation") {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "formId"],
+          message: `Inline-create field ${reference.fieldId} is missing, deleted, unwritable, or belongs to another table`,
         });
       }
     }
@@ -511,7 +734,20 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       }
     }
 
-    forms.push({ pageId: page.id, blockId: block.id, formId: block.formId, tableId: formRow.table_id, userInputFieldIds, fixedFieldIds });
+    forms.push({
+      pageId: page.id,
+      blockId: block.id,
+      formId: block.formId,
+      tableId: formRow.table_id,
+      userInputFieldIds,
+      fixedFieldIds,
+      fieldHash: customAppFormFieldHash(fieldIds, capabilityFields),
+      formSecurityHash: customAppFormSecurityHash({
+        tableId: formRow.table_id,
+        config,
+        fields: [...capabilityFields, ...inlineCapabilityFields],
+      }),
+    });
   }
 
   for (const { page, block } of actionBlocks) {
@@ -609,6 +845,12 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
   const capabilities = CustomAppCapabilitiesSchema.parse({
+    availability: availability.sort(
+      (left, right) =>
+        left.pageId.localeCompare(right.pageId) ||
+        ("blockId" in left ? left.blockId : "").localeCompare("blockId" in right ? right.blockId : "") ||
+        ("actionId" in left ? left.actionId : "").localeCompare("actionId" in right ? right.actionId : ""),
+    ),
     views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
     insights: insights.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     recordQueries: recordQueries.sort(
@@ -647,7 +889,9 @@ export const getPublishedByShortId = async (shortId: string): Promise<CustomApp 
     JOIN grids.bases base ON base.id = app.base_id AND base.deleted_at IS NULL
     WHERE app.short_id = ${shortId} AND app.published_definition IS NOT NULL AND app.deleted_at IS NULL
   `;
-  return row ? mapRow(row) : null;
+  if (!row) return null;
+  const app = mapRow(row);
+  return app.publishedValid ? app : null;
 };
 
 export const listByBase = async (baseId: string): Promise<CustomApp[]> => {
@@ -657,7 +901,8 @@ export const listByBase = async (baseId: string): Promise<CustomApp[]> => {
 
 export const listSummariesByBase = async (baseId: string): Promise<CustomAppSummary[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT id, short_id, base_id, name, icon, draft_definition, draft_capabilities, published_definition, published_at, updated_at
+    SELECT id, short_id, base_id, name, icon, draft_definition, draft_capabilities,
+           published_definition, published_capabilities, published_at, updated_at
     FROM grids.custom_apps
     WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
     ORDER BY name, id
@@ -739,7 +984,10 @@ export const restoreDraft = async (id: string, actorId: string | null = null): P
     const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
     if (!locked) return fail(err.notFound("Custom App"));
     if (!locked.published_definition || !locked.published_capabilities) return fail(err.badInput("Custom App has no live version"));
-    const publishedDefinition = CustomAppDefinitionSchema.parse(parseJsonbRow(locked.published_definition, {}));
+    const publishedRaw = parseJsonbRow(locked.published_definition, {});
+    const published = parseStoredCustomAppDefinition(publishedRaw, "published");
+    if (!published.definition) return fail(err.badInput(published.diagnostics.map((item) => item.message).join("; ")));
+    const publishedDefinition = published.definition;
     const [updated] = await tx<DbRow[]>`
       UPDATE grids.custom_apps
       SET name = ${publishedDefinition.name}, icon = ${publishedDefinition.icon ?? null},
@@ -763,7 +1011,7 @@ export const restoreDraft = async (id: string, actorId: string | null = null): P
 
 export const createBlank = async (baseId: string, name: string, actorId: string | null = null): Promise<Result<CustomApp>> => {
   const definition: CustomAppDefinition = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "grids.custom-app",
     id: crypto.randomUUID(),
     baseId,
@@ -851,6 +1099,7 @@ export const publish = async (id: string, actorId: string | null = null): Promis
     const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
     if (!locked) return fail(err.notFound("Custom App"));
     const draft = mapRow(locked);
+    if (!draft.draftDefinition) return fail(err.badInput(draft.draftDiagnostics.map((item) => item.message).join("; ")));
     const compilation = await compile(draft.draftDefinition, tx);
     if (!compilation.ok) return fail(err.badInput(compilation.diagnostics.map((item) => item.message).join("; ")));
     const [published] = await tx<DbRow[]>`

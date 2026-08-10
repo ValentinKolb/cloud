@@ -41,6 +41,7 @@ const conversation = (ownerId: string): AiConversation => ({
   runStatus: "idle",
   runError: null,
   unreadCompletion: false,
+  projectId: null,
   resource: { kind: "direct" },
   createdByUserId: ownerId,
   createdAt: "2026-01-01T00:00:00.000Z",

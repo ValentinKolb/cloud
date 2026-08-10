@@ -198,6 +198,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
           caret: body.caret ?? body.query.length,
           ctx,
           ...(body.currentSource ? { currentSource: body.currentSource } : {}),
+          ...(body.contextKeys ? { contextKeys: body.contextKeys } : {}),
         });
 
         return c.json({ ok: true as const, diagnostics, items });

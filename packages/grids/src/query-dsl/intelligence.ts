@@ -8,7 +8,7 @@ import {
 } from "./intelligence-core";
 import { completedFromSource } from "./intelligence-source";
 
-export const buildDslQueryIntelligence = ({ query, caret, ctx, currentSource }: CompletionRequest) => {
+export const buildDslQueryIntelligence = ({ query, caret, ctx, currentSource, contextKeys }: CompletionRequest) => {
   const safeCaret = Math.max(0, Math.min(caret, query.length));
   const range = tokenRangeAt(query, safeCaret);
   const active = activeSegmentRangeBeforeCaret(query, safeCaret);
@@ -18,9 +18,9 @@ export const buildDslQueryIntelligence = ({ query, caret, ctx, currentSource }: 
   const completed = completedFromSource(ctx, segment);
   const sameLine = completed ? sameLineClauseSegment(segment, active.start, completed) : null;
   if (sameLine) {
-    const items = clauseSuggestions(clauseKind(sameLine.segment), ctx, query, range, sameLine.segment, currentSource);
+    const items = clauseSuggestions(clauseKind(sameLine.segment), ctx, query, range, sameLine.segment, currentSource, contextKeys);
     return rewriteSameLineClauseItems(query, items, sameLine.absoluteStart);
   }
 
-  return clauseSuggestions(clauseKind(segment), ctx, query, range, segment, currentSource);
+  return clauseSuggestions(clauseKind(segment), ctx, query, range, segment, currentSource, contextKeys);
 };

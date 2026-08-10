@@ -4,16 +4,16 @@ import { gridsService } from "../../../service";
 import type { DocumentRunReadAuthorizer } from "../../../service/document-browse";
 import type { ExpansionViewer } from "../../../service/relation-access";
 import { buildRelationLabelCacheForIds } from "../../../service/relation-labels";
-import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-runtime";
 import {
   getWorkflowRunProvenance,
   getWorkflowRunStats,
   listWorkflowRunsPage,
   listWorkflowStepRunsPage,
 } from "../../../service/workflow-runs";
+import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-runtime";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import { parseWorkflowUrlState } from "../workflows/workflow-url-state";
-import { documentTemplateLevelForUser, tableLevelForUser } from "./workspace-state-access";
+import { resolveBaseLevel } from "./workspace-state-access";
 import { buildViewer, okState } from "./workspace-state-helpers";
 import type { GridsWorkspaceState, WorkspaceCommon, WorkspaceWorkflowRunDetail } from "./workspace-state-model";
 
@@ -99,9 +99,7 @@ const workflowRunDocumentAuthorizer =
   (common: WorkspaceCommon): DocumentRunReadAuthorizer =>
   async (run) => {
     if (run.baseId !== common.base.id) return false;
-    const level = run.templateId
-      ? await documentTemplateLevelForUser(common.params.user, run.baseId, run.tableId, run.templateId)
-      : await tableLevelForUser(common.params.user, run.baseId, run.tableId);
+    const level = await resolveBaseLevel(common.params.user, run.baseId);
     return gridsService.permission.hasAtLeast(level, "read");
   };
 

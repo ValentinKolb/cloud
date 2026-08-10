@@ -44,7 +44,7 @@ A grouped or aggregate-only query returns summary rows rather than editable reco
 5. Share it only with the people who should see its included result.
 :::
 
-A shared view is visible by default to readers of its source table. A personal view belongs to its owner. Explicit view access can also expose the saved result without exposing the source table itself.
+A shared View is visible to Base readers. A personal View belongs to its owner. To publish a saved result without opening the Base, include it in a Custom App capability snapshot.
 
 ## Reports and pagination {icon="point"}
 
@@ -54,7 +54,7 @@ Views without an explicit `limit` can be paged through the complete matching res
 
 ## Reuse or keep local {icon="route"}
 
-Save a view when people need it in navigation, permissions, or several Custom Apps. For a query used by only one Custom App block, store GQL directly in that widget instead of filling navigation with one-use views.
+Save a View when Base users revisit it or several Custom Apps reuse it. For a query used by only one Custom App block, store GQL directly in that block instead of filling navigation with one-use Views.
 
 :::note Open the GQL topic for advanced shapes
 Use GQL for joins, precise grouping, `having`, deleted records, scoped search, or any query that is clearer in text than in several controls.

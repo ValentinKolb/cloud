@@ -1,6 +1,7 @@
 import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@k2b/nessi";
 import type { Usage } from "@k2b/nessi/ai";
 import { sql } from "bun";
+import { logger } from "../services/logging";
 import { toPgTextArray } from "../services/postgres";
 import type { AiTurnBlock } from "./protocol";
 import type {
@@ -29,6 +30,42 @@ import type {
 const SWEEP_STALE_QUEUED_MS = 15_000;
 /** A queued turn this old that never started is failed outright. */
 const SWEEP_DEAD_QUEUED_MS = 30 * 60_000;
+const SEARCH_TEXT_MAX_CHARS = 50_000;
+const CONVERSATION_BM25_INDEX = "ai.conversations_search_bm25_idx";
+const MESSAGE_BM25_INDEX = "ai.messages_search_bm25_idx";
+const SEARCH_CAPABILITY_ERROR_CODES = new Set(["0A000", "42704", "42883", "55000"]);
+const log = logger("ai:conversation-search");
+
+type ConversationSearchBackend = "native" | "bm25";
+let conversationSearchBackendPromise: Promise<ConversationSearchBackend> | null = null;
+
+const detectConversationSearchBackend = async (): Promise<ConversationSearchBackend> => {
+  const [row] = await sql<{ available: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch')
+      AND EXISTS (
+        SELECT 1 FROM pg_class c JOIN pg_am am ON am.oid = c.relam
+        WHERE c.oid = to_regclass(${CONVERSATION_BM25_INDEX}) AND am.amname = 'bm25'
+      )
+      AND EXISTS (
+        SELECT 1 FROM pg_class c JOIN pg_am am ON am.oid = c.relam
+        WHERE c.oid = to_regclass(${MESSAGE_BM25_INDEX}) AND am.amname = 'bm25'
+      ) AS available
+  `;
+  return row?.available ? "bm25" : "native";
+};
+
+const getConversationSearchBackend = (): Promise<ConversationSearchBackend> => {
+  conversationSearchBackendPromise ??= detectConversationSearchBackend().catch((error) => {
+    log.warn("Conversation search backend detection failed; using native PostgreSQL FTS", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return "native";
+  });
+  return conversationSearchBackendPromise;
+};
+
+const isSearchCapabilityError = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && "code" in error && SEARCH_CAPABILITY_ERROR_CODES.has(String(error.code));
 
 type ConversationRow = {
   id: string;
@@ -50,6 +87,7 @@ type ConversationRow = {
   latest_turn_error?: string | null;
   latest_turn_completed_at?: Date | string | null;
   enrich_fail_count: number | null;
+  project_id: string | null;
   created_by_user_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -163,6 +201,51 @@ const searchPattern = (value: string | undefined): string | null => {
   return trimmed ? `%${trimmed}%` : null;
 };
 
+const conversationSearchRank = (backend: ConversationSearchBackend, query: string) => {
+  const exactBoost = sql`
+    CASE
+      WHEN LOWER(conversation.title) = LOWER(${query}) THEN 40
+      WHEN LOWER(conversation.title) LIKE ${`%${query.toLowerCase()}%`} THEN 20
+      WHEN LOWER(conversation.search_summary) LIKE ${`%${query.toLowerCase()}%`} THEN 8
+      WHEN LOWER(conversation.description) LIKE ${`%${query.toLowerCase()}%`} THEN 4
+      ELSE 0
+    END
+  `;
+  if (backend === "bm25") {
+    return sql`${exactBoost}
+      - (conversation.search_text <@> to_bm25query(${query}, ${CONVERSATION_BM25_INDEX}))
+      + COALESCE((
+          SELECT MAX(-(message.search_text <@> to_bm25query(${query}, ${MESSAGE_BM25_INDEX})))
+          FROM ai.messages message
+          WHERE message.conversation_id = conversation.id AND message.search_text <> ''
+        ), 0)`;
+  }
+  return sql`${exactBoost}
+    + ts_rank_cd(conversation.search_document, websearch_to_tsquery('simple', ${query})) * 10
+    + COALESCE((
+        SELECT MAX(ts_rank_cd(message.search_document, websearch_to_tsquery('simple', ${query})))
+        FROM ai.messages message
+        WHERE message.conversation_id = conversation.id
+      ), 0)`;
+};
+
+const withConversationSearchBackend = async <T>(
+  query: string | null,
+  run: (backend: ConversationSearchBackend) => Promise<T>,
+): Promise<T> => {
+  const backend = query ? await getConversationSearchBackend() : "native";
+  try {
+    return await run(backend);
+  } catch (error) {
+    if (backend !== "bm25" || !isSearchCapabilityError(error)) throw error;
+    log.warn("Conversation BM25 query failed; falling back to native PostgreSQL FTS", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    conversationSearchBackendPromise = Promise.resolve("native");
+    return run("native");
+  }
+};
+
 const parseJsonValue = <T>(value: unknown): T => {
   if (typeof value === "string") return JSON.parse(value) as T;
   return value as T;
@@ -195,6 +278,7 @@ const rowToConversation = (row: ConversationRow): AiConversation => ({
     row.latest_turn_status === "completed" &&
     Boolean(row.latest_turn_completed_at) &&
     (!row.last_viewed_at || new Date(row.latest_turn_completed_at!).getTime() > new Date(row.last_viewed_at).getTime()),
+  projectId: row.project_id,
   resource:
     row.resource_kind === "resource"
       ? {
@@ -410,6 +494,20 @@ const messageColumns = (message: Message) => ({
   stopReason: message.role === "assistant" ? (message.stopReason ?? null) : null,
 });
 
+const messageSearchText = (message: Message): string => {
+  if (message.role === "tool_result") return "";
+  const text = message.content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part.type === "text") return part.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return text.slice(0, SEARCH_TEXT_MAX_CHARS);
+};
+
 /** Insert a message inside an open conversation-lock transaction and bump the conversation. */
 const insertMessageLocked = async (input: {
   conversationId: string;
@@ -435,6 +533,7 @@ const insertMessageLocked = async (input: {
       kind,
       role,
       message,
+      search_text,
       loop_id,
       model_profile_id,
       provider_model,
@@ -448,6 +547,7 @@ const insertMessageLocked = async (input: {
       ${input.kind ?? "message"},
       ${input.message.role},
       ${JSON.stringify(input.message)}::jsonb,
+      ${messageSearchText(input.message)},
       ${input.loopId ?? null},
       ${input.modelProfileId ?? null},
       ${providerModel},
@@ -559,6 +659,7 @@ export const aiConversationStore: AiConversationStore = {
         title,
         icon,
         description,
+        project_id,
         created_by_user_id
       )
       VALUES (
@@ -570,6 +671,7 @@ export const aiConversationStore: AiConversationStore = {
         ${input.title?.trim() || "New chat"},
         ${input.icon?.trim() || "ti ti-message"},
         ${input.description?.trim() ?? ""},
+        ${input.projectId ?? null}::uuid,
         ${input.ownerUserId}
       )
       RETURNING *
@@ -580,10 +682,15 @@ export const aiConversationStore: AiConversationStore = {
   listConversations: async (input) => {
     const resource = resourceFilter(input.resource, input.appId);
     const pattern = searchPattern(input.search);
+    const query = input.search?.trim() || null;
     const archived = Boolean(input.archived);
     const status = input.status ?? null;
     const limit = input.limit && input.limit > 0 ? Math.min(input.limit, 500) : 100;
-    const rows = await sql<ConversationRow[]>`
+    const rows = await withConversationSearchBackend(query, async (backend) => {
+      const order = query
+        ? sql`${conversationSearchRank(backend, query)} DESC, conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC`
+        : sql`conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC`;
+      return sql<ConversationRow[]>`
       SELECT
         conversation.*,
         latest.status AS latest_turn_status,
@@ -607,25 +714,39 @@ export const aiConversationStore: AiConversationStore = {
         AND (${pattern}::text IS NULL
           OR LOWER(conversation.title) LIKE ${pattern}
           OR LOWER(conversation.description) LIKE ${pattern}
-          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern})
+          OR LOWER(conversation.search_summary) LIKE ${pattern}
+          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern}
+          OR conversation.search_document @@ websearch_to_tsquery('simple', ${query ?? ""})
+          OR EXISTS (
+            SELECT 1 FROM ai.messages message
+            WHERE message.conversation_id = conversation.id
+              AND (LOWER(message.search_text) LIKE ${pattern}
+                OR message.search_document @@ websearch_to_tsquery('simple', ${query ?? ""}))
+          ))
         AND (${status}::text IS NULL
           OR (${status} = 'running' AND latest.status IN ('queued', 'running'))
           OR (${status} = 'needs_attention' AND latest.status = 'waiting_for_action')
           OR (${status} = 'failed' AND latest.status = 'failed')
           OR (${status} = 'unread' AND latest.status = 'completed' AND latest.completed_at > COALESCE(conversation.last_viewed_at, '-infinity')))
-      ORDER BY conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC
+      ORDER BY ${order}
       LIMIT ${limit}
     `;
+    });
     return rows.map(rowToConversation);
   },
 
   listConversationsPage: async (input): Promise<AiConversationPage> => {
     const resource = resourceFilter(input.resource, input.appId);
     const pattern = searchPattern(input.search);
+    const query = input.search?.trim() || null;
     const archived = Boolean(input.archived);
     const status = input.status ?? null;
     const { page, perPage, offset } = sanitizePagination(input);
-    const rows = await sql<ConversationRow[]>`
+    const rows = await withConversationSearchBackend(query, async (backend) => {
+      const order = query
+        ? sql`${conversationSearchRank(backend, query)} DESC, conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC`
+        : sql`conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC`;
+      return sql<ConversationRow[]>`
       SELECT
         conversation.*,
         latest.status AS latest_turn_status,
@@ -649,16 +770,25 @@ export const aiConversationStore: AiConversationStore = {
         AND (${pattern}::text IS NULL
           OR LOWER(conversation.title) LIKE ${pattern}
           OR LOWER(conversation.description) LIKE ${pattern}
-          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern})
+          OR LOWER(conversation.search_summary) LIKE ${pattern}
+          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern}
+          OR conversation.search_document @@ websearch_to_tsquery('simple', ${query ?? ""})
+          OR EXISTS (
+            SELECT 1 FROM ai.messages message
+            WHERE message.conversation_id = conversation.id
+              AND (LOWER(message.search_text) LIKE ${pattern}
+                OR message.search_document @@ websearch_to_tsquery('simple', ${query ?? ""}))
+          ))
         AND (${status}::text IS NULL
           OR (${status} = 'running' AND latest.status IN ('queued', 'running'))
           OR (${status} = 'needs_attention' AND latest.status = 'waiting_for_action')
           OR (${status} = 'failed' AND latest.status = 'failed')
           OR (${status} = 'unread' AND latest.status = 'completed' AND latest.completed_at > COALESCE(conversation.last_viewed_at, '-infinity')))
-      ORDER BY conversation.pinned_at DESC NULLS LAST, conversation.updated_at DESC, conversation.created_at DESC
+      ORDER BY ${order}
       LIMIT ${perPage}
       OFFSET ${offset}
     `;
+    });
     const countRows = await sql<CountRow[]>`
       SELECT COUNT(*) AS total
       FROM ai.conversations conversation
@@ -679,7 +809,15 @@ export const aiConversationStore: AiConversationStore = {
         AND (${pattern}::text IS NULL
           OR LOWER(conversation.title) LIKE ${pattern}
           OR LOWER(conversation.description) LIKE ${pattern}
-          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern})
+          OR LOWER(conversation.search_summary) LIKE ${pattern}
+          OR LOWER(array_to_string(conversation.keywords, ' ')) LIKE ${pattern}
+          OR conversation.search_document @@ websearch_to_tsquery('simple', ${query ?? ""})
+          OR EXISTS (
+            SELECT 1 FROM ai.messages message
+            WHERE message.conversation_id = conversation.id
+              AND (LOWER(message.search_text) LIKE ${pattern}
+                OR message.search_document @@ websearch_to_tsquery('simple', ${query ?? ""}))
+          ))
         AND (${status}::text IS NULL
           OR (${status} = 'running' AND latest.status IN ('queued', 'running'))
           OR (${status} = 'needs_attention' AND latest.status = 'waiting_for_action')
@@ -875,6 +1013,7 @@ export const aiConversationStore: AiConversationStore = {
     await sql`
       UPDATE ai.conversations
       SET keywords = ${toPgTextArray(input.keywords)}::text[],
+          search_summary = ${input.searchSummary.trim()},
           title = COALESCE(${title ?? null}, title),
           title_source = CASE WHEN ${title ?? null}::text IS NOT NULL THEN 'auto' ELSE title_source END,
           description = COALESCE(${description ?? null}, description),

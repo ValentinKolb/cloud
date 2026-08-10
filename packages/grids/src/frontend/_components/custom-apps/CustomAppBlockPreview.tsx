@@ -16,9 +16,6 @@ import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
 type SourceBlock = Extract<CustomAppBlock, { type: "records" | "metrics" | "chart" }>;
 
 const loadSource = async (baseId: string, block: SourceBlock): Promise<DslQueryPreviewResponse> => {
-  if (block.source.kind === "gql" && Object.keys(block.source.inputs ?? {}).length > 0) {
-    return { ok: false, diagnostics: [{ message: "Page parameters are required to preview this query." }] };
-  }
   const response =
     block.source.kind === "view"
       ? await apiClient.gql["by-base"][":baseId"].views[":viewId"].execute.$post({

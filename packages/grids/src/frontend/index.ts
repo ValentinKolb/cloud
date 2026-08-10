@@ -42,8 +42,9 @@ export const publicRoutes = new Hono<AuthContext>()
 
 /** Standalone published Custom Apps mounted at `/apps`. */
 export const customAppRoutes = new Hono<AuthContext>()
-  .get("/:shortId/:pageId", auth.requireRole("authenticated", auth.redirectToLogin), ...customAppPage)
-  .get("/:shortId", auth.requireRole("authenticated", auth.redirectToLogin), ...customAppPage);
+  .use(rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }))
+  .get("/:shortId/:pageId", auth.requireRole("*"), ...customAppPage)
+  .get("/:shortId", auth.requireRole("*"), ...customAppPage);
 
 /**
  * Default export = user-facing app pages mounted at `/app/grids`.

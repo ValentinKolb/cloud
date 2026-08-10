@@ -5,8 +5,6 @@ icon: ti ti-layout-grid
 description: Compose responsive pages from typed, resource-backed blocks.
 order: 134
 ---
-<!-- Unreleased contract: register this article only with the complete Custom Apps vertical slice. -->
-
 A Custom App is a small composition of existing Grids resources. Its page tree controls layout and navigation; its blocks control which resources appear and which already-defined operations a person may start.
 
 ## Use stable definition IDs {icon="id"}
@@ -71,7 +69,7 @@ Records reads either an existing saved view or a bounded inline GQL query. It su
 
 Inline GQL has a required maximum row count. The runtime also applies shared query budgets. Search, filter, sort, and pagination state is namespaced by the block ID in the URL, so two Records blocks cannot overwrite each other's state.
 
-An inline query may declare typed inputs and read them with GQL's `param('name')` helper. Values are bound separately from query text. Every helper call needs one declared input, and unused inputs are rejected. This provides bounded parameterized reads without string interpolation.
+An inline query receives typed `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
 Use `ROW` only while defining that block's row link or row action. Row actions use the same navigation and enabled-workflow contracts as an Actions block.
 
@@ -81,7 +79,7 @@ Metrics and Chart read either an existing saved view or an inline GQL query. Inl
 
 Metrics accepts an ungrouped aggregate query and renders up to 12 named scalar results. Chart accepts a grouped aggregate query and renders a donut, bar, line, sparkline, or scatter chart. Scatter requires two aggregate value series; the other chart types require one. A Chart block may render at most 100 groups through its `limit`.
 
-The block never grants access to its source. Publication records the referenced tables, and every request still passes through ordinary Grids query and record permissions. Republish the app after changing a saved view's source.
+The published capability records the exact tables and fields behind the block. App readers need no Base access, and the runtime cannot query sources outside that immutable capability. Republish after changing a saved View's source.
 
 ### Form
 
@@ -97,9 +95,9 @@ One app may publish up to 24 Form blocks. Each referenced Form may expose up to 
 
 Record requires a page record. It renders the explicit `fieldIds` list and may allow direct editing through an explicit `editableFieldIds` subset. Every editable field must also be displayed and must be a writable stored field; computed and system fields fail publication.
 
-The Edit action appears only when the account can write the current record under its table permission and row scope. Submission rechecks that access, the immutable published field allowlist, the live field type, table audit questions, and the current record version. Fields outside the block's editable subset remain read-only even when the account has broader table access.
+The Edit action appears only when the publication includes that writable field and the block is available. Submission rechecks the app grant, immutable field allowlist, `availableWhen`, live field type, table audit questions, and current record version. Fields outside the block's editable subset remain read-only.
 
-An optional `documents.templateIds` allowlist shows existing generated PDFs linked to the current record. Every template must belong to the page record table when the app is published. At runtime, Grids also requires ordinary Read access to each live template and uses the protected document download route. The block does not generate documents or create public links; use a Workflow for generation.
+An optional `documents.templateIds` allowlist shows existing generated PDFs linked to the current record. Every template must belong to the page record table when the app is published. The runtime uses the immutable capability and protected document download route. The block does not generate documents or create public links; use a Workflow for generation.
 
 ### Comments
 
@@ -114,7 +112,7 @@ Actions contains buttons that either navigate inside the same Custom App or star
 The block cannot call arbitrary URLs, update records directly, or invoke a workflow that was not included in the published capability set.
 Starting a workflow is asynchronous: the button reports whether the run was accepted, while the workflow owns its effects and their observable run state. Navigation after a workflow belongs in the workflow or a later page-state transition; Actions does not bind arbitrary workflow results.
 
-The runtime revalidates the published app grant, exact page, block, action, launcher, workflow revision, page records, and workflow effect permissions. An action missing from the immutable publication capability set is omitted.
+The runtime revalidates the published app grant, exact page, block, action, launcher, workflow revision, page records, and `availableWhen` query. An action missing from the immutable publication capability set is omitted. Workflow actions require an authenticated account.
 
 ## Keep navigation explicit {icon="arrow-right"}
 
@@ -138,13 +136,19 @@ For repeated entry, preserve the parent as a page parameter:
 
 The Form fixes its List relation from `PARAMS.list_id`. After success, one button navigates back to the same page with the same parameter; another navigates to the list detail. This needs no app-specific batch or wizard primitive.
 
-## Use small presentation conditions {icon="adjustments"}
+## Enforce availability with GQL {icon="adjustments"}
 
-A block or action may declare a list of simple conditions. All conditions must match. Supported operators are Equals, Not equals, In, Is empty, and Is not empty.
+A page, block, Form, or action may declare one `availableWhen.query`. The server supplies the same implicit context as data queries and considers the resource available only when the bounded query returns at least one row.
 
-Conditions may use `LITERAL`, declared `PARAMS`, or allowlisted `RECORD fields.<fieldId>` values. They control visibility only. Missing context fails closed. Conditions never replace permission checks, form validation, or workflow preconditions.
+```yaml
+availableWhen:
+  query: |
+    from table "Certificate requests"
+    where record.id = @params.request_id and Status = 'Submitted'
+    limit 1
+```
 
-If a process needs complex branching, put that rule in a View, Form, or Workflow and expose the resulting resource or action.
+An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The runtime omits the resource, does not execute its data source, and rechecks the guard before every Form submission or action invocation. Browser visibility is never the enforcement boundary.
 
 ## Design local states {icon="info-circle"}
 

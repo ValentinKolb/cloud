@@ -13,11 +13,11 @@ Do not use a Combined table merely to show a subset from one table; use a view f
 
 ## What a Combined table changes {icon="table"}
 
-The Combined table owns its name, canonical fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Search, filters, sorting, pagination, grouping, aggregation, Custom Apps, and exports work across all published sources as they do for a stored table.
+The target Base owns the Combined table, its canonical fields, and its Views. Source admins explicitly authorize selected source tables and field mappings. Target Base readers, or readers of a Custom App that includes the Combined result, need no access to the source Bases. Search, filters, sorting, pagination, grouping, aggregation, Custom Apps, and exports work across all published sources as they do for a stored table.
 
 :::reference
 - **Canonical fields:** Create the fields readers should see, then map each source field to the matching canonical field. Missing mappings return null for that source.
-- **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, hidden source fields, or editing rights.
+- **Independent publication:** Target readers receive only canonical data. They do not inherit source navigation, hidden source fields, or editing rights.
 - **Read-only result:** Use the table in GQL, saved views, Custom Apps, documents, workflows, and exports. Record creation, forms, imports, uploads, edits, and deletes are unavailable.
 - **Fail-closed publication:** A revoked, deleted, or incompatible source makes the complete published revision unavailable. Grids never returns a silently smaller partial result.
 :::
@@ -29,7 +29,7 @@ The Combined table owns its name, canonical fields, views, and permissions. Sour
 2. **Choose sources:** Open Combined data in edit mode. The picker lists only stored tables whose base you may administer.
 3. **Map fields and select options:** Map stable source fields by identity. Select fields also require an explicit mapping for every source option.
 4. **Validate and publish:** Validation reports incomplete or incompatible mappings without changing the active publication. Publish only after every diagnostic is resolved.
-5. **Operate the published table:** Grant target permissions and build views or Custom Apps normally. Source admins can inspect the exact published field scope and revoke it independently.
+5. **Operate the published table:** Grant access to the target Base or include the result in a Custom App. Source admins can inspect the exact published field scope and revoke it independently.
 :::
 
 :::note Publication authority
@@ -51,7 +51,7 @@ sort Name asc
 
 :::reference
 - **Relations:** A canonical relation must point to one common stored target or to another explicitly published Combined target containing the related records.
-- **Files:** Target readers can preview and download mapped files through the Combined permission boundary. Source file metadata and file mutation remain private.
+- **Files:** Target Base readers and compiled Custom App capabilities can preview and download mapped files through the Combined publication boundary. Source file metadata and file mutation remain private.
 - **Computed data:** Canonical formulas can use the combined fields. A computed source field can be mapped only when its result is compatible with the canonical field.
 - **Live data and export:** Source changes appear automatically. CSV and JSON exports can continue across all matching records.
 :::
@@ -69,9 +69,9 @@ Draft diagnostics identify the affected source, canonical field, and source fiel
 
 ## Deleted records and history {icon="history"}
 
-Combined tables preserve the lifecycle of published records without granting access to their source bases. Choose **Show deleted** to inspect records that were deleted in a source table. Their detail panel is read-only and identifies the published source by base and table name. Restore or edit the original record from its source base.
+Combined tables preserve the lifecycle of published records without granting access to their source Bases. A target Base reader can choose **Show deleted** to inspect records that were deleted in a source table. Their detail panel is read-only and identifies the published source by Base and table name. Restore or edit the original record from its source Base.
 
-The record detail shows its published history. Readers with access to the complete Combined table can also choose **Actions → Audit trail** to browse and filter history across all published records. A reader who can access only a saved view sees history only for records returned by that exact view.
+The record detail shows its published history. Target Base readers can also choose **Actions → Audit trail** to browse and filter history across all published records. A Custom App reader receives only the history explicitly included by the published capability snapshot.
 
 :::reference
 - **Current publication:** History is projected through the active canonical mappings. Fields removed from the publication no longer appear, including in older events.

@@ -73,46 +73,6 @@ const preflightRelationTargets = async (
   return ok();
 };
 
-const matchesRestrictedRecordAccess = async (params: {
-  tableId: string;
-  createdBy: string | null;
-  relations: Map<string, string[]>;
-  access: Extract<AuthorizedRecordAccess, { kind: "restricted" }>;
-  client: SqlClient;
-}): Promise<boolean> => {
-  for (const scope of params.access.scopes) {
-    if (scope.kind === "created_by") {
-      if (params.createdBy === params.access.userId) return true;
-      continue;
-    }
-    const ids = params.relations.get(scope.relationFieldId) ?? [];
-    if (ids.length === 0) continue;
-    const [owned] = await params.client<Array<{ found: boolean }>>`
-      SELECT TRUE AS found
-      FROM grids.fields access_field
-      JOIN grids.tables access_source_table
-        ON access_source_table.id = access_field.table_id
-       AND access_source_table.deleted_at IS NULL
-      JOIN grids.tables access_parent_table
-        ON access_parent_table.id::text = access_field.config->>'targetTableId'
-       AND access_parent_table.deleted_at IS NULL
-       AND access_parent_table.base_id = access_source_table.base_id
-      JOIN grids.records access_parent
-        ON access_parent.table_id = access_parent_table.id
-       AND access_parent.id = ANY(${params.client.array(ids, "UUID")})
-       AND access_parent.deleted_at IS NULL
-       AND access_parent.created_by = ${params.access.userId}::uuid
-      WHERE access_field.id = ${scope.relationFieldId}::uuid
-        AND access_field.table_id = ${params.tableId}::uuid
-        AND access_field.deleted_at IS NULL
-        AND access_field.type = 'relation'
-      LIMIT 1
-    `;
-    if (owned) return true;
-  }
-  return false;
-};
-
 /**
  * Create-path validation: every user-writable field is materialized using
  * either the provided value or the field's default. Required-checks apply.
@@ -277,21 +237,6 @@ export const createInTransaction = async (
     split = splitRelationsFromData(validated.data, fields);
     const preflight = await preflightRelationTargets(split.relations, fieldsById, client, opts.viewer);
     if (!preflight.ok) return preflight;
-
-    if (opts.recordAccess?.kind === "restricted") {
-      const restrictedAccess = opts.recordAccess;
-      if (!actorId || actorId !== restrictedAccess.userId) {
-        return fail(err.forbidden("Ownership-based record access requires the current Cloud user."));
-      }
-      const matches = await matchesRestrictedRecordAccess({
-        tableId,
-        createdBy: actorId,
-        relations: split.relations,
-        access: restrictedAccess,
-        client,
-      });
-      if (!matches) return fail(err.forbidden("The new record is outside your allowed record scope."));
-    }
 
     id = Bun.randomUUIDv7();
     const changedFieldIds = Object.keys(validated.data);
@@ -480,24 +425,6 @@ export const updateInTransaction = async (
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const preflight = await preflightRelationTargets(split.relations, fieldsById, client, opts.viewer);
   if (!preflight.ok) return preflight;
-
-  if (opts.recordAccess?.kind === "restricted") {
-    const candidateRelations = new Map<string, string[]>();
-    for (const field of fields) {
-      if (field.type !== "relation") continue;
-      const current = existing.data[field.id];
-      candidateRelations.set(field.id, Array.isArray(current) ? current.filter((value): value is string => typeof value === "string") : []);
-    }
-    for (const [fieldId, ids] of split.relations) candidateRelations.set(fieldId, ids);
-    const matches = await matchesRestrictedRecordAccess({
-      tableId,
-      createdBy: existing.createdBy,
-      relations: candidateRelations,
-      access: opts.recordAccess,
-      client,
-    });
-    if (!matches) return fail(err.forbidden("The updated record is outside your allowed record scope."));
-  }
 
   // Merge: existing JSONB data + only the validated NON-RELATION fields.
   // Relations are managed exclusively via record_links — they MUST NOT

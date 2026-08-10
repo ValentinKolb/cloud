@@ -38,7 +38,7 @@ export const createDocumentRenderRoutes = () =>
         if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
-        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+        const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
@@ -62,7 +62,7 @@ export const createDocumentRenderRoutes = () =>
         if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
-        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+        const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");

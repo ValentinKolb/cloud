@@ -1,18 +1,17 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
+  NoticeCard,
   PanelDialog,
   panelDialogWorkspaceOptions,
   prompts,
   type TemplateVariable,
   TextInput,
 } from "@k2b/ui";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import type { DocumentTemplateStarter } from "../../../document-template-starters";
@@ -111,15 +110,6 @@ function DocumentTemplateEditorDialog(props: {
   const [lastSuccessfulPreviewSignature, setLastSuccessfulPreviewSignature] = createSignal<string | null>(null);
   const [gqlDiagnostics, setGqlDiagnostics] = createSignal<Array<{ message: string; line?: number; column?: number }>>([]);
   const [gqlDiagnosticError, setGqlDiagnosticError] = createSignal<string | null>(null);
-  const [templateAccessEntries, { refetch: refetchTemplateAccessEntries }] = createResource(
-    () => template?.id ?? "",
-    async (templateId) => {
-      if (!templateId) return [] as AccessEntry[];
-      const res = await apiClient.access["by-document-template"][":templateId"].$get({ param: { templateId } });
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not load document template access."));
-      return res.json();
-    },
-  );
   const templateVariables = createMemo<TemplateVariable[]>(() => {
     const byName = new Map<string, TemplateVariable>();
     for (const variable of [...DOCUMENT_TEMPLATE_VARIABLES, ...templateVariablesFromData(previewData()?.data)])
@@ -429,7 +419,6 @@ function DocumentTemplateEditorDialog(props: {
           </div>
 
           <DocumentTemplateEditorPanes
-            template={template}
             html={html}
             setHtml={setHtml}
             headerHtml={headerHtml}
@@ -445,13 +434,6 @@ function DocumentTemplateEditorDialog(props: {
             source={source}
             previewRecordId={previewRecordId}
             previewPdf={previewPdf}
-            accessEntries={templateAccessEntries}
-            accessLoading={() => templateAccessEntries.loading}
-            accessError={() => {
-              const error = templateAccessEntries.error;
-              return error instanceof Error ? error.message : error ? "Could not load document template access." : null;
-            }}
-            retryAccess={() => void refetchTemplateAccessEntries()}
           />
         </div>
       </PanelDialog.Body>

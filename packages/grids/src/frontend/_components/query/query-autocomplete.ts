@@ -1,5 +1,6 @@
 import type { Completion, SuggestContext, Suggestion } from "@k2b/ui";
 import type { DslQueryAutocompleteResponse, DslQueryCompletionItem } from "../../../contracts";
+import type { DslQueryContextKey } from "../../../query-dsl/parameters";
 
 export type GqlCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string };
 
@@ -8,6 +9,7 @@ export type GqlAutocompleteRequest = {
   caret: number;
   currentTableId?: string;
   currentSource?: GqlCurrentSource;
+  contextKeys?: DslQueryContextKey[];
 };
 
 type GqlAutocompleteFetcher = (request: GqlAutocompleteRequest, signal: AbortSignal) => Promise<DslQueryAutocompleteResponse>;
@@ -24,6 +26,7 @@ export const toSuggestion = (item: DslQueryCompletionItem): Suggestion => ({
 
 export const buildBackendGqlCompletions = (config: {
   currentSource?: GqlCurrentSource;
+  contextKeys?: readonly DslQueryContextKey[];
   fetchAutocomplete: GqlAutocompleteFetcher;
 }): Completion[] => {
   const suggest = (_query: string, ctx: SuggestContext, signal: AbortSignal): Suggestion[] | Promise<Suggestion[]> => {
@@ -35,6 +38,7 @@ export const buildBackendGqlCompletions = (config: {
           caret: ctx.caret,
           ...(config.currentSource?.kind === "table" ? { currentTableId: config.currentSource.tableId } : {}),
           ...(config.currentSource ? { currentSource: config.currentSource } : {}),
+          ...(config.contextKeys ? { contextKeys: [...config.contextKeys] } : {}),
         },
         signal,
       )
@@ -42,11 +46,12 @@ export const buildBackendGqlCompletions = (config: {
   };
 
   return [
-    { dropdown: true, suggest },
+    { dropdown: true, debounceMs: 180, suggest },
     ...GQL_TRIGGER_CHARS.map(
       (trigger): Completion => ({
         trigger,
         dropdown: true,
+        debounceMs: 180,
         allowAfterWord: true,
         suggest,
       }),

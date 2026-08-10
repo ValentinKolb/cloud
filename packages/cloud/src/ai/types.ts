@@ -77,7 +77,7 @@ export type AiSettingsState =
       enabled: boolean;
       defaultModelId: string;
       globalInstructions: string;
-      compactionPrompt: string;
+      compactionInstructions: string;
       maxToolResultChars: number;
       firecrawlConfigured: boolean;
       profiles: AiModelProfile[];
@@ -87,7 +87,7 @@ export type AiSettingsState =
       enabled: boolean;
       defaultModelId: string;
       globalInstructions: string;
-      compactionPrompt: string;
+      compactionInstructions: string;
       maxToolResultChars: number;
       firecrawlConfigured: boolean;
       profiles: AiModelProfile[];
@@ -145,6 +145,8 @@ export type AiConversation = {
   /** Error from the latest turn when `runStatus` is `failed`. */
   runError: string | null;
   unreadCompletion: boolean;
+  /** Optional shared project context; the conversation itself remains private to its owner. */
+  projectId: string | null;
   resource: AiConversationResource;
   createdByUserId: string | null;
   createdAt: string;
@@ -349,12 +351,14 @@ export type AiTurnToolSource =
 
 export type AiClientToolId = "local_bash";
 
-/** Immutable instructions selected by the user for one turn. */
-export type AiSkillSnapshot = {
+/** Immutable project instructions and context manifest captured for one turn. */
+export type AiProjectPromptSnapshot = {
   id: string;
   name: string;
-  instructions: string;
   revision: number;
+  instructions: string;
+  context: string;
+  defaultModelProfileId: string | null;
 };
 
 export type AiChatTurnRunConfig = {
@@ -365,7 +369,7 @@ export type AiChatTurnRunConfig = {
   requestedModelId?: string;
   systemPrompt?: string;
   resourceContext?: string;
-  skill?: AiSkillSnapshot;
+  project?: AiProjectPromptSnapshot;
   clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: {
@@ -414,6 +418,7 @@ export type AiConversationStore = {
     icon?: string;
     description?: string;
     resource?: AiConversationResource;
+    projectId?: string;
   }): Promise<AiConversation>;
   listConversations(input: {
     appId: string;
@@ -479,6 +484,8 @@ export type AiConversationStore = {
    */
   applyEnrichment(input: {
     conversationId: string;
+    /** Internal rolling search projection; never replaces the user-visible description. */
+    searchSummary: string;
     description?: string;
     keywords: string[];
     title?: string;

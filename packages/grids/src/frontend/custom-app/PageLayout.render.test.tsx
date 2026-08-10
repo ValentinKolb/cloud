@@ -7,7 +7,7 @@ import "../_components/ssr-test-plugin";
 const { CustomAppPageLayout } = await import("./PageLayout");
 
 const definition: CustomAppDefinition = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "grids.custom-app",
   id: "33333333-3333-4333-8333-333333333333",
   shortId: "APP1",

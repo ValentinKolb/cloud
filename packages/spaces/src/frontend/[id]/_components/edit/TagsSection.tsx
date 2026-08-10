@@ -1,11 +1,16 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, TagEditor, toast } from "@k2b/ui";
+import { prompts, SettingsGroup, TagEditor, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceTag } from "@/contracts";
 import { readErrorMessage } from "./utils";
 
-export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorkspaceChange?: () => void }) {
+export function TagsSection(props: {
+  spaceId: string;
+  tags: SpaceTag[];
+  onWorkspaceChange?: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
   const [tags, setTags] = createSignal([...props.tags]);
 
   const createMut = mutations.create({
@@ -73,22 +78,25 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorksp
   };
 
   return (
-    <TagEditor
-      items={tags()}
-      defaultColor="#3b82f6"
-      disabled={createMut.loading() || updateMut.loading() || deleteMut.loading()}
-      onCreate={async (value) => {
-        await createMut.mutate(value);
-        throwMutationError(createMut.error());
-      }}
-      onUpdate={async (tag, value) => {
-        await updateMut.mutate({ id: tag.id, ...value });
-        throwMutationError(updateMut.error());
-      }}
-      onDelete={async (tag) => {
-        await deleteMut.mutate(tag);
-        throwMutationError(deleteMut.error());
-      }}
-    />
+    <SettingsGroup title="Vocabulary" description="Create tags here, then assign them from item editors.">
+      <TagEditor
+        items={tags()}
+        defaultColor="#3b82f6"
+        disabled={createMut.loading() || updateMut.loading() || deleteMut.loading()}
+        onDirtyChange={props.onDirtyChange}
+        onCreate={async (value) => {
+          await createMut.mutate(value);
+          throwMutationError(createMut.error());
+        }}
+        onUpdate={async (tag, value) => {
+          await updateMut.mutate({ id: tag.id, ...value });
+          throwMutationError(updateMut.error());
+        }}
+        onDelete={async (tag) => {
+          await deleteMut.mutate(tag);
+          throwMutationError(deleteMut.error());
+        }}
+      />
+    </SettingsGroup>
   );
 }

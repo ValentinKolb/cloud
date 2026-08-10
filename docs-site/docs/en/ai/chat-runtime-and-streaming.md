@@ -95,10 +95,11 @@ The shared platform prompt separates platform rules, a short execution loop,
 conditional tool guidance, and labeled application context. It tells agents to
 use required tools, inspect their results, and continue until the request is
 complete or genuinely blocked. Retrieved emails, webpages, user files, Help,
-capability results, ordinary tool output, and memories remain data rather than
-instructions. A skill explicitly selected by the user is copied into the
-durable turn configuration and added as labeled, subordinate instructions for
-that turn only. The runtime still treats a provider `stop` as
+capability results, ordinary tool output, Project context, and memories remain
+data rather than instructions. Project instructions and the Project context
+manifest are copied into the durable turn configuration. Current Project access
+is checked again before execution; edits affect the next turn. The runtime still
+treats a provider `stop` as
 a completed turn; it does not infer unfinished work from model text or trigger
 language-dependent automatic retries.
 
@@ -107,7 +108,8 @@ language-dependent automatic retries.
 | Group | Purpose |
 | --- | --- |
 | `/status`, `/models` | Read sanitized runtime and model state |
-| `/prefs` | Read or update user instructions and memory |
+| `/prefs` | Read or update personalization enablement and learning settings |
+| `/memories`, `/memories/:id` | Search and manage structured personal facts and preferences |
 | `/conversations` | List and create conversations |
 | `/conversations/:id` | Read or manage one conversation |
 | `/conversations/:id/turns` | Start, steer, or stop work |
@@ -116,6 +118,15 @@ language-dependent automatic retries.
 
 The router also supports message retry, forks, compaction, pending tool
 actions, conversation enrichment, and paged history.
+
+Chat search keeps the existing title, description, and keyword substring
+matches, then adds weighted native PostgreSQL full-text search over an internal
+rolling search summary and visible user and Assistant message text. Raw message
+matches remain eligible even when the summary omits a detail. When
+`pg_textsearch` and both exact conversation indexes are installed, BM25 ranks
+the same result set; known extension-capability failures fall back to native
+FTS. Ownership, app, status, resource, archive, count, and pagination filters
+apply before results are returned.
 
 The Assistant app publishes closed-world `chat.search` and `chat.read`
 capabilities so an agent can find and read the current user's previous

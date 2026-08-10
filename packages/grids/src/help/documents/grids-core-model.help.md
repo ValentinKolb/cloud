@@ -33,7 +33,7 @@ The navigation around tables contains resources that use the saved data:
 - A **document template** defines a family of generated PDFs for records in one table.
 - A **workflow** defines repeatable actions and how inputs move through them.
 
-Each resource can have its own access rules. Seeing data included inside a readable view or Custom App does not automatically grant access to the original table or to a linked target opened separately.
+Base access opens the complete raw workspace. A published Custom App is the separate granular boundary: it exposes only its compiled data and actions without granting raw Base access.
 
 ## A useful mental check {icon="route"}
 

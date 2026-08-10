@@ -4,34 +4,20 @@ import {
   currentActorUserId,
   currentActorViewer,
   currentResourceBoundBaseId,
-  currentWorkflowPrincipal,
   gateAt,
   gateCredentialScope,
-  resolveWithGrants,
+  resolveBaseWithGrantsForAccess,
+  resolveCustomAppWithGrantsForAccess,
+  gridsAccessContext,
 } from "./permissions";
 
 let resolvedLevel: "none" | "read" | "write" | "admin" = "none";
-let lastLoadGrantsParams: unknown = null;
+let lastBaseLoad: unknown = null;
+let lastAppLoad: unknown = null;
 
-const user = {
-  id: "11111111-1111-4111-8111-111111111111",
-  roles: ["admin", "user", "local", "local/user"],
-  memberofGroupIds: ["33333333-3333-4333-8333-333333333333"],
-};
-
-const resourceServiceAccount = {
-  id: "44444444-4444-4444-8444-444444444444",
-  name: "Grids workflow",
-  kind: "resource_bound",
-  status: "active",
-  delegatedUserId: null,
-  appId: "grids",
-  resourceType: "base",
-  resourceId: "22222222-2222-4222-8222-222222222222",
-  createdBy: null,
-  createdAt: "2026-01-01T00:00:00.000Z",
-};
-
+const baseId = "22222222-2222-4222-8222-222222222222";
+const customAppId = "33333333-3333-4333-8333-333333333333";
+const user = { id: "11111111-1111-4111-8111-111111111111", roles: ["admin", "user"], memberofGroupIds: [] };
 const userContext = {
   get: (key: string) => {
     if (key === "actor") return { kind: "user", user };
@@ -39,47 +25,38 @@ const userContext = {
     return undefined;
   },
 };
-
+const resourceServiceAccount = {
+  id: "44444444-4444-4444-8444-444444444444",
+  name: "Grids API",
+  kind: "resource_bound",
+  status: "active",
+  delegatedUserId: null,
+  appId: "grids",
+  resourceType: "base",
+  resourceId: baseId,
+  createdBy: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
 const serviceAccountContext = {
   get: (key: string) => {
-    if (key === "actor")
-      return {
-        kind: "service_account",
-        serviceAccount: resourceServiceAccount,
-        delegatedUser: null,
-        scopes: ["grids:*"],
-        credentialId: "77777777-7777-4777-8777-777777777777",
-        credentialExpiresAt: "2027-01-01T00:00:00.000Z",
-      };
+    if (key === "actor") {
+      return { kind: "service_account", serviceAccount: resourceServiceAccount, delegatedUser: null, scopes: ["grids:read"] };
+    }
     if (key === "accessSubject") return { type: "service_account", serviceAccountId: resourceServiceAccount.id };
-    return undefined;
-  },
-};
-
-const delegatedServiceAccount = {
-  ...resourceServiceAccount,
-  id: "55555555-5555-4555-8555-555555555555",
-  name: "Personal API keys",
-  kind: "user_delegated",
-  delegatedUserId: user.id,
-  appId: null,
-  resourceType: null,
-  resourceId: null,
-};
-
-const delegatedServiceAccountContext = {
-  get: (key: string) => {
-    if (key === "actor") return { kind: "service_account", serviceAccount: delegatedServiceAccount, delegatedUser: user, scopes: ["read"] };
-    if (key === "accessSubject") return { type: "user", userId: user.id };
     return undefined;
   },
 };
 
 describe("Grids API permissions", () => {
   beforeEach(() => {
-    lastLoadGrantsParams = null;
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async (params) => {
-      lastLoadGrantsParams = params;
+    lastBaseLoad = null;
+    lastAppLoad = null;
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async (params) => {
+      lastBaseLoad = params;
+      return [];
+    });
+    spyOn(gridsService.permission, "loadCustomAppGrantsForSubject").mockImplementation(async (params) => {
+      lastAppLoad = params;
       return [];
     });
     spyOn(gridsService.permission, "resolve").mockImplementation(() => resolvedLevel);
@@ -87,114 +64,43 @@ describe("Grids API permissions", () => {
 
   afterEach(() => mock.restore());
 
-  test("Cloud admins do not bypass Grids ACL gates", async () => {
+  test("Cloud roles do not bypass base grants", async () => {
     resolvedLevel = "none";
-
-    const result = await gateAt(userContext as never, { baseId: "22222222-2222-4222-8222-222222222222" }, "read");
-
-    expect(result.ok).toBe(false);
+    expect((await gateAt(userContext as never, { baseId }, "read")).ok).toBe(false);
   });
 
-  test("Cloud admins only get the permission resolved from Grids ACLs", async () => {
-    resolvedLevel = "read";
-
-    const result = await resolveWithGrants(userContext as never, { baseId: "22222222-2222-4222-8222-222222222222" });
-
-    expect(result.level).toBe("read");
-    expect(result.grants).toEqual([]);
+  test("loads only the exact base grant and applies its level", async () => {
+    resolvedLevel = "write";
+    const resolved = await resolveBaseWithGrantsForAccess(gridsAccessContext(userContext as never), baseId);
+    expect(resolved.level).toBe("write");
+    expect(lastBaseLoad).toEqual({ baseId, subject: { type: "user", userId: user.id } });
+    expect(lastAppLoad).toBeNull();
   });
 
-  test("resource-bound service accounts resolve through service account grants", async () => {
+  test("loads Custom App grants independently from base grants", async () => {
     resolvedLevel = "read";
-    lastLoadGrantsParams = null;
+    const resolved = await resolveCustomAppWithGrantsForAccess(gridsAccessContext(userContext as never), customAppId);
+    expect(resolved.level).toBe("read");
+    expect(lastAppLoad).toEqual({ customAppId, subject: { type: "user", userId: user.id } });
+    expect(lastBaseLoad).toBeNull();
+  });
 
-    const result = await gateAt(serviceAccountContext as never, { baseId: "22222222-2222-4222-8222-222222222222" }, "read");
+  test("resource-bound credentials are capped and cannot cross bases or enter Custom Apps", async () => {
+    resolvedLevel = "admin";
+    expect(currentResourceBoundBaseId(serviceAccountContext as never)).toBe(baseId);
+    expect((await gateAt(serviceAccountContext as never, { baseId }, "read")).ok).toBe(true);
+    expect((await gateAt(serviceAccountContext as never, { baseId }, "write")).ok).toBe(false);
+    expect((await gateAt(serviceAccountContext as never, { baseId: customAppId }, "read")).ok).toBe(false);
+    expect((await gateCredentialScope(serviceAccountContext as never, "write")).ok).toBe(false);
+    expect((await resolveCustomAppWithGrantsForAccess(gridsAccessContext(serviceAccountContext as never), customAppId)).level).toBe("none");
+  });
 
-    expect(result.ok).toBe(true);
-    expect(currentActorUserId(serviceAccountContext as never)).toBeNull();
+  test("preserves actor identity for audit and relation display", () => {
+    expect(currentActorUserId(userContext as never)).toBe(user.id);
     expect(currentActorViewer(serviceAccountContext as never)).toEqual({
       userId: null,
       userGroups: [],
       serviceAccountId: resourceServiceAccount.id,
     });
-    expect(currentWorkflowPrincipal(serviceAccountContext as never)).toMatchObject({
-      serviceAccountId: resourceServiceAccount.id,
-      actorServiceAccountId: resourceServiceAccount.id,
-      credential: {
-        kind: "api_token",
-        id: "77777777-7777-4777-8777-777777777777",
-        permissionCap: "admin",
-        resourceBinding: { appId: "grids", resourceType: "base", resourceId: resourceServiceAccount.resourceId },
-      },
-    });
-    expect(lastLoadGrantsParams).toEqual({
-      userId: null,
-      serviceAccountId: resourceServiceAccount.id,
-      baseId: "22222222-2222-4222-8222-222222222222",
-      tableId: null,
-      viewId: null,
-      formId: null,
-      documentTemplateId: null,
-      customAppId: null,
-      workflowId: null,
-    });
-  });
-
-  test("delegated service accounts resolve only through the delegated user identity", async () => {
-    resolvedLevel = "admin";
-    lastLoadGrantsParams = null;
-
-    expect(currentActorUserId(delegatedServiceAccountContext as never)).toBe(user.id);
-    expect(currentActorViewer(delegatedServiceAccountContext as never)).toEqual({
-      userId: user.id,
-      userGroups: user.memberofGroupIds,
-      serviceAccountId: null,
-    });
-    const resolved = await resolveWithGrants(delegatedServiceAccountContext as never, {
-      baseId: "22222222-2222-4222-8222-222222222222",
-    });
-    expect(resolved.level).toBe("read");
-    expect(lastLoadGrantsParams).toMatchObject({ userId: user.id, serviceAccountId: null });
-  });
-
-  test("credential scopes cap effective Grids permissions", async () => {
-    resolvedLevel = "admin";
-    const readOnlyContext = {
-      get: (key: string) => {
-        if (key === "actor")
-          return { kind: "service_account", serviceAccount: resourceServiceAccount, delegatedUser: null, scopes: ["grids:read"] };
-        if (key === "accessSubject") return { type: "service_account", serviceAccountId: resourceServiceAccount.id };
-        return undefined;
-      },
-    };
-
-    expect((await gateAt(readOnlyContext as never, { baseId: resourceServiceAccount.resourceId }, "read")).ok).toBe(true);
-    expect((await gateAt(readOnlyContext as never, { baseId: resourceServiceAccount.resourceId }, "write")).ok).toBe(false);
-    expect((await gateCredentialScope(readOnlyContext as never, "write")).ok).toBe(false);
-  });
-
-  test("resource-bound credentials cannot cross base or app boundaries", async () => {
-    resolvedLevel = "admin";
-    lastLoadGrantsParams = null;
-    expect(currentResourceBoundBaseId(serviceAccountContext as never)).toBe(resourceServiceAccount.resourceId);
-    expect((await gateAt(serviceAccountContext as never, { baseId: "66666666-6666-4666-8666-666666666666" }, "read")).ok).toBe(false);
-    expect(lastLoadGrantsParams).toBeNull();
-
-    const foreignContext = {
-      get: (key: string) => {
-        if (key === "actor") {
-          return {
-            kind: "service_account",
-            serviceAccount: { ...resourceServiceAccount, appId: "notebooks" },
-            delegatedUser: null,
-            scopes: ["grids:*"],
-          };
-        }
-        if (key === "accessSubject") return { type: "service_account", serviceAccountId: resourceServiceAccount.id };
-        return undefined;
-      },
-    };
-    expect(currentResourceBoundBaseId(foreignContext as never)).toBeNull();
-    expect((await gateAt(foreignContext as never, { baseId: resourceServiceAccount.resourceId }, "read")).ok).toBe(false);
   });
 });

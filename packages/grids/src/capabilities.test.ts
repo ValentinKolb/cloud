@@ -216,14 +216,6 @@ describe("Grids capabilities", () => {
       if (!access) throw new Error("Failed to create Grids capability access fixture");
       accessIds.push(access.id);
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${access.id}::uuid)`;
-      const [secretDeny] = await sql<{ id: string }[]>`
-        INSERT INTO auth.access (user_id, permission)
-        VALUES (${user.id}::uuid, 'none'::auth.permission_level)
-        RETURNING id::text AS id
-      `;
-      if (!secretDeny) throw new Error("Failed to create Grids capability deny fixture");
-      accessIds.push(secretDeny.id);
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${secretTableId}::uuid, ${secretDeny.id}::uuid)`;
 
       const search = await invoke("query", "base.search", { query: "Capability", tags: [], limit: 10 }, context);
       expect(search.ok && search.data.data).toEqual([
@@ -243,19 +235,24 @@ describe("Grids capabilities", () => {
       expect(loadedBase.ok && loadedBase.data.data).toMatchObject({ id: baseId, shortId: expect.any(String) });
 
       const tables = await invoke("query", "gql.context", { baseId, kind: "tables", limit: 25 }, context);
-      expect(tables.ok && tables.data.data).toMatchObject({
-        kind: "tables",
-        items: [
-          {
-            kind: "table",
-            id: tableId,
-            name: "Items",
-            permission: "write",
-            canCreateRecords: true,
-            canUpdateRecords: true,
-            links: [{ rel: "open", href: expect.stringContaining("/table/") }],
-          },
-        ],
+      expect(tables.ok && tables.data.data).toMatchObject({ kind: "tables" });
+      if (!tables.ok || tables.data.data.kind !== "tables") throw new Error("Expected the Base table catalog");
+      expect(tables.data.data.items.find((item: { id: string }) => item.id === tableId)).toMatchObject({
+        kind: "table",
+        id: tableId,
+        name: "Items",
+        permission: "write",
+        canCreateRecords: true,
+        canUpdateRecords: true,
+        links: [{ rel: "open", href: expect.stringContaining("/table/") }],
+      });
+      expect(tables.data.data.items.find((item: { id: string }) => item.id === secretTableId)).toMatchObject({
+        kind: "table",
+        id: secretTableId,
+        name: "Secret items",
+        permission: "write",
+        canCreateRecords: true,
+        canUpdateRecords: true,
       });
 
       const fields = await invoke("query", "gql.context", { baseId, kind: "fields", tableId, limit: 25 }, context);
@@ -269,7 +266,7 @@ describe("Grids capabilities", () => {
             id: relationFieldId,
             name: "Secret relation",
             writable: true,
-            targetTableId: null,
+            targetTableId: secretTableId,
             relationCardinality: "multiple",
           },
         ],

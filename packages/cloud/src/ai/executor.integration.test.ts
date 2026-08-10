@@ -3,6 +3,7 @@ import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
 import type { User } from "../contracts";
 import { AiTurnExecutor } from "./executor";
+import { aiMemories } from "./memories";
 import { migrateCloudAi } from "./migrate";
 import type { AiWireEvent } from "./protocol";
 import { createAiProvider } from "./provider";
@@ -50,7 +51,7 @@ const fakeValidateTurn: typeof validateAiTurnRequest = async () => {
       enabled: true,
       defaultModelId: MODEL_ID,
       globalInstructions: "",
-      compactionPrompt: "",
+      compactionInstructions: "",
       maxToolResultChars: 2_000,
       firecrawlConfigured: false,
       profiles: [profile],
@@ -67,7 +68,7 @@ const fakeValidateToolTurn: typeof validateAiTurnRequest = async () => {
       enabled: true,
       defaultModelId: MODEL_ID,
       globalInstructions: "",
-      compactionPrompt: "",
+      compactionInstructions: "",
       maxToolResultChars: 2_000,
       firecrawlConfigured: false,
       profiles: [profile],
@@ -353,11 +354,12 @@ suite("AI executor integration", () => {
     }
   });
 
-  test("does not advertise tool-only Help, memory mutations, or a skill catalog to a model without tools", async () => {
+  test("does not advertise tool-only Help or memory mutations to a model without tools", async () => {
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
+      await aiMemories.create({ userId, kind: "preference", content: "Prefers concise German answers." });
       completionRequestCount = 0;
       nextCompletion = textCompletion("No tools needed");
       const requests: unknown[] = [];
@@ -394,9 +396,9 @@ suite("AI executor integration", () => {
 
       expect(requests).toHaveLength(1);
       const request = JSON.stringify(requests[0]);
-      expect(request).toContain("# Memory");
+      expect(request).toContain("# Personalization");
+      expect(request).toContain("Prefers concise German answers.");
       expect(request).not.toContain("memory add");
-      expect(request).not.toContain("# Skills");
       expect(request).not.toContain("# Cloud Help");
       expect(request).not.toContain("# Cloud capabilities");
       expect(request).not.toContain('"name":"memory"');
@@ -408,13 +410,18 @@ suite("AI executor integration", () => {
     }
   });
 
-  test("uses the selected skill snapshot from the durable turn config", async () => {
+  test("uses the Project snapshot from the durable turn config", async () => {
     const userId = await insertUser();
+    const projectId = "11111111-1111-4111-8111-111111111111";
+    await sql`
+      INSERT INTO ai.projects (id, name, instructions, owner_user_id, revision)
+      VALUES (${projectId}::uuid, 'Meeting summary', 'Current instructions that must not replace the snapshot.', ${userId}::uuid, 5)
+    `;
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
-      nextCompletion = textCompletion("Skill applied");
+      nextCompletion = textCompletion("Project applied");
       const requests: unknown[] = [];
       onCompletionRequest = (body) => {
         requests.push(body);
@@ -426,11 +433,13 @@ suite("AI executor integration", () => {
           kind: "chat",
           input: "Summarize this meeting.",
           actor: { kind: "user", user: actorUser(userId) },
-          skill: {
-            id: "11111111-1111-4111-8111-111111111111",
+          project: {
+            id: projectId,
             name: "Meeting summary",
             instructions: "List decisions before action items.",
             revision: 4,
+            context: "Project: Meeting summary",
+            defaultModelProfileId: null,
           },
           toolSource: { kind: "none" },
         },
@@ -439,14 +448,14 @@ suite("AI executor integration", () => {
       const claim = await aiConversationStore.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
-        leaseOwner: "skill-exec",
+        leaseOwner: "project-exec",
         leaseMs: 30_000,
         from: "queue",
         maxAttempts: 5,
         runBudgetMs: 60_000,
       });
 
-      await createExecutor("skill-exec").run({
+      await createExecutor("project-exec").run({
         conversationId: conversation.id,
         turnId: turn.id,
         claim: claim!,
@@ -454,13 +463,14 @@ suite("AI executor integration", () => {
       });
 
       const request = JSON.stringify(requests[0]);
-      expect(request).toContain("# Selected skill: Meeting summary");
+      expect(request).toContain("# Project instructions: Meeting summary");
       expect(request).toContain("List decisions before action items.");
-      expect(request).toContain("all higher-priority rules");
-      expect(request).not.toContain("# Skills");
+      expect(request).toContain("cannot override platform, organization, or app rules");
+      expect(request).not.toContain("Current instructions that must not replace the snapshot.");
     } finally {
       onCompletionRequest = null;
       await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM ai.projects WHERE id = ${projectId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
   });

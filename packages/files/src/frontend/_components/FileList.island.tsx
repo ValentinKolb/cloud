@@ -1,7 +1,7 @@
-import { Lightbox, type LightboxImage, Placeholder, prompts, toast } from "@k2b/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { dates, fileIcons, text } from "@k2b/stdlib";
 import { dnd, mutation as mutations } from "@k2b/stdlib/solid";
+import { Lightbox, type LightboxImage, Placeholder, prompts, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { apiClient } from "@/api/client";
@@ -225,8 +225,6 @@ export default function FileList(props: FileListProps) {
       dragMutation.mutate({ sourcePaths, targetPath: over.meta.targetPath });
     },
   });
-
-  onCleanup(() => fileDnd.destroy());
 
   onMount(() => {
     const highlightedFiles = consumeHighlightedFiles();

@@ -96,8 +96,6 @@ const forbiddenResponse = {
 };
 
 let baseLevel: PermissionLevel = "admin";
-let tableLevel: PermissionLevel = "admin";
-let templateLevel: PermissionLevel = "admin";
 let currentTable: typeof table | null = table;
 let currentTemplate: typeof template | null = template;
 let currentRecord: typeof record | null = record;
@@ -248,8 +246,6 @@ const expectPdf = async (response: Response, disposition: string, extraHeaders: 
 describe("document render routes", () => {
   beforeEach(() => {
     baseLevel = "admin";
-    tableLevel = "admin";
-    templateLevel = "admin";
     currentTable = table;
     currentTemplate = template;
     currentRecord = record;
@@ -305,16 +301,8 @@ describe("document render routes", () => {
       createRunInput = input;
       return runResult as never;
     });
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
-      if ("documentTemplateId" in target) return templateLevel;
-      if ("tableId" in target) return tableLevel;
-      return baseLevel;
-    });
-    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target) => {
-      const level = "documentTemplateId" in target ? templateLevel : "tableId" in target ? tableLevel : baseLevel;
-      return { level, recordAccess: level === "none" ? null : { kind: "all" } };
-    });
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
     spyOn(gridsService.permission, "hasAtLeast").mockImplementation((actual, expected) => {
       permissionChecks.push(expected);
       const rank = { none: 0, read: 1, write: 2, admin: 3 };
@@ -373,26 +361,26 @@ describe("document render routes", () => {
   }
 
   for (const [suffix, body] of requestRoutes.slice(0, 2)) {
-    test(`POST ${suffix} requires base table admin`, async () => {
-      tableLevel = "write";
+    test(`POST ${suffix} requires base admin`, async () => {
+      baseLevel = "write";
       await expectForbidden(await app().request(path(suffix), postJson(body)));
     });
   }
 
   for (const [suffix, body] of requestRoutes.slice(2, 5)) {
-    test(`POST ${suffix} requires saved template admin`, async () => {
-      templateLevel = "write";
+    test(`POST ${suffix} requires base admin`, async () => {
+      baseLevel = "write";
       await expectForbidden(await app().request(path(suffix), postJson(body)));
     });
   }
 
-  test("saved PDF preview requires template write", async () => {
-    templateLevel = "read";
+  test("saved PDF preview requires base write", async () => {
+    baseLevel = "read";
     await expectForbidden(await app().request(path(`/templates/${templateId}/preview-pdf`), postJson(recordBody)));
   });
 
-  test("generate requires template write", async () => {
-    templateLevel = "read";
+  test("generate requires base write", async () => {
+    baseLevel = "read";
     await expectForbidden(await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody)));
     expect(callOrder).toEqual([]);
   });
@@ -467,16 +455,15 @@ describe("document render routes", () => {
   });
 
   test("renders a saved PDF preview with template write and exact inline headers", async () => {
-    templateLevel = "write";
+    baseLevel = "write";
     const response = await app().request(path(`/templates/${templateId}/preview-pdf`), postJson(recordBody));
 
     await expectPdf(response, `inline; filename="Invoice July.pdf"; filename*=UTF-8''Invoice%20July.pdf`);
     expect(previewPdfInputs[0]).toEqual([template, enrichedData, "DOC01-preview.html"]);
   });
 
-  test("requires base admin for a disabled saved PDF preview after template write", async () => {
+  test("requires base admin for a disabled saved PDF preview", async () => {
     currentTemplate = disabledTemplate;
-    templateLevel = "write";
     baseLevel = "write";
 
     await expectForbidden(await app().request(path(`/templates/${templateId}/preview-pdf`), postJson(recordBody)));
@@ -489,7 +476,6 @@ describe("document render routes", () => {
 
   test("rejects disabled generation with 400 before permissions or side effects", async () => {
     currentTemplate = disabledTemplate;
-    templateLevel = "none";
     const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
 
     expect(response.status).toBe(400);
@@ -499,8 +485,7 @@ describe("document render routes", () => {
   });
 
   test("persists only an already-rendered run with actor inputs and exact download headers", async () => {
-    templateLevel = "write";
-    tableLevel = "read";
+    baseLevel = "write";
     const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
 
     await expectPdf(response, `attachment; filename="Invoice July.pdf"; filename*=UTF-8''Invoice%20July.pdf`, {
@@ -534,14 +519,12 @@ describe("document render routes", () => {
     });
   });
 
-  test("does not generate from a readable template when the record data is not readable", async () => {
-    templateLevel = "write";
-    tableLevel = "none";
+  test("does not generate without base write access", async () => {
+    baseLevel = "read";
 
     const response = await app().request(path(`/templates/${templateId}/generate`), postJson(recordBody));
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ message: "Record not found" });
+    expect(response.status).toBe(403);
     expect(callOrder).toEqual([]);
   });
 

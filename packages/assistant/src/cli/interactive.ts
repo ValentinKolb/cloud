@@ -4,7 +4,6 @@ import {
   type AiFileStat,
   type AiPendingTurnAction,
   type AiPublicModelProfile,
-  type AiSkillSummary,
   CloudAiCardInputSchema,
   type CloudAiSurveyInput,
   CloudAiSurveyInputSchema,
@@ -12,7 +11,6 @@ import {
 import { arg, type CloudCliContext, command, flag } from "@valentinkolb/cloud/cli";
 import { deniedLocalBashResult, parseLocalBashInput, runLocalBash } from "./local-bash";
 import { jsonRequest, readApi } from "./shared";
-import { listAssistantSkills, resolveAssistantSkill } from "./skills";
 import { type AssistantTurnStreamResult, streamAssistantTurn } from "./stream";
 import { selectNumberedChoice, terminalInfo, terminalSafeText } from "./terminal";
 import { conversationPath, readConversationDetail, resolveConversation, submitAssistantTurn, uploadAttachment } from "./turn";
@@ -27,7 +25,7 @@ type InteractiveOptions = {
   conversationId?: string;
   title?: string;
   model?: string;
-  skill?: string;
+  projectId?: string;
   attachments?: string[];
   initialPrompt?: string;
   allowBash?: boolean;
@@ -71,7 +69,6 @@ const printInteractiveHelp = (ctx: CloudCliContext): void => {
   ctx.print("/attach <path>        Attach a local file to the next message");
   ctx.print("/files                List files in this chat");
   ctx.print("/model [id|default]   Choose interactively or set the session model");
-  ctx.print("/skill [name|clear]   Choose interactively for the next message");
   ctx.print("/exit                 End the session");
 };
 
@@ -274,7 +271,6 @@ export const runInteractiveAssistant = async (
   let conversationId = options.conversationId;
   let activeConversation: Awaited<ReturnType<typeof resolveConversation>> | undefined;
   let model = options.model;
-  let nextSkill: string | AiSkillSummary | undefined = options.skill;
   let attachments = [...(options.attachments ?? [])];
   let preparedAttachments: Awaited<ReturnType<typeof uploadAttachment>>[] | null = null;
   let activeAbort: AbortController | null = null;
@@ -291,7 +287,8 @@ export const runInteractiveAssistant = async (
   });
 
   const send = async (message: string): Promise<number> => {
-    if (!activeConversation) activeConversation = await resolveConversation(ctx, { conversationId, title: options.title });
+    if (!activeConversation)
+      activeConversation = await resolveConversation(ctx, { conversationId, title: options.title, projectId: options.projectId });
     const conversation = activeConversation;
     if (!conversationId) {
       conversationId = conversation.id;
@@ -301,7 +298,6 @@ export const runInteractiveAssistant = async (
       preparedAttachments = [];
       for (const path of attachments) preparedAttachments.push(await uploadAttachment(ctx, conversation.id, path));
     }
-    const skill = !nextSkill ? undefined : typeof nextSkill === "string" ? await resolveAssistantSkill(ctx, nextSkill) : nextSkill;
     const abort = new AbortController();
     activeAbort = abort;
     try {
@@ -314,7 +310,6 @@ export const runInteractiveAssistant = async (
           message,
           ...(preparedAttachments.length > 0 ? { content: preparedAttachments } : {}),
           ...(model ? { modelProfileId: model } : {}),
-          ...(skill ? { skillId: skill.id } : {}),
           ...(options.allowBash ? { clientToolIds: ["local_bash"] } : {}),
         },
         watch: true,
@@ -327,7 +322,6 @@ export const runInteractiveAssistant = async (
       });
       attachments = [];
       preparedAttachments = null;
-      nextSkill = undefined;
       if (!result) return 0;
       if (result.status === "aborted") {
         await readApi(ctx, conversationPath(conversation.id, `/turns/${encodeURIComponent(submitted.turn.id)}/abort`), { method: "POST" });
@@ -480,36 +474,6 @@ export const runInteractiveAssistant = async (
       printInfo(ctx, model ? `Model: ${model}` : "Model: default");
       return true;
     }
-    if (line === "/skill") {
-      const { skills } = await listAssistantSkills(ctx);
-      const currentSkill = typeof nextSkill === "string" ? nextSkill : nextSkill?.id;
-      const selected = await selectNumberedChoice<AiSkillSummary | null>({
-        output: ctx,
-        reader,
-        title: "Select a skill for the next message:",
-        prompt: "Skill [Enter to cancel]: ",
-        zeroChoice: { value: null, label: "No skill", current: !nextSkill },
-        choices: skills.map((skill) => ({
-          value: skill,
-          label: skill.name,
-          description: skill.description ? `${skill.scope} · ${skill.description}` : skill.scope,
-          current: currentSkill === skill.id || currentSkill === skill.name,
-        })),
-        emptyMessage: "No visible skills are available.",
-      });
-      if (selected !== undefined) {
-        nextSkill = selected ?? undefined;
-        printInfo(ctx, nextSkill ? `Skill for next message: ${nextSkill.name}` : "Skill cleared.");
-      }
-      return true;
-    }
-    if (line.startsWith("/skill ")) {
-      const value = line.slice(7).trim();
-      nextSkill = value === "clear" ? undefined : value || nextSkill;
-      const label = typeof nextSkill === "string" ? nextSkill : nextSkill?.name;
-      printInfo(ctx, label ? `Skill for next message: ${label}` : "Skill cleared.");
-      return true;
-    }
     return false;
   };
 
@@ -557,7 +521,7 @@ export const assistantRootCommand = command("", {
     chat: flag.string({ description: "Continue an existing chat ID" }),
     title: flag.string({ description: "Title for a new chat" }),
     model: flag.string({ description: "Model profile ID" }),
-    skill: flag.string({ description: "Apply one visible skill by exact name or ID" }),
+    project: flag.string({ description: "Create a new chat in this Project ID" }),
     attach: flag.stringList({ description: "Attach a local file; repeat for multiple files" }),
     approve: flag.stringList({ description: "Approve this exact tool name in print mode; repeat as needed" }),
     allowBash: flag.boolean({ description: "Offer a locally executed Bash tool with confirmation for every command" }),
@@ -581,7 +545,7 @@ export const assistantRootCommand = command("", {
         conversationId: flags.chat,
         title: flags.title,
         model: flags.model,
-        skill: flags.skill,
+        projectId: flags.project,
         attachments: flags.attach,
         initialPrompt: positional || undefined,
         allowBash: flags.allowBash,
@@ -594,8 +558,7 @@ export const assistantRootCommand = command("", {
     if (positional && piped) throw new Error("Pass the message either as arguments or through stdin.");
     const message = positional || piped;
     if (!message) throw new Error("Missing message.");
-    const skill = flags.skill ? await resolveAssistantSkill(ctx, flags.skill) : undefined;
-    const conversation = await resolveConversation(ctx, { conversationId: flags.chat, title: flags.title });
+    const conversation = await resolveConversation(ctx, { conversationId: flags.chat, title: flags.title, projectId: flags.project });
     const content = [];
     for (const path of flags.attach) content.push(await uploadAttachment(ctx, conversation.id, path));
     const { submitted, result } = await submitAssistantTurn({
@@ -606,7 +569,6 @@ export const assistantRootCommand = command("", {
         message,
         ...(content.length > 0 ? { content } : {}),
         ...(flags.model ? { modelProfileId: flags.model } : {}),
-        ...(skill ? { skillId: skill.id } : {}),
       },
       watch: !flags.detach,
       approveTools: flags.approve,

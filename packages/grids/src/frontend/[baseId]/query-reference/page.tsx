@@ -1,8 +1,9 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
-import { currentActorUser } from "../../../api/permissions";
+import { currentActorUser, gateBaseAtAccess, gridsAccessContext } from "../../../api/permissions";
 import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
+import { ALL_RECORD_ACCESS } from "../../../service/record-access";
 import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_components/query/QueryReferenceWindow";
 
 const messagePage =
@@ -29,13 +30,8 @@ export default ssr<AuthContext>(async (c) => {
   const user = currentActorUser(c);
   if (!user) return messagePage("Sign in to open the Grids reference.", "ti-lock");
 
-  const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-    baseId: base.id,
-  });
-  const baseLevel = gridsService.permission.resolve(grants, { baseId: base.id });
-  if (!gridsService.permission.hasAtLeast(baseLevel, "read")) return messagePage("No access to this base", "ti-lock");
+  const gate = await gateBaseAtAccess(gridsAccessContext(c), base.id, "read");
+  if (!gate.ok) return messagePage("No access to this base", "ti-lock");
 
   const catalog = await gridsService.base.catalog({
     baseId: base.id,
@@ -43,15 +39,7 @@ export default ssr<AuthContext>(async (c) => {
     userGroups: user.memberofGroupIds,
   });
   const recordCountsByTable = await gridsService.record.countAccessibleByTable(
-    catalog.tables.flatMap((table) => {
-      const access = gridsService.permission.resolveRecordAccess(
-        grants,
-        { baseId: base.id, tableId: table.id },
-        "read",
-        user.id,
-      ).recordAccess;
-      return access ? [{ tableId: table.id, recordAccess: access }] : [];
-    }),
+    catalog.tables.map((table) => ({ tableId: table.id, recordAccess: ALL_RECORD_ACCESS })),
   );
   const helpDocuments = getRuntimeContext(c).apps.find((registeredApp) => registeredApp.id === "grids")?.help?.documents ?? [];
 

@@ -12,6 +12,7 @@ import {
   UpdateDocumentTemplateSchema,
 } from "../contracts";
 import { gridsService } from "../service";
+import { ALL_RECORD_ACCESS } from "../service/record-access";
 import {
   DocumentTemplateSummaryQuerySchema,
   gateEnabledTemplateWrite,
@@ -20,7 +21,7 @@ import {
   RecordLookupQuerySchema,
   uuidParam,
 } from "./documents-api-shared";
-import { currentActorUserId, gateAt, resolveRecordAccess } from "./permissions";
+import { currentActorUserId, gateAt } from "./permissions";
 
 export const createDocumentTemplateRoutes = () =>
   new Hono<AuthContext>()
@@ -40,17 +41,10 @@ export const createDocumentTemplateRoutes = () =>
         if (!tableId) return c.json({ message: "Table not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
-        const tableGate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        const tableGate = await gateAt(c, { baseId: table.baseId }, c.req.valid("query").min);
+        if (!tableGate.ok) return respond(c, () => Promise.resolve(tableGate));
         const templates = await gridsService.document.listTemplatesForTable(tableId);
-        const required = c.req.valid("query").min;
-        const visible = [];
-        for (const template of templates) {
-          if (!template.enabled) continue;
-          const templateGate = await gateTemplate(c, { template, table }, required);
-          if (templateGate.ok) visible.push(gridsService.document.summarizeTemplate(template));
-        }
-        if (!tableGate.ok && visible.length === 0) return respond(c, () => Promise.resolve(tableGate));
-        return c.json(visible);
+        return c.json(templates.filter((template) => template.enabled).map(gridsService.document.summarizeTemplate));
       },
     )
 
@@ -198,16 +192,6 @@ export const createDocumentTemplateRoutes = () =>
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateEnabledTemplateWrite(c, loaded);
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const access = await resolveRecordAccess(
-          c,
-          {
-            baseId: loaded.table.baseId,
-            tableId: loaded.table.id,
-            documentTemplateId: loaded.template.id,
-          },
-          "read",
-        );
-        if (!access.ok) return respond(c, () => Promise.resolve(access));
         const { q, limit, excludeIds } = c.req.valid("query");
         return c.json(
           await gridsService.relations.lookup({
@@ -215,7 +199,7 @@ export const createDocumentTemplateRoutes = () =>
             q,
             limit,
             excludeIds,
-            recordAccess: access.data.recordAccess,
+            recordAccess: ALL_RECORD_ACCESS,
           }),
         );
       },

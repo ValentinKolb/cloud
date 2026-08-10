@@ -158,18 +158,20 @@ const insertFixture = async (userId: string): Promise<GqlApiFixture> => {
   return { baseId, accessId, tableId, viewId, amountId, stageId };
 };
 
-const insertAutocompletePermissionFixture = async (
+const insertAutocompleteBaseFixture = async (
   userId: string,
 ): Promise<{
   baseId: string;
-  accessIds: string[];
+  accessId: string;
   publicTableId: string;
   secretTableId: string;
+  secretLinkId: string;
 }> => {
   const baseId = uuid();
   const publicTableId = uuid();
   const secretTableId = uuid();
   const publicAmountId = uuid();
+  const secretLinkId = uuid();
   const secretCodeId = uuid();
   const secretViewId = uuid();
 
@@ -187,6 +189,7 @@ const insertAutocompletePermissionFixture = async (
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
     VALUES
       (${publicAmountId}::uuid, 'PUBAM', ${publicTableId}::uuid, 'PublicAmount', 'number', '{}'::jsonb, 0),
+      (${secretLinkId}::uuid, 'SECLN', ${publicTableId}::uuid, 'SecretDeal', 'relation', ${{ targetTableId: secretTableId }}::jsonb, 1),
       (${secretCodeId}::uuid, 'SECRT', ${secretTableId}::uuid, 'SecretCode', 'text', '{}'::jsonb, 0)
   `;
   await sql`
@@ -194,21 +197,8 @@ const insertAutocompletePermissionFixture = async (
     VALUES (${secretViewId}::uuid, 'SVIEW', ${secretTableId}::uuid, 'Secret view', ${`from table {${secretTableId}}`}, '{}'::jsonb, 0)
   `;
 
-  const [baseAccess] = await sql<{ id: string }[]>`
-    INSERT INTO auth.access (user_id, permission)
-    VALUES (${userId}::uuid, 'read'::auth.permission_level)
-    RETURNING id::text AS id
-  `;
-  const [secretDeny] = await sql<{ id: string }[]>`
-    INSERT INTO auth.access (user_id, permission)
-    VALUES (${userId}::uuid, 'none'::auth.permission_level)
-    RETURNING id::text AS id
-  `;
-  if (!baseAccess || !secretDeny) throw new Error("Failed to create test access rows");
-  await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${baseAccess.id}::uuid)`;
-  await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${secretTableId}::uuid, ${secretDeny.id}::uuid)`;
-
-  return { baseId, accessIds: [baseAccess.id, secretDeny.id], publicTableId, secretTableId };
+  const accessId = await grantBaseRead(baseId, userId);
+  return { baseId, accessId, publicTableId, secretTableId, secretLinkId };
 };
 
 const insertRelationFixture = async (userId: string): Promise<GqlRelationApiFixture> => {
@@ -283,13 +273,6 @@ const cleanupFixture = async (baseId: string, accessId?: string): Promise<void> 
   if (accessId) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
 };
 
-const cleanupAutocompletePermissionFixture = async (baseId: string, accessIds: string[]): Promise<void> => {
-  await cleanupFixture(baseId);
-  for (const accessId of accessIds) {
-    await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
-  }
-};
-
 beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") {
     process.env.APP_SECRET ??= "grids-gql-integration-cursor-secret";
@@ -309,9 +292,9 @@ describe("GQL API route contract", () => {
     expect(legacyResponse.status).toBe(404);
   });
 
-  postgresTest("autocomplete filters source and field suggestions through table permissions", async () => {
+  postgresTest("autocomplete exposes every source and field in a readable Base", async () => {
     const userId = await existingAuthUserId();
-    const fixture = await insertAutocompletePermissionFixture(userId);
+    const fixture = await insertAutocompleteBaseFixture(userId);
     const app = apiFor(testUser({ id: userId, roles: ["user"] }));
 
     try {
@@ -322,11 +305,11 @@ describe("GQL API route contract", () => {
       expect(sourceResponse.status).toBe(200);
       const sources = (await sourceResponse.json()) as AutocompleteResponse;
       expect(sources.items.map((item) => item.label)).toContain("PublicOrders");
-      expect(sources.items.map((item) => item.label)).not.toContain("SecretDeals");
+      expect(sources.items.map((item) => item.label)).toContain("SecretDeals");
 
       const viewResponse = await app.request(`/gql/by-base/${fixture.baseId}/autocomplete`, jsonRequest("POST", { query: "from view " }));
       const views = (await viewResponse.json()) as AutocompleteResponse;
-      expect(views.items.map((item) => item.label)).not.toContain("Secret view");
+      expect(views.items.map((item) => item.label)).toContain("Secret view");
 
       const fieldResponse = await app.request(
         `/gql/by-base/${fixture.baseId}/autocomplete`,
@@ -336,27 +319,24 @@ describe("GQL API route contract", () => {
       expect(fields.items.map((item) => item.label)).toContain("PublicAmount");
       expect(fields.items.map((item) => item.label)).not.toContain("SecretCode");
 
-      const deniedResponse = await app.request(
+      const otherTableFieldsResponse = await app.request(
         `/gql/by-base/${fixture.baseId}/autocomplete`,
         jsonRequest("POST", { query: "from table SecretDeals\nselect SecretCode" }),
       );
-      const denied = (await deniedResponse.json()) as AutocompleteResponse;
-      expect(denied.diagnostics.map((diagnostic) => diagnostic.message)).toContain('source "SecretDeals" is not available');
-      expect(JSON.stringify(denied.items)).not.toContain("SecretCode");
+      const otherTableFields = (await otherTableFieldsResponse.json()) as AutocompleteResponse;
+      expect(otherTableFields.diagnostics).toEqual([]);
 
-      const hiddenJoinResponse = await viewWriteCompilerFor(testUser({ id: userId, roles: ["user"] })).request(
+      const sameBaseJoinResponse = await viewWriteCompilerFor(testUser({ id: userId, roles: ["user"] })).request(
         `/${fixture.baseId}/${fixture.publicTableId}`,
         jsonRequest("POST", {
-          source: `from table {${fixture.publicTableId}} as visible\njoin table {${fixture.secretTableId}} as hidden on visible.id = hidden.id`,
+          source: `from table {${fixture.publicTableId}} as visible\njoin table {${fixture.secretTableId}} as hidden on visible.{${fixture.secretLinkId}} = hidden.id`,
         }),
       );
-      expect(hiddenJoinResponse.status).toBe(200);
-      const hiddenJoin = (await hiddenJoinResponse.json()) as CompileViewResponse;
-      expect(hiddenJoin.ok).toBe(false);
-      if (hiddenJoin.ok) throw new Error("expected hidden join diagnostics");
-      expect(hiddenJoin.diagnostics.some((diagnostic) => diagnostic.message.includes(fixture.secretTableId))).toBe(true);
+      expect(sameBaseJoinResponse.status).toBe(200);
+      const sameBaseJoin = (await sameBaseJoinResponse.json()) as CompileViewResponse;
+      expect(sameBaseJoin.ok).toBe(true);
     } finally {
-      await cleanupAutocompletePermissionFixture(fixture.baseId, fixture.accessIds);
+      await cleanupFixture(fixture.baseId, fixture.accessId);
     }
   });
 

@@ -144,24 +144,30 @@ const AI_PROFILE_SETTING_KEY = "ai.model_profiles_json";
 const AI_DEFAULT_MODEL_SETTING_KEY = "ai.default_model_id";
 const AI_ENABLED_SETTING_KEY = "ai.enabled";
 const AI_GLOBAL_INSTRUCTIONS_SETTING_KEY = "ai.global_instructions";
-const AI_COMPACTION_PROMPT_SETTING_KEY = "ai.compaction_prompt";
+const AI_COMPACTION_INSTRUCTIONS_SETTING_KEY = "ai.compaction_instructions";
+const AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY = "ai.chat_enrichment_instructions";
+const AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY = "ai.memory_learning_instructions";
 const AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY = "ai.max_tool_result_chars";
 const AI_FIRECRAWL_API_KEY_SETTING_KEY = "ai.firecrawl_api_key";
 const AI_BACKGROUND_MODEL_SETTING_KEY = "ai.background_model_id";
 const AI_WORKFLOW_MODEL_SETTING_KEY = "ai.workflow_model_id";
 const AI_ENRICH_CRON_SETTING_KEY = "ai.enrich_cron";
+const AI_MEMORY_LEARNING_CRON_SETTING_KEY = "ai.memory_learning_cron";
 
 const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_ENABLED_SETTING_KEY,
   AI_DEFAULT_MODEL_SETTING_KEY,
   AI_PROFILE_SETTING_KEY,
   AI_GLOBAL_INSTRUCTIONS_SETTING_KEY,
-  AI_COMPACTION_PROMPT_SETTING_KEY,
+  AI_COMPACTION_INSTRUCTIONS_SETTING_KEY,
+  AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY,
+  AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY,
   AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY,
   AI_FIRECRAWL_API_KEY_SETTING_KEY,
   AI_BACKGROUND_MODEL_SETTING_KEY,
   AI_WORKFLOW_MODEL_SETTING_KEY,
   AI_ENRICH_CRON_SETTING_KEY,
+  AI_MEMORY_LEARNING_CRON_SETTING_KEY,
 ]);
 
 const AI_PROVIDER_OPTIONS: ReadonlyArray<{
@@ -1140,22 +1146,7 @@ function AiSettingsPanel(props: {
           </details>
         </SettingsSection>
 
-        <SettingsSection title="Context" subtitle="Compaction behavior for long conversations and large tool outputs." icon="ti ti-package">
-          <TextInput
-            variant="ai"
-            multiline
-            lines={4}
-            label="Compaction prompt"
-            description="Optional prompt used when old chat context is summarized before continuing long conversations. Leave empty for the built-in structured handoff prompt (goal, requests, decisions, facts, dead ends, open tasks, next step)."
-            value={() => asString(props.valueOf(AI_COMPACTION_PROMPT_SETTING_KEY))}
-            onValueChange={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
-            placeholder={
-              entry(AI_COMPACTION_PROMPT_SETTING_KEY)?.placeholder ??
-              "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step)."
-            }
-            error={() => props.errorFor(AI_COMPACTION_PROMPT_SETTING_KEY)}
-          />
-
+        <SettingsSection title="Context" subtitle="Limits for model context assembled during conversations." icon="ti ti-package">
           <NumberInput
             label="Max tool result chars"
             description="Tool results above this size are truncated before they are sent back into the model context. Higher keeps more detail in long chats; lower saves context."
@@ -1172,7 +1163,7 @@ function AiSettingsPanel(props: {
       <Show when={props.section === "jobs"}>
         <SettingsSection
           title="Background jobs"
-          subtitle="Model and schedule for background AI work like chat summaries, keywords, and titles."
+          subtitle="One model, task guidance, and schedules for chat enrichment, personalization learning, and compaction."
           icon="ti ti-clock-bolt"
         >
           <Select
@@ -1223,6 +1214,52 @@ function AiSettingsPanel(props: {
             placeholder="*/10 * * * *"
             monospace
             error={() => props.errorFor(AI_ENRICH_CRON_SETTING_KEY)}
+          />
+
+          <TextInput
+            variant="ai"
+            multiline
+            lines={4}
+            label="Chat enrichment instructions"
+            description="Optional organization guidance added between Cloud's fixed task and fixed output contract."
+            value={() => asString(props.valueOf(AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY))}
+            onValueChange={(value) => props.onChange(AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY, value)}
+            placeholder={entry(AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY)?.placeholder}
+            error={() => props.errorFor(AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY)}
+          />
+
+          <TextInput
+            label="Personalization learning schedule"
+            description="Cron for checking eligible private chats for durable personal facts and preferences."
+            value={() => asString(props.valueOf(AI_MEMORY_LEARNING_CRON_SETTING_KEY))}
+            onValueChange={(value) => props.onChange(AI_MEMORY_LEARNING_CRON_SETTING_KEY, value)}
+            placeholder="*/10 * * * *"
+            monospace
+            error={() => props.errorFor(AI_MEMORY_LEARNING_CRON_SETTING_KEY)}
+          />
+
+          <TextInput
+            variant="ai"
+            multiline
+            lines={4}
+            label="Personalization learning instructions"
+            description="Optional organization guidance added without weakening Cloud's fixed privacy and output contract."
+            value={() => asString(props.valueOf(AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY))}
+            onValueChange={(value) => props.onChange(AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY, value)}
+            placeholder={entry(AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY)?.placeholder}
+            error={() => props.errorFor(AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY)}
+          />
+
+          <TextInput
+            variant="ai"
+            multiline
+            lines={4}
+            label="Compaction instructions"
+            description="Optional organization guidance added without replacing Cloud's structured handoff and completeness contract."
+            value={() => asString(props.valueOf(AI_COMPACTION_INSTRUCTIONS_SETTING_KEY))}
+            onValueChange={(value) => props.onChange(AI_COMPACTION_INSTRUCTIONS_SETTING_KEY, value)}
+            placeholder={entry(AI_COMPACTION_INSTRUCTIONS_SETTING_KEY)?.placeholder}
+            error={() => props.errorFor(AI_COMPACTION_INSTRUCTIONS_SETTING_KEY)}
           />
 
           <Show when={props.enrichmentOverview}>

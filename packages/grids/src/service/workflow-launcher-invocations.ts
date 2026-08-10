@@ -17,8 +17,8 @@ import {
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { list as listRecords } from "./records";
 import {
-  authorizeWorkflowTarget,
-  resolveWorkflowTargetRecordAccess,
+  authorizeWorkflowBase,
+  resolveWorkflowBaseRecordAccess,
   revalidateWorkflowPrincipal,
   workflowPermissionAllows,
 } from "./workflow-authorization";
@@ -167,14 +167,11 @@ const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ workflow
   if (!principalState.ok || !workflowPermissionAllows(principalState.permissionCap, "write")) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
-  if (
-    authorization?.kind !== "custom-app-action" &&
-    !(await authorizeWorkflowTarget(principal, { baseId: workflow.baseId, workflowId: workflow.id }, "write"))
-  ) {
+  if (authorization?.kind !== "custom-app-action" && !(await authorizeWorkflowBase(principal, workflow.baseId, "write"))) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
   if (tableId) {
-    const recordAccess = await resolveWorkflowTargetRecordAccess(principal, { baseId: workflow.baseId, tableId }, "read");
+    const recordAccess = await resolveWorkflowBaseRecordAccess(principal, { baseId: workflow.baseId, tableId }, "read");
     if (!recordAccess) return fail(err.forbidden("Workflow actor cannot read the launcher input table."));
     return ok(recordAccess);
   }

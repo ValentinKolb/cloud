@@ -524,7 +524,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
-  const createConversation = async (input: { title?: string } = {}) => {
+  const createConversation = async (input: { title?: string; projectId?: string } = {}) => {
     const generation = ++conversationOpenGeneration;
     clearErrors();
     try {
@@ -567,13 +567,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     return { path: body.file.path, mediaType: body.file.mediaType, size: body.file.size };
   };
 
-  const send = async (input: {
-    message?: string;
-    content?: AiUserContentPart[];
-    files?: File[];
-    modelProfileId?: string;
-    skillId?: string;
-  }) => {
+  const send = async (input: { message?: string; content?: AiUserContentPart[]; files?: File[]; modelProfileId?: string }) => {
     const text = input.message?.trim() ?? "";
     if (!text && !input.content?.length && !input.files?.length) return false;
     const conversationId = await ensureConversation();
@@ -638,7 +632,6 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
             message: text || undefined,
             content: wireContent,
             modelProfileId: input.modelProfileId,
-            skillId: input.skillId,
           }),
         },
         "AI request failed",
@@ -845,7 +838,6 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       content?: AiUserContentPart[];
       mode?: "retry" | "details" | "concise";
       modelProfileId?: string;
-      skillId?: string;
     } = {},
   ) => {
     const conversationId = activeConversationId();
@@ -861,7 +853,6 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
             mode: input.mode ?? "retry",
             content: input.content,
             modelProfileId: input.modelProfileId,
-            skillId: input.skillId,
           }),
         },
         "AI retry failed",

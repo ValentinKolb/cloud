@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { bindDslQueryContext, type DslQueryContextValues, isDslQueryContextKey } from "./parameters";
 import { parseGridsQueryDsl } from "./parser";
-import { bindDslQueryParameters } from "./parameters";
 
 const parse = (source: string) => {
   const parsed = parseGridsQueryDsl(source);
@@ -8,31 +8,117 @@ const parse = (source: string) => {
   return parsed.ast;
 };
 
-describe("GQL query parameter binding", () => {
-  test("binds declared parameters as typed literals without changing query text", () => {
-    const result = bindDslQueryParameters(parse("from table Articles\nwhere List = param('list_id')"), {
-      list_id: "20000000-0000-4000-8000-000000000201",
-    });
+const context = (overrides: Partial<DslQueryContextValues> = {}): DslQueryContextValues => ({
+  "auth.id": "10000000-0000-4000-8000-000000000001",
+  "page.id": "loans",
+  "page.title": "My loans",
+  "page.url": "/apps/loans/my-loans",
+  "app.id": "20000000-0000-4000-8000-000000000001",
+  "app.shortId": "LOANS01",
+  "app.name": "Loans",
+  "base.id": "30000000-0000-4000-8000-000000000001",
+  "base.name": "Equipment",
+  "time.now": "2026-08-10T14:00:00.000Z",
+  "time.today": "2026-08-10",
+  "time.timeZone": "Europe/Berlin",
+  "params.record_id": "40000000-0000-4000-8000-000000000001",
+  ...overrides,
+});
+
+describe("GQL query context binding", () => {
+  test("keeps context-free GQL usable without a synthetic runtime context", () => {
+    const ast = parse("from table Articles\nwhere Published = true");
+    expect(bindDslQueryContext(ast)).toEqual({ ok: true, ast });
+  });
+
+  test("recognizes exactly the official fixed namespaces and dynamic params", () => {
+    for (const key of [
+      "auth.id",
+      "page.id",
+      "page.title",
+      "page.url",
+      "app.id",
+      "app.shortId",
+      "app.name",
+      "base.id",
+      "base.name",
+      "time.now",
+      "time.today",
+      "time.timeZone",
+      "params.record_id",
+    ]) {
+      expect(isDslQueryContextKey(key), key).toBe(true);
+    }
+    expect(isDslQueryContextKey("auth.email")).toBe(false);
+    expect(isDslQueryContextKey("params.bad-name")).toBe(false);
+    expect(isDslQueryContextKey("params.foo.bar")).toBe(false);
+  });
+
+  test("binds implicit context references as typed literals", () => {
+    const result = bindDslQueryContext(
+      parse("from table Articles\nwhere record.createdBy = @auth.id and List = @params.record_id"),
+      context(),
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.ast.where?.expression).toMatchObject({
       kind: "binop",
-      right: { kind: "literal", value: "20000000-0000-4000-8000-000000000201" },
+      left: {
+        kind: "binop",
+        right: { kind: "literal", value: "10000000-0000-4000-8000-000000000001" },
+      },
+      right: {
+        kind: "binop",
+        right: { kind: "literal", value: "40000000-0000-4000-8000-000000000001" },
+      },
     });
   });
 
-  test("rejects missing, unused, and malformed bindings", () => {
-    expect(bindDslQueryParameters(parse("from table Articles\nwhere List = param('missing')"), {})).toEqual({
-      ok: false,
-      error: 'Unknown query parameter "missing"',
+  test("preserves anonymous auth as null", () => {
+    const result = bindDslQueryContext(parse("from table Articles\nwhere @auth.id = null"), context({ "auth.id": null }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.ast.where?.expression).toMatchObject({
+      kind: "binop",
+      left: { kind: "literal", value: null },
+      right: { kind: "literal", value: null },
     });
-    expect(bindDslQueryParameters(parse("from table Articles"), { unused: "value" })).toEqual({
-      ok: false,
-      error: "Unused query parameter: unused",
+  });
+
+  test("binds context in formula selections, aggregate formulas, and having", () => {
+    const result = bindDslQueryContext(
+      parse(
+        "from table Articles\nselect formula(@page.title) as page_title\naggregate sum(formula(@time.today)) as total\nhaving total > @params.record_id",
+      ),
+      context(),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.ast.select[0]).toMatchObject({ expression: { kind: "literal", value: "My loans" } });
+    expect(result.ast.aggregations[0]).toMatchObject({
+      argument: { kind: "formula", expression: { kind: "literal", value: "2026-08-10" } },
     });
-    expect(bindDslQueryParameters(parse("from table Articles\nwhere List = param(List)"), { List: "value" })).toEqual({
+    expect(result.ast.having?.expression).toMatchObject({ right: { kind: "literal", value: context()["params.record_id"] } });
+  });
+
+  test("rejects unknown and missing context references", () => {
+    expect(bindDslQueryContext(parse("from table Articles\nwhere @auth.email = null"), context())).toEqual({
       ok: false,
-      error: "param() expects exactly one text parameter name",
+      error: 'Unknown query context reference "@auth.email"',
+    });
+
+    const values = context();
+    delete values["params.record_id"];
+    expect(bindDslQueryContext(parse("from table Articles\nwhere List = @params.record_id"), values)).toEqual({
+      ok: false,
+      error: 'Missing query context value "@params.record_id"',
+    });
+  });
+
+  test("removes param() instead of retaining an alias", () => {
+    expect(bindDslQueryContext(parse("from table Articles\nwhere List = param('record_id')"), context())).toEqual({
+      ok: false,
+      error: "param() is not supported; use @params.<name>",
     });
   });
 });

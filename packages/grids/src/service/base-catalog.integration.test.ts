@@ -18,7 +18,7 @@ const grant = async (userId: string, permission: "none" | "read" | "write" | "ad
 };
 
 describe("base catalog integration", () => {
-  postgresTest("returns only authorized live resources without leaking parent fields", async () => {
+  postgresTest("projects every live resource at the owning base level", async () => {
     const userId = testUuid();
     const baseId = testUuid();
     const readableTableId = testUuid();
@@ -59,33 +59,26 @@ describe("base catalog integration", () => {
           (${deletedTemplateId}::uuid, ${testShortId("D")}, ${documentOnlyTableId}::uuid, 'Old invoice', 'from table "Document only"', '<p>Old</p>', now())
       `;
 
-      const readableAccess = await grant(userId, "read");
-      const deniedAccess = await grant(userId, "none");
-      const formAccess = await grant(userId, "write");
-      const templateAccess = await grant(userId, "read");
-      const deletedTableAccess = await grant(userId, "admin");
-      const deletedTemplateAccess = await grant(userId, "admin");
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${readableTableId}::uuid, ${readableAccess}::uuid)`;
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${deniedTableId}::uuid, ${deniedAccess}::uuid)`;
-      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${deletedTableId}::uuid, ${deletedTableAccess}::uuid)`;
-      await sql`INSERT INTO grids.form_access (form_id, access_id) VALUES (${formId}::uuid, ${formAccess}::uuid)`;
-      await sql`INSERT INTO grids.document_template_access (template_id, access_id) VALUES (${templateId}::uuid, ${templateAccess}::uuid)`;
-      await sql`
-        INSERT INTO grids.document_template_access (template_id, access_id)
-        VALUES (${deletedTemplateId}::uuid, ${deletedTemplateAccess}::uuid)
-      `;
+      const baseAccess = await grant(userId, "write");
+      await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${baseAccess}::uuid)`;
 
       const catalog = await listForBase({ baseId, userId, userGroups: [] });
-      expect(catalog.tables.map((table) => table.id)).toEqual([readableTableId]);
-      expect(catalog.tableLevels).toEqual({ [readableTableId]: "read" });
-      expect(Object.keys(catalog.fieldsByTable)).toEqual(expect.arrayContaining([readableTableId, formOnlyTableId]));
-      expect(catalog.fieldsByTable[deniedTableId]).toBeUndefined();
-      expect(catalog.fieldsByTable[documentOnlyTableId]).toBeUndefined();
-      expect(catalog.formTables.map((table) => table.id)).toEqual([formOnlyTableId]);
+      expect(catalog.tables.map((table) => table.id)).toEqual([readableTableId, deniedTableId, formOnlyTableId, documentOnlyTableId]);
+      expect(catalog.tableLevels).toEqual({
+        [readableTableId]: "write",
+        [deniedTableId]: "write",
+        [formOnlyTableId]: "write",
+        [documentOnlyTableId]: "write",
+      });
+      expect(Object.keys(catalog.fieldsByTable)).toEqual(
+        expect.arrayContaining([readableTableId, deniedTableId, formOnlyTableId, documentOnlyTableId]),
+      );
+      expect(catalog.fieldsByTable[deletedTableId]).toBeUndefined();
+      expect(catalog.formTables).toEqual([]);
       expect(catalog.sidebarForms.map(({ form }) => form.id)).toEqual([formId]);
-      expect(catalog.documentTemplateTables.map((table) => table.id)).toEqual([documentOnlyTableId]);
+      expect(catalog.documentTemplateTables).toEqual([]);
       expect(catalog.sidebarDocumentTemplates.map(({ template }) => template.id)).toEqual([templateId]);
-      expect(catalog.documentTemplateLevels).toEqual({ [templateId]: "read" });
+      expect(catalog.documentTemplateLevels).toEqual({ [templateId]: "write" });
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;

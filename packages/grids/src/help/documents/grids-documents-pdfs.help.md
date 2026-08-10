@@ -37,7 +37,7 @@ Keep filtering, sorting, joins, grouping, and totals in GQL. Keep Liquid focused
 4. **Inspect before editing:** Source shows the GQL after record values are inserted. Data shows the exact Liquid paths. Preview shows the PDF.
 5. **Change one layer at a time:** Adjust GQL when data is wrong; adjust Body, Header, Footer, or Page CSS when layout is wrong.
 6. **Preview representative data:** Test long text, missing values, many rows, and page breaks. The editor starts new templates disabled.
-7. **Enable and share access:** Users with template Write access can then select a record and generate a saved document.
+7. **Enable and test:** Base users with Write access can then select a record and generate a saved document.
 :::
 
 The selected preview record is only test context. Generating later prompts the user to select the actual record and can override the filename or add tags.
@@ -399,9 +399,9 @@ Additional BWIP symbol ids
 
 The document page lists every generated run for a template. Use **Table** for a searchable list or **Folders** to browse by year and month. Searching switches to the table result so matching documents are not hidden inside folders.
 
-Before generation you can override the template filename and add tags. With template Write access, open a generated document's details to change its filename or tags later. The document number remains stable.
+Before generation you can override the template filename and add tags. With Base Write access, open a generated document's details to change its filename or tags later. The document number remains stable.
 
-Template Read access allows a user to browse and redownload generated documents. Write access also allows generation and metadata changes. Admin access manages the template itself.
+Base Read allows browsing and redownloading generated documents. Base Write also allows generation and metadata changes. Base Admin manages templates. A Custom App reader sees only document operations included in its published capability snapshot.
 
 To share one generated PDF without a Cloud login, create a public link for 1, 7, 30, or 90 days. The link downloads only that stored document snapshot. An optional comment explains its purpose. The creator or a document editor can revoke the link before it expires.
 

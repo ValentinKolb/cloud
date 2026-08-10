@@ -53,7 +53,7 @@ const form = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-describe("loadGridsWorkspaceState — form-only access", () => {
+describe("loadGridsWorkspaceState — Base access boundary", () => {
   beforeEach(() => {
     spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
     spyOn(gridsService.base, "catalog").mockImplementation(
@@ -69,19 +69,16 @@ describe("loadGridsWorkspaceState — form-only access", () => {
           sidebarForms: [{ form, tableId: formTable.id }],
         }) as never,
     );
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => "none");
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
   });
 
   afterEach(() => mock.restore());
 
-  test("allows users with form-write but no base/table read into an empty workspace with sidebar forms", async () => {
+  test("rejects legacy form-only catalog entries without Base read access", async () => {
     const state = await loadWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
@@ -91,18 +88,11 @@ describe("loadGridsWorkspaceState — form-only access", () => {
       href: `/app/grids/${base.shortId}`,
     });
 
-    expect(state.kind).toBe("ok");
-    if (state.kind !== "ok") return;
-    expect(state.route.kind).toBe("empty");
-    expect(state.catalog.tables).toEqual([]);
-    expect(state.catalog.viewsByTable).toEqual({});
-    expect(state.catalog.sidebarForms).toEqual([{ form, table: formTable }]);
-    expect(state.catalog.tableShortIds).toEqual({ [formTable.id]: formTable.shortId });
-    expect(state.canUseEditMode).toBe(false);
-    expect(state.canUseQueryWorkspace).toBe(false);
+    expect(state).toEqual({ kind: "accessDenied", title: "Access denied", message: "No access to this base" });
   });
 
   test("keeps metadata and record cursors on their matching SSR streams", async () => {
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => "read");
     const loadedStreams: string[] = [];
     const state = await loadGridsWorkspaceState(
       {
@@ -133,6 +123,7 @@ describe("loadGridsWorkspaceState — form-only access", () => {
   });
 
   test("keeps the healthy SSR cursor when the other stream is unavailable", async () => {
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => "read");
     const state = await loadGridsWorkspaceState(
       {
         user: {
@@ -189,14 +180,12 @@ describe("loadGridsWorkspaceState — form-only access", () => {
       activeViewSlug: "missing",
     });
 
-    expect(state.kind).toBe("ok");
-    if (state.kind !== "ok") return;
-    expect(state.route.kind).toBe("empty");
+    expect(state).toEqual({ kind: "accessDenied", title: "Access denied", message: "No access to this base" });
     expect(listRecords).not.toHaveBeenCalled();
     expect(getRecord).not.toHaveBeenCalled();
   });
 
-  test("admits a user whose only base resource is a readable table", async () => {
+  test("rejects a readable legacy table entry without Base read access", async () => {
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
@@ -224,6 +213,6 @@ describe("loadGridsWorkspaceState — form-only access", () => {
       { metadata: null, records: null },
     );
 
-    expect(request).not.toHaveProperty("kind", "accessDenied");
+    expect(request).toEqual({ kind: "accessDenied", title: "Access denied", message: "No access to this base" });
   });
 });

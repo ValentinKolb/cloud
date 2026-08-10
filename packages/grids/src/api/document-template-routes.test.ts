@@ -91,8 +91,6 @@ const forbiddenResponse = {
 };
 
 let baseLevel: PermissionLevel = "admin";
-let tableLevel: PermissionLevel = "read";
-let templateLevel: PermissionLevel = "admin";
 let currentTable: typeof table | null = table;
 let currentTemplate: typeof template | null = template;
 let tableGetInputs: string[] = [];
@@ -137,8 +135,6 @@ const expectForbidden = async (response: Response) => {
 describe("document template routes", () => {
   beforeEach(() => {
     baseLevel = "admin";
-    tableLevel = "read";
-    templateLevel = "admin";
     currentTable = table;
     currentTemplate = template;
     tableGetInputs = [];
@@ -183,19 +179,8 @@ describe("document template routes", () => {
       lookupInput = input;
       return { items: [{ id: lookupRecordId, label: "Invoice recipient" }] } as never;
     });
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => {
-      if ("documentTemplateId" in target) return templateLevel;
-      if ("tableId" in target) return tableLevel;
-      return baseLevel;
-    });
-    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target, required) => {
-      const level = "documentTemplateId" in target ? templateLevel : "tableId" in target ? tableLevel : baseLevel;
-      return {
-        level,
-        recordAccess: gridsService.permission.hasAtLeast(level, required) ? { kind: "all" } : null,
-      } as never;
-    });
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
   });
 
   afterEach(() => mock.restore());
@@ -272,9 +257,8 @@ describe("document template routes", () => {
     });
   }
 
-  test("lists enabled template summaries through template-only read access", async () => {
-    tableLevel = "none";
-    templateLevel = "read";
+  test("lists enabled template summaries through base read access", async () => {
+    baseLevel = "read";
 
     const response = await app().request(path(`/templates/by-table/${tableId}`));
 
@@ -285,16 +269,14 @@ describe("document template routes", () => {
   });
 
   test("forwards the requested minimum permission when listing summaries", async () => {
-    tableLevel = "none";
-    templateLevel = "read";
+    baseLevel = "read";
 
     await expectForbidden(await app().request(path(`/templates/by-table/${tableId}?min=write`)));
-    expect(listInputs).toEqual([tableId]);
+    expect(listInputs).toEqual([]);
   });
 
   test("requires base admin and returns every full template", async () => {
     baseLevel = "write";
-    templateLevel = "admin";
     await expectForbidden(await app().request(path(`/templates/by-table/${tableId}/full`)));
 
     baseLevel = "admin";
@@ -307,7 +289,6 @@ describe("document template routes", () => {
 
   test("creates a template only with base admin and forwards input plus audit actor", async () => {
     baseLevel = "write";
-    templateLevel = "admin";
     await expectForbidden(await app().request(path(`/templates/by-table/${tableId}`), jsonRequest("POST", createBody)));
     expect(createInput).toBeUndefined();
 
@@ -329,13 +310,11 @@ describe("document template routes", () => {
     });
   });
 
-  test("gets a template with template admin access independent of table access", async () => {
+  test("gets a full template with base admin access", async () => {
     baseLevel = "none";
-    tableLevel = "none";
-    templateLevel = "read";
     await expectForbidden(await app().request(path(`/templates/${templateId}`)));
 
-    templateLevel = "admin";
+    baseLevel = "admin";
     const response = await app().request(path(`/templates/${templateId}`));
 
     expect(response.status).toBe(200);
@@ -344,12 +323,12 @@ describe("document template routes", () => {
     expect(tableGetInputs).toEqual([tableId, tableId]);
   });
 
-  test("updates a template with template admin access and forwards input plus audit actor", async () => {
-    templateLevel = "write";
+  test("updates a template with base admin access and forwards input plus audit actor", async () => {
+    baseLevel = "write";
     await expectForbidden(await app().request(path(`/templates/${templateId}`), jsonRequest("PATCH", updateBody)));
     expect(updateInput).toBeUndefined();
 
-    templateLevel = "admin";
+    baseLevel = "admin";
     const response = await app().request(path(`/templates/${templateId}`), jsonRequest("PATCH", updateBody));
 
     expect(response.status).toBe(200);
@@ -371,12 +350,12 @@ describe("document template routes", () => {
     expect(reorderInput).toEqual({ tableId, templateIds: body.templateIds, actorId: userId });
   });
 
-  test("deletes a template with template admin access and forwards the audit actor", async () => {
-    templateLevel = "write";
+  test("deletes a template with base admin access and forwards the audit actor", async () => {
+    baseLevel = "write";
     await expectForbidden(await app().request(path(`/templates/${templateId}`), { method: "DELETE" }));
     expect(removeInput).toBeUndefined();
 
-    templateLevel = "admin";
+    baseLevel = "admin";
     const response = await app().request(path(`/templates/${templateId}`), { method: "DELETE" });
 
     expect(response.status).toBe(204);
@@ -384,13 +363,12 @@ describe("document template routes", () => {
     expect(removeInput).toEqual({ templateId, actorId: userId });
   });
 
-  test("looks up records with template write access and forwards the normalized query", async () => {
-    tableLevel = "none";
-    templateLevel = "read";
+  test("looks up records with base write access and forwards the normalized query", async () => {
+    baseLevel = "read";
     await expectForbidden(await app().request(path(`/templates/${templateId}/records/lookup?q=recipient`)));
     expect(lookupInput).toBeUndefined();
 
-    templateLevel = "write";
+    baseLevel = "write";
     const response = await app().request(
       path(`/templates/${templateId}/records/lookup?q=recipient&limit=7&excludeIds=${excludedRecordId}`),
     );
@@ -408,7 +386,6 @@ describe("document template routes", () => {
 
   test("requires base admin to look up records through a disabled template", async () => {
     currentTemplate = disabledTemplate;
-    templateLevel = "write";
     baseLevel = "write";
 
     await expectForbidden(await app().request(path(`/templates/${templateId}/records/lookup`)));

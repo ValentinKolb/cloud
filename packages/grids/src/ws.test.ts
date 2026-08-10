@@ -174,7 +174,6 @@ describe("Grids websocket server sessions", () => {
     const socket = testSocket();
     const session = createWorkspaceWebSocketSession("session", {
       evaluateBaseAccess: async () => ({ ok: true, baseId }),
-      evaluateMetadataEventAccess: async () => true,
       evaluateSubscriptionAccess: async () =>
         readable ? { ok: true, baseId } : { ok: false, code: "access_denied", message: "Access denied" },
       latestMetadataCursor: async () => "9-0",
@@ -221,13 +220,12 @@ describe("Grids websocket server sessions", () => {
     expect(canceled).toBe(1);
   });
 
-  test("skips metadata events for resources the subscriber cannot read", async () => {
+  test("delivers metadata events for every resource in a readable base", async () => {
     const tableIds = ["22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"];
     const socket = testSocket();
     const session = createWorkspaceWebSocketSession("session", {
       evaluateBaseAccess: async () => ({ ok: true, baseId }),
       evaluateSubscriptionAccess: async () => ({ ok: true, baseId }),
-      evaluateMetadataEventAccess: async (event) => event.resource.id === tableIds[1],
       latestMetadataCursor: async () => "9-0",
       metadataEvents: async function* ({ signal }: { signal?: AbortSignal }) {
         for (let index = 0; index < tableIds.length; index++) {
@@ -253,70 +251,52 @@ describe("Grids websocket server sessions", () => {
     await session.drain();
     await Bun.sleep(0);
 
-    expect(socket.messages.filter((message) => message.type === "grids.metadata.event")).toEqual([
-      {
-        type: "grids.metadata.event",
-        payload: {
-          baseId,
-          cursor: "9-2",
-          event: {
-            v: 1,
-            type: "table.updated",
-            baseId,
-            resource: { kind: "table", id: tableIds[1], tableId: tableIds[1] },
-            actorId: null,
-            occurredAt: "2026-01-01T00:00:00.000Z",
-          },
-        },
-      },
+    expect(socket.messages.filter((message) => message.type === "grids.metadata.event")).toHaveLength(2);
+    expect(socket.messages.filter((message) => message.type === "grids.metadata.event").map((message) => message.payload?.cursor)).toEqual([
+      "9-1",
+      "9-2",
     ]);
     await session.close();
   });
 
-  test("redacts record event payloads for row-scoped subscriptions", async () => {
-    for (const visibility of ["full", "cursor_only"] as const) {
-      const socket = testSocket();
-      const access = { ok: true as const, baseId, tableId, recordEventVisibility: visibility };
-      const session = createWorkspaceWebSocketSession("session", {
-        evaluateRecordsAccess: async () => access,
-        evaluateSubscriptionAccess: async () => access,
-        latestRecordCursor: async () => "1-0",
-        recordEvents: async function* ({ signal }: { signal?: AbortSignal }) {
-          yield {
-            cursor: "1-1",
-            data: {
-              v: 1,
-              type: "record.updated",
-              baseId,
-              tableId,
-              recordId,
-              version: 2,
-              changedFieldIds: [],
-              actorId: null,
-              occurredAt: "2026-01-01T00:00:00.000Z",
-            },
-          };
-          await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
-        } as never,
-        schedule: (() => 1) as never,
-        cancel: (() => undefined) as never,
-      });
+  test("delivers full record event payloads for readable bases", async () => {
+    const socket = testSocket();
+    const access = { ok: true as const, baseId, tableId };
+    const session = createWorkspaceWebSocketSession("session", {
+      evaluateRecordsAccess: async () => access,
+      evaluateSubscriptionAccess: async () => access,
+      latestRecordCursor: async () => "1-0",
+      recordEvents: async function* ({ signal }: { signal?: AbortSignal }) {
+        yield {
+          cursor: "1-1",
+          data: {
+            v: 1,
+            type: "record.updated",
+            baseId,
+            tableId,
+            recordId,
+            version: 2,
+            changedFieldIds: [],
+            actorId: null,
+            occurredAt: "2026-01-01T00:00:00.000Z",
+          },
+        };
+        await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+      } as never,
+      schedule: (() => 1) as never,
+      cancel: (() => undefined) as never,
+    });
 
-      session.open(socket.socket);
-      session.message(recordsSubscribe());
-      await session.drain();
-      await Bun.sleep(0);
+    session.open(socket.socket);
+    session.message(recordsSubscribe());
+    await session.drain();
+    await Bun.sleep(0);
 
-      const eventMessage = socket.messages.find((message) => message.type === "grids.records.event");
-      expect(eventMessage?.payload?.cursor).toBe("1-1");
-      expect(eventMessage?.payload?.tableId).toBe(tableId);
-      if (visibility === "full") {
-        expect(eventMessage?.payload?.event).toMatchObject({ recordId, version: 2 });
-      } else {
-        expect(eventMessage?.payload).not.toHaveProperty("event");
-      }
-      await session.close();
-    }
+    const eventMessage = socket.messages.find((message) => message.type === "grids.records.event");
+    expect(eventMessage?.payload?.cursor).toBe("1-1");
+    expect(eventMessage?.payload?.tableId).toBe(tableId);
+    expect(eventMessage?.payload?.event).toMatchObject({ recordId, version: 2 });
+    await session.close();
   });
 
   test("aborts replaced and closed streams without emitting a terminal stream error", async () => {

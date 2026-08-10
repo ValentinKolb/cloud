@@ -85,11 +85,11 @@ const documentRun = {
   generatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-let documentTemplateLevel: "read" | "write" = "read";
+let baseLevel: "none" | "read" | "write" = "none";
 
-describe("loadGridsWorkspaceState — document-template-only access", () => {
+describe("loadGridsWorkspaceState — document templates use Base access", () => {
   beforeEach(() => {
-    documentTemplateLevel = "read";
+    baseLevel = "none";
     spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
@@ -103,15 +103,13 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
           formTables: [],
           sidebarForms: [],
           documentTemplatesByTable: { [documentTable.id]: [template] },
-          documentTemplateLevels: { [template.id]: documentTemplateLevel },
+          documentTemplateLevels: { [template.id]: baseLevel },
           documentTemplateTables: [documentTable],
           sidebarDocumentTemplates: [{ template, tableId: documentTable.id }],
         }) as never,
     );
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) =>
-      "documentTemplateId" in target ? documentTemplateLevel : "none",
-    );
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
       async (_baseId, idOrSlug) => (documentTable.id === idOrSlug || documentTable.shortId === idOrSlug ? documentTable : null) as never,
     );
@@ -134,15 +132,11 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
     spyOn(gridsService.document, "summarizeTemplate").mockImplementation(() => templateSummary as never);
     spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForDocumentTemplate").mockImplementation(async () => []);
   });
 
   afterEach(() => mock.restore());
 
-  test("opens a document template route without base or table read access", async () => {
+  test("rejects a document template route without Base read access", async () => {
     const state = await loadWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
@@ -154,29 +148,11 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
       activeDocumentTemplateSlug: template.shortId,
     });
 
-    expect(state.kind).toBe("ok");
-    if (state.kind !== "ok") return;
-    expect(state.route.kind).toBe("documentTemplate");
-    if (state.route.kind !== "documentTemplate") return;
-    expect(state.route.template.id).toBe(template.id);
-    expect("source" in state.route.template).toBe(false);
-    expect("html" in state.route.template).toBe(false);
-    expect(state.route.editableTemplate).toBeNull();
-    expect(state.route.canWriteTemplate).toBe(false);
-    expect(state.route.table.id).toBe(documentTable.id);
-    expect(state.route.initialRecordId).toBe("55555555-5555-4555-8555-555555555555");
-    expect(state.route.initialDocumentViewMode).toBe("list");
-    expect(state.route.initialBrowserPage.items).toEqual([documentRun]);
-    expect(state.route.initialBrowserPage.total).toBe(1);
-    expect(state.catalog.tables).toEqual([]);
-    expect(state.catalog.sidebarDocumentTemplates).toEqual([{ template: templateSummary, table: documentTable }]);
-    expect("source" in state.catalog.sidebarDocumentTemplates[0]!.template).toBe(false);
-    expect("html" in state.catalog.sidebarDocumentTemplates[0]!.template).toBe(false);
-    expect(state.canUseQueryWorkspace).toBe(false);
+    expect(state).toEqual({ kind: "accessDenied", title: "Access denied", message: "No access to this base" });
   });
 
-  test("marks document template routes writable only with document write access", async () => {
-    documentTemplateLevel = "write";
+  test("marks document template routes writable with Base write access", async () => {
+    baseLevel = "write";
 
     const state = await loadWorkspaceState({
       user: {

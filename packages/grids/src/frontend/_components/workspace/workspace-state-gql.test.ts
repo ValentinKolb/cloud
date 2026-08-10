@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { gridsService } from "../../../service";
-import { ALL_RECORD_ACCESS } from "../../../service/record-access";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
 const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
@@ -76,7 +75,6 @@ const savedView = {
 };
 
 let baseLevel: "none" | "read" | "write" | "admin" = "read";
-let viewLevel: "none" | "read" | "write" | "admin" = "read";
 let catalogTables: unknown[] = [table];
 let catalogTableLevels: Record<string, "none" | "read" | "write" | "admin"> = { [table.id]: "read" };
 let catalogFieldsByTable: Record<string, unknown[]> = { [table.id]: [statusField] };
@@ -98,7 +96,6 @@ const user = {
 describe("loadGridsWorkspaceState — GQL-backed views", () => {
   beforeEach(() => {
     baseLevel = "read";
-    viewLevel = "read";
     catalogTables = [table];
     catalogTableLevels = { [table.id]: "read" };
     catalogFieldsByTable = { [table.id]: [statusField] };
@@ -125,12 +122,8 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
           sidebarForms: [],
         }) as never,
     );
-    spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
-    spyOn(gridsService.permission, "resolve").mockImplementation((_grants, target) => ("viewId" in target ? viewLevel : baseLevel));
-    spyOn(gridsService.permission, "resolveRecordAccess").mockImplementation((_grants, target) => {
-      const level = "viewId" in target ? viewLevel : baseLevel;
-      return { level, recordAccess: level === "none" ? null : ALL_RECORD_ACCESS };
-    });
+    spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
+    spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
     spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
       async (_baseId, idOrSlug) =>
         (lookupTable && (lookupTable.id === idOrSlug || lookupTable.shortId === idOrSlug) ? lookupTable : null) as never,
@@ -140,9 +133,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
         (lookupView && (lookupView.id === idOrSlug || lookupView.shortId === idOrSlug) ? lookupView : null) as never,
     );
     spyOn(gridsService.field, "listByTable").mockImplementation(async () => [statusField] as never);
-    spyOn(gridsService.access, "listForTable").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForForm").mockImplementation(async () => []);
-    spyOn(gridsService.access, "listForView").mockImplementation(async () => []);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.workflow, "listEnabledForBase").mockImplementation(async () => []);
     spyOn(gridsService.record, "list").mockImplementation(async (params) => {
@@ -273,13 +263,12 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.initialData.nextCursor).toBe("next-group-page");
   });
 
-  test("loads an explicitly readable view even when the parent table is hidden from the catalog", async () => {
+  test("loads a directly addressed view when the catalog snapshot omits its table", async () => {
     catalogTables = [];
     catalogTableLevels = {};
     catalogFieldsByTable = {};
     lookupTable = table;
     lookupView = savedView;
-    viewLevel = "read";
 
     const state = await loadWorkspaceState({
       user,
@@ -300,13 +289,12 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.canWriteRecords).toBe(false);
   });
 
-  test("does not let URL query state expand an explicitly readable view during SSR", async () => {
+  test("does not let URL query state expand a directly addressed view during SSR", async () => {
     catalogTables = [];
     catalogTableLevels = {};
     catalogFieldsByTable = {};
     lookupTable = table;
     lookupView = savedView;
-    viewLevel = "read";
 
     const hostileFilter = encodeURIComponent(JSON.stringify({ fieldId: statusField.id, op: "equals", value: "Closed" }));
     const state = await loadWorkspaceState({
@@ -326,7 +314,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.initialState.query.deletedOnly).toBeUndefined();
   });
 
-  test("loads an explicitly readable query-result view without parent table access", async () => {
+  test("loads a directly addressed query-result view when the catalog snapshot omits its table", async () => {
     const aggregateView = {
       ...savedView,
       id: "66666666-6666-4666-8666-666666666666",
@@ -339,7 +327,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     catalogFieldsByTable = {};
     lookupTable = table;
     lookupView = aggregateView;
-    viewLevel = "read";
 
     const state = await loadWorkspaceState({
       user,
@@ -358,7 +345,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(lastRecordListParams).toBeNull();
   });
 
-  test("defers hidden-source joins in an explicitly readable view to the trusted query runtime", async () => {
+  test("defers joined sources in a directly addressed view to the trusted query runtime", async () => {
     const hiddenJoinView = {
       ...savedView,
       id: "55555555-5555-4555-8555-555555555555",
@@ -371,7 +358,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     catalogFieldsByTable = {};
     lookupTable = table;
     lookupView = hiddenJoinView;
-    viewLevel = "read";
 
     const state = await loadWorkspaceState({
       user,
@@ -388,13 +374,12 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(lastRecordListParams).toBeNull();
   });
 
-  test("loads selected records through the readable view query when table read is denied", async () => {
+  test("loads selected records through the saved view query when the catalog snapshot omits its table", async () => {
     catalogTables = [];
     catalogTableLevels = {};
     catalogFieldsByTable = {};
     lookupTable = table;
     lookupView = savedView;
-    viewLevel = "read";
     recordListRecordForId = {
       id: selectedRecordId,
       tableId: table.id,
@@ -432,7 +417,6 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     catalogFieldsByTable = {};
     lookupTable = table;
     lookupView = limitedView;
-    viewLevel = "read";
     recordListRecordForId = {
       id: selectedRecordId,
       tableId: table.id,

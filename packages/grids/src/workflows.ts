@@ -797,7 +797,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         const template = await documentTemplate(ctx);
         const table = await currentTable(scope, template.tableId);
         const record = await documentRecord(ctx, scope, table.id, config.record, "read");
-        await requirePermission(scope, { tableId: table.id, documentTemplateId: template.id }, "write");
+        await requirePermission(scope, "write");
         const recordAccess = await requireRecordAccess(scope, table.id, "read");
         const run = requireOk(
           await createRunForRecord({
@@ -838,9 +838,9 @@ export const GRIDS_WORKFLOW_ACTIONS = {
             },
           },
         });
-        // Only the summary. The full run carries the rendered record content,
-        // and a step outcome is readable with workflow "read" alone — without
-        // the table and template grants the document itself requires.
+        // Only the summary. The document run already carries the rendered
+        // record content, so copying it into the step outcome would duplicate
+        // a potentially large immutable payload.
         return { state: "succeeded", output: summarizeDocumentRun(run) as unknown as WorkflowJsonValue };
       }),
 
@@ -851,7 +851,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         const template = await documentTemplate(ctx);
         await currentTable(scope, template.tableId);
         const record = await documentRecord(ctx, scope, template.tableId, config.record, "read");
-        await requirePermission(scope, { tableId: template.tableId, documentTemplateId: template.id }, "write");
+        await requirePermission(scope, "write");
         return {
           summary: `Generate "${template.name}" for one record`,
           consumes: { documents: 1 },
@@ -889,12 +889,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         await requireExecution(scope, tx);
         const run = await documentToLink(ctx, scope, config.document);
         await currentTable(scope, run.tableId);
-        await requirePermission(
-          scope,
-          { tableId: run.tableId, ...(run.templateId ? { documentTemplateId: run.templateId } : {}) },
-          "write",
-          tx,
-        );
+        await requirePermission(scope, "write", tx);
         const expiresIn = linkExpiry(config.expiresIn);
         const baseUrl = await publicDocumentLinkBaseUrl();
         const created = requireOk(
@@ -944,11 +939,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         await requireExecution(scope);
         const run = await plannedDocumentToLink(ctx, scope, config.document);
         await currentTable(scope, run.tableId);
-        await requirePermission(
-          scope,
-          { tableId: run.tableId, ...(run.templateId ? { documentTemplateId: run.templateId } : {}) },
-          "write",
-        );
+        await requirePermission(scope, "write");
         const expiresIn = linkExpiry(config.expiresIn);
         return {
           summary: `Create a ${expiresIn} download link for one document`,

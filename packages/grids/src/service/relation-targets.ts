@@ -24,6 +24,15 @@ export const relationLabelFields = (fields: Field[]): Field[] => {
   return firstText ? [firstText] : [];
 };
 
+export const selectRelationLabelFields = (fields: Field[], pinnedFieldIds?: readonly string[]): Field[] => {
+  if (!pinnedFieldIds) return relationLabelFields(fields);
+  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  return pinnedFieldIds.flatMap((fieldId) => {
+    const field = fieldsById.get(fieldId);
+    return field ? [field] : [];
+  });
+};
+
 export const collectRelationTargetIds = async (records: GridRecord[], fields: Field[]): Promise<Map<string, Set<string>>> => {
   const relationFields = fields.filter((field) => field.type === "relation" && !field.deletedAt);
   if (relationFields.length === 0 || records.length === 0) return new Map();
@@ -70,6 +79,7 @@ export const collectHydratedRelationTargetIds = (records: GridRecord[], fields: 
 export const loadRelationTargetsBatch = async (
   idsByTargetTable: ReadonlyMap<string, Set<string>>,
   recordAccessByTableId?: ReadonlyMap<string, AuthorizedRecordAccess>,
+  labelFieldIdsByTableId?: ReadonlyMap<string, readonly string[]>,
 ): Promise<Map<string, RelationTargets>> => {
   const targetTableIds = [...idsByTargetTable.keys()];
   if (targetTableIds.length === 0) return new Map();
@@ -99,7 +109,7 @@ export const loadRelationTargetsBatch = async (
 
   for (const targetTableId of targetTableIds) {
     const allFields = fieldsByTable.get(targetTableId) ?? [];
-    const fields = relationLabelFields(allFields);
+    const fields = selectRelationLabelFields(allFields, labelFieldIdsByTableId?.get(targetTableId));
     targetsByTable.set(targetTableId, { fields, records: [] });
     const ids = idsByTargetTable.get(targetTableId);
     if (!ids || ids.size === 0 || fields.length === 0 || (recordAccessByTableId && !recordAccessByTableId.has(targetTableId))) continue;

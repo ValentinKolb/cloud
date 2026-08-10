@@ -1,46 +1,104 @@
-import type { Expr, Literal } from "../formula/types";
+import type { Expr } from "../formula/types";
 import type { DslQueryAst } from "./types";
 
-export type DslQueryParameters = Record<string, Literal>;
+export type DslQueryContextKey =
+  | "auth.id"
+  | `params.${string}`
+  | "page.id"
+  | "page.title"
+  | "page.url"
+  | "app.id"
+  | "app.shortId"
+  | "app.name"
+  | "base.id"
+  | "base.name"
+  | "time.now"
+  | "time.today"
+  | "time.timeZone";
 
-export type BindDslQueryParametersResult = { ok: true; ast: DslQueryAst } | { ok: false; error: string };
+export type DslQueryContextValues = {
+  "auth.id": string | null;
+  "page.id": string;
+  "page.title": string;
+  "page.url": string;
+  "app.id": string;
+  "app.shortId": string;
+  "app.name": string;
+  "base.id": string;
+  "base.name": string;
+  "time.now": string;
+  "time.today": string;
+  "time.timeZone": string;
+} & Partial<Record<`params.${string}`, string>>;
 
-const bindExpression = (expression: Expr, parameters: DslQueryParameters, used: Set<string>): Expr | string => {
+export type BindDslQueryContextResult = { ok: true; ast: DslQueryAst } | { ok: false; error: string };
+
+export type DslQueryContextInput = Readonly<Partial<DslQueryContextValues>>;
+
+const FIXED_CONTEXT_KEYS = new Set<DslQueryContextKey>([
+  "auth.id",
+  "page.id",
+  "page.title",
+  "page.url",
+  "app.id",
+  "app.shortId",
+  "app.name",
+  "base.id",
+  "base.name",
+  "time.now",
+  "time.today",
+  "time.timeZone",
+]);
+const PARAM_CONTEXT_KEY = /^params\.[a-z][a-z0-9_]*$/;
+
+export const isDslQueryContextKey = (value: string): value is DslQueryContextKey =>
+  FIXED_CONTEXT_KEYS.has(value as DslQueryContextKey) || PARAM_CONTEXT_KEY.test(value);
+
+const isContextValue = (value: unknown): value is string | null => value === null || typeof value === "string";
+
+const contextPath = (expression: Extract<Expr, { kind: "call" }>): string | null => {
+  if (expression.fn !== "@" || expression.args.length !== 1) return null;
+  const [path] = expression.args;
+  return path?.kind === "literal" && typeof path.value === "string" ? path.value : null;
+};
+
+const bindExpression = (expression: Expr, values: DslQueryContextInput): Expr | string => {
   if (expression.kind === "call" && expression.fn === "PARAM") {
-    const [name, ...extra] = expression.args;
-    if (extra.length > 0 || name?.kind !== "literal" || typeof name.value !== "string") {
-      return "param() expects exactly one text parameter name";
-    }
-    if (!Object.hasOwn(parameters, name.value)) return `Unknown query parameter "${name.value}"`;
-    used.add(name.value);
-    return { kind: "literal", value: parameters[name.value]!, ...(expression.span ? { span: expression.span } : {}) };
+    return "param() is not supported; use @params.<name>";
+  }
+  if (expression.kind === "call" && expression.fn === "@") {
+    const path = contextPath(expression);
+    if (!path || !isDslQueryContextKey(path)) return `Unknown query context reference "@${path ?? ""}"`;
+    if (!Object.hasOwn(values, path)) return `Missing query context value "@${path}"`;
+    const value = values[path as keyof DslQueryContextValues];
+    if (!isContextValue(value)) return `Invalid query context value "@${path}"`;
+    return { kind: "literal", value, ...(expression.span ? { span: expression.span } : {}) };
   }
   if (expression.kind === "call") {
     const args: Expr[] = [];
     for (const argument of expression.args) {
-      const bound = bindExpression(argument, parameters, used);
+      const bound = bindExpression(argument, values);
       if (typeof bound === "string") return bound;
       args.push(bound);
     }
     return { ...expression, args };
   }
   if (expression.kind === "binop") {
-    const left = bindExpression(expression.left, parameters, used);
+    const left = bindExpression(expression.left, values);
     if (typeof left === "string") return left;
-    const right = bindExpression(expression.right, parameters, used);
+    const right = bindExpression(expression.right, values);
     if (typeof right === "string") return right;
     return { ...expression, left, right };
   }
   if (expression.kind === "unop") {
-    const operand = bindExpression(expression.operand, parameters, used);
+    const operand = bindExpression(expression.operand, values);
     return typeof operand === "string" ? operand : { ...expression, operand };
   }
   return expression;
 };
 
-export const bindDslQueryParameters = (ast: DslQueryAst, parameters: DslQueryParameters): BindDslQueryParametersResult => {
-  const used = new Set<string>();
-  const bind = (expression: Expr): Expr | string => bindExpression(expression, parameters, used);
+export const bindDslQueryContext = (ast: DslQueryAst, values: DslQueryContextInput = {}): BindDslQueryContextResult => {
+  const bind = (expression: Expr): Expr | string => bindExpression(expression, values);
 
   const select: DslQueryAst["select"] = [];
   for (const item of ast.select) {
@@ -68,11 +126,6 @@ export const bindDslQueryParameters = (ast: DslQueryAst, parameters: DslQueryPar
   if (typeof where === "string") return { ok: false, error: where };
   const having = ast.having ? bind(ast.having.expression) : undefined;
   if (typeof having === "string") return { ok: false, error: having };
-
-  const unused = Object.keys(parameters)
-    .filter((name) => !used.has(name))
-    .sort();
-  if (unused.length > 0) return { ok: false, error: `Unused query parameter${unused.length === 1 ? "" : "s"}: ${unused.join(", ")}` };
 
   return {
     ok: true,

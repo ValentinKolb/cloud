@@ -25,10 +25,11 @@ Assistant works best when the request states the outcome, the relevant context, 
 - **Use `/compact`** when a long chat should continue with a shorter summary of its context.
 - **Add a chat description** when future-you needs to know why the conversation matters.
 
-## Personalization and memory {icon="point"}
+## Personalization {icon="point"}
 
-- **Instructions** describe stable preferences such as language, tone, background, or response format.
-- **Memory** lets Assistant reuse saved facts when memory is enabled. Review the saved entries instead of placing temporary task details there.
+- **Personalization** stores separate facts and preferences you can review, edit, pin, or forget. Manually added entries start pinned, and Assistant keeps a small relevant set in context instead of loading an unbounded history.
+- **Learn from private chats** is optional and off by default. When enabled, Assistant may save explicitly stated durable facts and preferences after an idle private chat; it never learns from shared resource chats or silently deletes entries.
+- **System prompt** shows the complete prompt a new chat would receive, including active personalization and organization rules.
 - **Approvals** lists Actions you accepted with **Always approve**. Revoke an entry there whenever Assistant should ask again.
 - **Chat context** is still the best place for project-specific facts, source material, and one-off constraints.
 

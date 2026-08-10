@@ -28,4 +28,3 @@
 @source "../../../packages/cloud/src/access/**/*.{ts,tsx}";
 @source "../../../packages/cloud/src/account/**/*.{ts,tsx}";
 @source "../../../packages/cloud/src/ai/ui.tsx";
-@source "../../../packages/cloud/src/ai/AiSkillsManager.tsx";

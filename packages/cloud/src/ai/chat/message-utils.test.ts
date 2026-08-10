@@ -81,18 +81,17 @@ describe("memory tool presentation", () => {
     expect(
       memoryToolPresentation(
         { action: "add", content: "Valentin is in Reichardtsroth until Wednesday." },
-        { ok: true, message: "Remembered: [2026-07-11] Valentin is in Reichardtsroth until Wednesday." },
+        { ok: true, message: "Remembered: Valentin is in Reichardtsroth until Wednesday." },
       ),
     ).toEqual({ label: "Remembered", description: "Valentin is in Reichardtsroth until Wednesday.", failed: false });
   });
 
-  test("uses the affected entries for removal copy", () => {
-    expect(
-      memoryToolPresentation(
-        { action: "remove", content: "Reichardtsroth" },
-        { ok: true, message: "Forgot 2 memories: [2026-07-10] First visit. | [2026-07-11] Second visit." },
-      ),
-    ).toEqual({ label: "Forgot 2 memories", description: "First visit. · Second visit.", failed: false });
+  test("uses the affected entry for deletion copy", () => {
+    expect(memoryToolPresentation({ action: "delete", id: "memory-id" }, { ok: true, message: "Forgot memory: First visit." })).toEqual({
+      label: "Forgot memory",
+      description: "First visit.",
+      failed: false,
+    });
   });
 
   test("keeps failed updates visible", () => {

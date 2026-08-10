@@ -5,9 +5,7 @@ icon: ti ti-terminal-2
 description: Validate, plan, apply, export, and publish the canonical app definition.
 order: 136
 ---
-<!-- Unreleased contract: register this article only with the complete Custom Apps vertical slice. -->
-
-The visual builder and CLI read and write the same typed Custom App definition. YAML is its lossless human-readable serialization. It composes existing Grids resources; it does not duplicate table, form, view, workflow, template, or permission definitions.
+The visual builder and CLI read and write the same typed Custom App definition. YAML is its lossless human-readable serialization. It composes existing Grids resources and the capabilities exposed by one publication; it does not duplicate Base data or define child-resource permissions.
 
 ## Build resources before the app {icon="building-factory-2"}
 
@@ -17,7 +15,7 @@ The deterministic agent sequence is:
 
 1. inspect the current base and the installed Grids references;
 2. create or update the required resources through their existing commands;
-3. configure and verify resource grants and row scopes;
+3. configure Base access for administrators and Custom App access for its audience;
 4. write the app-only YAML with the returned canonical IDs;
 5. validate, plan, and apply the app draft;
 6. preview the complete journey as its intended audiences;
@@ -40,7 +38,7 @@ Agents should read this reference before generating a definition. The server rem
 Every definition has this shape:
 
 ```yaml
-schemaVersion: 1
+schemaVersion: 2
 kind: grids.custom-app
 id: 10000000-0000-4000-8000-000000000101
 baseId: 10000000-0000-4000-8000-000000000001
@@ -120,7 +118,7 @@ Each property declares which sources and target type it accepts. Validation reso
 
 ## Define blocks {icon="blocks"}
 
-All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `visibleWhen` use the shared block contract.
+All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `availableWhen` use the shared block contract.
 
 ```yaml
 # Guidance
@@ -214,20 +212,21 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
 
 Metrics and Chart read a saved view or bounded inline GQL. Metrics requires ungrouped aggregates. Chart derives its categories and values from grouped aggregate output and declares one of `donut`, `bar`, `line`, `sparkline`, or `scatter`. Refer to `apps reference --json` for the exact installed contract.
 
-An inline GQL source may declare typed `inputs`. Its query reads them through `param('name')`; every referenced parameter must have exactly one binding and unused inputs fail validation. Parameter values are passed separately from query text and are never interpolated into it.
+Inline GQL automatically receives `@auth`, declared `@params`, `@page`, `@app`, `@base`, and `@time` context. Unknown namespaces and undeclared page parameters fail validation. Values are bound separately from query text and are never interpolated into it.
 
 Use a standalone Actions block for navigation and workflow launchers. Records row links remain the compact per-row interaction in the first release. Form validation and submission behavior remain owned by the referenced Form.
 
-Simple presentation conditions are lists of ANDed comparisons:
+Pages, blocks, Forms, and actions may declare one server-enforced availability query:
 
 ```yaml
-visibleWhen:
-  - left: { source: RECORD, path: fields.10000000-0000-4000-8000-000000000302 }
-    operator: in
-    right: { source: LITERAL, value: [Submitted, In review] }
+availableWhen:
+  query: |
+    from table "Certificate requests"
+    where record.id = @params.request_id and Status = 'Submitted'
+    limit 1
 ```
 
-Supported operators are `eq`, `notEq`, `in`, `isEmpty`, and `isNotEmpty`. Conditions never grant access or replace workflow preconditions.
+At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The runtime omits unavailable resources and rechecks Forms and actions immediately before execution.
 
 ## Validate and plan {icon="list-check"}
 
@@ -255,7 +254,7 @@ cld grids apps apply --source-file certificate-app.yaml --json
 
 Use `plan` or `apply --dry-run` to observe the `noop` result explicitly. A subsequent ordinary `apply` of that definition leaves the stored app and its update timestamp unchanged.
 
-The command runs as the signed-in Cloud account and requires base-administrator access. It cannot grant itself app or resource permissions.
+The command runs as the signed-in Cloud account and requires Base Admin. It cannot grant itself Base or Custom App access.
 
 ## Export and review {icon="file-export"}
 

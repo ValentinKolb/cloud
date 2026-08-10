@@ -3,7 +3,6 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { RecordScopeSchema } from "../contracts";
 import {
   type BaseAdminAuthorization,
   resolveAccessBinding,
@@ -13,7 +12,7 @@ import {
 } from "../service/access";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
-const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema, recordScope: RecordScopeSchema.optional() });
+const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema });
 
 type AccessEntryRouteDeps = {
   gate: typeof gateAt;
@@ -51,10 +50,10 @@ export const createAccessEntryRoutes = (deps: AccessEntryRouteDeps = defaultDeps
         const gate = await deps.gate(c, { baseId: binding.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-        const { permission, recordScope } = c.req.valid("json");
+        const { permission } = c.req.valid("json");
         const validationError = validateAccessPermission(binding.resourceType, permission);
         if (validationError) return c.json({ message: validationError }, 400);
-        const result = await updateAccessLevel(accessId, permission, deps.actorId(c), deps.authorization(c), recordScope);
+        const result = await updateAccessLevel(accessId, permission, deps.actorId(c), deps.authorization(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },

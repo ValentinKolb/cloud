@@ -24,8 +24,6 @@ const makeDeps = (
     table?: typeof table | null;
     view?: typeof view | null;
     tableReadable?: boolean;
-    viewLevel?: "none" | "read";
-    explicitViewGrant?: boolean;
     onCompile?: (options: Record<string, unknown>) => void;
     onList?: () => void;
     listError?: Error;
@@ -62,13 +60,7 @@ const makeDeps = (
     dateConfig: async () => ({}) as never,
     gate: async () =>
       overrides.tableReadable ? ok("read" as const) : fail(err.forbidden("You do not have permission to access this resource.")),
-    resolve: async () => ({ level: overrides.viewLevel ?? "read", grants: [] }),
-    resolveRecordAccess: async (_context: unknown, target: { viewId?: string }) =>
-      ("viewId" in target ? overrides.explicitViewGrant : overrides.tableReadable)
-        ? ok({ level: "read" as const, recordAccess: { kind: "all" as const } })
-        : fail(err.forbidden("You do not have permission to access this resource.")),
     viewer: () => ({ userId, userGroups: [], serviceAccountId: null }),
-    hasExplicitGrant: () => overrides.explicitViewGrant ?? false,
     verifyFederatedRevision: async () => ok(),
   } as unknown as RouteDeps;
 };
@@ -94,19 +86,18 @@ describe("table query routes", () => {
     expect(response.status).toBe(403);
   });
 
-  test("hides personal views without an explicit view grant", async () => {
+  test("denies saved views when their owning Base is unreadable", async () => {
     const response = await requestQuery(makeDeps(), { query: {}, viewId });
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ message: "View not found" });
+    expect(response.status).toBe(403);
   });
 
-  test("runs the saved GQL source for explicitly readable views without table read access", async () => {
+  test("runs every saved GQL view after the owning Base read gate", async () => {
     let compileOptions: Record<string, unknown> | undefined;
     let listCalls = 0;
     const response = await requestQuery(
       makeDeps({
-        explicitViewGrant: true,
+        tableReadable: true,
         onCompile: (options) => {
           compileOptions = options;
         },
@@ -118,7 +109,7 @@ describe("table query routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(compileOptions).toMatchObject({ source: view.source, trustedAllSources: true });
+    expect(compileOptions).toMatchObject({ baseId, tableId, source: view.source });
     expect(listCalls).toBe(1);
     expect(await response.json()).toEqual({ items: [], nextCursor: null, filePreviews: {} });
   });

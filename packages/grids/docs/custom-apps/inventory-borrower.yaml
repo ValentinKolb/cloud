@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 kind: grids.custom-app
 id: 30000000-0000-4000-8000-000000000101
 baseId: 30000000-0000-4000-8000-000000000001
@@ -30,7 +30,7 @@ pages:
                   kind: view
                   viewId: 30000000-0000-4000-8000-000000000403
                 display:
-                  kind: cards
+                  kind: table
                   columnIds:
                     - 30000000-0000-4000-8000-000000000301
                     - 30000000-0000-4000-8000-000000000302
@@ -131,7 +131,6 @@ pages:
                   templateIds:
                     - 30000000-0000-4000-8000-000000000601
                     - 30000000-0000-4000-8000-000000000602
-                  emptyText: Documents appear here when they are ready.
               - id: loan-items
                 type: records
                 title: Requested items
@@ -140,31 +139,16 @@ pages:
                   query: |
                     from table "Loan items"
                     select Item, "Condition on return", "Damage note"
-                    where Loan = param('loan_id')
+                    where Loan = @params.loan_id
                     sort record.createdAt asc
                     limit 100
                   maxRows: 100
-                  inputs:
-                    loan_id: { source: RECORD, path: id }
                 display:
                   kind: table
                   columnIds:
                     - 30000000-0000-4000-8000-000000000308
                     - 30000000-0000-4000-8000-000000000309
                     - 30000000-0000-4000-8000-000000000310
-                rowActions:
-                  - id: remove
-                    label: Remove
-                    icon: trash
-                    kind: workflow
-                    launcherId: 30000000-0000-4000-8000-000000000705
-                    inputs:
-                      loan_id: { source: RECORD, path: id }
-                      loan_item_id: { source: ROW, path: id }
-                    visibleWhen:
-                      - left: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000306 }
-                        operator: eq
-                        right: { source: LITERAL, value: Draft }
           - id: discussion
             span: 4
             blocks:
@@ -188,10 +172,11 @@ pages:
                     launcherId: 30000000-0000-4000-8000-000000000701
                     inputs:
                       loan_id: { source: RECORD, path: id }
-                    visibleWhen:
-                      - left: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000306 }
-                        operator: eq
-                        right: { source: LITERAL, value: Draft }
+                    availableWhen:
+                      query: |
+                        from table Loans
+                        where record.id = @params.loan_id and {30000000-0000-4000-8000-000000000306} = 'Draft'
+                        limit 1
 
   - id: add-item
     title: Add item
@@ -212,6 +197,13 @@ pages:
           - id: content
             span: 12
             blocks:
+              - id: loan-context
+                type: record
+                fieldIds:
+                  - 30000000-0000-4000-8000-000000000306
+                  - 30000000-0000-4000-8000-000000000304
+                  - 30000000-0000-4000-8000-000000000305
+                editableFieldIds: []
               - id: available-items
                 type: records
                 emptyText: No equipment is available for this loan period.
@@ -221,22 +213,13 @@ pages:
                     from table "Availability windows" as availability
                     left join table Items as item on Item = item.id
                     select item.id as item_id, item.Name as name, item.Category as category, item.Description as description
-                    where Available = true and "Starts at" <= param('starts_at') and "Ends at" >= param('ends_at')
+                    where Available = true and record.id = @params.loan_id
                     sort name asc
                     limit 100
                   maxRows: 100
-                  inputs:
-                    starts_at: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000304 }
-                    ends_at: { source: RECORD, path: fields.30000000-0000-4000-8000-000000000305 }
                 display:
-                  kind: cards
-                  columnIds: [name, category, description]
-                rowActions:
-                  - id: add
-                    label: Add item
-                    icon: plus
-                    kind: workflow
-                    launcherId: 30000000-0000-4000-8000-000000000704
-                    inputs:
-                      loan_id: { source: RECORD, path: id }
-                      item_id: { source: ROW, path: fields.item_id }
+                  kind: table
+                  columnIds:
+                    - 30000000-0000-4000-8000-000000000301
+                    - 30000000-0000-4000-8000-000000000302
+                    - 30000000-0000-4000-8000-000000000303

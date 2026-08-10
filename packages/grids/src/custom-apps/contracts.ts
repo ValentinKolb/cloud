@@ -66,44 +66,16 @@ const CustomAppGqlSourceSchema = z
     kind: z.literal("gql"),
     query: z.string().trim().min(1).max(20_000),
     maxRows: z.number().int().min(1).max(100),
-    inputs: z.record(CustomAppParameterIdSchema, CustomAppParamValueSchema).optional(),
   })
   .strict();
 
 const CustomAppRecordIdValueSchema = z.object({ source: z.literal("RECORD"), path: z.literal("id") }).strict();
 
-const CustomAppRecordConditionValueSchema = z
-  .object({
-    source: z.literal("RECORD"),
-    path: z.string().regex(/^fields\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
-  })
-  .strict();
+export const CustomAppAvailabilitySchema = z.object({ query: z.string().trim().min(1).max(20_000) }).strict();
+export type CustomAppAvailability = z.infer<typeof CustomAppAvailabilitySchema>;
 
-export const CustomAppConditionValueSchema = z.discriminatedUnion("source", [
-  z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
-  CustomAppParamValueSchema,
-  CustomAppRecordConditionValueSchema,
-]);
-
-export const CustomAppConditionSchema = z.discriminatedUnion("operator", [
-  z
-    .object({
-      left: CustomAppConditionValueSchema,
-      operator: z.enum(["eq", "notEq", "in"]),
-      right: CustomAppConditionValueSchema,
-    })
-    .strict(),
-  z
-    .object({
-      left: CustomAppConditionValueSchema,
-      operator: z.enum(["isEmpty", "isNotEmpty"]),
-    })
-    .strict(),
-]);
-export type CustomAppCondition = z.infer<typeof CustomAppConditionSchema>;
-
-const CustomAppVisibilityShape = {
-  visibleWhen: z.array(CustomAppConditionSchema).min(1).max(12).optional(),
+const CustomAppAvailabilityShape = {
+  availableWhen: CustomAppAvailabilitySchema.optional(),
 };
 
 export const CustomAppActionValueSchema = z.discriminatedUnion("source", [
@@ -128,7 +100,7 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
       pageId: CustomAppLocalIdSchema,
       history: z.enum(["push", "replace"]).default("push"),
       params: z.record(CustomAppParameterIdSchema, z.union([CustomAppParamValueSchema, CustomAppRecordIdValueSchema])),
-      ...CustomAppVisibilityShape,
+      ...CustomAppAvailabilityShape,
     })
     .strict(),
   z
@@ -146,7 +118,7 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
       launcherId: z.string().uuid(),
       inputs: z.record(z.string().trim().min(1).max(120), CustomAppActionValueSchema).default({}),
       confirm: z.string().trim().min(1).max(240).optional(),
-      ...CustomAppVisibilityShape,
+      ...CustomAppAvailabilityShape,
     })
     .strict(),
 ]);
@@ -170,7 +142,7 @@ export const CustomAppMarkdownBlockSchema = z
     type: z.literal("markdown"),
     title: z.string().trim().min(1).max(160).optional(),
     markdown: z.string().max(20_000),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict();
 
@@ -191,7 +163,7 @@ export const CustomAppRecordsBlockSchema = z
       })
       .strict(),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict();
 
@@ -206,7 +178,7 @@ export const CustomAppMetricsBlockSchema = z
     type: z.literal("metrics"),
     title: z.string().trim().min(1).max(160).optional(),
     source: CustomAppInsightSourceSchema,
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict();
 
@@ -222,7 +194,7 @@ export const CustomAppChartBlockSchema = z
     valueFormat: CustomAppValueFormatSchema.optional(),
     xAxisLabel: z.string().trim().min(1).max(60).optional(),
     yAxisLabel: z.string().trim().min(1).max(60).optional(),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict();
 
@@ -240,7 +212,7 @@ export const CustomAppRecordBlockSchema = z
       })
       .strict()
       .optional(),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict()
   .superRefine((block, ctx) => {
@@ -282,7 +254,7 @@ export const CustomAppCommentsBlockSchema = z
     type: z.literal("comments"),
     title: z.string().trim().min(1).max(160).optional(),
     emptyText: z.string().trim().min(1).max(240).optional(),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict();
 
@@ -294,7 +266,7 @@ export const CustomAppFormBlockSchema = z
     formId: z.string().uuid(),
     fixedValues: z.record(z.string().uuid(), CustomAppParamValueSchema).default({}),
     onSuccessNavigate: CustomAppFormSuccessNavigationSchema.optional(),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict();
 
@@ -304,7 +276,7 @@ export const CustomAppActionsBlockSchema = z
     type: z.literal("actions"),
     title: z.string().trim().min(1).max(160).optional(),
     actions: z.array(CustomAppActionSchema).min(1).max(12),
-    ...CustomAppVisibilityShape,
+    ...CustomAppAvailabilityShape,
   })
   .strict()
   .superRefine((block, ctx) => {
@@ -340,6 +312,7 @@ const CustomAppPageSchema = z
       .default({ visible: true, order: 0 }),
     parameters: z.record(CustomAppParameterIdSchema, CustomAppRecordParameterSchema).default({}),
     record: CustomAppPageRecordSchema.optional(),
+    ...CustomAppAvailabilityShape,
     rows: z
       .array(
         z
@@ -372,7 +345,7 @@ const CustomAppPageSchema = z
 
 export const CustomAppDefinitionSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     kind: z.literal("grids.custom-app"),
     id: z.string().uuid(),
     baseId: z.string().uuid(),
@@ -435,39 +408,6 @@ export const CustomAppDefinitionSchema = z
             if (block.type === "comments" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Comments block requires a page record", path: [...blockPath, "type"] });
             }
-            const validateConditions = (conditions: CustomAppCondition[] | undefined, path: readonly (string | number)[]) => {
-              for (const [conditionIndex, condition] of (conditions ?? []).entries()) {
-                const values = [condition.left, ...("right" in condition ? [condition.right] : [])];
-                for (const [valueIndex, value] of values.entries()) {
-                  if (value.source === "PARAMS" && !page.parameters[value.path]) {
-                    ctx.addIssue({
-                      code: "custom",
-                      message: "Condition parameters must be declared by the current page",
-                      path: [...path, "visibleWhen", conditionIndex, valueIndex === 0 ? "left" : "right", "path"],
-                    });
-                  }
-                  if (value.source === "RECORD" && !page.record) {
-                    ctx.addIssue({
-                      code: "custom",
-                      message: "RECORD conditions require a page record",
-                      path: [...path, "visibleWhen", conditionIndex, valueIndex === 0 ? "left" : "right"],
-                    });
-                  }
-                }
-              }
-            };
-            validateConditions(block.visibleWhen, blockPath);
-            if ((block.type === "records" || block.type === "metrics" || block.type === "chart") && block.source.kind === "gql") {
-              for (const [inputName, value] of Object.entries(block.source.inputs ?? {})) {
-                if (!page.parameters[value.path]) {
-                  ctx.addIssue({
-                    code: "custom",
-                    message: "GQL inputs must reference a parameter declared by the current page",
-                    path: [...blockPath, "source", "inputs", inputName, "path"],
-                  });
-                }
-              }
-            }
             if (block.type === "form") {
               for (const [fieldId, value] of Object.entries(block.fixedValues)) {
                 if (!page.parameters[value.path]) {
@@ -481,7 +421,6 @@ export const CustomAppDefinitionSchema = z
             }
             if (block.type === "actions") {
               for (const [actionIndex, action] of block.actions.entries()) {
-                validateConditions(action.visibleWhen, [...blockPath, "actions", actionIndex]);
                 if (action.kind !== "workflow") continue;
                 for (const [inputName, value] of Object.entries(action.inputs)) {
                   if (value.source === "PARAMS" && !page.parameters[value.path]) {
@@ -627,7 +566,56 @@ export const CustomAppDefinitionSchema = z
 
 export const CustomAppCapabilitiesSchema = z
   .object({
-    views: z.array(z.object({ viewId: z.string().uuid(), tableId: z.string().uuid() }).strict()).max(4),
+    availability: z
+      .array(
+        z.discriminatedUnion("target", [
+          z
+            .object({
+              target: z.literal("page"),
+              pageId: CustomAppLocalIdSchema,
+              sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+              planHash: z.string().regex(/^[a-f0-9]{64}$/),
+              tableIds: z.array(z.string().uuid()).min(1).max(24),
+            })
+            .strict(),
+          z
+            .object({
+              target: z.literal("block"),
+              pageId: CustomAppLocalIdSchema,
+              blockId: CustomAppLocalIdSchema,
+              sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+              planHash: z.string().regex(/^[a-f0-9]{64}$/),
+              tableIds: z.array(z.string().uuid()).min(1).max(24),
+            })
+            .strict(),
+          z
+            .object({
+              target: z.literal("action"),
+              pageId: CustomAppLocalIdSchema,
+              blockId: CustomAppLocalIdSchema,
+              actionId: CustomAppLocalIdSchema,
+              sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+              planHash: z.string().regex(/^[a-f0-9]{64}$/),
+              tableIds: z.array(z.string().uuid()).min(1).max(24),
+            })
+            .strict(),
+        ]),
+      )
+      .max(256)
+      .default([]),
+    views: z
+      .array(
+        z
+          .object({
+            viewId: z.string().uuid(),
+            tableId: z.string().uuid(),
+            sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+            planHash: z.string().regex(/^[a-f0-9]{64}$/),
+            tableIds: z.array(z.string().uuid()).min(1).max(24),
+          })
+          .strict(),
+      )
+      .max(4),
     insights: z
       .array(
         z
@@ -641,12 +629,14 @@ export const CustomAppCapabilitiesSchema = z
                   kind: z.literal("view"),
                   viewId: z.string().uuid(),
                   sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+                  planHash: z.string().regex(/^[a-f0-9]{64}$/),
                   tableIds: z.array(z.string().uuid()).min(1).max(24),
                 })
                 .strict(),
               z
                 .object({
                   kind: z.literal("gql"),
+                  planHash: z.string().regex(/^[a-f0-9]{64}$/),
                   tableIds: z.array(z.string().uuid()).min(1).max(24),
                 })
                 .strict(),
@@ -663,6 +653,7 @@ export const CustomAppCapabilitiesSchema = z
             pageId: CustomAppLocalIdSchema,
             blockId: CustomAppLocalIdSchema,
             primaryTableId: z.string().uuid(),
+            planHash: z.string().regex(/^[a-f0-9]{64}$/),
             tableIds: z.array(z.string().uuid()).min(1).max(24),
           })
           .strict(),
@@ -677,8 +668,46 @@ export const CustomAppCapabilitiesSchema = z
             tableId: z.string().uuid(),
             fieldIds: z.array(z.string().uuid()).min(1).max(30),
             editableFieldIds: z.array(z.string().uuid()).max(30).default([]),
+            relationLabels: z
+              .array(
+                z
+                  .object({
+                    fieldId: z.string().uuid(),
+                    targetTableId: z.string().uuid(),
+                    labelFieldIds: z.array(z.string().uuid()).max(200),
+                  })
+                  .strict(),
+              )
+              .max(30),
           })
-          .strict(),
+          .strict()
+          .superRefine((record, ctx) => {
+            const relationFieldIds = new Set<string>();
+            for (const [index, relation] of record.relationLabels.entries()) {
+              if (!record.fieldIds.includes(relation.fieldId)) {
+                ctx.addIssue({
+                  code: "custom",
+                  message: "Relation label fields must belong to the published Record field allowlist",
+                  path: ["relationLabels", index, "fieldId"],
+                });
+              }
+              if (relationFieldIds.has(relation.fieldId)) {
+                ctx.addIssue({
+                  code: "custom",
+                  message: "Relation label field capabilities must be unique",
+                  path: ["relationLabels", index, "fieldId"],
+                });
+              }
+              relationFieldIds.add(relation.fieldId);
+              if (new Set(relation.labelFieldIds).size !== relation.labelFieldIds.length) {
+                ctx.addIssue({
+                  code: "custom",
+                  message: "Relation label field IDs must be unique",
+                  path: ["relationLabels", index, "labelFieldIds"],
+                });
+              }
+            }
+          }),
       )
       .max(12)
       .default([]),
@@ -692,6 +721,8 @@ export const CustomAppCapabilitiesSchema = z
             tableId: z.string().uuid(),
             userInputFieldIds: z.array(z.string().uuid()).max(100),
             fixedFieldIds: z.array(z.string().uuid()).max(30),
+            fieldHash: z.string().regex(/^[a-f0-9]{64}$/),
+            formSecurityHash: z.string().regex(/^[a-f0-9]{64}$/),
           })
           .strict(),
       )
@@ -755,8 +786,30 @@ export type CustomAppActionValue = z.infer<typeof CustomAppActionValueSchema>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
 
+export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | "published") => {
+  const parsed = CustomAppDefinitionSchema.safeParse(raw);
+  if (parsed.success) return { definition: parsed.data, diagnostics: [] };
+  const schemaVersion = raw && typeof raw === "object" && "schemaVersion" in raw ? raw.schemaVersion : undefined;
+  const recovery =
+    schemaVersion === 1
+      ? `Stored ${version} uses unsupported Custom App schemaVersion 1; replace it with a schemaVersion 2 definition${
+          version === "draft" ? " or restore a valid published version" : ""
+        }.`
+      : `Stored ${version} is not a valid Custom App schemaVersion 2 definition; replace it with a valid definition${
+          version === "draft" ? " or restore a valid published version" : ""
+        }.`;
+  const diagnostics: CustomAppDiagnostic[] = [
+    { path: [version, "schemaVersion"], message: recovery },
+    ...parsed.error.issues.map((issue) => ({
+      path: issue.path.filter((part): part is string | number => typeof part === "string" || typeof part === "number"),
+      message: issue.message,
+    })),
+  ];
+  return { definition: null, diagnostics };
+};
+
 export const CUSTOM_APP_REFERENCE = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "grids.custom-app",
   identity: {
     id: "Stable UUID chosen by the author",
@@ -780,17 +833,16 @@ export const CUSTOM_APP_REFERENCE = {
     parameters: "This release supports required same-base record parameters",
     record: "Bind one authorized page record from PARAMS",
   },
-  conditions: {
-    visibleWhen: "Optional list on blocks and Actions entries; every condition must match",
-    values: ["LITERAL", "PARAMS", "RECORD fields.<field UUID>"],
-    operators: ["eq", "notEq", "in", "isEmpty", "isNotEmpty"],
-    note: "Presentation only; conditions never grant access or replace workflow preconditions",
+  availability: {
+    availableWhen: "Optional bounded GQL query on pages, blocks, and individual actions",
+    semantics: "Available only when the server-side query returns at least one row; errors fail closed",
+    context: ["@auth.id", "@params.*", "@page.*", "@app.*", "@base.*", "@time.*"],
   },
   blocks: {
     markdown: { required: ["id", "type", "markdown"] },
     records: {
       required: ["id", "type", "source", "display"],
-      source: "Saved view or bounded inline GQL with optional typed PARAMS inputs",
+      source: "Saved view or bounded inline GQL with implicit typed request context",
       display: { kind: "table", columnIds: ["field UUID"] },
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
     },
@@ -823,7 +875,7 @@ export const CUSTOM_APP_REFERENCE = {
     },
   },
   example: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "grids.custom-app",
     id: "00000000-0000-4000-8000-000000000001",
     baseId: "00000000-0000-4000-8000-000000000002",

@@ -31,7 +31,6 @@ The catalog follows **the task a consumer is trying to complete**, not the packa
 Four integrations remain product-specific because their behavior depends on authenticated Cloud APIs or platform concepts:
 
 - **Cloud assistant chat** — Cloud Assistant messages, tools, sessions, and attachments;
-- **AI skills manager** — skill discovery and management backed by Cloud AI APIs;
 - **Permissions and API keys** — identity, principal search, resource permissions, and scoped credentials;
 - **Cloud dashboard widgets** — Cloud endpoint adapters feeding portable widget presentation.
 

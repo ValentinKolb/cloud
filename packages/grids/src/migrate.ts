@@ -12,9 +12,9 @@ const MIGRATION_LOCK_NAME = "grids:migrate";
  * default — ad-hoc filter performance is the user's call when they enable
  * indexing per field.
  *
- * Permission model: one `auth.access` row bound through a Grids resource-specific
- * junction table. Base grants are the broad scope; table/view/form/document
- * template/Custom App/workflow grants can narrow or expose specific surfaces.
+ * Permission model: raw Grids resources inherit one base grant. Published
+ * Custom Apps have an independent read grant and execute only their compiled
+ * capabilities.
  */
 const migrateSchema = async (sql: SQL): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS grids`.simple();
@@ -99,25 +99,8 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     CREATE TABLE IF NOT EXISTS grids.base_access (
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb,
       PRIMARY KEY (base_id, access_id)
     )
-  `.simple();
-  await sql`ALTER TABLE grids.base_access ADD COLUMN IF NOT EXISTS record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb`.simple();
-  await sql`
-    DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'base_access_record_scope_chk' AND conrelid = 'grids.base_access'::regclass) THEN
-        ALTER TABLE grids.base_access ADD CONSTRAINT base_access_record_scope_chk CHECK (
-          record_scope IN ('{"kind":"all"}'::jsonb, '{"kind":"created_by"}'::jsonb) OR (
-            jsonb_typeof(record_scope) = 'object'
-            AND record_scope->>'kind' = 'related_created_by'
-            AND jsonb_typeof(record_scope->'relationFieldId') = 'string'
-            AND record_scope - 'kind' - 'relationFieldId' = '{}'::jsonb
-            AND record_scope->>'relationFieldId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          )
-        );
-      END IF;
-    END $$
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_base_access_access ON grids.base_access(access_id)`.simple();
   console.log("  ✓ grids.base_access");
@@ -194,33 +177,6 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.tables");
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.table_access (
-      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
-      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb,
-      PRIMARY KEY (table_id, access_id)
-    )
-  `.simple();
-  await sql`ALTER TABLE grids.table_access ADD COLUMN IF NOT EXISTS record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb`.simple();
-  await sql`
-    DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'table_access_record_scope_chk' AND conrelid = 'grids.table_access'::regclass) THEN
-        ALTER TABLE grids.table_access ADD CONSTRAINT table_access_record_scope_chk CHECK (
-          record_scope IN ('{"kind":"all"}'::jsonb, '{"kind":"created_by"}'::jsonb) OR (
-            jsonb_typeof(record_scope) = 'object'
-            AND record_scope->>'kind' = 'related_created_by'
-            AND jsonb_typeof(record_scope->'relationFieldId') = 'string'
-            AND record_scope - 'kind' - 'relationFieldId' = '{}'::jsonb
-            AND record_scope->>'relationFieldId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          )
-        );
-      END IF;
-    END $$
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_table_access_access ON grids.table_access(access_id)`.simple();
-  console.log("  ✓ grids.table_access");
 
   // ──────────────────────────────────────────────────────────────────
   // fields
@@ -690,32 +646,6 @@ const migrateViews = async (sql: SQL): Promise<void> => {
   `.simple();
   console.log("  ✓ grids.views");
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.view_access (
-      view_id UUID NOT NULL REFERENCES grids.views(id) ON DELETE CASCADE,
-      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb,
-      PRIMARY KEY (view_id, access_id)
-    )
-  `.simple();
-  await sql`ALTER TABLE grids.view_access ADD COLUMN IF NOT EXISTS record_scope JSONB NOT NULL DEFAULT '{"kind":"all"}'::jsonb`.simple();
-  await sql`
-    DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'view_access_record_scope_chk' AND conrelid = 'grids.view_access'::regclass) THEN
-        ALTER TABLE grids.view_access ADD CONSTRAINT view_access_record_scope_chk CHECK (
-          record_scope IN ('{"kind":"all"}'::jsonb, '{"kind":"created_by"}'::jsonb) OR (
-            jsonb_typeof(record_scope) = 'object'
-            AND record_scope->>'kind' = 'related_created_by'
-            AND jsonb_typeof(record_scope->'relationFieldId') = 'string'
-            AND record_scope - 'kind' - 'relationFieldId' = '{}'::jsonb
-            AND record_scope->>'relationFieldId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          )
-        );
-      END IF;
-    END $$
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_view_access_access ON grids.view_access(access_id)`.simple();
-  console.log("  ✓ grids.view_access");
 };
 
 const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
@@ -824,16 +754,6 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
     ON grids.document_templates(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.document_templates");
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.document_template_access (
-      template_id UUID NOT NULL REFERENCES grids.document_templates(id) ON DELETE CASCADE,
-      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      PRIMARY KEY (template_id, access_id)
-    )
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_document_template_access_access ON grids.document_template_access(access_id)`.simple();
-  console.log("  ✓ grids.document_template_access");
 
   // ──────────────────────────────────────────────────────────────────
   // email templates
@@ -1091,22 +1011,6 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_public_token ON grids.forms(public_token) WHERE public_token IS NOT NULL AND deleted_at IS NULL`.simple();
   console.log("  ✓ grids.forms");
 
-  // form_access — same junction shape as base_access / table_access /
-  // view_access. Form ACLs only carry `write` (= "can submit this form
-  // even when it has no public token"); the API rejects read/admin
-  // grants because they don't map to anything useful — read is implied
-  // by being granted any form access (the user needs to render the
-  // form schema), admin == form CRUD which lives at base-admin.
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.form_access (
-      form_id UUID NOT NULL REFERENCES grids.forms(id) ON DELETE CASCADE,
-      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
-      PRIMARY KEY (form_id, access_id)
-    )
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_form_access_access ON grids.form_access(access_id)`.simple();
-  console.log("  ✓ grids.form_access");
-
   // ──────────────────────────────────────────────────────────────────
   // audit log
   // ──────────────────────────────────────────────────────────────────
@@ -1359,6 +1263,19 @@ const removeLegacyDashboards = async (sql: SQL): Promise<void> => {
   console.log("  ✓ removed legacy Grids dashboards");
 };
 
+const removeObsoleteAccess = async (sql: SQL): Promise<void> => {
+  await sql`
+    ALTER TABLE grids.base_access DROP CONSTRAINT IF EXISTS base_access_record_scope_chk;
+    ALTER TABLE grids.base_access DROP COLUMN IF EXISTS record_scope;
+    DROP TABLE IF EXISTS grids.table_access;
+    DROP TABLE IF EXISTS grids.view_access;
+    DROP TABLE IF EXISTS grids.form_access;
+    DROP TABLE IF EXISTS grids.document_template_access;
+    DROP TABLE IF EXISTS grids.workflow_access;
+  `.simple();
+  console.log("  ✓ removed obsolete Grids access metadata");
+};
+
 const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
   // Opaque scan codes are lazy-generated record lookup keys. A code does not
   // grant access; scanner workflows still resolve and run through permissions.
@@ -1510,6 +1427,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateCustomApps(connection);
     await removeLegacyDashboards(connection);
     await migrateGridsWorkflowTables(connection);
+    await removeObsoleteAccess(connection);
     await migrateRecordScanCodes(connection);
     await migrateOperationalHealth(connection);
     console.log("  ✓ grids schema ready");

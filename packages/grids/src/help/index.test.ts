@@ -24,7 +24,11 @@ const expectedTopics = [
   "grids-gql",
   "grids-formulas",
   "grids-forms",
+  "grids-build-custom-app",
+  "grids-custom-app-pages-blocks",
   "grids-documents-pdfs",
+  "grids-publish-custom-app",
+  "grids-custom-app-yaml-cli",
   "grids-custom-apps",
   "grids-workflows",
   "grids-permissions",
@@ -111,7 +115,7 @@ describe("grids help", () => {
     ]) {
       expect(customApps, `missing Custom App capability ${capability}`).toContain(capability);
     }
-    expect(customApps).toContain("signed-in Cloud accounts only");
+    expect(customApps).toContain("public grant includes anonymous visitors");
 
     const documents = gridsHelp.getMarkdown("grids-documents-pdfs")!;
     for (const capability of ["recursive snapshot", "public link", "1, 7, 30, or 90 days", "barcode_data_url"]) {
@@ -129,18 +133,11 @@ describe("grids help", () => {
 
     const permissions = gridsHelp.getMarkdown("grids-permissions")!;
     expect(permissions).toContain("Cloud administrators are not automatic Grids superusers");
-    expect(permissions).toContain("Saved views and document templates are deliberate included-data boundaries");
-    expect(permissions).toContain("exact enabled launcher saved in a readable Custom App block");
-    for (const resource of [
-      "Base",
-      "Stored table",
-      "Combined table",
-      "View",
-      "Form",
-      "Custom App",
-      "Document template",
-      "Workflow",
-    ]) {
+    expect(permissions).toContain("Read the complete schema and every record");
+    expect(permissions).toContain("hiding a control in the browser is not authorization");
+    expect(permissions).toContain("Base grants support users, groups, service accounts");
+    expect(permissions).toContain("Custom App grants do not support service accounts");
+    for (const resource of ["Base", "Custom App"]) {
       expect(permissions, `missing permission resource ${resource}`).toContain(resource);
     }
 

@@ -1,6 +1,4 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy, TableKind } from "../../../contracts";
-import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 
 export { openFieldEditDialog } from "./FieldEditorDialog";
 
@@ -21,21 +19,3 @@ export type TableHeader = {
   auditPolicy: TableAuditPolicy;
   disableDirectInsert: boolean;
 };
-
-export function TablePermissions(props: { tableId: string; tableKind: TableKind; initialEntries: AccessEntry[] }) {
-  return (
-    <ScopedPermissionEditor
-      scope={{ type: "table", id: props.tableId }}
-      initialEntries={props.initialEntries}
-      canEdit
-      allowedLevels={
-        props.tableKind === "federated"
-          ? [{ level: "read", label: "View" }]
-          : [
-              { level: "read", label: "View" },
-              { level: "write", label: "Edit" },
-            ]
-      }
-    />
-  );
-}

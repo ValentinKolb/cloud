@@ -9,6 +9,10 @@ const baseId = "11111111-1111-4111-8111-111111111111";
 const viewId = "22222222-2222-4222-8222-222222222222";
 let savedViewCalls: Array<{ baseId: string; viewId: string; options: unknown }> = [];
 let gqlCalls: Array<{ baseId: string; input: unknown; limits: unknown }> = [];
+const context = {
+  get: () => undefined,
+  req: { raw: { headers: new Headers() } },
+} as unknown as Context;
 
 const aggregateResult: DslQueryPreviewResponse = {
   ok: true,
@@ -34,15 +38,20 @@ const queryResultState = (cursor: string | null = null): GridsWorkspaceState =>
 const customAppState = (): GridsWorkspaceState =>
   ({
     kind: "ok",
-    base: { id: baseId },
+    base: { id: baseId, name: "Preview Base" },
     route: {
       kind: "customApp",
       app: {
+        id: "33333333-3333-4333-8333-333333333333",
+        shortId: "APP01",
+        name: "Preview App",
         draftDefinition: {
           startPageId: "home",
           pages: [
             {
               id: "home",
+              title: "Home",
+              parameters: {},
               rows: [
                 {
                   columns: [
@@ -111,16 +120,25 @@ describe("workspace initial GQL results", () => {
   });
 
   test("resolves the initial Custom App draft page before hydration", async () => {
-    const state = await withInitialGqlResults({} as Context, customAppState());
+    const state = await withInitialGqlResults(context, customAppState());
 
     expect(savedViewCalls).toHaveLength(1);
-    expect(gqlCalls).toEqual([
-      {
-        baseId,
-        input: { query: "aggregate count(*) as items", limit: 1, pageSize: 1, surface: "ssr" },
-        limits: { maxRows: 1, operation: "initial-preview" },
+    expect(gqlCalls).toHaveLength(1);
+    expect(gqlCalls[0]).toMatchObject({
+      baseId,
+      input: { query: "aggregate count(*) as items", limit: 1, pageSize: 1, surface: "ssr" },
+      limits: {
+        maxRows: 1,
+        operation: "initial-preview",
+        context: {
+          "auth.id": null,
+          "app.id": "33333333-3333-4333-8333-333333333333",
+          "page.id": "home",
+          "base.id": baseId,
+          "time.timeZone": "UTC",
+        },
       },
-    ]);
+    });
     expect(state.kind).toBe("ok");
     if (state.kind !== "ok" || state.route.kind !== "customApp") return;
     expect(state.route.initialPreviewResults).toEqual({ records: aggregateResult, metrics: aggregateResult });

@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { type AccessBinding, buildAccessAuditDiff } from "./access";
+import { type AccessBinding, buildAccessAuditDiff, validateAccessPrincipal } from "./access";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ACCESS_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("access audit diff", () => {
-  test("captures a new table grant with stable resource and principal data", () => {
+  test("captures a new Custom App grant with stable resource and principal data", () => {
     const binding: AccessBinding = {
-      resourceType: "table",
+      resourceType: "customApp",
       baseId: "33333333-3333-4333-8333-333333333333",
-      tableId: "44444444-4444-4444-8444-444444444444",
+      customAppId: "44444444-4444-4444-8444-444444444444",
     };
 
     expect(
@@ -31,7 +31,7 @@ describe("access audit diff", () => {
         old: null,
         new: {
           id: ACCESS_ID,
-          resourceType: "table",
+          resourceType: "customApp",
           resourceId: "44444444-4444-4444-8444-444444444444",
           principal: { type: "user", userId: USER_ID },
           permission: "read",
@@ -42,10 +42,8 @@ describe("access audit diff", () => {
 
   test("captures permission changes without changing the principal", () => {
     const binding: AccessBinding = {
-      resourceType: "form",
+      resourceType: "base",
       baseId: "33333333-3333-4333-8333-333333333333",
-      tableId: "44444444-4444-4444-8444-444444444444",
-      formId: "55555555-5555-4555-8555-555555555555",
     };
 
     expect(
@@ -66,15 +64,15 @@ describe("access audit diff", () => {
       access: {
         old: {
           id: ACCESS_ID,
-          resourceType: "form",
-          resourceId: "55555555-5555-4555-8555-555555555555",
+          resourceType: "base",
+          resourceId: "33333333-3333-4333-8333-333333333333",
           principal: { type: "authenticated" },
           permission: "write",
         },
         new: {
           id: ACCESS_ID,
-          resourceType: "form",
-          resourceId: "55555555-5555-4555-8555-555555555555",
+          resourceType: "base",
+          resourceId: "33333333-3333-4333-8333-333333333333",
           principal: { type: "authenticated" },
           permission: "none",
         },
@@ -115,4 +113,13 @@ describe("access audit diff", () => {
       },
     });
   });
+});
+
+test("validates principals per resource boundary", () => {
+  expect(validateAccessPrincipal("base", { type: "public" })).toBe("Public access is only supported for Custom Apps.");
+  expect(validateAccessPrincipal("customApp", { type: "public" })).toBeNull();
+  expect(validateAccessPrincipal("base", { type: "service_account", serviceAccountId: ACCESS_ID })).toBeNull();
+  expect(validateAccessPrincipal("customApp", { type: "service_account", serviceAccountId: ACCESS_ID })).toBe(
+    "Custom App access does not support service accounts; grant access to the delegated user instead.",
+  );
 });

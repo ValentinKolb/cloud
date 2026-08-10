@@ -28,6 +28,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS loaded_capabilities TEXT[] NOT NULL DEFAULT '{}'`.simple();
   // Enrichment (description/keywords/title upkeep) — dirty = updated_at > enriched_at.
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS keywords TEXT[] NOT NULL DEFAULT '{}'`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS search_summary TEXT NOT NULL DEFAULT ''`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS title_source TEXT NOT NULL DEFAULT 'default'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description_source TEXT NOT NULL DEFAULT 'default'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ`.simple();
@@ -38,6 +39,34 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.conversations ALTER COLUMN last_viewed_at SET DEFAULT now()`.simple();
   await sql`UPDATE ai.conversations SET last_viewed_at = now() WHERE last_viewed_at IS NULL`.simple();
   await sql`ALTER TABLE ai.conversations ALTER COLUMN last_viewed_at SET NOT NULL`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS search_text TEXT NOT NULL DEFAULT ''`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS search_document TSVECTOR NOT NULL DEFAULT ''::tsvector`.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.refresh_conversation_search() RETURNS trigger AS $$
+    BEGIN
+      NEW.search_text := COALESCE(NEW.title, '') || ' ' || COALESCE(NEW.title, '') || ' ' ||
+        COALESCE(array_to_string(NEW.keywords, ' '), '') || ' ' || COALESCE(NEW.search_summary, '') || ' ' ||
+        COALESCE(NEW.description, '');
+      NEW.search_document :=
+        setweight(to_tsvector('simple', COALESCE(NEW.title, '')), 'A') ||
+        setweight(to_tsvector('simple', COALESCE(array_to_string(NEW.keywords, ' '), '')), 'A') ||
+        setweight(to_tsvector('simple', COALESCE(NEW.search_summary, '')), 'B') ||
+        setweight(to_tsvector('simple', COALESCE(NEW.description, '')), 'C');
+      RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_conversations_search_refresh ON ai.conversations`.simple();
+  await sql`
+    CREATE TRIGGER ai_conversations_search_refresh
+    BEFORE INSERT OR UPDATE OF title, description, keywords, search_summary
+    ON ai.conversations FOR EACH ROW EXECUTE FUNCTION ai.refresh_conversation_search()
+  `.simple();
+  await sql`UPDATE ai.conversations SET search_summary = search_summary`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversations_search_document
+    ON ai.conversations USING GIN(search_document)
+  `.simple();
 
   // Semantics fix: 'auto' is reserved for enrichment-set titles (which always set
   // enriched_at in the same update). First-message snapshot titles are 'default'
@@ -131,6 +160,16 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_aggregate JSONB`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_done_reason TEXT`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS meta JSONB`.simple();
+  await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS search_text TEXT NOT NULL DEFAULT ''`.simple();
+  await sql`
+    ALTER TABLE ai.messages
+    ADD COLUMN IF NOT EXISTS search_document tsvector
+    GENERATED ALWAYS AS (to_tsvector('simple', COALESCE(search_text, ''))) STORED
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_messages_search_document
+    ON ai.messages USING GIN(search_document)
+  `.simple();
 
   // Seq is only unique among active (non-compacted) rows: compaction archives rows
   // in place and the summary takes over the checkpoint seq.
@@ -157,6 +196,39 @@ export const migrateCloudAi = async (): Promise<void> => {
     ON ai.messages(conversation_id, loop_id, seq ASC)
     WHERE compacted_at IS NULL AND loop_id IS NOT NULL
   `.simple();
+
+  // Optional pg_textsearch ranking. Native weighted FTS above is always the
+  // correctness path; missing extension support must never block startup.
+  try {
+    const [extension] = await sql<{ available: boolean; installed: boolean; server_version: number }[]>`
+      SELECT
+        EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch') AS available,
+        EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch') AS installed,
+        current_setting('server_version_num')::int AS server_version
+    `;
+    let installed = extension?.installed ?? false;
+    if (!installed && extension?.available && extension.server_version >= 170000) {
+      await sql`CREATE EXTENSION IF NOT EXISTS pg_textsearch`.simple();
+      installed = true;
+    }
+    if (installed) {
+      await sql
+        .unsafe(`
+          CREATE INDEX IF NOT EXISTS conversations_search_bm25_idx
+          ON ai.conversations USING bm25 ((search_text)) WITH (text_config='simple')
+        `)
+        .simple();
+      await sql
+        .unsafe(`
+          CREATE INDEX IF NOT EXISTS messages_search_bm25_idx
+          ON ai.messages USING bm25 ((search_text)) WITH (text_config='simple')
+        `)
+        .simple();
+      console.log("  ✓ ai conversation optional BM25 search indexes");
+    }
+  } catch (error) {
+    console.warn("  ! ai conversation optional BM25 search unavailable; native PostgreSQL FTS remains active", error);
+  }
 
   await sql`
     CREATE TABLE IF NOT EXISTS ai.turns (
@@ -354,15 +426,88 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS ai.user_prefs (
       user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-      instructions TEXT NOT NULL DEFAULT '',
-      memory TEXT NOT NULL DEFAULT '',
       memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      memory_learning_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
 
+  // Unreleased alpha cut: structured records replace the former free-form
+  // memory blob. Deliberately discard it instead of migrating ambiguous lines.
+  await sql`ALTER TABLE ai.user_prefs DROP COLUMN IF EXISTS memory`.simple();
+  await sql`ALTER TABLE ai.user_prefs DROP COLUMN IF EXISTS instructions`.simple();
+  await sql`ALTER TABLE ai.user_prefs ADD COLUMN IF NOT EXISTS memory_learning_enabled BOOLEAN NOT NULL DEFAULT FALSE`.simple();
+
   // Last model the user actually ran a turn with — preselected for new chats.
   await sql`ALTER TABLE ai.user_prefs ADD COLUMN IF NOT EXISTS last_model_id TEXT NOT NULL DEFAULT ''`.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.memories (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      content TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'normal',
+      source TEXT NOT NULL DEFAULT 'user',
+      source_conversation_id UUID REFERENCES ai.conversations(id) ON DELETE SET NULL,
+      source_message_id UUID REFERENCES ai.messages(id) ON DELETE SET NULL,
+      superseded_by_id UUID REFERENCES ai.memories(id) ON DELETE SET NULL,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      search_document TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', COALESCE(content, ''))) STORED,
+      CONSTRAINT ai_memories_kind_check CHECK (kind IN ('fact', 'preference')),
+      CONSTRAINT ai_memories_priority_check CHECK (priority IN ('normal', 'pinned')),
+      CONSTRAINT ai_memories_source_check CHECK (source IN ('user', 'agent', 'background')),
+      CONSTRAINT ai_memories_content_check CHECK (char_length(content) BETWEEN 1 AND 500)
+    )
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_memories_user_active
+    ON ai.memories(user_id, priority DESC, updated_at DESC, id)
+    WHERE deleted_at IS NULL AND superseded_by_id IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_memories_search_document
+    ON ai.memories USING GIN(search_document)
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_memories_user_content_active
+    ON ai.memories(user_id, lower(content))
+    WHERE deleted_at IS NULL AND superseded_by_id IS NULL
+  `.simple();
+
+  // pg_textsearch only improves ranking. Native GIN FTS above remains the
+  // correctness baseline and optional setup must never block AI startup.
+  try {
+    const [extension] = await sql<{ available: boolean; installed: boolean; server_version: number }[]>`
+      SELECT
+        EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch') AS available,
+        EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch') AS installed,
+        current_setting('server_version_num')::int AS server_version
+    `;
+    let installed = extension?.installed ?? false;
+    if (!installed && extension?.available && extension.server_version >= 170000) {
+      await sql`CREATE EXTENSION IF NOT EXISTS pg_textsearch`.simple();
+      installed = true;
+    }
+    if (installed) {
+      await sql
+        .unsafe(`
+          CREATE INDEX IF NOT EXISTS memories_search_bm25_idx
+          ON ai.memories USING bm25 ((content)) WITH (text_config='simple')
+        `)
+        .simple();
+      console.log("  ✓ ai.memories optional BM25 search index");
+    }
+  } catch (error) {
+    console.warn("  ! ai.memories optional BM25 search index unavailable; native PostgreSQL FTS remains active", error);
+  }
+
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS memory_learned_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS memory_learn_failed_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS memory_learn_fail_count INTEGER NOT NULL DEFAULT 0`.simple();
 
   // ── Conversation file workspace ───────────────────────────────────
   await sql`
@@ -381,58 +526,108 @@ export const migrateCloudAi = async (): Promise<void> => {
   // only the needed chunks — head/tail on big files must not load everything.
   await sql`ALTER TABLE ai.files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
 
-  // Skills are concise reusable instructions, not executable packages. Drop
-  // the unreleased file-tree schema once when upgrading an alpha checkout.
-  const fileTreeSkillSchema = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = 'ai' AND table_name = 'skills' AND column_name = 'slug'
-    ) AS exists
-  `;
-  if (fileTreeSkillSchema[0]?.exists) {
-    await sql.begin(async (tx) => {
-      await tx`
+  // Projects are the single unreleased abstraction for shared instructions and
+  // context. There is intentionally no migration path from the alpha Skills
+  // experiments: they were never released and carried incompatible semantics.
+  await sql`
+    DO $$
+    BEGIN
+      IF to_regclass('ai.skill_access') IS NOT NULL THEN
         DELETE FROM auth.access
-        WHERE id IN (SELECT access_id FROM ai.skill_access)
-      `;
-      await tx`DROP TABLE ai.skill_access`;
-      await tx`DROP TABLE ai.skill_user_state`;
-      await tx`DROP TABLE ai.skill_files`;
-      await tx`DROP TABLE ai.skill_events`;
-      await tx`DROP TABLE ai.skills`;
-    });
-    console.log("  ✓ replaced alpha AI skill file-tree schema");
-  }
+        WHERE id IN (SELECT access_id FROM ai.skill_access);
+      END IF;
+    END $$
+  `.simple();
+  await sql`DROP TABLE IF EXISTS ai.skill_access CASCADE`.simple();
+  await sql`DROP TABLE IF EXISTS ai.skill_user_state CASCADE`.simple();
+  await sql`DROP TABLE IF EXISTS ai.skill_files CASCADE`.simple();
+  await sql`DROP TABLE IF EXISTS ai.skill_events CASCADE`.simple();
+  await sql`DROP TABLE IF EXISTS ai.skills CASCADE`.simple();
 
   await sql`
-    CREATE TABLE IF NOT EXISTS ai.skills (
+    CREATE TABLE IF NOT EXISTS ai.projects (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
-      instructions TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      icon TEXT NOT NULL DEFAULT 'ti ti-folders',
+      instructions TEXT NOT NULL DEFAULT '',
+      default_model_profile_id TEXT,
+      owner_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT ai_skills_scope_check CHECK (scope IN ('personal', 'workspace')),
-      CONSTRAINT ai_skills_owner_check CHECK (
-        (scope = 'personal' AND owner_user_id IS NOT NULL) OR
-        (scope = 'workspace' AND owner_user_id IS NULL)
-      ),
-      CONSTRAINT ai_skills_name_check CHECK (length(btrim(name)) BETWEEN 1 AND 80),
-      CONSTRAINT ai_skills_description_check CHECK (length(description) <= 500),
-      CONSTRAINT ai_skills_instructions_check CHECK (length(btrim(instructions)) BETWEEN 1 AND 16000)
+      CONSTRAINT ai_projects_name_check CHECK (length(btrim(name)) BETWEEN 1 AND 120),
+      CONSTRAINT ai_projects_description_check CHECK (length(description) <= 500),
+      CONSTRAINT ai_projects_instructions_check CHECK (length(instructions) <= 16000)
     )
   `.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_skills_workspace_name
-    ON ai.skills(lower(name)) WHERE scope = 'workspace'
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_projects_owner_name
+    ON ai.projects(owner_user_id, lower(name))
   `.simple();
+
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_skills_personal_name
-    ON ai.skills(owner_user_id, lower(name)) WHERE scope = 'personal'
+    CREATE TABLE IF NOT EXISTS ai.project_access (
+      project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (project_id, access_id)
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.project_knowledge (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      search_document TSVECTOR GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', title), 'A') || setweight(to_tsvector('simple', content), 'B')
+      ) STORED,
+      created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_project_knowledge_title_check CHECK (length(btrim(title)) BETWEEN 1 AND 200),
+      CONSTRAINT ai_project_knowledge_content_check CHECK (length(btrim(content)) BETWEEN 1 AND 100000)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_ai_project_knowledge_search ON ai.project_knowledge USING GIN(search_document)`.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.project_files (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+      bytes BYTEA NOT NULL,
+      size INTEGER NOT NULL,
+      created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (project_id, path),
+      CONSTRAINT ai_project_files_size_check CHECK (size BETWEEN 0 AND 10485760)
+    )
+  `.simple();
+  await sql`ALTER TABLE ai.project_files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.project_references (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
+      app_id TEXT NOT NULL,
+      resource_type TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (project_id, app_id, resource_type, resource_id)
+    )
+  `.simple();
+
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES ai.projects(id) ON DELETE SET NULL`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversations_project_owner_updated
+    ON ai.conversations(project_id, created_by_user_id, updated_at DESC)
+    WHERE project_id IS NOT NULL AND archived_at IS NULL
   `.simple();
 
   // Provider API keys used to live inside the ai.model_profiles_json setting.

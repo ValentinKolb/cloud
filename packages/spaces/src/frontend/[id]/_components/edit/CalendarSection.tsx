@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, CopyButton, prompts, toast } from "@k2b/ui";
+import { Button, CopyButton, prompts, SettingsGroup, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./utils";
@@ -15,12 +15,8 @@ export function CalendarSection(props: { spaceId: string; icalToken: string | nu
       });
       if (!confirmed) return null;
 
-      const res = await apiClient[":id"]["regenerate-ical-token"].$post({
-        param: { id: props.spaceId },
-      });
-      if (!res.ok) {
-        throw new Error(await readErrorMessage(res, "Failed to regenerate token"));
-      }
+      const res = await apiClient[":id"]["regenerate-ical-token"].$post({ param: { id: props.spaceId } });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to regenerate token"));
       return res.json();
     },
     onSuccess: (data) => {
@@ -34,41 +30,48 @@ export function CalendarSection(props: { spaceId: string; icalToken: string | nu
   const icalUrl = () => (token() ? `${props.baseUrl}/api/spaces/calendar/ical/${token()}.ics` : null);
 
   return (
-    <div class="flex flex-col gap-3">
-      <Show when={icalUrl()} fallback={<p class="text-sm text-dimmed">No iCal token available.</p>}>
-        <div class="flex min-w-0 items-center gap-2">
-          <code class="min-w-0 flex-1 truncate rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] px-2 py-1.5 text-xs text-secondary">
-            {icalUrl()!}
-          </code>
-          <CopyButton text={icalUrl()!} />
-        </div>
-        <div class="text-xs text-dimmed space-y-1">
-          <p>
-            <strong>Thunderbird:</strong> New Calendar -&gt; On the Network -&gt; iCalendar (ICS)
-          </p>
-          <p>
-            <strong>Google Calendar:</strong> Settings -&gt; Add calendar -&gt; From URL
-          </p>
-          <p>
-            <strong>Apple Calendar:</strong> File -&gt; New Calendar Subscription
-          </p>
-          <p>
-            <strong>Outlook:</strong> Add calendar -&gt; Subscribe from web
-          </p>
-        </div>
-        <Show when={props.isAdmin}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => regenerateMut.mutate(undefined)}
-            disabled={regenerateMut.loading()}
-            class="text-xs text-red-500 hover:text-red-600 self-start"
-          >
-            {regenerateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Regenerate token"}
-          </Button>
+    <>
+      <SettingsGroup title="Calendar feed" description="Subscribe to scheduled Space items from an external calendar.">
+        <Show when={icalUrl()} fallback={<p class="text-sm text-dimmed">No calendar subscription URL is available.</p>}>
+          <div class="flex min-w-0 items-center gap-2">
+            <code class="min-w-0 flex-1 truncate rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] px-2 py-1.5 text-xs text-secondary">
+              {icalUrl()!}
+            </code>
+            <CopyButton text={icalUrl()!} />
+          </div>
         </Show>
-      </Show>
-    </div>
+        <Show when={props.isAdmin && icalUrl()}>
+          <SettingsGroup.Action>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => regenerateMut.mutate(undefined)}
+              disabled={regenerateMut.loading()}
+            >
+              <i class={`ti ${regenerateMut.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
+              Regenerate URL
+            </Button>
+          </SettingsGroup.Action>
+        </Show>
+      </SettingsGroup>
+
+      <SettingsGroup title="Calendar apps" description="Use the subscription URL as a read-only calendar feed.">
+        <div class="space-y-1 text-sm text-secondary">
+          <p>
+            <strong>Thunderbird:</strong> New Calendar → On the Network → iCalendar (ICS)
+          </p>
+          <p>
+            <strong>Google Calendar:</strong> Settings → Add calendar → From URL
+          </p>
+          <p>
+            <strong>Apple Calendar:</strong> File → New Calendar Subscription
+          </p>
+          <p>
+            <strong>Outlook:</strong> Add calendar → Subscribe from web
+          </p>
+        </div>
+      </SettingsGroup>
+    </>
   );
 }

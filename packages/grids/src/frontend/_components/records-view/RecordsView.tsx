@@ -1,6 +1,5 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, dialogCore, PanelDialog, Placeholder, panelDialogWideOptions, prompts, Button, ButtonLink } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { AppWorkspace, Button, ButtonLink, dialogCore, PanelDialog, Placeholder, panelDialogWideOptions, prompts } from "@k2b/ui";
 import { createMemo, createSignal, Show } from "solid-js";
 import type {
   AggregationSpec,
@@ -89,10 +88,7 @@ type Props = {
   canManageBase: boolean;
   trashMode: boolean;
   initialAdminMode: boolean;
-  initialAccessEntries: AccessEntry[];
-  initialFormAccessEntries: Record<string, AccessEntry[]>;
   activeView?: RuntimeView | null;
-  activeViewAccessEntries?: AccessEntry[];
   canEditActiveView?: boolean;
   /** Tables in the same base, including the active table for self-relations. */
   otherTables: Array<{ id: string; name: string }>;
@@ -608,10 +604,7 @@ export default function RecordsView(props: Props) {
     setForms,
     otherTables: props.otherTables,
     fieldsByTable: props.fieldsByTable,
-    initialAccessEntries: props.initialAccessEntries,
-    initialFormAccessEntries: props.initialFormAccessEntries,
     activeView: props.activeView,
-    activeViewAccessEntries: props.activeViewAccessEntries,
     canEditActiveView: props.canEditActiveView,
     canManageTable: props.canManageTable,
     canManageBase: props.canManageBase,

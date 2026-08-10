@@ -252,8 +252,6 @@ const PanesRoot = (props: PanesRootProps) => {
     },
   });
 
-  onCleanup(() => paneDnd.destroy());
-
   const setActive = (leafId: string, elementId: string) => {
     const leaf = findPanesLeaf(value().root, leafId);
     if (!leaf?.elementIds.includes(elementId)) return;

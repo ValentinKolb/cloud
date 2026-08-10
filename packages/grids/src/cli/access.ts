@@ -1,52 +1,31 @@
 import { arg, command, confirmFlag, flag, listAccessPrincipalEntities, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { RecordScope } from "../contracts";
 import {
   ACCESS_RESOURCE_TYPES,
   type AccessPermission,
   accessPermissionsForResource,
   accessResourcePath,
-  accessResourceSupportsRecordScope,
   assertAccessPermission,
+  assertAccessPrincipal,
   PERMISSION_LEVELS,
   principalKey,
-  recordScopeFromFlags,
   resolveAccessResource,
   resolvePrincipalForAccess,
 } from "./access-support";
 import { jsonRequest, type MessageResponse, printJsonOrMessage, printReference, readApi } from "./runtime";
-
-type GridsAccessEntry = AccessEntry & { recordScope?: RecordScope };
-
-const recordScopeFlags = {
-  recordScope: flag.enum(["all", "created-by", "related-created-by"] as const, {
-    name: "record-scope",
-    description: "Visible records for this grant; base, table, and view only",
-  }),
-  relationFieldId: flag.string({
-    name: "relation-field-id",
-    description: "Relation field UUID for --record-scope related-created-by",
-  }),
-};
-
-const scopeLabel = (scope: RecordScope | undefined): string => {
-  if (!scope || scope.kind === "all") return "all";
-  if (scope.kind === "created_by") return "created-by";
-  return `related-created-by:${scope.relationFieldId}`;
-};
 
 const principalLabel = (entry: AccessEntry): string => {
   if (entry.displayName) return entry.displayName;
   if (entry.principal.type === "user") return entry.principal.userId;
   if (entry.principal.type === "group") return entry.principal.groupId;
   if (entry.principal.type === "service_account") return entry.principal.serviceAccountId;
-  return entry.principal.type === "authenticated" ? "All users (incl. guests)" : "Public";
+  return entry.principal.type === "authenticated" ? "All authenticated accounts" : "Public";
 };
 
 const printGridsAccessEntries = (
   ctx: Parameters<typeof printStructured>[0],
   resource: Awaited<ReturnType<typeof resolveAccessResource>>,
-  entries: GridsAccessEntry[],
+  entries: AccessEntry[],
   includeServiceAccounts: boolean,
 ) => {
   if (printStructured(ctx, { resource, entries })) return;
@@ -56,7 +35,6 @@ const printGridsAccessEntries = (
       principal: principalLabel(entry),
       type: entry.principal.type,
       permission: entry.permission,
-      recordScope: accessResourceSupportsRecordScope(resource) ? scopeLabel(entry.recordScope) : "—",
       accessId: entry.id,
     }));
   if (rows.length === 0) {
@@ -67,7 +45,6 @@ const printGridsAccessEntries = (
     { key: "principal", label: "PRINCIPAL" },
     { key: "type", label: "TYPE" },
     { key: "permission", label: "PERMISSION" },
-    { key: "recordScope", label: "RECORD SCOPE" },
     { key: "accessId", label: "ACCESS ID" },
   ]);
 };
@@ -75,24 +52,28 @@ const printGridsAccessEntries = (
 export const accessCommands = [
   command("access reference", {
     summary: "Show Grids resource access levels",
-    description: "Direct grants are resource-specific. Inherited effective access is resolved by the backend at use time.",
+    description: "Raw Grids access is granted on a base. Published Custom Apps have their own read access.",
     examples: ["cld grids access reference", "cld grids access reference --json"],
     async run({ ctx }) {
       const reference = {
-        resourceTypes: ACCESS_RESOURCE_TYPES.map((type) => ({ type, permissions: accessPermissionsForResource(type) })),
+        resourceTypes: ACCESS_RESOURCE_TYPES.map((type) => ({
+          type,
+          permissions: accessPermissionsForResource(type),
+          principals:
+            type === "base" ? ["user", "group", "service_account", "authenticated"] : ["user", "group", "authenticated", "public"],
+        })),
         principalFlags: [
           "--user <id|uid|email|display name>",
           "--group <id|name>",
-          "--service-account <id|name>",
+          "--service-account <id|name> (Base only)",
           "--authenticated",
-          "--public",
+          "--public (Custom App only)",
         ],
         examples: [
-          "cld grids access list table Bookshop Authors",
-          "cld grids access grant table Requests Requests --authenticated --permission read --record-scope created-by",
-          "cld grids access grant table Requests Comments --authenticated --permission read --record-scope related-created-by --relation-field-id <uuid>",
-          "cld grids access set document-template Bookshop Invoices Invoice --user ada@example.test --permission write",
-          "cld grids access revoke workflow Bookshop 'Send reminder' --user ada@example.test --yes",
+          "cld grids access list base Bookshop",
+          "cld grids access set base Bookshop --group 'Bookshop staff' --permission write",
+          "cld grids access grant custom-app Bookshop Catalog --public --permission read",
+          "cld grids access revoke custom-app Bookshop Catalog --public --yes",
         ],
       };
       printReference(
@@ -101,12 +82,12 @@ export const accessCommands = [
         [
           "Grids access",
           "",
-          "Direct grants attach to one Grids resource. The backend still enforces inherited and effective access when a command runs.",
-          "Base, table, and view grants also accept --record-scope all|created-by|related-created-by.",
-          "Related creator scopes additionally require --relation-field-id <uuid> and follow one same-base relation.",
+          "Base access controls the complete raw Grids workspace. Custom App access controls one published app without granting raw base access.",
           "",
           "Resources:",
-          ...reference.resourceTypes.map((item) => `  ${item.type}: ${item.permissions.join(", ")}`),
+          ...reference.resourceTypes.map(
+            (item) => `  ${item.type}: ${item.permissions.join(", ")}; principals: ${item.principals.join(", ")}`,
+          ),
           "",
           "Principals:",
           ...reference.principalFlags.map((item) => `  ${item}`),
@@ -122,7 +103,7 @@ export const accessCommands = [
     args: {
       args: arg.rest({
         valueLabel: "resource-type refs",
-        description: "Resource type followed by refs, e.g. table Bookshop Authors or document-template Bookshop Invoices Invoice.",
+        description: "Resource type followed by refs, e.g. base Bookshop or custom-app Bookshop Catalog.",
       }),
     },
     flags: {
@@ -133,7 +114,7 @@ export const accessCommands = [
     },
     async run({ ctx, args, flags }) {
       const resource = await resolveAccessResource(ctx, args.args);
-      const entries = await readApi<GridsAccessEntry[]>(ctx, accessResourcePath(resource));
+      const entries = await readApi<AccessEntry[]>(ctx, accessResourcePath(resource));
       printGridsAccessEntries(ctx, resource, entries, flags.includeServiceAccounts);
     },
   }),
@@ -145,22 +126,21 @@ export const accessCommands = [
     flags: {
       user: flag.string({ description: "User id, uid, email, or exact display name" }),
       group: flag.string({ description: "Group id or exact name" }),
-      serviceAccount: flag.string({ name: "service-account", description: "Service account id or exact name" }),
+      serviceAccount: flag.string({ name: "service-account", description: "Service account id or exact name; Base grants only" }),
       authenticated: flag.boolean({ description: "Signed-in users" }),
       public: flag.boolean({ description: "Anyone with the link, including anonymous users" }),
       permission: flag.enum(PERMISSION_LEVELS, { required: true, description: "Permission to grant" }),
-      ...recordScopeFlags,
     },
     async run({ ctx, args, flags }) {
       const resource = await resolveAccessResource(ctx, args.args);
       const permission = flags.permission as AccessPermission;
       assertAccessPermission(resource, permission);
       const principal = await resolvePrincipalForAccess(ctx, flags);
-      const recordScope = recordScopeFromFlags(resource, flags);
+      assertAccessPrincipal(resource, principal);
       const created = await readApi<{ accessId: string }>(
         ctx,
         accessResourcePath(resource),
-        jsonRequest("POST", { principal, permission, ...(recordScope ? { recordScope } : {}) }),
+        jsonRequest("POST", { principal, permission }),
       );
       printJsonOrMessage(
         ctx,
@@ -168,12 +148,9 @@ export const accessCommands = [
           resource,
           principal,
           permission,
-          ...(accessResourceSupportsRecordScope(resource) ? { recordScope: recordScope ?? { kind: "all" as const } } : {}),
           ...created,
         },
-        `Granted ${permission} on ${resource.label}${
-          accessResourceSupportsRecordScope(resource) ? ` with record scope ${scopeLabel(recordScope)}` : ""
-        }.`,
+        `Granted ${permission} on ${resource.label}.`,
       );
     },
   }),
@@ -187,51 +164,42 @@ export const accessCommands = [
     flags: {
       user: flag.string({ description: "User id, uid, email, or exact display name" }),
       group: flag.string({ description: "Group id or exact name" }),
-      serviceAccount: flag.string({ name: "service-account", description: "Service account id or exact name" }),
+      serviceAccount: flag.string({ name: "service-account", description: "Service account id or exact name; Base grants only" }),
       authenticated: flag.boolean({ description: "Signed-in users" }),
       public: flag.boolean({ description: "Anyone with the link, including anonymous users" }),
       accessId: flag.string({ name: "access-id", description: "Direct access entry id from access list" }),
       permission: flag.enum(PERMISSION_LEVELS, { required: true, description: "Permission to set" }),
-      ...recordScopeFlags,
     },
     async run({ ctx, args, flags }) {
       const resource = await resolveAccessResource(ctx, args.args);
       const permission = flags.permission as AccessPermission;
       assertAccessPermission(resource, permission);
-      const recordScope = recordScopeFromFlags(resource, flags);
       if (flags.accessId) {
-        await readApi<MessageResponse>(
-          ctx,
-          `/access/${encodeURIComponent(flags.accessId)}`,
-          jsonRequest("PATCH", { permission, ...(recordScope ? { recordScope } : {}) }),
-        );
+        await readApi<MessageResponse>(ctx, `/access/${encodeURIComponent(flags.accessId)}`, jsonRequest("PATCH", { permission }));
         printJsonOrMessage(
           ctx,
-          { resource, accessId: flags.accessId, permission, ...(recordScope ? { recordScope } : {}), action: "updated" },
-          `Updated ${flags.accessId} to ${permission}${recordScope ? ` with record scope ${scopeLabel(recordScope)}` : ""}.`,
+          { resource, accessId: flags.accessId, permission, action: "updated" },
+          `Updated ${flags.accessId} to ${permission}.`,
         );
         return;
       }
       const principal = await resolvePrincipalForAccess(ctx, flags);
-      const entries = await readApi<GridsAccessEntry[]>(ctx, accessResourcePath(resource));
+      assertAccessPrincipal(resource, principal);
+      const entries = await readApi<AccessEntry[]>(ctx, accessResourcePath(resource));
       const existing = entries.find((entry) => principalKey(entry.principal) === principalKey(principal));
       if (existing) {
-        await readApi<MessageResponse>(
-          ctx,
-          `/access/${encodeURIComponent(existing.id)}`,
-          jsonRequest("PATCH", { permission, ...(recordScope ? { recordScope } : {}) }),
-        );
+        await readApi<MessageResponse>(ctx, `/access/${encodeURIComponent(existing.id)}`, jsonRequest("PATCH", { permission }));
         printJsonOrMessage(
           ctx,
-          { resource, accessId: existing.id, permission, ...(recordScope ? { recordScope } : {}), action: "updated" },
-          `Updated ${existing.id} to ${permission}${recordScope ? ` with record scope ${scopeLabel(recordScope)}` : ""}.`,
+          { resource, accessId: existing.id, permission, action: "updated" },
+          `Updated ${existing.id} to ${permission}.`,
         );
         return;
       }
       const created = await readApi<{ accessId: string }>(
         ctx,
         accessResourcePath(resource),
-        jsonRequest("POST", { principal, permission, ...(recordScope ? { recordScope } : {}) }),
+        jsonRequest("POST", { principal, permission }),
       );
       printJsonOrMessage(
         ctx,
@@ -239,13 +207,10 @@ export const accessCommands = [
           resource,
           principal,
           permission,
-          ...(accessResourceSupportsRecordScope(resource) ? { recordScope: recordScope ?? { kind: "all" as const } } : {}),
           ...created,
           action: "created",
         },
-        `Granted ${permission} on ${resource.label}${
-          accessResourceSupportsRecordScope(resource) ? ` with record scope ${scopeLabel(recordScope)}` : ""
-        }.`,
+        `Granted ${permission} on ${resource.label}.`,
       );
     },
   }),
@@ -269,6 +234,7 @@ export const accessCommands = [
       let accessId = flags.accessId;
       if (!accessId) {
         const principal = await resolvePrincipalForAccess(ctx, flags);
+        assertAccessPrincipal(resource, principal);
         const entries = await readApi<AccessEntry[]>(ctx, accessResourcePath(resource));
         const existing = entries.find((entry) => principalKey(entry.principal) === principalKey(principal));
         if (!existing) throw new Error("No direct grant for that principal.");

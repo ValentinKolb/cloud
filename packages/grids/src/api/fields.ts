@@ -33,7 +33,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const fields = await gridsService.field.listByTable(tableId);
       return c.json(fields);
@@ -113,7 +113,7 @@ const app = new Hono<AuthContext>()
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: field.tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const deps = await gridsService.fieldDependents.get(fieldId);
       return c.json({ dependents: deps, hasBlocking: gridsService.fieldDependents.hasBlocking(deps) });

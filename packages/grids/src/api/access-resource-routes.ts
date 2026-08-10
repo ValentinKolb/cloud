@@ -3,28 +3,18 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { RecordScopeSchema } from "../contracts";
 import {
   type AccessResourceType,
   type BaseAdminAuthorization,
   grantAccess,
   listBaseAccess,
   listCustomAppAccess,
-  listDocumentTemplateAccess,
-  listFormAccess,
-  listTableAccess,
-  listViewAccess,
-  listWorkflowAccess,
   resolveResourceBinding,
   validateAccessPermission,
 } from "../service/access";
-import { get as getTable } from "../service/tables";
-import { getWorkflow } from "../service/workflow-definitions";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
-const GridsAccessEntrySchema = AccessEntrySchema.extend({ recordScope: RecordScopeSchema.optional() });
-const GridsGrantAccessSchema = GrantAccessSchema.extend({ recordScope: RecordScopeSchema.optional() });
-const AccessListSchema = z.array(GridsAccessEntrySchema);
+const AccessListSchema = z.array(AccessEntrySchema);
 const CreatedAccessSchema = z.object({ accessId: z.string().uuid() });
 
 type AccessRouteConfig = {
@@ -32,8 +22,6 @@ type AccessRouteConfig = {
   path: string;
   param: string;
   label: string;
-  grantSummary: string;
-  grantError: string;
   resolveBaseId: (resourceId: string) => Promise<string | null>;
   list: (resourceId: string) => ReturnType<typeof listBaseAccess>;
 };
@@ -43,6 +31,7 @@ type AccessRouteDeps = {
   actorId: typeof currentActorUserId;
   authorization: (c: Context<AuthContext>) => BaseAdminAuthorization;
 };
+
 const defaultDeps: AccessRouteDeps = {
   gate: gateAt,
   actorId: currentActorUserId,
@@ -53,113 +42,30 @@ const defaultDeps: AccessRouteDeps = {
   }),
 };
 
-const resolveRegisteredResource = async (resourceType: Exclude<AccessResourceType, "base" | "table" | "workflow">, resourceId: string) => {
-  const binding = await resolveResourceBinding(resourceType, resourceId, {
-    includeDeleted: resourceType === "documentTemplate" || resourceType === "customApp" ? false : undefined,
-  });
-  return binding?.baseId ?? null;
-};
-
-const ACCESS_ROUTE_CONFIGS = {
+const CONFIGS = {
   base: {
     resourceType: "base",
     path: "/by-base/:baseId",
     param: "baseId",
     label: "Base",
-    grantSummary: "Grant access on a base",
-    grantError: "Invalid base permission",
     resolveBaseId: async (baseId) => baseId,
     list: listBaseAccess,
-  },
-  table: {
-    resourceType: "table",
-    path: "/by-table/:tableId",
-    param: "tableId",
-    label: "Table",
-    grantSummary: "Grant access on a table (only 'read' / 'write' / 'none' accepted)",
-    grantError: "Table only accepts level 'read' / 'write' / 'none'",
-    resolveBaseId: async (tableId) => (await getTable(tableId))?.baseId ?? null,
-    list: listTableAccess,
-  },
-  view: {
-    resourceType: "view",
-    path: "/by-view/:viewId",
-    param: "viewId",
-    label: "View",
-    grantSummary: "Grant access on a view (only 'read' / 'admin' / 'none' accepted)",
-    grantError: "View only accepts level 'read', 'admin', or 'none'",
-    resolveBaseId: (viewId) => resolveRegisteredResource("view", viewId),
-    list: listViewAccess,
-  },
-  form: {
-    resourceType: "form",
-    path: "/by-form/:formId",
-    param: "formId",
-    label: "Form",
-    grantSummary: "Grant write access on a form (only 'write' / 'none' accepted)",
-    grantError: "Form only accepts level 'write' or 'none'",
-    resolveBaseId: (formId) => resolveRegisteredResource("form", formId),
-    list: listFormAccess,
-  },
-  documentTemplate: {
-    resourceType: "documentTemplate",
-    path: "/by-document-template/:templateId",
-    param: "templateId",
-    label: "Document template",
-    grantSummary: "Grant access on a document template (read / write / admin / none)",
-    grantError: "Document template only accepts level 'read', 'write', 'admin', or 'none'",
-    resolveBaseId: (templateId) => resolveRegisteredResource("documentTemplate", templateId),
-    list: listDocumentTemplateAccess,
   },
   customApp: {
     resourceType: "customApp",
     path: "/by-custom-app/:customAppId",
     param: "customAppId",
     label: "Custom App",
-    grantSummary: "Grant read access on a Custom App (only 'read' / 'none' accepted)",
-    grantError: "Custom App only accepts level 'read' or 'none'",
-    resolveBaseId: (customAppId) => resolveRegisteredResource("customApp", customAppId),
+    resolveBaseId: async (customAppId) =>
+      (await resolveResourceBinding("customApp", customAppId, { includeDeleted: false }))?.baseId ?? null,
     list: listCustomAppAccess,
-  },
-  workflow: {
-    resourceType: "workflow",
-    path: "/by-workflow/:workflowId",
-    param: "workflowId",
-    label: "Workflow",
-    grantSummary: "Grant access on a workflow (read / write / admin / none)",
-    grantError: "Workflow only accepts level 'read', 'write', 'admin', or 'none'",
-    resolveBaseId: async (workflowId) => (await getWorkflow(workflowId))?.baseId ?? null,
-    list: listWorkflowAccess,
   },
 } as const satisfies Record<AccessResourceType, AccessRouteConfig>;
 
-const resourceId = (params: Record<string, string>, config: AccessRouteConfig): string => params[config.param]!;
+const resourceId = (c: Context<AuthContext>, config: AccessRouteConfig): string => c.req.param()[config.param]!;
 
-const listDescription = (config: AccessRouteConfig) =>
-  describeRoute({
-    tags: ["Grids:Access"],
-    summary: `List ACL entries for a ${config.label.toLowerCase()}`,
-    responses: {
-      200: jsonResponse(AccessListSchema, "Entries"),
-      403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-      404: jsonResponse(ErrorResponseSchema, `${config.label} not found`),
-    },
-  });
-
-const grantDescription = (config: AccessRouteConfig) =>
-  describeRoute({
-    tags: ["Grids:Access"],
-    summary: config.grantSummary,
-    responses: {
-      201: jsonResponse(CreatedAccessSchema, "Created"),
-      400: jsonResponse(ErrorResponseSchema, config.grantError),
-      403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-      404: jsonResponse(ErrorResponseSchema, `${config.label} not found`),
-    },
-  });
-
-const listResourceAccess = async (c: Context<AuthContext>, config: AccessRouteConfig, deps: AccessRouteDeps) => {
-  const id = resourceId(c.req.param(), config);
+const listResource = async (c: Context<AuthContext>, config: AccessRouteConfig, deps: AccessRouteDeps) => {
+  const id = resourceId(c, config);
   const baseId = await config.resolveBaseId(id);
   if (!baseId) return c.json({ message: `${config.label} not found` }, 404);
   const gate = await deps.gate(c, { baseId }, "admin");
@@ -167,13 +73,13 @@ const listResourceAccess = async (c: Context<AuthContext>, config: AccessRouteCo
   return c.json(await config.list(id));
 };
 
-const grantResourceAccess = async (
+const grantResource = async (
   c: Context<AuthContext>,
   config: AccessRouteConfig,
-  body: z.infer<typeof GridsGrantAccessSchema>,
+  body: z.infer<typeof GrantAccessSchema>,
   deps: AccessRouteDeps,
 ) => {
-  const id = resourceId(c.req.param(), config);
+  const id = resourceId(c, config);
   const baseId = await config.resolveBaseId(id);
   if (!baseId) return c.json({ message: `${config.label} not found` }, 404);
   const validationError = validateAccessPermission(config.resourceType, body.permission);
@@ -194,44 +100,38 @@ const grantResourceAccess = async (
   );
 };
 
+const listDescription = (config: AccessRouteConfig) =>
+  describeRoute({
+    tags: ["Grids:Access"],
+    summary: `List ACL entries for a ${config.label.toLowerCase()}`,
+    responses: {
+      200: jsonResponse(AccessListSchema, "Entries"),
+      403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      404: jsonResponse(ErrorResponseSchema, `${config.label} not found`),
+    },
+  });
+
+const grantDescription = (config: AccessRouteConfig) =>
+  describeRoute({
+    tags: ["Grids:Access"],
+    summary: `Grant access on a ${config.label.toLowerCase()}`,
+    responses: {
+      201: jsonResponse(CreatedAccessSchema, "Created"),
+      400: jsonResponse(ErrorResponseSchema, "Invalid permission"),
+      403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      404: jsonResponse(ErrorResponseSchema, `${config.label} not found`),
+    },
+  });
+
 export const createAccessResourceRoutes = (deps: AccessRouteDeps = defaultDeps) =>
   new Hono<AuthContext>()
-    .get("/by-base/:baseId", listDescription(ACCESS_ROUTE_CONFIGS.base), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.base, deps))
-    .post("/by-base/:baseId", grantDescription(ACCESS_ROUTE_CONFIGS.base), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.base, c.req.valid("json"), deps),
+    .get(CONFIGS.base.path, listDescription(CONFIGS.base), (c) => listResource(c, CONFIGS.base, deps))
+    .post(CONFIGS.base.path, grantDescription(CONFIGS.base), v("json", GrantAccessSchema), (c) =>
+      grantResource(c, CONFIGS.base, c.req.valid("json"), deps),
     )
-    .get("/by-table/:tableId", listDescription(ACCESS_ROUTE_CONFIGS.table), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.table, deps))
-    .post("/by-table/:tableId", grantDescription(ACCESS_ROUTE_CONFIGS.table), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.table, c.req.valid("json"), deps),
-    )
-    .get("/by-view/:viewId", listDescription(ACCESS_ROUTE_CONFIGS.view), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.view, deps))
-    .post("/by-view/:viewId", grantDescription(ACCESS_ROUTE_CONFIGS.view), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.view, c.req.valid("json"), deps),
-    )
-    .get("/by-form/:formId", listDescription(ACCESS_ROUTE_CONFIGS.form), (c) => listResourceAccess(c, ACCESS_ROUTE_CONFIGS.form, deps))
-    .post("/by-form/:formId", grantDescription(ACCESS_ROUTE_CONFIGS.form), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.form, c.req.valid("json"), deps),
-    )
-    .get("/by-document-template/:templateId", listDescription(ACCESS_ROUTE_CONFIGS.documentTemplate), (c) =>
-      listResourceAccess(c, ACCESS_ROUTE_CONFIGS.documentTemplate, deps),
-    )
-    .post(
-      "/by-document-template/:templateId",
-      grantDescription(ACCESS_ROUTE_CONFIGS.documentTemplate),
-      v("json", GridsGrantAccessSchema),
-      (c) => grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.documentTemplate, c.req.valid("json"), deps),
-    )
-    .get("/by-custom-app/:customAppId", listDescription(ACCESS_ROUTE_CONFIGS.customApp), (c) =>
-      listResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, deps),
-    )
-    .post("/by-custom-app/:customAppId", grantDescription(ACCESS_ROUTE_CONFIGS.customApp), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.customApp, c.req.valid("json"), deps),
-    )
-    .get("/by-workflow/:workflowId", listDescription(ACCESS_ROUTE_CONFIGS.workflow), (c) =>
-      listResourceAccess(c, ACCESS_ROUTE_CONFIGS.workflow, deps),
-    )
-    .post("/by-workflow/:workflowId", grantDescription(ACCESS_ROUTE_CONFIGS.workflow), v("json", GridsGrantAccessSchema), (c) =>
-      grantResourceAccess(c, ACCESS_ROUTE_CONFIGS.workflow, c.req.valid("json"), deps),
+    .get(CONFIGS.customApp.path, listDescription(CONFIGS.customApp), (c) => listResource(c, CONFIGS.customApp, deps))
+    .post(CONFIGS.customApp.path, grantDescription(CONFIGS.customApp), v("json", GrantAccessSchema), (c) =>
+      grantResource(c, CONFIGS.customApp, c.req.valid("json"), deps),
     );
 
 export const accessResourceRoutes = createAccessResourceRoutes();

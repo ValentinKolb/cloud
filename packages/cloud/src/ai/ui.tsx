@@ -1,7 +1,5 @@
 import { latestLoopUsage, latestUsage, latestUsageSnapshot, textFromMessage } from "./chat/message-utils";
 
-export { AiSkillsManagerBody, type AiSkillsManagerBodyProps, aiSkillsApi, openAiSkillsManager } from "./AiSkillsManager";
-
 export {
   type AiComposerAttachment,
   type AiComposerFileResult,

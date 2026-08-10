@@ -1,4 +1,4 @@
-import { SegmentedControl } from "@k2b/ui";
+import { SegmentedControl, SettingsField, SettingsGroup } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import type { Priority } from "@/contracts";
 import {
@@ -47,9 +47,8 @@ function LocalSettingsForm(props: { spaceId: string; initialSettings: SpaceUserS
   };
 
   return (
-    <div class="flex flex-col gap-4">
-      <div class="flex flex-col gap-1">
-        <p class="text-xs text-secondary">Default View</p>
+    <SettingsGroup title="This Space" description="Stored in this browser and applied immediately.">
+      <SettingsField label="Default view" description="Choose how this Space opens." error={() => undefined}>
         <SegmentedControl
           options={VIEW_OPTIONS.map((o) => ({
             value: o.value,
@@ -59,10 +58,8 @@ function LocalSettingsForm(props: { spaceId: string; initialSettings: SpaceUserS
           value={() => settings().view}
           onValueChange={(v) => updateSetting("view", v)}
         />
-      </div>
-
-      <p class="text-xs text-dimmed">These are your personal defaults for this space.</p>
-    </div>
+      </SettingsField>
+    </SettingsGroup>
   );
 }
 
@@ -76,35 +73,31 @@ function WidgetSettingsForm() {
   };
 
   return (
-    <div class="flex flex-col gap-4">
-      <div class="flex flex-col gap-1">
-        <p class="text-xs text-secondary">Events: Time Range</p>
+    <SettingsGroup title="Home widgets" description="Stored in this browser and applied across all Spaces.">
+      <SettingsField label="Event range" description="How far ahead the home event widget looks." error={() => undefined}>
         <SegmentedControl
           options={EVENTS_DAYS_OPTIONS}
           value={() => String(settings().eventsDaysAhead)}
           onValueChange={(v) => updateSetting("eventsDaysAhead", Number(v) as EventsDaysAhead)}
         />
-      </div>
+      </SettingsField>
 
-      <div class="flex flex-col gap-1">
-        <p class="text-xs text-secondary">Tasks: Minimum Priority</p>
+      <SettingsField label="Task priority" description="The minimum priority shown in the home task widget." error={() => undefined}>
         <SegmentedControl
           options={TASKS_PRIORITY_OPTIONS}
           value={() => settings().tasksMinPriority ?? ""}
           onValueChange={(v) => updateSetting("tasksMinPriority", (v || null) as Priority | null)}
         />
-      </div>
-
-      <p class="text-xs text-dimmed">These settings apply to the home page widgets across all spaces, not just this one.</p>
-    </div>
+      </SettingsField>
+    </SettingsGroup>
   );
 }
 
 export function DefaultsSection(props: { spaceId: string; initialSettings: SpaceUserSettings }) {
   return (
-    <div class="flex flex-col gap-6">
+    <>
       <LocalSettingsForm spaceId={props.spaceId} initialSettings={props.initialSettings} />
       <WidgetSettingsForm />
-    </div>
+    </>
   );
 }

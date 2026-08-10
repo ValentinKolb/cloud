@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { CUSTOM_APP_REFERENCE, CustomAppDefinitionSchema } from "./contracts";
+import { CUSTOM_APP_REFERENCE, CustomAppCapabilitiesSchema, CustomAppDefinitionSchema, parseStoredCustomAppDefinition } from "./contracts";
 
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition = () => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: "grids.custom-app",
   id: uuid(1),
   baseId: uuid(2),
@@ -61,6 +61,63 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), script: "alert(1)" }).success).toBe(false);
   });
 
+  test("keeps legacy stored definitions recoverable without parsing them as live v2", () => {
+    const legacy = { ...definition(), schemaVersion: 1, legacyMarker: { keep: true } };
+    const inspected = parseStoredCustomAppDefinition(legacy, "draft");
+    expect(inspected.definition).toBeNull();
+    expect(inspected.diagnostics[0]?.path).toEqual(["draft", "schemaVersion"]);
+    expect(inspected.diagnostics[0]?.message).toContain("schemaVersion 1");
+    expect(inspected.diagnostics[0]?.message).toContain("replace");
+    expect(legacy.legacyMarker).toEqual({ keep: true });
+  });
+
+  test("pins mutable saved Views to their compiled source", () => {
+    const view = { viewId: uuid(10), tableId: uuid(11), tableIds: [uuid(11)] };
+    expect(CustomAppCapabilitiesSchema.safeParse({ views: [view] }).success).toBe(false);
+    expect(
+      CustomAppCapabilitiesSchema.safeParse({ views: [{ ...view, sourceHash: "a".repeat(64), planHash: "b".repeat(64) }] }).success,
+    ).toBe(true);
+  });
+
+  test("requires Record capabilities to pin relation targets and label fields", () => {
+    const record = {
+      pageId: "detail",
+      tableId: uuid(20),
+      fieldIds: [uuid(21)],
+      editableFieldIds: [],
+    };
+    expect(CustomAppCapabilitiesSchema.safeParse({ views: [], records: [record] }).success).toBe(false);
+    expect(
+      CustomAppCapabilitiesSchema.safeParse({
+        views: [],
+        records: [
+          {
+            ...record,
+            relationLabels: [{ fieldId: uuid(21), targetTableId: uuid(22), labelFieldIds: [uuid(23)] }],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  test("requires Form capabilities to pin their live field contract", () => {
+    const form = {
+      pageId: "home",
+      blockId: "apply",
+      formId: uuid(20),
+      tableId: uuid(21),
+      userInputFieldIds: [uuid(22)],
+      fixedFieldIds: [],
+    };
+    expect(CustomAppCapabilitiesSchema.safeParse({ views: [], forms: [form] }).success).toBe(false);
+    expect(
+      CustomAppCapabilitiesSchema.safeParse({
+        views: [],
+        forms: [{ ...form, fieldHash: "a".repeat(64), formSecurityHash: "b".repeat(64) }],
+      }).success,
+    ).toBe(true);
+  });
+
   test("rejects invalid spans and duplicate page or block ids", () => {
     const invalidSpan = definition();
     invalidSpan.pages[0]!.rows[0]!.columns[1]!.span = 9;
@@ -106,36 +163,18 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(false);
   });
 
-  test("accepts bounded presentation conditions and rejects unavailable values", () => {
+  test("accepts bounded server availability and rejects legacy presentation conditions", () => {
     const example = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
     const detail = example.pages[1]!;
     const recordBlock = detail.rows[0]!.columns[0]!.blocks.find((block) => block.type === "record")!;
-    recordBlock.visibleWhen = [
-      {
-        left: { source: "RECORD", path: `fields.${recordBlock.fieldIds[0]}` },
-        operator: "isNotEmpty",
-      },
-    ];
+    recordBlock.availableWhen = { query: "from table Requests\nwhere id = @params.request_id\nlimit 1" };
     expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
-    recordBlock.visibleWhen = [
-      {
-        left: { source: "RECORD", path: `fields.${Bun.randomUUIDv7()}` },
-        operator: "isNotEmpty",
-      },
-    ];
+    example.pages[0]!.availableWhen = { query: "from table Requests\nwhere created_by = @auth.id\nlimit 1" };
     expect(CustomAppDefinitionSchema.safeParse(example).success).toBe(true);
 
-    const missingParam = CustomAppDefinitionSchema.parse(structuredClone(example));
-    missingParam.pages[1]!.rows[0]!.columns[0]!.blocks[0]!.visibleWhen = [
-      { left: { source: "PARAMS", path: "missing" }, operator: "isNotEmpty" },
-    ];
-    expect(CustomAppDefinitionSchema.safeParse(missingParam).success).toBe(false);
-
-    const missingRecord = CustomAppDefinitionSchema.parse(structuredClone(example));
-    missingRecord.pages[0]!.rows[0]!.columns[0]!.blocks[0]!.visibleWhen = [
-      { left: { source: "RECORD", path: `fields.${recordBlock.fieldIds[0]}` }, operator: "isNotEmpty" },
-    ];
-    expect(CustomAppDefinitionSchema.safeParse(missingRecord).success).toBe(false);
+    const legacy = structuredClone(example) as unknown as { pages: Array<{ visibleWhen?: unknown }> };
+    legacy.pages[0]!.visibleWhen = [];
+    expect(CustomAppDefinitionSchema.safeParse(legacy).success).toBe(false);
   });
 
   test("rejects unbound, visible, or mismatched record pages and incomplete row navigation", () => {
@@ -302,14 +341,14 @@ describe("Custom App definition contract", () => {
     }
   });
 
-  test("requires inline GQL inputs to use parameters declared by the current page", () => {
+  test("rejects legacy explicit GQL inputs", () => {
     const source = definition();
     source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
       id: "children",
       type: "records",
       source: {
         kind: "gql",
-        query: "from table Children\nwhere Parent = param('parent_id')",
+        query: "from table Children\nwhere Parent = @params.parent_id",
         maxRows: 100,
         inputs: { parent_id: { source: "PARAMS", path: "missing" } },
       },
