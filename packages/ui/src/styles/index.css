@@ -1232,6 +1232,11 @@
     box-shadow 150ms ease;
 }
 
+.k2b-ui .k2b-input-shell,
+.k2b-ui .k2b-tags-input {
+  cursor: text;
+}
+
 .k2b-ui .k2b-input-shell:hover,
 .k2b-ui .k2b-choice-trigger:hover,
 .k2b-ui .k2b-multi-select-trigger:hover,
@@ -1336,6 +1341,10 @@
   background: var(--k2b-hover);
 }
 
+.k2b-ui .k2b-input-shell__clear:disabled {
+  cursor: not-allowed;
+}
+
 .k2b-ui .k2b-input-clear-action {
   color: var(--k2b-text-muted);
   background: transparent;
@@ -1348,6 +1357,10 @@
 .k2b-ui .k2b-input:disabled,
 .k2b-ui .k2b-select:disabled {
   opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.k2b-ui .k2b-input-shell:has(.k2b-input:disabled) {
   cursor: not-allowed;
 }
 

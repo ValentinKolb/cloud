@@ -284,6 +284,7 @@
   gap: 0.5rem;
   padding: 0.625rem 0.75rem;
   background: var(--k2b-surface-muted);
+  cursor: text;
   transition: background-color 150ms ease-out;
 }
 

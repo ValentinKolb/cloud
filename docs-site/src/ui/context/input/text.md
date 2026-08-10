@@ -40,6 +40,9 @@ In plain multiline mode, Enter calls `onSubmit` and Shift+Enter inserts a newlin
 `label`, `description`, `required`, and `error` form one field. `disabled`
 disables the input and its controls.
 
+The complete visible input shell keeps the text cursor across leading icons,
+affixes, and padding. Clear and password controls retain their action cursor.
+
 `spellcheck` and `maxLength` pass through in every mode, including markdown. `autocomplete` and `autocapitalize` reach the native input and textarea only, not the markdown editor. `inputMode` applies to the single-line input.
 
 Browser autofill remains enabled for native single-line inputs. While the

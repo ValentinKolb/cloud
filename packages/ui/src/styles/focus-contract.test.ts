@@ -105,6 +105,29 @@ describe("@k2b/ui focus and color contract", () => {
     );
   });
 
+  test("keeps editable compound surfaces on one semantic cursor", () => {
+    const cursorFor = (selector: string) =>
+      rules
+        .filter((rule) => rule.selector === selector)
+        .map((rule) => rule.body)
+        .join("\n");
+
+    for (const selector of [
+      ".k2b-ui .k2b-input-shell",
+      ".k2b-ui .k2b-combobox__input",
+      ".k2b-ui .k2b-tags-input",
+      ".k2b-ui .k2b-prompt-search__input",
+    ]) {
+      expect(cursorFor(selector), selector).toMatch(/cursor:\s*text/);
+    }
+
+    expect(cursorFor(".k2b-ui .k2b-input-shell:has(.k2b-input:disabled)")).toMatch(/cursor:\s*not-allowed/);
+    expect(cursorFor(".k2b-ui .k2b-input-shell__clear")).toMatch(/cursor:\s*pointer/);
+    expect(cursorFor(".k2b-ui .k2b-input-shell__clear:disabled")).toMatch(/cursor:\s*not-allowed/);
+    expect(cursorFor(".k2b-ui .k2b-button")).toMatch(/cursor:\s*pointer/);
+    expect(cursorFor(".k2b-ui .k2b-button:disabled")).toMatch(/cursor:\s*not-allowed/);
+  });
+
   test("keeps AI theme tokens inside AI and chat components", () => {
     // The AI palette may only be spent where a selector says it is an AI
     // surface: the `.k2b-ai-*` / `.k2b-chat-*` families, or a component class

@@ -140,7 +140,7 @@ const TextDemo = () => {
     <DemoCard
       id="text"
       chip={{ kind: "component", name: "TextInput", from: "@k2b/ui" }}
-      description="Accessor-controlled text, password, multiline, and AI-marked fields with shared labels, help, errors, native input hints, and shell-wide browser autofill."
+      description="Accessor-controlled text, password, multiline, and AI-marked fields with shared labels, help, errors, native input hints, a shell-wide text cursor, and shell-wide browser autofill."
       code={`<TextInput label="Project" value={project} onValueChange={setProject} clearable icon="ti ti-folder" />
 <TextInput label="Token" description="The package owns the reveal control." value={token} onValueChange={setToken} password icon="ti ti-lock" autocomplete="current-password" />
 <TextInput label="Notes" value={notes} onValueChange={setNotes} multiline lines={3} icon="ti ti-notes" />
