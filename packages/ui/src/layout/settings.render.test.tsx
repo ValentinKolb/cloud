@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
@@ -14,7 +14,9 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const {
   readSettingsError,
   sameSettingValue,
+  SettingsCollection,
   SettingsField,
+  SettingsGroup,
   SettingsModal,
   SettingsPage,
   SettingsPanelFooter,
@@ -76,6 +78,40 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(html).not.toContain("General content");
   });
 
+  test("groups modal navigation and keeps the active panel footer outside the scroll body", () => {
+    const html = renderToString(() =>
+      createComponent(SettingsModal, {
+        title: "Mailbox settings",
+        activeTab: "general",
+        children: [
+          createComponent(SettingsModal.Group, {
+            title: "Personal",
+            children: createComponent(SettingsModal.Tab, {
+              id: "preferences",
+              title: "Preferences",
+              children: "Personal settings",
+            }),
+          }),
+          createComponent(SettingsModal.Group, {
+            title: "Mailbox",
+            children: createComponent(SettingsModal.Tab, {
+              id: "general",
+              title: "General",
+              children: ["Mailbox settings", createComponent(SettingsModal.Footer, { children: "Save controls" })],
+            }),
+          }),
+        ],
+      }),
+    );
+
+    expect(html).toContain('class="k2b-settings__tab-group"');
+    expect(html).toContain("Personal");
+    expect(html).toContain("Mailbox");
+    expect(html).toContain("Mailbox settings");
+    expect(html).toContain('<footer class="k2b-settings__footer">Save controls</footer>');
+    expect(html).not.toContain("Personal settings");
+  });
+
   test("resolves invalid requested tabs to the first tab", () => {
     const html = renderToString(() =>
       createComponent(SettingsModal, {
@@ -133,6 +169,76 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(html).toContain("Workspace name and URL");
     expect(html).toContain("section action");
     expect(html).not.toContain("k2b-panel-dialog");
+  });
+
+  test("composes flat settings groups and entity collections through named slots", () => {
+    const group = renderToString(() =>
+      createComponent(SettingsGroup, {
+        title: "Reading",
+        description: "Message display defaults",
+        children: [
+          createComponent(SettingsGroup.Action, { children: "Reset reading" }),
+          createComponent(SettingsField, {
+            label: "Message format",
+            description: "Choose the preferred representation",
+            error: undefined,
+            children: "format control",
+          }),
+        ],
+      }),
+    );
+    const collection = renderToString(() =>
+      createComponent(SettingsCollection, {
+        title: "Saved views",
+        description: "Reusable filters",
+        empty: "No saved views yet",
+        children: [
+          createComponent(SettingsCollection.Action, { children: "New view" }),
+          createComponent(SettingsCollection.Item, {
+            title: "Open conversations",
+            description: "Private view · 3 filters",
+            icon: "view icon",
+            children: [
+              createComponent(SettingsCollection.Item.Status, { children: "Private" }),
+              createComponent(SettingsCollection.Item.Actions, { children: "Edit view" }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const empty = renderToString(() =>
+      createComponent(SettingsCollection, {
+        title: "Templates",
+        empty: "No templates yet",
+      }),
+    );
+
+    expect(group).toContain('class="k2b-settings-group"');
+    expect(group).toContain("Reset reading");
+    expect(group).toContain("format control");
+    expect(group).not.toContain("[object Object]");
+    expect(collection).toContain('class="k2b-settings-collection__list"');
+    expect(collection).toContain("New view");
+    expect(collection).toContain("Private");
+    expect(collection).toContain("Edit view");
+    expect(collection).not.toContain("No saved views yet");
+    expect(empty).toContain("No templates yet");
+    expect(empty).toContain('data-variant="compact"');
+  });
+
+  test("aligns direct group fields with the group heading", () => {
+    const css = readFileSync(resolve(import.meta.dir, "../styles/layout-parity.css"), "utf8");
+    const directFieldRule = css.match(/\.k2b-ui \.k2b-settings-group__body > \.k2b-settings-field\s*\{([^}]+)\}/)?.[1];
+    const fieldRule = css.match(/\.k2b-ui \.k2b-settings-field\s*\{([^}]+)\}/)?.[1];
+    const groupHeadingRule = [...css.matchAll(/\.k2b-ui \.k2b-settings-group__heading h3,[^{]+\{([^}]+)\}/g)]
+      .map((match) => match[1])
+      .find((rule) => rule?.includes("font-size"));
+    const footerRule = css.match(/\.k2b-ui \.k2b-settings__footer\s*\{([^}]+)\}/)?.[1];
+
+    expect(directFieldRule).toContain("padding: 0");
+    expect(fieldRule).toContain("min-width: 0");
+    expect(groupHeadingRule).toContain("font-size: 1rem");
+    expect(footerRule).toContain("background: var(--k2b-surface)");
   });
 
   test("renders changed fields and sticky or fixed save controls", () => {

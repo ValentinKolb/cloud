@@ -141,6 +141,8 @@ export {
 } from "./panes-state";
 export type {
   SettingsFieldProps,
+  SettingsGroupActionProps,
+  SettingsGroupProps,
   SettingsPageProps,
   SettingsPanelFooterProps,
   SettingsSaveBarProps,
@@ -149,11 +151,26 @@ export type {
 export {
   readSettingsError,
   SettingsField,
+  SettingsGroup,
   SettingsPage,
   SettingsPanelFooter,
   SettingsSaveBar,
   SettingsSection,
   sameSettingValue,
 } from "./Settings";
-export type { SettingsModalProps, SettingsModalTabProps, SettingsModalTabTone } from "./SettingsModal";
+export type {
+  SettingsCollectionActionProps,
+  SettingsCollectionItemActionsProps,
+  SettingsCollectionItemProps,
+  SettingsCollectionItemStatusProps,
+  SettingsCollectionProps,
+} from "./SettingsCollection";
+export { default as SettingsCollection } from "./SettingsCollection";
+export type {
+  SettingsModalFooterProps,
+  SettingsModalGroupProps,
+  SettingsModalProps,
+  SettingsModalTabProps,
+  SettingsModalTabTone,
+} from "./SettingsModal";
 export { default as SettingsModal } from "./SettingsModal";

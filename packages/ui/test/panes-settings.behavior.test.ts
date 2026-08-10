@@ -179,14 +179,17 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
           id: "security",
           title: "Security",
           icon: "ti ti-lock",
-          children: "Security content",
+          children: ["Security content", createComponent(SettingsModal.Footer, { children: "Security save controls" })],
         }),
       ];
 
       return createComponent(SettingsModal, {
         title: "Application settings",
         get children() {
-          return tabs;
+          return [
+            createComponent(SettingsModal.Group, { title: "Workspace", children: tabs[0] }),
+            createComponent(SettingsModal.Group, { title: "Restricted", children: tabs[1] }),
+          ];
         },
       });
     }, dom.root);
@@ -211,6 +214,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     expect(tabs()[0]?.hasAttribute("aria-controls")).toBe(false);
     expect(tabs()[1]?.getAttribute("aria-controls")).toBeTruthy();
     expect(dom.document.getElementById(activeControls() ?? "")?.textContent).toContain("Security content");
+    expect(dom.root.querySelector(".k2b-settings__footer")?.textContent).toContain("Security save controls");
 
     dispose();
     dom.cleanup();

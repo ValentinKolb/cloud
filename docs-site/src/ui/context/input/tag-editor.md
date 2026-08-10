@@ -22,6 +22,11 @@ button owns `href`, activation, `aria-current`, or `aria-pressed`.
 
 `TagEditor` is controlled and backend-free. It owns create/edit/delete interaction, busy state, focus, and inline errors. The application owns persistence, authorization, uniqueness, confirmation, toasts, sorting, and reconciliation. A rejected async callback keeps the editor open. A missing callback hides that capability.
 
+Use `onDirtyChange` when a surrounding settings surface guards navigation or
+closing. It reports whether the currently open create or edit form differs from
+its initial value and returns to `false` after save, cancel, or cleanup. It does
+not report pending persistence or compare the controlled `items` collection.
+
 `MultiSelectInput` accepts `renderOption` and `renderValue` for richer labels while retaining the package-owned selection and removal semantics.
 
 ## Accessibility
@@ -46,6 +51,7 @@ Interactive editing and selection require hydration. The initial list and tags r
   onDelete={async (tag) => {
     if (await confirmDelete(tag)) await deleteTag(tag);
   }}
+  onDirtyChange={setTagEditorDirty}
 />
 
 <MultiSelectInput

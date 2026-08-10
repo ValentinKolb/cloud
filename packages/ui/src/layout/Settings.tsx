@@ -1,4 +1,4 @@
-import { createUniqueId, type JSX, Show } from "solid-js";
+import { children, createMemo, createUniqueId, type JSX, Show } from "solid-js";
 import { Button, type ButtonVariant } from "../actions/Button";
 import type { MaybeAccessor } from "../inputs/field-contract";
 
@@ -74,6 +74,66 @@ export function SettingsSection(props: SettingsSectionProps): JSX.Element {
     </section>
   );
 }
+
+const SETTINGS_GROUP_ACTION = Symbol("SettingsGroup.Action");
+
+export type SettingsGroupProps = {
+  title: JSX.Element;
+  description?: JSX.Element;
+  children: JSX.Element;
+  class?: string;
+};
+
+export type SettingsGroupActionProps = {
+  children: JSX.Element;
+};
+
+type SettingsGroupActionDefinition = {
+  readonly kind: typeof SETTINGS_GROUP_ACTION;
+  readonly props: SettingsGroupActionProps;
+};
+
+type SettingsGroupComponent = ((props: SettingsGroupProps) => JSX.Element) & {
+  Action: (props: SettingsGroupActionProps) => JSX.Element;
+};
+
+const SettingsGroupAction = (props: SettingsGroupActionProps): JSX.Element =>
+  ({ kind: SETTINGS_GROUP_ACTION, props }) satisfies SettingsGroupActionDefinition as unknown as JSX.Element;
+
+const collectSettingsGroupActions = (value: unknown): SettingsGroupActionDefinition[] => {
+  if (Array.isArray(value)) return value.flatMap(collectSettingsGroupActions);
+  return value && typeof value === "object" && (value as { kind?: unknown }).kind === SETTINGS_GROUP_ACTION
+    ? [value as SettingsGroupActionDefinition]
+    : [];
+};
+
+const collectSettingsGroupContent = (value: unknown): JSX.Element[] => {
+  if (Array.isArray(value)) return value.flatMap(collectSettingsGroupContent);
+  return value && typeof value === "object" && (value as { kind?: unknown }).kind === SETTINGS_GROUP_ACTION ? [] : [value as JSX.Element];
+};
+
+export const SettingsGroup = ((props: SettingsGroupProps): JSX.Element => {
+  const resolved = children(() => props.children);
+  const action = createMemo(() => collectSettingsGroupActions(resolved())[0]);
+  const content = createMemo(() => collectSettingsGroupContent(resolved()));
+  const headingId = `k2b-settings-group-${createUniqueId()}`;
+  return (
+    <section class={`k2b-settings-group${props.class ? ` ${props.class}` : ""}`} aria-labelledby={headingId}>
+      <header class="k2b-settings-group__header">
+        <div class="k2b-settings-group__heading">
+          <h3 id={headingId}>{props.title}</h3>
+          <Show when={props.description}>
+            <p>{props.description}</p>
+          </Show>
+        </div>
+        <Show when={action()}>{(slot) => <div class="k2b-settings-group__action">{slot().props.children}</div>}</Show>
+      </header>
+      <div class="k2b-settings-group__body">{content()}</div>
+    </section>
+  );
+}) as SettingsGroupComponent;
+
+SettingsGroup.Action = SettingsGroupAction;
 
 export const sameSettingValue = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
 

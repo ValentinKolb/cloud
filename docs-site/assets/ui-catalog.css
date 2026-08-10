@@ -278,6 +278,11 @@
   gap: 0.75rem;
 }
 
+.ui-settings-demo {
+  height: min(40rem, 80vh);
+  min-height: 32rem;
+}
+
 .ui-demo-row {
   display: flex;
   flex-wrap: wrap;

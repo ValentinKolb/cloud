@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { Button, IconButton } from "../actions/Button";
 import { Tag } from "../surfaces/Tag";
 import { ColorInput } from "./ChoiceInputs";
@@ -35,6 +35,7 @@ export type TagEditorProps<T extends TagEditorItem = TagEditorItem> = {
   labels?: Partial<TagEditorLabels>;
   defaultColor?: string;
   disabled?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
   class?: string;
 };
 
@@ -56,13 +57,19 @@ type EditorFormProps = {
   defaultColor: string;
   busy: boolean;
   onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onSave: (value: TagEditorValue) => Promise<void>;
 };
 
 function EditorForm(props: EditorFormProps): JSX.Element {
-  const [name, setName] = createSignal(props.initial?.name ?? "");
-  const [color, setColor] = createSignal(props.initial?.color ?? props.defaultColor);
+  const initialName = props.initial?.name ?? "";
+  const initialColor = props.initial?.color ?? props.defaultColor;
+  const [name, setName] = createSignal(initialName);
+  const [color, setColor] = createSignal(initialColor);
   const [error, setError] = createSignal<string>();
+
+  createEffect(() => props.onDirtyChange?.(name() !== initialName || color() !== initialColor));
+  onCleanup(() => props.onDirtyChange?.(false));
 
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
@@ -186,6 +193,7 @@ export function TagEditor<T extends TagEditorItem = TagEditorItem>(props: TagEdi
                     defaultColor={defaultColor()}
                     busy={busyId() === item.id}
                     onCancel={() => setMode(null)}
+                    onDirtyChange={props.onDirtyChange}
                     onSave={(value) => run(item.id, () => props.onUpdate?.(item, value))}
                   />
                 </Show>
@@ -218,6 +226,7 @@ export function TagEditor<T extends TagEditorItem = TagEditorItem>(props: TagEdi
               defaultColor={defaultColor()}
               busy={busyId() === "create"}
               onCancel={() => setMode(null)}
+              onDirtyChange={props.onDirtyChange}
               onSave={(value) => run("create", () => create()(value))}
             />
           </Show>

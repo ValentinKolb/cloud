@@ -16,13 +16,16 @@ import {
   PanelDialog,
   PanelHeader,
   Panes,
+  Select,
   SelectChip,
+  SettingsCollection,
   SettingsField,
+  SettingsGroup,
   SettingsModal,
   SettingsPage,
   SettingsPanelFooter,
-  SettingsSaveBar,
   SettingsSection,
+  StatusBadge,
   Tag,
   TextInput,
   Toolbar,
@@ -295,59 +298,210 @@ const DataPanelDemo = () => (
 );
 
 const SettingsDemo = () => {
-  const [active, setActive] = createSignal("general");
-  const [endpoint, setEndpoint] = createSignal("https://example.test");
-  const changed = () => endpoint() !== "https://example.test";
+  const [active, setActive] = createSignal("preferences");
+  const [savedPreferences, setSavedPreferences] = createSignal({ readingFormat: "automatic", composeFormat: "rich", undoSend: "10" });
+  const [readingFormat, setReadingFormat] = createSignal(savedPreferences().readingFormat);
+  const [composeFormat, setComposeFormat] = createSignal(savedPreferences().composeFormat);
+  const [undoSend, setUndoSend] = createSignal(savedPreferences().undoSend);
+  const changeCount = () => {
+    const saved = savedPreferences();
+    return (
+      Number(readingFormat() !== saved.readingFormat) +
+      Number(composeFormat() !== saved.composeFormat) +
+      Number(undoSend() !== saved.undoSend)
+    );
+  };
   const loading = () => false;
+  const discard = () => {
+    const saved = savedPreferences();
+    setReadingFormat(saved.readingFormat);
+    setComposeFormat(saved.composeFormat);
+    setUndoSend(saved.undoSend);
+  };
+  const save = () => setSavedPreferences({ readingFormat: readingFormat(), composeFormat: composeFormat(), undoSend: undoSend() });
   return (
     <DemoCard
       id="settings-modal"
       chip={[
         { kind: "component", name: "SettingsModal", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsGroup", from: "@k2b/ui" },
+        { kind: "component", name: "SettingsCollection", from: "@k2b/ui" },
         { kind: "component", name: "SettingsField", from: "@k2b/ui" },
-        { kind: "component", name: "SettingsSaveBar", from: "@k2b/ui" },
         { kind: "component", name: "SettingsPanelFooter", from: "@k2b/ui" },
       ]}
-      description="Compound settings tabs plus field, sticky-save, and panel-footer helpers, without a persistence backend."
-      code={`<SettingsModal title="Application settings" activeTab={active()} onTabChange={setActive}>
-  <SettingsModal.Tab id="general" title="General" icon="ti ti-adjustments">
-    <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
-      <TextInput aria-label="Endpoint" value={endpoint()} onValueChange={setEndpoint} />
-    </SettingsField>
-  </SettingsModal.Tab>
-  <SettingsModal.Tab id="security" title="Security" icon="ti ti-lock" description="Authentication controls">
-    Security settings
-  </SettingsModal.Tab>
-</SettingsModal>
-
-<SettingsSaveBar changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
-<SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />`}
+      description="Grouped category navigation, flat form groups, compact entity collections, empty states, item status and actions, and a panel-owned save footer."
+      code={`<SettingsModal title="Mailbox settings" activeTab={active()} onTabChange={setActive}>
+  <SettingsModal.Group title="Personal">
+    <SettingsModal.Tab id="preferences" title="Preferences" icon="ti ti-adjustments" description="Defaults for this browser.">
+      <SettingsGroup title="Reading" description="Choose how messages are displayed.">
+        <SettingsField label="Message format" description="Choose the preferred representation for incoming messages." error={() => undefined} changed={() => readingFormat() !== savedPreferences().readingFormat}>
+          <Select aria-label="Message format" value={readingFormat()} onValueChange={(value) => value && setReadingFormat(value)} options={[{ value: "automatic", label: "Automatic — Recommended" }, { value: "html", label: "HTML" }, { value: "plain", label: "Plain text" }]} />
+        </SettingsField>
+      </SettingsGroup>
+      <SettingsGroup title="Writing" description="Defaults for new messages and replies.">
+        <SettingsField label="Compose format" description="Used when you open the composer." error={() => undefined} changed={() => composeFormat() !== savedPreferences().composeFormat}>
+          <Select aria-label="Compose format" value={composeFormat()} onValueChange={(value) => value && setComposeFormat(value)} options={[{ value: "rich", label: "Rich text" }, { value: "plain", label: "Plain text" }]} />
+        </SettingsField>
+        <SettingsField label="Undo send" description="Delay delivery so a message can still be recalled." error={() => undefined} changed={() => undoSend() !== savedPreferences().undoSend}>
+          <Select aria-label="Undo send" value={undoSend()} onValueChange={(value) => value && setUndoSend(value)} options={[{ value: "0", label: "Off" }, { value: "5", label: "5 seconds" }, { value: "10", label: "10 seconds" }, { value: "30", label: "30 seconds" }]} />
+        </SettingsField>
+      </SettingsGroup>
+      <SettingsModal.Footer>
+        <SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+      </SettingsModal.Footer>
+    </SettingsModal.Tab>
+  </SettingsModal.Group>
+  <SettingsModal.Group title="Mailbox">
+    <SettingsModal.Tab id="organization" title="Organization" icon="ti ti-tags" description="Reusable views and shared vocabulary.">
+      <SettingsCollection title="Saved views" description="Reusable filters shown in navigation." empty="No saved views yet.">
+        <SettingsCollection.Action><Button size="xs">New view</Button></SettingsCollection.Action>
+        <SettingsCollection.Item title="Open conversations" description="Private view · 3 filters" icon={<i class="ti ti-filter" />}>
+          <SettingsCollection.Item.Status><StatusBadge tone="neutral" label="Private" variant="text" /></SettingsCollection.Item.Status>
+          <SettingsCollection.Item.Actions><IconButton size="xs" label="Edit Open conversations"><i class="ti ti-pencil" /></IconButton></SettingsCollection.Item.Actions>
+        </SettingsCollection.Item>
+      </SettingsCollection>
+      <SettingsCollection title="Conversation tags" description="Shared across views and automations." empty="No tags yet.">
+        <SettingsCollection.Action><Button size="xs" variant="secondary">Add tag</Button></SettingsCollection.Action>
+      </SettingsCollection>
+    </SettingsModal.Tab>
+    <SettingsModal.Tab id="delivery" title="Delivery" icon="ti ti-send" description="Accounts and sender identities.">
+      <SettingsCollection title="Connected accounts" empty="No account connected.">
+        <SettingsCollection.Item title="support@example.test" description="IMAP and SMTP" icon={<i class="ti ti-mail" />}>
+          <SettingsCollection.Item.Status><StatusBadge tone="ok" label="Connected" /></SettingsCollection.Item.Status>
+          <SettingsCollection.Item.Actions><Button size="xs" variant="ghost">Manage</Button></SettingsCollection.Item.Actions>
+        </SettingsCollection.Item>
+      </SettingsCollection>
+    </SettingsModal.Tab>
+  </SettingsModal.Group>
+  <SettingsModal.Group title="Lifecycle">
+    <SettingsModal.Tab id="danger" title="Danger zone" icon="ti ti-alert-triangle" tone="danger">
+      <SettingsGroup title="Disable mailbox" description="Stop new mail without deleting retained messages.">
+        <SettingsGroup.Action><Button size="sm" variant="danger">Disable mailbox</Button></SettingsGroup.Action>
+      </SettingsGroup>
+    </SettingsModal.Tab>
+  </SettingsModal.Group>
+</SettingsModal>`}
     >
       <div class="ui-settings-demo">
-        <SettingsModal title="Application settings" activeTab={active()} onTabChange={setActive}>
-          <SettingsModal.Tab id="general" title="General" icon="ti ti-adjustments">
-            <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
-              <TextInput aria-label="Endpoint" value={endpoint()} onValueChange={setEndpoint} />
-            </SettingsField>
-          </SettingsModal.Tab>
-          <SettingsModal.Tab id="security" title="Security" icon="ti ti-lock" description="Authentication controls">
-            <p>Security settings</p>
-          </SettingsModal.Tab>
+        <SettingsModal title="Mailbox settings" activeTab={active()} onTabChange={setActive}>
+          <SettingsModal.Group title="Personal">
+            <SettingsModal.Tab id="preferences" title="Preferences" icon="ti ti-adjustments" description="Defaults for this browser.">
+              <SettingsGroup title="Reading" description="Choose how messages are displayed.">
+                <SettingsField
+                  label="Message format"
+                  description="Choose the preferred representation for incoming messages."
+                  error={() => undefined}
+                  changed={() => readingFormat() !== savedPreferences().readingFormat}
+                >
+                  <Select
+                    aria-label="Message format"
+                    value={readingFormat()}
+                    onValueChange={(value) => value && setReadingFormat(value)}
+                    options={[
+                      { value: "automatic", label: "Automatic — Recommended" },
+                      { value: "html", label: "HTML" },
+                      { value: "plain", label: "Plain text" },
+                    ]}
+                  />
+                </SettingsField>
+              </SettingsGroup>
+              <SettingsGroup title="Writing" description="Defaults for new messages and replies.">
+                <SettingsField
+                  label="Compose format"
+                  description="Used when you open the composer."
+                  error={() => undefined}
+                  changed={() => composeFormat() !== savedPreferences().composeFormat}
+                >
+                  <Select
+                    aria-label="Compose format"
+                    value={composeFormat()}
+                    onValueChange={(value) => value && setComposeFormat(value)}
+                    options={[
+                      { value: "rich", label: "Rich text" },
+                      { value: "plain", label: "Plain text" },
+                    ]}
+                  />
+                </SettingsField>
+                <SettingsField
+                  label="Undo send"
+                  description="Delay delivery so a message can still be recalled."
+                  error={() => undefined}
+                  changed={() => undoSend() !== savedPreferences().undoSend}
+                >
+                  <Select
+                    aria-label="Undo send"
+                    value={undoSend()}
+                    onValueChange={(value) => value && setUndoSend(value)}
+                    options={[
+                      { value: "0", label: "Off" },
+                      { value: "5", label: "5 seconds" },
+                      { value: "10", label: "10 seconds" },
+                      { value: "30", label: "30 seconds" },
+                    ]}
+                  />
+                </SettingsField>
+              </SettingsGroup>
+              <SettingsModal.Footer>
+                <SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+              </SettingsModal.Footer>
+            </SettingsModal.Tab>
+          </SettingsModal.Group>
+          <SettingsModal.Group title="Mailbox">
+            <SettingsModal.Tab id="organization" title="Organization" icon="ti ti-tags" description="Reusable views and shared vocabulary.">
+              <SettingsCollection title="Saved views" description="Reusable filters shown in navigation." empty="No saved views yet.">
+                <SettingsCollection.Action>
+                  <Button size="xs">New view</Button>
+                </SettingsCollection.Action>
+                <SettingsCollection.Item
+                  title="Open conversations"
+                  description="Private view · 3 filters"
+                  icon={<i class="ti ti-filter" />}
+                >
+                  <SettingsCollection.Item.Status>
+                    <StatusBadge tone="neutral" label="Private" variant="text" />
+                  </SettingsCollection.Item.Status>
+                  <SettingsCollection.Item.Actions>
+                    <IconButton size="xs" label="Edit Open conversations">
+                      <i class="ti ti-pencil" />
+                    </IconButton>
+                  </SettingsCollection.Item.Actions>
+                </SettingsCollection.Item>
+              </SettingsCollection>
+              <SettingsCollection title="Conversation tags" description="Shared across views and automations." empty="No tags yet.">
+                <SettingsCollection.Action>
+                  <Button size="xs" variant="secondary">
+                    Add tag
+                  </Button>
+                </SettingsCollection.Action>
+              </SettingsCollection>
+            </SettingsModal.Tab>
+            <SettingsModal.Tab id="delivery" title="Delivery" icon="ti ti-send" description="Accounts and sender identities.">
+              <SettingsCollection title="Connected accounts" empty="No account connected.">
+                <SettingsCollection.Item title="support@example.test" description="IMAP and SMTP" icon={<i class="ti ti-mail" />}>
+                  <SettingsCollection.Item.Status>
+                    <StatusBadge tone="ok" label="Connected" />
+                  </SettingsCollection.Item.Status>
+                  <SettingsCollection.Item.Actions>
+                    <Button size="xs" variant="ghost">
+                      Manage
+                    </Button>
+                  </SettingsCollection.Item.Actions>
+                </SettingsCollection.Item>
+              </SettingsCollection>
+            </SettingsModal.Tab>
+          </SettingsModal.Group>
+          <SettingsModal.Group title="Lifecycle">
+            <SettingsModal.Tab id="danger" title="Danger zone" icon="ti ti-alert-triangle" tone="danger">
+              <SettingsGroup title="Disable mailbox" description="Stop new mail without deleting retained messages.">
+                <SettingsGroup.Action>
+                  <Button size="sm" variant="danger">
+                    Disable mailbox
+                  </Button>
+                </SettingsGroup.Action>
+              </SettingsGroup>
+            </SettingsModal.Tab>
+          </SettingsModal.Group>
         </SettingsModal>
-        <SettingsSaveBar
-          changeCount={() => (changed() ? 1 : 0)}
-          loading={loading}
-          onDiscard={() => setEndpoint("https://example.test")}
-          onSave={() => {}}
-        />
-        <div class="ui-demo-row">
-          <SettingsPanelFooter
-            changeCount={() => (changed() ? 1 : 0)}
-            loading={loading}
-            onDiscard={() => setEndpoint("https://example.test")}
-            onSave={() => {}}
-          />
-        </div>
       </div>
     </DemoCard>
   );

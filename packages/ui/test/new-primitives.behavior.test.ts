@@ -137,6 +137,7 @@ describe("@k2b/ui new primitive behavior", () => {
     const created: string[] = [];
     const updated: string[] = [];
     const removed: string[] = [];
+    const dirty: boolean[] = [];
     const item = { id: "design", name: "Design", color: "#2563eb" };
 
     const dispose = render(
@@ -152,6 +153,7 @@ describe("@k2b/ui new primitive behavior", () => {
           onDelete: (value: TagEditorItem) => {
             removed.push(value.id);
           },
+          onDirtyChange: (value: boolean) => dirty.push(value),
         }),
       dom.root,
     );
@@ -165,9 +167,12 @@ describe("@k2b/ui new primitive behavior", () => {
       createName.value = "Platform";
       createName.dispatchEvent(new Event("input", { bubbles: true }));
     }
+    await flush();
+    expect(dirty.at(-1)).toBe(true);
     createForm?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await flush();
     expect(created).toEqual(["Platform"]);
+    expect(dirty.at(-1)).toBe(false);
 
     dom.root.querySelector<HTMLButtonElement>('[aria-label="Edit Design"]')?.click();
     const updateForm = dom.root.querySelector<HTMLFormElement>(".k2b-tag-editor__form");
@@ -176,9 +181,12 @@ describe("@k2b/ui new primitive behavior", () => {
       updateName.value = "Product design";
       updateName.dispatchEvent(new Event("input", { bubbles: true }));
     }
+    await flush();
+    expect(dirty.at(-1)).toBe(true);
     updateForm?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await flush();
     expect(updated).toEqual(["Product design"]);
+    expect(dirty.at(-1)).toBe(false);
 
     dom.root.querySelector<HTMLButtonElement>('[aria-label="Delete Design"]')?.click();
     await flush();
