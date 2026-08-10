@@ -5,7 +5,6 @@ import { ssr } from "../../config";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import NotebookGraph from "./_components/graph/NotebookGraph.island";
-import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import NotebookNavigatorPane from "./_components/sidebar/NotebookNavigatorPane.island";
 import NotebookSidebar from "./_components/sidebar/NotebookSidebar.island";
@@ -48,12 +47,8 @@ export default ssr<AuthContext>(async (c) => {
     user,
     notebook,
     tree,
-    isSettingsMode,
     isVersionsMode,
     isGraphMode,
-    accessEntries,
-    apiKeys,
-    isAdmin,
     canWrite,
     canRunScripts,
     selectedNoteId,
@@ -80,7 +75,7 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Start", href: "/" },
         { title: "Notebooks", href: "/app/notebooks" },
         { title: notebook.name, href: `/app/notebooks/${notebook.shortId}` },
-        ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
+        ...(selectedNote ? [{ title: selectedNote.title }] : []),
       ]}
     >
       <AppWorkspace class="flex-1 min-h-0">
@@ -103,17 +98,7 @@ export default ssr<AuthContext>(async (c) => {
                 <NotebookNavigatorPane ctx={ctx} />
               </AppWorkspace.MainPane>
             )}
-            {isSettingsMode ? (
-              <NotebookSettingsPanel
-                notebook={notebook}
-                tree={tree}
-                accessEntries={accessEntries}
-                apiKeys={apiKeys}
-                isAdmin={isAdmin}
-                canWrite={canWrite}
-                dateConfig={dateConfig}
-              />
-            ) : isVersionsMode && selectedNoteId ? (
+            {isVersionsMode && selectedNoteId ? (
               <VersionHistory
                 notebookId={notebook.shortId}
                 noteId={selectedNote?.shortId ?? selectedNoteId}

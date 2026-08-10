@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { NoticeCard, CheckboxCard, prompts } from "@k2b/ui";
+import { CheckboxCard, NoticeCard, prompts, SettingsGroup } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
@@ -108,12 +108,13 @@ export function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; o
   };
 
   return (
-    <div class="flex flex-col gap-2">
-      <div class="flex flex-col gap-2">
+    <>
+      <SettingsGroup title="Your view" description="Stored in this browser and applied immediately.">
         <ViewSection notebook={props.notebook} />
-      </div>
+        <SaveStatus loading={false} saved error={null} label="Saved in this browser" />
+      </SettingsGroup>
 
-      <div class="flex flex-col gap-2">
+      <SettingsGroup title="Notebook behavior" description="Shared with everyone who opens this notebook. Admin changes save immediately.">
         <CheckboxCard
           label="Enable script blocks"
           description="Allows ```script fences to run trusted JavaScript for everyone who opens this notebook."
@@ -130,7 +131,7 @@ export function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; o
           </span>
         </NoticeCard>
         <SaveStatus loading={mutation.loading()} saved={saved()} error={error()} />
-      </div>
-    </div>
+      </SettingsGroup>
+    </>
   );
 }

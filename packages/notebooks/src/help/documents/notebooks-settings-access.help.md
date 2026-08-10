@@ -6,18 +6,19 @@ description: "Configure notebook details, permissions, exports, feature flags, a
 order: 170
 ---
 
-Notebook settings control the workspace around the notes: name, navigation mode, scripting, exports, access, and dangerous actions.
+Open **Settings** from the notebook sidebar. Settings stay in a modal, so your current note remains in place.
 
 **Admin and workspace settings**
 
 ## Settings tabs {icon="settings"}
 
 :::reference
-- **General:** Name, icon, description, default start page, and the Liquid template used to initialize the H1 of empty new notes.
-- **View & features:** Sidebar mode and notebook-level behavior such as script blocks.
-- **Export:** Download a portable notebook archive and configure snapshot export when available.
-- **Access:** Admin-only permission editor. Permission changes save immediately.
-- **Danger zone:** Admin-only destructive actions such as deleting the notebook and its notes.
+- **Notebook — General:** Name, icon, description, default start page, and the Liquid template used to initialize the H1 of empty new notes. Review the footer, then save or discard your changes.
+- **Notebook — View & behavior:** Your sidebar layout is stored in this browser and applies immediately. Script blocks are shared notebook behavior and require admin permission.
+- **Sharing — Access:** Admin-only permission editor. Permission changes save immediately.
+- **Sharing — API keys:** Admin-only resource credentials for integrations. Changes save immediately, and new tokens are shown once.
+- **Data — Export & snapshots:** Admin-only portable ZIP exports, S3 snapshot configuration, manual uploads, and recent snapshot runs. Snapshot configuration uses the persistent save footer.
+- **Lifecycle — Danger zone:** Admin-only destructive actions such as deleting the notebook and its notes.
 :::
 
 **Safety**

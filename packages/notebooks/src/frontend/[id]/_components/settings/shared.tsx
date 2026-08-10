@@ -1,36 +1,4 @@
-import { Button } from "@k2b/ui";
-import { Show } from "solid-js";
-
-export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?: string; onSave: () => void }) {
-  return (
-    <Show
-      when={props.dirty}
-      fallback={
-        <p class="flex items-center gap-1.5 text-xs text-dimmed">
-          <i class="ti ti-check text-emerald-500" />
-          Saved
-        </p>
-      }
-    >
-      <div class="flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3 text-xs text-secondary">
-        <span class="flex items-center gap-1.5">
-          <i class="ti ti-pencil" />
-          Unsaved changes
-        </span>
-        <Button size="sm" class="ml-auto" loading={props.loading} loadingLabel="Saving" onClick={props.onSave}>
-          {props.loading ? (
-            <>
-              <i class="ti ti-loader-2 animate-spin" />
-              Saving
-            </>
-          ) : (
-            (props.label ?? "Save")
-          )}
-        </Button>
-      </div>
-    </Show>
-  );
-}
+import { Match, Switch } from "solid-js";
 
 export const settingsChoiceClass = (active: boolean) =>
   `relative rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 text-left shadow-[var(--ui-shadow-surface)] transition-[background-color,box-shadow,color] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
@@ -39,30 +7,29 @@ export const settingsChoiceClass = (active: boolean) =>
       : "text-secondary"
   }`;
 
-export function SaveStatus(props: { loading: boolean; saved: boolean; error?: string | null }) {
-  if (props.loading) {
-    return (
-      <span class="inline-flex items-center gap-1.5 text-xs text-dimmed">
-        <i class="ti ti-loader-2 animate-spin" />
-        Saving...
-      </span>
-    );
-  }
-  if (props.error) {
-    return (
-      <span class="inline-flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
-        <i class="ti ti-alert-circle" />
-        Failed
-      </span>
-    );
-  }
-  if (props.saved) {
-    return (
-      <span class="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-        <i class="ti ti-check" />
-        Saved
-      </span>
-    );
-  }
-  return null;
+export function SaveStatus(props: { loading: boolean; saved: boolean; error?: string | null; label?: string }) {
+  return (
+    <span aria-live="polite">
+      <Switch>
+        <Match when={props.loading}>
+          <span class="inline-flex items-center gap-1.5 text-xs text-dimmed">
+            <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+            Saving...
+          </span>
+        </Match>
+        <Match when={props.error}>
+          <span class="inline-flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+            <i class="ti ti-alert-circle" aria-hidden="true" />
+            Failed
+          </span>
+        </Match>
+        <Match when={props.saved}>
+          <span class="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <i class="ti ti-check" aria-hidden="true" />
+            {props.label ?? "Saved"}
+          </span>
+        </Match>
+      </Switch>
+    </span>
+  );
 }

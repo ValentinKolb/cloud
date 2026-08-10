@@ -1,11 +1,10 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { IconInput, prompts, Select, TextInput } from "@k2b/ui";
-import { createMemo, createSignal, Show } from "solid-js";
+import { IconInput, prompts, Select, SettingsField, SettingsGroup, SettingsModal, SettingsPanelFooter, TextInput } from "@k2b/ui";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate } from "@/lib/note-title-template";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
-import { LocalSaveStrip } from "./shared";
 import type { NoteSelectOption } from "./types";
 import { flattenNoteOptions, readErrorMessage } from "./utils";
 
@@ -15,6 +14,7 @@ export function GeneralSection(props: {
   canWrite: boolean;
   dateConfig: DateContext;
   onNotebookChange: (notebook: Notebook) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const options = createMemo(() => flattenNoteOptions(props.tree));
   const [base, setBase] = createSignal({
@@ -55,6 +55,24 @@ export function GeneralSection(props: {
     icon() !== base().icon ||
     homepageNoteId() !== base().homepageNoteId ||
     defaultNoteTitleTemplate() !== base().defaultNoteTitleTemplate;
+  const changeCount = () =>
+    Number(name() !== base().name) +
+    Number(description() !== base().description) +
+    Number(icon() !== base().icon) +
+    Number(homepageNoteId() !== base().homepageNoteId) +
+    Number(defaultNoteTitleTemplate() !== base().defaultNoteTitleTemplate);
+
+  createEffect(() => props.onDirtyChange(dirty()));
+  onCleanup(() => props.onDirtyChange(false));
+
+  const discard = () => {
+    const current = base();
+    setName(current.name);
+    setDescription(current.description);
+    setIcon(current.icon);
+    setHomepageNoteId(current.homepageNoteId);
+    setDefaultNoteTitleTemplate(current.defaultNoteTitleTemplate);
+  };
 
   const fetchNotes = async (query: string, signal: AbortSignal): Promise<NoteSelectOption[]> => {
     if (signal.aborted) return [];
@@ -94,87 +112,120 @@ export function GeneralSection(props: {
   });
 
   return (
-    <div class="flex flex-col gap-2">
-      <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-        <TextInput
-          label="Name"
-          description="Shown in the sidebar and overview."
-          value={name}
-          onValueChange={setName}
-          icon="ti ti-notebook"
-          required
-          disabled={!props.canWrite}
-        />
-        <IconInput
-          label="Icon"
-          description="Used in the sidebar header."
-          value={icon}
-          onValueChange={(value) => setIcon(value ?? "")}
-          placeholder="Search icons..."
-          disabled={!props.canWrite}
-        />
-      </div>
-
-      <TextInput
-        label="Description"
-        description="Optional short note for the overview."
-        value={description}
-        onValueChange={setDescription}
-        multiline
-        lines={2}
-        placeholder="What is this notebook for?"
-        icon="ti ti-align-left"
-        disabled={!props.canWrite}
-      />
-
-      <Select
-        label="Homepage"
-        description="Opened when this notebook has no URL note and no valid last active note."
-        value={homepageNoteId}
-        onValueChange={(value) => setHomepageNoteId(value ?? "")}
-        selectedLabel={selectedLabel}
-        fetchData={fetchNotes}
-        placeholder="Select a note..."
-        icon="ti ti-home"
-        activeIcon="ti ti-search"
-        clearable
-        disabled={!props.canWrite}
-      />
-
-      <TextInput
-        label="Default note title"
-        description="Liquid template used for the initial H1 when new Markdown has no usable title. Supplied content is preserved."
-        value={defaultNoteTitleTemplate}
-        onValueChange={setDefaultNoteTitleTemplate}
-        multiline
-        lines={3}
-        icon="ti ti-template"
-        required
-        disabled={!props.canWrite}
-        error={() => titlePreview().error ?? undefined}
-        monospace
-        maxLength={2_000}
-      />
-
-      <div class="flex flex-col gap-1 text-xs">
-        <div class="flex items-baseline gap-2">
-          <span class="font-semibold">Preview</span>
-          <span class={titlePreview().error ? "text-dimmed" : "font-medium"}>{titlePreview().title ?? "Unavailable"}</span>
+    <>
+      <SettingsGroup title="Identity" description="Describe this notebook wherever it appears in Cloud.">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <SettingsField
+            label="Name"
+            description="Shown in the sidebar and notebook overview."
+            error={() => (!name().trim() ? "Name is required" : undefined)}
+            changed={() => name() !== base().name}
+          >
+            <TextInput aria-label="Name" value={name} onValueChange={setName} icon="ti ti-notebook" required disabled={!props.canWrite} />
+          </SettingsField>
+          <SettingsField
+            label="Icon"
+            description="Used in the sidebar and notebook overview."
+            error={() => undefined}
+            changed={() => icon() !== base().icon}
+          >
+            <IconInput
+              aria-label="Icon"
+              value={icon}
+              onValueChange={(value) => setIcon(value ?? "")}
+              placeholder="Search icons..."
+              disabled={!props.canWrite}
+            />
+          </SettingsField>
         </div>
-        <p class="text-dimmed">
-          Variables: <code>notebook.id</code>, <code>notebook.short_id</code>, <code>notebook.name</code>, <code>note.short_id</code>,{" "}
-          <code>note.depth</code>, <code>parent.exists</code>, <code>parent.id</code>, <code>parent.short_id</code>,{" "}
-          <code>parent.title</code>, <code>parent.path</code>, <code>date</code>, <code>time</code>, <code>datetime</code>, and{" "}
-          <code>timezone</code>.
-        </p>
-      </div>
+        <SettingsField
+          label="Description"
+          description="Optional context for people who can access this notebook."
+          error={() => undefined}
+          changed={() => description() !== base().description}
+        >
+          <TextInput
+            aria-label="Description"
+            value={description}
+            onValueChange={setDescription}
+            multiline
+            lines={2}
+            placeholder="What is this notebook for?"
+            icon="ti ti-align-left"
+            disabled={!props.canWrite}
+          />
+        </SettingsField>
+      </SettingsGroup>
 
-      <Show
-        when={props.canWrite}
-        fallback={<p class="text-xs text-dimmed">You can view this notebook, but only editors can change identity settings.</p>}
-      >
-        <LocalSaveStrip dirty={dirty()} loading={mutation.loading()} onSave={() => mutation.mutate(undefined)} />
+      <SettingsGroup title="New notes" description="Choose where this notebook opens and how new note titles begin.">
+        <SettingsField
+          label="Homepage"
+          description="Used when no note is selected and no valid recent note is available."
+          error={() => undefined}
+          changed={() => homepageNoteId() !== base().homepageNoteId}
+        >
+          <Select
+            aria-label="Homepage"
+            value={homepageNoteId}
+            onValueChange={(value) => setHomepageNoteId(value ?? "")}
+            selectedLabel={selectedLabel}
+            fetchData={fetchNotes}
+            placeholder="Select a note..."
+            icon="ti ti-home"
+            activeIcon="ti ti-search"
+            clearable
+            disabled={!props.canWrite}
+          />
+        </SettingsField>
+
+        <SettingsField
+          label="Default note title"
+          description="Liquid template used for the first heading of an otherwise empty note."
+          error={() => titlePreview().error ?? undefined}
+          changed={() => defaultNoteTitleTemplate() !== base().defaultNoteTitleTemplate}
+        >
+          <TextInput
+            aria-label="Default note title"
+            value={defaultNoteTitleTemplate}
+            onValueChange={setDefaultNoteTitleTemplate}
+            multiline
+            lines={3}
+            icon="ti ti-template"
+            required
+            disabled={!props.canWrite}
+            monospace
+            maxLength={2_000}
+          />
+        </SettingsField>
+
+        <div class="flex flex-col gap-1 text-xs">
+          <div class="flex items-baseline gap-2">
+            <span class="font-semibold">Preview</span>
+            <span class={titlePreview().error ? "text-dimmed" : "font-medium"}>{titlePreview().title ?? "Unavailable"}</span>
+          </div>
+          <p class="text-dimmed">
+            Variables: <code>notebook.id</code>, <code>notebook.short_id</code>, <code>notebook.name</code>, <code>note.short_id</code>,{" "}
+            <code>note.depth</code>, <code>parent.exists</code>, <code>parent.id</code>, <code>parent.short_id</code>,{" "}
+            <code>parent.title</code>, <code>parent.path</code>, <code>date</code>, <code>time</code>, <code>datetime</code>, and{" "}
+            <code>timezone</code>.
+          </p>
+        </div>
+      </SettingsGroup>
+
+      <Show when={!props.canWrite}>
+        <p class="text-xs text-dimmed">You can view these settings, but only editors can change them.</p>
       </Show>
-    </div>
+
+      <Show when={props.canWrite}>
+        <SettingsModal.Footer>
+          <SettingsPanelFooter
+            changeCount={changeCount}
+            loading={mutation.loading}
+            onDiscard={discard}
+            onSave={() => mutation.mutate(undefined)}
+          />
+        </SettingsModal.Footer>
+      </Show>
+    </>
   );
 }

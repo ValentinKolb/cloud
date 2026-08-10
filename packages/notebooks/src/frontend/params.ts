@@ -8,7 +8,7 @@
  * short-id (`getByIdOrShortId`) — but every call site should pass a
  * short-id so URLs stay readable and shareable.
  *
- * Mode toggles (`mode=versions`, `mode=settings`, `mode=graph`) stay as
+ * Mode toggles (`mode=versions`, `mode=graph`) stay as
  * query params: they're modes on the same
  * resource, not different resources, and forcing them into the path
  * would multiply the route registrations without UX gain.

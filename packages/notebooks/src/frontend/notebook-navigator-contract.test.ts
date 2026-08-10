@@ -18,6 +18,17 @@ describe("Notebooks navigator hydration contract", () => {
     expect(source).not.toContain("layoutState={() =>");
   });
 
+  test("keeps notebook settings modal-only and opens without an access preflight", async () => {
+    const pageSource = await Bun.file(resolve(import.meta.dir, "[id]/page.tsx")).text();
+    const pageDataSource = await Bun.file(resolve(import.meta.dir, "[id]/page-data.ts")).text();
+    const buttonSource = await Bun.file(resolve(import.meta.dir, "[id]/_components/settings/NotebookSettingsButton.tsx")).text();
+
+    expect(pageSource).not.toContain("NotebookSettingsPanel.island");
+    expect(pageDataSource).not.toContain("isSettingsMode");
+    expect(buttonSource).not.toContain("apiClient");
+    expect(buttonSource).toContain("openNotebookSettingsDialog");
+  });
+
   test("gives presence identities a visible gap", async () => {
     const source = await Bun.file(resolve(import.meta.dir, "[id]/_components/detail/NotebookDetailPanel.island.tsx")).text();
 

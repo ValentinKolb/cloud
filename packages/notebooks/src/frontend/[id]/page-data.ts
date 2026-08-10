@@ -1,4 +1,3 @@
-import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
@@ -37,16 +36,9 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   const isAdmin = permission === "admin";
   const canWrite = permission === "write" || isAdmin;
   const mode = c.req.query("mode");
-  const isSettingsMode = mode === "settings";
   const isVersionsMode = mode === "versions";
   const isGraphMode = mode === "graph";
   const tree = await notebooksService.note.getTree({ notebookId });
-
-  const accessEntries = isSettingsMode && isAdmin ? (await notebooksService.notebook.access.list({ notebookId })).items : [];
-  const apiKeys = await loadNotebookApiKeys({
-    notebookId,
-    enabled: isSettingsMode && isAdmin,
-  });
 
   const cookieHeader = c.req.header("Cookie");
   const settings = parseSettings(cookieHeader, notebook.shortId);
@@ -63,14 +55,13 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   const selected = await loadSelectedNote({
     notebookId,
     selectedNoteId,
-    isSettingsMode,
     isVersionsMode,
     canWrite,
     userId: user.id,
     bypassAccess: hasRole(user, "admin"),
   });
 
-  if (!noteParam && selected.note && !isSettingsMode && !isGraphMode) {
+  if (!noteParam && selected.note && !isGraphMode) {
     return {
       kind: "redirect" as const,
       href: isVersionsMode
@@ -119,14 +110,10 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     notebook,
     tree,
     permission,
-    isAdmin,
     canWrite,
     canRunScripts: notebook.scriptsEnabled,
-    isSettingsMode,
     isVersionsMode,
     isGraphMode,
-    accessEntries,
-    apiKeys,
     selectedNoteId,
     selectedNote: selected.note,
     selectedRouteState: selected.routeState,
@@ -138,7 +125,7 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     ctx,
     appUrl,
     detailPanelOpen,
-    showDetailPanel: !!selected.note && !isSettingsMode && !isVersionsMode && !isGraphMode,
+    showDetailPanel: !!selected.note && !isVersionsMode && !isGraphMode,
     panelAttachments: selected.routeState?.panelAttachments ?? [],
     backlinks: selected.routeState?.backlinks ?? [],
     dateConfig: ctx.dateConfig,
@@ -164,15 +151,9 @@ async function resolveSelectedNoteId(params: {
   return resolvedFromPath ?? resolvedFromCookie ?? resolvedHomepage ?? params.firstNoteId;
 }
 
-async function loadNotebookApiKeys(params: { notebookId: string; enabled: boolean }): Promise<ResourceApiKey[]> {
-  if (!params.enabled) return [];
-  return notebooksService.notebook.access.apiKeys.list({ notebookId: params.notebookId });
-}
-
 async function loadSelectedNote(params: {
   notebookId: string;
   selectedNoteId: string | null;
-  isSettingsMode: boolean;
   isVersionsMode: boolean;
   canWrite: boolean;
   userId: string;
@@ -183,7 +164,7 @@ async function loadSelectedNote(params: {
   tocItems: ReturnType<typeof extractTocFromMarkdown>;
   namedBlocks: ReturnType<typeof extractNamedBlockSummaries>;
 }> {
-  if (!params.selectedNoteId || params.isSettingsMode) {
+  if (!params.selectedNoteId) {
     return { note: null, routeState: null, tocItems: [], namedBlocks: [] };
   }
 

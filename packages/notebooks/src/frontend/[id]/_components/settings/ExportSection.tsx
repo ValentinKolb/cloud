@@ -1,6 +1,19 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { NoticeCard, Button, ButtonLink, CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@k2b/ui";
-import { type Accessor, createEffect, createResource, createSignal, type Setter, Show } from "solid-js";
+import {
+  Button,
+  ButtonLink,
+  CheckboxCard,
+  LogEntriesTable,
+  type LogTableEntry,
+  NoticeCard,
+  Placeholder,
+  prompts,
+  SettingsGroup,
+  SettingsModal,
+  SettingsPanelFooter,
+  TextInput,
+} from "@k2b/ui";
+import { type Accessor, createEffect, createResource, createSignal, onCleanup, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
 import type { BackupRunResult, BackupStatus } from "./types";
@@ -55,8 +68,6 @@ function SnapshotConfigFields(props: {
   status: BackupStatus | undefined;
   missing: string;
   saving: boolean;
-  dirty: boolean;
-  onSave: () => void;
 }) {
   return (
     <>
@@ -131,44 +142,27 @@ function SnapshotConfigFields(props: {
           </NoticeCard>
         </div>
       </Show>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={!props.dirty} onClick={props.onSave} loading={props.saving} loadingLabel="Saving">
-          <Show when={!props.saving} fallback={<i class="ti ti-loader-2 animate-spin" />}>
-            <i class="ti ti-device-floppy" />
-            Save snapshot settings
-          </Show>
-        </Button>
-      </div>
     </>
   );
 }
 
-function SnapshotLogsSection(props: { show: boolean; entries: LogTableEntry[]; loading: boolean; error: string | null }) {
+function SnapshotLogsSection(props: { entries: LogTableEntry[]; loading: boolean; error: string | null }) {
   return (
-    <Show when={props.show}>
-      <div class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold">Recent snapshots</h3>
-        <Show
-          when={!props.error}
-          fallback={
-            <NoticeCard tone="danger" icon={false} bodyClass="flex items-start gap-2">
-              <i class="ti ti-alert-circle mt-0.5 shrink-0" />
-              <span>{props.error}</span>
-            </NoticeCard>
-          }
-        >
-          <LogEntriesTable
-            entries={props.entries}
-            emptyMessage={props.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."}
-          />
-        </Show>
-      </div>
+    <Show
+      when={!props.error}
+      fallback={
+        <NoticeCard tone="danger" icon={false} bodyClass="flex items-start gap-2">
+          <i class="ti ti-alert-circle mt-0.5 shrink-0" />
+          <span>{props.error}</span>
+        </NoticeCard>
+      }
+    >
+      <LogEntriesTable entries={props.entries} emptyMessage={props.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."} />
     </Show>
   );
 }
 
-export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
+export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty: boolean) => void }) {
   const href = () => `/api/notebooks/${encodeURIComponent(props.notebook.shortId)}/export.zip`;
   const [lastRun, setLastRun] = createSignal<BackupRunResult | null>(null);
   const [base, setBase] = createSignal({
@@ -184,7 +178,7 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
   const [accessKeyId, setAccessKeyId] = createSignal("");
   const [secretAccessKey, setSecretAccessKey] = createSignal("");
   const [status, { refetch: refetchStatus }] = createResource(
-    () => (props.isAdmin ? props.notebook.shortId : null),
+    () => props.notebook.shortId,
     async (notebookId): Promise<BackupStatus> => {
       const res = await apiClient[":id"].snapshots.config.$get({ param: { id: notebookId } });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load snapshot settings."));
@@ -192,7 +186,7 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
     },
   );
   const [logs, { refetch: refetchLogs }] = createResource(
-    () => (props.isAdmin ? props.notebook.shortId : null),
+    () => props.notebook.shortId,
     async (notebookId): Promise<LogTableEntry[]> => {
       const res = await apiClient[":id"].snapshots.logs.$get({
         param: { id: notebookId },
@@ -265,6 +259,18 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
       accessKeyId(),
       secretAccessKey(),
     );
+  createEffect(() => props.onDirtyChange(dirty()));
+  onCleanup(() => props.onDirtyChange(false));
+
+  const discard = () => {
+    const current = base();
+    setEnabled(current.enabled);
+    setEndpoint(current.endpoint);
+    setRegion(current.region);
+    setBucket(current.bucket);
+    setAccessKeyId("");
+    setSecretAccessKey("");
+  };
   const localLogEntries = (): LogTableEntry[] => {
     const run = lastRun();
     if (!run) return [];
@@ -278,61 +284,84 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
     return remote.some((entry) => String(entry.metadata?.sha256 ?? "") === localSha) ? remote : [...local, ...remote];
   };
   const logError = () => (logs.error instanceof Error ? logs.error.message : null);
-  const showSnapshotLogs = () => enabled() || logEntries().length > 0 || logs.loading || !!logError();
 
   return (
-    <div class="flex flex-col gap-2">
-      <NoticeCard tone="info" icon={false}>
-        Export this notebook as plain Markdown, raw attachments, and small JSON metadata files. Admin permission is required because the
-        archive contains the full notebook.
-      </NoticeCard>
-      <Show when={props.isAdmin} fallback={<p class="text-xs text-dimmed">Only notebook admins can download full exports.</p>}>
-        <ButtonLink href={href()} download="" class="self-start">
-          <i class="ti ti-download" />
-          Download ZIP export
-        </ButtonLink>
-        <section class="flex flex-col gap-2">
-          <div class="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h3 class="text-sm font-semibold">S3 snapshots</h3>
-              <p class="mt-1 text-xs text-dimmed">
-                One-way ZIP snapshots for this notebook. Cloud admins manage the global schedule in /admin/notebooks.
-              </p>
-            </div>
-            <SnapshotUploadAction
-              enabled={enabled()}
-              configured={!!status()?.configured}
-              loading={backupMutation.loading()}
-              disabled={status.loading || backupMutation.loading()}
-              lastRun={lastRun()}
-              onRun={() => backupMutation.mutate(undefined)}
-            />
-          </div>
+    <>
+      <SettingsGroup title="Portable export" description="Download a complete copy for transfer or offline storage.">
+        <SettingsGroup.Action>
+          <ButtonLink href={href()} download="" class="self-start">
+            <i class="ti ti-download" />
+            Download ZIP export
+          </ButtonLink>
+        </SettingsGroup.Action>
+        <NoticeCard tone="info" icon={false}>
+          Includes Markdown notes, raw attachments, and small JSON metadata files.
+        </NoticeCard>
+      </SettingsGroup>
 
-          <SnapshotConfigFields
-            notebookShortId={props.notebook.shortId}
-            enabled={enabled}
-            setEnabled={setEnabled}
-            endpoint={endpoint}
-            setEndpoint={setEndpoint}
-            region={region}
-            setRegion={setRegion}
-            bucket={bucket}
-            setBucket={setBucket}
-            accessKeyId={accessKeyId}
-            setAccessKeyId={setAccessKeyId}
-            secretAccessKey={secretAccessKey}
-            setSecretAccessKey={setSecretAccessKey}
-            status={status()}
-            missing={missing()}
-            saving={configMutation.loading()}
-            dirty={dirty()}
-            onSave={() => configMutation.mutate(undefined)}
+      <SettingsGroup title="Automatic snapshots" description="Write one-way ZIP snapshots to S3-compatible object storage.">
+        <SettingsGroup.Action>
+          <SnapshotUploadAction
+            enabled={enabled()}
+            configured={!!status()?.configured}
+            loading={backupMutation.loading()}
+            disabled={status.loading || backupMutation.loading()}
+            lastRun={lastRun()}
+            onRun={() => backupMutation.mutate(undefined)}
           />
-        </section>
+        </SettingsGroup.Action>
+        <Show when={!status.loading} fallback={<Placeholder state="loading" variant="panel" title="Loading snapshot settings" />}>
+          <Show
+            when={status()}
+            fallback={
+              <Placeholder
+                state="error"
+                variant="panel"
+                title="Could not load snapshot settings"
+                description={status.error instanceof Error ? status.error.message : "Snapshot settings could not be loaded."}
+                action={
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void refetchStatus()}>
+                    <i class="ti ti-refresh" aria-hidden="true" />
+                    Retry
+                  </Button>
+                }
+              />
+            }
+          >
+            <SnapshotConfigFields
+              notebookShortId={props.notebook.shortId}
+              enabled={enabled}
+              setEnabled={setEnabled}
+              endpoint={endpoint}
+              setEndpoint={setEndpoint}
+              region={region}
+              setRegion={setRegion}
+              bucket={bucket}
+              setBucket={setBucket}
+              accessKeyId={accessKeyId}
+              setAccessKeyId={setAccessKeyId}
+              secretAccessKey={secretAccessKey}
+              setSecretAccessKey={setSecretAccessKey}
+              status={status()}
+              missing={missing()}
+              saving={configMutation.loading()}
+            />
+          </Show>
+        </Show>
+      </SettingsGroup>
 
-        <SnapshotLogsSection show={showSnapshotLogs()} entries={logEntries()} loading={logs.loading} error={logError()} />
-      </Show>
-    </div>
+      <SettingsGroup title="Recent snapshots" description="Review the latest automatic and manually started uploads.">
+        <SnapshotLogsSection entries={logEntries()} loading={logs.loading} error={logError()} />
+      </SettingsGroup>
+
+      <SettingsModal.Footer>
+        <SettingsPanelFooter
+          changeCount={() => (dirty() ? 1 : 0)}
+          loading={configMutation.loading}
+          onDiscard={discard}
+          onSave={() => configMutation.mutate(undefined)}
+        />
+      </SettingsModal.Footer>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, prompts, toast } from "@k2b/ui";
+import { Button, prompts, SettingsGroup, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
 import { readErrorMessage } from "./utils";
@@ -33,21 +33,22 @@ export function DangerZone(props: { notebook: Notebook }) {
   };
 
   return (
-    <div class="flex flex-col gap-2">
-      <p class="text-xs text-dimmed">This removes notes, versions, attachments, and access grants. It cannot be undone.</p>
-      <Button variant="danger" onClick={handleDelete} loading={mutation.loading()} loadingLabel="Deleting" class="self-start">
-        {mutation.loading() ? (
-          <>
-            <i class="ti ti-loader-2 animate-spin" />
-            Deleting
-          </>
-        ) : (
-          <>
-            <i class="ti ti-trash" />
-            Delete notebook
-          </>
-        )}
-      </Button>
-    </div>
+    <SettingsGroup title="Delete notebook" description="Permanently remove its notes, versions, attachments, and access grants.">
+      <SettingsGroup.Action>
+        <Button variant="danger" onClick={handleDelete} loading={mutation.loading()} loadingLabel="Deleting">
+          {mutation.loading() ? (
+            <>
+              <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+              Deleting
+            </>
+          ) : (
+            <>
+              <i class="ti ti-trash" aria-hidden="true" />
+              Delete notebook
+            </>
+          )}
+        </Button>
+      </SettingsGroup.Action>
+    </SettingsGroup>
   );
 }
