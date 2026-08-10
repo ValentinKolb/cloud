@@ -6,6 +6,7 @@ import {
   buildMailListHref,
   buildMailSelectionHref,
   isMailListItemActive,
+  isMailWorkspaceUrl,
   type MailListItem,
   senderDomainFromAddress,
 } from "./mail-navigation";
@@ -113,4 +114,26 @@ test("adds a focused mailing list without dropping the mailbox context", () => {
     "list one&two",
   );
   expect(href).toBe("/app/mail/mailbox-1?folder=inbox&conversation=conversation-1&mailingList=list+one%26two");
+});
+
+describe("Mail workspace route ownership", () => {
+  const origin = "https://cloud.example";
+  const mailboxId = "00000000-0000-4000-8000-000000000001";
+
+  test("owns query and selection changes on the current mailbox route", () => {
+    expect(isMailWorkspaceUrl(new URL(`/app/mail/${mailboxId}?view=mine`, origin), mailboxId, origin)).toBe(true);
+    expect(isMailWorkspaceUrl(new URL(`/app/mail/${mailboxId}?conversation=conversation-1`, origin), mailboxId, origin)).toBe(true);
+  });
+
+  test("leaves server-rendered Mail pages and other origins to document navigation", () => {
+    for (const href of [
+      "/app/mail",
+      "/app/mail/compose",
+      `/app/mail/${mailboxId}/automations`,
+      "/app/mail/00000000-0000-4000-8000-000000000002",
+      "https://other.example/app/mail/00000000-0000-4000-8000-000000000001",
+    ]) {
+      expect(isMailWorkspaceUrl(new URL(href, origin), mailboxId, origin)).toBe(false);
+    }
+  });
 });

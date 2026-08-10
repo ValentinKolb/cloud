@@ -167,6 +167,7 @@ export default function MailSidebar(props: {
             meta={<span class="tabular-nums">{props.viewCounts[view.id]}</span>}
             title={view.description}
             viewTransitionName={`mail-view-${view.id}-${suffix}`}
+            navigation="enhanced"
             onNavigate={props.onNavigate}
             scroll="preserve"
           >
@@ -184,6 +185,7 @@ export default function MailSidebar(props: {
       active={props.scheduledMode}
       meta={<span class="tabular-nums">{props.scheduledCount}</span>}
       viewTransitionName={`mail-scheduled-${suffix}`}
+      navigation="enhanced"
       onNavigate={props.onNavigate}
       scroll="preserve"
     >
@@ -264,6 +266,7 @@ export default function MailSidebar(props: {
         meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
         title={folder.name}
         viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
+        navigation="enhanced"
         onNavigate={folder.selectable ? props.onNavigate : undefined}
         scroll="preserve"
         class={dropFolderId() === folder.id ? "bg-[var(--ui-selected)]" : undefined}
@@ -327,6 +330,7 @@ export default function MailSidebar(props: {
       href={`/app/mail/${props.mailboxId}`}
       icon="ti ti-mail"
       active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId}
+      navigation="enhanced"
       onNavigate={props.onNavigate}
       scroll="preserve"
     >
@@ -370,6 +374,7 @@ export default function MailSidebar(props: {
           icon={view.scope === "private" ? "ti ti-user" : "ti ti-users"}
           active={props.activeSavedViewId === view.id}
           viewTransitionName={`mail-saved-view-${view.id}-${suffix}`}
+          navigation="enhanced"
           onNavigate={props.onNavigate}
           scroll="preserve"
         >
@@ -385,11 +390,15 @@ export default function MailSidebar(props: {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           {props.canWrite && (
-            <AppWorkspace.SidebarItem href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`} icon="ti ti-pencil">
+            <AppWorkspace.SidebarItem
+              href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`}
+              icon="ti ti-pencil"
+              navigation="document"
+            >
               Compose
             </AppWorkspace.SidebarItem>
           )}
-          <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal">
+          <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal" navigation="document">
             All mailboxes
           </AppWorkspace.SidebarItem>
           {mailboxTools()}
@@ -428,7 +437,7 @@ export default function MailSidebar(props: {
           {moreItems("desktop")}
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
-          <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal">
+          <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal" navigation="document">
             All mailboxes
           </AppWorkspace.SidebarItem>
           {mailboxTools()}

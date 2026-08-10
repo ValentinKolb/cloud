@@ -3,6 +3,9 @@ import type { MailListItem } from "../../service/workspace";
 
 export type { MailListItem } from "../../service/workspace";
 
+export const isMailWorkspaceUrl = (url: URL, mailboxId: string, origin: string): boolean =>
+  url.origin === origin && url.pathname === `/app/mail/${mailboxId}`;
+
 export const buildMailListHref = (requestUrl: URL, clearSearch = false): string => {
   const next = new URL(requestUrl);
   next.searchParams.delete("conversation");

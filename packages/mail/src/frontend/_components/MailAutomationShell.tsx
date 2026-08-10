@@ -66,7 +66,7 @@ export default function MailAutomationShell(props: {
         <AppWorkspace.SidebarMobileTrigger label="Automations" />
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
-            <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox">
+            <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox" navigation="document">
               Back to mailbox
             </AppWorkspace.SidebarItem>
             <AppWorkspace.SidebarItem
@@ -96,7 +96,7 @@ export default function MailAutomationShell(props: {
             />
           </AppWorkspace.SidebarBody>
           <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
-            <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox">
+            <AppWorkspace.SidebarItem href={mailboxHref} icon="ti ti-inbox" navigation="document">
               Back to mailbox
             </AppWorkspace.SidebarItem>
             <AppWorkspace.SidebarItem

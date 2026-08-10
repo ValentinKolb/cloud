@@ -43,7 +43,7 @@ import {
   reconcileMailListOptimisticState,
 } from "./_components/mail-list-optimistic";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
-import { buildMailListHref } from "./_components/mail-navigation";
+import { buildMailListHref, isMailWorkspaceUrl } from "./_components/mail-navigation";
 import { createMailPresenceSession } from "./_components/mail-presence-session";
 import type { MailUserPreferences } from "./_components/mail-user-preferences";
 import {
@@ -159,7 +159,7 @@ export default function MailWorkspace(props: {
     listMode: MailboxPageData["listMode"] = data.listMode,
   ): Promise<MailboxPageData | null> => {
     const target = new URL(href, window.location.origin);
-    if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${mailboxId}`) return null;
+    if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return null;
     const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
       {
         param: { mailboxId },
@@ -192,7 +192,7 @@ export default function MailWorkspace(props: {
     setRouteLoading(true);
     try {
       const target = new URL(href, window.location.origin);
-      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data.mailbox.id}`) return "failed";
+      if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return "failed";
       const next = await fetchWorkspaceRoute(target.toString(), controller.signal, listMode);
       if (!next) return "failed";
       if (request !== routeRequest) return "stale";
@@ -277,8 +277,7 @@ export default function MailWorkspace(props: {
     setRouteLoading(true);
     try {
       const target = new URL(href, window.location.origin);
-      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data.mailbox.id}`)
-        throw new Error("Invalid mailbox page");
+      if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) throw new Error("Invalid mailbox page");
       const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
         {
           param: { mailboxId: data.mailbox.id },
@@ -633,6 +632,10 @@ export default function MailWorkspace(props: {
     });
     markLiveApplied = live.markApplied;
     const stopPopState = listenPopState(({ url }) => {
+      if (!isMailWorkspaceUrl(url, mailboxId, window.location.origin)) {
+        documentNavigate(url.href, { replace: true });
+        return;
+      }
       void (async () => {
         const result = await replaceWorkspaceRoute(`${url.pathname}${url.search}`);
         if (!disposed && result === "failed") {
@@ -794,7 +797,7 @@ export default function MailWorkspace(props: {
   ): Promise<"applied" | "failed" | "stale"> => {
     if (!item.conversationId) return "failed";
     const target = new URL(href, window.location.origin);
-    if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${mailboxId}`) return "failed";
+    if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return "failed";
 
     routeRequest += 1;
     routeController?.abort();
