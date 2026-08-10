@@ -11,33 +11,20 @@
 
 import { timed } from "@k2b/stdlib/solid";
 import { AppWorkspace, Button, Placeholder, prompts, TextInput } from "@k2b/ui";
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { apiClient } from "@/api/client";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { buildTagPageUrl } from "../../../params";
-
-type TagSummary = {
-  tag: string;
-  count: number;
-};
+import type { TagSummary } from "./types";
 
 type Variant = "sidebar" | "sidebar-mobile" | "icon";
 
 type Props = {
   notebookId: string;
-  tagCount: number;
+  tags: TagSummary[];
   variant: Variant;
   viewTransitionName?: string;
 };
 
-const fetchTags = async (notebookId: string): Promise<TagSummary[]> => {
-  const res = await apiClient[":id"].tags.$get({ param: { id: notebookId } });
-  if (!res.ok) throw new Error(`Failed to load tags (${res.status})`);
-  return await res.json();
-};
-
-const TagsModal = (props: { notebookId: string; close: () => void }) => {
-  const [tags] = createResource(() => props.notebookId, fetchTags);
-
+const TagsModal = (props: { notebookId: string; tags: TagSummary[] }) => {
   // Two signals: `query` is the live input (immediate UI feedback),
   // `debouncedQuery` is what drives the filter — updated 150ms after
   // typing pause so the memo doesn't churn on every keystroke.
@@ -47,7 +34,7 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
 
   const filtered = createMemo(() => {
     const q = debouncedQuery().trim().toLowerCase();
-    const list = tags() ?? [];
+    const list = props.tags;
     if (q.length === 0) return list;
     return list.filter((t) => t.tag.includes(q));
   });
@@ -68,56 +55,55 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
         icon="ti ti-search"
       />
 
-      <Show when={!tags.loading} fallback={<p class="text-xs text-dimmed">Loading tags…</p>}>
-        <Show
-          when={filtered().length > 0}
-          fallback={
-            <Placeholder
-              align="left"
-              icon="ti ti-tags"
-              class="py-2"
-              description={<>{(tags() ?? []).length === 0 ? "No tags yet." : `No tags match "${query()}".`}</>}
-            />
-          }
-        >
-          {/* Compact floating grid — flex-wrap pills so many tags fit
+      <Show
+        when={filtered().length > 0}
+        fallback={
+          <Placeholder
+            align="left"
+            icon="ti ti-tags"
+            class="py-2"
+            description={<>{props.tags.length === 0 ? "No tags yet." : `No tags match "${query()}".`}</>}
+          />
+        }
+      >
+        {/* Compact floating grid — flex-wrap pills so many tags fit
               into the same modal without per-tag rows. Same visual as
               the read-mode pills + the editor pills. */}
-          <ul class="flex flex-wrap gap-2 max-h-[60vh] overflow-y-auto content-start">
-            <For each={filtered()}>
-              {(t) => (
-                <li>
-                  <a
-                    href={buildTagPageUrl(props.notebookId, t.tag)}
-                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 no-underline transition-colors"
-                  >
-                    <i class="ti ti-hash text-sm" />
-                    <span>{t.tag}</span>
-                    <span class="text-emerald-500/80 dark:text-emerald-400/80 tabular-nums">{t.count}</span>
-                  </a>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
+        <ul class="flex flex-wrap gap-2 max-h-[60vh] overflow-y-auto content-start">
+          <For each={filtered()}>
+            {(t) => (
+              <li>
+                <a
+                  href={buildTagPageUrl(props.notebookId, t.tag)}
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 no-underline transition-colors"
+                >
+                  <i class="ti ti-hash text-sm" />
+                  <span>{t.tag}</span>
+                  <span class="text-emerald-500/80 dark:text-emerald-400/80 tabular-nums">{t.count}</span>
+                </a>
+              </li>
+            )}
+          </For>
+        </ul>
       </Show>
     </div>
   );
 };
 
-const openTagsModal = (notebookId: string) =>
-  prompts.dialog<void>((close) => <TagsModal notebookId={notebookId} close={() => close(undefined)} />, {
+const openTagsModal = (notebookId: string, tags: TagSummary[]) =>
+  prompts.dialog<void>(() => <TagsModal notebookId={notebookId} tags={tags} />, {
     title: "Tags",
     icon: "ti ti-hash",
   });
 
 export default function TagsButton(props: Props) {
+  const tagCount = () => props.tags.length;
   if (props.variant === "icon") {
     return (
       <AppWorkspace.SidebarIconAction
-        label={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
+        label={`${tagCount()} tag${tagCount() === 1 ? "" : "s"}`}
         icon="ti ti-hash"
-        onClick={() => void openTagsModal(props.notebookId)}
+        onClick={() => void openTagsModal(props.notebookId, props.tags)}
         viewTransitionName={props.viewTransitionName}
       />
     );
@@ -125,18 +111,18 @@ export default function TagsButton(props: Props) {
 
   if (props.variant === "sidebar-mobile") {
     return (
-      <Button variant="ghost" size="sm" class="w-full justify-start" onClick={() => void openTagsModal(props.notebookId)}>
+      <Button variant="ghost" size="sm" class="w-full justify-start" onClick={() => void openTagsModal(props.notebookId, props.tags)}>
         <i class="ti ti-hash" />
-        Tags ({props.tagCount})
+        Tags ({tagCount()})
       </Button>
     );
   }
   return (
     <AppWorkspace.SidebarItem
       icon="ti ti-hash"
-      meta={props.tagCount}
-      onClick={() => void openTagsModal(props.notebookId)}
-      title={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
+      meta={tagCount()}
+      onClick={() => void openTagsModal(props.notebookId, props.tags)}
+      title={`${tagCount()} tag${tagCount() === 1 ? "" : "s"}`}
     >
       Tags
     </AppWorkspace.SidebarItem>

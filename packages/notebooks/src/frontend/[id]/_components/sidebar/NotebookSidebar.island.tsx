@@ -1,5 +1,5 @@
 import type { LinkNavigateEvent } from "@k2b/ssr/nav";
-import { AppWorkspace, prompts } from "@k2b/ui";
+import { AppWorkspace, Button, prompts } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";
 import { requestSoftNoteNavigation } from "../../../lib/soft-navigation";
@@ -35,11 +35,21 @@ const resolveSameNotebookNoteHref = (url: URL, notebookShortId: string): string 
 };
 
 export default function NotebookSidebar(props: Props) {
-  const { notebook, noteTree, favoriteNoteIds, selectedNoteId } = useNotebookWorkspaceState(props.ctx);
+  const {
+    notebook,
+    noteTree,
+    favoriteNoteIds,
+    selectedNoteId,
+    tags,
+    attachmentCount,
+    workspaceError,
+    workspaceRefreshing,
+    refreshWorkspace,
+  } = useNotebookWorkspaceState(props.ctx);
   const canWrite = props.ctx.permission === "write" || props.ctx.permission === "admin";
   const navigatorMode = () => props.ctx.settings.sidebarMode === "navigator";
   const attachmentsHref = () => buildAttachmentsUrl(notebook().shortId);
-  const hasTags = props.ctx.tagCount > 0;
+  const hasTags = () => tags().length > 0;
   const allNotebooksHref = "/app/notebooks";
   const homepageNote = createMemo(() => findNoteByShortId(noteTree(), notebook().homepageNoteShortId));
   const homepageHref = () => (homepageNote() ? buildNoteUrl(notebook().shortId, homepageNote()!.shortId) : null);
@@ -64,12 +74,12 @@ export default function NotebookSidebar(props: Props) {
       return;
     }
 
-    const handled = await requestSoftNoteNavigation(target, { push: false });
-    if (!handled) {
+    const result = await requestSoftNoteNavigation(target, { push: false });
+    if (result.kind === "fallback") {
       nav.fallback(target);
       return;
     }
-    nav.push(target);
+    if (result.kind === "applied") nav.push(result.href);
   };
 
   const renderTreeView = (scrollPreserveKey: string) => (
@@ -89,6 +99,18 @@ export default function NotebookSidebar(props: Props) {
   return (
     <AppWorkspace.Sidebar resizable>
       <AppWorkspace.SidebarMobileTrigger label={notebook().name} />
+
+      <Show when={workspaceError()}>
+        <div
+          role="alert"
+          class="mx-2 mt-2 flex items-center justify-between gap-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300"
+        >
+          <span>Notebook updates could not be loaded.</span>
+          <Button type="button" variant="ghost" size="xs" loading={workspaceRefreshing()} onClick={() => void refreshWorkspace()}>
+            Retry
+          </Button>
+        </div>
+      </Show>
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
@@ -124,15 +146,15 @@ export default function NotebookSidebar(props: Props) {
           <AppWorkspace.SidebarItem
             href={attachmentsHref()}
             icon="ti ti-paperclip"
-            meta={props.ctx.attachmentCount}
+            meta={attachmentCount()}
             navigation="document"
             viewTransitionName={vt("attachments-mobile")}
           >
             Attachments
           </AppWorkspace.SidebarItem>
-          {hasTags && (
+          {hasTags() && (
             <div style={`view-transition-name:${vt("tags-mobile")}`}>
-              <TagsButton notebookId={notebook().shortId} tagCount={props.ctx.tagCount} variant="sidebar-mobile" />
+              <TagsButton notebookId={notebook().shortId} tags={tags()} variant="sidebar-mobile" />
             </div>
           )}
           <NotebookSettingsButton
@@ -184,17 +206,12 @@ export default function NotebookSidebar(props: Props) {
                   <AppWorkspace.SidebarIconAction
                     href={attachmentsHref()}
                     icon="ti ti-paperclip"
-                    label={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
+                    label={`${attachmentCount()} attachment${attachmentCount() === 1 ? "" : "s"}`}
                     navigation="document"
                     viewTransitionName={vt("attachments-desktop")}
                   />
-                  {hasTags && (
-                    <TagsButton
-                      notebookId={notebook().shortId}
-                      tagCount={props.ctx.tagCount}
-                      variant="icon"
-                      viewTransitionName={vt("tags-desktop")}
-                    />
+                  {hasTags() && (
+                    <TagsButton notebookId={notebook().shortId} tags={tags()} variant="icon" viewTransitionName={vt("tags-desktop")} />
                   )}
                 </AppWorkspace.SidebarIconGrid>
               </div>
@@ -223,7 +240,7 @@ export default function NotebookSidebar(props: Props) {
             permission={props.ctx.permission}
             canWrite={canWrite}
             favoriteNoteIds={[...favoriteNoteIds()]}
-            tags={props.ctx.tags}
+            tags={tags()}
             initialSortMode={props.ctx.settings.navigatorSort}
             dateConfig={props.ctx.dateConfig}
             initialQuery={props.ctx.navigatorQuery}

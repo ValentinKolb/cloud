@@ -1,8 +1,9 @@
 import { dates, fileIcons } from "@k2b/stdlib";
 import { clipboard, files } from "@k2b/stdlib/browser";
+import { query } from "@k2b/stdlib/solid";
 import { AppWorkspace, Avatar, DescriptionList, DetailPanel, IconButton, IconButtonLink, ProgressBar, Tooltip, toast } from "@k2b/ui";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { NamedBlockSummary } from "../../../../lib/named-blocks";
 import type { Backlink } from "../../../../service/links";
@@ -116,32 +117,39 @@ export default function NotebookDetailPanel(props: Props) {
   const [, setIsLocked] = createSignal(props.isLocked);
   const [namedBlocks, setNamedBlocks] = createSignal<NamedBlockSummary[]>(props.namedBlocks);
 
-  // Attachment state: a cache (shortId → Attachment) plus the ordered
-  // shortId list of what's currently referenced in the doc. The
-  // displayed list is computed from cache ⨯ ids — broken refs (cache
-  // miss) are silently dropped. Cache is refreshed lazily when an
-  // unknown ID appears in an update event. We key by shortId because
-  // that's what `extractAttachmentIds` carries from the markdown body.
-  const [attachmentCache, setAttachmentCache] = createSignal<Map<string, Attachment>>(
-    new Map(props.attachments.map((a) => [a.shortId, a])),
-  );
-  const [attachmentIds, setAttachmentIds] = createSignal<string[]>(props.attachments.map((a) => a.shortId));
-  const visibleAttachments = (): Attachment[] => {
-    const c = attachmentCache();
-    const out: Attachment[] = [];
-    for (const id of attachmentIds()) {
-      const att = c.get(id);
-      if (att) out.push(att);
-    }
-    return out;
-  };
-
-  const refetchAttachments = async () => {
-    const res = await apiClient[":id"].attachments.$get({ param: { id: props.notebookId } });
-    if (!res.ok) return;
-    const list = await res.json();
-    setAttachmentCache(new Map(list.map((a) => [a.shortId, a])));
-  };
+  const buildAttachmentSource = (currentNoteId: string, ids: string[]) => `${props.notebookId}:${currentNoteId}:${ids.join(",")}`;
+  const initialAttachmentIds = props.attachments.map((attachment) => attachment.shortId);
+  const [attachmentRoute, setAttachmentRoute] = createSignal({ noteId: props.noteId, ids: initialAttachmentIds });
+  const initialAttachmentSource = buildAttachmentSource(props.noteId, initialAttachmentIds);
+  const [attachmentSnapshot, setAttachmentSnapshot] = createSignal<{ source: string; attachments: Attachment[] } | null>({
+    source: initialAttachmentSource,
+    attachments: props.attachments,
+  });
+  const attachmentSource = createMemo(() => buildAttachmentSource(attachmentRoute().noteId, attachmentRoute().ids));
+  const attachmentMetadata = query.create<string, { source: string; attachments: Attachment[] }>({
+    source: attachmentSource,
+    initial: {
+      source: initialAttachmentSource,
+      data: {
+        source: initialAttachmentSource,
+        attachments: props.attachments,
+      },
+    },
+    load: async (source, { abortSignal }) => {
+      const exactSnapshot = attachmentSnapshot();
+      if (exactSnapshot?.source === source) return exactSnapshot;
+      const ids = source.split(":").at(-1)?.split(",").filter(Boolean) ?? [];
+      if (ids.length === 0) return { source, attachments: [] };
+      const response = await apiClient[":id"].attachments.$get({ param: { id: props.notebookId } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(`Failed to load attachments (${response.status})`);
+      const byId = new Map((await response.json()).map((attachment) => [attachment.shortId, attachment]));
+      return { source, attachments: ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])) };
+    },
+  });
+  const visibleAttachments = createMemo(() => {
+    const loaded = attachmentMetadata.data();
+    return loaded?.source === attachmentSource() ? loaded.attachments : [];
+  });
   const [participants, setParticipants] = createSignal<NotebookPresenceParticipant[]>([]);
   // Mirrors the editor's richMode signal — kept in sync via window events.
   // Default `true` matches the editor's initial state, so SSR and the first
@@ -234,10 +242,10 @@ export default function NotebookDetailPanel(props: Props) {
 
     const onAttachmentsUpdate = (event: Event) => {
       const ids = (event as CustomEvent<string[]>).detail ?? [];
-      setAttachmentIds(ids);
-      // Lazy cache fill: refetch whenever the doc references an id we have
-      // no metadata for (e.g. fresh upload, or another client added it).
-      if (ids.some((id) => !attachmentCache().has(id))) void refetchAttachments();
+      const nextRoute = { noteId: noteId(), ids };
+      const nextSource = buildAttachmentSource(nextRoute.noteId, nextRoute.ids);
+      if (attachmentSnapshot()?.source !== nextSource) setAttachmentSnapshot(null);
+      setAttachmentRoute(nextRoute);
     };
     const onNamedBlocksUpdate = (event: Event) => {
       const detail = (event as CustomEvent<NamedBlockSummary[]>).detail;
@@ -256,8 +264,9 @@ export default function NotebookDetailPanel(props: Props) {
       setTocItems(detail.tocItems);
       setTasks(detail.taskProgress);
       setBacklinks(detail.backlinks);
-      setAttachmentCache(new Map(detail.attachments.map((a) => [a.shortId, a])));
-      setAttachmentIds(detail.attachments.map((a) => a.shortId));
+      const ids = detail.attachments.map((attachment) => attachment.shortId);
+      setAttachmentSnapshot({ source: buildAttachmentSource(detail.noteId, ids), attachments: detail.attachments });
+      setAttachmentRoute({ noteId: detail.noteId, ids });
       setNamedBlocks(detail.namedBlocks);
     };
     const onTitleChanged = (event: Event) => {
@@ -412,9 +421,9 @@ export default function NotebookDetailPanel(props: Props) {
             </DetailPanel.Group>
           </Show>
 
-          <Show when={visibleAttachments().length > 0 || backlinks().length > 0}>
+          <Show when={visibleAttachments().length > 0 || attachmentMetadata.error() || backlinks().length > 0}>
             <DetailPanel.Group label="Related content">
-              <Show when={visibleAttachments().length > 0}>
+              <Show when={visibleAttachments().length > 0 || attachmentMetadata.error()}>
                 <DetailPanel.Section
                   title="Attachments"
                   icon="ti ti-paperclip"
@@ -424,6 +433,15 @@ export default function NotebookDetailPanel(props: Props) {
                   defaultOpen
                 >
                   <div class="flex flex-col gap-1">
+                    <Show when={attachmentMetadata.error()}>
+                      <DetailPanel.Action
+                        type="button"
+                        onClick={() => void attachmentMetadata.refresh()}
+                        leading={<i class="ti ti-refresh" aria-hidden="true" />}
+                        title="Retry attachment loading"
+                        description="Attachment details could not be loaded."
+                      />
+                    </Show>
                     <For each={visibleAttachments()}>
                       {(att) => (
                         <DetailPanel.Action

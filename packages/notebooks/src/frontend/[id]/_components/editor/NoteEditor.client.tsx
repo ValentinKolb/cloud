@@ -3,7 +3,7 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { encoding } from "@k2b/stdlib";
 import { clipboard, files } from "@k2b/stdlib/browser";
-import { dropzone } from "@k2b/stdlib/solid";
+import { dropzone, query } from "@k2b/stdlib/solid";
 import { prompts, toast } from "@k2b/ui";
 import { layout } from "@valentinkolb/cloud/ssr/layout-runtime";
 import { createCodeMirror } from "solid-codemirror";
@@ -18,7 +18,7 @@ import { deriveNoteTitle } from "../../../../lib/note-title";
 import type { Backlink } from "../../../../service/links";
 import { editor } from "../../../lib/editor";
 import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
-import { consumeInitialTitleSelection, handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
+import { consumeInitialTitleSelection, handleSoftNoteNavigationRequests, type SoftNavigationResult } from "../../../lib/soft-navigation";
 import { getNotebookPresenceColor, yjs } from "../../../lib/yjs";
 import {
   ATTACHMENTS_UPDATE_EVENT,
@@ -39,16 +39,15 @@ import {
 import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { writeSettings } from "../settings/NotebookSettingsStore";
-import { WORKSPACE_EVENT } from "../sidebar/workspace-events";
+import { dispatchWorkspaceEvent } from "../sidebar/workspace-events";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import { formatBytes, insertAttachment, MAX_ATTACHMENT_SIZE_BYTES, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
+import { createNoteNavigationCoordinator } from "./note-navigation";
 import { slashCommandsExtension } from "./slash-commands";
 
 const TOC_DEBOUNCE_MS = 300;
-const NOTE_NAV_LOADING_DELAY_MS = 150;
-
-type Props = {
+type EditorInstanceProps = {
   noteId: string;
   noteTitle: string;
   notebookId: string;
@@ -70,6 +69,8 @@ type Props = {
   notebookName: string;
   // ---- end script-kit metadata
   appUrl: string;
+  workspaceCursor: string | null;
+  onWorkspaceCursorChange?: (cursor: string) => void;
   userId: string;
   displayName: string;
   initialSnapshot: string | null;
@@ -98,9 +99,15 @@ type SoftNavigatedDetail = {
 };
 
 type LoadedNote = {
+  source: string;
   href: string;
-  props: Props;
+  props: EditorInstanceProps;
   eventDetail: SoftNavigatedDetail;
+};
+
+type Props = EditorInstanceProps & {
+  initialHref: string;
+  initialDetail: SoftNavigatedDetail;
 };
 
 type SameNotebookNoteHref = {
@@ -133,22 +140,37 @@ const parseSameNotebookEditNoteUrl = (href: string, notebookId: string): SameNot
 };
 
 export default function NoteEditor(props: Props) {
-  const [current, setCurrent] = createSignal<Props>(props);
-  const [isNavigating, setIsNavigating] = createSignal(false);
-  let navigationSeq = 0;
-  let navigationLoadingTimer: ReturnType<typeof setTimeout> | undefined;
+  const { initialHref, initialDetail, ...initialEditorProps } = props;
+  const [lastWorkspaceCursor, setLastWorkspaceCursor] = createSignal(initialEditorProps.workspaceCursor);
+  const [current, setCurrent] = createSignal<EditorInstanceProps>({
+    ...initialEditorProps,
+    onWorkspaceCursorChange: setLastWorkspaceCursor,
+  });
+  const [routeSource, setRouteSource] = createSignal(initialHref);
+  const [failedSource, setFailedSource] = createSignal<string | null>(null);
+  const navigation = createNoteNavigationCoordinator({
+    initialSource: initialHref,
+    currentNoteShortId: () => current().noteShortId,
+    currentHref: () => `${window.location.pathname}${window.location.search}`,
+    setSource: setRouteSource,
+    pushHistory: (href) => window.history.pushState({}, "", href),
+  });
 
-  const loadNote = async (href: string): Promise<LoadedNote | null> => {
-    const res = await apiClient[":id"]["route-state"].$get({
-      param: { id: props.notebookId },
-      query: { href },
-    });
+  const requestNote = async (href: string, abortSignal: AbortSignal): Promise<LoadedNote> => {
+    const res = await apiClient[":id"]["route-state"].$get(
+      {
+        param: { id: props.notebookId },
+        query: { href },
+      },
+      { init: { signal: abortSignal } },
+    );
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     const payload = await res.json();
-    if (payload.kind !== "ok") return null;
+    if (payload.kind !== "ok") throw new Error(`Navigation requires document fallback: ${payload.reason}`);
     const { note, detail, href: canonicalHref } = payload.state;
 
     return {
+      source: href,
       href: canonicalHref,
       props: {
         ...current(),
@@ -165,40 +187,72 @@ export default function NoteEditor(props: Props) {
     };
   };
 
-  const navigateSoft = async (href: string, push: boolean): Promise<boolean> => {
-    const target = parseSameNotebookEditNoteUrl(href, props.notebookId);
-    if (!target) return false;
-    if (target.noteShortId === current().noteShortId) return true;
-    const seq = ++navigationSeq;
-    clearTimeout(navigationLoadingTimer);
-    setIsNavigating(false);
-    navigationLoadingTimer = setTimeout(() => {
-      if (seq === navigationSeq) setIsNavigating(true);
-    }, NOTE_NAV_LOADING_DELAY_MS);
+  const loadNote = async (href: string, abortSignal: AbortSignal): Promise<LoadedNote> => {
+    setFailedSource(null);
     try {
-      const loaded = await loadNote(target.canonicalHref);
-      if (seq !== navigationSeq) return true;
-      if (!loaded) return false;
-      setCurrent(loaded.props);
-      layout.update({
-        breadcrumbs: [
-          { title: "Start", href: "/" },
-          { title: "Notebooks", href: "/app/notebooks" },
-          { title: loaded.props.notebookName, href: `/app/notebooks/${props.notebookId}` },
-          { title: loaded.props.noteTitle },
-        ],
-        title: loaded.props.noteTitle,
-      });
-      window.dispatchEvent(new CustomEvent(NOTE_SOFT_NAVIGATED_EVENT, { detail: loaded.eventDetail }));
-      if (push) window.history.pushState({}, "", loaded.href);
-      return true;
-    } catch {
-      if (seq !== navigationSeq) return true;
-      return false;
-    } finally {
-      clearTimeout(navigationLoadingTimer);
-      if (seq === navigationSeq) setIsNavigating(false);
+      return await requestNote(href, abortSignal);
+    } catch (error) {
+      if (!abortSignal.aborted) setFailedSource(href);
+      throw error;
     }
+  };
+
+  const routeState = query.create<string, LoadedNote>({
+    source: routeSource,
+    initial: {
+      source: initialHref,
+      data: {
+        source: initialHref,
+        href: initialHref,
+        props: initialEditorProps,
+        eventDetail: initialDetail,
+      },
+    },
+    load: (href, { abortSignal }) => loadNote(href, abortSignal),
+  });
+  const [showRouteLoading, setShowRouteLoading] = createSignal(false);
+  createEffect(() => {
+    if (!routeState.loading() && !routeState.refreshing()) {
+      setShowRouteLoading(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowRouteLoading(true), 150);
+    onCleanup(() => clearTimeout(timer));
+  });
+
+  createEffect(() => {
+    const loaded = routeState.data();
+    if (loaded && routeSource() === loaded.source) {
+      const applied = navigation.apply(loaded.source, loaded.href, () => {
+        setCurrent({
+          ...loaded.props,
+          workspaceCursor: lastWorkspaceCursor(),
+          onWorkspaceCursorChange: setLastWorkspaceCursor,
+        });
+        layout.update({
+          breadcrumbs: [
+            { title: "Start", href: "/" },
+            { title: "Notebooks", href: "/app/notebooks" },
+            { title: loaded.props.notebookName, href: `/app/notebooks/${props.notebookId}` },
+            { title: loaded.props.noteTitle },
+          ],
+          title: loaded.props.noteTitle,
+        });
+        window.dispatchEvent(new CustomEvent(NOTE_SOFT_NAVIGATED_EVENT, { detail: loaded.eventDetail }));
+      });
+      if (applied) return;
+    }
+    const failed = failedSource();
+    if (routeState.error() && failed && routeSource() === failed) {
+      navigation.fail(failed);
+      return;
+    }
+  });
+
+  const navigateSoft = async (href: string, push: boolean): Promise<SoftNavigationResult> => {
+    const target = parseSameNotebookEditNoteUrl(href, props.notebookId);
+    if (!target) return { kind: "fallback" };
+    return await navigation.navigate(target, push);
   };
 
   onMount(() => {
@@ -210,14 +264,14 @@ export default function NoteEditor(props: Props) {
       const target = parseSameNotebookEditNoteUrl(href, props.notebookId);
       if (!target) return;
       event.preventDefault();
-      void navigateSoft(href, true).then((handled) => {
-        if (!handled) window.location.assign(target.canonicalHref);
+      void navigateSoft(href, true).then((result) => {
+        if (result.kind === "fallback") window.location.assign(target.canonicalHref);
       });
     };
 
     const onPopState = () => {
-      void navigateSoft(window.location.href, false).then((handled) => {
-        if (!handled) window.location.reload();
+      void navigateSoft(window.location.href, false).then((result) => {
+        if (result.kind === "fallback") window.location.reload();
       });
     };
 
@@ -228,7 +282,7 @@ export default function NoteEditor(props: Props) {
       document.removeEventListener("click", onClick);
       window.removeEventListener("popstate", onPopState);
       offSoftRequests();
-      clearTimeout(navigationLoadingTimer);
+      navigation.dispose();
     });
   });
 
@@ -237,7 +291,7 @@ export default function NoteEditor(props: Props) {
       <Show when={current()} keyed>
         {(note) => <EditorInstance {...note} />}
       </Show>
-      <Show when={isNavigating()}>
+      <Show when={showRouteLoading()}>
         <div class="pointer-events-none absolute inset-0 z-30 flex items-start justify-center pt-4" aria-live="polite" aria-busy="true">
           <div class="inline-flex items-center gap-2 rounded-md bg-white/95 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm ring-1 ring-zinc-950/10 dark:bg-zinc-900/95 dark:text-zinc-200 dark:ring-white/10">
             <i class="ti ti-loader-2 animate-spin text-blue-600 dark:text-blue-400" aria-hidden="true" />
@@ -249,7 +303,7 @@ export default function NoteEditor(props: Props) {
   );
 }
 
-function EditorInstance(props: Props) {
+function EditorInstance(props: EditorInstanceProps) {
   const [connected, setConnected] = createSignal(false);
   const [isDark, setIsDark] = createSignal(document.documentElement.classList.contains("dark"));
   const [richMode, setRichMode] = createSignal(props.initialRichMode !== "source");
@@ -420,9 +474,9 @@ function EditorInstance(props: Props) {
         },
         workspace: {
           notebookId: props.notebookId,
-          onEvent: (event, cursor) => {
-            window.dispatchEvent(new CustomEvent(WORKSPACE_EVENT, { detail: { event, cursor } }));
-          },
+          initialCursor: props.workspaceCursor,
+          onEvent: dispatchWorkspaceEvent,
+          onCursorChange: props.onWorkspaceCursorChange,
         },
         onFatal: (error) => {
           if (fatalPromptOpen) return;

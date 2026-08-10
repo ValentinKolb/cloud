@@ -1,114 +1,91 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { query } from "@k2b/stdlib/solid";
+import { createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import { NOTE_SOFT_NAVIGATED_EVENT, NOTE_TITLE_CHANGED_EVENT } from "../detail/events";
-import type { NotebookContext, NoteTreeNode } from "./types";
+import type { Notebook, NotebookContext, NoteTreeNode, TagSummary } from "./types";
 import { WORKSPACE_EVENT, type WorkspaceEventDetail } from "./workspace-events";
 
-const cloneTree = (nodes: NoteTreeNode[]): NoteTreeNode[] => nodes.map((node) => ({ ...node, children: cloneTree(node.children) }));
-
-const sortNodes = (nodes: NoteTreeNode[]) => {
-  nodes.sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+type WorkspaceState = {
+  notebook: Notebook;
+  tree: NoteTreeNode[];
+  favoriteNoteIds: string[];
+  tags: TagSummary[];
+  attachmentCount: number;
 };
 
-const removeNoteFromTree = (nodes: NoteTreeNode[], noteId: string): NoteTreeNode | null => {
-  const index = nodes.findIndex((node) => node.id === noteId);
-  if (index >= 0) return nodes.splice(index, 1)[0] ?? null;
-  for (const node of nodes) {
-    const removed = removeNoteFromTree(node.children, noteId);
-    if (removed) {
-      node.hasChildren = node.children.length > 0;
-      return removed;
-    }
-  }
-  return null;
+type LoadedWorkspaceState = {
+  source: string;
+  state: WorkspaceState;
 };
 
-const insertNoteIntoTree = (nodes: NoteTreeNode[], note: NoteTreeNode) => {
-  if (!note.parentId) {
-    nodes.push({ ...note, children: note.children ?? [] });
-    sortNodes(nodes);
-    return;
-  }
-  for (const node of nodes) {
-    if (node.id === note.parentId) {
-      node.children.push({ ...note, children: note.children ?? [] });
-      node.hasChildren = true;
-      sortNodes(node.children);
-      return;
-    }
-    insertNoteIntoTree(node.children, note);
-  }
-};
+const applyOptimisticTitles = (nodes: NoteTreeNode[], titles: ReadonlyMap<string, string>): NoteTreeNode[] =>
+  nodes.map((node) => ({
+    ...node,
+    title: titles.get(node.id) ?? node.title,
+    children: applyOptimisticTitles(node.children, titles),
+  }));
 
-const updateNoteTitle = (nodes: NoteTreeNode[], noteId: string, title: string): boolean => {
-  for (const node of nodes) {
-    if (node.id === noteId) {
-      node.title = title;
-      sortNodes(nodes);
-      return true;
-    }
-    if (updateNoteTitle(node.children, noteId, title)) return true;
-  }
-  return false;
+const loadWorkspaceState = async (source: string, abortSignal: AbortSignal): Promise<LoadedWorkspaceState> => {
+  const response = await apiClient[":id"]["workspace-state"].$get({ param: { id: source } }, { init: { signal: abortSignal } });
+  if (!response.ok) throw new Error(`Failed to load notebook workspace (${response.status})`);
+  return { source, state: (await response.json()) as WorkspaceState };
 };
 
 export function useNotebookWorkspaceState(ctx: NotebookContext) {
-  const [notebook, setNotebook] = createSignal(ctx.notebook);
-  const [noteTree, setNoteTree] = createSignal(ctx.tree);
-  const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(ctx.favoriteNoteIds));
+  const source = () => ctx.notebook.shortId;
+  const workspace = query.create<string, LoadedWorkspaceState, { cursor: string | null }>({
+    source,
+    initial: {
+      source: ctx.notebook.shortId,
+      data: {
+        source: ctx.notebook.shortId,
+        state: {
+          notebook: ctx.notebook,
+          tree: ctx.tree,
+          favoriteNoteIds: ctx.favoriteNoteIds,
+          tags: ctx.tags,
+          attachmentCount: ctx.attachmentCount,
+        },
+      },
+    },
+    load: (nextSource, { abortSignal }) => loadWorkspaceState(nextSource, abortSignal),
+  });
   const [selectedNoteId, setSelectedNoteId] = createSignal(ctx.selectedNoteId);
-
-  const refetchTree = async () => {
-    const response = await apiClient[":id"].tree.$get({ param: { id: notebook().shortId } });
-    if (!response.ok) return;
-    setNoteTree((await response.json()) as NoteTreeNode[]);
-  };
-
-  const applyWorkspaceEvent = (detail: WorkspaceEventDetail) => {
-    const event = detail.event;
-    if (event.type === "notebook.updated") {
-      setNotebook(event.notebook);
-      return;
-    }
-    if (event.type === "workspace.invalidated") {
-      if (event.scopes.includes("tree")) void refetchTree();
-      return;
-    }
-    if (event.type === "note.deleted") {
-      setNoteTree((current) => {
-        const next = cloneTree(current);
-        removeNoteFromTree(next, event.noteId);
-        return next;
-      });
-      setFavoriteNoteIds((current) => {
-        const next = new Set(current);
-        next.delete(event.noteId);
-        return next;
-      });
-      return;
-    }
-    if (event.type === "note.favorite.changed") {
-      if (event.userId !== ctx.userId) return;
-      setFavoriteNoteIds((current) => {
-        const next = new Set(current);
-        if (event.favorite) next.add(event.noteId);
-        else next.delete(event.noteId);
-        return next;
-      });
-      return;
-    }
-    if (event.type === "note.created" || event.type === "note.updated") {
-      setNoteTree((current) => {
-        const next = cloneTree(current);
-        const existing = removeNoteFromTree(next, event.note.id);
-        insertNoteIntoTree(next, { ...event.note, children: existing?.children ?? [] });
-        return next;
-      });
-    }
-  };
+  const [optimisticTitles, setOptimisticTitles] = createSignal<ReadonlyMap<string, string>>(new Map());
+  const current = createMemo(() => {
+    const loaded = workspace.data();
+    return loaded?.source === source() ? loaded.state : null;
+  });
+  const notebook = createMemo(() => current()?.notebook ?? ctx.notebook);
+  const noteTree = createMemo(() => applyOptimisticTitles(current()?.tree ?? ctx.tree, optimisticTitles()));
+  const favoriteNoteIds = createMemo(() => new Set(current()?.favoriteNoteIds ?? ctx.favoriteNoteIds));
+  const tags = createMemo(() => current()?.tags ?? ctx.tags);
+  const attachmentCount = createMemo(() => current()?.attachmentCount ?? ctx.attachmentCount);
 
   onMount(() => {
-    const onWorkspaceEvent = (raw: Event) => applyWorkspaceEvent((raw as CustomEvent<WorkspaceEventDetail>).detail);
+    const onWorkspaceEvent = (raw: Event) => {
+      const detail = (raw as CustomEvent<WorkspaceEventDetail>).detail;
+      if (detail.event.type === "note.favorite.changed" && detail.event.userId !== ctx.userId) {
+        detail.cover(Promise.resolve());
+        return;
+      }
+      const coverage = workspace.invalidate({ cursor: detail.cursor });
+      detail.cover(coverage);
+      if (detail.event.type === "note.updated" || detail.event.type === "workspace.invalidated") {
+        const noteId = detail.event.type === "note.updated" ? detail.event.note.id : null;
+        void coverage
+          .then(() => {
+            setOptimisticTitles((currentTitles) => {
+              if (currentTitles.size === 0) return currentTitles;
+              if (!noteId) return new Map();
+              const next = new Map(currentTitles);
+              next.delete(noteId);
+              return next;
+            });
+          })
+          .catch(() => undefined);
+      }
+    };
     const onSoftNavigated = (raw: Event) => {
       const detail = (raw as CustomEvent<{ canonicalNoteId?: string }>).detail;
       if (detail?.canonicalNoteId) setSelectedNoteId(detail.canonicalNoteId);
@@ -116,9 +93,9 @@ export function useNotebookWorkspaceState(ctx: NotebookContext) {
     const onTitleChanged = (raw: Event) => {
       const detail = (raw as CustomEvent<{ noteId?: string; title?: string }>).detail;
       if (!detail?.noteId || !detail.title) return;
-      setNoteTree((current) => {
-        const next = cloneTree(current);
-        updateNoteTitle(next, detail.noteId!, detail.title!);
+      setOptimisticTitles((currentTitles) => {
+        const next = new Map(currentTitles);
+        next.set(detail.noteId!, detail.title!);
         return next;
       });
     };
@@ -132,5 +109,15 @@ export function useNotebookWorkspaceState(ctx: NotebookContext) {
     });
   });
 
-  return { notebook, noteTree, favoriteNoteIds, selectedNoteId };
+  return {
+    notebook,
+    noteTree,
+    favoriteNoteIds,
+    selectedNoteId,
+    tags,
+    attachmentCount,
+    workspaceError: workspace.error,
+    workspaceRefreshing: workspace.refreshing,
+    refreshWorkspace: workspace.refresh,
+  };
 }

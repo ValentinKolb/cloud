@@ -1,7 +1,9 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { Dropdown, IconButton, prompts, Tooltip, toast } from "@k2b/ui";
+import { query } from "@k2b/stdlib/solid";
+import { Button, Dropdown, Placeholder, prompts, toast } from "@k2b/ui";
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
 type AdminNotebookActionsProps = {
@@ -21,60 +23,88 @@ const readErrorMessage = async (response: Response, fallback: string): Promise<s
   return fallback;
 };
 
-const openPermissionDialog = async (props: AdminNotebookActionsProps) => {
-  const listResponse = await apiClient[":id"].access.$get({
-    param: { id: props.notebookId },
-  });
-  if (!listResponse.ok) {
-    await prompts.error(await readErrorMessage(listResponse, "Failed to load notebook permissions."));
-    return;
-  }
-
-  const entries = (await listResponse.json()) as AccessEntry[];
-
-  await prompts.dialog<void>(
-    (_close) => (
-      <div class="flex w-full max-w-full flex-col gap-2">
-        <p class="text-xs text-dimmed">Manage who can access this notebook.</p>
-        <PermissionEditor
-          initialEntries={entries}
-          canEdit
-          grantAccess={async (principal, permission) => {
-            const response = await apiClient[":id"].access.$post({
-              param: { id: props.notebookId },
-              json: { principal, permission },
-            });
-            if (!response.ok) {
-              throw new Error(await readErrorMessage(response, "Failed to grant access."));
-            }
-            return (await response.json()) as AccessEntry;
-          }}
-          updateAccess={async (accessId, permission) => {
-            const response = await apiClient[":id"].access[":accessId"].$patch({
-              param: { id: props.notebookId, accessId },
-              json: { permission },
-            });
-            if (!response.ok) {
-              throw new Error(await readErrorMessage(response, "Failed to update access."));
-            }
-          }}
-          revokeAccess={async (accessId) => {
-            const response = await apiClient[":id"].access[":accessId"].$delete({
-              param: { id: props.notebookId, accessId },
-            });
-            if (!response.ok) {
-              throw new Error(await readErrorMessage(response, "Failed to revoke access."));
-            }
-          }}
-        />
-      </div>
-    ),
-    {
-      title: props.notebookName,
-      icon: "ti ti-shield",
+const PermissionDialogBody = (props: AdminNotebookActionsProps) => {
+  const entries = query.create({
+    source: () => props.notebookId,
+    load: async (notebookId, { abortSignal }): Promise<AccessEntry[]> => {
+      const response = await apiClient[":id"].access.$get({ param: { id: notebookId } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to load notebook permissions."));
+      return (await response.json()) as AccessEntry[];
     },
+  });
+  const [reconcileError, setReconcileError] = createSignal<string | null>(null);
+  const reconcile = () => {
+    setReconcileError(null);
+    void entries.invalidate().catch(() => setReconcileError("The change was saved, but notebook access could not be reloaded."));
+  };
+
+  return (
+    <div class="flex w-full max-w-full flex-col gap-2">
+      <p class="text-xs text-dimmed">Manage who can access this notebook.</p>
+      <Show when={!entries.loading()} fallback={<Placeholder state="loading" title="Loading notebook access" />}>
+        <Show
+          when={entries.data()}
+          keyed
+          fallback={
+            <Placeholder
+              state="error"
+              title="Could not load notebook access"
+              description={entries.error()?.message}
+              action={
+                <Button type="button" variant="secondary" size="sm" onClick={() => void entries.refresh()}>
+                  Retry
+                </Button>
+              }
+            />
+          }
+        >
+          {(currentEntries) => (
+            <PermissionEditor
+              initialEntries={currentEntries}
+              canEdit
+              grantAccess={async (principal, permission) => {
+                const response = await apiClient[":id"].access.$post({
+                  param: { id: props.notebookId },
+                  json: { principal, permission },
+                });
+                if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to grant access."));
+                const created = (await response.json()) as AccessEntry;
+                reconcile();
+                return created;
+              }}
+              updateAccess={async (accessId, permission) => {
+                const response = await apiClient[":id"].access[":accessId"].$patch({
+                  param: { id: props.notebookId, accessId },
+                  json: { permission },
+                });
+                if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update access."));
+                reconcile();
+              }}
+              revokeAccess={async (accessId) => {
+                const response = await apiClient[":id"].access[":accessId"].$delete({
+                  param: { id: props.notebookId, accessId },
+                });
+                if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access."));
+                reconcile();
+              }}
+            />
+          )}
+        </Show>
+      </Show>
+      <Show when={reconcileError()}>
+        <div class="flex items-center justify-between gap-2 text-xs text-amber-700 dark:text-amber-300">
+          <span>{reconcileError()}</span>
+          <Button type="button" variant="secondary" size="sm" onClick={reconcile} disabled={entries.refreshing()}>
+            Retry reload
+          </Button>
+        </div>
+      </Show>
+    </div>
   );
 };
+
+const openPermissionDialog = (props: AdminNotebookActionsProps) =>
+  prompts.dialog<void>(() => <PermissionDialogBody {...props} />, { title: props.notebookName, icon: "ti ti-shield" });
 
 const deleteNotebook = async (props: AdminNotebookActionsProps) => {
   const confirmed = await prompts.confirm(`Delete "${props.notebookName}" and all its notes? This cannot be undone.`, {

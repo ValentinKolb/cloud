@@ -10,8 +10,9 @@
  */
 
 import { fileIcons } from "@k2b/stdlib";
+import { mutation, query } from "@k2b/stdlib/solid";
 import { Button, FileDropzone, prompts } from "@k2b/ui";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { EDITOR_INSERT_ATTACHMENT_EVENT } from "../detail/events";
 import type { Attachment, AttachmentRef } from "./attachments-client";
@@ -22,8 +23,8 @@ type Props = {
   close: () => void;
 };
 
-const fetchList = async (notebookId: string): Promise<Attachment[]> => {
-  const res = await apiClient[":id"].attachments.$get({ param: { id: notebookId } });
+const fetchList = async (notebookId: string, signal: AbortSignal): Promise<Attachment[]> => {
+  const res = await apiClient[":id"].attachments.$get({ param: { id: notebookId } }, { init: { signal } });
   if (!res.ok) throw new Error(`Failed to load attachments (${res.status})`);
   return await res.json();
 };
@@ -31,26 +32,46 @@ const fetchList = async (notebookId: string): Promise<Attachment[]> => {
 const dispatchInsert = (att: AttachmentRef) => window.dispatchEvent(new CustomEvent(EDITOR_INSERT_ATTACHMENT_EVENT, { detail: att }));
 
 const AttachmentPicker = (props: Props) => {
-  const [list] = createResource(() => props.notebookId, fetchList);
-  const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-
-  const handleFiles = async (files: File[]) => {
-    if (files.length === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
+  const list = query.create({
+    source: () => props.notebookId,
+    load: (notebookId, { abortSignal }) => fetchList(notebookId, abortSignal),
+  });
+  const [reconcileError, setReconcileError] = createSignal<string | null>(null);
+  const upload = mutation.create<{ uploaded: Attachment[]; error: string | null }, File[]>({
+    mutation: async (files, { abortSignal }) => {
+      const uploaded: Attachment[] = [];
       // Sequential to keep order + UI feedback simple.
       for (const file of files) {
-        const att = await uploadFile(props.notebookId, file);
+        try {
+          const att = await uploadFile(props.notebookId, file, abortSignal);
+          uploaded.push(att);
+        } catch (error) {
+          if (abortSignal.aborted) throw error;
+          return { uploaded, error: error instanceof Error ? error.message : "Upload failed" };
+        }
+      }
+      return { uploaded, error: null };
+    },
+    onSuccess: (outcome) => {
+      for (const att of outcome.uploaded) {
         dispatchInsert({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename });
       }
-      props.close();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setBusy(false);
-    }
+      if (!outcome.error) {
+        props.close();
+        return;
+      }
+      if (outcome.uploaded.length > 0) {
+        setReconcileError(null);
+        void list.invalidate().catch(() => {
+          setReconcileError("Uploaded files were inserted, but the attachment list could not be refreshed.");
+        });
+      }
+    },
+  });
+  onCleanup(() => upload.abort());
+
+  const handleFiles = (files: File[]) => {
+    if (files.length > 0 && !upload.loading()) void upload.mutate([...files]);
   };
 
   const pick = (att: Attachment) => {
@@ -64,20 +85,33 @@ const AttachmentPicker = (props: Props) => {
         title="Drop file or click to choose"
         subtitle="Upload a new attachment and insert it at the cursor."
         hint="Max 10 MB"
-        busy={busy()}
+        busy={upload.loading()}
         onDrop={handleFiles}
       />
 
-      <Show when={error()}>
-        <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
+      <Show when={upload.error() || upload.data()?.error}>
+        <p class="text-xs text-red-600 dark:text-red-400">{upload.error()?.message ?? upload.data()?.error}</p>
+      </Show>
+
+      <Show when={reconcileError()}>
+        <p class="text-xs text-amber-700 dark:text-amber-300">{reconcileError()}</p>
+      </Show>
+
+      <Show when={list.error()}>
+        <div class="flex items-center justify-between gap-2 text-xs text-red-600 dark:text-red-400">
+          <span>{list.error()!.message}</span>
+          <Button type="button" variant="ghost" size="xs" onClick={() => void list.refresh()} loading={list.refreshing()}>
+            Retry
+          </Button>
+        </div>
       </Show>
 
       {/* Existing attachments — pick to reuse without re-upload */}
-      <Show when={(list() ?? []).length > 0}>
+      <Show when={(list.data() ?? []).length > 0}>
         <div class="flex flex-col gap-1.5">
           <p class="text-[11px] font-medium uppercase tracking-wide text-dimmed">Reuse existing</p>
           <ul class="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
-            <For each={list() ?? []}>
+            <For each={list.data() ?? []}>
               {(att) => (
                 <li>
                   <Button type="button" variant="ghost" size="sm" onClick={() => pick(att)} class="w-full justify-start text-left text-xs">

@@ -1,10 +1,10 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import { Button, IconButtonLink, MarkdownView, openSpotlightSearch, Placeholder, prompts, SegmentedControl } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { diffLines } from "diff";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildNoteUrl } from "../../../params";
 import { buildDiffRows, type DiffRow, orderComparison, summarizeDiff } from "./version-history";
@@ -27,6 +27,16 @@ type PaginationInfo = {
 type VersionData = {
   contentMd: string | null;
   yjsSnapshot: string;
+};
+
+type VersionPage = {
+  data: NoteVersion[];
+  pagination: PaginationInfo;
+};
+
+type LoadedVersionData = {
+  source: string;
+  data: VersionData;
 };
 
 type Props = {
@@ -60,130 +70,81 @@ const CURRENT_TARGET: ComparisonTarget = {
 
 export default function VersionHistory(props: Props) {
   const hasInitialVersions = props.initialVersions !== undefined;
-  const [versions, setVersions] = createSignal<NoteVersion[]>(props.initialVersions ?? []);
-  const [loading, setLoading] = createSignal(!hasInitialVersions);
-  const [loadingMore, setLoadingMore] = createSignal(false);
-  const [loadError, setLoadError] = createSignal(false);
-  const [pagination, setPagination] = createSignal<PaginationInfo | null>(
-    hasInitialVersions
-      ? {
+  const [selectedVersionId, setSelectedVersionId] = createSignal<string | null>(null);
+  const [comparisonTarget, setComparisonTarget] = createSignal<ComparisonTarget>(CURRENT_TARGET);
+  const [previewMode, setPreviewMode] = createSignal<PreviewMode>("content");
+  const backUrl = buildNoteUrl(props.notebookId, props.noteId);
+  const listSource = `${props.notebookId}:${props.noteId}`;
+  const initialPage: VersionPage | undefined = hasInitialVersions
+    ? {
+        data: props.initialVersions!,
+        pagination: {
           page: 1,
           per_page: PER_PAGE,
           total: props.initialTotal ?? props.initialVersions!.length,
           total_pages: Math.ceil((props.initialTotal ?? props.initialVersions!.length) / PER_PAGE),
           has_next: (props.initialTotal ?? props.initialVersions!.length) > PER_PAGE,
-        }
-      : null,
-  );
-
-  const [selectedVersionId, setSelectedVersionId] = createSignal<string | null>(null);
-  const [selectedVersionData, setSelectedVersionData] = createSignal<VersionData | null>(null);
-  const [comparisonTarget, setComparisonTarget] = createSignal<ComparisonTarget>(CURRENT_TARGET);
-  const [previewMode, setPreviewMode] = createSignal<PreviewMode>("content");
-  const [diffRows, setDiffRows] = createSignal<DiffRow[]>([]);
-  const [previewLoading, setPreviewLoading] = createSignal(false);
-  const [previewError, setPreviewError] = createSignal(false);
-
-  // Cache loaded version data to avoid re-fetching
-  const versionCache = new Map<string, VersionData>();
-  let previewRequestId = 0;
-  let disposed = false;
-
-  const backUrl = buildNoteUrl(props.notebookId, props.noteId);
-
-  // ── Data fetching ──
-
-  const fetchVersions = async (page: number, append = false) => {
-    try {
-      const res = await apiClient[":id"].notes[":noteId"].versions.$get({
-        param: { id: props.notebookId, noteId: props.noteId },
-        query: { page: String(page), per_page: String(PER_PAGE) },
-      });
-      if (res.ok) {
-        const data = (await res.json()) as {
-          data: NoteVersion[];
-          pagination: PaginationInfo;
-        };
-        setVersions(append ? [...versions(), ...data.data] : data.data);
-        setPagination(data.pagination);
-        setLoadError(false);
-        return true;
+        },
       }
-    } catch {
-      // Render a retryable error state below.
+    : undefined;
+  const versionPages = query.createInfinite<string, VersionPage, number>({
+    source: () => listSource,
+    ...(initialPage ? { initial: { source: listSource, pages: [initialPage] } } : {}),
+    loadPage: async (_source, { cursor, abortSignal }) => {
+      const page = cursor ?? 1;
+      const response = await apiClient[":id"].notes[":noteId"].versions.$get(
+        {
+          param: { id: props.notebookId, noteId: props.noteId },
+          query: { page: String(page), per_page: String(PER_PAGE) },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(`Failed to load versions (${response.status})`);
+      return (await response.json()) as VersionPage;
+    },
+    getNextCursor: (page) => (page.pagination.has_next ? page.pagination.page + 1 : undefined),
+  });
+  const versions = createMemo(() => versionPages.pages().flatMap((page) => page.data));
+  const pagination = createMemo(() => versionPages.pages().at(-1)?.pagination ?? null);
+
+  const loadVersionData = async (source: string, abortSignal: AbortSignal): Promise<LoadedVersionData> => {
+    if (source === CURRENT_ID) {
+      return { source, data: { contentMd: props.currentContentMd, yjsSnapshot: "" } };
     }
-    if (!append) setLoadError(true);
-    return false;
+    const response = await apiClient[":id"].notes[":noteId"].versions[":versionId"].content.$get(
+      { param: { id: props.notebookId, noteId: props.noteId, versionId: source } },
+      { init: { signal: abortSignal } },
+    );
+    if (!response.ok) throw new Error(`Failed to load version (${response.status})`);
+    return { source, data: (await response.json()) as VersionData };
   };
-
-  const fetchVersionData = async (versionId: string): Promise<VersionData | null> => {
-    if (versionId === CURRENT_ID) {
-      return { contentMd: props.currentContentMd, yjsSnapshot: "" };
-    }
-
-    const cached = versionCache.get(versionId);
-    if (cached) return cached;
-
-    try {
-      const res = await apiClient[":id"].notes[":noteId"].versions[":versionId"].content.$get({
-        param: { id: props.notebookId, noteId: props.noteId, versionId },
-      });
-      if (res.ok) {
-        const data = (await res.json()) as {
-          yjsSnapshot: string;
-          contentMd: string | null;
-        };
-        const result: VersionData = {
-          contentMd: data.contentMd,
-          yjsSnapshot: data.yjsSnapshot,
-        };
-        versionCache.set(versionId, result);
-        return result;
-      }
-    } catch {
-      /* ignore */
-    }
-    return null;
-  };
-
-  // ── Diff computation ──
-
-  const computeDiff = async (selectedId: string, comparisonId: string) => {
-    const requestId = ++previewRequestId;
-    const target = comparisonTarget();
-    const orderVersions =
-      target.createdAt && !versions().some((version) => version.id === target.id)
-        ? [...versions(), { id: target.id, createdAt: target.createdAt }]
-        : versions();
-    const { fromId, toId } = orderComparison(selectedId, comparisonId, orderVersions, CURRENT_ID);
-    setPreviewLoading(true);
-    setPreviewError(false);
-    setDiffRows([]);
-
-    const [selectedData, comparisonData] = await Promise.all([fetchVersionData(selectedId), fetchVersionData(comparisonId)]);
-    if (requestId !== previewRequestId) return;
-
-    setSelectedVersionData(selectedData);
-    const fromData = fromId === selectedId ? selectedData : comparisonData;
-    const toData = toId === selectedId ? selectedData : comparisonData;
-
-    if (fromData && toData) {
-      setDiffRows(buildDiffRows(diffLines(fromData.contentMd ?? "", toData.contentMd ?? "")));
-    } else {
-      setPreviewError(true);
-    }
-
-    setPreviewLoading(false);
-  };
+  const selectedVersion = query.create<string | null, LoadedVersionData>({
+    source: selectedVersionId,
+    enabled: () => selectedVersionId() !== null,
+    load: (source, { abortSignal }) => loadVersionData(source!, abortSignal),
+  });
+  const comparisonVersion = query.create<string, LoadedVersionData>({
+    source: () => comparisonTarget().id,
+    load: (source, { abortSignal }) => loadVersionData(source, abortSignal),
+  });
+  const selectedVersionData = createMemo(() => {
+    const loaded = selectedVersion.data();
+    return loaded?.source === selectedVersionId() ? loaded.data : null;
+  });
+  const comparisonVersionData = createMemo(() => {
+    const loaded = comparisonVersion.data();
+    return loaded?.source === comparisonTarget().id ? loaded.data : null;
+  });
+  const previewLoading = () =>
+    selectedVersion.loading() || selectedVersion.refreshing() || comparisonVersion.loading() || comparisonVersion.refreshing();
+  const previewError = () => !!selectedVersion.error() || !!comparisonVersion.error();
 
   // ── Selection logic ──
 
   const selectVersion = (versionId: string) => {
     const target = comparisonTarget().id === versionId ? CURRENT_TARGET : comparisonTarget();
     setSelectedVersionId(versionId);
-    setSelectedVersionData(null);
     setComparisonTarget(target);
-    void computeDiff(versionId, target.id);
   };
 
   const changeComparison = (target: ComparisonTarget) => {
@@ -191,7 +152,6 @@ export default function VersionHistory(props: Props) {
     if (!selectedId || target.id === selectedId) return;
     setComparisonTarget(target);
     setPreviewMode("changes");
-    void computeDiff(selectedId, target.id);
   };
 
   const openComparisonPicker = async () => {
@@ -234,32 +194,12 @@ export default function VersionHistory(props: Props) {
     if (selected?.value) changeComparison(selected.value);
   };
 
-  // ── Init ──
-
-  onMount(async () => {
-    if (hasInitialVersions) return;
-    await fetchVersions(1);
-    if (!disposed) setLoading(false);
-  });
-  onCleanup(() => {
-    disposed = true;
-    previewRequestId++;
-  });
-
-  const loadMore = async () => {
-    const p = pagination();
-    if (!p || !p.has_next) return;
-    setLoadingMore(true);
-    await fetchVersions(p.page + 1, true);
-    setLoadingMore(false);
-  };
-
   // ── Restore ──
 
   const getRestoreSnapshot = (): string | null => {
     const selectedId = selectedVersionId();
     if (!selectedId) return null;
-    return versionCache.get(selectedId)?.yjsSnapshot ?? null;
+    return selectedVersionData()?.yjsSnapshot ?? null;
   };
 
   const restoreAsNewMut = mutations.create<{ id: string; shortId: string }, string>({
@@ -319,6 +259,21 @@ export default function VersionHistory(props: Props) {
     return { from: labelFor(fromId), fromId, to: labelFor(toId), toId };
   });
 
+  const diffRows = createMemo<DiffRow[]>(() => {
+    const selectedId = selectedVersionId();
+    const selectedData = selectedVersionData();
+    const comparisonData = comparisonVersionData();
+    if (!selectedId || !selectedData || !comparisonData) return [];
+    const target = comparisonTarget();
+    const orderVersions =
+      target.createdAt && !versions().some((version) => version.id === target.id)
+        ? [...versions(), { id: target.id, createdAt: target.createdAt }]
+        : versions();
+    const { fromId } = orderComparison(selectedId, target.id, orderVersions, CURRENT_ID);
+    const fromData = fromId === selectedId ? selectedData : comparisonData;
+    const toData = fromId === selectedId ? comparisonData : selectedData;
+    return buildDiffRows(diffLines(fromData.contentMd ?? "", toData.contentMd ?? ""));
+  });
   const diffSummary = createMemo(() => summarizeDiff(diffRows()));
 
   const selectedContentHtml = createMemo(() => markdown.renderSync(selectedVersionData()?.contentMd ?? ""));
@@ -377,17 +332,17 @@ export default function VersionHistory(props: Props) {
       </div>
 
       {/* Loading */}
-      <Show when={loading()}>
+      <Show when={versionPages.loading()}>
         <div class="flex-1 flex items-center justify-center">
           <i class="ti ti-loader-2 animate-spin text-dimmed" />
         </div>
       </Show>
 
       {/* Empty */}
-      <Show when={!loading() && versions().length === 0}>
+      <Show when={!versionPages.loading() && versions().length === 0}>
         <div class="flex-1 flex items-center justify-center">
           <Show
-            when={!loadError()}
+            when={!versionPages.error()}
             fallback={
               <Placeholder icon="ti ti-alert-circle" title="Versions could not be loaded" description="Reload this page to try again." />
             }
@@ -398,7 +353,7 @@ export default function VersionHistory(props: Props) {
       </Show>
 
       {/* Two-column body */}
-      <Show when={!loading() && versions().length > 0}>
+      <Show when={!versionPages.loading() && versions().length > 0}>
         <div class="flex-1 min-h-0 app-cols">
           {/* Left: version list */}
           <div class="notebooks-version-history-list overflow-y-auto scrollbar">
@@ -424,14 +379,23 @@ export default function VersionHistory(props: Props) {
                 <Button
                   variant="ghost"
                   size="xs"
-                  onClick={loadMore}
-                  disabled={loadingMore()}
-                  loading={loadingMore()}
+                  onClick={() => void versionPages.loadMore()}
+                  disabled={versionPages.loadingMore()}
+                  loading={versionPages.loadingMore()}
                   loadingLabel="Loading more"
                   class="w-full"
                 >
                   Load more
                 </Button>
+              </Show>
+
+              <Show when={versionPages.error()}>
+                <div class="flex flex-col items-center gap-1 px-2 py-1 text-center text-[11px] text-red-600 dark:text-red-400">
+                  <span>{versionPages.error()!.message}</span>
+                  <Button variant="ghost" size="xs" onClick={() => void versionPages.refresh()} loading={versionPages.refreshing()}>
+                    Retry
+                  </Button>
+                </div>
               </Show>
 
               <Show when={pagination()}>
@@ -512,7 +476,12 @@ export default function VersionHistory(props: Props) {
                     <Placeholder
                       icon="ti ti-alert-circle"
                       title="Version could not be loaded"
-                      description="Select the version again to retry."
+                      description="The saved content request failed."
+                      action={
+                        <Button type="button" variant="secondary" size="sm" onClick={() => void selectedVersion.refresh()}>
+                          Retry
+                        </Button>
+                      }
                     />
                   </div>
                 </Show>
@@ -541,7 +510,17 @@ export default function VersionHistory(props: Props) {
                     <Placeholder
                       icon="ti ti-alert-circle"
                       title="Comparison could not be loaded"
-                      description="Select the version again to retry."
+                      description="One or both version requests failed."
+                      action={
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void Promise.allSettled([selectedVersion.refresh(), comparisonVersion.refresh()])}
+                        >
+                          Retry
+                        </Button>
+                      }
                     />
                   </div>
                 </Show>

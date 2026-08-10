@@ -23,7 +23,7 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   const user = expectUserBackedActor(c);
   const notebookIdOrShort = c.req.param("id")!;
 
-  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShort });
+  let notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShort });
   if (!notebook) return { kind: "not_found" as const };
 
   const notebookId = notebook.id;
@@ -38,6 +38,13 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   const mode = c.req.query("mode");
   const isVersionsMode = mode === "versions";
   const isGraphMode = mode === "graph";
+  // Capture before the snapshot. Events published while the snapshot loads may
+  // replay redundantly, but an event can never be skipped between SSR and the
+  // browser subscription.
+  const workspaceCursor = await notebooksService.workspaceEvents.latestCursor({ notebookId });
+  const snapshotNotebook = await notebooksService.notebook.get({ id: notebookId });
+  if (!snapshotNotebook) return { kind: "not_found" as const };
+  notebook = snapshotNotebook;
   const tree = await notebooksService.note.getTree({ notebookId });
 
   const cookieHeader = c.req.header("Cookie");
@@ -95,14 +102,15 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     settings,
     permission,
     attachmentCount,
-    tagCount: tags.length,
     favoriteNoteIds: favoriteRows.map((row) => row.noteId),
     tags,
+    workspaceCursor,
     dateConfig: getDateConfig(c),
     navigatorQuery: parseNavigatorQuery(new URL(c.req.url).searchParams),
   };
 
   const appUrl = await get<string>("app.url");
+  const requestUrl = new URL(c.req.url);
 
   return {
     kind: "ok" as const,
@@ -124,6 +132,7 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
     versionHistory,
     ctx,
     appUrl,
+    currentHref: `${requestUrl.pathname}${requestUrl.search}`,
     detailPanelOpen,
     showDetailPanel: !!selected.note && !isVersionsMode && !isGraphMode,
     panelAttachments: selected.routeState?.panelAttachments ?? [],

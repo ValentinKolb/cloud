@@ -1,5 +1,5 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import * as access from "./access";
 import * as apiKeys from "./api-keys";
 import * as attachments from "./attachments";
@@ -204,6 +204,7 @@ export const notebooksService = {
   },
   workspaceEvents: {
     live: workspaceEvents.live,
+    latestCursor: workspaceEvents.latestCursor,
     notebookUpdated: workspaceEvents.notebookUpdated,
     noteCreated: workspaceEvents.noteCreated,
     noteUpdated: workspaceEvents.noteUpdated,

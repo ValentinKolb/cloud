@@ -1,5 +1,5 @@
-import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud/contracts";
 import { encoding } from "@k2b/stdlib";
+import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud/contracts";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
 import { type NotebookWorkspaceEvent, notebooksWorkspace } from "../../../lib/workspace-events";
@@ -29,7 +29,8 @@ export type YjsProviderOptions = {
   workspace?: {
     notebookId: string;
     initialCursor?: string | null;
-    onEvent?: (event: NotebookWorkspaceEvent, cursor: string | null) => void;
+    onEvent: (event: NotebookWorkspaceEvent, cursor: string | null) => void | Promise<void>;
+    onCursorChange?: (cursor: string) => void;
     onError?: (error: YjsProviderError) => void;
   };
   onError?: (error: YjsProviderError) => void;
@@ -39,6 +40,13 @@ export type YjsProviderOptions = {
 const WS_TYPE = notebooksYjs.wsType;
 const WORKSPACE_WS_TYPE = notebooksWorkspace.wsType;
 const TERMINAL_ERROR_CODES = new Set<string>(notebooksYjs.terminalErrorCodes);
+const WORKSPACE_TERMINAL_ERROR_CODES = new Set<string>([
+  "LOGIN_REQUIRED",
+  "SESSION_EXPIRED",
+  "ACCESS_DENIED",
+  "ACCESS_REVOKED",
+  "NOTE_NOT_FOUND",
+]);
 const KNOWN_ERROR_CODES = new Set<string>(Object.values(notebooksYjs.errorCode));
 const RECONNECT_BASE_DELAY_MS = 2_000;
 const RECONNECT_JITTER_MS = 1_500;
@@ -74,6 +82,8 @@ export function createYjsProvider(opts: YjsProviderOptions) {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let lastCursor = opts.initialCursor ?? null;
   let lastWorkspaceCursor = opts.workspace?.initialCursor ?? null;
+  let workspaceEventQueue = Promise.resolve();
+  let workspaceGeneration = 0;
   let activeWorkspaceId = opts.workspace?.notebookId ?? null;
   let replayReady = false;
   let localStateSent = false;
@@ -247,8 +257,19 @@ export function createYjsProvider(opts: YjsProviderOptions) {
 
   const handleWorkspaceErrorMessage = (msg: ProviderMessage): boolean => {
     if (msg.type === WORKSPACE_WS_TYPE.error || msg.type === WORKSPACE_WS_TYPE.revoked) {
-      const error = normalizeError(msg.payload);
+      const error =
+        msg.type === WORKSPACE_WS_TYPE.revoked
+          ? {
+              code: notebooksYjs.errorCode.accessRevoked,
+              message: "Workspace access was revoked",
+            }
+          : normalizeError(msg.payload);
       opts.workspace?.onError?.(error);
+      if (WORKSPACE_TERMINAL_ERROR_CODES.has(error.code)) {
+        terminate(error);
+      } else {
+        ws?.close();
+      }
       return true;
     }
     return false;
@@ -269,10 +290,24 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       event?: unknown;
     };
     if (!opts.workspace || payload.notebookId !== activeWorkspaceId) return true;
-    if (typeof payload.cursor === "string") lastWorkspaceCursor = payload.cursor;
     const event = payload.event as NotebookWorkspaceEvent | undefined;
     if (!event || event.v !== 1 || event.notebookId !== activeWorkspaceId) return true;
-    opts.workspace.onEvent?.(event, typeof payload.cursor === "string" ? payload.cursor : null);
+    const cursor = typeof payload.cursor === "string" ? payload.cursor : null;
+    const generation = workspaceGeneration;
+    workspaceEventQueue = workspaceEventQueue
+      .then(async () => {
+        if (generation !== workspaceGeneration || isDisposed || isTerminated) return;
+        if (!opts.workspace?.onEvent) throw new Error("Workspace event handler missing");
+        await opts.workspace.onEvent(event, cursor);
+        if (generation === workspaceGeneration && cursor) {
+          lastWorkspaceCursor = cursor;
+          opts.workspace.onCursorChange?.(cursor);
+        }
+      })
+      .catch(() => {
+        if (generation !== workspaceGeneration || isDisposed || isTerminated) return;
+        ws?.close();
+      });
     return true;
   };
 
@@ -353,6 +388,8 @@ export function createYjsProvider(opts: YjsProviderOptions) {
   const connect = () => {
     if (isDisposed || isTerminated) return;
 
+    workspaceGeneration += 1;
+    workspaceEventQueue = Promise.resolve();
     const wsUrl = new URL("/api/notebooks/ws", resolveHttpBaseUrl(appUrl));
     wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(wsUrl.href);

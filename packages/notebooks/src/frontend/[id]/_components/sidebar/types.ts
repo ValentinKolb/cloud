@@ -52,12 +52,12 @@ export type NotebookContext = {
   permission: string;
   /** Number of attachments in the notebook — gates the sidebar link. */
   attachmentCount: number;
-  /** Number of distinct tags in the notebook — gates the sidebar link. */
-  tagCount: number;
   /** Current user's favorite note UUIDs for this notebook. */
   favoriteNoteIds: string[];
   /** Tag summaries for the navigator sidebar. */
   tags: TagSummary[];
+  /** Workspace event cursor captured before the SSR snapshot was loaded. */
+  workspaceCursor: string | null;
   dateConfig: DateContext;
   navigatorQuery: NavigatorQuery;
 };

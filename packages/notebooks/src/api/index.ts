@@ -171,6 +171,19 @@ const NoteTreeNodeSchema: z.ZodType<unknown> = NoteSchema.extend({
   children: z.lazy(() => z.array(NoteTreeNodeSchema)),
 });
 
+const TagSummarySchema = z.object({
+  tag: z.string(),
+  count: z.number().int(),
+});
+
+const WorkspaceStateSchema = z.object({
+  notebook: NotebookSchema,
+  tree: z.array(NoteTreeNodeSchema),
+  favoriteNoteIds: z.array(z.uuid()),
+  tags: z.array(TagSummarySchema),
+  attachmentCount: z.number().int().nonnegative(),
+});
+
 const CreateNoteSchema = z.object({
   parentId: z.string().min(1).optional().describe("Parent note UUID or short-id"),
   position: z.number().int().min(0).optional(),
@@ -836,6 +849,46 @@ const app = new Hono<AuthContext>()
 
       const tree = await notebooksService.note.getTree({ notebookId });
       return respond(c, ok(tree));
+    },
+  )
+
+  // Canonical browser snapshot for the mounted notebook workspace
+  .get(
+    "/:id/workspace-state",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Get notebook workspace state",
+      description: "Returns the authorized durable state rendered by the mounted notebook workspace.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(WorkspaceStateSchema, "Notebook workspace state"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!);
+      if (error) return error;
+
+      const [tree, favoriteRows, tags, attachmentCount] = await Promise.all([
+        notebooksService.note.getTree({ notebookId: notebook!.id }),
+        notebooksService.note.favorites.listIds({ notebookId: notebook!.id, userId: userResult.data.id }),
+        notebooksService.tag.listForNotebook({ notebookId: notebook!.id }),
+        notebooksService.attachment.count({ notebookId: notebook!.id }),
+      ]);
+
+      return respond(
+        c,
+        ok({
+          notebook: notebook!,
+          tree,
+          favoriteNoteIds: favoriteRows.map((row) => row.noteId),
+          tags,
+          attachmentCount,
+        }),
+      );
     },
   )
 
@@ -2190,11 +2243,6 @@ const appWithExport = appWithAttachments
 // =============================================================================
 // Tags — list endpoint used by the `/tag` slash-command picker
 // =============================================================================
-
-const TagSummarySchema = z.object({
-  tag: z.string(),
-  count: z.number().int(),
-});
 
 const appWithTags = appWithExport.get(
   "/:id/tags",

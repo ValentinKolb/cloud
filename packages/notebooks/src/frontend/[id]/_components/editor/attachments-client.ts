@@ -90,10 +90,10 @@ export type Attachment = AttachmentRef & {
 };
 
 /** POST a file to the notebooks API. Throws on non-2xx with the server message. */
-export const uploadFile = async (notebookId: string, file: File): Promise<Attachment> => {
+export const uploadFile = async (notebookId: string, file: File, signal?: AbortSignal): Promise<Attachment> => {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await apiClient[":id"].attachments.$post({ param: { id: notebookId } }, { init: { body: fd } });
+  const res = await apiClient[":id"].attachments.$post({ param: { id: notebookId } }, { init: { body: fd, signal } });
   if (!res.ok) {
     const msg = await res
       .json()

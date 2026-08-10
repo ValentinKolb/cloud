@@ -11,8 +11,9 @@
  */
 
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation, query } from "@k2b/stdlib/solid";
 import { Button, ButtonLink, dialogCore, NumberInput, PanelDialog, Placeholder, panelDialogOptions, TextInput, toast } from "@k2b/ui";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
 type SettingEntry = {
@@ -25,17 +26,20 @@ type SettingEntry = {
   isCustom: boolean;
 };
 
-const fetchSettings = async (): Promise<SettingEntry[]> => {
-  const res = await apiClient.admin.settings.$get();
+const fetchSettings = async (signal: AbortSignal): Promise<SettingEntry[]> => {
+  const res = await apiClient.admin.settings.$get(undefined, { init: { signal } });
   if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
   return await res.json();
 };
 
-const updateSetting = async (key: string, value: unknown): Promise<void> => {
-  const res = await apiClient.admin.settings[":key"].$put({
-    param: { key },
-    json: { value },
-  });
+const updateSetting = async (key: string, value: unknown, signal: AbortSignal): Promise<void> => {
+  const res = await apiClient.admin.settings[":key"].$put(
+    {
+      param: { key },
+      json: { value },
+    },
+    { init: { signal } },
+  );
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { message?: string } | null;
     throw new Error(data?.message ?? `Failed to update ${key}`);
@@ -65,8 +69,12 @@ const unitSuffixForKey = (key: string): string | null => {
  * through the backend validator.
  */
 const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => void }) => {
-  const initial = props.entry.value ?? props.entry.default ?? "";
-  const [value, setValue] = createSignal(typeof initial === "string" ? initial : String(initial));
+  const entryValue = () => props.entry.value ?? props.entry.default ?? "";
+  const [value, setValue] = createSignal("");
+  createEffect(() => {
+    const next = entryValue();
+    setValue(typeof next === "string" ? next : String(next));
+  });
 
   const isNumber = props.entry.kind === "number";
   const suffix = unitSuffixForKey(props.entry.key);
@@ -111,34 +119,85 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
 };
 
 const SettingsBody = (props: { close: () => void }) => {
-  const [entries] = createResource(fetchSettings);
-  const pending = new Map<string, unknown>();
-  const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-
-  const onChange = (key: string, value: unknown) => {
-    pending.set(key, value);
+  const entries = query.create({
+    source: () => "notebooks-settings",
+    load: (_source, { abortSignal }) => fetchSettings(abortSignal),
+  });
+  const [pending, setPending] = createSignal<ReadonlyMap<string, unknown>>(new Map());
+  const [saveOutcome, setSaveOutcome] = createSignal<{ applied: number; failed?: string; warning?: string } | null>(null);
+  const [reconciling, setReconciling] = createSignal(false);
+  const removePending = (keys: Iterable<string>) => {
+    setPending((current) => {
+      const next = new Map(current);
+      for (const key of keys) next.delete(key);
+      return next;
+    });
   };
-
-  const onSave = async () => {
-    if (pending.size === 0) {
-      props.close();
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      for (const [key, value] of pending) {
-        await updateSetting(key, value);
+  const save = mutation.create<
+    { attempted: ReadonlyArray<readonly [string, unknown]>; appliedKeys: string[]; failed?: string },
+    ReadonlyArray<readonly [string, unknown]>
+  >({
+    mutation: async (changes, { abortSignal }) => {
+      const appliedKeys: string[] = [];
+      for (const [key, value] of changes) {
+        try {
+          await updateSetting(key, value, abortSignal);
+          appliedKeys.push(key);
+        } catch (error) {
+          if (abortSignal.aborted) throw error;
+          return { attempted: changes, appliedKeys, failed: error instanceof Error ? error.message : `Failed to update ${key}` };
+        }
       }
+      return { attempted: changes, appliedKeys };
+    },
+    onSuccess: (outcome) => {
+      if (outcome.failed) {
+        setReconciling(true);
+        void entries
+          .invalidate()
+          .then(() => {
+            const appliedKeys = new Set(outcome.appliedKeys);
+            const canonical = new Map((entries.data() ?? []).map((entry) => [entry.key, entry.value]));
+            for (const [key, value] of outcome.attempted) {
+              if (Object.is(canonical.get(key), value)) appliedKeys.add(key);
+            }
+            removePending(appliedKeys);
+            setSaveOutcome({ applied: appliedKeys.size, failed: outcome.failed });
+          })
+          .catch(() => {
+            removePending(outcome.appliedKeys);
+            setSaveOutcome({
+              applied: outcome.appliedKeys.length,
+              failed: outcome.failed,
+              warning: "The latest settings could not be reloaded, so the failed key remains queued for review.",
+            });
+          })
+          .finally(() => setReconciling(false));
+        return;
+      }
+      removePending(outcome.appliedKeys);
       toast.success("Notebook settings saved");
       props.close();
       refreshCurrentPath();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setBusy(false);
+    },
+  });
+  onCleanup(() => save.abort());
+
+  const onChange = (key: string, value: unknown) => {
+    setPending((current) => new Map(current).set(key, value));
+    setSaveOutcome(null);
+  };
+  const close = () => {
+    if (!save.loading() && !reconciling()) props.close();
+  };
+
+  const onSave = () => {
+    const changes = [...pending().entries()];
+    if (changes.length === 0) {
+      props.close();
+      return;
     }
+    if (!save.loading() && !reconciling()) void save.mutate(changes);
   };
 
   return (
@@ -147,23 +206,52 @@ const SettingsBody = (props: { close: () => void }) => {
         title="Notebook Settings"
         subtitle="App-level defaults and maintenance actions for Notebooks."
         icon="ti ti-settings"
-        close={props.close}
+        close={close}
       />
       <PanelDialog.Body>
         <PanelDialog.Section title="Settings" subtitle="Registered Notebooks settings and their current values." icon="ti ti-adjustments">
-          <Show when={!entries.loading} fallback={<Placeholder state="loading" align="left" title="Loading settings..." />}>
+          <Show when={!entries.loading()} fallback={<Placeholder state="loading" align="left" title="Loading settings..." />}>
             <Show
-              when={(entries() ?? []).length > 0}
-              fallback={<Placeholder align="left" class="px-0 py-2" description={<>No notebooks-app settings registered.</>} />}
+              when={!entries.error()}
+              fallback={
+                <Placeholder
+                  state="error"
+                  align="left"
+                  title="Could not load notebook settings"
+                  description={entries.error()?.message}
+                  action={
+                    <Button size="sm" variant="secondary" onClick={() => void entries.refresh()}>
+                      Retry
+                    </Button>
+                  }
+                />
+              }
             >
-              <div class="flex flex-col gap-3">
-                <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}</For>
-              </div>
+              <Show
+                when={(entries.data() ?? []).length > 0}
+                fallback={<Placeholder align="left" class="px-0 py-2" description={<>No notebooks-app settings registered.</>} />}
+              >
+                <div class="flex flex-col gap-3">
+                  <For each={entries.data() ?? []}>
+                    {(entry) => (
+                      <SettingRow
+                        entry={pending().has(entry.key) ? { ...entry, value: pending().get(entry.key) } : entry}
+                        onChange={(value) => onChange(entry.key, value)}
+                      />
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
           </Show>
 
-          <Show when={error()}>
-            <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
+          <Show when={saveOutcome()}>
+            {(outcome) => (
+              <p class={outcome().failed ? "text-xs text-red-600 dark:text-red-400" : "text-xs text-amber-700 dark:text-amber-300"}>
+                {outcome().applied > 0 ? `${outcome().applied} setting${outcome().applied === 1 ? " was" : "s were"} saved. ` : ""}
+                {outcome().failed} {outcome().warning}
+              </p>
+            )}
           </Show>
         </PanelDialog.Section>
       </PanelDialog.Body>
@@ -173,11 +261,11 @@ const SettingsBody = (props: { close: () => void }) => {
           Reindex job
         </ButtonLink>
         <div class="flex items-center gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={busy()}>
+          <Button type="button" variant="secondary" size="sm" onClick={close} disabled={save.loading() || reconciling()}>
             Cancel
           </Button>
-          <Button type="button" size="sm" onClick={() => void onSave()} loading={busy()} loadingLabel="Saving">
-            <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
+          <Button type="button" size="sm" onClick={onSave} loading={save.loading() || reconciling()} loadingLabel="Saving">
+            <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
             Save
           </Button>
         </div>

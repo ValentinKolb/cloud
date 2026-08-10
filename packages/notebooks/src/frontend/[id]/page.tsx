@@ -61,12 +61,14 @@ export default ssr<AuthContext>(async (c) => {
     versionHistory,
     ctx,
     appUrl,
+    currentHref,
     detailPanelOpen,
     showDetailPanel,
     panelAttachments,
     backlinks,
     dateConfig,
   } = data;
+  const editorOwnsWorkspaceSocket = !!selectedNote && !isVersionsMode && !isGraphMode && !readonlyMode;
   return () => (
     <Layout
       c={c}
@@ -80,7 +82,9 @@ export default ssr<AuthContext>(async (c) => {
     >
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
-        {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} />}
+        {!editorOwnsWorkspaceSocket && (
+          <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} initialCursor={ctx.workspaceCursor} />
+        )}
 
         <NotebookSidebar ctx={ctx} />
 
@@ -124,6 +128,7 @@ export default ssr<AuthContext>(async (c) => {
                 noteParentId={selectedNote.parentId}
                 notebookName={notebook.name}
                 appUrl={appUrl}
+                workspaceCursor={ctx.workspaceCursor}
                 userId={user.id}
                 displayName={user.displayName}
                 initialSnapshot={selectedNote.yjsSnapshot}
@@ -131,6 +136,22 @@ export default ssr<AuthContext>(async (c) => {
                 initialPanelOpen={detailPanelOpen}
                 initialRichMode={ctx.settings.richMode}
                 readOnly={readonlyMode}
+                initialHref={currentHref}
+                initialDetail={{
+                  canonicalNoteId: selectedNote.id,
+                  noteId: selectedNote.shortId,
+                  noteTitle: selectedNote.title,
+                  contentMd: selectedNote.contentMd,
+                  createdAt: selectedNote.createdAt,
+                  updatedAt: selectedNote.updatedAt,
+                  lockedAt: selectedNote.lockedAt,
+                  isLocked: !!selectedNote.lockedAt,
+                  tocItems,
+                  taskProgress: selectedRouteState?.taskProgress ?? { done: 0, total: 0 },
+                  attachments: panelAttachments,
+                  backlinks,
+                  namedBlocks,
+                }}
               />
             ) : (
               <Placeholder

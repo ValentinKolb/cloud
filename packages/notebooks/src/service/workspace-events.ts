@@ -1,5 +1,5 @@
-import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@k2b/sync";
+import { logger } from "@valentinkolb/cloud/services";
 import type {
   NotebookWorkspaceEvent,
   NotebookWorkspaceInvalidationScope,
@@ -43,6 +43,9 @@ export const live = (config: { notebookId: string; after?: string | null; signal
     after: config.after ?? undefined,
     signal: config.signal,
   });
+
+export const latestCursor = (config: { notebookId: string }): Promise<string | null> =>
+  workspaceTopic.latestCursor({ tenantId: config.notebookId });
 
 export const notebookUpdated = (notebook: NotebookWorkspaceNotebook): Promise<void> =>
   publish({

@@ -9,6 +9,7 @@
 
 import { AppWorkspace, Pagination, Placeholder } from "@k2b/ui";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
+import { get } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { notebooksService } from "@/service";
@@ -17,6 +18,7 @@ import { buildNoteUrl, buildTagPageUrl } from "../../../params";
 import { parseSettings } from "../../_components/settings/NotebookSettingsStore";
 import NotebookSidebar from "../../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../../_components/sidebar/types";
+import WorkspaceEventBridge from "../../_components/sidebar/WorkspaceEventBridge.island";
 
 const PER_PAGE = 50;
 
@@ -37,7 +39,7 @@ export default ssr<AuthContext>(async (c) => {
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
 
-  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: idOrShort });
+  let notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: idOrShort });
   const notebookId = notebook?.id;
   if (!notebook || !notebookId) {
     return () => (
@@ -77,7 +79,9 @@ export default ssr<AuthContext>(async (c) => {
   //   2. Page of notes-with-tag (filtered by ?search if any)
   //   3. Total notes-with-tag (unfiltered) for the header counter
   //   4. Sidebar badge counts
-  const [tree, paginatedResult, totalNotesForTag, attachmentCount, tags, favoriteRows] = await Promise.all([
+  const workspaceCursor = await notebooksService.workspaceEvents.latestCursor({ notebookId });
+  const [snapshotNotebook, tree, paginatedResult, totalNotesForTag, attachmentCount, tags, favoriteRows, appUrl] = await Promise.all([
+    notebooksService.notebook.get({ id: notebookId }),
     notebooksService.note.getTree({ notebookId }),
     notebooksService.tag.listNotesForTag({
       notebookId,
@@ -89,9 +93,16 @@ export default ssr<AuthContext>(async (c) => {
     notebooksService.attachment.count({ notebookId }),
     notebooksService.tag.listForNotebook({ notebookId }),
     notebooksService.note.favorites.listIds({ notebookId, userId: user.id }),
+    get<string>("app.url"),
   ]);
-  const tagCount = tags.length;
-
+  if (!snapshotNotebook) {
+    return () => (
+      <Layout c={c} title="Not Found">
+        <Placeholder surface="paper" state="error" icon="ti ti-alert-circle" title="Notebook not found" />
+      </Layout>
+    );
+  }
+  notebook = snapshotNotebook;
   const totalPages = Math.max(1, Math.ceil(paginatedResult.total / PER_PAGE));
   const baseHref = buildTagPageUrl(notebook.shortId, tagParam);
   const paginationBaseUrl = search ? `${baseHref}?search=${encodeURIComponent(search)}&page=` : `${baseHref}?page=`;
@@ -104,9 +115,9 @@ export default ssr<AuthContext>(async (c) => {
     settings,
     permission,
     attachmentCount,
-    tagCount,
     favoriteNoteIds: favoriteRows.map((row) => row.noteId),
     tags,
+    workspaceCursor,
     dateConfig: getDateConfig(c),
     navigatorQuery: {},
   };
@@ -123,6 +134,7 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <AppWorkspace class="flex-1 min-h-0">
+        <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} initialCursor={workspaceCursor} />
         <NotebookSidebar ctx={ctx} />
         <AppWorkspace.Content>
           <AppWorkspace.Main class="flex-col overflow-hidden p-[var(--ui-space-shell)]">

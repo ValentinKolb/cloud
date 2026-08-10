@@ -1,4 +1,4 @@
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
   Button,
   ButtonLink,
@@ -13,7 +13,7 @@ import {
   SettingsPanelFooter,
   TextInput,
 } from "@k2b/ui";
-import { type Accessor, createEffect, createResource, createSignal, onCleanup, type Setter, Show } from "solid-js";
+import { type Accessor, createEffect, createSignal, onCleanup, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
 import type { BackupRunResult, BackupStatus } from "./types";
@@ -177,29 +177,33 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
   const [bucket, setBucket] = createSignal("");
   const [accessKeyId, setAccessKeyId] = createSignal("");
   const [secretAccessKey, setSecretAccessKey] = createSignal("");
-  const [status, { refetch: refetchStatus }] = createResource(
-    () => props.notebook.shortId,
-    async (notebookId): Promise<BackupStatus> => {
-      const res = await apiClient[":id"].snapshots.config.$get({ param: { id: notebookId } });
+  const status = query.create({
+    source: () => props.notebook.shortId,
+    load: async (notebookId, { abortSignal }): Promise<BackupStatus> => {
+      const res = await apiClient[":id"].snapshots.config.$get({ param: { id: notebookId } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load snapshot settings."));
       return await res.json();
     },
-  );
-  const [logs, { refetch: refetchLogs }] = createResource(
-    () => props.notebook.shortId,
-    async (notebookId): Promise<LogTableEntry[]> => {
-      const res = await apiClient[":id"].snapshots.logs.$get({
-        param: { id: notebookId },
-        query: { _: String(Date.now()) },
-      });
+  });
+  const logs = query.create({
+    source: () => props.notebook.shortId,
+    load: async (notebookId, { abortSignal }): Promise<LogTableEntry[]> => {
+      const res = await apiClient[":id"].snapshots.logs.$get(
+        {
+          param: { id: notebookId },
+          query: { _: String(Date.now()) },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load snapshot logs."));
       return await res.json();
     },
-  );
+  });
+  const [reconcileError, setReconcileError] = createSignal<string | null>(null);
+  const [reconcileScope, setReconcileScope] = createSignal<boolean | null>(null);
+  const [reconciling, setReconciling] = createSignal(false);
 
-  createEffect(() => {
-    const current = status();
-    if (!current) return;
+  const applyStatus = (current: BackupStatus) => {
     const nextBase = backupDraftFromStatus(current);
     setBase(nextBase);
     setEnabled(nextBase.enabled);
@@ -208,50 +212,71 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
     setBucket(nextBase.bucket);
     setAccessKeyId("");
     setSecretAccessKey("");
+  };
+  createEffect(() => {
+    const current = status.data();
+    if (current) applyStatus(current);
   });
 
-  const configMutation = mutations.create<BackupStatus, void>({
-    mutation: async () => {
-      const res = await apiClient[":id"].snapshots.config.$put({
-        param: { id: props.notebook.shortId },
-        json: {
-          enabled: enabled(),
-          endpoint: endpoint().trim(),
-          region: region().trim() || "us-east-1",
-          bucket: bucket().trim(),
-          accessKeyId: accessKeyId().trim() || undefined,
-          secretAccessKey: secretAccessKey().trim() || undefined,
+  const reconcile = async (includeStatus = true) => {
+    setReconcileError(null);
+    setReconciling(true);
+    try {
+      await Promise.all(includeStatus ? [status.invalidate(), logs.invalidate()] : [logs.invalidate()]);
+      setReconcileScope(null);
+    } catch {
+      setReconcileScope(includeStatus);
+      setReconcileError("Saved, but the latest snapshot state could not be reloaded. Retry the read instead of saving again.");
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  type ConfigIntent = {
+    enabled: boolean;
+    endpoint: string;
+    region: string;
+    bucket: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+  };
+  const configMutation = mutations.create<BackupStatus, ConfigIntent>({
+    mutation: async (intent, { abortSignal }) => {
+      const res = await apiClient[":id"].snapshots.config.$put(
+        {
+          param: { id: props.notebook.shortId },
+          json: intent,
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update snapshot settings."));
       return await res.json();
     },
-    onSuccess: () => {
-      void refetchStatus();
-      void refetchLogs();
+    onSuccess: (saved) => {
+      applyStatus(saved);
+      void reconcile(true);
     },
     onError: (error) => prompts.error(error.message),
   });
 
   const backupMutation = mutations.create<BackupRunResult, void>({
-    mutation: async () => {
-      const res = await apiClient[":id"].snapshots.run.$post({ param: { id: props.notebook.shortId } });
+    mutation: async (_value, { abortSignal }) => {
+      const res = await apiClient[":id"].snapshots.run.$post({ param: { id: props.notebook.shortId } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to upload snapshot."));
       return await res.json();
     },
     onSuccess: (result) => {
       setLastRun(result);
-      void refetchStatus();
-      void refetchLogs();
+      void reconcile(false);
     },
     onError: (error) => {
       void prompts.error(error.message).finally(() => {
-        void refetchLogs();
+        void logs.refresh();
       });
     },
   });
 
-  const missing = () => status()?.missing.join(", ") || "none";
+  const missing = () => status.data()?.missing.join(", ") || "none";
   const dirty = () =>
     backupDraftIsDirty(
       { enabled: enabled(), endpoint: endpoint(), region: region(), bucket: bucket() },
@@ -260,7 +285,11 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
       secretAccessKey(),
     );
   createEffect(() => props.onDirtyChange(dirty()));
-  onCleanup(() => props.onDirtyChange(false));
+  onCleanup(() => {
+    configMutation.abort();
+    backupMutation.abort();
+    props.onDirtyChange(false);
+  });
 
   const discard = () => {
     const current = base();
@@ -277,13 +306,13 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
     return [snapshotLogEntryFromRun(run, props.notebook.shortId)];
   };
   const logEntries = () => {
-    const remote = logs() ?? [];
+    const remote = logs.data() ?? [];
     const local = localLogEntries();
     if (local.length === 0) return remote;
     const localSha = String(local[0]?.metadata?.sha256 ?? "");
     return remote.some((entry) => String(entry.metadata?.sha256 ?? "") === localSha) ? remote : [...local, ...remote];
   };
-  const logError = () => (logs.error instanceof Error ? logs.error.message : null);
+  const logError = () => logs.error()?.message ?? null;
 
   return (
     <>
@@ -303,24 +332,24 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
         <SettingsGroup.Action>
           <SnapshotUploadAction
             enabled={enabled()}
-            configured={!!status()?.configured}
+            configured={!!status.data()?.configured}
             loading={backupMutation.loading()}
-            disabled={status.loading || backupMutation.loading()}
+            disabled={status.loading() || backupMutation.loading() || reconciling()}
             lastRun={lastRun()}
             onRun={() => backupMutation.mutate(undefined)}
           />
         </SettingsGroup.Action>
-        <Show when={!status.loading} fallback={<Placeholder state="loading" variant="panel" title="Loading snapshot settings" />}>
+        <Show when={!status.loading()} fallback={<Placeholder state="loading" variant="panel" title="Loading snapshot settings" />}>
           <Show
-            when={status()}
+            when={status.data()}
             fallback={
               <Placeholder
                 state="error"
                 variant="panel"
                 title="Could not load snapshot settings"
-                description={status.error instanceof Error ? status.error.message : "Snapshot settings could not be loaded."}
+                description={status.error()?.message ?? "Snapshot settings could not be loaded."}
                 action={
-                  <Button type="button" variant="secondary" size="sm" onClick={() => void refetchStatus()}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void status.refresh()}>
                     <i class="ti ti-refresh" aria-hidden="true" />
                     Retry
                   </Button>
@@ -342,24 +371,49 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
               setAccessKeyId={setAccessKeyId}
               secretAccessKey={secretAccessKey}
               setSecretAccessKey={setSecretAccessKey}
-              status={status()}
+              status={status.data() ?? undefined}
               missing={missing()}
-              saving={configMutation.loading()}
+              saving={configMutation.loading() || reconciling()}
             />
           </Show>
         </Show>
       </SettingsGroup>
 
       <SettingsGroup title="Recent snapshots" description="Review the latest automatic and manually started uploads.">
-        <SnapshotLogsSection entries={logEntries()} loading={logs.loading} error={logError()} />
+        <SnapshotLogsSection entries={logEntries()} loading={logs.loading()} error={logError()} />
+        <Show when={reconcileError()}>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <NoticeCard tone="warning" icon={false} class="flex-1">
+              {reconcileError()}
+            </NoticeCard>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={reconciling()}
+              onClick={() => void reconcile(reconcileScope() ?? true)}
+            >
+              Retry reload
+            </Button>
+          </div>
+        </Show>
       </SettingsGroup>
 
       <SettingsModal.Footer>
         <SettingsPanelFooter
           changeCount={() => (dirty() ? 1 : 0)}
-          loading={configMutation.loading}
+          loading={() => configMutation.loading() || reconciling()}
           onDiscard={discard}
-          onSave={() => configMutation.mutate(undefined)}
+          onSave={() =>
+            configMutation.mutate({
+              enabled: enabled(),
+              endpoint: endpoint().trim(),
+              region: region().trim() || "us-east-1",
+              bucket: bucket().trim(),
+              accessKeyId: accessKeyId().trim() || undefined,
+              secretAccessKey: secretAccessKey().trim() || undefined,
+            })
+          }
         />
       </SettingsModal.Footer>
     </>
