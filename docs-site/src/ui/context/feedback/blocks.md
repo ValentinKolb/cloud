@@ -22,6 +22,18 @@ one, two, or three responsive columns from the item count.
 
 The component owns presentation only. Put retry, dismissal, and navigation controls beside the notice when they are needed.
 
+### Render outside Solid
+
+```ts
+import { NOTICE_CARD_CLASSES, NOTICE_CARD_ICONS } from "@k2b/ui";
+```
+
+Use `NOTICE_CARD_CLASSES` and `NOTICE_CARD_ICONS` only when a renderer cannot
+mount the Solid component, such as a server-side Markdown extension or an
+editor node view. They expose the same markup classes and default tone icons so
+those renderers can preserve the `NoticeCard` contract. Normal Solid code
+should render `NoticeCard` instead of assembling its internal markup.
+
 ## Accessibility
 
 Notice cards add no live-region role. If a new error notice must be announced immediately, the owning application must provide the appropriate alert semantics. All tones keep visible text, so the result never depends on color or icon.

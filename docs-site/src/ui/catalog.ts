@@ -323,6 +323,8 @@ export const documentedOnlyUiCatalogExports = {
   DropdownItem: "Documented compositional child of Dropdown.",
   FileTree: "Documented child composed by the FileBrowserPanel demo.",
   FileView: "Documented child composed by the FileBrowserPanel demo.",
+  NOTICE_CARD_CLASSES: "Documented NoticeCard class contract for non-Solid renderers.",
+  NOTICE_CARD_ICONS: "Documented NoticeCard icon defaults for non-Solid renderers.",
   PANES_VALUE_VERSION: "Documented Panes serialization version.",
   SPOTLIGHT_SHORTCUT: "Documented Spotlight keyboard shortcut constant.",
   SPOTLIGHT_SHORTCUT_LABEL: "Documented Spotlight keyboard shortcut label.",
