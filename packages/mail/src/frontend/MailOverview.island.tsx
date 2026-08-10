@@ -1,14 +1,18 @@
-import { AppOverview, Button, prompts, StatusBadge, TextInput, toast } from "@k2b/ui";
 import { listenPopState, navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppOverview, Button, prompts, StatusBadge, TextInput, toast } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
 import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
+import { mailboxOverviewSubtitle } from "./_components/mail-overview-presentation";
 
-type MailboxWithPermission = Mailbox & { permission: "read" | "write" | "admin" };
+type MailboxWithPermission = Mailbox & {
+  permission: "read" | "write" | "admin";
+  receivingAddress: string | null;
+};
 
 export default function MailOverview(props: {
   mailboxes: MailboxWithPermission[];
@@ -279,9 +283,9 @@ export default function MailOverview(props: {
                   </span>
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-sm font-semibold text-primary">{mailbox.name}</span>
-                    <span class="block truncate text-xs text-dimmed">{mailbox.description || mailbox.health.replaceAll("_", " ")}</span>
+                    <span class="block truncate text-xs text-dimmed">{mailboxOverviewSubtitle(mailbox)}</span>
                   </span>
-                  <StatusBadge tone={mailbox.health === "active" ? "ok" : "neutral"} label={mailbox.permission} icon={null} />
+                  <StatusBadge tone="neutral" label={mailbox.permission} icon={null} />
                   <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                 </a>
               )}
@@ -302,7 +306,6 @@ export default function MailOverview(props: {
           </span>
           <span class="min-w-0 flex-1">
             <span class="block text-sm font-semibold text-primary">New mailbox</span>
-            <span class="block text-xs text-dimmed">Private initially; sharing stays explicit.</span>
           </span>
         </button>
         <Show when={deletedMailboxes().length > 0}>

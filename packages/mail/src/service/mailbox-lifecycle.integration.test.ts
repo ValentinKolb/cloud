@@ -178,6 +178,17 @@ suite("reversible mailbox lifecycle", () => {
     if (!created.ok) return;
     const mailboxId = created.data.id;
     mailboxIds.push(mailboxId);
+    const receivingAddress = `reversible-${suffix}@example.com`;
+    await sql`
+      INSERT INTO mail.provider_connections (
+        owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
+        smtp_host, smtp_port, smtp_tls_mode, secret_kind, encrypted_secret
+      ) VALUES (
+        ${mailboxId}::uuid, 'Lifecycle fixture', ${receivingAddress}, ${receivingAddress},
+        'imap.example.com', 993, 'implicit', 'smtp.example.com', 587, 'starttls',
+        'password', 'lifecycle-fixture-secret'
+      )
+    `;
     expect((await getMailbox(platformContext, mailboxId)).ok).toBe(false);
     const platformMailboxes = await listMailboxes(platformContext);
     expect(platformMailboxes.ok).toBe(true);
@@ -193,6 +204,11 @@ suite("reversible mailbox lifecycle", () => {
     expect(reader.ok).toBe(true);
     const literalMatch = await listMailboxes(ownerContext, 100, undefined, `reversible ${suffix}`);
     expect(literalMatch.ok && literalMatch.data.some((mailbox) => mailbox.id === mailboxId)).toBe(true);
+    if (literalMatch.ok) {
+      expect(literalMatch.data.find((mailbox) => mailbox.id === mailboxId)?.receivingAddress).toBe(receivingAddress);
+    }
+    const addressMatch = await listMailboxes(ownerContext, 100, undefined, receivingAddress.toUpperCase());
+    expect(addressMatch.ok && addressMatch.data.some((mailbox) => mailbox.id === mailboxId)).toBe(true);
     const wildcardText = await listMailboxes(ownerContext, 100, undefined, `%Reversible ${suffix}%`);
     expect(wildcardText.ok && wildcardText.data.some((mailbox) => mailbox.id === mailboxId)).toBe(false);
     const singleCharacterWildcard = await listMailboxes(ownerContext, 100, undefined, "_");

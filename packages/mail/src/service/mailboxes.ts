@@ -48,6 +48,16 @@ type DbMailbox = {
   updated_at: Date | string;
 };
 
+type DbMailboxListItem = DbMailbox & {
+  permission: PermissionLevel;
+  receiving_address: string | null;
+};
+
+export type MailboxListItem = Mailbox & {
+  permission: PermissionLevel;
+  receivingAddress: string | null;
+};
+
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 
 const mapMailbox = (row: DbMailbox): Mailbox => ({
@@ -67,6 +77,16 @@ const mapMailbox = (row: DbMailbox): Mailbox => ({
 const mapDeletedMailbox = (row: DbMailbox): DeletedMailbox => {
   if (!row.deleted_at) throw new Error("Deleted mailbox row has no deletion timestamp");
   return { ...mapMailbox(row), deletedAt: toIso(row.deleted_at) };
+};
+
+const getMailboxReceivingAddress = async (mailboxId: string): Promise<string | null> => {
+  const [row] = await sql<{ email: string }[]>`
+    SELECT email
+    FROM mail.provider_connections
+    WHERE owner_mailbox_id = ${mailboxId}::uuid
+      AND status <> 'revoked'
+  `;
+  return row?.email ?? null;
 };
 
 const mailboxColumns = sql`
@@ -298,7 +318,7 @@ export const listMailboxes = async (
   exactName?: string,
   search?: string,
   minimumPermission: Exclude<PermissionLevel, "none"> = "read",
-): Promise<Result<Array<Mailbox & { permission: PermissionLevel }>>> => {
+): Promise<Result<MailboxListItem[]>> => {
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
   const normalizedExactName = exactName?.trim() || null;
   const normalizedSearch = search?.trim() || null;
@@ -307,21 +327,26 @@ export const listMailboxes = async (
     if (!mailboxId || !isResourceBoundToMailbox(context, mailboxId)) return ok([]);
     const mailbox = await getMailbox(context, mailboxId);
     if (!mailbox.ok) return mailbox.error.code === "FORBIDDEN" || mailbox.error.code === "NOT_FOUND" ? ok([]) : mailbox;
+    const receivingAddress = await getMailboxReceivingAddress(mailboxId);
     if (normalizedExactName && mailbox.data.name !== normalizedExactName) return ok([]);
     if (
       normalizedSearch &&
-      !`${mailbox.data.name} ${mailbox.data.description ?? ""}`.toLowerCase().includes(normalizedSearch.toLowerCase())
+      !`${mailbox.data.name} ${mailbox.data.description ?? ""} ${receivingAddress ?? ""}`
+        .toLowerCase()
+        .includes(normalizedSearch.toLowerCase())
     ) {
       return ok([]);
     }
     const permission = await getMailboxPermission(context, mailboxId);
     const permissionRank = { none: 0, read: 1, write: 2, admin: 3 } as const;
-    return permissionRank[permission] < permissionRank[minimumPermission] ? ok([]) : ok([{ ...mailbox.data, permission }]);
+    return permissionRank[permission] < permissionRank[minimumPermission]
+      ? ok([])
+      : ok([{ ...mailbox.data, permission, receivingAddress }]);
   }
 
   const minimumPermissionRank = { read: 1, write: 2, admin: 3 }[minimumPermission];
 
-  const rows = await sql<(DbMailbox & { permission: PermissionLevel })[]>`
+  const rows = await sql<DbMailboxListItem[]>`
     WITH ranked AS (
       SELECT
         ma.mailbox_id,
@@ -333,15 +358,18 @@ export const listMailboxes = async (
     )
     SELECT
       ${mailboxColumns},
-      CASE ranked.permission_rank WHEN 3 THEN 'admin'::auth.permission_level WHEN 2 THEN 'write'::auth.permission_level ELSE 'read'::auth.permission_level END AS permission
+      CASE ranked.permission_rank WHEN 3 THEN 'admin'::auth.permission_level WHEN 2 THEN 'write'::auth.permission_level ELSE 'read'::auth.permission_level END AS permission,
+      pc.email AS receiving_address
     FROM mail.mailboxes m
     JOIN ranked ON ranked.mailbox_id = m.id AND ranked.permission_rank >= ${minimumPermissionRank}
+    LEFT JOIN mail.provider_connections pc ON pc.owner_mailbox_id = m.id AND pc.status <> 'revoked'
     WHERE m.deleted_at IS NULL
       AND (${normalizedExactName}::text IS NULL OR m.name = ${normalizedExactName})
       AND (
         ${normalizedSearch}::text IS NULL
         OR strpos(lower(m.name), lower(${normalizedSearch})) > 0
         OR strpos(lower(coalesce(m.description, '')), lower(${normalizedSearch})) > 0
+        OR strpos(lower(coalesce(pc.email, '')), lower(${normalizedSearch})) > 0
       )
     ORDER BY m.updated_at DESC, m.id DESC
     LIMIT ${boundedLimit}
@@ -349,7 +377,11 @@ export const listMailboxes = async (
 
   return ok(
     rows
-      .map((row) => ({ ...mapMailbox(row), permission: capByCredentialScopes(context, row.permission) }))
+      .map((row) => ({
+        ...mapMailbox(row),
+        permission: capByCredentialScopes(context, row.permission),
+        receivingAddress: row.receiving_address,
+      }))
       .filter((row) => {
         const permissionRank = { none: 0, read: 1, write: 2, admin: 3 } as const;
         return permissionRank[row.permission] >= permissionRank[minimumPermission];
