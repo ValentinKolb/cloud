@@ -6,6 +6,9 @@ import { createDomTestHarness, type DomTestHarness } from "./dom";
 type EditorKind = "autocomplete" | "markdown";
 type Activation = "assistive-click" | "pointer-click" | "keyboard-enter" | "keyboard-tab";
 
+const nextAnimationFrame = (): Promise<void> =>
+  new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
 const installEditorDomSupport = (dom: DomTestHarness): void => {
   const prototype = dom.window.HTMLElement.prototype as unknown as {
     showPopover?: () => void;
@@ -142,10 +145,11 @@ describe("completion editor runtime behavior", () => {
     expect(overlayChanges).toEqual(["a", "ab"]);
     expect(highlights).toBe(0);
     setOverlayEnabled(false);
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await nextAnimationFrame();
     expect(highlights).toBe(0);
     setOverlayEnabled(true);
-    await Promise.resolve();
+    expect(highlights).toBe(0);
+    await nextAnimationFrame();
     expect(highlights).toBe(1);
     disposeOverlay();
 
