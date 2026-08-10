@@ -1,7 +1,7 @@
-import { Button, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
+import { Button, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
+import { createMemo, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AttachmentLink, AttachmentLinkPage } from "../../contracts";
 import { readApiError } from "./api-response";
@@ -14,47 +14,25 @@ const linkStatus = (link: AttachmentLink): "active" | "expired" | "exhausted" | 
 };
 
 export default function MailAttachmentLinksSettings(props: { mailboxId: string; dateConfig: DateContext }) {
-  const [links, setLinks] = createSignal<AttachmentLink[]>([]);
-  const [nextCursor, setNextCursor] = createSignal<string | null>(null);
-
-  const load = mutations.create<AttachmentLinkPage, void>({
-    mutation: async (_input, context) => {
+  const linkPages = query.createInfinite<string, AttachmentLinkPage, string>({
+    source: () => props.mailboxId,
+    loadPage: async (mailboxId, { cursor, abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"].$get(
         {
-          param: { mailboxId: props.mailboxId },
-          query: { limit: "50" },
+          param: { mailboxId },
+          query: { limit: "50", cursor },
         },
-        { init: { signal: context.abortSignal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load attachment links"));
       return response.json();
     },
-    onSuccess: (page) => {
-      setLinks(page.items);
-      setNextCursor(page.nextCursor);
-    },
+    getNextCursor: (page) => page.nextCursor,
   });
-
-  const loadMore = mutations.create<AttachmentLinkPage, string>({
-    mutation: async (cursor, context) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"].$get(
-        {
-          param: { mailboxId: props.mailboxId },
-          query: { limit: "50", cursor },
-        },
-        { init: { signal: context.abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load more attachment links"));
-      return response.json();
-    },
-    onSuccess: (page) => {
-      setLinks((current) => {
-        const existing = new Set(current.map((link) => link.id));
-        return [...current, ...page.items.filter((link) => !existing.has(link.id))];
-      });
-      setNextCursor(page.nextCursor);
-    },
-    onError: (error) => prompts.error(error.message),
+  const links = createMemo(() => {
+    const merged = new Map<string, AttachmentLink>();
+    for (const page of linkPages.pages()) for (const link of page.items) merged.set(link.id, link);
+    return [...merged.values()];
   });
 
   const revoke = mutations.create<string, AttachmentLink>({
@@ -73,16 +51,17 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
     },
     onSuccess: (linkId) => {
       if (!linkId) return;
-      setLinks((current) => current.map((link) => (link.id === linkId ? { ...link, revokedAt: new Date().toISOString() } : link)));
       toast.success("Public link revoked");
+      void linkPages.invalidate().catch((error) =>
+        prompts.error(error instanceof Error ? error.message : "Shared links could not be refreshed", {
+          title: "Link revoked, refresh failed",
+        }),
+      );
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  onMount(() => load.mutate());
   onCleanup(() => {
-    load.abort();
-    loadMore.abort();
     revoke.abort();
   });
 
@@ -91,17 +70,17 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
       <p class="text-xs text-dimmed">
         Public download links created from received or draft attachments. Revoking a link does not delete the attachment.
       </p>
-      <Show when={!load.loading()} fallback={<Placeholder state="loading" title="Loading shared links" />}>
+      <Show when={!linkPages.loading()} fallback={<Placeholder state="loading" title="Loading shared links" />}>
         <Show
-          when={!load.error()}
+          when={!linkPages.error()}
           fallback={
             <Placeholder
               variant="panel"
               icon="ti ti-alert-triangle"
               title="Could not load shared links"
-              description={load.error()?.message}
+              description={linkPages.error()?.message}
               action={
-                <Button variant="secondary" size="sm" type="button" onClick={() => load.mutate()}>
+                <Button variant="secondary" size="sm" type="button" onClick={() => void linkPages.refresh()}>
                   Retry
                 </Button>
               }
@@ -145,19 +124,17 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
                   );
                 }}
               </For>
-              <Show when={nextCursor()}>
-                {(cursor) => (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    class="self-start"
-                    disabled={loadMore.loading()}
-                    onClick={() => loadMore.mutate(cursor())}
-                  >
-                    {loadMore.loading() ? "Loading..." : "Load more"}
-                  </Button>
-                )}
+              <Show when={linkPages.hasMore()}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  class="self-start"
+                  disabled={linkPages.loadingMore()}
+                  onClick={() => void linkPages.loadMore()}
+                >
+                  {linkPages.loadingMore() ? "Loading..." : "Load more"}
+                </Button>
               </Show>
             </div>
           </Show>

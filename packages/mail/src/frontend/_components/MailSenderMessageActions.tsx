@@ -55,8 +55,12 @@ export default function MailSenderMessageActions(props: {
     });
   };
 
-  const markSenderRead = mutation.create<boolean, { address: string; selectionKey: string | null }, SelectionContext>({
-    mutation: async ({ address }, { abortSignal }) => {
+  const markSenderRead = mutation.create<
+    boolean,
+    { address: string; selectionKey: string | null },
+    SelectionContext & { idempotencyKey: string }
+  >({
+    mutation: async ({ address }, { abortSignal, idempotencyKey }) => {
       const previewResponse = await apiClient.mailboxes[":mailboxId"]["incoming-automations"].preview.$post(
         {
           param: { mailboxId: props.mailboxId },
@@ -85,7 +89,7 @@ export default function MailSenderMessageActions(props: {
       const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"]["mark-read"].$post(
         {
           param: { mailboxId: props.mailboxId },
-          json: { matchKind: "sender", matchValue: address, idempotencyKey: crypto.randomUUID() },
+          json: { matchKind: "sender", matchValue: address, idempotencyKey },
         },
         { init: { signal: abortSignal } },
       );
@@ -103,10 +107,16 @@ export default function MailSenderMessageActions(props: {
       );
       return true;
     },
-    onBefore: ({ selectionKey }) => ({ selectionKey }),
-    onSuccess: async (changed, context) => {
+    onBefore: ({ selectionKey }) => ({ selectionKey, idempotencyKey: crypto.randomUUID() }),
+    onSuccess: (changed, context) => {
       if (!changed) return;
-      if (context?.selectionKey === props.selectionKey) await props.onReconcile();
+      if (context?.selectionKey === props.selectionKey) {
+        void props
+          .onReconcile()
+          .catch((error) =>
+            prompts.error(error instanceof Error ? error.message : "Mail could not be refreshed", { title: "Update queued" }),
+          );
+      }
     },
     onError: (error) => prompts.error(error.message),
   });

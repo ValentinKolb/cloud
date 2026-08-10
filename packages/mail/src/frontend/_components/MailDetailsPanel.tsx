@@ -90,8 +90,6 @@ export default function MailDetailsPanel(props: {
   let confirmedState = props.initialState;
   let confirmedTagState = props.initialConversationLocalTags;
   let confirmedReminder = props.initialReminder;
-  let tagController: AbortController | null = null;
-  let disposed = false;
   let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
   const latestMessage = () => props.messages.at(-1);
   const attachments = createMemo(() =>
@@ -209,6 +207,28 @@ export default function MailDetailsPanel(props: {
     detailUpdates.enqueue({ kind: "cancel_reminder" });
   };
 
+  const createTagMutation = mutations.create<LocalTag, { name: string; color: string }>({
+    mutation: async (values, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: values,
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to create tag"));
+      return response.json();
+    },
+    onSuccess: (created) => {
+      confirmedAvailableTagIds.add(created.id);
+      setAvailableTags((current) =>
+        [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
+      );
+      toast.success(`Created ${created.name}`);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
   const createTag = async () => {
     const values = await prompts.dialog<{ name: string; color: string } | null>(
       (close) => {
@@ -237,33 +257,7 @@ export default function MailDetailsPanel(props: {
       },
       { title: "Create tag", icon: "ti ti-tag-plus" },
     );
-    if (!values || disposed) return;
-    tagController?.abort();
-    const controller = new AbortController();
-    tagController = controller;
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$post(
-        {
-          param: { mailboxId: props.mailboxId },
-          json: values,
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to create tag"));
-      const created = await response.json();
-      if (disposed || tagController !== controller) return;
-      confirmedAvailableTagIds.add(created.id);
-      setAvailableTags((current) =>
-        [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
-      );
-      toast.success(`Created ${created.name}`);
-    } catch (error) {
-      if (!disposed && tagController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
-        await prompts.error(error instanceof Error ? error.message : "Failed to create tag");
-      }
-    } finally {
-      if (tagController === controller) tagController = null;
-    }
+    if (values) await createTagMutation.mutate(values);
   };
 
   const addComment = mutations.create<ConversationComment | null, void>({
@@ -453,9 +447,7 @@ export default function MailDetailsPanel(props: {
   );
 
   onCleanup(() => {
-    disposed = true;
-    tagController?.abort();
-    tagController = null;
+    createTagMutation.abort();
     addComment.abort();
     removeComment.abort();
     editComment.abort();

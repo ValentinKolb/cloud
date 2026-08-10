@@ -1,5 +1,6 @@
 import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
+import { mutation, query } from "@k2b/stdlib/solid";
 import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@k2b/ui";
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { type CloudTheme, getCurrentThemePreference } from "@valentinkolb/cloud/shared";
@@ -10,7 +11,7 @@ import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessa
 import type { ConversationCollaboration } from "../service/collaboration";
 import type { ConversationLocalTags } from "../service/local-tags";
 import type { ConversationPresenceSnapshot } from "../service/presence";
-import type { MailboxPageData, MailConversationDetailData, MailListItem } from "../service/workspace";
+import type { MailboxPageData, MailListItem } from "../service/workspace";
 import { readApiError } from "./_components/api-response";
 import { openMailAttachmentLinksDialog } from "./_components/MailAttachmentLinksDialog";
 import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
@@ -35,26 +36,26 @@ import {
 import type { MailConversationToolbarActionId } from "./_components/mail-conversation-toolbar";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
 import { preserveUnavailableMailDetail } from "./_components/mail-detail-availability";
-import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
 import {
   type MailListOptimisticField,
   type MailListOptimisticPatch,
   type PendingMailListState,
   reconcileMailListOptimisticState,
 } from "./_components/mail-list-optimistic";
-import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
+import { createMailLiveInvalidationHub, type MailLiveInvalidation } from "./_components/mail-live-invalidation-hub";
 import { buildMailListHref, isMailWorkspaceUrl } from "./_components/mail-navigation";
 import { createMailPresenceSession } from "./_components/mail-presence-session";
 import type { MailUserPreferences } from "./_components/mail-user-preferences";
 import {
   decideMailAutoReadIntent,
+  type MailWorkspaceActionExecution,
   type MailWorkspaceActionOptions,
+  type MailWorkspaceActionRunnerHost,
   runMailWorkspaceAction,
-} from "./_components/mail-workspace-action-controller";
+} from "./_components/mail-workspace-action-runner";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
-const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 const mailListScope = (href: string): string => {
   const url = new URL(href, "http://mail.local");
   url.searchParams.delete("conversation");
@@ -78,8 +79,6 @@ export default function MailWorkspace(props: {
   // server snapshot remains one canonical contract.
   const [data, setData] = createStore(props.data);
   const [requestUrl, setRequestUrl] = createSignal(props.requestUrl);
-  const [routeLoading, setRouteLoading] = createSignal(false);
-  const [selectionLoading, setSelectionLoading] = createSignal(false);
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
   const [detailsOpen, setDetailsOpen] = createSignal(props.initialPreferences.detailsOpen);
   const [toolbarActions, setToolbarActions] = createSignal(props.initialPreferences.toolbarActions);
@@ -94,28 +93,24 @@ export default function MailWorkspace(props: {
   const liveDegraded = createMemo(() => liveTransportDegraded() || liveSnapshotDegraded());
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
-  const [actionPending, setActionPending] = createSignal(false);
   const [conversationOpenIntent, setConversationOpenIntent] = createSignal(0);
   const mailboxId = props.data.mailbox.id;
   const userPreferences = createMemo(() => observeMailUserPreferences(mailboxId, props.initialUserPreferences));
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let liveTransportTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
-  let routeRequest = 0;
-  let selectionRequest = 0;
-  let liveRequest = 0;
-  let routeController: AbortController | null = null;
-  let liveController: AbortController | null = null;
-  let actionController: AbortController | null = null;
+  let actionMutationLoading = () => false;
+  let structureMutationLoading = () => false;
+  const actionPending = () => structureMutationLoading() || actionMutationLoading();
   let disposed = false;
   const focusFrames = new Set<number>();
   let pendingListState = new Map<string, PendingMailListState>();
-  const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
   const canWrite = createMemo(() => rank(data.permission) >= 2);
   const canAdmin = createMemo(() => rank(data.permission) >= 3);
-  const workspaceRefreshBlocked = () => settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
+  let routeLoading = () => false;
+  const workspaceRefreshBlocked = () => settingsOpening() || managementOpening() !== null;
 
   onMount(() => {
     writeMailWorkspacePreferences({
@@ -171,6 +166,50 @@ export default function MailWorkspace(props: {
     return await response.json();
   };
 
+  type WorkspaceRouteResult = { source: string; snapshot: MailboxPageData };
+  type WorkspaceTransition = {
+    source: string;
+    resolve: (result: "applied" | "failed" | "stale") => void;
+  };
+  const encodeRouteSource = (href: string, listMode: MailboxPageData["listMode"]) => JSON.stringify({ href, listMode });
+  const decodeRouteSource = (source: string): { href: string; listMode: MailboxPageData["listMode"] } => JSON.parse(source);
+  const initialRouteSource = encodeRouteSource(props.requestUrl, props.data.listMode);
+  const [routeSource, setRouteSource] = createSignal(initialRouteSource);
+  let committedRouteSource = initialRouteSource;
+  let workspaceTransition: WorkspaceTransition | null = null;
+
+  const liveHub = createMailLiveInvalidationHub({
+    delayMs: 180,
+    isBlocked: workspaceRefreshBlocked,
+    onApplied: (cursor) => {
+      setLiveSnapshotDegraded(false);
+      markLiveApplied(cursor);
+    },
+    onFailed: () => setLiveSnapshotDegraded(true),
+  });
+
+  const workspaceQuery = query.createInfinite<string, WorkspaceRouteResult, string, MailLiveInvalidation>({
+    source: routeSource,
+    initial: { source: initialRouteSource, pages: [{ source: initialRouteSource, snapshot: props.data }] },
+    loadPage: async (source, { cursor, abortSignal }) => {
+      const target = decodeRouteSource(source);
+      const url = new URL(target.href, window.location.origin);
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const snapshot = await fetchWorkspaceRoute(url.toString(), abortSignal, target.listMode);
+      if (!snapshot) throw new Error("Could not load mailbox view");
+      const nextCursor = snapshot.scheduledMode ? snapshot.scheduledPage?.nextCursor : snapshot.nextListCursor;
+      if (cursor && nextCursor === cursor) throw new Error("The mailbox returned the same page twice");
+      return { source, snapshot };
+    },
+    getNextCursor: (page) => (page.snapshot.scheduledMode ? page.snapshot.scheduledPage?.nextCursor : page.snapshot.nextListCursor),
+    subscribe: ({ invalidate }) =>
+      liveHub.register({
+        matches: () => true,
+        invalidate,
+      }),
+  });
+  routeLoading = () => workspaceQuery.loading() || workspaceQuery.refreshing() || workspaceQuery.loadingMore();
+
   const preserveCurrentDetail = (next: MailboxPageData): MailboxPageData =>
     next.selectedConversationId && next.selectedConversationId === data.selectedConversationId
       ? {
@@ -179,70 +218,83 @@ export default function MailWorkspace(props: {
         }
       : next;
 
-  const replaceWorkspaceRoute = async (
+  const replaceWorkspaceRoute = (
     href: string,
     listMode: MailboxPageData["listMode"] = data.listMode,
   ): Promise<"applied" | "failed" | "stale"> => {
-    selectionRequest += 1;
-    setSelectionLoading(false);
-    const request = ++routeRequest;
-    routeController?.abort();
-    const controller = new AbortController();
-    routeController = controller;
-    setRouteLoading(true);
-    try {
-      const target = new URL(href, window.location.origin);
-      if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return "failed";
-      const next = await fetchWorkspaceRoute(target.toString(), controller.signal, listMode);
-      if (!next) return "failed";
-      if (request !== routeRequest) return "stale";
-      const scopeChanged = mailListScope(requestUrl()) !== mailListScope(target.toString());
-      batch(() => {
-        setRequestUrl(target.toString());
-        setData(reconcile(applyPendingListState(preserveCurrentDetail(next))));
-        setConversationSelection((current) =>
-          scopeChanged
-            ? emptyMailConversationSelection()
-            : pruneMailConversationSelection(
-                current,
-                new Set(next.listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []))),
-              ),
-        );
-        if (scopeChanged) setSelectionMode(false);
-      });
-      if (scopeChanged) detailCache.clear();
-      return "applied";
-    } catch (error) {
-      return isAbortError(error) ? "stale" : "failed";
-    } finally {
-      if (routeController === controller) routeController = null;
-      if (request === routeRequest) setRouteLoading(false);
+    const target = new URL(href, window.location.origin);
+    if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return Promise.resolve("failed");
+    const source = encodeRouteSource(target.toString(), listMode);
+    if (workspaceTransition) workspaceTransition.resolve("stale");
+    workspaceTransition = null;
+    if (source === routeSource()) {
+      return workspaceQuery
+        .invalidate({ cursor: null, conversationIds: null })
+        .then(() => "applied" as const)
+        .catch(() => "failed" as const);
     }
+    return new Promise((resolve) => {
+      workspaceTransition = { source, resolve };
+      setRouteSource(source);
+    });
   };
 
-  const refreshLiveSnapshot = async (): Promise<"applied" | "failed" | "stale"> => {
-    const request = ++liveRequest;
-    liveController?.abort();
-    const controller = new AbortController();
-    liveController = controller;
-    const expectedHref = requestUrl();
-    const expectedConversationId = data.selectedConversationId;
-    try {
-      const fresh = await fetchWorkspaceRoute(expectedHref, controller.signal);
-      if (!fresh) return "failed";
-      if (request !== liveRequest || requestUrl() !== expectedHref || data.selectedConversationId !== expectedConversationId)
-        return "stale";
-      // A live event invalidates every cursor after the first page. Keeping an
-      // old tail would retain moved or deleted rows with no way to prove their
-      // position, so converge on the canonical first page and resume from its cursor.
-      setData(reconcile(applyPendingListState(preserveCurrentDetail(fresh))));
-      return "applied";
-    } catch (error) {
-      return isAbortError(error) ? "stale" : "failed";
-    } finally {
-      if (liveController === controller) liveController = null;
+  createEffect(() => {
+    const pages = workspaceQuery.pages();
+    const first = pages[0];
+    if (!first || first.source !== routeSource()) return;
+    const target = decodeRouteSource(first.source);
+    const scopeChanged = mailListScope(requestUrl()) !== mailListScope(target.href);
+    let next = applyPendingListState(preserveCurrentDetail(first.snapshot));
+    for (const page of pages.slice(1)) {
+      const reconciled = applyPendingListState(page.snapshot);
+      if (next.scheduledMode && next.scheduledPage && reconciled.scheduledPage) {
+        const items = new Map(next.scheduledPage.items.map((item) => [item.id, item]));
+        for (const item of reconciled.scheduledPage.items) items.set(item.id, item);
+        next = {
+          ...next,
+          scheduledPage: { ...reconciled.scheduledPage, items: [...items.values()] },
+          scheduledError: reconciled.scheduledError,
+        };
+        continue;
+      }
+      const merged = mergeMailCursorPage({
+        currentItems: next.listItems,
+        currentNextCursor: next.nextListCursor,
+        pageItems: reconciled.listItems,
+        pageNextCursor: reconciled.nextListCursor,
+      });
+      if (!merged.ok) continue;
+      next = { ...next, listItems: merged.items, nextListCursor: merged.nextCursor, listError: reconciled.listError };
     }
-  };
+    batch(() => {
+      committedRouteSource = first.source;
+      setRequestUrl(target.href);
+      setData(reconcile(next));
+      setConversationSelection((current) =>
+        scopeChanged
+          ? emptyMailConversationSelection()
+          : pruneMailConversationSelection(
+              current,
+              new Set(next.listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []))),
+            ),
+      );
+      if (scopeChanged) setSelectionMode(false);
+    });
+    if (workspaceTransition?.source === first.source) {
+      workspaceTransition.resolve("applied");
+      workspaceTransition = null;
+    }
+  });
+
+  createEffect(() => {
+    const error = workspaceQuery.error();
+    if (!error || routeLoading() || workspaceTransition?.source !== routeSource()) return;
+    const transition = workspaceTransition;
+    workspaceTransition = null;
+    if (routeSource() !== committedRouteSource) setRouteSource(committedRouteSource);
+    transition.resolve("failed");
+  });
 
   const navigateWorkspace = async (nav: LinkNavigateEvent) => {
     const result = await replaceWorkspaceRoute(nav.href);
@@ -269,48 +321,12 @@ export default function MailWorkspace(props: {
 
   const loadMoreConversations = async (href: string): Promise<boolean> => {
     if (routeLoading()) return false;
-    const request = ++routeRequest;
-    routeController?.abort();
-    const controller = new AbortController();
-    routeController = controller;
-    const sourceUrl = requestUrl();
-    setRouteLoading(true);
-    try {
-      const target = new URL(href, window.location.origin);
-      if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) throw new Error("Invalid mailbox page");
-      const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
-        {
-          param: { mailboxId: data.mailbox.id },
-          query: { href: `${target.pathname}${target.search}`, listMode: data.listMode },
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load more conversations"));
-      const next = await response.json();
-      if (request !== routeRequest || requestUrl() !== sourceUrl) return false;
-      const reconciledPage = reconcileMailListOptimisticState(next.listItems, pendingListState);
-      pendingListState = reconciledPage.pending;
-      const merged = mergeMailCursorPage({
-        currentItems: data.listItems,
-        currentNextCursor: data.nextListCursor,
-        pageItems: reconciledPage.items,
-        pageNextCursor: next.nextListCursor,
-      });
-      if (!merged.ok) {
-        throw new Error("The mailbox returned the same page twice. Retry after the next sync.");
-      }
-      setData("listItems", merged.items);
-      setData("nextListCursor", merged.nextCursor);
-      setData("listError", next.listError);
-      return true;
-    } catch (error) {
-      if (request === routeRequest && !isAbortError(error))
-        toast.error(error instanceof Error ? error.message : "Could not load more conversations");
-      return false;
-    } finally {
-      if (routeController === controller) routeController = null;
-      if (request === routeRequest) setRouteLoading(false);
-    }
+    const target = new URL(href, window.location.origin);
+    if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return false;
+    await workspaceQuery.loadMore();
+    const error = workspaceQuery.error();
+    if (error) toast.error(error.message);
+    return !error;
   };
 
   const persistPreferences = () => {
@@ -415,26 +431,8 @@ export default function MailWorkspace(props: {
     });
   });
 
-  const liveRefresh = createMailLiveRefreshCoordinator({
-    delayMs: 180,
-    isBlocked: workspaceRefreshBlocked,
-    refresh: refreshLiveSnapshot,
-    onApplied: (cursor) => {
-      setLiveSnapshotDegraded(false);
-      markLiveApplied(cursor);
-    },
-    onFailed: () => setLiveSnapshotDegraded(true),
-  });
-
   createEffect(() => {
-    if (workspaceRefreshBlocked()) {
-      // Dialog flows can own transient state that a route snapshot must not replace.
-      liveRequest += 1;
-      liveController?.abort();
-      liveController = null;
-      return;
-    }
-    liveRefresh.resume();
+    if (!workspaceRefreshBlocked()) liveHub.resume();
   });
 
   const openSettings = async (initialTab?: string) => {
@@ -597,15 +595,16 @@ export default function MailWorkspace(props: {
         }
         if (message.type === MAIL_LIVE_WS_TYPE.ready) {
           if (props.data.initialLiveCursor === null || readyReceived) {
-            liveRefresh.schedule(message.payload.cursor);
+            liveHub.schedule({ cursor: message.payload.cursor, conversationId: null });
           } else controls.markApplied(message.payload.cursor);
           readyReceived = true;
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
-          if (message.payload.event.conversationId) detailCache.invalidate(message.payload.event.conversationId);
-          else detailCache.clear();
-          liveRefresh.schedule(message.payload.cursor);
+          liveHub.schedule({
+            cursor: message.payload.cursor,
+            conversationId: message.payload.event.conversationId,
+          });
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
@@ -654,33 +653,15 @@ export default function MailWorkspace(props: {
 
   onCleanup(() => {
     disposed = true;
-    routeRequest += 1;
-    selectionRequest += 1;
-    liveRequest += 1;
     if (preferenceTimer) clearTimeout(preferenceTimer);
     if (liveTransportTimer) clearTimeout(liveTransportTimer);
-    routeController?.abort();
-    liveController?.abort();
-    actionController?.abort();
-    actionController = null;
-    detailCache.clear();
-    liveRefresh.dispose();
+    workspaceTransition?.resolve("stale");
+    workspaceTransition = null;
+    liveHub.dispose();
     for (const frame of focusFrames) cancelAnimationFrame(frame);
     focusFrames.clear();
   });
 
-  const reserveWorkspaceAction = (): AbortController | null => {
-    if (!canWrite() || actionPending() || disposed) return null;
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
-    return controller;
-  };
-  const releaseWorkspaceAction = (controller: AbortController) => {
-    if (disposed || actionController !== controller) return;
-    actionController = null;
-    setActionPending(false);
-  };
   const hasSelection = createMemo(() => Boolean(data.selectedConversationId || data.selectedMessageId));
   const selectedListItem = createMemo(() =>
     data.listItems.find((item) =>
@@ -750,32 +731,6 @@ export default function MailWorkspace(props: {
     }
   };
 
-  const loadConversationDetail = (conversationId: string) =>
-    detailCache.load(conversationId, async (signal) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["workspace-detail"][":conversationId"].$get(
-        { param: { mailboxId, conversationId } },
-        { init: { signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load conversation"));
-      return await response.json();
-    });
-
-  const prefetchConversation = (item: MailListItem) => {
-    if (!item.conversationId || item.conversationId === data.selectedConversationId) return;
-    void loadConversationDetail(item.conversationId).catch((error) => {
-      if (!isAbortError(error)) detailCache.invalidate(item.conversationId!);
-    });
-  };
-
-  const prefetchNeighbors = (conversationId: string) => {
-    const items = data.listItems;
-    const index = items.findIndex((item) => item.conversationId === conversationId);
-    if (index < 0) return;
-    const neighbors = [items[index - 1], items[index + 1]].filter((item): item is MailListItem => Boolean(item?.conversationId));
-    detailCache.retain(new Set([conversationId, ...neighbors.map((item) => item.conversationId!)]));
-    for (const neighbor of neighbors) prefetchConversation(neighbor);
-  };
-
   const focusConversation = (conversationId: string, target: "reader" | "row") => {
     const frame = requestAnimationFrame(() => {
       focusFrames.delete(frame);
@@ -796,48 +751,9 @@ export default function MailWorkspace(props: {
     activation: "keyboard" | "pointer",
   ): Promise<"applied" | "failed" | "stale"> => {
     if (!item.conversationId) return "failed";
-    const target = new URL(href, window.location.origin);
-    if (!isMailWorkspaceUrl(target, mailboxId, window.location.origin)) return "failed";
-
-    routeRequest += 1;
-    routeController?.abort();
-    routeController = null;
-    setRouteLoading(false);
-    const request = ++selectionRequest;
-    setSelectionLoading(true);
-    const items = data.listItems;
-    const index = items.findIndex((candidate) => candidate.conversationId === item.conversationId);
-    detailCache.retain(
-      new Set(
-        [items[index - 1]?.conversationId, item.conversationId, items[index + 1]?.conversationId].filter(
-          (conversationId): conversationId is string => Boolean(conversationId),
-        ),
-      ),
-    );
-    try {
-      const detail = await loadConversationDetail(item.conversationId);
-      if (request !== selectionRequest) return "stale";
-      batch(() => {
-        setRequestUrl(target.toString());
-        setData({
-          ...detail,
-          selectedConversationId: item.conversationId,
-          selectedMessageId: item.selectionKind === "message" ? item.id : null,
-          selectedSubject: detail.selectedSubject || item.subject || "Message",
-        });
-      });
-      prefetchNeighbors(item.conversationId);
-      if (activation === "keyboard") focusConversation(item.conversationId, "reader");
-      return "applied";
-    } catch (error) {
-      if (!isAbortError(error)) detailCache.invalidate(item.conversationId);
-      return request !== selectionRequest || isAbortError(error) ? "stale" : "failed";
-    } finally {
-      if (request === selectionRequest) {
-        setSelectionLoading(false);
-        liveRefresh.resume();
-      }
-    }
+    const result = await replaceWorkspaceRoute(href);
+    if (result === "applied" && activation === "keyboard") focusConversation(item.conversationId, "reader");
+    return result;
   };
 
   const navigateConversation = async (href: string, item: MailListItem, activation: "keyboard" | "pointer") => {
@@ -1006,13 +922,11 @@ export default function MailWorkspace(props: {
     return `${current.pathname}${current.search}`;
   };
 
-  const mergeConversation = async (source: { conversationId: string; revision: number; subject: string }) => {
-    const controller = reserveWorkspaceAction();
-    if (!controller) return;
-    const { conversationId: sourceConversationId, revision: sourceRevision } = source;
-    try {
+  const mergeConversationMutation = mutation.create<void, { conversationId: string; revision: number; subject: string }>({
+    mutation: async (source, { abortSignal }) => {
+      const { conversationId: sourceConversationId, revision: sourceRevision } = source;
       const target = await chooseConversationTarget(sourceConversationId);
-      if (!target || disposed || actionController !== controller) return;
+      if (!target || abortSignal.aborted || disposed) return;
       const confirmed = await prompts.confirm(
         `Move every message, comment, draft, tag, and reference from “${source.subject || "this conversation"}” into “${target.subject || "the selected conversation"}”?`,
         {
@@ -1021,7 +935,7 @@ export default function MailWorkspace(props: {
           confirmText: "Merge conversations",
         },
       );
-      if (!confirmed || disposed || actionController !== controller) return;
+      if (!confirmed || abortSignal.aborted || disposed) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].merge.$post(
         {
           param: { mailboxId, conversationId: target.conversationId },
@@ -1033,22 +947,22 @@ export default function MailWorkspace(props: {
             confirm: true,
           },
         },
-        { init: { signal: controller.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not merge conversations"));
-      if (disposed || actionController !== controller) return;
-      detailCache.clear();
+      if (abortSignal.aborted || disposed) return;
       await openWorkspaceHref(conversationHref(target.conversationId), true);
-      if (disposed || actionController !== controller) return;
+      if (abortSignal.aborted || disposed) return;
       toast.success("Conversations merged");
-    } catch (error) {
-      if (disposed || actionController !== controller || isAbortError(error)) return;
-      await prompts.error(error instanceof Error ? error.message : "Could not merge conversations", {
+    },
+    onError: (error) =>
+      prompts.error(error.message, {
         title: "Conversation was not changed",
-      });
-    } finally {
-      releaseWorkspaceAction(controller);
-    }
+      }),
+  });
+  const mergeConversation = (source: { conversationId: string; revision: number; subject: string }) => {
+    if (!canWrite() || actionPending() || disposed) return Promise.resolve();
+    return mergeConversationMutation.mutate(source);
   };
 
   const mergeSelectedConversation = () => {
@@ -1058,13 +972,8 @@ export default function MailWorkspace(props: {
     return mergeConversation({ conversationId, revision, subject: data.selectedSubject });
   };
 
-  const reassignMessage = async (messageId: string) => {
-    const sourceConversationId = data.selectedConversationId;
-    const sourceRevision = selectedConversationRevision();
-    if (!canWrite() || !sourceConversationId || !sourceRevision) return;
-    const controller = reserveWorkspaceAction();
-    if (!controller) return;
-    try {
+  const reassignMessageMutation = mutation.create<void, { messageId: string; sourceConversationId: string; sourceRevision: number }>({
+    mutation: async ({ messageId, sourceConversationId, sourceRevision }, { abortSignal }) => {
       if ((selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) {
         await prompts.error("This is the only message in the conversation. Merge the whole conversation instead.", {
           title: "Message cannot be moved on its own",
@@ -1072,7 +981,7 @@ export default function MailWorkspace(props: {
         return;
       }
       const target = await chooseConversationTarget(sourceConversationId);
-      if (!target || disposed || actionController !== controller) return;
+      if (!target || abortSignal.aborted || disposed) return;
       const confirmed = await prompts.confirm(
         `Move this message and its linked internal comments into “${target.subject || "the selected conversation"}”?`,
         {
@@ -1081,7 +990,7 @@ export default function MailWorkspace(props: {
           confirmText: "Move message",
         },
       );
-      if (!confirmed || disposed || actionController !== controller) return;
+      if (!confirmed || abortSignal.aborted || disposed) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].messages[":messageId"].reassign.$post(
         {
           param: { mailboxId, conversationId: sourceConversationId, messageId },
@@ -1093,37 +1002,31 @@ export default function MailWorkspace(props: {
             confirm: true,
           },
         },
-        { init: { signal: controller.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not move message"));
-      if (disposed || actionController !== controller) return;
-      detailCache.clear();
+      if (abortSignal.aborted || disposed) return;
       await reconcileWorkspace();
-      if (disposed || actionController !== controller) return;
+      if (abortSignal.aborted || disposed) return;
       toast.success("Message moved to another conversation");
-    } catch (error) {
-      if (disposed || actionController !== controller || isAbortError(error)) return;
-      await prompts.error(error instanceof Error ? error.message : "Could not move message", {
-        title: "Message was not moved",
-      });
-    } finally {
-      releaseWorkspaceAction(controller);
-    }
+    },
+    onError: (error) => prompts.error(error.message, { title: "Message was not moved" }),
+  });
+  const reassignMessage = (messageId: string) => {
+    const sourceConversationId = data.selectedConversationId;
+    const sourceRevision = selectedConversationRevision();
+    if (!canWrite() || actionPending() || !sourceConversationId || !sourceRevision) return Promise.resolve();
+    return reassignMessageMutation.mutate({ messageId, sourceConversationId, sourceRevision });
   };
 
-  const splitMessage = async (messageId: string) => {
-    const conversationId = data.selectedConversationId;
-    const revision = selectedConversationRevision();
-    if (!canWrite() || !conversationId || !revision || (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) return;
-    const controller = reserveWorkspaceAction();
-    if (!controller) return;
-    try {
+  const splitMessageMutation = mutation.create<void, { messageId: string; conversationId: string; revision: number }>({
+    mutation: async ({ messageId, conversationId, revision }, { abortSignal }) => {
       const confirmed = await prompts.confirm("Create a separate conversation from this message and its linked internal comments?", {
         title: "Start a new conversation?",
         icon: "ti ti-arrows-split-2",
         confirmText: "Create conversation",
       });
-      if (!confirmed || disposed || actionController !== controller) return;
+      if (!confirmed || abortSignal.aborted || disposed) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].split.$post(
         {
           param: { mailboxId, conversationId },
@@ -1134,149 +1037,155 @@ export default function MailWorkspace(props: {
             confirm: true,
           },
         },
-        { init: { signal: controller.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not create a separate conversation"));
       const result = await response.json();
-      if (disposed || actionController !== controller) return;
-      detailCache.clear();
+      if (abortSignal.aborted || disposed) return;
       await openWorkspaceHref(conversationHref(result.created.id), true);
-      if (disposed || actionController !== controller) return;
+      if (abortSignal.aborted || disposed) return;
       toast.success("New conversation created");
-    } catch (error) {
-      if (disposed || actionController !== controller || isAbortError(error)) return;
-      await prompts.error(error instanceof Error ? error.message : "Could not create a separate conversation", {
-        title: "Conversation was not changed",
-      });
-    } finally {
-      releaseWorkspaceAction(controller);
-    }
+    },
+    onError: (error) => prompts.error(error.message, { title: "Conversation was not changed" }),
+  });
+  const splitMessage = (messageId: string) => {
+    const conversationId = data.selectedConversationId;
+    const revision = selectedConversationRevision();
+    if (
+      !canWrite() ||
+      actionPending() ||
+      !conversationId ||
+      !revision ||
+      (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1
+    )
+      return Promise.resolve();
+    return splitMessageMutation.mutate({ messageId, conversationId, revision });
   };
 
-  const runAction = (actionId: MailActionId, options: MailWorkspaceActionOptions = {}) =>
-    runMailWorkspaceAction(actionId, options, {
-      canRun: () => canWrite() && !actionPending(),
-      resolveTargets: actionTargets,
-      chooseDestinationFolder,
-      isDisposed: () => disposed,
-      begin: (controller) => {
-        actionController = controller;
-        setActionPending(true);
-      },
-      isCurrent: (controller) => !disposed && actionController === controller,
-      finish: (controller) => {
-        if (disposed || actionController !== controller) return;
-        actionController = null;
-        setActionPending(false);
-      },
-      isAbortError,
-      applyOptimistic: (nextActionId, targets) => {
-        if (nextActionId === "mark_read" || nextActionId === "mark_unread") {
-          const unread = nextActionId === "mark_unread";
-          for (const target of targets) {
-            rememberPendingListState(target.conversationId, { unread });
-            setConversationUnread(target.conversationId, unread);
-          }
+  const actionHost = {
+    resolveTargets: actionTargets,
+    chooseDestinationFolder,
+    applyOptimistic: (nextActionId, targets) => {
+      if (nextActionId === "mark_read" || nextActionId === "mark_unread") {
+        const unread = nextActionId === "mark_unread";
+        for (const target of targets) {
+          rememberPendingListState(target.conversationId, { unread });
+          setConversationUnread(target.conversationId, unread);
         }
-        if (nextActionId === "flag" || nextActionId === "unflag") {
-          const flagged = nextActionId === "flag";
-          for (const target of targets) {
-            rememberPendingListState(target.conversationId, { flagged });
-            setConversationFlagged(target.conversationId, flagged);
-          }
+      }
+      if (nextActionId === "flag" || nextActionId === "unflag") {
+        const flagged = nextActionId === "flag";
+        for (const target of targets) {
+          rememberPendingListState(target.conversationId, { flagged });
+          setConversationFlagged(target.conversationId, flagged);
         }
-      },
-      clearOptimistic: (conversationIds, fields) => {
-        for (const conversationId of conversationIds) clearPendingListState(conversationId, [...fields]);
-      },
-      submit: async ({ actionId: nextActionId, target, sourceFolderId, destinationFolderId, correlationId, signal }) => {
-        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post(
-          {
-            param: { mailboxId, conversationId: target.conversationId },
-            json: buildMailActionInput({
-              actionId: nextActionId,
-              sourceFolderId,
-              destinationFolderId,
-              correlationId,
-              idempotencyKey: crypto.randomUUID(),
-            }),
-          },
-          { init: { signal } },
-        );
-        if (!response.ok)
-          throw new Error(await readApiError(response, `Could not ${getMailAction(nextActionId).label.toLocaleLowerCase()}`));
-      },
-      pruneSelection: (succeeded) => {
-        const current = conversationSelection();
-        const ids = new Set([...current.ids].filter((id) => !succeeded.has(id)));
-        setConversationSelection({
-          ids,
-          anchorId: current.anchorId && !succeeded.has(current.anchorId) ? current.anchorId : null,
-        });
-        if (ids.size === 0) setSelectionMode(false);
-      },
-      removesActiveConversation: (nextActionId, succeeded) =>
-        ["archive", "junk", "not_spam", "trash", "move"].includes(nextActionId) &&
-        Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId)),
-      refreshAfterSuccess: async ({ removesActiveConversation, succeededConversationIds }) => {
-        if (!removesActiveConversation) return reconcileWorkspace();
-        const focusAfterRemoval = findMailFocusAfterRemoval({
-          orderedConversationIds: orderedConversationIds(),
-          activeConversationId: data.selectedConversationId,
-          removedConversationIds: succeededConversationIds,
-        });
-        await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
-        if (!disposed && focusAfterRemoval) focusConversation(focusAfterRemoval, "row");
-      },
-      reconcile: reconcileWorkspace,
-      showMissingTarget: async () => {
-        await prompts.error("Open the conversation from a mailbox folder, then try this action again.", {
-          title: "Choose a folder first",
-        });
-      },
-      showNothingToMove: () => toast("The selected conversations are already in this folder", { title: "Nothing to move" }),
-      showSuccess: (nextActionId, targetCount, successCount) =>
-        toast.success(
-          targetCount === 1
-            ? `${getMailAction(nextActionId).label} queued`
-            : `${getMailAction(nextActionId).label} queued for ${successCount} conversations`,
-        ),
-      showFailures: async (failures, targetCount) => {
-        await prompts.error(
-          failures
-            .slice(0, 5)
-            .map(
-              (failure) =>
-                `${failure.label}: ${failure.message}${failure.submittedPlacements > 0 ? " (some placements were already queued)" : ""}`,
-            )
-            .join("\n"),
-          { title: `${failures.length} of ${targetCount} conversations failed` },
-        );
-      },
-      showError: async (error) => {
-        await prompts.error(error instanceof Error ? error.message : "Could not update conversations");
-      },
+      }
+    },
+    clearOptimistic: (conversationIds, fields) => {
+      for (const conversationId of conversationIds) clearPendingListState(conversationId, [...fields]);
+    },
+    submit: async ({ actionId: nextActionId, target, sourceFolderId, destinationFolderId, correlationId, idempotencyKey, signal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post(
+        {
+          param: { mailboxId, conversationId: target.conversationId },
+          json: buildMailActionInput({
+            actionId: nextActionId,
+            sourceFolderId,
+            destinationFolderId,
+            correlationId,
+            idempotencyKey,
+          }),
+        },
+        { init: { signal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, `Could not ${getMailAction(nextActionId).label.toLocaleLowerCase()}`));
+    },
+    pruneSelection: (succeeded) => {
+      const current = conversationSelection();
+      const ids = new Set([...current.ids].filter((id) => !succeeded.has(id)));
+      setConversationSelection({
+        ids,
+        anchorId: current.anchorId && !succeeded.has(current.anchorId) ? current.anchorId : null,
+      });
+      if (ids.size === 0) setSelectionMode(false);
+    },
+    removesActiveConversation: (nextActionId, succeeded) =>
+      ["archive", "junk", "not_spam", "trash", "move"].includes(nextActionId) &&
+      Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId)),
+    refreshAfterSuccess: async ({ removesActiveConversation, succeededConversationIds }) => {
+      if (!removesActiveConversation) return reconcileWorkspace();
+      const focusAfterRemoval = findMailFocusAfterRemoval({
+        orderedConversationIds: orderedConversationIds(),
+        activeConversationId: data.selectedConversationId,
+        removedConversationIds: succeededConversationIds,
+      });
+      await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
+      if (!disposed && focusAfterRemoval) focusConversation(focusAfterRemoval, "row");
+    },
+    reconcile: reconcileWorkspace,
+    showMissingTarget: async () => {
+      await prompts.error("Open the conversation from a mailbox folder, then try this action again.", {
+        title: "Choose a folder first",
+      });
+    },
+    showNothingToMove: () => toast("The selected conversations are already in this folder", { title: "Nothing to move" }),
+    showSuccess: (nextActionId, targetCount, successCount) =>
+      toast.success(
+        targetCount === 1
+          ? `${getMailAction(nextActionId).label} queued`
+          : `${getMailAction(nextActionId).label} queued for ${successCount} conversations`,
+      ),
+    showFailures: async (failures, targetCount) => {
+      await prompts.error(
+        failures
+          .slice(0, 5)
+          .map(
+            (failure) =>
+              `${failure.label}: ${failure.message}${failure.submittedPlacements > 0 ? " (some placements were already queued)" : ""}`,
+          )
+          .join("\n"),
+        { title: `${failures.length} of ${targetCount} conversations failed` },
+      );
+    },
+    showError: async (error) => {
+      await prompts.error(error instanceof Error ? error.message : "Could not update conversations");
+    },
+  } satisfies MailWorkspaceActionRunnerHost;
+  const actionMutation = mutation.create<
+    void,
+    {
+      actionId: MailActionId;
+      options: MailWorkspaceActionOptions;
+      execution: MailWorkspaceActionExecution;
+    }
+  >({
+    mutation: ({ actionId, options, execution }, { abortSignal }) =>
+      runMailWorkspaceAction(actionId, options, actionHost, abortSignal, execution),
+  });
+  actionMutationLoading = actionMutation.loading;
+  const runAction = (actionId: MailActionId, options: MailWorkspaceActionOptions = {}) => {
+    if (!canWrite() || actionPending() || disposed) return Promise.resolve();
+    return actionMutation.mutate({
+      actionId,
+      options,
+      execution: { correlationId: crypto.randomUUID(), idempotencyKeys: new Map() },
     });
+  };
 
-  const addTagsToSelection = async () => {
-    if (!canWrite()) return;
-    const conversationIds = [...selectedConversationIds()];
-    if (conversationIds.length === 0) return;
-    const controller = reserveWorkspaceAction();
-    if (!controller) return;
-    try {
+  const addTagsMutation = mutation.create<void, string[]>({
+    mutation: async (conversationIds, { abortSignal }) => {
       const tagIds = await chooseBulkTags(data.localTags);
-      if (!tagIds?.length || disposed || actionController !== controller) return;
+      if (!tagIds?.length || abortSignal.aborted || disposed) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations["local-tags"].$post(
         {
           param: { mailboxId },
           json: { conversationIds, tagIds },
         },
-        { init: { signal: controller.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not add tags"));
       const result = await response.json();
-      if (disposed || actionController !== controller) return;
+      if (abortSignal.aborted || disposed) return;
       const addedTags = data.localTags.filter((tag) => tagIds.includes(tag.id));
       for (const conversationId of conversationIds) {
         const item = data.listItems.find((candidate) => candidate.conversationId === conversationId);
@@ -1293,48 +1202,66 @@ export default function MailWorkspace(props: {
       setConversationSelection(emptyMailConversationSelection());
       setSelectionMode(false);
       await reconcileWorkspace();
-      if (disposed || actionController !== controller) return;
+      if (abortSignal.aborted || disposed) return;
       toast.success(
         result.updatedConversationIds.length === 0
           ? "Selected conversations already had these tags"
           : `Tags added to ${result.updatedConversationIds.length} ${result.updatedConversationIds.length === 1 ? "conversation" : "conversations"}`,
       );
-    } catch (error) {
-      if (disposed || actionController !== controller || isAbortError(error)) return;
-      await prompts.error(error instanceof Error ? error.message : "Could not add tags");
-    } finally {
-      releaseWorkspaceAction(controller);
-    }
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const addTagsToSelection = () => {
+    const conversationIds = [...selectedConversationIds()];
+    if (!canWrite() || actionPending() || conversationIds.length === 0) return Promise.resolve();
+    return addTagsMutation.mutate(conversationIds);
   };
 
-  const manageConversationTags = async (item: MailListItem) => {
-    if (!canWrite() || !item.conversationId) return;
-    const controller = reserveWorkspaceAction();
-    if (!controller) return;
-    try {
+  const manageConversationTagsMutation = mutation.create<void, MailListItem>({
+    mutation: async (item, { abortSignal }) => {
+      if (!item.conversationId) return;
       const tagIds = await chooseConversationTags(data.localTags, item.localTags);
-      if (tagIds === undefined || tagIds === null || disposed || actionController !== controller) return;
+      if (tagIds === undefined || tagIds === null || abortSignal.aborted || disposed) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put(
         {
           param: { mailboxId, conversationId: item.conversationId },
           json: { expectedRevision: item.revision, tagIds },
         },
-        { init: { signal: controller.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not update tags"));
       const next = await response.json();
-      if (disposed || actionController !== controller) return;
+      if (abortSignal.aborted || disposed) return;
       applyConversationTags(next);
       toast.success("Tags updated");
-    } catch (error) {
-      if (disposed || actionController !== controller || isAbortError(error)) return;
-      await reconcileWorkspace();
-      if (disposed || actionController !== controller) return;
-      await prompts.error(error instanceof Error ? error.message : "Could not update tags", { title: "Conversation changed" });
-    } finally {
-      releaseWorkspaceAction(controller);
-    }
+    },
+    onError: (error) => {
+      void reconcileWorkspace()
+        .catch(() => undefined)
+        .then(() => {
+          if (!disposed) return prompts.error(error.message, { title: "Conversation changed" });
+        });
+    },
+  });
+  const manageConversationTags = (item: MailListItem) => {
+    if (!canWrite() || actionPending() || !item.conversationId) return Promise.resolve();
+    return manageConversationTagsMutation.mutate(item);
   };
+
+  structureMutationLoading = () =>
+    mergeConversationMutation.loading() ||
+    reassignMessageMutation.loading() ||
+    splitMessageMutation.loading() ||
+    addTagsMutation.loading() ||
+    manageConversationTagsMutation.loading();
+  onCleanup(() => {
+    actionMutation.abort();
+    mergeConversationMutation.abort();
+    reassignMessageMutation.abort();
+    splitMessageMutation.abort();
+    addTagsMutation.abort();
+    manageConversationTagsMutation.abort();
+  });
 
   let consumedOpenIntent = -1;
   createEffect(() => {
@@ -1354,12 +1281,6 @@ export default function MailWorkspace(props: {
     consumedOpenIntent = intent;
     if (decision === "consume" || !target) return;
     void runAction("mark_read", { silent: true, targets: [target] });
-  });
-
-  createEffect(() => {
-    const conversationId = data.selectedConversationId;
-    data.listItems;
-    if (conversationId) prefetchNeighbors(conversationId);
   });
 
   const setDetailsVisible = (open: boolean) => {
@@ -1469,7 +1390,6 @@ export default function MailWorkspace(props: {
                       if (item.conversationId)
                         void mergeConversation({ conversationId: item.conversationId, revision: item.revision, subject: item.subject });
                     }}
-                    onPrefetch={prefetchConversation}
                     onOpenHref={openWorkspaceHref}
                     onLoadMore={loadMoreConversations}
                   />
@@ -1532,7 +1452,10 @@ export default function MailWorkspace(props: {
               dateConfig={props.dateConfig}
               canWrite={canWrite()}
               loading={routeLoading()}
-              onNavigate={navigateWorkspace}
+              onNavigate={async () => {
+                await workspaceQuery.loadMore();
+                if (workspaceQuery.error()) toast.error(workspaceQuery.error()!.message);
+              }}
               onRefresh={async () => {
                 const result = await replaceWorkspaceRoute(requestUrl());
                 if (result === "failed") toast.error("Could not refresh scheduled messages yet. Your current view was kept.");
@@ -1546,10 +1469,10 @@ export default function MailWorkspace(props: {
             fallback={
               <div class="flex h-full items-center justify-center p-4">
                 <Placeholder
-                  state={selectionLoading() ? "loading" : "error"}
-                  title={selectionLoading() ? "Loading conversation details" : "Conversation details are unavailable"}
+                  state={routeLoading() ? "loading" : "error"}
+                  title={routeLoading() ? "Loading conversation details" : "Conversation details are unavailable"}
                   description={
-                    selectionLoading()
+                    routeLoading()
                       ? undefined
                       : (data.detailErrors.collaboration ??
                         data.detailErrors.tags ??

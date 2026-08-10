@@ -1,7 +1,7 @@
 import { listenPopState, navigate, navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query as queries, timed } from "@k2b/stdlib/solid";
 import { AppOverview, Button, prompts, StatusBadge, TextInput, toast } from "@k2b/ui";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
@@ -22,14 +22,7 @@ export default function MailOverview(props: {
   currentUserEmail: string | null;
 }) {
   const [query, setQuery] = createSignal(props.initialQuery);
-  const [mailboxes, setMailboxes] = createSignal(props.mailboxes);
-  const [searchLoading, setSearchLoading] = createSignal(false);
-  const [searchError, setSearchError] = createSignal<string | null>(null);
-  const [deletedMailboxes, setDeletedMailboxes] = createSignal(props.deletedMailboxes);
-  const [deletedCursor, setDeletedCursor] = createSignal(props.initialDeletedCursor);
-  let queryTimer: ReturnType<typeof setTimeout> | null = null;
-  let searchController: AbortController | null = null;
-  let searchGeneration = 0;
+  const [searchSource, setSearchSource] = createSignal(props.initialQuery.trim());
 
   const queryHref = (value: string): string => {
     const url = new URL(window.location.href);
@@ -38,37 +31,51 @@ export default function MailOverview(props: {
     return `${url.pathname}${url.search}`;
   };
 
-  const loadQuery = async (value: string, history: "replace" | "none") => {
-    setQuery(value);
-    if (history === "replace") navigate(queryHref(value), { replace: true, scroll: "preserve" });
-    searchController?.abort();
-    const controller = new AbortController();
-    const generation = ++searchGeneration;
-    searchController = controller;
-    setSearchLoading(true);
-    setSearchError(null);
-    setMailboxes([]);
-    try {
+  const mailboxResults = queries.create<string, { source: string; items: MailboxWithPermission[] }>({
+    source: searchSource,
+    initial: { source: props.initialQuery.trim(), data: { source: props.initialQuery.trim(), items: props.mailboxes } },
+    load: async (value, { abortSignal }) => {
       const response = await apiClient.mailboxes.$get(
         { query: { limit: "200", q: value.trim() || undefined } },
-        { init: { signal: controller.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to search mailboxes"));
       const items = await response.json();
-      if (generation !== searchGeneration) return;
-      setMailboxes(items.filter((mailbox): mailbox is MailboxWithPermission => mailbox.permission !== "none"));
-    } catch (error) {
-      if (generation !== searchGeneration || controller.signal.aborted) return;
-      const message = error instanceof Error ? error.message : "Failed to search mailboxes";
-      setSearchError(message);
-      toast.error(message);
-    } finally {
-      if (generation === searchGeneration) {
-        searchController = null;
-        setSearchLoading(false);
-      }
-    }
+      return { source: value, items: items.filter((mailbox): mailbox is MailboxWithPermission => mailbox.permission !== "none") };
+    },
+  });
+  const mailboxes = () => {
+    const result = mailboxResults.data();
+    return result?.source === searchSource() ? result.items : [];
   };
+  const mailboxSearchPending = () =>
+    mailboxResults.loading() || (mailboxResults.refreshing() && mailboxResults.data()?.source !== searchSource());
+
+  const deletedResults = queries.createInfinite<string, DeletedMailboxPage, string>({
+    source: () => "deleted-mailboxes",
+    initial: {
+      source: "deleted-mailboxes",
+      pages: [{ items: props.deletedMailboxes, nextCursor: props.initialDeletedCursor }],
+    },
+    loadPage: async (_source, { cursor, abortSignal }) => {
+      const response = await apiClient.mailboxes.deleted.$get({ query: { limit: "100", cursor } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to load deleted mailboxes"));
+      const page = await response.json();
+      if (cursor && page.nextCursor === cursor) throw new Error("The server returned the same deleted-mailbox page twice");
+      return page;
+    },
+    getNextCursor: (page) => page.nextCursor,
+  });
+  const deletedMailboxes = createMemo(() => {
+    const merged = new Map<string, DeletedMailbox & { permission: "admin" }>();
+    for (const page of deletedResults.pages()) for (const mailbox of page.items) merged.set(mailbox.id, mailbox);
+    return [...merged.values()];
+  });
+
+  const searchDebounce = timed.debounce((value: string) => {
+    setSearchSource(value.trim());
+    navigate(queryHref(value), { replace: true, scroll: "preserve" });
+  }, 200);
 
   const createMailbox = mutations.create<Mailbox | null, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -125,56 +132,32 @@ export default function MailOverview(props: {
     },
     onSuccess: (mailbox) => {
       if (!mailbox) return;
-      setDeletedMailboxes((current) => current.filter((entry) => entry.id !== mailbox.id));
+      void deletedResults.invalidate().catch((error) =>
+        prompts.error(error instanceof Error ? error.message : "Deleted mailboxes could not be refreshed", {
+          title: "Mailbox restored, refresh failed",
+        }),
+      );
       toast.success("Mailbox restored in paused state");
       void openMailboxHealthDialog({ mailboxId: mailbox.id }).then(() => navigateTo(`/app/mail/${mailbox.id}`));
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const loadDeletedMailboxes = mutations.create<DeletedMailboxPage, string>({
-    mutation: async (cursor, { abortSignal }) => {
-      const response = await apiClient.mailboxes.deleted.$get({ query: { limit: "100", cursor } }, { init: { signal: abortSignal } });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to load deleted mailboxes"));
-      return response.json();
-    },
-    onSuccess: (page) => {
-      setDeletedMailboxes((current) => {
-        const existing = new Set(current.map((mailbox) => mailbox.id));
-        return [...current, ...page.items.filter((mailbox) => !existing.has(mailbox.id))];
-      });
-      setDeletedCursor(page.nextCursor);
-    },
-    onError: (error) => prompts.error(error.message),
-  });
   onCleanup(() => {
-    if (queryTimer) clearTimeout(queryTimer);
-    searchGeneration += 1;
-    searchController?.abort();
-    searchController = null;
     createMailbox.abort();
     restoreMailbox.abort();
-    loadDeletedMailboxes.abort();
   });
 
   const updateQuery = (value: string) => {
     setQuery(value);
-    searchGeneration += 1;
-    searchController?.abort();
-    searchController = null;
-    setSearchLoading(false);
-    setSearchError(null);
-    if (queryTimer) clearTimeout(queryTimer);
-    queryTimer = setTimeout(() => {
-      queryTimer = null;
-      void loadQuery(value, "replace");
-    }, 200);
+    searchDebounce.debouncedFn(value);
   };
   onMount(() => {
     const stop = listenPopState(({ url }) => {
-      if (queryTimer) clearTimeout(queryTimer);
-      queryTimer = null;
-      void loadQuery(url.searchParams.get("q") ?? "", "none");
+      searchDebounce.cancel();
+      const value = url.searchParams.get("q") ?? "";
+      setQuery(value);
+      setSearchSource(value.trim());
     });
     onCleanup(stop);
   });
@@ -196,7 +179,7 @@ export default function MailOverview(props: {
             onValueChange={updateQuery}
             maxLength={200}
             suffix={
-              <Show when={searchLoading()}>
+              <Show when={mailboxResults.loading() || mailboxResults.refreshing()}>
                 <i class="ti ti-loader-2 animate-spin text-dimmed" aria-hidden="true" />
               </Show>
             }
@@ -210,27 +193,27 @@ export default function MailOverview(props: {
           fallback={
             <AppOverview.EmptyState
               title={
-                searchLoading()
+                mailboxSearchPending()
                   ? "Searching mailboxes"
-                  : searchError()
+                  : mailboxResults.error()
                     ? "Could not search mailboxes"
                     : query().trim()
                       ? "No matching mailboxes"
                       : "No mailboxes yet"
               }
               description={
-                searchLoading()
+                mailboxSearchPending()
                   ? "The server is loading the matching mailboxes."
-                  : searchError()
-                    ? searchError()!
+                  : mailboxResults.error()
+                    ? mailboxResults.error()!.message
                     : query().trim()
                       ? "Try a different search term."
                       : "Create a mailbox, then connect its IMAP and SMTP provider."
               }
               icon={
-                searchLoading()
+                mailboxSearchPending()
                   ? "ti ti-loader-2 animate-spin"
-                  : searchError()
+                  : mailboxResults.error()
                     ? "ti ti-alert-circle"
                     : query().trim()
                       ? "ti ti-search"
@@ -239,9 +222,9 @@ export default function MailOverview(props: {
               class="min-h-72"
             >
               <Show
-                when={!searchLoading() && (searchError() || query().trim())}
+                when={!mailboxSearchPending() && (mailboxResults.error() || query().trim())}
                 fallback={
-                  <Show when={!searchLoading()}>
+                  <Show when={!mailboxSearchPending()}>
                     <Button
                       variant="secondary"
                       size="sm"
@@ -255,14 +238,14 @@ export default function MailOverview(props: {
                 }
               >
                 <Show
-                  when={searchError()}
+                  when={mailboxResults.error()}
                   fallback={
                     <Button variant="secondary" size="sm" type="button" onClick={() => updateQuery("")}>
                       <i class="ti ti-x" aria-hidden="true" /> Clear search
                     </Button>
                   }
                 >
-                  <Button variant="secondary" size="sm" type="button" onClick={() => void loadQuery(query(), "none")}>
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void mailboxResults.refresh()}>
                     <i class="ti ti-refresh" aria-hidden="true" /> Retry
                   </Button>
                 </Show>
@@ -311,6 +294,7 @@ export default function MailOverview(props: {
         <Show when={deletedMailboxes().length > 0}>
           <div class="mt-2 flex flex-col gap-2">
             <p class="text-xs font-semibold uppercase text-dimmed">Recently deleted</p>
+            <Show when={deletedResults.error()}>{(error) => <p class="text-xs text-danger">{error().message}</p>}</Show>
             <For each={deletedMailboxes()}>
               {(mailbox) => (
                 <button
@@ -325,20 +309,18 @@ export default function MailOverview(props: {
                 </button>
               )}
             </For>
-            <Show when={deletedCursor()}>
-              {(cursor) => (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  class="self-start"
-                  disabled={loadDeletedMailboxes.loading()}
-                  onClick={() => loadDeletedMailboxes.mutate(cursor())}
-                >
-                  <i class="ti ti-chevron-down" aria-hidden="true" />
-                  Load more
-                </Button>
-              )}
+            <Show when={deletedResults.hasMore()}>
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                class="self-start"
+                disabled={deletedResults.loadingMore()}
+                onClick={() => void deletedResults.loadMore()}
+              >
+                <i class="ti ti-chevron-down" aria-hidden="true" />
+                Load more
+              </Button>
             </Show>
           </div>
         </Show>

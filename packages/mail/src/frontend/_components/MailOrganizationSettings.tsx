@@ -1,5 +1,5 @@
-import { ColorInput, Placeholder, prompts, TextInput, toast, Button, IconButton } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, ColorInput, IconButton, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { LocalTag } from "../../service/local-tags";
@@ -59,12 +59,10 @@ export default function MailOrganizationSettings(props: {
   const [tagEditorDirty, setTagEditorDirty] = createSignal(false);
   const canWrite = () => props.permission === "write" || props.permission === "admin";
   let disposed = false;
-  let actionController: AbortController | null = null;
 
   createEffect(() => props.onDirtyChange?.(tagEditorDirty()));
   onCleanup(() => {
     disposed = true;
-    actionController?.abort();
     props.onDirtyChange?.(false);
   });
 
@@ -83,6 +81,26 @@ export default function MailOrganizationSettings(props: {
     props.onWorkspaceChange();
   };
 
+  const removeViewMutation = mutations.create<string, SavedConversationView>({
+    mutation: async (view, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$delete(
+        {
+          param: { mailboxId: props.mailboxId, viewId: view.id },
+          json: { expectedRevision: view.revision },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to delete view"));
+      return view.id;
+    },
+    onSuccess: (viewId) => {
+      setViews((current) => current.filter((item) => item.id !== viewId));
+      props.onWorkspaceChange();
+      toast.success("Saved view deleted");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
   const removeView = async (view: SavedConversationView) => {
     const confirmed = await prompts.confirm(`Remove “${view.name}” from the mailbox navigation?`, {
       title: "Delete saved view?",
@@ -90,29 +108,7 @@ export default function MailOrganizationSettings(props: {
       variant: "danger",
     });
     if (!confirmed || disposed) return;
-    actionController?.abort();
-    const controller = new AbortController();
-    actionController = controller;
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$delete(
-        {
-          param: { mailboxId: props.mailboxId, viewId: view.id },
-          json: { expectedRevision: view.revision },
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to delete view"));
-      if (disposed || actionController !== controller) return;
-      setViews((current) => current.filter((item) => item.id !== view.id));
-      props.onWorkspaceChange();
-      toast.success("Saved view deleted");
-    } catch (error) {
-      if (!disposed && actionController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
-        await prompts.error(error instanceof Error ? error.message : "Failed to delete view");
-      }
-    } finally {
-      if (actionController === controller) actionController = null;
-    }
+    await removeViewMutation.mutate(view);
   };
 
   const saveTag = mutations.create<{ tag: LocalTag; edited: boolean }, { existing?: LocalTag; name: string; color: string }>({
@@ -143,7 +139,31 @@ export default function MailOrganizationSettings(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
-  onCleanup(() => saveTag.abort());
+
+  const removeTagMutation = mutations.create<string, LocalTag>({
+    mutation: async (tag, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["local-tags"][":tagId"].$delete(
+        {
+          param: { mailboxId: props.mailboxId, tagId: tag.id },
+          json: { expectedRevision: tag.revision },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to delete tag"));
+      return tag.id;
+    },
+    onSuccess: (tagId) => {
+      setTags((current) => current.filter((item) => item.id !== tagId));
+      props.onWorkspaceChange();
+      toast.success("Tag deleted");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    saveTag.abort();
+    removeViewMutation.abort();
+    removeTagMutation.abort();
+  });
 
   const removeTag = async (tag: LocalTag) => {
     const confirmed = await prompts.confirm(`Remove “${tag.name}” from every conversation?`, {
@@ -152,29 +172,7 @@ export default function MailOrganizationSettings(props: {
       variant: "danger",
     });
     if (!confirmed || disposed) return;
-    actionController?.abort();
-    const controller = new AbortController();
-    actionController = controller;
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"]["local-tags"][":tagId"].$delete(
-        {
-          param: { mailboxId: props.mailboxId, tagId: tag.id },
-          json: { expectedRevision: tag.revision },
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to delete tag"));
-      if (disposed || actionController !== controller) return;
-      setTags((current) => current.filter((item) => item.id !== tag.id));
-      props.onWorkspaceChange();
-      toast.success("Tag deleted");
-    } catch (error) {
-      if (!disposed && actionController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
-        await prompts.error(error instanceof Error ? error.message : "Failed to delete tag");
-      }
-    } finally {
-      if (actionController === controller) actionController = null;
-    }
+    await removeTagMutation.mutate(tag);
   };
 
   return (

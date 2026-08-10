@@ -99,12 +99,13 @@ export default function MailSidebar(props: {
     moreExpanded() ||
     SECONDARY_VIEW_ITEMS.some((view) => props.activeView === view.id) ||
     secondaryFolders().some((folder) => props.activeFolderId === folder.id);
-  const sync = mutations.create<void, void>({
-    mutation: async (_input, { abortSignal }) => {
+  const sync = mutations.create<void, void, { idempotencyKey: string }>({
+    onBefore: () => ({ idempotencyKey: crypto.randomUUID() }),
+    mutation: async (_input, { abortSignal, idempotencyKey }) => {
       const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
         {
           param: { mailboxId: props.mailboxId },
-          json: { kind: "sync_mailbox", idempotencyKey: crypto.randomUUID() },
+          json: { kind: "sync_mailbox", idempotencyKey },
         },
         { init: { signal: abortSignal } },
       );

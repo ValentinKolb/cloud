@@ -95,11 +95,15 @@ const runFolderCommand = async (
     | { kind: "delete_folder"; folderId: string }
     | { kind: "set_folder_subscription"; folderId: string; subscribed: boolean },
   signal: AbortSignal,
+  idempotencyKey: string,
 ): Promise<MailCommand> => {
-  const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
-    param: { mailboxId },
-    json: { ...input, idempotencyKey: crypto.randomUUID() },
-  });
+  const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
+    {
+      param: { mailboxId },
+      json: { ...input, idempotencyKey },
+    },
+    { init: { signal } },
+  );
   if (!response.ok) throw new Error(await readApiError(response, "Could not start the folder operation"));
   return waitForFolderCommand(mailboxId, await response.json(), signal);
 };
@@ -117,6 +121,7 @@ function FolderEditor(props: {
   const [parentFolderId, setParentFolderId] = createSignal(props.parentFolderId);
   const [showInSidebar, setShowInSidebar] = createSignal(true);
   const [subscribe, setSubscribe] = createSignal(true);
+  const [reconciling, setReconciling] = createSignal(false);
   const dirty = () =>
     name() !== (props.folder?.name ?? "") || (create() && (parentFolderId() !== props.parentFolderId || !showInSidebar() || !subscribe()));
   const closeSafely = async () => {
@@ -143,7 +148,8 @@ function FolderEditor(props: {
   const selectedParentLabel = () => parentOptions().find((option) => option.id === (parentFolderId() ?? TOP_LEVEL_FOLDER_ID))?.label;
   const fetchParentOptions = async (query: string, signal: AbortSignal): Promise<FolderSelectOption[]> =>
     filterFolderOptions(parentOptions(), query, signal);
-  const save = mutation.create<void, void>({
+  const save = mutation.create<void, void, { idempotencyKey: string }>({
+    onBefore: () => ({ idempotencyKey: crypto.randomUUID() }),
     mutation: async (_input, context) => {
       if (create()) {
         await runFolderCommand(
@@ -156,19 +162,31 @@ function FolderEditor(props: {
             showInSidebar: showInSidebar(),
           },
           context.abortSignal,
+          context.idempotencyKey,
         );
       } else {
         await runFolderCommand(
           props.mailboxId,
           { kind: "rename_folder", folderId: props.folder!.id, name: name().trim() },
           context.abortSignal,
+          context.idempotencyKey,
         );
       }
     },
-    onSuccess: async () => {
-      await props.onSaved();
-      toast.success(create() ? "Folder created" : "Folder renamed");
-      props.close();
+    onSuccess: () => {
+      setReconciling(true);
+      void props
+        .onSaved()
+        .then(() => {
+          toast.success(create() ? "Folder created" : "Folder renamed");
+          props.close();
+        })
+        .catch((error) =>
+          prompts.error(error instanceof Error ? error.message : "The folder list could not be refreshed", {
+            title: `${create() ? "Folder created" : "Folder renamed"}, refresh failed`,
+          }),
+        )
+        .finally(() => setReconciling(false));
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -219,9 +237,9 @@ function FolderEditor(props: {
         <Button variant="ghost" size="sm" type="button" onClick={() => void closeSafely()}>
           Cancel
         </Button>
-        <Button size="sm" type="button" disabled={save.loading() || !name().trim()} onClick={() => save.mutate()}>
+        <Button size="sm" type="button" disabled={save.loading() || reconciling() || !name().trim()} onClick={() => save.mutate()}>
           <i
-            class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : create() ? "ti-folder-plus" : "ti-device-floppy"}`}
+            class={`ti ${save.loading() || reconciling() ? "ti-loader-2 animate-spin" : create() ? "ti-folder-plus" : "ti-device-floppy"}`}
             aria-hidden="true"
           />
           {create() ? "Create folder" : "Save name"}
@@ -300,8 +318,10 @@ export default function MailFolderSettings(props: {
 
   const folderMutation = mutation.create<
     { changed: boolean; action: "subscription" | "delete" | "dismiss" },
-    { folder: MailAdminFolderView; action: "subscription" | "delete" | "dismiss" }
+    { folder: MailAdminFolderView; action: "subscription" | "delete" | "dismiss" },
+    { idempotencyKey: string }
   >({
+    onBefore: () => ({ idempotencyKey: crypto.randomUUID() }),
     mutation: async ({ folder, action }, context) => {
       setPendingFolderId(folder.id);
       try {
@@ -310,6 +330,7 @@ export default function MailFolderSettings(props: {
             props.mailboxId,
             { kind: "set_folder_subscription", folderId: folder.id, subscribed: folder.subscribed !== true },
             context.abortSignal,
+            context.idempotencyKey,
           );
           return { changed: true, action };
         }
@@ -333,22 +354,34 @@ export default function MailFolderSettings(props: {
           { title: `Delete ${folder.name}?`, confirmText: "Delete folder", variant: "danger" },
         );
         if (!confirmed || context.abortSignal.aborted) return { changed: false, action };
-        await runFolderCommand(props.mailboxId, { kind: "delete_folder", folderId: folder.id }, context.abortSignal);
+        await runFolderCommand(
+          props.mailboxId,
+          { kind: "delete_folder", folderId: folder.id },
+          context.abortSignal,
+          context.idempotencyKey,
+        );
         return { changed: true, action };
       } finally {
         setPendingFolderId(null);
       }
     },
-    onSuccess: async ({ changed, action }) => {
+    onSuccess: ({ changed, action }) => {
       if (!changed) return;
-      await refresh();
-      toast.success(
-        action === "delete"
-          ? "Folder deleted"
-          : action === "dismiss"
-            ? "Unavailable folder removed from Mail"
-            : "Provider subscription updated",
-      );
+      void refresh()
+        .then(() =>
+          toast.success(
+            action === "delete"
+              ? "Folder deleted"
+              : action === "dismiss"
+                ? "Unavailable folder removed from Mail"
+                : "Provider subscription updated",
+          ),
+        )
+        .catch((error) =>
+          prompts.error(error instanceof Error ? error.message : "Folders could not be refreshed", {
+            title: "Folder updated, refresh failed",
+          }),
+        );
     },
     onError: (error) => prompts.error(error.message),
   });

@@ -3,11 +3,11 @@ import type { MailActionId } from "./mail-actions";
 import type { MailBulkTarget } from "./mail-bulk-actions";
 import {
   decideMailAutoReadIntent,
-  type MailWorkspaceActionHost,
+  type MailWorkspaceActionRunnerHost,
   mailOptimisticFields,
   removeDestinationPlacements,
   runMailWorkspaceAction,
-} from "./mail-workspace-action-controller";
+} from "./mail-workspace-action-runner";
 
 const target = (conversationId: string, sourceFolderIds = ["inbox"]): MailBulkTarget => ({
   conversationId,
@@ -15,24 +15,11 @@ const target = (conversationId: string, sourceFolderIds = ["inbox"]): MailBulkTa
   sourceFolderIds,
 });
 
-const host = (overrides: Partial<MailWorkspaceActionHost> = {}) => {
-  let current: AbortController | null = null;
+const host = (overrides: Partial<MailWorkspaceActionRunnerHost> = {}) => {
   const events: string[] = [];
-  const value: MailWorkspaceActionHost = {
-    canRun: () => true,
+  const value: MailWorkspaceActionRunnerHost = {
     resolveTargets: () => [target("one"), target("two")],
     chooseDestinationFolder: async () => "archive",
-    isDisposed: () => false,
-    begin: (controller) => {
-      current = controller;
-      events.push("begin");
-    },
-    isCurrent: (controller) => current === controller,
-    finish: (controller) => {
-      if (current === controller) current = null;
-      events.push("finish");
-    },
-    isAbortError: (error) => error instanceof DOMException && error.name === "AbortError",
     applyOptimistic: () => events.push("optimistic"),
     clearOptimistic: (ids) => events.push(`clear:${ids.join(",")}`),
     submit: async ({ target: item }) => {
@@ -62,7 +49,9 @@ const host = (overrides: Partial<MailWorkspaceActionHost> = {}) => {
   return { host: value, events };
 };
 
-describe("Mail workspace action controller", () => {
+describe("Mail workspace action runner", () => {
+  const signal = () => new AbortController().signal;
+
   test("consumes each open intent once instead of reacting to later unread snapshots", () => {
     expect(decideMailAutoReadIntent({ intent: 0, consumedIntent: -1, busy: false, unread: false, canSubmit: true })).toBe("consume");
     expect(decideMailAutoReadIntent({ intent: 0, consumedIntent: 0, busy: false, unread: true, canSubmit: true })).toBe("ignore");
@@ -75,18 +64,8 @@ describe("Mail workspace action controller", () => {
 
   test("owns the successful optimistic action sequence", async () => {
     const fixture = host();
-    await runMailWorkspaceAction("mark_read", {}, fixture.host);
-    expect(fixture.events).toEqual([
-      "begin",
-      "optimistic",
-      "submit:one",
-      "submit:two",
-      "clear:",
-      "prune:one,two",
-      "refresh",
-      "success:2",
-      "finish",
-    ]);
+    await runMailWorkspaceAction("mark_read", {}, fixture.host, signal());
+    expect(fixture.events).toEqual(["optimistic", "submit:one", "submit:two", "clear:", "prune:one,two", "refresh", "success:2"]);
   });
 
   test("keeps partial failures explicit and reconciles successful targets", async () => {
@@ -95,10 +74,45 @@ describe("Mail workspace action controller", () => {
         if (item.conversationId === "two") throw new Error("provider rejected");
       },
     });
-    await runMailWorkspaceAction("archive", {}, fixture.host);
+    await runMailWorkspaceAction("archive", {}, fixture.host, signal());
     expect(fixture.events).toContain("clear:two");
     expect(fixture.events).toContain("prune:one");
     expect(fixture.events).toContain("failures:1");
+  });
+
+  test("reuses correlation and idempotency identities for the same invocation", async () => {
+    const submissions: Array<{ correlationId: string; idempotencyKey: string }> = [];
+    const fixture = host({
+      resolveTargets: () => [target("one")],
+      submit: async ({ correlationId, idempotencyKey }) => void submissions.push({ correlationId, idempotencyKey }),
+    });
+    const execution = { correlationId: "correlation-1", idempotencyKeys: new Map<string, string>() };
+
+    await runMailWorkspaceAction("mark_read", {}, fixture.host, signal(), execution);
+    await runMailWorkspaceAction("mark_read", {}, fixture.host, signal(), execution);
+
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0]).toEqual(submissions[1]);
+    expect(submissions[0]?.correlationId).toBe("correlation-1");
+  });
+
+  test("clears optimistic state and rethrows fatal runner failures", async () => {
+    const fixture = host({
+      resolveTargets: () => {
+        throw new Error("target resolution failed");
+      },
+    });
+    await expect(runMailWorkspaceAction("mark_read", {}, fixture.host, signal())).rejects.toThrow("target resolution failed");
+
+    const submitted = host({
+      refreshAfterSuccess: async () => {
+        throw new Error("refresh failed");
+      },
+    });
+    await expect(runMailWorkspaceAction("mark_read", {}, submitted.host, signal())).rejects.toThrow("refresh failed");
+    expect(submitted.events).toContain("clear:one,two");
+    expect(submitted.events).toContain("reconcile");
+    expect(submitted.events).toContain("error");
   });
 
   test("normalizes move targets and optimistic fields", () => {
@@ -109,38 +123,21 @@ describe("Mail workspace action controller", () => {
     expect(mailOptimisticFields("archive")).toEqual([]);
   });
 
-  test("reserves a move before opening its destination picker", async () => {
+  test("honors cancellation while the destination picker is open", async () => {
     let releasePicker!: (value: string | null) => void;
-    let busy = false;
-    let activeController: AbortController | null = null;
+    const controller = new AbortController();
     const fixture = host({
-      canRun: () => !busy,
-      begin: (controller) => {
-        busy = true;
-        activeController = controller;
-        fixture.events.push("begin");
-      },
-      isCurrent: (controller) => activeController === controller,
-      finish: (controller) => {
-        if (activeController !== controller) return;
-        busy = false;
-        activeController = null;
-        fixture.events.push("finish");
-      },
       chooseDestinationFolder: () =>
         new Promise<string | null>((resolve) => {
           releasePicker = resolve;
         }),
     });
 
-    const first = runMailWorkspaceAction("move", {}, fixture.host);
-    const second = runMailWorkspaceAction("move", {}, fixture.host);
-    expect(fixture.events).toEqual(["begin"]);
-
+    const pending = runMailWorkspaceAction("move", {}, fixture.host, controller.signal);
+    controller.abort();
     releasePicker("archive");
-    await Promise.all([first, second]);
-    expect(fixture.events.filter((event) => event === "begin")).toHaveLength(1);
-    expect(fixture.events.filter((event) => event.startsWith("submit:"))).toEqual(["submit:one", "submit:two"]);
+    await pending;
+    expect(fixture.events).toEqual([]);
   });
 
   test("reconciles a partially submitted multi-placement read", async () => {
@@ -156,47 +153,10 @@ describe("Mail workspace action controller", () => {
       },
     });
 
-    await runMailWorkspaceAction("mark_read", { silent: true }, fixture.host);
+    await runMailWorkspaceAction("mark_read", { silent: true }, fixture.host, signal());
     expect(fixture.events).toContain("clear:one");
     expect(fixture.events).toContain("reconcile");
     expect(fixture.events).toContain("failures:1");
     expect(submittedPlacements).toBe(1);
-  });
-
-  test("serializes an explicit unread action behind a pending read", async () => {
-    let releaseSubmit!: () => void;
-    let busy = false;
-    let activeController: AbortController | null = null;
-    const submittedActions: MailActionId[] = [];
-    const fixture = host({
-      resolveTargets: () => [target("one")],
-      canRun: () => !busy,
-      begin: (controller) => {
-        busy = true;
-        activeController = controller;
-        fixture.events.push("begin");
-      },
-      isCurrent: (controller) => activeController === controller,
-      finish: (controller) => {
-        if (activeController !== controller) return;
-        busy = false;
-        activeController = null;
-        fixture.events.push("finish");
-      },
-      submit: ({ actionId }) =>
-        new Promise<void>((resolve) => {
-          submittedActions.push(actionId);
-          releaseSubmit = resolve;
-        }),
-    });
-
-    const automaticRead = runMailWorkspaceAction("mark_read", { silent: true }, fixture.host);
-    const explicitUnread = runMailWorkspaceAction("mark_unread", {}, fixture.host);
-    expect(fixture.events.filter((event) => event === "begin")).toHaveLength(1);
-
-    releaseSubmit();
-    await Promise.all([automaticRead, explicitUnread]);
-    expect(submittedActions).toEqual(["mark_read"]);
-    expect(fixture.events.filter((event) => event === "optimistic")).toHaveLength(1);
   });
 });

@@ -1,6 +1,9 @@
+import { mutation, query } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
+  Button,
   dialogCore,
+  IconButton,
+  NoticeCard,
   PanelDialog,
   Placeholder,
   panelDialogFixedOptions,
@@ -9,31 +12,27 @@ import {
   StatusBadge,
   TextInput,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { RemoteContentRuleScope } from "../../contracts";
 import type { RemoteContentRule } from "../../service/remote-content";
 import { readApiError } from "./api-response";
 
 function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => void }) {
-  const [rules, setRules] = createSignal<RemoteContentRule[] | null>(null);
   const [scope, setScope] = createSignal<RemoteContentRuleScope>("sender");
   const [value, setValue] = createSignal("");
 
-  const load = mutation.create<RemoteContentRule[], void>({
-    mutation: async (_input, context) => {
+  const rules = query.create<string, RemoteContentRule[]>({
+    source: () => props.mailboxId,
+    load: async (mailboxId, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"].$get(
-        { param: { mailboxId: props.mailboxId } },
-        { init: { signal: context.abortSignal } },
+        { param: { mailboxId } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load remote image preferences"));
       return response.json();
     },
-    onSuccess: setRules,
   });
 
   const create = mutation.create<RemoteContentRule, void>({
@@ -48,14 +47,14 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
       if (!response.ok) throw new Error(await readApiError(response, "Could not save the remote image preference"));
       return response.json();
     },
-    onSuccess: (rule) => {
-      setRules((current) =>
-        [...(current ?? []).filter((item) => item.id !== rule.id), rule].sort(
-          (left, right) => left.scope.localeCompare(right.scope) || left.value.localeCompare(right.value),
-        ),
-      );
+    onSuccess: () => {
       setValue("");
       toast.success("Remote image preference saved");
+      void rules.invalidate().catch((error) =>
+        prompts.error(error instanceof Error ? error.message : "The preferences could not be refreshed", {
+          title: "Preference saved, refresh failed",
+        }),
+      );
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -69,13 +68,16 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
       if (!response.ok) throw new Error(await readApiError(response, "Could not remove the remote image preference"));
       return rule.id;
     },
-    onSuccess: (id) => setRules((current) => current?.filter((rule) => rule.id !== id) ?? []),
+    onSuccess: () =>
+      void rules.invalidate().catch((error) =>
+        prompts.error(error instanceof Error ? error.message : "The preferences could not be refreshed", {
+          title: "Preference removed, refresh failed",
+        }),
+      ),
     onError: (error) => prompts.error(error.message),
   });
 
-  onMount(() => void load.mutate());
   onCleanup(() => {
-    load.abort();
     create.abort();
     remove.abort();
   });
@@ -93,6 +95,14 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
           <NoticeCard tone="neutral" icon={false}>
             Remote images can tell a sender when you opened a message. Mail blocks them unless you load them or allow a sender here.
           </NoticeCard>
+          <Show when={rules.data() && rules.error()}>
+            <NoticeCard tone="warning" icon={false}>
+              The shown preferences could not be refreshed. Retry before making another change.
+              <Button variant="ghost" size="xs" type="button" class="ml-2" onClick={() => void rules.refresh()}>
+                Retry
+              </Button>
+            </NoticeCard>
+          </Show>
 
           <form
             class="flex flex-col gap-2"
@@ -120,7 +130,7 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
                 maxLength={320}
                 required
               />
-              <Button size="sm" type="submit" disabled={create.loading() || !value().trim()}>
+              <Button size="sm" type="submit" disabled={create.loading() || Boolean(rules.error()) || !value().trim()}>
                 <i class={`ti ${create.loading() ? "ti-loader-2 animate-spin" : "ti-plus"}`} aria-hidden="true" />
                 Add
               </Button>
@@ -128,9 +138,12 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
           </form>
 
           <Show
-            when={rules()}
+            when={rules.data()}
             fallback={
-              <Show when={load.error()} fallback={<Placeholder state="loading" variant="panel" title="Loading remote image preferences" />}>
+              <Show
+                when={rules.error()}
+                fallback={<Placeholder state="loading" variant="panel" title="Loading remote image preferences" />}
+              >
                 {(error) => (
                   <Placeholder
                     state="error"
@@ -138,7 +151,7 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
                     title="Could not load remote image preferences"
                     description={error().message}
                     action={
-                      <Button variant="secondary" size="sm" type="button" onClick={() => void load.mutate()}>
+                      <Button variant="secondary" size="sm" type="button" onClick={() => void rules.refresh()}>
                         Retry
                       </Button>
                     }
@@ -170,7 +183,7 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
                           size="sm"
                           label={`Remove ${rule.value}`}
                           title="Remove preference"
-                          disabled={remove.loading()}
+                          disabled={remove.loading() || Boolean(rules.error())}
                           onClick={() => void remove.mutate(rule)}
                         >
                           <i class="ti ti-trash" aria-hidden="true" />

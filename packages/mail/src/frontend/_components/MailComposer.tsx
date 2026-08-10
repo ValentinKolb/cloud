@@ -1,14 +1,14 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
-import { dropzone, mutation as mutations } from "@k2b/stdlib/solid";
+import { dropzone, mutation as mutations, query, timed } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   CheckboxCard,
   type Completion,
   Dropdown,
   type DropdownItem,
   IconButton,
+  NoticeCard,
   type PanesValue,
   prompts,
   Select,
@@ -126,12 +126,9 @@ export default function MailComposer(props: {
   });
   const [showCc, setShowCc] = createSignal(Boolean(initialContent.cc.length || initialContent.bcc.length));
   const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
-  const [preview, setPreview] = createSignal<ComposePreview | null>(null);
-  const [previewRevision, setPreviewRevision] = createSignal(0);
   const composerTransition = createMailComposerTransition();
   let recoveryController: AbortController | null = null;
   let disposed = false;
-  let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
   const clearInitialSeed = () => {
     if (!props.initialSeed) return;
@@ -208,8 +205,14 @@ export default function MailComposer(props: {
     resumeCurrentLease,
     hasUnsavedChanges,
   } = draftSession;
-  const previewMutation = mutations.create<ComposePreview, { draft: DraftEditableContentInput; conversationId: string | null }>({
-    mutation: async (input, { abortSignal }) => {
+  type PreviewInput = { draft: DraftEditableContentInput; conversationId: string | null };
+  const initialPreviewInput: PreviewInput = { draft: content(), conversationId: draft()?.conversationId ?? initial.conversationId };
+  const [previewSource, setPreviewSource] = createSignal(JSON.stringify(initialPreviewInput));
+  const previewQuery = query.create<string, ComposePreview>({
+    source: previewSource,
+    enabled: () => format() === "markdown" && mailComposerPaneVisible(composerPanes().root, "preview") && Boolean(identityId()),
+    load: async (serialized, { abortSignal }) => {
+      const input = JSON.parse(serialized) as PreviewInput;
       const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
         {
           param: { mailboxId: props.mailboxId },
@@ -220,8 +223,9 @@ export default function MailComposer(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Preview could not be rendered"));
       return await response.json();
     },
-    onSuccess: setPreview,
   });
+  const previewDebounce = timed.debounce((input: PreviewInput) => setPreviewSource(JSON.stringify(input)), 250);
+  const preview = () => previewQuery.data() ?? null;
   const canEditDraft = createMemo(
     () => verifiedIdentities().length > 0 && status() !== "preparing" && status() !== "readonly" && (Boolean(lease()) || !draft()),
   );
@@ -279,9 +283,7 @@ export default function MailComposer(props: {
   };
 
   const stopPreview = () => {
-    if (previewTimer) clearTimeout(previewTimer);
-    previewTimer = null;
-    previewMutation.abort();
+    previewDebounce.cancel();
   };
 
   const updateComposerPanes = (value: PanesValue) => {
@@ -377,20 +379,14 @@ export default function MailComposer(props: {
   createEffect(() => {
     if (typeof window === "undefined") return;
     const previewDraft = content();
-    previewRevision();
     if (format() !== "markdown" || !mailComposerPaneVisible(composerPanes().root, "preview") || !identityId()) {
       stopPreview();
       return;
     }
-    stopPreview();
-    previewTimer = setTimeout(
-      () =>
-        void previewMutation.mutate({
-          draft: previewDraft,
-          conversationId: draft()?.conversationId ?? initial.conversationId,
-        }),
-      250,
-    );
+    previewDebounce.debouncedFn({
+      draft: previewDraft,
+      conversationId: draft()?.conversationId ?? initial.conversationId,
+    });
   });
 
   onCleanup(() => {
@@ -398,6 +394,7 @@ export default function MailComposer(props: {
     recoveryController?.abort();
     recoveryController = null;
     stopPreview();
+    previewQuery.abort();
     if (panePersistenceTimer) {
       clearTimeout(panePersistenceTimer);
       writeMailComposerPanes(composerPanes());
@@ -470,41 +467,51 @@ export default function MailComposer(props: {
     };
   };
 
+  type PreparedDelivery = {
+    scheduledAt?: string;
+    contentFingerprint: string;
+    draftId: string;
+    request: {
+      kind: "send";
+      draftId: string;
+      expectedDraftRevision: number;
+      senderIdentityId: string;
+      scheduledAt?: string;
+      undoSeconds: number;
+      safetyApproval?: ComposeSafetyApproval;
+      idempotencyKey: string;
+    };
+  };
   let attachAfterDeliveryReview = false;
-  const send = mutations.create<MailCommand, { scheduledAt?: string }, { scheduledAt?: string }>({
-    onBefore: (delivery) => delivery,
-    mutation: async (delivery, { abortSignal }) => {
-      validateDelivery();
-      const saved = await persist();
-      if (!saved) throw new Error(statusMessage());
-      const safetyApproval = await reviewSafety(saved, Boolean(delivery.scheduledAt), abortSignal);
+  let lastDeliveryAttempt: PreparedDelivery | null = null;
+  let deliveryPreparationController: AbortController | null = null;
+  const deliveryFingerprint = (delivery: { scheduledAt?: string }) =>
+    JSON.stringify({
+      content: content(),
+      scheduledAt: delivery.scheduledAt,
+      undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
+    });
+  const send = mutations.create<{ command: MailCommand; attempt: PreparedDelivery }, PreparedDelivery>({
+    mutation: async (attempt, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
         {
           param: { mailboxId: props.mailboxId },
-          json: {
-            kind: "send",
-            draftId: saved.id,
-            expectedDraftRevision: saved.revision,
-            senderIdentityId: identityId(),
-            scheduledAt: delivery.scheduledAt,
-            undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
-            safetyApproval,
-            idempotencyKey: crypto.randomUUID(),
-          },
+          json: attempt.request,
         },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue message"));
       const command = await response.json();
-      localStorage.removeItem(draftSession.draftKey(saved.id));
-      return command;
+      return { command, attempt };
     },
-    onSuccess: (_command, delivery) => {
+    onSuccess: ({ attempt }) => {
+      lastDeliveryAttempt = null;
+      localStorage.removeItem(draftSession.draftKey(attempt.draftId));
       const returnHref = props.returnHref;
-      const scheduled = Boolean(delivery?.scheduledAt);
+      const scheduled = Boolean(attempt.scheduledAt);
       toast.success(
         scheduled
-          ? `Delivery scheduled for ${dates.formatDateTime(delivery!.scheduledAt!, props.dateConfig)}`
+          ? `Delivery scheduled for ${dates.formatDateTime(attempt.scheduledAt!, props.dateConfig)}`
           : preferences.undoSeconds > 0
             ? "Message queued. You can undo it directly in the conversation."
             : "Message queued",
@@ -521,6 +528,30 @@ export default function MailComposer(props: {
     },
   });
 
+  const prepareDelivery = async (delivery: { scheduledAt?: string }, abortSignal: AbortSignal): Promise<PreparedDelivery> => {
+    validateDelivery();
+    const saved = await persist();
+    if (!saved) throw new Error(statusMessage());
+    const safetyApproval = await reviewSafety(saved, Boolean(delivery.scheduledAt), abortSignal);
+    const senderIdentityId = identityId();
+    if (!senderIdentityId) throw new Error("Choose a sender identity before sending.");
+    return {
+      scheduledAt: delivery.scheduledAt,
+      contentFingerprint: deliveryFingerprint(delivery),
+      draftId: saved.id,
+      request: {
+        kind: "send",
+        draftId: saved.id,
+        expectedDraftRevision: saved.revision,
+        senderIdentityId,
+        scheduledAt: delivery.scheduledAt,
+        undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
+        safetyApproval,
+        idempotencyKey: crypto.randomUUID(),
+      },
+    };
+  };
+
   const finishDeliveryTransition = (reservation: ReturnType<typeof composerTransition.reserve>) => {
     if (!reservation) return;
     composerTransition.release(reservation);
@@ -534,9 +565,28 @@ export default function MailComposer(props: {
     if (!editable() || uploads().length > 0) return;
     const reservation = composerTransition.reserve("send");
     if (!reservation) return;
+    const preparation = new AbortController();
+    deliveryPreparationController = preparation;
     try {
-      await send.mutate(delivery);
+      const previousAttempt = lastDeliveryAttempt;
+      const reusable =
+        Boolean(send.error()) &&
+        previousAttempt !== null &&
+        previousAttempt.scheduledAt === delivery.scheduledAt &&
+        previousAttempt.contentFingerprint === deliveryFingerprint(delivery);
+      if (reusable) await send.retry();
+      else {
+        lastDeliveryAttempt = await prepareDelivery(delivery, preparation.signal);
+        await send.mutate(lastDeliveryAttempt);
+      }
+    } catch (error) {
+      if (error instanceof ComposeSafetyAttachmentRequested) attachAfterDeliveryReview = true;
+      else if (!(error instanceof ComposeSafetyCancelled)) {
+        await prompts.error(error instanceof Error ? error.message : "Message is not ready to send");
+      }
     } finally {
+      preparation.abort();
+      if (deliveryPreparationController === preparation) deliveryPreparationController = null;
       finishDeliveryTransition(reservation);
     }
   };
@@ -545,15 +595,15 @@ export default function MailComposer(props: {
     if (!editable() || uploads().length > 0) return;
     const reservation = composerTransition.reserve("send");
     if (!reservation) return;
+    let scheduledAt: string | null = null;
     try {
-      validateDelivery();
-      const scheduledAt = await chooseScheduledSendTime(props.dateConfig);
-      if (!disposed && scheduledAt) await send.mutate({ scheduledAt });
+      scheduledAt = (await chooseScheduledSendTime(props.dateConfig)) ?? null;
     } catch (error) {
       await prompts.error(error instanceof Error ? error.message : "Message is not ready to schedule");
     } finally {
       finishDeliveryTransition(reservation);
     }
+    if (!disposed && scheduledAt) await sendDraft({ scheduledAt });
   };
 
   const openDeliveryOptionsDialog = () =>
@@ -732,6 +782,8 @@ export default function MailComposer(props: {
     }
   };
   onCleanup(() => {
+    deliveryPreparationController?.abort();
+    deliveryPreparationController = null;
     send.abort();
     discard.abort();
   });
@@ -837,7 +889,7 @@ export default function MailComposer(props: {
   };
 
   const composerIntent = () => draft()?.intent ?? initial.intent;
-  const retryPreview = () => setPreviewRevision((revision) => revision + 1);
+  const retryPreview = () => void previewQuery.refresh();
   const IdentitySwitcher = () => {
     const label = () => selectedIdentity()?.label ?? "Choose sender";
     const address = () => selectedIdentity()?.fromAddress ?? "";
@@ -1028,8 +1080,8 @@ export default function MailComposer(props: {
           panes={composerPanes}
           onPanesChange={updateComposerPanes}
           preview={preview}
-          previewLoading={previewMutation.loading}
-          previewError={() => previewMutation.error()?.message}
+          previewLoading={() => previewQuery.loading() || previewQuery.refreshing() || previewDebounce.isPending()}
+          previewError={() => previewQuery.error()?.message}
           onRetryPreview={retryPreview}
           onEditorReady={focusFreshEditorAtStart}
         />

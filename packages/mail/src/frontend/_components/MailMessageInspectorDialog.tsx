@@ -1,4 +1,4 @@
-import { mutation } from "@k2b/stdlib/solid";
+import { query } from "@k2b/stdlib/solid";
 import {
   Button,
   ButtonLink,
@@ -12,7 +12,7 @@ import {
   Select,
   Tooltip,
 } from "@k2b/ui";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { type MessageInspector, type MessageSourcePreview, messageInspectorSchema, messageSourcePreviewSchema } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
@@ -42,51 +42,38 @@ function MailMessageInspectorDialog(props: {
 }) {
   const [selectedMessageId, setSelectedMessageId] = createSignal(props.initialMessageId);
   const [tab, setTab] = createSignal<InspectorTab>(props.initialTab);
-  const [inspector, setInspector] = createSignal<MessageInspector | null>(null);
-  const [sourcePreview, setSourcePreview] = createSignal<MessageSourcePreview | null>(null);
-
-  const loadInspector = mutation.create<MessageInspector, string>({
-    mutation: async (messageId, context) => {
+  const inspector = query.create<string, MessageInspector>({
+    source: selectedMessageId,
+    load: async (messageId, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"].inspector.$get(
         { param: { mailboxId: props.mailboxId, messageId } },
-        { init: { signal: context.abortSignal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not inspect this message"));
       return messageInspectorSchema.parse(await response.json());
     },
-    onSuccess: setInspector,
   });
+  const currentInspector = () => {
+    const value = inspector.data();
+    return value?.id === selectedMessageId() ? value : undefined;
+  };
 
-  const loadSourcePreview = mutation.create<MessageSourcePreview, string>({
-    mutation: async (messageId, context) => {
+  const sourcePreview = query.create<string, MessageSourcePreview>({
+    source: selectedMessageId,
+    enabled: () => tab() === "source" && Boolean(currentInspector()?.source.available),
+    load: async (messageId, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["source-preview"].$get(
         { param: { mailboxId: props.mailboxId, messageId } },
-        { init: { signal: context.abortSignal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load the message source"));
       return messageSourcePreviewSchema.parse(await response.json());
     },
-    onSuccess: setSourcePreview,
   });
-
-  const reloadInspector = (messageId: string) => {
-    loadInspector.abort();
-    loadSourcePreview.abort();
-    setInspector(null);
-    setSourcePreview(null);
-    void loadInspector.mutate(messageId);
+  const currentSourcePreview = () => {
+    const value = sourcePreview.data();
+    return value?.messageId === selectedMessageId() ? value : undefined;
   };
-
-  createEffect(() => reloadInspector(selectedMessageId()));
-  createEffect(() => {
-    if (tab() !== "source" || sourcePreview() || loadSourcePreview.loading()) return;
-    const current = inspector();
-    if (current?.source.available) void loadSourcePreview.mutate(current.id);
-  });
-  onCleanup(() => {
-    loadInspector.abort();
-    loadSourcePreview.abort();
-  });
 
   const selectedMessage = () => props.messages.find((message) => message.id === selectedMessageId()) ?? props.messages.at(-1);
   const downloadName = () => `${selectedMessage()?.subject.trim() || "message"}.eml`;
@@ -98,7 +85,7 @@ function MailMessageInspectorDialog(props: {
         subtitle="Delivery metadata, headers, and the exact stored message"
         icon="ti ti-file-search"
         actions={
-          <Show when={inspector()?.source.available}>
+          <Show when={currentInspector()?.source.available}>
             <Tooltip.Anchor content="Download original message">
               <IconButtonLink
                 href={sourceHref(props.mailboxId, selectedMessageId())}
@@ -131,9 +118,9 @@ function MailMessageInspectorDialog(props: {
           <PanelDialog.Tabs options={inspectorTabs} value={tab} onValueChange={setTab} ariaLabel="Message inspection view" />
 
           <Show
-            when={inspector()}
+            when={currentInspector()}
             fallback={
-              <Show when={loadInspector.error()} fallback={<Placeholder state="loading" variant="panel" title="Loading message details" />}>
+              <Show when={inspector.error()} fallback={<Placeholder state="loading" variant="panel" title="Loading message details" />}>
                 {(error) => (
                   <Placeholder
                     state="error"
@@ -145,8 +132,8 @@ function MailMessageInspectorDialog(props: {
                         variant="secondary"
                         size="sm"
                         type="button"
-                        disabled={loadInspector.loading()}
-                        onClick={() => reloadInspector(selectedMessageId())}
+                        disabled={inspector.refreshing()}
+                        onClick={() => void inspector.refresh()}
                       >
                         <i class="ti ti-refresh" aria-hidden="true" /> Retry
                       </Button>
@@ -377,10 +364,10 @@ function MailMessageInspectorDialog(props: {
                     }
                   >
                     <Show
-                      when={sourcePreview()}
+                      when={currentSourcePreview()}
                       fallback={
                         <Show
-                          when={loadSourcePreview.error()}
+                          when={sourcePreview.error()}
                           fallback={<Placeholder state="loading" variant="panel" title="Loading source preview" />}
                         >
                           {(error) => (
@@ -394,8 +381,8 @@ function MailMessageInspectorDialog(props: {
                                   variant="secondary"
                                   size="sm"
                                   type="button"
-                                  disabled={loadSourcePreview.loading()}
-                                  onClick={() => void loadSourcePreview.mutate(current().id)}
+                                  disabled={sourcePreview.refreshing()}
+                                  onClick={() => void sourcePreview.refresh()}
                                 >
                                   <i class="ti ti-refresh" aria-hidden="true" /> Retry
                                 </Button>

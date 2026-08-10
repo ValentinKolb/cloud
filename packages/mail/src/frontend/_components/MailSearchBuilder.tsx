@@ -1,3 +1,4 @@
+import { mutation } from "@k2b/stdlib/solid";
 import {
   Button,
   DateTimePicker,
@@ -542,9 +543,7 @@ function MailSearchBuilderDialog(props: {
   const [sort, setSort] = createSignal<MailSearchState["sort"]>(props.initialState?.sort ?? "relevance");
   const [savedViewName, setSavedViewName] = createSignal(props.initialSavedView?.name ?? "");
   const [savedViewScope, setSavedViewScope] = createSignal<SavedConversationViewScope>(props.initialSavedView?.scope ?? "private");
-  const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  let saveController: AbortController | null = null;
   let disposed = false;
   const nodeCount = createMemo(() => countMailSearchNodes(expression()));
   const canUpdateInitialView = () => props.initialSavedView?.scope === "private" || props.canWrite;
@@ -561,48 +560,45 @@ function MailSearchBuilderDialog(props: {
     props.close({ action: "apply", state, serialized: serialized.value });
   };
 
-  const saveView = async (existing: SavedConversationView | null, details?: { name: string; scope: SavedConversationViewScope }) => {
-    const state = { expression: normalizeMailSearchExpression(expression()), sort: sort() } satisfies MailSearchState;
-    const serialized = serializeMailSearchState(state);
-    if (!serialized.ok) return setError(serialized.error);
-    const name = (details?.name ?? savedViewName()).trim();
-    if (!name) return setError("Enter a name for the saved view.");
-    saveController?.abort();
-    const controller = new AbortController();
-    saveController = controller;
-    setSaving(true);
-    setError(null);
-    try {
+  const saveViewMutation = mutation.create<
+    { view: SavedConversationView; updated: boolean },
+    { existing: SavedConversationView | null; name: string; scope: SavedConversationViewScope; state: MailSearchState }
+  >({
+    mutation: async ({ existing, name, scope, state }, { abortSignal }) => {
       const response = existing
         ? await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$patch(
             {
               param: { mailboxId: props.mailboxId, viewId: existing.id },
               json: { expectedRevision: existing.revision, name, filter: state },
             },
-            { init: { signal: controller.signal } },
+            { init: { signal: abortSignal } },
           )
         : await apiClient.mailboxes[":mailboxId"]["saved-views"].$post(
             {
               param: { mailboxId: props.mailboxId },
-              json: { name, scope: details?.scope ?? savedViewScope(), filter: state },
+              json: { name, scope, filter: state },
             },
-            { init: { signal: controller.signal } },
+            { init: { signal: abortSignal } },
           );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save view"));
-      const view = await response.json();
-      if (disposed || saveController !== controller) return;
-      toast.success(existing ? "Saved view updated" : "Saved view created");
+      return { view: await response.json(), updated: Boolean(existing) };
+    },
+    onSuccess: ({ view, updated }) => {
+      toast.success(updated ? "Saved view updated" : "Saved view created");
       props.close({ action: "saved", view });
-    } catch (cause) {
-      if (!disposed && saveController === controller && !(cause instanceof DOMException && cause.name === "AbortError")) {
-        setError(cause instanceof Error ? cause.message : "Failed to save view");
-      }
-    } finally {
-      if (!disposed && saveController === controller) {
-        saveController = null;
-        setSaving(false);
-      }
-    }
+    },
+    onError: (cause) => setError(cause.message),
+  });
+  const saving = saveViewMutation.loading;
+
+  const saveView = async (existing: SavedConversationView | null, details?: { name: string; scope: SavedConversationViewScope }) => {
+    const state = { expression: normalizeMailSearchExpression(expression()), sort: sort() } satisfies MailSearchState;
+    const serialized = serializeMailSearchState(state);
+    if (!serialized.ok) return setError(serialized.error);
+    const name = (details?.name ?? savedViewName()).trim();
+    if (!name) return setError("Enter a name for the saved view.");
+    setError(null);
+    await saveViewMutation.mutate({ existing, name, scope: details?.scope ?? savedViewScope(), state });
   };
 
   const saveAsView = async () => {
@@ -628,8 +624,7 @@ function MailSearchBuilderDialog(props: {
 
   onCleanup(() => {
     disposed = true;
-    saveController?.abort();
-    saveController = null;
+    saveViewMutation.abort();
   });
 
   return (

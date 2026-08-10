@@ -1,5 +1,5 @@
-import { Dropdown, Tooltip, IconButton } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
+import { Dropdown, Tooltip } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import { getMailAction, type MailActionId, spamActionForFolder } from "./mail-actions";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
@@ -40,7 +40,6 @@ type MailConversationRowActions = {
   itemAction: (item: MailListItem, actionId: MailActionId) => void | Promise<void>;
   manageTags: (item: MailListItem) => void | Promise<void>;
   merge: (item: MailListItem) => void | Promise<void>;
-  prefetch: (item: MailListItem) => void;
 };
 
 export default function MailConversationRow(props: {
@@ -109,8 +108,6 @@ export default function MailConversationRow(props: {
           if (select) props.actions.toggleSelection(props.item, event.shiftKey);
           else void props.actions.navigate(event.currentTarget.href, props.item, activation);
         }}
-        onFocus={() => props.actions.prefetch(props.item)}
-        onPointerEnter={() => props.actions.prefetch(props.item)}
         onDragStart={(event) => {
           const transfer = event.dataTransfer;
           if (!props.item.conversationId || !props.item.sourceFolderId || !transfer) return event.preventDefault();

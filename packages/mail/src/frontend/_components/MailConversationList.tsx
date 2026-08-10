@@ -1,7 +1,7 @@
 import type { LinkNavigateEvent } from "@k2b/ssr/nav";
-import { Button, ButtonLink, Dropdown, FilterChip, IconButton, NoticeCard, Placeholder, TextInput, Tooltip } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { timed } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, Dropdown, FilterChip, IconButton, NoticeCard, Placeholder, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {
@@ -77,7 +77,6 @@ export default function MailConversationList(props: {
   onItemAction: (item: MailListItem, actionId: MailActionId) => void | Promise<void>;
   onManageTags: (item: MailListItem) => void | Promise<void>;
   onMergeItem: (item: MailListItem) => void | Promise<void>;
-  onPrefetch: (item: MailListItem) => void;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
   onLoadMore: (href: string) => boolean | Promise<boolean>;
 }) {
@@ -467,7 +466,6 @@ export default function MailConversationList(props: {
                     itemAction: props.onItemAction,
                     manageTags: props.onManageTags,
                     merge: props.onMergeItem,
-                    prefetch: props.onPrefetch,
                   }}
                 />
               )}
@@ -483,11 +481,10 @@ export default function MailConversationList(props: {
                 href={href()}
                 aria-disabled={props.loading}
                 onClick={(event) => {
-                  if (!props.loading) {
-                    event.preventDefault();
-                    requestedLoadHref = null;
-                    void loadNextPage(href());
-                  }
+                  event.preventDefault();
+                  if (props.loading) return;
+                  requestedLoadHref = null;
+                  void loadNextPage(href());
                 }}
               >
                 <i

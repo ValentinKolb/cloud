@@ -1,8 +1,8 @@
 import { documentNavigate } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
-import { mutation } from "@k2b/stdlib/solid";
-import { Button, ButtonLink, Placeholder, Select, StatusBadge, toast } from "@k2b/ui";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { mutation, query } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, Placeholder, prompts, Select, StatusBadge, toast } from "@k2b/ui";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
 import { mailDraftHref } from "./mail-compose-route";
@@ -14,8 +14,6 @@ export default function MailCalendarInvitation(props: {
   canWrite: boolean;
   dateConfig: DateContext;
 }) {
-  const [preview, setPreview] = createSignal<Awaited<ReturnType<typeof loadPreview>> | null>(null);
-  const [destinations, setDestinations] = createSignal<Awaited<ReturnType<typeof loadDestinations>> | null>(null);
   const [selectedSpaceId, setSelectedSpaceId] = createSignal<string | null>(null);
   let responseIdempotencyKeys = new Map<"accepted" | "tentative" | "declined", string>();
   let destinationTouched = false;
@@ -46,36 +44,32 @@ export default function MailCalendarInvitation(props: {
     return created;
   };
 
-  const loadPreview = async (signal: AbortSignal) => {
-    const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["calendar-invitation"].$get(
-      { param: { mailboxId: props.mailboxId, messageId: props.messageId } },
-      { init: { signal } },
-    );
-    if (!response.ok) throw new Error(await readApiError(response, "Could not read this calendar invitation"));
-    return response.json();
-  };
-  const loadDestinations = async (signal: AbortSignal) => {
-    const response = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get(
-      { param: { mailboxId: props.mailboxId } },
-      { init: { signal } },
-    );
-    if (!response.ok) throw new Error(await readApiError(response, "Could not load calendar destinations"));
-    return response.json();
-  };
-
-  const previewLoad = mutation.create<void, void>({
-    mutation: async (_input, { abortSignal }) => {
-      setPreview(await loadPreview(abortSignal));
-      reconcileDestination();
+  const previewQuery = query.create({
+    source: () => `${props.mailboxId}:${props.messageId}`,
+    load: async (_source, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["calendar-invitation"].$get(
+        { param: { mailboxId: props.mailboxId, messageId: props.messageId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not read this calendar invitation"));
+      return response.json();
     },
   });
-
-  const destinationLoad = mutation.create<void, void>({
-    mutation: async (_input, { abortSignal }) => {
-      setDestinations(await loadDestinations(abortSignal));
-      reconcileDestination();
+  const destinationQuery = query.create({
+    source: () => props.mailboxId,
+    enabled: () => props.canWrite,
+    load: async (mailboxId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get(
+        { param: { mailboxId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load calendar destinations"));
+      return response.json();
     },
   });
+  const preview = previewQuery.data;
+  const destinations = destinationQuery.data;
+  createEffect(reconcileDestination);
 
   const importEvent = mutation.create<void, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -95,11 +89,11 @@ export default function MailCalendarInvitation(props: {
             ? "Event is already up to date"
             : "Event updated in Spaces",
       );
-      const current = preview();
-      if (current) {
-        setPreview({
-          ...current,
-          existing: { ...result, sequence: current.invitation.sequence, method: current.invitation.method },
+      try {
+        await previewQuery.invalidate();
+      } catch (error) {
+        void prompts.error(error instanceof Error ? error.message : "The invitation could not be refreshed", {
+          title: "Event imported, refresh failed",
         });
       }
     },
@@ -137,13 +131,7 @@ export default function MailCalendarInvitation(props: {
     (destinations()?.items ?? []).map((space) => ({ id: space.id, label: space.name, color: space.color, icon: "ti ti-calendar-event" })),
   );
 
-  onMount(() => {
-    previewLoad.mutate();
-    if (props.canWrite) destinationLoad.mutate();
-  });
   onCleanup(() => {
-    previewLoad.abort();
-    destinationLoad.abort();
     importEvent.abort();
     respond.abort();
   });
@@ -154,13 +142,13 @@ export default function MailCalendarInvitation(props: {
         when={preview()}
         fallback={
           <Placeholder
-            state={previewLoad.error() ? "error" : "loading"}
+            state={previewQuery.error() ? "error" : "loading"}
             variant="compact"
-            title={previewLoad.error() ? "Calendar invitation unavailable" : "Reading calendar invitation"}
-            description={previewLoad.error()?.message}
+            title={previewQuery.error() ? "Calendar invitation unavailable" : "Reading calendar invitation"}
+            description={previewQuery.error()?.message}
             action={
-              previewLoad.error() ? (
-                <Button variant="secondary" size="sm" type="button" onClick={() => previewLoad.mutate()}>
+              previewQuery.error() ? (
+                <Button variant="secondary" size="sm" type="button" onClick={() => void previewQuery.refresh()}>
                   Retry
                 </Button>
               ) : undefined
@@ -282,13 +270,13 @@ export default function MailCalendarInvitation(props: {
             <Show when={importEvent.error() || respond.error()}>
               <p class="text-xs text-danger">{importEvent.error()?.message ?? respond.error()?.message}</p>
             </Show>
-            <Show when={props.canWrite && destinationLoad.loading()}>
+            <Show when={props.canWrite && destinationQuery.loading()}>
               <p class="text-xs text-dimmed">Loading writable Spaces…</p>
             </Show>
-            <Show when={props.canWrite && destinationLoad.error()}>
+            <Show when={props.canWrite && destinationQuery.error()}>
               <div class="flex flex-wrap items-center gap-2 text-xs text-danger">
-                <span>{destinationLoad.error()?.message}</span>
-                <Button variant="ghost" size="sm" type="button" onClick={() => destinationLoad.mutate()}>
+                <span>{destinationQuery.error()?.message}</span>
+                <Button variant="ghost" size="sm" type="button" onClick={() => void destinationQuery.refresh()}>
                   Retry
                 </Button>
               </div>

@@ -1,5 +1,5 @@
 import { documentNavigate } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
   Button,
   DataTable,
@@ -7,6 +7,7 @@ import {
   Dropdown,
   type DropdownItem,
   dialogCore,
+  NoticeCard,
   PanelDialog,
   Placeholder,
   panelDialogFixedOptions,
@@ -26,7 +27,7 @@ import type {
 } from "../../contracts";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../../live-events";
 import { readApiError } from "./api-response";
-import { createMailLiveRefreshCoordinator } from "./mail-live-refresh";
+import { createMailLiveInvalidationHub, type MailLiveInvalidation } from "./mail-live-invalidation-hub";
 
 const statusLabel = (status: MailSubscriptionSummary["status"]): string | null =>
   status === "active"
@@ -43,11 +44,9 @@ const statusTone = (status: MailSubscriptionSummary["status"]): "error" | "ok" |
 const formatDate = (value: string): string =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 
-const isAbortError = (error: unknown): boolean => error instanceof Error && error.name === "AbortError";
-
-const mergePages = (current: MailSubscriptionSummary[], page: MailSubscriptionPage): MailSubscriptionSummary[] => {
-  const merged = new Map(current.map((item) => [item.listKey, item]));
-  for (const item of page.items) merged.set(item.listKey, item);
+const mergePages = (pages: readonly MailSubscriptionPage[]): MailSubscriptionSummary[] => {
+  const merged = new Map<string, MailSubscriptionSummary>();
+  for (const page of pages) for (const item of page.items) merged.set(item.listKey, item);
   return [...merged.values()];
 };
 
@@ -64,54 +63,17 @@ const mailingListDialogOptions = {
 };
 
 function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; initialListKey: string | null; close: () => void }) {
-  const [items, setItems] = createSignal<MailSubscriptionSummary[]>([]);
-  const [nextCursor, setNextCursor] = createSignal<string | null>(null);
-  const [loaded, setLoaded] = createSignal(false);
-  const [loadError, setLoadError] = createSignal<string | null>(null);
   const [pendingAction, setPendingAction] = createSignal<string | null>(null);
   const [liveTransportDegraded, setLiveTransportDegraded] = createSignal(false);
   const [liveSnapshotDegraded, setLiveSnapshotDegraded] = createSignal(false);
   const liveDegraded = createMemo(() => liveTransportDegraded() || liveSnapshotDegraded());
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
   let liveTransportTimer: ReturnType<typeof setTimeout> | null = null;
-  let refreshController: AbortController | null = null;
-  let refreshRequest = 0;
   let disposed = false;
 
-  const refreshSubscriptions = async (): Promise<"applied" | "failed" | "stale"> => {
-    const request = ++refreshRequest;
-    refreshController?.abort();
-    const controller = new AbortController();
-    refreshController = controller;
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].subscriptions.$get(
-        {
-          param: { mailboxId: props.mailboxId },
-          query: { limit: "50", listKey: props.initialListKey ?? undefined },
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load mailing lists"));
-      const page = await response.json();
-      if (disposed || request !== refreshRequest) return "stale";
-      setItems(page.items);
-      setNextCursor(page.nextCursor);
-      setLoaded(true);
-      setLoadError(null);
-      return "applied";
-    } catch (error) {
-      if (isAbortError(error)) return "stale";
-      if (!loaded()) setLoadError(error instanceof Error ? error.message : "Could not load mailing lists");
-      return "failed";
-    } finally {
-      if (refreshController === controller) refreshController = null;
-    }
-  };
-
-  const liveRefresh = createMailLiveRefreshCoordinator({
+  const liveHub = createMailLiveInvalidationHub({
     delayMs: 150,
     isBlocked: () => false,
-    refresh: refreshSubscriptions,
     onApplied: (cursor) => {
       setLiveSnapshotDegraded(false);
       markLiveApplied(cursor);
@@ -119,21 +81,23 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
     onFailed: () => setLiveSnapshotDegraded(true),
   });
 
-  const loadMore = mutations.create<MailSubscriptionPage, string>({
-    mutation: async (cursor, { abortSignal }) => {
+  const subscriptions = query.createInfinite<string, MailSubscriptionPage, string, MailLiveInvalidation>({
+    source: () => `${props.mailboxId}:${props.initialListKey ?? ""}`,
+    loadPage: async (_source, { cursor, abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].subscriptions.$get(
-        { param: { mailboxId: props.mailboxId }, query: { limit: "50", cursor } },
+        {
+          param: { mailboxId: props.mailboxId },
+          query: { limit: "50", cursor, listKey: cursor ? undefined : (props.initialListKey ?? undefined) },
+        },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load more mailing lists"));
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load mailing lists"));
       return response.json();
     },
-    onSuccess: (page) => {
-      setItems((current) => mergePages(current, page));
-      setNextCursor(page.nextCursor);
-    },
-    onError: (error) => toast.error(error.message),
+    getNextCursor: (page) => page.nextCursor,
+    subscribe: ({ invalidate }) => liveHub.register({ matches: () => true, invalidate }),
   });
+  const items = createMemo(() => mergePages(subscriptions.pages()));
 
   const unsubscribe = mutations.create<{ item: MailSubscriptionSummary; result: UnsubscribeMailingListResult }, MailSubscriptionSummary>({
     mutation: async (item, { abortSignal }) => {
@@ -149,35 +113,28 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
       return { item, result: await response.json() };
     },
     onSuccess: ({ item, result }) => {
-      setItems((current) =>
-        current.map((entry) =>
-          entry.listKey === item.listKey
-            ? {
-                ...entry,
-                status: result.status,
-                unsubscribeRequestedAt: result.requestedAt,
-                unsubscribeErrorCode: null,
-              }
-            : entry,
-        ),
-      );
       toast.success(`Unsubscribe requested for ${item.name}`);
+      void subscriptions
+        .invalidate({ cursor: null, conversationIds: null })
+        .catch((error) => toast.error(error instanceof Error ? error.message : "Mailing lists could not be refreshed"));
     },
     onError: (error) => {
       toast.error(error.message);
-      liveRefresh.schedule();
+      void subscriptions
+        .invalidate({ cursor: null, conversationIds: null })
+        .catch((error) => toast.error(error instanceof Error ? error.message : "Mailing lists could not be refreshed"));
     },
   });
 
   const dispose = mutations.create<
     { item: MailSubscriptionSummary; disposition: "archive" | "trash"; result: MailingListDispositionResult },
-    { item: MailSubscriptionSummary; disposition: "archive" | "trash" }
+    { item: MailSubscriptionSummary; disposition: "archive" | "trash"; idempotencyKey: string }
   >({
-    mutation: async ({ item, disposition }, { abortSignal }) => {
+    mutation: async ({ item, disposition, idempotencyKey }, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].subscriptions.disposition.$post(
         {
           param: { mailboxId: props.mailboxId },
-          json: { listKey: item.listKey, disposition, idempotencyKey: crypto.randomUUID() },
+          json: { listKey: item.listKey, disposition, idempotencyKey },
         },
         { init: { signal: abortSignal } },
       );
@@ -235,7 +192,7 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
           confirmText: disposition === "archive" ? "Archive messages" : "Move to Trash",
         },
       );
-      if (!disposed && confirmed) await dispose.mutate({ item, disposition });
+      if (!disposed && confirmed) await dispose.mutate({ item, disposition, idempotencyKey: crypto.randomUUID() });
     } finally {
       if (!disposed && pendingAction() === reservation) setPendingAction(null);
     }
@@ -257,13 +214,7 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
     return actions;
   };
 
-  const reload = async () => {
-    setLoadError(null);
-    await refreshSubscriptions();
-  };
-
   onMount(() => {
-    void reload();
     const live = createLiveWebSocket<MailLiveServerMessage>({
       url: "/api/mail/ws",
       initialCursor: null,
@@ -298,7 +249,10 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.ready || message.type === MAIL_LIVE_WS_TYPE.event) {
-          liveRefresh.schedule(message.payload.cursor);
+          liveHub.schedule({
+            cursor: message.payload.cursor,
+            conversationId: message.type === MAIL_LIVE_WS_TYPE.event ? message.payload.event.conversationId : null,
+          });
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
@@ -324,12 +278,8 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
 
   onCleanup(() => {
     disposed = true;
-    refreshRequest += 1;
     if (liveTransportTimer) clearTimeout(liveTransportTimer);
-    refreshController?.abort();
-    refreshController = null;
-    liveRefresh.dispose();
-    loadMore.abort();
+    liveHub.dispose();
     unsubscribe.abort();
     dispose.abort();
   });
@@ -351,17 +301,17 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
       />
       <PanelDialog.Body scrollPreserveKey={`mailing-lists:${props.mailboxId}`}>
         <Show
-          when={loaded()}
+          when={subscriptions.pages().length > 0}
           fallback={
-            <Show when={loadError()} fallback={<Placeholder state="loading" variant="panel" title="Loading mailing lists" />}>
+            <Show when={subscriptions.error()} fallback={<Placeholder state="loading" variant="panel" title="Loading mailing lists" />}>
               {(error) => (
                 <Placeholder
                   state="error"
                   variant="panel"
                   title="Could not load mailing lists"
-                  description={error()}
+                  description={error().message}
                   action={
-                    <Button variant="secondary" size="sm" type="button" onClick={() => void reload()}>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => void subscriptions.refresh()}>
                       <i class="ti ti-refresh" aria-hidden="true" /> Retry
                     </Button>
                   }
@@ -371,6 +321,16 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
           }
         >
           <div class="flex flex-col gap-2">
+            <Show when={subscriptions.error()}>
+              {(error) => (
+                <NoticeCard tone="warning" icon={false}>
+                  {error().message}
+                  <Button variant="ghost" size="xs" type="button" class="ml-2" onClick={() => void subscriptions.refresh()}>
+                    Retry
+                  </Button>
+                </NoticeCard>
+              )}
+            </Show>
             <DataTable
               rows={items()}
               columns={columns}
@@ -437,14 +397,18 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
                           variant="secondary"
                           size="sm"
                           type="button"
-                          disabled={Boolean(pendingAction())}
+                          disabled={Boolean(pendingAction()) || Boolean(subscriptions.error())}
                           onClick={() => void requestUnsubscribe(row)}
                         >
                           {row.status === "failed" ? "Retry" : "Unsubscribe"}
                         </Button>
                       </Show>
                       <Show when={actions.length > 0} fallback={!canUnsubscribe ? <span class="text-dimmed">—</span> : undefined}>
-                        <Dropdown.Root position="bottom-left" items={actions} disabled={Boolean(pendingAction())}>
+                        <Dropdown.Root
+                          position="bottom-left"
+                          items={actions}
+                          disabled={Boolean(pendingAction()) || Boolean(subscriptions.error())}
+                        >
                           <Dropdown.Trigger iconOnly size="sm" type="button" variant="ghost" label={`More actions for ${row.name}`}>
                             <i class="ti ti-dots" aria-hidden="true" />
                           </Dropdown.Trigger>
@@ -456,16 +420,16 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
                 return render(col.value instanceof Function ? col.value(row) : col.value ? row[col.value] : undefined);
               }}
             />
-            <Show when={nextCursor()}>
+            <Show when={subscriptions.hasMore()}>
               <div class="flex justify-center">
                 <Button
                   variant="secondary"
                   size="sm"
                   type="button"
-                  disabled={loadMore.loading()}
-                  onClick={() => nextCursor() && void loadMore.mutate(nextCursor()!)}
+                  disabled={subscriptions.loadingMore() || Boolean(subscriptions.error())}
+                  onClick={() => void subscriptions.loadMore()}
                 >
-                  <i class={`ti ${loadMore.loading() ? "ti-loader-2 animate-spin" : "ti-chevron-down"}`} aria-hidden="true" />
+                  <i class={`ti ${subscriptions.loadingMore() ? "ti-loader-2 animate-spin" : "ti-chevron-down"}`} aria-hidden="true" />
                   Load more
                 </Button>
               </div>

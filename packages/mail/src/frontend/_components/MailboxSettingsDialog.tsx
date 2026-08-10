@@ -1,6 +1,6 @@
-import { Placeholder, prompts, Button, IconButton } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { query } from "@k2b/stdlib/solid";
+import { Button, IconButton, Placeholder, prompts } from "@k2b/ui";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
@@ -25,25 +25,22 @@ type MailboxSettingsDialogProps = {
 
 function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
   const [context, setContext] = createSignal<MailboxSettingsContext | null>(null);
-  const load = mutation.create<MailboxSettingsContext, void>({
-    mutation: async (_vars, mutationContext) => {
+  const settings = query.create<string, MailboxSettingsContext>({
+    source: () => props.mailboxId,
+    load: async (mailboxId, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["settings-context"].$get(
-        { param: { mailboxId: props.mailboxId } },
-        { init: { signal: mutationContext.abortSignal } },
+        { param: { mailboxId } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load mailbox settings"));
       return response.json();
     },
-    onSuccess: setContext,
   });
 
-  const reload = async () => {
-    load.abort();
-    await load.mutate(undefined);
-  };
-
-  onMount(() => void reload());
-  onCleanup(() => load.abort());
+  createEffect(() => {
+    const current = settings.data();
+    if (current) setContext(current);
+  });
 
   return (
     <Show
@@ -54,7 +51,7 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
             <i class="ti ti-x" aria-hidden="true" />
           </IconButton>
           <Show
-            when={load.error()}
+            when={settings.error()}
             fallback={<Placeholder state="loading" variant="panel" title="Loading mailbox settings" class="flex-1 justify-center" />}
           >
             {(error) => (
@@ -65,8 +62,14 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
                 description={error().message}
                 class="flex-1"
                 action={
-                  <Button variant="secondary" size="sm" type="button" disabled={load.loading()} onClick={() => void reload()}>
-                    <i class={load.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    disabled={settings.refreshing()}
+                    onClick={() => void settings.refresh()}
+                  >
+                    <i class={settings.refreshing() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" />
                     Retry
                   </Button>
                 }
@@ -77,12 +80,24 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
       }
     >
       <div class={settingsDialogFrameClass}>
+        <Show when={settings.error()}>
+          {(error) => (
+            <div class="px-4 pt-3">
+              <p class="text-xs text-danger">
+                {error().message}{" "}
+                <button type="button" class="underline" onClick={() => void settings.refresh()}>
+                  Retry
+                </button>
+              </p>
+            </div>
+          )}
+        </Show>
         <MailboxSettings
           context={context()!}
           initialTab={props.initialTab}
           currentUserEmail={props.currentUserEmail}
-          reloading={load.loading()}
-          onReload={reload}
+          reloading={settings.refreshing() || Boolean(settings.error())}
+          onReload={settings.refresh}
           onContextChange={(update) => setContext((current) => (current ? update(current) : current))}
           onWorkspaceChange={props.onWorkspaceChange}
           onClose={() => props.close()}

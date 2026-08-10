@@ -1,8 +1,11 @@
+import { mutation as mutations, query, timed } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   AutocompleteEditor,
+  Button,
+  ButtonLink,
   CodeDisplay,
   dialogCore,
+  NoticeCard,
   NumberInput,
   PanelDialog,
   Placeholder,
@@ -11,15 +14,12 @@ import {
   StatusBadge,
   TextInput,
   toast,
-  Button,
-  ButtonLink,
 } from "@k2b/ui";
 import {
   buildWorkflowAutocompleteCompletions,
   createWorkflowYamlHighlighter,
   type WorkflowAutocompleteRequest,
 } from "@valentinkolb/cloud/workflows/editor";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
@@ -34,7 +34,6 @@ import type { ConversationReferenceConfiguration } from "../../service/conversat
 import { readApiError } from "./api-response";
 import { MailReferenceConfigurationForm } from "./MailResponsePolicySettings";
 import { waitForMailPageTransition } from "./mail-page-transition";
-import { shouldApplyWorkflowValidation } from "./workflow-validation-race";
 
 const DEFAULT_BUDGET: WorkflowEffectBudget = {
   maxTargets: 1_000,
@@ -100,10 +99,7 @@ function WorkflowEditor(props: {
   const [maxAiCalls, setMaxAiCalls] = createSignal(initialBudget.maxAiCalls);
   const [validation, setValidation] = createSignal<WorkflowValidation | null>(null);
   const [referenceConfiguration, setReferenceConfiguration] = createSignal(props.referenceConfiguration);
-  const [validating, setValidating] = createSignal(false);
-  let validationTimer: ReturnType<typeof setTimeout> | undefined;
-  let validationAbort: AbortController | undefined;
-  let latestValidationRequest = 0;
+  const [validationSource, setValidationSource] = createSignal(source());
 
   const budget = (): WorkflowEffectBudget => ({
     maxTargets: maxTargets(),
@@ -142,54 +138,43 @@ function WorkflowEditor(props: {
   };
   const completions = buildWorkflowAutocompleteCompletions({ fetchAutocomplete });
 
-  const runValidation = async (requestedSource: string, announce: boolean) => {
-    validationAbort?.abort();
-    const abort = new AbortController();
-    validationAbort = abort;
-    const requestId = ++latestValidationRequest;
-    setValidating(true);
-    try {
+  const validationQuery = query.create<string, WorkflowValidation>({
+    source: validationSource,
+    load: async (requestedSource, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].workflows.validate.$post(
         {
           param: { mailboxId: props.mailboxId },
           json: { source: requestedSource },
         },
-        { init: { signal: abort.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Workflow validation failed"));
-      const result = await response.json();
-      if (
-        shouldApplyWorkflowValidation({
-          requestId,
-          latestRequestId: latestValidationRequest,
-          requestedSource,
-          currentSource: source(),
-          aborted: abort.signal.aborted,
-        })
-      ) {
-        setValidation(result);
-        if (announce && result.valid) toast.success("Workflow is valid");
-      }
-    } catch (error) {
-      if (!abort.signal.aborted && requestId === latestValidationRequest) {
-        setValidation(null);
-        if (announce) await prompts.error(error instanceof Error ? error.message : "Workflow validation failed");
-      }
-    } finally {
-      if (!abort.signal.aborted && requestId === latestValidationRequest) setValidating(false);
-    }
-  };
+      return response.json();
+    },
+  });
+  const validationDebounce = timed.debounce(setValidationSource, 350);
+  const validating = () => validationQuery.loading() || validationQuery.refreshing() || validationDebounce.isPending();
 
   createEffect(() => {
     const current = source();
-    if (validationTimer) clearTimeout(validationTimer);
-    validationTimer = setTimeout(() => void runValidation(current, false), 350);
+    validationDebounce.debouncedFn(current);
+  });
+  createEffect(() => {
+    const result = validationQuery.data();
+    if (result?.source === source()) setValidation(result);
   });
 
-  onCleanup(() => {
-    if (validationTimer) clearTimeout(validationTimer);
-    validationAbort?.abort();
-  });
+  const runValidation = async (announce: boolean) => {
+    validationDebounce.trigger(source());
+    await Promise.resolve();
+    try {
+      await validationQuery.invalidate();
+      const result = validationQuery.data();
+      if (announce && result?.valid) toast.success("Workflow is valid");
+    } catch (error) {
+      if (announce) await prompts.error(error instanceof Error ? error.message : "Workflow validation failed");
+    }
+  };
 
   const updateDetails = mutations.create<MailWorkflowDetail, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -398,7 +383,7 @@ function WorkflowEditor(props: {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <Button variant="secondary" size="sm" type="button" disabled={validating()} onClick={() => void runValidation(source(), true)}>
+        <Button variant="secondary" size="sm" type="button" disabled={validating()} onClick={() => void runValidation(true)}>
           <i class={`ti ${validating() ? "ti-loader-2 animate-spin" : "ti-shield-check"}`} aria-hidden="true" /> Validate
         </Button>
         <div class="flex items-center gap-2">

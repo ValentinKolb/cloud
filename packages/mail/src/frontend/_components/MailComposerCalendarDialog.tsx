@@ -1,6 +1,7 @@
 import { type DateContext, dates } from "@k2b/stdlib";
+import { mutation, query } from "@k2b/stdlib/solid";
 import { Button, DateTimePicker, dialogCore, PanelDialog, panelDialogOptions, SegmentedControl, Select, TextInput } from "@k2b/ui";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CalendarEvent } from "../../app-integration-contracts";
 import type { MailDraft } from "../../contracts";
@@ -32,71 +33,54 @@ function MailComposerCalendarDialog(props: {
   const [location, setLocation] = createSignal("");
   const [startsAt, setStartsAt] = createSignal<string | null>(defaults.startsAt);
   const [endsAt, setEndsAt] = createSignal<string | null>(defaults.endsAt);
-  const [loading, setLoading] = createSignal(true);
-  const [saving, setSaving] = createSignal(false);
   const [attempted, setAttempted] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  let controller: AbortController | null = null;
-  const invitationKey = crypto.randomUUID();
+  const destinationQuery = query.create({
+    source: () => props.mailboxId,
+    load: async (mailboxId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get(
+        { param: { mailboxId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Spaces could not be loaded"));
+      return response.json();
+    },
+  });
+  createEffect(() => {
+    const value = destinationQuery.data();
+    if (!value) return;
+    setDestinations(value.items);
+    if (!spaceId()) setSpaceId(value.selectedSpaceId ?? value.items[0]?.id ?? "");
+  });
 
-  const nextController = () => {
-    controller?.abort();
-    controller = new AbortController();
-    return controller;
-  };
-
-  const loadEvents = async (nextSpaceId: string, signal: AbortSignal) => {
-    setEvents([]);
-    setEventId("");
-    if (!nextSpaceId) return;
-    const response = await apiClient.mailboxes[":mailboxId"]["calendar-events"].$get(
-      { param: { mailboxId: props.mailboxId }, query: { spaceId: nextSpaceId } },
-      { init: { signal } },
-    );
-    if (!response.ok) throw new Error(await readApiError(response, "Events could not be loaded"));
-    const values = await response.json();
-    if (signal.aborted) return;
+  const eventQuery = query.create({
+    source: spaceId,
+    enabled: () => Boolean(spaceId()),
+    load: async (nextSpaceId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["calendar-events"].$get(
+        { param: { mailboxId: props.mailboxId }, query: { spaceId: nextSpaceId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Events could not be loaded"));
+      return response.json();
+    },
+  });
+  createEffect(() => {
+    const values = eventQuery.data() ?? [];
     setEvents(values);
     setEventId(values[0]?.id ?? "");
-  };
-
-  onMount(() => {
-    const request = nextController();
-    void (async () => {
-      try {
-        const response = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get(
-          { param: { mailboxId: props.mailboxId } },
-          { init: { signal: request.signal } },
-        );
-        if (!response.ok) throw new Error(await readApiError(response, "Spaces could not be loaded"));
-        const value = await response.json();
-        setDestinations(value.items);
-        const selected = value.selectedSpaceId ?? value.items[0]?.id ?? "";
-        setSpaceId(selected);
-        await loadEvents(selected, request.signal);
-      } catch (cause) {
-        if (!request.signal.aborted) setError(cause instanceof Error ? cause.message : "Calendar options could not be loaded");
-      } finally {
-        if (!request.signal.aborted) setLoading(false);
-      }
-    })();
   });
-  onCleanup(() => controller?.abort());
+
+  createEffect(() => setError(destinationQuery.error()?.message ?? eventQuery.error()?.message ?? null));
+  const loading = () => destinationQuery.loading() || eventQuery.loading();
 
   const selectSpace = (value: string | null) => {
     const next = value ?? "";
     setSpaceId(next);
+    setEvents([]);
+    setEventId("");
     setAttempted(false);
     setError(null);
-    setLoading(true);
-    const request = nextController();
-    void loadEvents(next, request.signal)
-      .catch((cause) => {
-        if (!request.signal.aborted) setError(cause instanceof Error ? cause.message : "Events could not be loaded");
-      })
-      .finally(() => {
-        if (!request.signal.aborted) setLoading(false);
-      });
   };
 
   const validationError = createMemo(() => {
@@ -109,14 +93,9 @@ function MailComposerCalendarDialog(props: {
     return null;
   });
 
-  const attach = async () => {
-    if (saving()) return;
-    setAttempted(true);
-    if (validationError()) return;
-    setSaving(true);
-    setError(null);
-    const request = nextController();
-    try {
+  const attachMutation = mutation.create<MailDraft, void, { invitationKey: string }>({
+    onBefore: () => ({ invitationKey: crypto.randomUUID() }),
+    mutation: async (_, { abortSignal, invitationKey }) => {
       let itemId = eventId();
       if (mode() === "create") {
         itemId = createdEventId();
@@ -132,7 +111,7 @@ function MailComposerCalendarDialog(props: {
                 endsAt: endsAt()!,
               },
             },
-            { init: { signal: request.signal } },
+            { init: { signal: abortSignal } },
           );
           if (!response.ok) throw new Error(await readApiError(response, "Event could not be created"));
           itemId = (await response.json()).id;
@@ -144,17 +123,25 @@ function MailComposerCalendarDialog(props: {
           param: { mailboxId: props.mailboxId, draftId: props.draftId },
           json: { itemId, idempotencyKey: invitationKey },
         },
-        { init: { signal: request.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Invitation could not be attached"));
-      props.close(await response.json());
-    } catch (cause) {
-      if (!request.signal.aborted) {
-        setError(cause instanceof Error ? cause.message : "Invitation could not be attached");
-        setSaving(false);
-      }
-    }
+      return response.json();
+    },
+    onSuccess: (draft) => props.close(draft),
+    onError: (cause) => setError(cause.message),
+  });
+  const saving = attachMutation.loading;
+
+  const attach = async () => {
+    if (saving()) return;
+    setAttempted(true);
+    if (validationError()) return;
+    setError(null);
+    await attachMutation.mutate();
   };
+
+  onCleanup(() => attachMutation.abort());
 
   const closeDialog = () => {
     if (!saving()) props.close(null);

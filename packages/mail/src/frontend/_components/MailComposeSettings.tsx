@@ -1,6 +1,9 @@
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
+  Button,
   confirmDiscardIfDirty,
   dialogCore,
+  IconButton,
   MarkdownEditor,
   PanelDialog,
   Placeholder,
@@ -10,10 +13,7 @@ import {
   Select,
   TextInput,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
@@ -344,36 +344,43 @@ export default function MailComposeSettings(props: {
   identities: SenderIdentity[];
   onTemplatesChange?: (templates: ComposeTemplate[]) => void;
 }) {
-  const [templates, setTemplates] = createSignal(props.initialTemplates);
-  const [defaults, setDefaults] = createSignal(props.initialDefaults);
   const [style, setStyle] = createSignal(props.initialStyle);
-  const [pendingDefaults, setPendingDefaults] = createSignal<Set<string>>(new Set());
+  const templateQuery = query.create({
+    source: () => props.mailboxId,
+    initial: { source: props.mailboxId, data: props.initialTemplates },
+    load: async (mailboxId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-templates"].$get(
+        { param: { mailboxId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to reload compose templates"));
+      return response.json();
+    },
+  });
+  const defaultQuery = query.create({
+    source: () => props.mailboxId,
+    initial: { source: props.mailboxId, data: props.initialDefaults },
+    load: async (mailboxId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-signature-defaults"].$get(
+        { param: { mailboxId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to reload signature defaults"));
+      return response.json();
+    },
+  });
+  const templates = () => templateQuery.data() ?? [];
+  const defaults = () => defaultQuery.data() ?? [];
   const signatures = createMemo(() => templates().filter((template) => template.kind === "signature"));
 
   const reloadTemplates = async (): Promise<ComposeTemplate[]> => {
-    const response = await apiClient.mailboxes[":mailboxId"]["compose-templates"].$get({ param: { mailboxId: props.mailboxId } });
-    if (!response.ok) throw new Error(await readApiError(response, "Failed to reload compose templates"));
-    const next = await response.json();
-    setTemplates(next);
+    await templateQuery.invalidate();
+    const next = templates();
+    props.onTemplatesChange?.(next);
     return next;
   };
 
-  const reloadDefaults = async (): Promise<void> => {
-    const response = await apiClient.mailboxes[":mailboxId"]["compose-signature-defaults"].$get({
-      param: { mailboxId: props.mailboxId },
-    });
-    if (!response.ok) throw new Error(await readApiError(response, "Failed to reload signature defaults"));
-    setDefaults(await response.json());
-  };
-
-  const replaceTemplate = (template: ComposeTemplate) =>
-    setTemplates((current) => {
-      const next = current.some((item) => item.id === template.id)
-        ? current.map((item) => (item.id === template.id ? template : item))
-        : [...current, template];
-      props.onTemplatesChange?.(next);
-      return next;
-    });
+  const replaceTemplate = () => void reloadTemplates().catch((error) => prompts.error(error.message));
 
   const openTemplate = (template: ComposeTemplate | null = null) =>
     dialogCore.open<void>(
@@ -391,6 +398,36 @@ export default function MailComposeSettings(props: {
       templateEditorDialogOptions,
     );
 
+  const archiveTemplateMutation = mutations.create<boolean, ComposeTemplate>({
+    mutation: async (template, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-templates"][":templateId"].$delete(
+        {
+          param: { mailboxId: props.mailboxId, templateId: template.id },
+          json: { expectedRevision: template.revision },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) {
+        if (response.status === 409) {
+          await Promise.all([templateQuery.invalidate(), defaultQuery.invalidate()]);
+          throw new Error("This template changed in another session. The latest version is now shown.");
+        }
+        throw new Error(await readApiError(response, "Failed to archive compose template"));
+      }
+      try {
+        await Promise.all([templateQuery.invalidate(), defaultQuery.invalidate()]);
+        props.onTemplatesChange?.(templates());
+      } catch (error) {
+        void prompts.error(error instanceof Error ? error.message : "Compose templates could not be refreshed", {
+          title: "Template archived, refresh failed",
+        });
+      }
+      return true;
+    },
+    onSuccess: () => toast.success("Template archived"),
+    onError: (error) => prompts.error(error.message),
+  });
+
   const archiveTemplate = async (template: ComposeTemplate) => {
     const confirmed = await prompts.confirm(
       "Existing drafts keep their inserted content. This only removes the template from future use.",
@@ -401,75 +438,49 @@ export default function MailComposeSettings(props: {
       },
     );
     if (!confirmed) return false;
-    const response = await apiClient.mailboxes[":mailboxId"]["compose-templates"][":templateId"].$delete({
-      param: { mailboxId: props.mailboxId, templateId: template.id },
-      json: { expectedRevision: template.revision },
-    });
-    if (!response.ok) {
-      if (response.status === 409) {
-        try {
-          await Promise.all([reloadTemplates(), reloadDefaults()]);
-          prompts.error("This template changed in another session. The latest version is now shown.");
-          return false;
-        } catch (error) {
-          prompts.error(error instanceof Error ? error.message : "Failed to reload compose settings");
-          return false;
-        }
-      }
-      prompts.error(await readApiError(response, "Failed to archive compose template"));
-      return false;
-    }
-    setTemplates((current) => {
-      const next = current.filter((item) => item.id !== template.id);
-      props.onTemplatesChange?.(next);
-      return next;
-    });
-    setDefaults((current) => current.filter((item) => item.templateId !== template.id));
-    toast.success("Template archived");
-    return true;
+    await archiveTemplateMutation.mutate(template);
+    return archiveTemplateMutation.data() === true && archiveTemplateMutation.error() === null;
   };
 
-  const setDefault = async (identity: SenderIdentity, scope: "private" | "mailbox", templateId: string) => {
-    const pendingKey = `${identity.id}:${scope}`;
-    if (pendingDefaults().has(pendingKey)) return;
-    setPendingDefaults((current) => new Set(current).add(pendingKey));
-    const current = defaults().find(
-      (item) => item.senderIdentityId === identity.id && (scope === "private" ? item.userId !== null : item.userId === null),
-    );
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"]["compose-signature-default"].$put({
-        param: { mailboxId: props.mailboxId, senderIdentityId: identity.id },
-        json: { scope, templateId: templateId || null, expectedRevision: current?.revision ?? null },
-      });
+  const setDefaultMutation = mutations.create<void, { identity: SenderIdentity; scope: "private" | "mailbox"; templateId: string }>({
+    mutation: async ({ identity, scope, templateId }, { abortSignal }) => {
+      const current = defaults().find(
+        (item) => item.senderIdentityId === identity.id && (scope === "private" ? item.userId !== null : item.userId === null),
+      );
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"]["compose-signature-default"].$put(
+        {
+          param: { mailboxId: props.mailboxId, senderIdentityId: identity.id },
+          json: { scope, templateId: templateId || null, expectedRevision: current?.revision ?? null },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) {
         if (response.status === 409) {
-          try {
-            await reloadDefaults();
-            return prompts.error("This default changed in another session. The latest selection is now shown.");
-          } catch (error) {
-            return prompts.error(error instanceof Error ? error.message : "Failed to reload signature defaults");
-          }
+          await defaultQuery.invalidate();
+          throw new Error("This default changed in another session. The latest selection is now shown.");
         }
-        return prompts.error(await readApiError(response, "Failed to update signature default"));
+        throw new Error(await readApiError(response, "Failed to update signature default"));
       }
-      const next = await response.json();
-      setDefaults((items) => [
-        ...items.filter(
-          (item) => !(item.senderIdentityId === identity.id && (scope === "private" ? item.userId !== null : item.userId === null)),
-        ),
-        ...(next ? [next] : []),
-      ]);
-      toast.success("Signature default updated");
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Failed to update signature default");
-    } finally {
-      setPendingDefaults((current) => {
-        const next = new Set(current);
-        next.delete(pendingKey);
-        return next;
-      });
-    }
+      try {
+        await defaultQuery.invalidate();
+      } catch (error) {
+        void prompts.error(error instanceof Error ? error.message : "Signature defaults could not be refreshed", {
+          title: "Default updated, refresh failed",
+        });
+      }
+    },
+    onSuccess: () => toast.success("Signature default updated"),
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const setDefault = async (identity: SenderIdentity, scope: "private" | "mailbox", templateId: string) => {
+    await setDefaultMutation.mutate({ identity, scope, templateId });
   };
+
+  onCleanup(() => {
+    archiveTemplateMutation.abort();
+    setDefaultMutation.abort();
+  });
 
   const openEmailDesign = () =>
     dialogCore.open<void>(
@@ -549,7 +560,7 @@ export default function MailComposeSettings(props: {
                     description={`Overrides the identity default for ${identity.fromAddress}.`}
                     value={privateDefault}
                     onValueChange={(value) => void setDefault(identity, "private", value ?? "")}
-                    disabled={pendingDefaults().has(`${identity.id}:private`)}
+                    disabled={setDefaultMutation.loading()}
                     options={signatures().map((template) => ({
                       id: template.id,
                       label: template.name,

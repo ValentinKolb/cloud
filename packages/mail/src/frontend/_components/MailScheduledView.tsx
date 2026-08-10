@@ -1,6 +1,7 @@
 import { type LinkNavigateEvent, navigateTo } from "@k2b/ssr/nav";
-import { Button, ButtonLink, Placeholder, prompts, toast } from "@k2b/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
+import { mutation } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, Placeholder, prompts, toast } from "@k2b/ui";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CancelScheduledSendInput, CancelScheduledSendResult, ScheduledSendPage } from "../../contracts";
@@ -49,49 +50,53 @@ export default function MailScheduledView(props: {
   onRefresh: () => Promise<void>;
 }) {
   const [cancellingId, setCancellingId] = createSignal<string | null>(null);
-  let controller: AbortController | null = null;
-  let disposed = false;
-
-  const cancel = async (scheduledSendId: string) => {
-    if (cancellingId()) return;
-    const currentController = new AbortController();
-    controller = currentController;
-    setCancellingId(scheduledSendId);
-    try {
+  const cancel = mutation.create<
+    {
+      result: CancelScheduledSendResult;
+      disposition: CancelScheduledSendInput["disposition"];
+      refreshError: Error | null;
+    } | null,
+    string
+  >({
+    onBefore: (scheduledSendId) => setCancellingId(scheduledSendId),
+    mutation: async (scheduledSendId, { abortSignal }) => {
       const disposition = await chooseDisposition();
-      if (!disposition || disposed) return;
+      if (!disposition || abortSignal.aborted) return null;
       const response = await apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"].cancel.$post(
         {
           param: { mailboxId: props.mailboxId, scheduledSendId },
           json: { disposition },
         },
-        { init: { signal: currentController.signal } },
+        { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel scheduled delivery"));
       const result: CancelScheduledSendResult = await response.json();
-      if (disposed || controller !== currentController) return;
+      let refreshError: Error | null = null;
+      if (result.disposition !== "draft") {
+        try {
+          await props.onRefresh();
+        } catch (error) {
+          refreshError = error instanceof Error ? error : new Error(String(error));
+        }
+      }
+      return { result, disposition, refreshError };
+    },
+    onSuccess: (value) => {
+      if (!value) return;
+      const { result, disposition, refreshError } = value;
       toast.success(disposition === "draft" ? "Scheduled delivery cancelled; draft restored" : "Scheduled message discarded");
       if (result.disposition === "draft") {
         navigateTo(mailDraftHref(props.mailboxId, result.draftId, `/app/mail/${props.mailboxId}?scheduled=1`));
         return;
       }
-      await props.onRefresh();
-    } catch (error) {
-      if (!disposed && controller === currentController && !(error instanceof DOMException && error.name === "AbortError")) {
-        await prompts.error(error instanceof Error ? error.message : "Failed to cancel scheduled delivery");
+      if (refreshError) {
+        void prompts.error(refreshError.message, { title: "Delivery cancelled, but Scheduled could not be refreshed" });
       }
-    } finally {
-      if (!disposed && controller === currentController) {
-        controller = null;
-        setCancellingId(null);
-      }
-    }
-  };
-  onCleanup(() => {
-    disposed = true;
-    controller?.abort();
-    controller = null;
+    },
+    onError: (error) => prompts.error(error.message),
+    onFinally: () => setCancellingId(null),
   });
+  onCleanup(cancel.abort);
 
   return (
     <section class="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={props.loading}>
@@ -164,7 +169,7 @@ export default function MailScheduledView(props: {
                         type="button"
                         class="shrink-0"
                         disabled={Boolean(cancellingId())}
-                        onClick={() => void cancel(item.id)}
+                        onClick={() => void cancel.mutate(item.id)}
                       >
                         <i
                           class={`ti ${cancellingId() === item.id ? "ti-loader-2 animate-spin" : "ti-calendar-cancel"}`}

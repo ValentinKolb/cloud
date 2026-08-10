@@ -1,5 +1,5 @@
 import { type DateContext, dates, text } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
   Button,
   DataTable,
@@ -13,7 +13,7 @@ import {
   type StatusTone,
   toast,
 } from "@k2b/ui";
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
   Mailbox,
@@ -128,38 +128,35 @@ export default function MailOperationalSettings(props: {
     | { kind: "discover_folders"; bindingId?: string }
     | { kind: "verify_binding"; bindingId: string };
   const [lastCommand, setLastCommand] = createSignal<OperationalCommand["kind"]>("sync_mailbox");
-  const actionKeys = new Map<string, string>();
-  const [operatorStatus, operatorStatusActions] = createResource(
-    () => props.mailbox.id,
-    async (mailboxId): Promise<MailboxOperatorOperations> => {
-      const response = await apiClient.mailboxes[":mailboxId"].operations.$get({ param: { mailboxId }, query: {} });
+  const [reconciling, setReconciling] = createSignal(false);
+  const reconcileAfterWrite = (work: () => Promise<void>, title: string) => {
+    setReconciling(true);
+    void work()
+      .catch((error) => prompts.error(error instanceof Error ? error.message : "Mailbox state could not be refreshed", { title }))
+      .finally(() => setReconciling(false));
+  };
+  const operatorOperations = query.createInfinite<string, MailboxOperatorOperations, string>({
+    source: () => props.mailbox.id,
+    loadPage: async (mailboxId, { cursor, abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].operations.$get(
+        { param: { mailboxId }, query: { attentionCursor: cursor, attentionLimit: "100" } },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load mailbox operator status"));
       return response.json();
     },
-  );
-  const loadMoreAttention = mutations.create<MailboxOperatorOperations, string>({
-    mutation: async (attentionCursor, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].operations.$get(
-        {
-          param: { mailboxId: props.mailbox.id },
-          query: { attentionCursor, attentionLimit: "100" },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to load more operator attention items"));
-      return response.json();
-    },
-    onSuccess: (page) => {
-      const current = operatorStatus();
-      if (!current) return;
-      const existing = new Set(current.attentionCommands.map((item) => item.id));
-      operatorStatusActions.mutate({
-        ...current,
-        attentionCommands: [...current.attentionCommands, ...page.attentionCommands.filter((item) => !existing.has(item.id))],
-        nextAttentionCursor: page.nextAttentionCursor,
-      });
-    },
-    onError: (error) => prompts.error(error.message),
+    getNextCursor: (page) => page.nextAttentionCursor,
+  });
+  const operatorStatus = createMemo(() => {
+    const [first, ...rest] = operatorOperations.pages();
+    if (!first) return undefined;
+    const attention = new Map(first.attentionCommands.map((item) => [item.id, item]));
+    for (const page of rest) for (const item of page.attentionCommands) attention.set(item.id, item);
+    return {
+      ...first,
+      attentionCommands: [...attention.values()],
+      nextAttentionCursor: rest.at(-1)?.nextAttentionCursor ?? first.nextAttentionCursor,
+    };
   });
   const updateSync = mutations.create<Mailbox, boolean>({
     mutation: async (syncEnabled, { abortSignal }) => {
@@ -173,27 +170,30 @@ export default function MailOperationalSettings(props: {
       if (!response.ok) throw new Error(await readApiError(response, syncEnabled ? "Failed to resume mailbox" : "Failed to pause mailbox"));
       return response.json();
     },
-    onSuccess: async (mailbox) => {
+    onSuccess: (mailbox) => {
       toast.success(mailbox.syncEnabled ? "Mailbox resumed" : "Mailbox paused");
       props.onWorkspaceChange();
-      await props.onReload();
+      reconcileAfterWrite(props.onReload, "Mailbox updated, refresh failed");
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const command = mutations.create<void, OperationalCommand>({
-    mutation: async (input, { abortSignal }) => {
+  const command = mutations.create<void, OperationalCommand, { idempotencyKey: string }>({
+    onBefore: (input) => {
       setLastCommand(input.kind);
+      return { idempotencyKey: crypto.randomUUID() };
+    },
+    mutation: async (input, { abortSignal, idempotencyKey }) => {
       const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
         {
           param: { mailboxId: props.mailbox.id },
-          json: { ...input, idempotencyKey: crypto.randomUUID() },
+          json: { ...input, idempotencyKey },
         },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to start mailbox maintenance"));
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success(
         lastCommand() === "sync_mailbox"
           ? "Mailbox synchronization started"
@@ -202,8 +202,10 @@ export default function MailOperationalSettings(props: {
             : "Folder discovery started",
       );
       props.onWorkspaceChange();
-      await operatorStatusActions.refetch();
-      await props.onReload();
+      reconcileAfterWrite(async () => {
+        await operatorOperations.refresh();
+        await props.onReload();
+      }, "Command queued, refresh failed");
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -220,21 +222,19 @@ export default function MailOperationalSettings(props: {
       }
       return response.json();
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Provider limits refreshed");
       setRefreshingConnectionId(null);
-      await props.onReload();
+      reconcileAfterWrite(props.onReload, "Limits refreshed, mailbox refresh failed");
     },
     onError: (error) => {
       setRefreshingConnectionId(null);
       prompts.error(error.message);
     },
   });
-  const operatorCommand = mutations.create<void, OperatorActionEligibility>({
-    mutation: async (action, { abortSignal }) => {
-      const key = `${action.kind}:${JSON.stringify(action.target)}`;
-      const idempotencyKey = actionKeys.get(key) ?? crypto.randomUUID();
-      actionKeys.set(key, idempotencyKey);
+  const operatorCommand = mutations.create<void, OperatorActionEligibility, { idempotencyKey: string }>({
+    onBefore: () => ({ idempotencyKey: crypto.randomUUID() }),
+    mutation: async (action, { abortSignal, idempotencyKey }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["operator-actions"].$post(
         {
           param: { mailboxId: props.mailbox.id },
@@ -243,18 +243,16 @@ export default function MailOperationalSettings(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue Mail operator action"));
-      actionKeys.delete(key);
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success("Mail operator action queued");
-      await operatorStatusActions.refetch();
       props.onWorkspaceChange();
+      reconcileAfterWrite(operatorOperations.refresh, "Operator action queued, refresh failed");
     },
     onError: (error) => prompts.error(error.message),
   });
   onCleanup(() => {
     disposed = true;
-    loadMoreAttention.abort();
     updateSync.abort();
     command.abort();
     refreshLimits.abort();
@@ -269,7 +267,8 @@ export default function MailOperationalSettings(props: {
     if (!disposed && confirmed) updateSync.mutate(false);
   };
 
-  const busy = () => props.reloading || updateSync.loading() || command.loading() || operatorCommand.loading() || refreshLimits.loading();
+  const busy = () =>
+    props.reloading || reconciling() || updateSync.loading() || command.loading() || operatorCommand.loading() || refreshLimits.loading();
   const syncLoading = () => command.loading() && lastCommand() === "sync_mailbox";
 
   const connectedBinding = () =>
@@ -449,17 +448,17 @@ export default function MailOperationalSettings(props: {
         </Show>
       </section>
 
-      <Show when={operatorStatus.loading && !operatorStatus()}>
+      <Show when={operatorOperations.loading() && !operatorStatus()}>
         <Placeholder state="loading" variant="panel" title="Loading mailbox activity" />
       </Show>
-      <Show when={operatorStatus.error}>
+      <Show when={operatorOperations.error()}>
         <Placeholder
           state="error"
           variant="panel"
           title="Could not load mailbox activity"
-          description={operatorStatus.error instanceof Error ? operatorStatus.error.message : "Try loading the mailbox status again."}
+          description={operatorOperations.error()?.message ?? "Try loading the mailbox status again."}
           action={
-            <Button variant="secondary" size="sm" type="button" onClick={() => void operatorStatusActions.refetch()}>
+            <Button variant="secondary" size="sm" type="button" onClick={() => void operatorOperations.refresh()}>
               <i class="ti ti-refresh" aria-hidden="true" />
               Retry
             </Button>
@@ -702,23 +701,21 @@ export default function MailOperationalSettings(props: {
                         );
                       }}
                     </For>
-                    <Show when={status().nextAttentionCursor}>
-                      {(cursor) => (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          type="button"
-                          class="self-center"
-                          disabled={loadMoreAttention.loading()}
-                          onClick={() => loadMoreAttention.mutate(cursor())}
-                        >
-                          <i
-                            class={loadMoreAttention.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"}
-                            aria-hidden="true"
-                          />
-                          Load more attention items
-                        </Button>
-                      )}
+                    <Show when={operatorOperations.hasMore()}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        class="self-center"
+                        disabled={operatorOperations.loadingMore()}
+                        onClick={() => void operatorOperations.loadMore()}
+                      >
+                        <i
+                          class={operatorOperations.loadingMore() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"}
+                          aria-hidden="true"
+                        />
+                        Load more attention items
+                      </Button>
                     </Show>
                   </div>
                 </Show>

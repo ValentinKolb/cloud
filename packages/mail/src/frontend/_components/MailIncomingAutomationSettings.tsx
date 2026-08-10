@@ -1,4 +1,4 @@
-import { mutation } from "@k2b/stdlib/solid";
+import { mutation, query, timed } from "@k2b/stdlib/solid";
 import {
   Button,
   CodeDisplay,
@@ -19,7 +19,7 @@ import {
   TextInput,
   toast,
 } from "@k2b/ui";
-import { createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {
   createIncomingAutomationSchema,
@@ -965,9 +965,11 @@ function IncomingAutomationEditor(props: {
 
   const save = mutation.create<
     { automation: IncomingAutomation; backfill: IncomingAutomationBackfill | null; backfillError: string | null } | null,
-    void
+    void,
+    { operationId: string }
   >({
-    mutation: async (_, { abortSignal }) => {
+    onBefore: () => ({ operationId: crypto.randomUUID() }),
+    mutation: async (_, { abortSignal, operationId }) => {
       const input = { name: name().trim(), enabled: enabled(), scope: scope(), steps: steps() };
       let shouldBackfill = applyExisting() && enabled() && !hasAi(input.steps);
       if (shouldBackfill) {
@@ -1008,7 +1010,7 @@ function IncomingAutomationEditor(props: {
       const backfillResponse = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills.$post(
         {
           param: { mailboxId: props.mailboxId, automationId: automation.id },
-          json: { operationId: crypto.randomUUID(), expectedRevision: automation.revision },
+          json: { operationId, expectedRevision: automation.revision },
         },
         { init: { signal: abortSignal } },
       );
@@ -1292,6 +1294,50 @@ export default function MailIncomingAutomationSettings(props: {
     setBackfills((current) => ({ ...current, [backfill.automationId]: backfill }));
     setLoadedBackfills((current) => new Set(current).add(backfill.automationId));
   };
+  type BackfillLookup =
+    | { automationId: string; status: "found"; backfill: IncomingAutomationBackfill }
+    | { automationId: string; status: "missing" };
+  const backfillSource = createMemo(() => {
+    const operations = new Map<string, { automationId: string; operationId: string }>();
+    for (const automation of props.initialAutomations) {
+      if (automation.latestBackfillOperationId && !loadedBackfills().has(automation.id)) {
+        operations.set(automation.id, { automationId: automation.id, operationId: automation.latestBackfillOperationId });
+      }
+    }
+    for (const backfill of Object.values(backfills())) {
+      if (activeBackfillStates.has(backfill.state)) {
+        operations.set(backfill.automationId, { automationId: backfill.automationId, operationId: backfill.operationId });
+      }
+    }
+    return JSON.stringify([...operations.values()].sort((left, right) => left.automationId.localeCompare(right.automationId)));
+  });
+  const backfillStatus = query.create<string, BackfillLookup[]>({
+    source: backfillSource,
+    enabled: () => backfillSource() !== "[]",
+    load: async (serialized, { abortSignal }) =>
+      Promise.all(
+        (JSON.parse(serialized) as Array<{ automationId: string; operationId: string }>).map(async (operation): Promise<BackfillLookup> => {
+          const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills[":operationId"].$get(
+            {
+              param: { mailboxId: props.mailboxId, automationId: operation.automationId, operationId: operation.operationId },
+            },
+            { init: { signal: abortSignal } },
+          );
+          if (response.status === 404) return { automationId: operation.automationId, status: "missing" };
+          if (!response.ok) throw new Error(await readApiError(response, "Could not refresh backfill status"));
+          return { automationId: operation.automationId, status: "found", backfill: await response.json() };
+        }),
+      ),
+  });
+  createEffect(() => {
+    const updates = backfillStatus.data();
+    if (!updates) return;
+    for (const update of updates) {
+      if (update.status === "found") rememberBackfill(update.backfill);
+      else setLoadedBackfills((current) => new Set(current).add(update.automationId));
+    }
+  });
+  timed.interval(() => void backfillStatus.refresh(), 1_500, { executeImmediately: false });
   const backfillLocksAutomation = (automation: IncomingAutomation): boolean => {
     const backfill = backfills()[automation.id];
     if (automation.latestBackfillOperationId && !loadedBackfills().has(automation.id)) return true;
@@ -1339,8 +1385,9 @@ export default function MailIncomingAutomationSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const startBackfill = mutation.create<IncomingAutomationBackfill | null, IncomingAutomation>({
-    mutation: async (automation, { abortSignal }) => {
+  const startBackfill = mutation.create<IncomingAutomationBackfill | null, IncomingAutomation, { operationId: string }>({
+    onBefore: () => ({ operationId: crypto.randomUUID() }),
+    mutation: async (automation, { abortSignal, operationId }) => {
       if (hasAi(automation.steps)) throw new Error("Flows with AI only process future mail");
       const previewResponse = await apiClient.mailboxes[":mailboxId"]["incoming-automations"].preview.$post(
         { param: { mailboxId: props.mailboxId }, json: { scope: automation.scope } },
@@ -1360,7 +1407,7 @@ export default function MailIncomingAutomationSettings(props: {
       const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills.$post(
         {
           param: { mailboxId: props.mailboxId, automationId: automation.id },
-          json: { operationId: crypto.randomUUID(), expectedRevision: automation.revision },
+          json: { operationId, expectedRevision: automation.revision },
         },
         { init: { signal: abortSignal } },
       );
@@ -1399,67 +1446,7 @@ export default function MailIncomingAutomationSettings(props: {
   });
 
   let disposed = false;
-  let polling = false;
-  let restoring = false;
-  const refreshBackfills = async () => {
-    if (polling) return;
-    const active = Object.values(backfills()).filter((backfill) => activeBackfillStates.has(backfill.state));
-    if (active.length === 0) return;
-    polling = true;
-    try {
-      const updates = await Promise.all(
-        active.map(async (backfill) => {
-          const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills[":operationId"].$get({
-            param: { mailboxId: props.mailboxId, automationId: backfill.automationId, operationId: backfill.operationId },
-          });
-          return response.ok ? response.json() : null;
-        }),
-      );
-      for (const update of updates) if (update && !disposed) rememberBackfill(update);
-    } catch {
-      // Polling is best effort; explicit actions still surface errors.
-    } finally {
-      polling = false;
-    }
-  };
-  const restoreBackfills = async () => {
-    if (restoring) return;
-    const pending = props.initialAutomations.filter(
-      (automation) => automation.latestBackfillOperationId && !loadedBackfills().has(automation.id),
-    );
-    if (pending.length === 0) return;
-    restoring = true;
-    try {
-      await Promise.all(
-        pending.map(async (automation) => {
-          try {
-            const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"][":automationId"].backfills[
-              ":operationId"
-            ].$get({
-              param: {
-                mailboxId: props.mailboxId,
-                automationId: automation.id,
-                operationId: automation.latestBackfillOperationId!,
-              },
-            });
-            if (response.ok && !disposed) rememberBackfill(await response.json());
-            else if (response.status === 404 && !disposed) setLoadedBackfills((current) => new Set(current).add(automation.id));
-          } catch {
-            // Keep the automation locked and retry transient failures.
-          }
-        }),
-      );
-    } finally {
-      restoring = false;
-    }
-  };
-  let timer: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
-    void restoreBackfills();
-    timer = setInterval(() => {
-      void restoreBackfills();
-      void refreshBackfills();
-    }, 1_500);
     if (props.openPreset) {
       void (async () => {
         await waitForMailPageTransition();
@@ -1477,7 +1464,6 @@ export default function MailIncomingAutomationSettings(props: {
   });
   onCleanup(() => {
     disposed = true;
-    if (timer) clearInterval(timer);
     toggle.abort();
     remove.abort();
     startBackfill.abort();

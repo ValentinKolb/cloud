@@ -1,5 +1,5 @@
-import { NoticeCard, Placeholder, prompts, Select, Button, ButtonLink } from "@k2b/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { mutation as mutations, query } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, NoticeCard, Placeholder, prompts, Select } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailDraftSeed, SenderIdentity } from "../../contracts";
@@ -24,51 +24,35 @@ export default function MailComposeIntentPage(props: {
 }) {
   const parsedIntent = parseMailtoIntent(props.mailto);
   const [mailboxId, setMailboxId] = createSignal(props.initialMailboxId);
-  const [identities, setIdentities] = createSignal<SenderIdentity[]>([]);
   const [identityId, setIdentityId] = createSignal("");
-  const [identityLoading, setIdentityLoading] = createSignal(Boolean(props.autoStart && props.initialMailboxId));
-  const [identityError, setIdentityError] = createSignal<string | null>(null);
   const [autoStartFailed, setAutoStartFailed] = createSignal(false);
-  const [identityReload, setIdentityReload] = createSignal(0);
-  let identityController: AbortController | null = null;
-  let identityRequest = 0;
+  const identityResults = query.create<string, { mailboxId: string; items: SenderIdentity[] }>({
+    source: mailboxId,
+    enabled: () => Boolean(mailboxId()),
+    load: async (selectedMailboxId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$get(
+        { param: { mailboxId: selectedMailboxId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load sending identities"));
+      return { mailboxId: selectedMailboxId, items: (await response.json()).filter((identity) => identity.status === "verified") };
+    },
+  });
+  const identities = () => {
+    const result = identityResults.data();
+    return result?.mailboxId === mailboxId() ? result.items : [];
+  };
+  const identityLoading = () => identityResults.loading() || identityResults.refreshing();
+  const identityError = () => identityResults.error()?.message ?? null;
 
   createEffect(() => {
     const selectedMailboxId = mailboxId();
-    identityReload();
-    const request = ++identityRequest;
-    identityController?.abort();
-    identityController = null;
-    setIdentities([]);
     setIdentityId("");
-    setIdentityError(null);
-    setIdentityLoading(Boolean(selectedMailboxId));
-    if (!selectedMailboxId) return;
-    const controller = new AbortController();
-    identityController = controller;
-    void (async () => {
-      try {
-        const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$get(
-          { param: { mailboxId: selectedMailboxId } },
-          { init: { signal: controller.signal } },
-        );
-        if (!response.ok) throw new Error(await readApiError(response, "Could not load sending identities"));
-        const verified = (await response.json()).filter((identity) => identity.status === "verified");
-        if (request !== identityRequest) return;
-        setIdentities(verified);
-        const preferredIdentityId = readMailSenderPreference(localStorage, selectedMailboxId);
-        const selected = selectComposeSenderIdentity(verified, preferredIdentityId, props.autoStart);
-        setIdentityId(selected?.id ?? "");
-      } catch (error) {
-        if (request !== identityRequest || controller.signal.aborted) return;
-        setIdentityError(error instanceof Error ? error.message : "Could not load sending identities");
-      } finally {
-        if (request === identityRequest) {
-          identityController = null;
-          setIdentityLoading(false);
-        }
-      }
-    })();
+    const result = identityResults.data();
+    if (!selectedMailboxId || result?.mailboxId !== selectedMailboxId) return;
+    const preferredIdentityId = readMailSenderPreference(localStorage, selectedMailboxId);
+    const selected = selectComposeSenderIdentity(result.items, preferredIdentityId, props.autoStart);
+    setIdentityId(selected?.id ?? "");
   });
 
   const selectedMailbox = createMemo(() => props.mailboxes.find((mailbox) => mailbox.id === mailboxId()) ?? null);
@@ -124,8 +108,6 @@ export default function MailComposeIntentPage(props: {
   });
 
   onCleanup(() => {
-    identityRequest += 1;
-    identityController?.abort();
     draftCreation.abort();
   });
 
@@ -223,7 +205,7 @@ export default function MailComposeIntentPage(props: {
                 {(message) => (
                   <NoticeCard tone="danger" icon={false} bodyClass="flex items-center justify-between gap-3" role="alert">
                     <span>{message()}</span>
-                    <Button variant="secondary" size="sm" type="button" onClick={() => setIdentityReload((current) => current + 1)}>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => void identityResults.refresh()}>
                       Retry
                     </Button>
                   </NoticeCard>

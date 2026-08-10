@@ -10,6 +10,14 @@ export type MailWorkspaceActionOptions = {
 
 export type MailAutoReadDecision = "ignore" | "wait" | "consume" | "read";
 
+export type MailWorkspaceActionExecution = {
+  correlationId: string;
+  idempotencyKeys: Map<string, string>;
+  targets?: MailBulkTarget[];
+  destinationResolved?: boolean;
+  destinationFolderId?: string | null;
+};
+
 export const decideMailAutoReadIntent = (params: {
   intent: number;
   consumedIntent: number;
@@ -29,15 +37,9 @@ type ActionFailure = {
   submittedPlacements: number;
 };
 
-export type MailWorkspaceActionHost = {
-  canRun: () => boolean;
+export type MailWorkspaceActionRunnerHost = {
   resolveTargets: (actionId: MailActionId) => MailBulkTarget[];
   chooseDestinationFolder: () => Promise<string | null>;
-  isDisposed: () => boolean;
-  begin: (controller: AbortController) => void;
-  isCurrent: (controller: AbortController) => boolean;
-  finish: (controller: AbortController) => void;
-  isAbortError: (error: unknown) => boolean;
   applyOptimistic: (actionId: MailActionId, targets: readonly MailBulkTarget[]) => void;
   clearOptimistic: (conversationIds: readonly string[], fields: readonly MailListOptimisticField[]) => void;
   submit: (params: {
@@ -46,6 +48,7 @@ export type MailWorkspaceActionHost = {
     sourceFolderId: string;
     destinationFolderId?: string;
     correlationId: string;
+    idempotencyKey: string;
     signal: AbortSignal;
   }) => Promise<void>;
   pruneSelection: (succeededConversationIds: ReadonlySet<string>) => void;
@@ -73,23 +76,30 @@ export const removeDestinationPlacements = (targets: readonly MailBulkTarget[], 
 export const runMailWorkspaceAction = async (
   actionId: MailActionId,
   options: MailWorkspaceActionOptions,
-  host: MailWorkspaceActionHost,
+  host: MailWorkspaceActionRunnerHost,
+  signal: AbortSignal,
+  execution: MailWorkspaceActionExecution = {
+    correlationId: crypto.randomUUID(),
+    idempotencyKeys: new Map(),
+  },
 ): Promise<void> => {
-  if (!host.canRun()) return;
-  let targets = options.targets ?? host.resolveTargets(actionId);
-  if (targets.length === 0) {
-    if (!options.silent) await host.showMissingTarget();
-    return;
-  }
-
-  const controller = new AbortController();
   const optimisticFields = mailOptimisticFields(actionId);
+  let targets: MailBulkTarget[] = [];
   let optimisticApplied = false;
-  host.begin(controller);
 
   try {
-    const destinationFolderId = actionId === "move" ? (options.destinationFolderId ?? (await host.chooseDestinationFolder())) : undefined;
-    if (!host.isCurrent(controller) || host.isDisposed() || (actionId === "move" && !destinationFolderId)) return;
+    execution.targets ??= options.targets ?? host.resolveTargets(actionId);
+    targets = execution.targets;
+    if (targets.length === 0) {
+      if (!options.silent) await host.showMissingTarget();
+      return;
+    }
+    if (actionId === "move" && !execution.destinationResolved) {
+      execution.destinationFolderId = options.destinationFolderId ?? (await host.chooseDestinationFolder());
+      execution.destinationResolved = true;
+    }
+    const destinationFolderId = actionId === "move" ? execution.destinationFolderId : undefined;
+    if (signal.aborted || (actionId === "move" && !destinationFolderId)) return;
     if (actionId === "move") {
       targets = removeDestinationPlacements(targets, destinationFolderId!);
       if (targets.length === 0) {
@@ -98,23 +108,30 @@ export const runMailWorkspaceAction = async (
       }
     }
 
-    const correlationId = crypto.randomUUID();
     host.applyOptimistic(actionId, targets);
     optimisticApplied = true;
     const result = await executeMailBulkAction({
       actionId,
       targets,
-      submit: (target, sourceFolderId) =>
-        host.submit({
+      submit: (target, sourceFolderId) => {
+        const key = `${actionId}:${target.conversationId}:${sourceFolderId}:${destinationFolderId ?? ""}`;
+        let idempotencyKey = execution.idempotencyKeys.get(key);
+        if (!idempotencyKey) {
+          idempotencyKey = crypto.randomUUID();
+          execution.idempotencyKeys.set(key, idempotencyKey);
+        }
+        return host.submit({
           actionId,
           target,
           sourceFolderId,
           destinationFolderId: destinationFolderId ?? undefined,
-          correlationId,
-          signal: controller.signal,
-        }),
+          correlationId: execution.correlationId,
+          idempotencyKey,
+          signal,
+        });
+      },
     });
-    if (!host.isCurrent(controller)) return;
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
     host.clearOptimistic(
       result.failures.map((failure) => failure.conversationId),
@@ -128,25 +145,26 @@ export const runMailWorkspaceAction = async (
         removesActiveConversation: host.removesActiveConversation(actionId, succeeded),
         succeededConversationIds: succeeded,
       });
-      if (!host.isCurrent(controller)) return;
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       if (!options.silent) host.showSuccess(actionId, targets.length, succeeded.size);
     } else if (optimisticFields.length > 0) {
       await host.reconcile();
-      if (!host.isCurrent(controller)) return;
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     }
     if (result.failures.length > 0) await host.showFailures(result.failures, targets.length);
   } catch (error) {
-    if (!host.isCurrent(controller) || host.isAbortError(error)) return;
     if (optimisticApplied) {
       host.clearOptimistic(
         targets.map((target) => target.conversationId),
         optimisticFields,
       );
-      await host.reconcile();
-      if (!host.isCurrent(controller)) return;
+      try {
+        await host.reconcile();
+      } catch {
+        // Preserve the action failure as the primary error.
+      }
     }
-    if (!options.silent) await host.showError(error);
-  } finally {
-    host.finish(controller);
+    if (!signal.aborted && !(error instanceof Error && error.name === "AbortError") && !options.silent) await host.showError(error);
+    throw error;
   }
 };

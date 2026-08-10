@@ -113,7 +113,34 @@ export default function MailConversationReader(props: {
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [pendingNewMessages, setPendingNewMessages] = createSignal(0);
   const [summaryExpanded, setSummaryExpanded] = createSignal(false);
-  const [summarySaving, setSummarySaving] = createSignal(false);
+  const summarySave = mutations.create<
+    { created: boolean; refreshError: Error | null },
+    { conversationId: string; expectedSummaryRevision: number; summary: string; created: boolean }
+  >({
+    mutation: async ({ conversationId, expectedSummaryRevision, summary, created }, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].summary.$put(
+        {
+          param: { mailboxId: props.mailboxId, conversationId },
+          json: { expectedSummaryRevision, summary },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation summary"));
+      let refreshError: Error | null = null;
+      try {
+        await props.onReconcile();
+      } catch (error) {
+        refreshError = error instanceof Error ? error : new Error(String(error));
+      }
+      return { created, refreshError };
+    },
+    onSuccess: ({ created, refreshError }) => {
+      toast.success(created ? "Summary created" : "Summary updated");
+      if (refreshError) void prompts.error(refreshError.message, { title: "Summary saved, refresh failed" });
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const summarySaving = summarySave.loading;
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
   let cleanupPrint: (() => void) | null = null;
@@ -210,23 +237,12 @@ export default function MailConversationReader(props: {
       confirmText: current.summary ? "Save summary" : "Create summary",
     });
     if (!values || conversationId !== props.selectedConversationId) return;
-    setSummarySaving(true);
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].summary.$put({
-        param: { mailboxId: props.mailboxId, conversationId },
-        json: {
-          expectedSummaryRevision: current.summaryRevision,
-          summary: String(values.summary ?? ""),
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation summary"));
-      await props.onReconcile();
-      toast.success(current.summary ? "Summary updated" : "Summary created");
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Failed to update conversation summary");
-    } finally {
-      setSummarySaving(false);
-    }
+    await summarySave.mutate({
+      conversationId,
+      expectedSummaryRevision: current.summaryRevision,
+      summary: String(values.summary ?? ""),
+      created: !current.summary,
+    });
   };
 
   const toggleMessage = (messageId: string) =>
@@ -612,6 +628,7 @@ export default function MailConversationReader(props: {
     closeDraftDialog = null;
     cleanupPrint?.();
     if (readerScrollFrame !== null) cancelAnimationFrame(readerScrollFrame);
+    summarySave.abort();
     conversationDrafts.abort();
     createdDraft.abort();
     derivedDraft.abort();

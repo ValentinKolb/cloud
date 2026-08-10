@@ -1,5 +1,5 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast, Button } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
+import { mutation, query, timed } from "@k2b/stdlib/solid";
+import { Button, dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {
@@ -28,12 +28,11 @@ export function MailReferenceConfigurationFields(props: {
 }) {
   const update = <K extends keyof MailReferenceConfigurationDraft>(key: K, value: MailReferenceConfigurationDraft[K]) =>
     props.onChange({ ...props.value(), [key]: value });
-  const [preview, setPreview] = createSignal<ConversationReferencePreview | null>(null);
-  const [previewPending, setPreviewPending] = createSignal(false);
-  let previewTimer: ReturnType<typeof setTimeout> | null = null;
-  let previewGeneration = 0;
-  const previewMutation = mutation.create<ConversationReferencePreview, string>({
-    mutation: async (pattern, { abortSignal }) => {
+  const [previewSource, setPreviewSource] = createSignal(props.value().pattern.trim());
+  const previewQuery = query.create<string, { pattern: string; preview: ConversationReferencePreview }>({
+    source: previewSource,
+    enabled: () => Boolean(previewSource()),
+    load: async (pattern, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["reference-number-configuration"].preview.$post(
         {
           param: { mailboxId: props.mailboxId },
@@ -42,30 +41,18 @@ export function MailReferenceConfigurationFields(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Reference preview could not be rendered"));
-      return response.json();
+      return { pattern, preview: await response.json() };
     },
-    onSuccess: setPreview,
   });
+  const previewDebounce = timed.debounce(setPreviewSource, 200);
+  const preview = () => {
+    const current = previewQuery.data();
+    return current?.pattern === props.value().pattern.trim() ? current.preview : null;
+  };
+  const previewPending = () => previewDebounce.isPending() || previewQuery.loading() || previewQuery.refreshing();
   createEffect(() => {
     const pattern = props.value().pattern.trim();
-    const generation = ++previewGeneration;
-    if (previewTimer) clearTimeout(previewTimer);
-    previewMutation.abort();
-    setPreview(null);
-    if (!pattern) {
-      setPreviewPending(false);
-      return;
-    }
-    setPreviewPending(true);
-    previewTimer = setTimeout(() => {
-      void previewMutation.mutate(pattern).finally(() => {
-        if (generation === previewGeneration) setPreviewPending(false);
-      });
-    }, 200);
-  });
-  onCleanup(() => {
-    if (previewTimer) clearTimeout(previewTimer);
-    previewMutation.abort();
+    previewDebounce.debouncedFn(pattern);
   });
 
   return (
@@ -137,7 +124,7 @@ export function MailReferenceConfigurationFields(props: {
         <i class={`ti ${previewPending() ? "ti-loader-2 animate-spin" : "ti-eye"} shrink-0`} aria-hidden="true" />
         <Show
           when={preview()}
-          fallback={<span>{previewPending() ? "Rendering preview…" : (previewMutation.error()?.message ?? "Enter a valid format")}</span>}
+          fallback={<span>{previewPending() ? "Rendering preview…" : (previewQuery.error()?.message ?? "Enter a valid format")}</span>}
         >
           {(value) => (
             <>
