@@ -5,7 +5,7 @@ section: Frontend
 order: 840
 description: Add browser interactivity to server-rendered pages without turning the whole page into a client application.
 tags: [islands, hydration, solidjs]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # Islands and hydration
@@ -65,10 +65,15 @@ service that imports Bun SQL.
 Render the initial answer on the server. The island starts from serialized
 state and enhances it.
 
+When the island must reload that answer, pass both the snapshot and its exact
+source through the query's `initial` option. A matching source avoids an
+unnecessary hydration request. See
+[Server-backed state](/en/docs/frontend/server-backed-island-state).
+
 Do not hydrate the entire page to avoid designing the boundary. Large islands
 increase bundle size and make server and browser ownership unclear.
 
 Do not nest an island import inside another island or client component.
 
 See [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations)
-for server calls from an island.
+for typed calls and writes from an island.

@@ -5,7 +5,7 @@ section: Frontend
 order: 900
 description: Test server-rendered pages, interactive islands, navigation, and application states.
 tags: [testing, frontend, accessibility]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # Frontend testing
@@ -40,6 +40,17 @@ For DOM behavior, cover:
 - dialog close and focus behavior;
 - cleanup of listeners, timers, and sockets.
 
+For an owner-local query, also cover:
+
+- a matching SSR source suppressing the hydration request;
+- source changes preserving last-good data without presenting it as the new
+  resource;
+- refresh errors remaining visible when data exists;
+- invalidation during an active request requiring a covering follow-up;
+- refresh or invalidation superseding load-more;
+- owner cleanup aborting requests and disposing subscriptions;
+- repeated pagination cursors stopping further loads.
+
 Mock the typed API boundary. Do not mock the component's own state transitions.
 
 ## Test URL behavior
@@ -52,6 +63,11 @@ must render the same selected resource and filters.
 When navigation is enhanced, verify the fallback anchor produces the same
 result without JavaScript.
 
+Verify that history changes only after the target snapshot applies. A failed
+target must restore the committed query source, and a later live invalidation
+must not apply the rejected target. Cover rapid navigation and failed
+`popstate` loads as well.
+
 ## Test realtime recovery
 
 Cover:
@@ -63,7 +79,8 @@ Cover:
 - access revocation;
 - disposal on unmount.
 
-Do not advance the stored cursor before an event is applied.
+Do not advance the stored cursor before every affected query has committed a
+covering snapshot. Test an event that arrives while invalidation is in flight.
 
 ## Run a visual and accessibility pass
 

@@ -5,7 +5,7 @@ section: Frontend
 order: 850
 description: Call typed application APIs and handle user-initiated writes consistently.
 tags: [browser, api, mutations]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # Browser clients and mutations
@@ -70,6 +70,16 @@ reactive accessors.
 
 When a newer mutation starts, a late result from an older mutation is ignored.
 
+Capture the complete retryable intent before the request starts. Mutation
+variables or one-time context must include selected resources, destinations,
+the request payload, idempotency keys, and correlation IDs. A retry must not
+read a new choice from mutable UI state or reuse an idempotency key with a
+different payload.
+
+`onSuccess`, `onError`, `onAbort`, and `onFinally` are synchronous hooks. Their
+return values are not awaited. Put work that defines the command outcome in the
+mutation function. Track post-write reconciliation separately.
+
 ## Add optimistic state carefully
 
 `onBefore` may return context used by success, error, abort, and finally hooks.
@@ -83,8 +93,12 @@ the affected server-backed view after success.
 
 ## Separate query and mutation state
 
-Use the URL and SSR for result sets. Use a mutation for a write or a bounded
-interactive fetch inside an island.
+Use a mutation for a user-initiated write or command. Do not use a mutation to
+load a server-backed result set.
+
+Start result sets with URL-addressed SSR data and keep them current with an
+owner-local query. See
+[Server-backed state](/en/docs/frontend/server-backed-island-state).
 
 Do not turn the mutation result into a client-side cache of the application's
 domain model.

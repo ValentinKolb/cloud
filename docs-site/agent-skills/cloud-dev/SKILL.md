@@ -161,3 +161,6 @@ and `llms.txt`; never reconstruct knowledge from rendered HTML.
   stable event or effect keys.
 - SSR owns initial data and permissions. Solid islands own the smallest browser
   interaction region.
+- Use owner-local `query` for server-backed reads and `mutation` for writes.
+  Live transport stays application-owned and acknowledges an event only after
+  every affected query has committed a covering snapshot.

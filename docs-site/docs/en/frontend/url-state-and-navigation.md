@@ -5,7 +5,7 @@ section: Frontend
 order: 860
 description: Keep durable view state in the URL and navigate without losing server authority.
 tags: [url, navigation, filters]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # URL state and navigation
@@ -72,6 +72,12 @@ onMount(() => {
 
 Call `push()` or `replaceWith()` only after the island has loaded or applied the
 new state.
+
+For server-backed state, set the query source first and commit history only
+after data for that source applies. If the target load fails, restore the last
+committed source so a later refresh or live invalidation cannot apply data for
+a URL the browser never entered. See
+[Server-backed state](/en/docs/frontend/server-backed-island-state).
 
 Subscribe to `popstate` whenever an island changes history. Otherwise the URL
 and visible state diverge after Back or Forward.

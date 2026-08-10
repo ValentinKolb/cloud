@@ -55,6 +55,10 @@ export const recipeFixtures: RecipeFixture[] = [
     page: "frontend/ssr-pages-and-routing.md",
     fixtures: ["frontend-server.tsx"],
   },
+  {
+    page: "frontend/server-backed-island-state.md",
+    fixtures: ["frontend-browser.ts"],
+  },
 ];
 
 export const missingExampleImports = (documented: Iterable<string>, examples: Iterable<string>): string[] => {

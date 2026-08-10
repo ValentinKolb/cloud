@@ -5,7 +5,7 @@ section: Frontend
 order: 870
 description: Update an open page from application events while preserving reload and recovery behavior.
 tags: [realtime, websocket, cursors]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # Realtime UI
@@ -14,7 +14,7 @@ Realtime updates enhance a server-rendered page. They do not replace its
 reload path.
 
 Start with an authorized snapshot. Subscribe from that snapshot's cursor.
-Apply each event, then advance the cursor.
+Cover each event with an authoritative state update, then advance the cursor.
 
 ## Connect a live WebSocket
 
@@ -31,8 +31,11 @@ const live = createLiveWebSocket<InventoryEvent>({
   }),
   parse: (raw) => InventoryEventSchema.parse(JSON.parse(raw)),
   onMessage: (event, controls) => {
-    applyEvent(event);
-    controls.markApplied(event.cursor);
+    void inventory.invalidate({ cursor: event.cursor })
+      .then(() => controls.markApplied(event.cursor))
+      .catch(() => {
+        // Reconnect replays from the last applied cursor.
+      });
   },
   onFatal: (error) => setLiveError(error.message),
 });
@@ -47,15 +50,21 @@ cursor resume, fatal close classification, and disposal.
 The application owns authentication, subscription payloads, runtime
 validation, permissions, and domain updates.
 
-## Advance only after apply
+## Advance only after coverage
 
-Call `markApplied()` after the event has changed local state successfully.
+For a server-backed snapshot, call `markApplied()` only after the matching
+query invalidation has committed a covering snapshot. If one event affects
+several queries, wait for all matching invalidations.
 
-If apply fails, do not advance. A reconnect can replay the event from the last
-known good cursor.
+Apply an event directly only when it contains the complete authoritative
+projection. If apply or invalidation fails, do not advance. A reconnect can
+replay the event from the last known good cursor.
 
 When the server reports cursor overflow or the local state cannot reconcile,
 reload the authorized snapshot.
+
+See [Server-backed state](/en/docs/frontend/server-backed-island-state) for the
+query invalidation contract.
 
 ## Handle access changes
 

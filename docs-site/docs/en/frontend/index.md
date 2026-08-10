@@ -5,7 +5,7 @@ section: Frontend
 order: 800
 description: Choose the server-rendered and interactive frontend tools for a Cloud application.
 tags: [frontend, ssr, solidjs]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # Frontend
@@ -14,8 +14,8 @@ Cloud pages render on the server. Islands add browser behavior where a page
 needs it.
 
 The server owns result sets, permissions, and durable view state. The browser
-owns user intent, transient interaction state, and API calls caused by that
-intent.
+owns user intent, transient interaction state, and keeping serialized snapshots
+current through application APIs.
 
 ## Choose the page shape
 
@@ -35,6 +35,8 @@ See [URL state and navigation](/en/docs/frontend/url-state-and-navigation).
 
 ## Add browser behavior
 
+- [Server-backed state](/en/docs/frontend/server-backed-island-state) keeps an
+  SSR snapshot current inside an island.
 - [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations)
   covers typed API calls and writes.
 - [Realtime UI](/en/docs/frontend/realtime-ui) adds live updates to an

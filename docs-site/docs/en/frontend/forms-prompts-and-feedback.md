@@ -5,7 +5,7 @@ section: Frontend
 order: 880
 description: Collect input and show mutation progress, cancellation, success, and errors.
 tags: [forms, prompts, feedback]
-updated: 2026-07-27
+updated: 2026-08-10
 ---
 
 # Forms, prompts, and feedback
@@ -75,6 +75,11 @@ Use:
 - `prompts.confirm()` before a destructive action.
 
 Do not show success before the server confirms the change.
+
+A confirmed write and the read that reconciles its view are separate outcomes.
+If the write succeeds but the refresh fails, say that the change was saved and
+offer to retry the refresh. Do not label the write as failed or invite a retry
+of a completed non-idempotent command.
 
 ## Preserve cancellation
 

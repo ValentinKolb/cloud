@@ -5,7 +5,7 @@ section: Reference
 order: 1205
 description: Choose a supported Cloud import and check its runtime and stability.
 tags: [api, imports, boundaries, compatibility]
-updated: 2026-08-03
+updated: 2026-08-10
 ---
 
 # API surface
@@ -28,6 +28,7 @@ should use them only when a feature guide gives the exact import.
 | `@valentinkolb/cloud/contracts` | Supported | Browser-safe schemas and shared data contracts |
 | `@valentinkolb/cloud/browser` | Supported, browser | Typed Hono browser clients |
 | `@k2b/ui` | Supported, SolidJS | Portable SolidJS components and interactions |
+| `@k2b/stdlib/solid` | Supported, SolidJS | Owner-local queries, mutations, and browser interaction primitives |
 | `@valentinkolb/cloud/ssr` | Supported, server-only | Layouts, runtime context, and URL filters |
 | `@valentinkolb/cloud/workflows` | Supported | Workflow definitions and authoring contracts |
 | `@valentinkolb/cloud/ai` | Supported, server-only | AI APIs named by the AI guides |
@@ -107,6 +108,10 @@ export const inventoryApi = api.create<InventoryApi>({
 ```
 
 See [Browser clients and mutations](/en/docs/frontend/browser-clients-and-mutations).
+
+Use `query` and `mutation` from `@k2b/stdlib/solid` for owner-local reads and
+user-initiated writes. See
+[Server-backed state](/en/docs/frontend/server-backed-island-state).
 
 The `clipboard`, `copyToClipboard`, `url`, and `isImageUrl` exports are utility
 helpers outside the documented typed-client contract. Do not choose them as

@@ -112,6 +112,19 @@
         "Verification covers responsive, light, dark, hover, focus, disabled, and error states relevant to the change.",
         "A public shared UI change updates its Markdown context and representative showcase."
       ]
+    },
+    {
+      "id": 11,
+      "prompt": "Keep an authorized SSR inventory result current in a Solid island while filters, writes, pagination, and WebSocket events can change it.",
+      "expected_output": "Uses an owner-local query for canonical reads, a mutation with retry-stable intent for writes, application-owned live invalidation with post-coverage cursor acknowledgement, explicit infinite-page projection, and history updates only after a source-matching snapshot applies.",
+      "files": [],
+      "expectations": [
+        "The initial query snapshot is paired with its exact SSR source and browser loads remain authorization-aware.",
+        "Last-good data is rendered only when it matches the current source, and existing data does not hide refresh errors.",
+        "Mutation retries reuse the complete immutable intent while write success remains distinct from reconciliation failure.",
+        "Live cursors are acknowledged only after every affected query invalidation commits a covering snapshot.",
+        "Infinite pagination keeps pagination and event cursors separate, and enhanced navigation changes history only after the target snapshot applies."
+      ]
     }
   ]
 }
