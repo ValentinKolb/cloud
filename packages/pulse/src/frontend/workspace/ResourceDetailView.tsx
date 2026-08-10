@@ -1,16 +1,17 @@
 import {
   Button,
   DataTable,
+  type DataTableColumn,
+  DetailPanel,
   IconButton,
   isStructuredDataValue,
   Panes,
-  StructuredDataPreview,
-  Tooltip,
-  type DataTableColumn,
   type PanesValue,
+  StructuredDataPreview,
   type StructuredDataValue,
+  Tooltip,
 } from "@k2b/ui";
-import { createEffect, createMemo, createSignal, Show, type Accessor, type JSX, type Setter } from "solid-js";
+import { type Accessor, createEffect, createMemo, createSignal, type JSX, Show } from "solid-js";
 import type { PulseCurrentState, PulseRecordedEvent, PulseResourceMetric, PulseResourceSummary } from "../../contracts";
 import {
   compactDateWithDelta,
@@ -18,10 +19,9 @@ import {
   formatMetricValue,
   formatSignalValue,
   formatValue,
-  signalSubject,
   type PulseDateContext,
+  signalSubject,
 } from "./helpers";
-import DetailHero from "./DetailHero";
 
 const structuredData = (value: unknown, label: string): StructuredDataValue =>
   isStructuredDataValue(value) ? value : { error: `${label} is not valid JSON.` };
@@ -63,6 +63,25 @@ const SourceLink = (props: {
     </button>
   );
 };
+
+const ResourceSourceAction = (props: {
+  sourceId: string | null | undefined;
+  sourceNameById: () => Map<string, string>;
+  openSource: (sourceId: string | null | undefined) => void;
+}) => (
+  <Show when={props.sourceId} fallback={<p class="text-xs text-dimmed">-</p>}>
+    {(sourceId) => (
+      <DetailPanel.Action
+        type="button"
+        title={props.sourceNameById().get(sourceId()) ?? "Unknown source"}
+        description="Open source"
+        leading={<i class="ti ti-database-share" aria-hidden="true" />}
+        trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+        onClick={() => props.openSource(sourceId())}
+      />
+    )}
+  </Show>
+);
 
 type ResourceSignalTab = "metrics" | "states" | "events";
 
@@ -356,40 +375,46 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
     <Show when={props.selection.selectedMetric()}>
       {(metric) => (
         <div class={props.selection.activeTab() === "metrics" ? "flex h-full min-h-0 flex-col overflow-hidden" : "hidden"}>
-          <DetailHero
-            eyebrow="Metric value"
-            title={metric().metric}
-            icon="ti ti-chart-dots"
-            description={`${metric().type}${metric().unit ? ` · ${metric().unit}` : ""}${
-              metric().latestSampleAt ? ` · ${compactDateWithDelta(metric().latestSampleAt!, props.dateContext)}` : ""
-            }`}
-            actions={
-              <Tooltip.Anchor content="Close details">
-                <IconButton label="Close metric details" variant="ghost" size="sm" onClick={props.selection.close}>
-                  <i class="ti ti-x" />
-                </IconButton>
-              </Tooltip.Anchor>
-            }
-            quickActions={
-              <>
-                <Button type="button" variant="secondary" size="sm" onClick={() => props.openMetricQuery(metric())}>
-                  <i class="ti ti-code" /> Open query
-                </Button>
-                <Button type="button" variant="secondary" size="sm" onClick={() => props.openMetricVariants(metric().metric)}>
-                  <i class="ti ti-stack-2" /> All variants
-                </Button>
-              </>
-            }
-          />
-          <div class="detail-stack">
-            <section class="detail-section">
-              <SourceLink sourceId={metric().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
-              <p class="mt-3 text-3xl font-semibold text-primary">{metricValue(metric())}</p>
-            </section>
-            <section class="detail-section">
-              <StructuredDataPreview title="Metric dimensions" data={metric().dimensions} empty="No dimensions." />
-            </section>
-          </div>
+          <DetailPanel>
+            <DetailPanel.Header
+              title={metric().metric}
+              icon="ti ti-chart-dots"
+              meta="Metric value"
+              subtitle={`${metric().type}${metric().unit ? ` · ${metric().unit}` : ""}${
+                metric().latestSampleAt ? ` · ${compactDateWithDelta(metric().latestSampleAt!, props.dateContext)}` : ""
+              }`}
+              actions={
+                <Tooltip.Anchor content="Close details">
+                  <IconButton label="Close metric details" variant="ghost" size="sm" onClick={props.selection.close}>
+                    <i class="ti ti-x" />
+                  </IconButton>
+                </Tooltip.Anchor>
+              }
+              primaryActions={
+                <div class="flex flex-wrap items-center gap-2" role="group" aria-label={`${metric().metric} actions`}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => props.openMetricQuery(metric())}>
+                    <i class="ti ti-code" /> Open query
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => props.openMetricVariants(metric().metric)}>
+                    <i class="ti ti-stack-2" /> All variants
+                  </Button>
+                </div>
+              }
+            />
+            <DetailPanel.Body>
+              <DetailPanel.Summary title="Value">
+                <p class="text-3xl font-semibold text-primary">{metricValue(metric())}</p>
+              </DetailPanel.Summary>
+              <DetailPanel.Group label="Signal context">
+                <DetailPanel.Section title="Source" icon="ti ti-database-share" tone="accent">
+                  <ResourceSourceAction sourceId={metric().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
+                </DetailPanel.Section>
+                <DetailPanel.Section title="Metric dimensions" icon="ti ti-tags" tone="neutral">
+                  <StructuredDataPreview data={metric().dimensions} empty="No dimensions." />
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+            </DetailPanel.Body>
+          </DetailPanel>
         </div>
       )}
     </Show>
@@ -397,38 +422,44 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
     <Show when={props.selection.selectedState()}>
       {(state) => (
         <div class={props.selection.activeTab() === "states" ? "flex h-full min-h-0 flex-col overflow-hidden" : "hidden"}>
-          <DetailHero
-            eyebrow="State value"
-            title={state().key}
-            icon="ti ti-toggle-right"
-            description={compactDateWithDelta(state().updatedAt, props.dateContext)}
-            actions={
-              <Tooltip.Anchor content="Close details">
-                <IconButton label="Close state details" variant="ghost" size="sm" onClick={props.selection.close}>
-                  <i class="ti ti-x" />
-                </IconButton>
-              </Tooltip.Anchor>
-            }
-            quickActions={
-              <>
-                <Button type="button" variant="secondary" size="sm" onClick={() => props.openStateQuery(state())}>
-                  <i class="ti ti-code" /> Open query
-                </Button>
-                <Button type="button" variant="secondary" size="sm" onClick={() => props.openStateVariants(state().key)}>
-                  <i class="ti ti-stack-2" /> All variants
-                </Button>
-              </>
-            }
-          />
-          <div class="detail-stack">
-            <section class="detail-section">
-              <SourceLink sourceId={state().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
-              <p class="mt-3 break-words text-2xl font-semibold text-primary">{formatSignalValue(state().value)}</p>
-            </section>
-            <section class="detail-section">
-              <StructuredDataPreview title="State dimensions" data={state().dimensions} empty="No dimensions." />
-            </section>
-          </div>
+          <DetailPanel>
+            <DetailPanel.Header
+              title={state().key}
+              icon="ti ti-toggle-right"
+              meta="State value"
+              subtitle={compactDateWithDelta(state().updatedAt, props.dateContext)}
+              actions={
+                <Tooltip.Anchor content="Close details">
+                  <IconButton label="Close state details" variant="ghost" size="sm" onClick={props.selection.close}>
+                    <i class="ti ti-x" />
+                  </IconButton>
+                </Tooltip.Anchor>
+              }
+              primaryActions={
+                <div class="flex flex-wrap items-center gap-2" role="group" aria-label={`${state().key} actions`}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => props.openStateQuery(state())}>
+                    <i class="ti ti-code" /> Open query
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => props.openStateVariants(state().key)}>
+                    <i class="ti ti-stack-2" /> All variants
+                  </Button>
+                </div>
+              }
+            />
+            <DetailPanel.Body>
+              <DetailPanel.Summary title="Value">
+                <p class="break-words text-2xl font-semibold text-primary">{formatSignalValue(state().value)}</p>
+              </DetailPanel.Summary>
+              <DetailPanel.Group label="Signal context">
+                <DetailPanel.Section title="Source" icon="ti ti-database-share" tone="accent">
+                  <ResourceSourceAction sourceId={state().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
+                </DetailPanel.Section>
+                <DetailPanel.Section title="State dimensions" icon="ti ti-tags" tone="neutral">
+                  <StructuredDataPreview data={state().dimensions} empty="No dimensions." />
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+            </DetailPanel.Body>
+          </DetailPanel>
         </div>
       )}
     </Show>
@@ -436,41 +467,47 @@ export const ResourceSignalDetail = (props: ResourceSignalPanesProps) => (
     <Show when={props.selection.selectedEvent()}>
       {(event) => (
         <div class={props.selection.activeTab() === "events" ? "flex h-full min-h-0 flex-col overflow-hidden" : "hidden"}>
-          <DetailHero
-            eyebrow="Event row"
-            title={event().kind}
-            icon="ti ti-bolt"
-            description={`${signalSubject(event())} · ${compactDateWithDelta(event().ts, props.dateContext)}`}
-            actions={
-              <Tooltip.Anchor content="Close details">
-                <IconButton label="Close event details" variant="ghost" size="sm" onClick={props.selection.close}>
-                  <i class="ti ti-x" />
-                </IconButton>
-              </Tooltip.Anchor>
-            }
-            quickActions={
-              <>
-                <Button type="button" variant="secondary" size="sm" onClick={() => props.openEventQuery(event())}>
-                  <i class="ti ti-code" /> Open query
-                </Button>
-                <Button type="button" variant="secondary" size="sm" onClick={() => props.openEventVariants(event().kind)}>
-                  <i class="ti ti-stack-2" /> All variants
-                </Button>
-              </>
-            }
-          />
-          <div class="detail-stack">
-            <section class="detail-section">
-              <SourceLink sourceId={event().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
-              <p class="mt-3 text-2xl font-semibold text-primary">{event().value === null ? "-" : formatValue(event().value)}</p>
-            </section>
-            <section class="detail-section">
-              <StructuredDataPreview title="Event dimensions" data={event().dimensions} empty="No dimensions." />
-            </section>
-            <section class="detail-section">
-              <StructuredDataPreview title="Event payload" data={structuredData(event().payload, "Event payload")} empty="No payload." />
-            </section>
-          </div>
+          <DetailPanel>
+            <DetailPanel.Header
+              title={event().kind}
+              icon="ti ti-bolt"
+              meta="Event row"
+              subtitle={`${signalSubject(event())} · ${compactDateWithDelta(event().ts, props.dateContext)}`}
+              actions={
+                <Tooltip.Anchor content="Close details">
+                  <IconButton label="Close event details" variant="ghost" size="sm" onClick={props.selection.close}>
+                    <i class="ti ti-x" />
+                  </IconButton>
+                </Tooltip.Anchor>
+              }
+              primaryActions={
+                <div class="flex flex-wrap items-center gap-2" role="group" aria-label={`${event().kind} actions`}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => props.openEventQuery(event())}>
+                    <i class="ti ti-code" /> Open query
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => props.openEventVariants(event().kind)}>
+                    <i class="ti ti-stack-2" /> All variants
+                  </Button>
+                </div>
+              }
+            />
+            <DetailPanel.Body>
+              <DetailPanel.Summary title="Value">
+                <p class="text-2xl font-semibold text-primary">{event().value === null ? "-" : formatValue(event().value)}</p>
+              </DetailPanel.Summary>
+              <DetailPanel.Group label="Signal context">
+                <DetailPanel.Section title="Source" icon="ti ti-database-share" tone="accent">
+                  <ResourceSourceAction sourceId={event().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
+                </DetailPanel.Section>
+                <DetailPanel.Section title="Event dimensions" icon="ti ti-tags" tone="neutral">
+                  <StructuredDataPreview data={event().dimensions} empty="No dimensions." />
+                </DetailPanel.Section>
+                <DetailPanel.Section title="Event payload" icon="ti ti-braces" tone="neutral">
+                  <StructuredDataPreview data={structuredData(event().payload, "Event payload")} empty="No payload." />
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+            </DetailPanel.Body>
+          </DetailPanel>
         </div>
       )}
     </Show>

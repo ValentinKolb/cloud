@@ -1,16 +1,18 @@
 import { navigate } from "@k2b/ssr/nav";
 import { timed } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   AppWorkspace,
   Button,
   CopyButton,
   DataTable,
   type DataTableColumn,
   type DataTableRenderCell,
+  DescriptionList,
+  DetailPanel,
   FilterChip,
   type FilterChipSection,
   IconButton,
+  NoticeCard,
   prompts,
   Select,
   TextInput,
@@ -737,60 +739,64 @@ function SendPanel(props: {
   );
 }
 
-function RequestDetail(props: { log: WebhookLog; endpoint: Endpoint | null | undefined; onClose: () => void }) {
+export function RequestDetail(props: { log: WebhookLog; endpoint: Endpoint | null | undefined; onClose: () => void }) {
   const title = () => props.endpoint?.name ?? (props.log.direction === "incoming" ? "Incoming request" : "Outgoing request");
   const location = () => props.log.path || props.log.url;
   return (
-    <div class="flex h-full min-h-0 flex-col gap-2">
-      <section class="paper p-4">
-        <div class="flex min-w-0 items-start gap-3">
-          <div class="min-w-0 flex-1">
-            <h2 class="truncate text-sm font-semibold text-primary">{title()}</h2>
-            <p class="mt-1 flex min-w-0 items-center gap-1 text-xs text-dimmed">
-              <span class="shrink-0">{props.log.method}</span>
-              <span class="shrink-0">·</span>
-              <span class="min-w-0 truncate" title={location()}>
-                {location()}
-              </span>
-            </p>
-            <p class="mt-0.5 truncate text-xs text-dimmed" title={formatDate(props.log.createdAt)}>
-              {formatDate(props.log.createdAt)}
-            </p>
-          </div>
-          <CopyButton text={JSON.stringify(props.log, null, 2)} label="Copy JSON" variant="secondary" size="sm" class="shrink-0" />
-          <IconButton label="Close request details" onClick={props.onClose}>
-            <i class="ti ti-x" />
-          </IconButton>
-        </div>
-      </section>
+    <DetailPanel>
+      <DetailPanel.Header
+        icon={props.log.direction === "incoming" ? "ti ti-inbox" : "ti ti-send"}
+        title={title()}
+        subtitle={
+          <span class="flex min-w-0 items-center gap-1">
+            <span class="shrink-0">{props.log.method}</span>
+            <span class="shrink-0">·</span>
+            <span class="min-w-0 truncate" title={location()}>
+              {location()}
+            </span>
+          </span>
+        }
+        meta={<span title={formatDate(props.log.createdAt)}>{formatDate(props.log.createdAt)}</span>}
+        actions={
+          <>
+            <CopyButton text={JSON.stringify(props.log, null, 2)} label="Copy JSON" variant="secondary" size="sm" />
+            <IconButton label="Close request details" onClick={props.onClose}>
+              <i class="ti ti-x" aria-hidden="true" />
+            </IconButton>
+          </>
+        }
+      />
 
-      <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`webhook-request-detail-${props.log.id}`}>
-        <div class="flex flex-col gap-2">
-          <div class="grid grid-cols-2 gap-2 text-xs">
-            <DetailMetric
-              label="Status"
-              value={props.log.error ? "Error" : props.log.responseStatus ? String(props.log.responseStatus) : "Logged"}
-            />
-            <DetailMetric label="Duration" value={props.log.durationMs === null ? "-" : `${props.log.durationMs} ms`} />
-            <DetailMetric label="Content type" value={props.log.requestContentType ?? "-"} />
-            <DetailMetric label="Query" value={props.log.query || "-"} />
-          </div>
+      <DetailPanel.Body scrollPreserveKey={`webhook-request-detail-${props.log.id}`}>
+        <DetailPanel.Summary title="Overview">
+          <DescriptionList
+            layout="rows"
+            size="sm"
+            items={[
+              {
+                term: "Status",
+                description: props.log.error ? "Error" : props.log.responseStatus ? String(props.log.responseStatus) : "Logged",
+              },
+              { term: "Duration", description: props.log.durationMs === null ? "-" : `${props.log.durationMs} ms` },
+              { term: "Content type", description: props.log.requestContentType ?? "-" },
+              { term: "Query", description: props.log.query || "-" },
+            ]}
+          />
+        </DetailPanel.Summary>
+
+        <DetailPanel.Group label="Request data">
           <LogBlock title="Request headers" value={props.log.requestHeaders} />
           <LogBlock title="Request body" value={props.log.requestBody ?? "-"} />
+        </DetailPanel.Group>
+
+        <DetailPanel.Group label="Response data">
           <LogBlock title="Response headers" value={props.log.responseHeaders ?? "-"} />
           <LogBlock title="Response body" value={props.log.responseBody ?? props.log.error ?? "-"} />
-        </div>
-      </div>
-    </div>
+        </DetailPanel.Group>
+      </DetailPanel.Body>
+    </DetailPanel>
   );
 }
-
-const DetailMetric = (props: { label: string; value: string }) => (
-  <div class="paper min-w-0 p-3">
-    <p class="text-[10px] font-semibold uppercase tracking-wide text-dimmed">{props.label}</p>
-    <p class="truncate text-xs text-primary">{props.value}</p>
-  </div>
-);
 
 const LogBlock = (props: { title: string; value: unknown }) => {
   const [raw, setRaw] = createSignal(false);
@@ -805,16 +811,17 @@ const LogBlock = (props: { title: string; value: unknown }) => {
   };
 
   return (
-    <section class="paper p-4">
-      <div class="mb-2 flex items-center justify-between gap-2">
-        <h3 class="min-w-0 truncate text-xs font-semibold text-dimmed">{props.title}</h3>
-        <div class="flex shrink-0 items-center gap-1">
+    <DetailPanel.Section
+      title={props.title}
+      actions={
+        <>
           <Button variant="secondary" size="xs" class="text-[11px]" onClick={() => setRaw(!raw())}>
             {raw() ? "Pretty" : "Raw"}
           </Button>
           <CopyButton text={rawText()} label="Copy" variant="secondary" size="xs" class="text-[11px]" />
-        </div>
-      </div>
+        </>
+      }
+    >
       <Show
         when={!raw() && parsed().ok}
         fallback={<pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed">{rawText()}</pre>}
@@ -839,6 +846,6 @@ const LogBlock = (props: { title: string; value: unknown }) => {
           </div>
         </div>
       </Show>
-    </section>
+    </DetailPanel.Section>
   );
 };

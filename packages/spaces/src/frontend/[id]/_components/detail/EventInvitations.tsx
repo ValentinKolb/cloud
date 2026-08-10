@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
+import { Button, DetailPanel, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
@@ -233,27 +233,34 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
   });
   onCleanup(() => controller.abort());
   return (
-    <section class="detail-section">
-      <h3 class="detail-section-label">Invitations</h3>
-      <p class="mb-3 text-xs text-dimmed">Invite attendees through Mail without moving calendar ownership out of Spaces.</p>
+    <DetailPanel.Section
+      title="Invitations"
+      description="Invite attendees through Mail without moving calendar ownership out of Spaces."
+      icon="ti ti-calendar-share"
+      tone="accent"
+    >
       <Show when={lastDelivery()?.state === "failed"}>
-        <p class="mb-3 text-xs text-danger">
+        <p class="mb-2 text-xs text-danger">
           <i class="ti ti-alert-circle mr-1" aria-hidden="true" />
           {lastDelivery()?.errorMessage ?? "The latest Mail draft could not be created."} Retry by creating the invitation again.
         </p>
       </Show>
-      <div class="flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={() => openDialog(props.spaceId, props.itemId, "request")}>
-          <i class="ti ti-calendar-share" aria-hidden="true" />
-          Invite or update
-        </Button>
+      <div class="flex flex-col gap-1">
+        <DetailPanel.Action
+          type="button"
+          leading={<i class="ti ti-calendar-share" aria-hidden="true" />}
+          title="Invite or update"
+          onClick={() => openDialog(props.spaceId, props.itemId, "request")}
+        />
         <Show when={canCancel()}>
-          <Button type="button" variant="ghost" size="sm" onClick={() => openDialog(props.spaceId, props.itemId, "cancel")}>
-            <i class="ti ti-calendar-cancel" aria-hidden="true" />
-            Cancel invitations
-          </Button>
+          <DetailPanel.Action
+            type="button"
+            leading={<i class="ti ti-calendar-cancel" aria-hidden="true" />}
+            title="Cancel invitations"
+            onClick={() => openDialog(props.spaceId, props.itemId, "cancel")}
+          />
         </Show>
       </div>
-    </section>
+    </DetailPanel.Section>
   );
 }

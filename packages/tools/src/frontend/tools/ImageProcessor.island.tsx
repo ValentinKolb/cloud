@@ -1,12 +1,13 @@
 import { files as fileTools, images as imageTools } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   AppWorkspace,
   Button,
   ColorInput,
+  DetailPanel,
   Dropdown,
   IconButton,
+  NoticeCard,
   NumberInput,
   prompts,
   SegmentedControl,
@@ -54,19 +55,26 @@ const MARKUP_COLORS = [
 // Component
 // ====================================
 
-export default function ImageProcessor() {
+type ImageProcessorViewProps = {
+  readonly initialImages?: readonly ImageEntry[];
+  readonly initialEditorMode?: "edit" | "markup";
+  readonly initialCropActive?: boolean;
+};
+
+/** @internal Controlled render seam; the route-facing island below remains zero-prop. */
+export function ImageProcessorView(props: ImageProcessorViewProps = {}) {
   // --- Image list ---
-  const [images, setImages] = createSignal<ImageEntry[]>([]);
+  const [images, setImages] = createSignal<ImageEntry[]>([...(props.initialImages ?? [])]);
   const [activeIndex, setActiveIndex] = createSignal(0);
   const [error, setError] = createSignal("");
-  const [basePreview, setBasePreview] = createSignal("");
+  const [basePreview, setBasePreview] = createSignal(props.initialImages?.[0]?.thumbUrl ?? "");
   const [previewBusy, setPreviewBusy] = createSignal(false);
   const [previewZoom, setPreviewZoom] = createSignal(1);
   const [previewViewportSize, setPreviewViewportSize] = createSignal({ width: 1, height: 1 });
   const [inspectorOpen, setInspectorOpen] = createSignal(true);
 
   // --- Editor mode + markup ---
-  const [editorMode, setEditorMode] = createSignal<"edit" | "markup">("edit");
+  const [editorMode, setEditorMode] = createSignal<"edit" | "markup">(props.initialEditorMode ?? "edit");
   const [markupTool, setMarkupTool] = createSignal<MarkupTool>("pen");
   const [markupShape, setMarkupShape] = createSignal<MarkupShapeKind>("rectangle");
   const [markupColor, setMarkupColor] = createSignal("#ef4444");
@@ -82,7 +90,7 @@ export default function ImageProcessor() {
   const [clipboard, setClipboard] = createSignal<Adjustments | null>(null);
 
   // --- Crop ---
-  const [cropActive, setCropActive] = createSignal(false);
+  const [cropActive, setCropActive] = createSignal(Boolean(props.initialCropActive && props.initialImages?.length));
   const [cropBusy, setCropBusy] = createSignal(false);
   const [cropAspect, setCropAspect] = createSignal<CropAspect>("free");
   const [cropRect, setCropRect] = createSignal<CropRect>(createCropRect("free"));
@@ -101,6 +109,11 @@ export default function ImageProcessor() {
   const activeImage = createMemo(() => images()[activeIndex()] ?? null);
   const hasImages = createMemo(() => images().length > 0);
   const adj = createMemo(() => activeImage()?.adj ?? DEFAULT_ADJ);
+  const activeImageSubtitle = () => {
+    const image = activeImage();
+    if (!image) return "No image selected";
+    return `${image.source.width} × ${image.source.height} px${image.file ? ` · ${(image.file.size / 1024).toFixed(0)} KB` : ""}`;
+  };
   const selectedMarkupId = createMemo(() => {
     const image = activeImage();
     const selection = markupSelection();
@@ -897,6 +910,7 @@ export default function ImageProcessor() {
   };
 
   onMount(() => {
+    if (props.initialImages?.length) void rebuildBasePreview();
     measurePreviewViewport();
     const previewObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measurePreviewViewport);
     const desktopMedia = window.matchMedia("(min-width: 1024px)");
@@ -1180,94 +1194,83 @@ export default function ImageProcessor() {
         minWidth={288}
         viewTransitionName="tools-image-inspector"
       >
-        <header class="detail-header flex flex-none flex-col gap-[var(--ui-space-section)]">
-          <div class="flex min-w-0 items-start gap-2">
-            <div class="min-w-0 flex-1">
-              <SectionLabel label="Image" />
-              <Show when={activeImage()} fallback={<p class="mt-1 text-xs text-dimmed">No image selected</p>}>
-                {(image) => (
-                  <>
-                    <p class="mt-1 truncate text-sm font-medium text-primary" title={image().name}>
-                      {image().name}
-                    </p>
-                    <p class="text-xs text-dimmed">
-                      {image().source.width} &times; {image().source.height} px
-                      {image().file && ` · ${(image().file.size / 1024).toFixed(0)} KB`}
-                    </p>
-                  </>
-                )}
-              </Show>
-            </div>
-            <Show when={hasImages()}>
-              <Tooltip.Anchor content="Add images">
-                <IconButton
-                  label="Add images"
-                  size="sm"
-                  class="h-8 w-8 shrink-0"
-                  onClick={selectFiles}
-                  disabled={loadMutation.loading() || cropActive()}
-                >
-                  <i class="ti ti-photo-plus" />
+        <DetailPanel>
+          <DetailPanel.Header
+            icon="ti ti-photo"
+            title={activeImage()?.name ?? "Image controls"}
+            subtitle={activeImageSubtitle()}
+            actions={
+              <>
+                <Show when={hasImages()}>
+                  <Tooltip.Anchor content="Add images">
+                    <IconButton
+                      label="Add images"
+                      size="sm"
+                      class="h-8 w-8 shrink-0"
+                      onClick={selectFiles}
+                      disabled={loadMutation.loading() || cropActive()}
+                    >
+                      <i class="ti ti-photo-plus" aria-hidden="true" />
+                    </IconButton>
+                  </Tooltip.Anchor>
+                  <Tooltip.Anchor content="Remove image">
+                    <IconButton
+                      label="Remove image"
+                      size="sm"
+                      class="h-8 w-8 shrink-0 text-red-600 dark:text-red-400"
+                      onClick={() => removeImage(activeIndex())}
+                      disabled={cropActive() || cropBusy()}
+                    >
+                      <i class="ti ti-trash" aria-hidden="true" />
+                    </IconButton>
+                  </Tooltip.Anchor>
+                </Show>
+                <IconButton label="Show image canvas" size="sm" class="h-8 w-8 shrink-0 lg:hidden" onClick={() => setInspectorOpen(false)}>
+                  <i class="ti ti-x" aria-hidden="true" />
                 </IconButton>
-              </Tooltip.Anchor>
-              <Tooltip.Anchor content="Remove image">
-                <IconButton
-                  label="Remove image"
-                  size="sm"
-                  class="h-8 w-8 shrink-0 text-red-600 dark:text-red-400"
-                  onClick={() => removeImage(activeIndex())}
-                  disabled={cropActive() || cropBusy()}
-                >
-                  <i class="ti ti-trash" />
-                </IconButton>
-              </Tooltip.Anchor>
-            </Show>
-            <IconButton label="Show image canvas" size="sm" class="h-8 w-8 shrink-0 lg:hidden" onClick={() => setInspectorOpen(false)}>
-              <i class="ti ti-x" />
-            </IconButton>
-          </div>
-
-          <Show
-            when={hasImages()}
-            fallback={
-              <Button size="sm" class="w-full" onClick={selectFiles} loading={loadMutation.loading()} loadingLabel="Adding images">
-                <i class="ti ti-photo-plus" /> Add images
-              </Button>
+              </>
             }
-          >
-            <SegmentedControl<"edit" | "markup">
-              options={[
-                { value: "edit", label: "Edit", icon: "ti ti-adjustments-horizontal" },
-                { value: "markup", label: "Markup", icon: "ti ti-pencil" },
-              ]}
-              value={editorMode}
-              onValueChange={changeEditorMode}
-              aria-label="Editor mode"
-            />
-          </Show>
-        </header>
+            primaryActions={
+              <Show
+                when={hasImages()}
+                fallback={
+                  <Button size="sm" class="w-full" onClick={selectFiles} loading={loadMutation.loading()} loadingLabel="Adding images">
+                    <i class="ti ti-photo-plus" aria-hidden="true" /> Add images
+                  </Button>
+                }
+              >
+                <SegmentedControl<"edit" | "markup">
+                  options={[
+                    { value: "edit", label: "Edit", icon: "ti ti-adjustments-horizontal" },
+                    { value: "markup", label: "Markup", icon: "ti ti-pencil" },
+                  ]}
+                  value={editorMode}
+                  onValueChange={changeEditorMode}
+                  aria-label="Editor mode"
+                />
+              </Show>
+            }
+          />
 
-        <div class="detail-stack scrollbar">
-          <Show when={error()}>
-            <div
-              class="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
-              role="alert"
-            >
-              <i class="ti ti-alert-circle shrink-0" />
-              <span class="min-w-0 flex-1">{error()}</span>
-              <IconButton label="Dismiss error" size="xs" class="h-6 w-6 shrink-0 text-current" onClick={() => setError("")}>
-                <i class="ti ti-x" />
-              </IconButton>
-            </div>
-          </Show>
+          <DetailPanel.Body>
+            <Show when={error()}>
+              <div
+                class="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+                role="alert"
+              >
+                <i class="ti ti-alert-circle shrink-0" />
+                <span class="min-w-0 flex-1">{error()}</span>
+                <IconButton label="Dismiss error" size="xs" class="h-6 w-6 shrink-0 text-current" onClick={() => setError("")}>
+                  <i class="ti ti-x" />
+                </IconButton>
+              </div>
+            </Show>
 
-          <Show when={hasImages()}>
-            <section class="detail-section flex flex-col gap-[var(--ui-space-section)]">
-              <div class="flex flex-col gap-2">
-                <div class="flex items-center justify-between gap-2">
-                  <SectionLabel label="Preview" />
-                  <span class="text-xs tabular-nums text-dimmed">{Math.round(previewZoom() * 100)}%</span>
-                </div>
+            <Show when={hasImages()}>
+              <DetailPanel.Summary
+                title="Preview"
+                actions={<span class="text-xs tabular-nums text-dimmed">{Math.round(previewZoom() * 100)}%</span>}
+              >
                 <div class="flex items-center gap-1">
                   <Tooltip.Anchor content="Zoom out">
                     <IconButton
@@ -1297,308 +1300,326 @@ export default function ImageProcessor() {
                     </IconButton>
                   </Tooltip.Anchor>
                 </div>
-              </div>
+              </DetailPanel.Summary>
 
               <Show when={editorMode() === "markup"}>
-                <div class="flex flex-col gap-[var(--ui-space-section)]">
-                  <div class="flex flex-col gap-2">
-                    <SectionLabel label="Tool" />
-                    <div class="grid grid-cols-7 gap-1">
-                      <For
-                        each={[
-                          { value: "select" as const, label: "Select", icon: "ti-selector" },
-                          { value: "pen" as const, label: "Pen", icon: "ti-pencil" },
-                          { value: "highlighter" as const, label: "Highlight", icon: "ti-highlight" },
-                          { value: "redact" as const, label: "Redact", icon: "ti-square" },
-                          { value: "shape" as const, label: "Shape", icon: "ti-shape" },
-                          { value: "text" as const, label: "Text", icon: "ti-text-resize" },
-                          { value: "eraser" as const, label: "Erase strokes", icon: "ti-eraser" },
-                        ]}
-                      >
-                        {(tool) => (
-                          <Tooltip.Anchor content={tool.label}>
-                            <IconButton
-                              label={tool.label}
-                              size="sm"
-                              class="h-9 w-full"
-                              onClick={() => chooseMarkupTool(tool.value)}
-                              aria-pressed={markupTool() === tool.value}
-                            >
-                              <i class={`ti ${tool.icon}`} />
-                            </IconButton>
-                          </Tooltip.Anchor>
-                        )}
-                      </For>
-                    </div>
-                    <div class="flex items-center gap-1">
-                      <Tooltip.Anchor content="Undo">
-                        <IconButton label="Undo markup" size="sm" class="h-8 w-8" onClick={undoMarkup} disabled={!canUndoMarkup()}>
-                          <i class="ti ti-arrow-back-up" />
-                        </IconButton>
-                      </Tooltip.Anchor>
-                      <Tooltip.Anchor content="Redo">
-                        <IconButton label="Redo markup" size="sm" class="h-8 w-8" onClick={redoMarkup} disabled={!canRedoMarkup()}>
-                          <i class="ti ti-arrow-forward-up" />
-                        </IconButton>
-                      </Tooltip.Anchor>
-                      <Tooltip.Anchor content="Delete selected markup">
-                        <IconButton
-                          label="Delete selected markup"
-                          size="sm"
-                          class="h-8 w-8 text-red-600 dark:text-red-400"
-                          onClick={deleteSelectedMarkup}
-                          disabled={!selectedMarkupId()}
+                <DetailPanel.Group label="Markup controls">
+                  <DetailPanel.Section title="Tool" icon="ti ti-pencil" tone="accent">
+                    <div class="flex flex-col gap-2">
+                      <div class="grid grid-cols-7 gap-1">
+                        <For
+                          each={[
+                            { value: "select" as const, label: "Select", icon: "ti-selector" },
+                            { value: "pen" as const, label: "Pen", icon: "ti-pencil" },
+                            { value: "highlighter" as const, label: "Highlight", icon: "ti-highlight" },
+                            { value: "redact" as const, label: "Redact", icon: "ti-square" },
+                            { value: "shape" as const, label: "Shape", icon: "ti-shape" },
+                            { value: "text" as const, label: "Text", icon: "ti-text-resize" },
+                            { value: "eraser" as const, label: "Erase strokes", icon: "ti-eraser" },
+                          ]}
                         >
-                          <i class="ti ti-trash" />
-                        </IconButton>
-                      </Tooltip.Anchor>
-                      <Tooltip.Anchor content="Clear markup">
-                        <IconButton
-                          label="Clear markup"
-                          size="sm"
-                          class="h-8 w-8 text-red-600 dark:text-red-400"
-                          onClick={clearMarkup}
-                          disabled={(activeImage()?.markup.length ?? 0) === 0}
-                        >
-                          <i class="ti ti-trash-x" />
-                        </IconButton>
-                      </Tooltip.Anchor>
+                          {(tool) => (
+                            <Tooltip.Anchor content={tool.label}>
+                              <IconButton
+                                label={tool.label}
+                                size="sm"
+                                class="h-9 w-full"
+                                onClick={() => chooseMarkupTool(tool.value)}
+                                aria-pressed={markupTool() === tool.value}
+                              >
+                                <i class={`ti ${tool.icon}`} />
+                              </IconButton>
+                            </Tooltip.Anchor>
+                          )}
+                        </For>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <Tooltip.Anchor content="Undo">
+                          <IconButton label="Undo markup" size="sm" class="h-8 w-8" onClick={undoMarkup} disabled={!canUndoMarkup()}>
+                            <i class="ti ti-arrow-back-up" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Redo">
+                          <IconButton label="Redo markup" size="sm" class="h-8 w-8" onClick={redoMarkup} disabled={!canRedoMarkup()}>
+                            <i class="ti ti-arrow-forward-up" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Delete selected markup">
+                          <IconButton
+                            label="Delete selected markup"
+                            size="sm"
+                            class="h-8 w-8 text-red-600 dark:text-red-400"
+                            onClick={deleteSelectedMarkup}
+                            disabled={!selectedMarkupId()}
+                          >
+                            <i class="ti ti-trash" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Clear markup">
+                          <IconButton
+                            label="Clear markup"
+                            size="sm"
+                            class="h-8 w-8 text-red-600 dark:text-red-400"
+                            onClick={clearMarkup}
+                            disabled={(activeImage()?.markup.length ?? 0) === 0}
+                          >
+                            <i class="ti ti-trash-x" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                      </div>
                     </div>
-                  </div>
-                  <MarkupSettings />
-                </div>
+                  </DetailPanel.Section>
+                  <Show when={markupTool() === "shape" || isSizedMarkupTool(markupTool())}>
+                    <DetailPanel.Section title="Style" icon="ti ti-palette" tone="neutral">
+                      <MarkupSettings />
+                    </DetailPanel.Section>
+                  </Show>
+                </DetailPanel.Group>
               </Show>
 
               <Show when={editorMode() === "edit"}>
-                <div class="contents">
-                  {/* Crop */}
-                  <div class="flex flex-col gap-2">
-                    <SectionLabel label="Crop" />
-                    <div class="flex gap-2">
-                      <Show
-                        when={cropActive()}
-                        fallback={
-                          <Button variant="secondary" size="sm" class="flex-1" onClick={startCrop} disabled={cropBusy()}>
-                            <i class="ti ti-crop" /> Crop
+                <>
+                  <DetailPanel.Group label="Geometry">
+                    {/* Crop */}
+                    <DetailPanel.Section title="Crop" icon="ti ti-crop" tone="accent">
+                      <div class="flex flex-col gap-2">
+                        <div class="flex gap-2">
+                          <Show
+                            when={cropActive()}
+                            fallback={
+                              <Button variant="secondary" size="sm" class="flex-1" onClick={startCrop} disabled={cropBusy()}>
+                                <i class="ti ti-crop" /> Crop
+                              </Button>
+                            }
+                          >
+                            <Button size="sm" class="flex-1" onClick={applyCrop} loading={cropBusy()} loadingLabel="Applying">
+                              <i class="ti ti-check" /> Apply
+                            </Button>
+                          </Show>
+                          <Dropdown.Root
+                            position="bottom-left"
+                            items={(
+                              [
+                                ["free", "Free"],
+                                ["1:1", "1:1"],
+                                ["4:3", "4:3"],
+                                ["16:9", "16:9"],
+                                ["3:2", "3:2"],
+                              ] as const
+                            ).map(([id, label]) => ({
+                              label,
+                              icon: cropAspect() === id ? "ti ti-check" : undefined,
+                              action: () => selectCropAspect(id),
+                            }))}
+                          >
+                            <Dropdown.Trigger variant="secondary" size="sm">
+                              {cropAspect() === "free" ? "Free" : cropAspect()} <i class="ti ti-chevron-down text-[10px]" />
+                            </Dropdown.Trigger>
+                          </Dropdown.Root>
+                          <Show when={!cropActive() && activeImage()?.cropped}>
+                            <IconButton label="Reset crop" size="sm" onClick={resetCrop} loading={cropBusy()} loadingLabel="Resetting crop">
+                              <i class="ti ti-arrow-back-up" />
+                            </IconButton>
+                          </Show>
+                        </div>
+                        <Show when={cropActive()}>
+                          <Button variant="secondary" size="sm" class="w-full" onClick={cancelCrop} disabled={cropBusy()}>
+                            Cancel
                           </Button>
-                        }
-                      >
-                        <Button size="sm" class="flex-1" onClick={applyCrop} loading={cropBusy()} loadingLabel="Applying">
-                          <i class="ti ti-check" /> Apply
+                        </Show>
+                      </div>
+                    </DetailPanel.Section>
+
+                    {/* Transform */}
+                    <DetailPanel.Section title="Transform" icon="ti ti-transform" tone="neutral">
+                      <div class="flex flex-col gap-2">
+                        <Slider
+                          label="Rotation"
+                          value={() => adj().freeRotation}
+                          onValueChange={(v) => setAdj("freeRotation", v)}
+                          min={-180}
+                          max={180}
+                          step={0.5}
+                          center
+                          showValue
+                          formatValue={(v) => `${v > 0 ? "+" : ""}${v}\u00b0`}
+                        />
+                        <div class="grid grid-cols-2 gap-2">
+                          <Switch label="Flip H" value={() => adj().flipH} onValueChange={(v) => setAdj("flipH", v)} />
+                          <Switch label="Flip V" value={() => adj().flipV} onValueChange={(v) => setAdj("flipV", v)} />
+                        </div>
+                      </div>
+                    </DetailPanel.Section>
+                  </DetailPanel.Group>
+
+                  <DetailPanel.Group label="Appearance">
+                    {/* Adjustments */}
+                    <DetailPanel.Section
+                      title="Adjustments"
+                      icon="ti ti-adjustments-horizontal"
+                      tone="accent"
+                      actions={
+                        <Button variant="ghost" size="xs" onClick={resetAdjustments}>
+                          Reset
                         </Button>
-                      </Show>
-                      <Dropdown.Root
-                        position="bottom-left"
-                        items={(
-                          [
-                            ["free", "Free"],
-                            ["1:1", "1:1"],
-                            ["4:3", "4:3"],
-                            ["16:9", "16:9"],
-                            ["3:2", "3:2"],
-                          ] as const
-                        ).map(([id, label]) => ({
-                          label,
-                          icon: cropAspect() === id ? "ti ti-check" : undefined,
-                          action: () => selectCropAspect(id),
-                        }))}
-                      >
-                        <Dropdown.Trigger variant="secondary" size="sm">
-                          {cropAspect() === "free" ? "Free" : cropAspect()} <i class="ti ti-chevron-down text-[10px]" />
-                        </Dropdown.Trigger>
-                      </Dropdown.Root>
-                      <Show when={!cropActive() && activeImage()?.cropped}>
-                        <IconButton label="Reset crop" size="sm" onClick={resetCrop} loading={cropBusy()} loadingLabel="Resetting crop">
-                          <i class="ti ti-arrow-back-up" />
-                        </IconButton>
-                      </Show>
-                    </div>
-                    <Show when={cropActive()}>
-                      <Button variant="secondary" size="sm" class="w-full" onClick={cancelCrop} disabled={cropBusy()}>
-                        Cancel
-                      </Button>
-                    </Show>
-                  </div>
+                      }
+                    >
+                      <div class="flex flex-col gap-2">
+                        <Slider
+                          label="Brightness"
+                          value={() => adj().brightness}
+                          onValueChange={(v) => setAdj("brightness", v)}
+                          min={0.5}
+                          max={1.5}
+                          step={0.01}
+                          center
+                          showValue
+                          formatValue={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                          label="Contrast"
+                          value={() => adj().contrast}
+                          onValueChange={(v) => setAdj("contrast", v)}
+                          min={0.5}
+                          max={2}
+                          step={0.01}
+                          center
+                          showValue
+                          formatValue={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                          label="Saturation"
+                          value={() => adj().saturation}
+                          onValueChange={(v) => setAdj("saturation", v)}
+                          min={0}
+                          max={2}
+                          step={0.01}
+                          center
+                          showValue
+                          formatValue={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                          label="Hue"
+                          value={() => adj().hueRotate}
+                          onValueChange={(v) => setAdj("hueRotate", v)}
+                          min={0}
+                          max={360}
+                          step={1}
+                          showValue
+                          formatValue={(v) => `${v}\u00b0`}
+                        />
+                        <Slider
+                          label="Blur"
+                          value={() => adj().blur}
+                          onValueChange={(v) => setAdj("blur", v)}
+                          min={0}
+                          max={10}
+                          step={0.1}
+                          showValue
+                          formatValue={(v) => `${v.toFixed(1)}px`}
+                        />
+                        <Slider
+                          label="Sepia"
+                          value={() => adj().sepia}
+                          onValueChange={(v) => setAdj("sepia", v)}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          showValue
+                          formatValue={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                          label="Vignette"
+                          value={() => adj().vignette}
+                          onValueChange={(v) => setAdj("vignette", v)}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          showValue
+                          formatValue={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Slider
+                          label="Grain"
+                          value={() => adj().grain}
+                          onValueChange={(v) => setAdj("grain", v)}
+                          min={0}
+                          max={0.5}
+                          step={0.01}
+                          showValue
+                          formatValue={(v) => `${Math.round(v * 200)}%`}
+                        />
+                      </div>
+                    </DetailPanel.Section>
 
-                  {/* Transform */}
-                  <div class="flex flex-col gap-2">
-                    <SectionLabel label="Transform" />
-                    <Slider
-                      label="Rotation"
-                      value={() => adj().freeRotation}
-                      onValueChange={(v) => setAdj("freeRotation", v)}
-                      min={-180}
-                      max={180}
-                      step={0.5}
-                      center
-                      showValue
-                      formatValue={(v) => `${v > 0 ? "+" : ""}${v}\u00b0`}
-                    />
-                    <div class="grid grid-cols-2 gap-2">
-                      <Switch label="Flip H" value={() => adj().flipH} onValueChange={(v) => setAdj("flipH", v)} />
-                      <Switch label="Flip V" value={() => adj().flipV} onValueChange={(v) => setAdj("flipV", v)} />
-                    </div>
-                  </div>
+                    {/* Presets */}
+                    <DetailPanel.Section title="Presets" icon="ti ti-wand" tone="neutral">
+                      <div class="grid grid-cols-4 gap-1">
+                        <For each={Object.entries(PRESETS)}>
+                          {([key, preset]) => (
+                            <Button variant="secondary" size="sm" onClick={() => applyPreset(key)}>
+                              {preset.label}
+                            </Button>
+                          )}
+                        </For>
+                      </div>
+                    </DetailPanel.Section>
 
-                  {/* Adjustments */}
-                  <div class="flex flex-col gap-2">
-                    <div class="flex items-center justify-between">
-                      <SectionLabel label="Adjustments" />
-                      <button class="text-xs text-dimmed hover:text-secondary transition-colors" onClick={resetAdjustments}>
-                        Reset
-                      </button>
-                    </div>
-                    <Slider
-                      label="Brightness"
-                      value={() => adj().brightness}
-                      onValueChange={(v) => setAdj("brightness", v)}
-                      min={0.5}
-                      max={1.5}
-                      step={0.01}
-                      center
-                      showValue
-                      formatValue={(v) => `${Math.round(v * 100)}%`}
-                    />
-                    <Slider
-                      label="Contrast"
-                      value={() => adj().contrast}
-                      onValueChange={(v) => setAdj("contrast", v)}
-                      min={0.5}
-                      max={2}
-                      step={0.01}
-                      center
-                      showValue
-                      formatValue={(v) => `${Math.round(v * 100)}%`}
-                    />
-                    <Slider
-                      label="Saturation"
-                      value={() => adj().saturation}
-                      onValueChange={(v) => setAdj("saturation", v)}
-                      min={0}
-                      max={2}
-                      step={0.01}
-                      center
-                      showValue
-                      formatValue={(v) => `${Math.round(v * 100)}%`}
-                    />
-                    <Slider
-                      label="Hue"
-                      value={() => adj().hueRotate}
-                      onValueChange={(v) => setAdj("hueRotate", v)}
-                      min={0}
-                      max={360}
-                      step={1}
-                      showValue
-                      formatValue={(v) => `${v}\u00b0`}
-                    />
-                    <Slider
-                      label="Blur"
-                      value={() => adj().blur}
-                      onValueChange={(v) => setAdj("blur", v)}
-                      min={0}
-                      max={10}
-                      step={0.1}
-                      showValue
-                      formatValue={(v) => `${v.toFixed(1)}px`}
-                    />
-                    <Slider
-                      label="Sepia"
-                      value={() => adj().sepia}
-                      onValueChange={(v) => setAdj("sepia", v)}
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      showValue
-                      formatValue={(v) => `${Math.round(v * 100)}%`}
-                    />
-                    <Slider
-                      label="Vignette"
-                      value={() => adj().vignette}
-                      onValueChange={(v) => setAdj("vignette", v)}
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      showValue
-                      formatValue={(v) => `${Math.round(v * 100)}%`}
-                    />
-                    <Slider
-                      label="Grain"
-                      value={() => adj().grain}
-                      onValueChange={(v) => setAdj("grain", v)}
-                      min={0}
-                      max={0.5}
-                      step={0.01}
-                      showValue
-                      formatValue={(v) => `${Math.round(v * 200)}%`}
-                    />
-                  </div>
-
-                  {/* Presets */}
-                  <div class="flex flex-col gap-2">
-                    <SectionLabel label="Presets" />
-                    <div class="grid grid-cols-4 gap-1">
-                      <For each={Object.entries(PRESETS)}>
-                        {([key, preset]) => (
-                          <Button variant="secondary" size="sm" onClick={() => applyPreset(key)}>
-                            {preset.label}
-                          </Button>
-                        )}
-                      </For>
-                    </div>
-                  </div>
-
-                  {/* Copy / Paste Edits */}
-                  <div class="flex flex-col gap-2">
-                    <SectionLabel label="Edits" />
-                    <div class="grid grid-cols-3 gap-1">
-                      <Button variant="secondary" size="sm" onClick={copyEdits} title="Copy adjustments from this image">
-                        <i class="ti ti-copy" /> Copy
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={pasteEdits}
-                        disabled={!clipboard()}
-                        title="Paste adjustments to this image"
-                      >
-                        <i class="ti ti-clipboard" /> Paste
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={pasteEditsAll}
-                        disabled={!clipboard()}
-                        title="Paste adjustments to all images"
-                      >
-                        <i class="ti ti-clipboard-check" /> All
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                    {/* Copy / Paste Edits */}
+                    <DetailPanel.Section title="Edits" icon="ti ti-copy" tone="neutral">
+                      <div class="grid grid-cols-3 gap-1">
+                        <Button variant="secondary" size="sm" onClick={copyEdits} title="Copy adjustments from this image">
+                          <i class="ti ti-copy" /> Copy
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={pasteEdits}
+                          disabled={!clipboard()}
+                          title="Paste adjustments to this image"
+                        >
+                          <i class="ti ti-clipboard" /> Paste
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={pasteEditsAll}
+                          disabled={!clipboard()}
+                          title="Paste adjustments to all images"
+                        >
+                          <i class="ti ti-clipboard-check" /> All
+                        </Button>
+                      </div>
+                    </DetailPanel.Section>
+                  </DetailPanel.Group>
+                </>
               </Show>
-            </section>
-          </Show>
-        </div>
-
-        <Show when={hasImages()}>
-          <footer class="flex flex-none flex-col gap-2">
-            <Button size="sm" class="w-full" onClick={() => showExportModal("single")} disabled={cropActive() || cropBusy()}>
-              <i class="ti ti-download" /> Export image
-            </Button>
-            <Show when={images().length > 1}>
-              <Button
-                variant="secondary"
-                size="sm"
-                class="w-full"
-                onClick={() => showExportModal("all")}
-                disabled={cropActive() || cropBusy()}
-              >
-                <i class="ti ti-download" /> Export all ({images().length})
-              </Button>
             </Show>
-          </footer>
-        </Show>
+          </DetailPanel.Body>
+
+          <Show when={hasImages()}>
+            <footer class="flex flex-none flex-col gap-2">
+              <Button size="sm" class="w-full" onClick={() => showExportModal("single")} disabled={cropActive() || cropBusy()}>
+                <i class="ti ti-download" /> Export image
+              </Button>
+              <Show when={images().length > 1}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  class="w-full"
+                  onClick={() => showExportModal("all")}
+                  disabled={cropActive() || cropBusy()}
+                >
+                  <i class="ti ti-download" /> Export all ({images().length})
+                </Button>
+              </Show>
+            </footer>
+          </Show>
+        </DetailPanel>
       </AppWorkspace.Detail>
     </>
   );
+}
+
+export default function ImageProcessor() {
+  return <ImageProcessorView />;
 }

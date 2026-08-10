@@ -3,7 +3,8 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Button,
   ButtonLink,
-  Disclosure,
+  DescriptionList,
+  DetailPanel,
   Dropdown,
   type DropdownItem,
   IconButton,
@@ -46,6 +47,7 @@ type Props = {
   dateConfig?: DateContext;
   canWrite: boolean;
   mailIntegrationAvailable: boolean;
+  scrollPreserveKey: string;
 };
 
 // =============================================================================
@@ -78,25 +80,9 @@ function IconActionButton(props: { icon: string; title: string; onClick: () => v
         disabled={props.disabled}
         class={`h-7 w-7 ${props.danger ? "hover:text-red-600 dark:hover:text-red-400" : ""}`}
       >
-        <i class={props.icon} />
+        <i class={props.icon} aria-hidden="true" />
       </IconButton>
     </Tooltip.Anchor>
-  );
-}
-
-function SectionHeader(props: { title: string; onEdit?: () => void; editLabel?: string; disabled?: boolean }) {
-  return (
-    <div class="mb-3 flex items-center justify-between gap-2">
-      <h3 class="detail-section-label mb-0">{props.title}</h3>
-      <Show when={props.onEdit}>
-        <IconActionButton
-          icon="ti ti-pencil"
-          title={props.editLabel ?? `Edit ${props.title.toLowerCase()}`}
-          onClick={() => props.onEdit?.()}
-          disabled={props.disabled}
-        />
-      </Show>
-    </div>
   );
 }
 
@@ -416,20 +402,24 @@ export default function ItemDetailPanel(props: Props) {
     return actions;
   };
 
-  const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
+  const scheduleTitle = () => (isEvent() ? "Event time" : "Deadline");
   const selectedPriority = () => PRIORITY_OPTIONS.find((option) => option.value === selectedPriorityValue());
 
+  const canShowClassification = () => canEditItem() || Boolean(props.item.priority) || (props.item.tags?.length ?? 0) > 0;
+  const canShowAssignees = () => canEditItem() || (props.item.assignees?.length ?? 0) > 0;
+  const canShowInvitations = () => isEvent() && canEditItem() && props.mailIntegrationAvailable;
+  const canShowEventContext = () => isEvent() && (Boolean(props.item.location || props.item.url) || canShowInvitations());
+
   return (
-    <div class="flex h-full min-h-0 flex-col" style="view-transition-name: detail-panel">
-      <header class="detail-header" style="view-transition-name: space-item-detail-header">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <h2 class="break-words text-lg font-semibold leading-tight text-primary">{props.item.title}</h2>
-            <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-secondary">
-              <span class="inline-flex items-center gap-1.5 font-medium">
-                <i class={`ti ${isEvent() ? "ti-calendar-event" : "ti-checkbox"}`} />
-                {isEvent() ? "Event" : "Task"}
-              </span>
+    <div class="h-full min-h-0" style="view-transition-name: detail-panel">
+      <DetailPanel>
+        <DetailPanel.Header
+          class="[view-transition-name:space-item-detail-header]"
+          icon={`ti ${isEvent() ? "ti-calendar-event" : "ti-checkbox"}`}
+          title={props.item.title}
+          subtitle={isEvent() ? "Event" : "Task"}
+          meta={
+            <>
               <span
                 class={`inline-flex items-center gap-1.5 font-medium ${
                   isCompleted() ? "text-emerald-700 dark:text-emerald-300" : "text-lime-700 dark:text-lime-300"
@@ -439,246 +429,290 @@ export default function ItemDetailPanel(props: Props) {
                 {isCompleted() ? "Completed" : "Active"}
               </span>
               <Show when={!props.canWrite}>
-                <span class="inline-flex items-center gap-1.5 font-medium text-dimmed">
-                  <i class="ti ti-lock" /> Read only
+                <span class="inline-flex items-center gap-1 text-dimmed">
+                  <i class="ti ti-lock" aria-hidden="true" /> Read only
                 </span>
               </Show>
               <Show when={props.recurringContext}>
-                <span class="inline-flex items-center gap-1.5 font-medium text-secondary">
-                  <i class="ti ti-repeat" /> This occurrence
+                <span class="inline-flex items-center gap-1 text-secondary">
+                  <i class="ti ti-repeat" aria-hidden="true" /> This occurrence
                 </span>
               </Show>
-            </div>
-          </div>
-          <div class="flex shrink-0 items-center gap-1">
-            <Show when={canEditItem()}>
-              <Dropdown.Root position="bottom-left" items={itemActions()}>
-                <Dropdown.Trigger iconOnly label="More item actions" tooltip="More item actions">
-                  <i class="ti ti-dots" />
-                </Dropdown.Trigger>
-              </Dropdown.Root>
-            </Show>
-            <Tooltip.Anchor content="Close details">
-              <ButtonLink
-                href={props.baseUrl}
-                onClick={(event) => {
-                  if (!shouldHandleDetailClick(event, event.currentTarget)) return;
-                  event.preventDefault();
-                  requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
-                }}
-                variant="ghost"
-                size="sm"
-                class="h-8 w-8 px-0"
-                aria-label="Close item details"
-              >
-                <i class="ti ti-x" />
-              </ButtonLink>
-            </Tooltip.Anchor>
-          </div>
-        </div>
-
-        <Show when={props.canWrite || props.recurringContext}>
-          <div class="mt-3 flex flex-wrap items-center gap-2">
-            <Show when={canEditItem()}>
-              <Button
-                type="button"
-                onClick={() => completeMutation.mutate(!isCompleted())}
-                disabled={isLoading()}
-                variant={isCompleted() ? "secondary" : "success"}
-                size="sm"
-                class={isCompleted() ? "text-emerald-700 dark:text-emerald-300" : undefined}
-              >
-                <Show when={isCompleted() || completeMutation.loading()}>
-                  <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
+            </>
+          }
+          actions={
+            <>
+              <Show when={canEditItem()}>
+                <Dropdown.Root position="bottom-left" items={itemActions()}>
+                  <Dropdown.Trigger iconOnly label="More item actions" tooltip="More item actions">
+                    <i class="ti ti-dots" aria-hidden="true" />
+                  </Dropdown.Trigger>
+                </Dropdown.Root>
+              </Show>
+              <Tooltip.Anchor content="Close details">
+                <ButtonLink
+                  href={props.baseUrl}
+                  onClick={(event) => {
+                    if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+                    event.preventDefault();
+                    requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  class="h-8 w-8 px-0"
+                  aria-label="Close item details"
+                >
+                  <i class="ti ti-x" aria-hidden="true" />
+                </ButtonLink>
+              </Tooltip.Anchor>
+            </>
+          }
+          primaryActions={
+            props.canWrite || props.recurringContext ? (
+              <>
+                <Show when={canEditItem()}>
+                  <Button
+                    type="button"
+                    onClick={() => completeMutation.mutate(!isCompleted())}
+                    disabled={isLoading()}
+                    variant={isCompleted() ? "secondary" : "success"}
+                    size="sm"
+                    class={isCompleted() ? "text-emerald-700 dark:text-emerald-300" : undefined}
+                  >
+                    <Show when={isCompleted() || completeMutation.loading()}>
+                      <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} aria-hidden="true" />
+                    </Show>
+                    <Show when={!isCompleted() && !completeMutation.loading()}>
+                      <i class="ti ti-circle-check" aria-hidden="true" />
+                    </Show>
+                    {isCompleted() ? "Reopen" : "Mark complete"}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
+                    <i class="ti ti-pencil" aria-hidden="true" /> Edit
+                  </Button>
                 </Show>
-                <Show when={!isCompleted() && !completeMutation.loading()}>
-                  <i class="ti ti-circle-check" />
+                <Show when={props.recurringContext}>
+                  <ButtonLink
+                    href={seriesHref()}
+                    variant="ghost"
+                    size="sm"
+                    onClick={(event) => {
+                      if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+                      event.preventDefault();
+                      requestSpacesRouteNavigation(seriesHref(), { scroll: "preserve" });
+                    }}
+                  >
+                    <i class="ti ti-repeat" aria-hidden="true" /> View series
+                  </ButtonLink>
                 </Show>
-                {isCompleted() ? "Reopen" : "Mark complete"}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
-                <i class="ti ti-pencil" /> Edit
-              </Button>
-            </Show>
-            <Show when={props.recurringContext}>
-              <ButtonLink
-                href={seriesHref()}
-                variant="ghost"
-                size="sm"
-                onClick={(event) => {
-                  if (!shouldHandleDetailClick(event, event.currentTarget)) return;
-                  event.preventDefault();
-                  requestSpacesRouteNavigation(seriesHref(), { scroll: "preserve" });
-                }}
-              >
-                <i class="ti ti-repeat" /> View series
-              </ButtonLink>
-            </Show>
-          </div>
-        </Show>
-      </header>
+              </>
+            ) : undefined
+          }
+        />
 
-      <div class="detail-stack">
-        <Show when={isEvent() || props.item.deadline}>
-          <section class="detail-section">
-            <SectionHeader
+        <DetailPanel.Body scrollPreserveKey={props.scrollPreserveKey}>
+          <Show when={isEvent() || props.item.deadline}>
+            <DetailPanel.Summary
               title={scheduleTitle()}
-              onEdit={canEditItem() ? () => editItemMutation.mutate(undefined) : undefined}
-              editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
-              disabled={isLoading()}
-            />
-            <Show
-              when={isEvent()}
-              fallback={
-                <div class="flex items-baseline gap-3 text-xs text-primary">
-                  <i class="ti ti-calendar-due w-4 shrink-0 self-center text-center text-base text-amber-600 dark:text-amber-400" />
-                  <Show when={props.item.deadline}>
-                    <div class="min-w-0 flex-1">
-                      <div>{dates.formatDateTime(props.item.deadline!)}</div>
-                      <div class="mt-0.5 text-dimmed">{dates.formatTimeSpan(props.item.deadline!)}</div>
-                    </div>
-                  </Show>
-                </div>
+              actions={
+                canEditItem() ? (
+                  <IconActionButton
+                    icon="ti ti-pencil"
+                    title={isEvent() ? "Edit event time" : "Edit deadline"}
+                    onClick={() => editItemMutation.mutate(undefined)}
+                    disabled={isLoading()}
+                  />
+                ) : undefined
               }
             >
-              <dl class="detail-facts">
-                <dt class="detail-fact-key">Start</dt>
-                <dd>{dates.formatDateTime(scheduleStart()!)}</dd>
-                <dt class="detail-fact-key">End</dt>
-                <dd>{dates.formatDateTime(scheduleEnd()!)}</dd>
-                <dt class="detail-fact-key">Duration</dt>
-                <dd>{dates.formatDuration(scheduleStart()!, scheduleEnd()!)}</dd>
-                <Show when={recurrenceSummary()}>
-                  <dt class="detail-fact-key">Repeat</dt>
-                  <dd>
-                    <span class="inline-flex items-center gap-1 text-xs font-medium text-secondary">
-                      <i class="ti ti-repeat text-dimmed" />
-                      {recurrenceSummary()}
-                    </span>
-                  </dd>
-                </Show>
-              </dl>
-            </Show>
-          </section>
-        </Show>
-
-        <Show when={isEvent() && (props.item.location || props.item.url)}>
-          <section class="detail-section">
-            <SectionHeader
-              title="Event details"
-              onEdit={canEditItem() ? () => editItemMutation.mutate(undefined) : undefined}
-              disabled={isLoading()}
-            />
-            <dl class="detail-facts">
-              <Show when={props.item.location}>
-                <dt class="detail-fact-key">Location</dt>
-                <dd>{props.item.location}</dd>
-              </Show>
-              <Show when={props.item.url}>
-                <dt class="detail-fact-key">URL</dt>
-                <dd>
-                  <a href={props.item.url!} target="_blank" rel="noreferrer" class="link break-all">
-                    {props.item.url}
-                  </a>
-                </dd>
-              </Show>
-            </dl>
-          </section>
-        </Show>
-
-        <Show when={isEvent() && canEditItem() && props.mailIntegrationAvailable}>
-          <EventInvitations spaceId={props.spaceId} itemId={props.item.id} />
-        </Show>
-
-        <Show when={props.item.description}>
-          <section class="detail-section" style="view-transition-name: space-item-detail-description">
-            <SectionHeader
-              title="Description"
-              onEdit={canEditItem() ? () => editItemMutation.mutate(undefined) : undefined}
-              disabled={isLoading()}
-            />
-            <MarkdownView markdown={props.item.description!} smallHeadings class="text-sm" />
-          </section>
-        </Show>
-
-        <Show when={canEditItem() || props.item.priority || (props.item.tags?.length ?? 0) > 0}>
-          <section class="detail-section">
-            <h3 class="detail-section-label">Classify</h3>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Show
-                when={canEditItem()}
+                when={isEvent()}
                 fallback={
-                  <div>
-                    <h4 class="section-label mb-1">Priority</h4>
-                    <Show when={selectedPriority()} fallback={<span class="text-xs text-secondary">No priority</span>}>
-                      {(priority) => (
-                        <Tag color={priority().color} icon={priority().icon}>
-                          {priority().label}
-                        </Tag>
-                      )}
+                  <div class="flex items-baseline gap-3 text-xs text-primary">
+                    <i
+                      class="ti ti-calendar-due w-4 shrink-0 self-center text-center text-base text-amber-600 dark:text-amber-400"
+                      aria-hidden="true"
+                    />
+                    <Show when={props.item.deadline}>
+                      <div class="min-w-0 flex-1">
+                        <div>{dates.formatDateTime(props.item.deadline!)}</div>
+                        <div class="mt-0.5 text-dimmed">{dates.formatTimeSpan(props.item.deadline!)}</div>
+                      </div>
                     </Show>
                   </div>
                 }
               >
-                <Select
-                  label="Priority"
-                  placeholder="No priority"
-                  icon="ti ti-flag"
-                  value={selectedPriorityValue}
-                  options={PRIORITY_OPTIONS.map((option) => ({ id: option.value, ...option }))}
-                  onValueChange={updatePriority}
-                  disabled={isLoading()}
-                  clearable
+                <DescriptionList
+                  layout="rows"
+                  size="sm"
+                  items={[
+                    { term: "Start", description: dates.formatDateTime(scheduleStart()!) },
+                    { term: "End", description: dates.formatDateTime(scheduleEnd()!) },
+                    { term: "Duration", description: dates.formatDuration(scheduleStart()!, scheduleEnd()!) },
+                    ...(recurrenceSummary()
+                      ? [
+                          {
+                            term: "Repeat",
+                            description: (
+                              <span class="inline-flex items-center gap-1 font-medium text-secondary">
+                                <i class="ti ti-repeat text-dimmed" aria-hidden="true" />
+                                {recurrenceSummary()}
+                              </span>
+                            ),
+                          },
+                        ]
+                      : []),
+                  ]}
                 />
               </Show>
-              <Show
-                when={canEditItem()}
-                fallback={
-                  <div>
-                    <h4 class="section-label mb-1">Tags</h4>
-                    <div class="flex min-h-8 flex-wrap items-center gap-1.5">
-                      <Show when={(props.item.tags?.length ?? 0) > 0} fallback={<span class="text-xs text-secondary">No tags</span>}>
-                        {props.item.tags?.map((tag) => (
-                          <Tag color={tag.color} size="sm">
-                            {tag.name}
-                          </Tag>
-                        ))}
-                      </Show>
-                    </div>
+            </DetailPanel.Summary>
+          </Show>
+
+          <Show when={canShowEventContext()}>
+            <DetailPanel.Group label="Event context">
+              <Show when={props.item.location || props.item.url}>
+                <DetailPanel.Section
+                  title="Event details"
+                  icon="ti ti-map-pin"
+                  tone="accent"
+                  actions={
+                    canEditItem() ? (
+                      <IconActionButton
+                        icon="ti ti-pencil"
+                        title="Edit event details"
+                        onClick={() => editItemMutation.mutate(undefined)}
+                        disabled={isLoading()}
+                      />
+                    ) : undefined
+                  }
+                >
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      ...(props.item.location ? [{ term: "Location", description: props.item.location }] : []),
+                      ...(props.item.url
+                        ? [
+                            {
+                              term: "URL",
+                              description: (
+                                <a href={props.item.url} target="_blank" rel="noreferrer" class="link break-all">
+                                  {props.item.url}
+                                </a>
+                              ),
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                </DetailPanel.Section>
+              </Show>
+              <Show when={canShowInvitations()}>
+                <EventInvitations spaceId={props.spaceId} itemId={props.item.id} />
+              </Show>
+            </DetailPanel.Group>
+          </Show>
+
+          <Show when={props.item.description}>
+            <DetailPanel.Section
+              class="[view-transition-name:space-item-detail-description]"
+              title="Description"
+              icon="ti ti-align-left"
+              tone="neutral"
+              actions={
+                canEditItem() ? (
+                  <IconActionButton
+                    icon="ti ti-pencil"
+                    title="Edit description"
+                    onClick={() => editItemMutation.mutate(undefined)}
+                    disabled={isLoading()}
+                  />
+                ) : undefined
+              }
+            >
+              <MarkdownView markdown={props.item.description!} smallHeadings class="text-sm" />
+            </DetailPanel.Section>
+          </Show>
+
+          <Show when={canShowClassification() || canShowAssignees()}>
+            <DetailPanel.Group label="Organization">
+              <Show when={canShowClassification()}>
+                <DetailPanel.Section title="Classify" icon="ti ti-tags" tone="accent">
+                  <div class="grid grid-cols-1 gap-3">
+                    <Show
+                      when={canEditItem()}
+                      fallback={
+                        <div>
+                          <h4 class="section-label mb-1">Priority</h4>
+                          <Show when={selectedPriority()} fallback={<span class="text-xs text-secondary">No priority</span>}>
+                            {(priority) => (
+                              <Tag color={priority().color} icon={priority().icon}>
+                                {priority().label}
+                              </Tag>
+                            )}
+                          </Show>
+                        </div>
+                      }
+                    >
+                      <Select
+                        label="Priority"
+                        placeholder="No priority"
+                        icon="ti ti-flag"
+                        value={selectedPriorityValue}
+                        options={PRIORITY_OPTIONS.map((option) => ({ id: option.value, ...option }))}
+                        onValueChange={updatePriority}
+                        disabled={isLoading()}
+                        clearable
+                      />
+                    </Show>
+                    <Show
+                      when={canEditItem()}
+                      fallback={
+                        <div>
+                          <h4 class="section-label mb-1">Tags</h4>
+                          <div class="flex min-h-8 flex-wrap items-center gap-1.5">
+                            <Show when={(props.item.tags?.length ?? 0) > 0} fallback={<span class="text-xs text-secondary">No tags</span>}>
+                              {props.item.tags?.map((tag) => (
+                                <Tag color={tag.color} size="sm">
+                                  {tag.name}
+                                </Tag>
+                              ))}
+                            </Show>
+                          </div>
+                        </div>
+                      }
+                    >
+                      <MultiSelectInput
+                        label="Tags"
+                        placeholder="No tags"
+                        searchPlaceholder="Search tags..."
+                        icon="ti ti-tags"
+                        value={selectedTagIds}
+                        options={props.tags.map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
+                        onValueChange={updateTags}
+                        disabled={isLoading()}
+                        clearable
+                      />
+                    </Show>
                   </div>
-                }
-              >
-                <MultiSelectInput
-                  label="Tags"
-                  placeholder="No tags"
-                  searchPlaceholder="Search tags..."
-                  icon="ti ti-tags"
-                  value={selectedTagIds}
-                  options={props.tags.map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
-                  onValueChange={updateTags}
-                  disabled={isLoading()}
-                  clearable
-                />
+                </DetailPanel.Section>
               </Show>
-            </div>
-          </section>
-        </Show>
 
-        <Show when={canEditItem() || (props.item.assignees?.length ?? 0) > 0}>
-          <section class="detail-section">
-            <h3 class="detail-section-label">Assignees</h3>
-            <AssigneesSection
-              spaceId={props.spaceId}
-              assignees={props.item.assignees ?? []}
-              onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
-              loading={isLoading()}
-              disabled={!canEditItem()}
-            />
-          </section>
-        </Show>
+              <Show when={canShowAssignees()}>
+                <DetailPanel.Section title="Assignees" icon="ti ti-users" tone="neutral">
+                  <AssigneesSection
+                    spaceId={props.spaceId}
+                    assignees={props.item.assignees ?? []}
+                    onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
+                    loading={isLoading()}
+                    disabled={!canEditItem()}
+                  />
+                </DetailPanel.Section>
+              </Show>
+            </DetailPanel.Group>
+          </Show>
 
-        <Show when={props.canWrite || commentsPage().total > 0}>
-          <section class="detail-section" style="view-transition-name: space-item-detail-comments">
+          <Show when={props.canWrite || commentsPage().total > 0}>
             <CommentsSection
               spaceId={props.spaceId}
               itemId={props.commentTarget.itemId}
@@ -693,20 +727,21 @@ export default function ItemDetailPanel(props: Props) {
               dateConfig={props.dateConfig}
               canWrite={props.canWrite}
             />
-          </section>
-        </Show>
+          </Show>
 
-        <Disclosure summary="Item information" icon="ti ti-info-circle" class="detail-section">
-          <dl class="detail-facts mt-3">
-            <dt class="detail-fact-key">Created</dt>
-            <dd>{dates.formatDateTime(props.item.createdAt)}</dd>
-            <dt class="detail-fact-key">Updated</dt>
-            <dd>{dates.formatDateTime(props.item.updatedAt)}</dd>
-            <dt class="detail-fact-key">ID</dt>
-            <dd class="break-all font-mono text-dimmed">{props.item.id}</dd>
-          </dl>
-        </Disclosure>
-      </div>
+          <DetailPanel.Section title="Item information" icon="ti ti-info-circle" tone="neutral" collapsible>
+            <DescriptionList
+              layout="rows"
+              size="sm"
+              items={[
+                { term: "Created", description: dates.formatDateTime(props.item.createdAt) },
+                { term: "Updated", description: dates.formatDateTime(props.item.updatedAt) },
+                { term: "ID", description: <span class="break-all font-mono text-dimmed">{props.item.id}</span> },
+              ]}
+            />
+          </DetailPanel.Section>
+        </DetailPanel.Body>
+      </DetailPanel>
     </div>
   );
 }

@@ -1,27 +1,7 @@
-import {
-  Button,
-  ButtonLink,
-  DataTable,
-  type DataTableColumn,
-  IconButtonLink,
-  isStructuredDataValue,
-  Pagination,
-  Placeholder,
-  StatCell,
-  StatGrid,
-  StructuredDataPreview,
-  type StructuredDataValue,
-} from "@k2b/ui";
+import { Button, ButtonLink, DataTable, type DataTableColumn, IconButtonLink, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { createPagination } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import {
-  type TraceEvent,
-  type TraceListFilter,
-  type TraceRunStats,
-  type TraceSourceGroup,
-  type TraceSpan,
-  trace,
-} from "@valentinkolb/cloud/services";
+import { type TraceListFilter, type TraceRunStats, type TraceSourceGroup, type TraceSpan, trace } from "@valentinkolb/cloud/services";
 import {
   formatDate,
   formatDurationMs as formatMs,
@@ -34,6 +14,7 @@ import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import JobsActionToast from "./_components/JobsActionToast.island";
 import JobsFilterBar from "./_components/JobsFilterBar.island";
+import RunDetailPanel from "./_components/RunDetailPanel";
 import {
   buildJobsFilterUrl,
   type JobsFilterState,
@@ -72,9 +53,6 @@ const durationLabel = (filter: JobsFilterState): string =>
   jobsDurationOptions.find((option) => option.value === filter.duration)?.label ?? "All durations";
 
 const runKey = (span: Pick<TraceSpan, "traceId" | "spanId">): string => `${span.traceId}:${span.spanId}`;
-
-const traceData = (value: Record<string, unknown>): StructuredDataValue =>
-  isStructuredDataValue(value) ? value : { error: "Trace data is not valid JSON." };
 
 const parseRunKey = (value: string | null): { traceId: string; spanId: string } | null => {
   if (!value) return null;
@@ -387,84 +365,6 @@ const OverviewTable = (props: { rows: BackgroundJobOverviewRow[]; filter: JobsFi
   </section>
 );
 
-const RunDetailPanel = (props: { span: TraceSpan; events: TraceEvent[]; closeHref: string }) => (
-  <aside class="min-h-0 overflow-y-auto">
-    <div class="detail-stack">
-      <section class="detail-section">
-        <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <p class="detail-section-label">Run detail</p>
-            <h2 class="truncate text-base font-semibold text-primary">{props.span.name}</h2>
-            <p class="mt-1 truncate text-[11px] text-dimmed">{props.span.spanKey ?? props.span.spanId}</p>
-          </div>
-          <IconButtonLink href={props.closeHref} size="sm" label="Close run detail panel">
-            <i class="ti ti-x" />
-          </IconButtonLink>
-        </div>
-      </section>
-
-      <section class="detail-section">
-        <h3 class="detail-section-label">Status</h3>
-        <dl class="detail-facts">
-          <dt class="detail-fact-key">Source</dt>
-          <dd class="break-all font-mono">{props.span.source}</dd>
-          <dt class="detail-fact-key">Type</dt>
-          <dd>{props.span.category}</dd>
-          <dt class="detail-fact-key">Status</dt>
-          <dd>{statusBadge({ status: props.span.status, running: !props.span.endedAt })}</dd>
-          <dt class="detail-fact-key">Started</dt>
-          <dd>{formatDate(props.span.startedAt)}</dd>
-          <dt class="detail-fact-key">Ended</dt>
-          <dd>{formatDate(props.span.endedAt)}</dd>
-          <dt class="detail-fact-key">Duration</dt>
-          <dd>{formatMs(props.span.durationMs)}</dd>
-          <dt class="detail-fact-key">Events</dt>
-          <dd>{formatNumber(props.span.eventCount)}</dd>
-          {props.span.statusMessage ? (
-            <>
-              <dt class="detail-fact-key">Message</dt>
-              <dd class="break-words">{props.span.statusMessage}</dd>
-            </>
-          ) : null}
-        </dl>
-      </section>
-
-      {props.span.summary ? (
-        <section class="detail-section">
-          <StructuredDataPreview title="Summary" data={traceData(props.span.summary)} maxRows={8} />
-        </section>
-      ) : null}
-
-      {props.span.attributes ? (
-        <section class="detail-section">
-          <StructuredDataPreview title="Attributes" data={traceData(props.span.attributes)} maxRows={10} />
-        </section>
-      ) : null}
-
-      <section class="detail-section">
-        <h3 class="detail-section-label">Events</h3>
-        <div class="flex flex-col gap-1.5">
-          {props.events.length === 0 ? (
-            <Placeholder align="left" description="No events recorded for this run." />
-          ) : (
-            props.events.map((event) => (
-              <article class="rounded-md border border-zinc-100 p-2 dark:border-zinc-800">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="truncate text-[11px] font-medium text-primary">{event.name}</span>
-                  <span class="shrink-0 text-[10px] text-dimmed">{formatDate(event.occurredAt)}</span>
-                </div>
-                <p class="mt-1 text-[10px] text-dimmed">{event.severity}</p>
-                {event.body ? <p class="mt-1 break-words text-[10px] text-primary">{event.body}</p> : null}
-                {event.attributes ? <StructuredDataPreview class="mt-1" data={traceData(event.attributes)} maxRows={6} /> : null}
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-    </div>
-  </aside>
-);
-
 const SourceRunsTable = (props: {
   spans: TraceSpan[];
   total: number;
@@ -676,7 +576,14 @@ export default ssr<AuthContext>(async (c) => {
               filter={filter}
               selectedRunKey={selectedRunKey}
             />
-            {selectedSpan ? <RunDetailPanel span={selectedSpan} events={selectedEvents} closeHref={closeRunUrl(filter)} /> : null}
+            {selectedSpan ? (
+              <RunDetailPanel
+                span={selectedSpan}
+                events={selectedEvents}
+                status={statusBadge({ status: selectedSpan.status, running: !selectedSpan.endedAt })}
+                closeHref={closeRunUrl(filter)}
+              />
+            ) : null}
           </div>
         ) : (
           <OverviewTable rows={overviewRows} filter={filter} />

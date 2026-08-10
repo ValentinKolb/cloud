@@ -3,6 +3,7 @@ import {
   Button,
   Checkbox,
   CodeDisplay,
+  DetailPanel,
   Disclosure,
   IconButtonLink,
   isStructuredDataValue,
@@ -184,16 +185,15 @@ function ResponsePanel(props: {
 }) {
   const outcome = () => props.run.data();
   return (
-    <section class="detail-section">
-      <div class="mb-3 flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <h3 class="detail-section-label mb-1">Response</h3>
-          <p class="text-xs text-dimmed">Validated result, metadata, and semantic links.</p>
-        </div>
+    <DetailPanel.Section
+      title="Response"
+      description="Validated result, metadata, and semantic links."
+      meta={
         <Show when={outcome()}>
           {(value) => <StatusBadge tone={value().ok ? "ok" : "error"} label={`${value().status} · ${Math.round(value().durationMs)} ms`} />}
         </Show>
-      </div>
+      }
+    >
       <Show when={!props.run.loading()} fallback={<Placeholder state="loading" variant="panel" title="Running capability" />}>
         <Show
           when={props.visible() ? props.run.error() : null}
@@ -228,7 +228,7 @@ function ResponsePanel(props: {
           )}
         </Show>
       </Show>
-    </section>
+    </DetailPanel.Section>
   );
 }
 
@@ -397,14 +397,19 @@ function CapabilityRunner(props: Props) {
   };
 
   return (
-    <div class="flex h-full min-h-0 flex-col">
-      <header class="detail-header">
-        <div class="flex items-start justify-between gap-3">
+    <DetailPanel>
+      <DetailPanel.Header
+        icon={props.selection.kind === "query" ? "ti ti-search" : "ti ti-bolt"}
+        title={props.selection.operation.title}
+        subtitle={props.selection.operation.description}
+        meta={
           <div class="flex min-w-0 flex-wrap items-center gap-2">
             <StatusBadge tone="neutral" label={props.selection.kind === "query" ? "Query" : "Action"} />
             <code class="truncate text-xs text-dimmed">{`${props.selection.app.id}.${props.selection.operation.localId}`}</code>
           </div>
-          <div class="flex shrink-0 items-center gap-1">
+        }
+        actions={
+          <div class="flex items-center gap-1">
             <Button size="sm" variant="secondary" onClick={reset}>
               <i class="ti ti-refresh" aria-hidden="true" /> Reset
             </Button>
@@ -412,80 +417,84 @@ function CapabilityRunner(props: Props) {
               <i class="ti ti-x" aria-hidden="true" />
             </IconButtonLink>
           </div>
-        </div>
-        <h2 class="mt-3 text-lg font-semibold text-primary">{props.selection.operation.title}</h2>
-        <p class="mt-1 text-sm text-dimmed">{props.selection.operation.description}</p>
+        }
+      />
+
+      <DetailPanel.Body
+        scrollPreserveKey={`capability-${props.selection.app.id}-${props.selection.kind}-${props.selection.operation.localId}`}
+      >
         <Show when={action()}>
           {(selectedAction) => (
-            <div class="mt-3 flex flex-wrap gap-2">
-              <StatusBadge
-                tone={selectedAction().destructive ? "warning" : "neutral"}
-                label={selectedAction().destructive ? "Destructive" : "Non-destructive"}
-              />
-              <StatusBadge
-                tone={selectedAction().openWorld ? "warning" : "neutral"}
-                label={selectedAction().openWorld ? "Open world" : "Cloud only"}
-              />
-              <StatusBadge tone="neutral" label={`Idempotency: ${selectedAction().idempotency}`} />
-            </div>
+            <DetailPanel.Summary title="Action policy">
+              <div class="flex flex-wrap gap-2">
+                <StatusBadge
+                  tone={selectedAction().destructive ? "warning" : "neutral"}
+                  label={selectedAction().destructive ? "Destructive" : "Non-destructive"}
+                />
+                <StatusBadge
+                  tone={selectedAction().openWorld ? "warning" : "neutral"}
+                  label={selectedAction().openWorld ? "Open world" : "Cloud only"}
+                />
+                <StatusBadge tone="neutral" label={`Idempotency: ${selectedAction().idempotency}`} />
+              </div>
+            </DetailPanel.Summary>
           )}
         </Show>
-      </header>
 
-      <div class="detail-stack">
-        <section class="detail-section">
-          <div class="mb-4 flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h3 class="detail-section-label mb-1">Request</h3>
-              <p class="text-xs text-dimmed">Input is validated before it is sent.</p>
+        <DetailPanel.Group label="Capability run">
+          <DetailPanel.Section
+            title="Request"
+            description="Input is validated before it is sent."
+            actions={
+              <Button
+                loading={reviewing() || run.loading()}
+                loadingLabel={reviewing() ? "Reviewing" : "Running"}
+                onClick={() => void execute()}
+              >
+                <i class="ti ti-player-play" aria-hidden="true" /> Run
+              </Button>
+            }
+          >
+            <RequestEditor model={model} state={editor} errors={fieldErrors} formError={formError} onStateChange={updateEditor} />
+            <Show when={reviewError()}>
+              {(error) => (
+                <div class="mt-4">
+                  <Placeholder state="error" align="left" title={`Review failed: ${error().code}`} description={error().message} />
+                </div>
+              )}
+            </Show>
+            <div class="mt-4 flex flex-col gap-3">
+              <Disclosure summary="Request as cURL" icon="ti ti-terminal-2" disabled={!curl()}>
+                <Show when={curl()}>{(value) => <CodeDisplay code={value()} language="script" lineNumbers={false} />}</Show>
+              </Disclosure>
+              <Disclosure summary="Schemas" icon="ti ti-braces">
+                <div class="grid gap-3">
+                  <StructuredDataPreview
+                    title="Input schema"
+                    data={
+                      isStructuredDataValue(props.selection.operation.inputSchema)
+                        ? props.selection.operation.inputSchema
+                        : { error: "Input schema is not valid JSON." }
+                    }
+                    maxRows={10}
+                  />
+                  <StructuredDataPreview
+                    title="Data schema"
+                    data={
+                      isStructuredDataValue(props.selection.operation.dataSchema)
+                        ? props.selection.operation.dataSchema
+                        : { error: "Data schema is not valid JSON." }
+                    }
+                    maxRows={10}
+                  />
+                </div>
+              </Disclosure>
             </div>
-            <Button
-              loading={reviewing() || run.loading()}
-              loadingLabel={reviewing() ? "Reviewing" : "Running"}
-              onClick={() => void execute()}
-            >
-              <i class="ti ti-player-play" aria-hidden="true" /> Run
-            </Button>
-          </div>
-          <RequestEditor model={model} state={editor} errors={fieldErrors} formError={formError} onStateChange={updateEditor} />
-          <Show when={reviewError()}>
-            {(error) => (
-              <div class="mt-4">
-                <Placeholder state="error" align="left" title={`Review failed: ${error().code}`} description={error().message} />
-              </div>
-            )}
-          </Show>
-          <div class="mt-4 flex flex-col gap-3">
-            <Disclosure summary="Request as cURL" icon="ti ti-terminal-2" disabled={!curl()}>
-              <Show when={curl()}>{(value) => <CodeDisplay code={value()} language="script" lineNumbers={false} />}</Show>
-            </Disclosure>
-            <Disclosure summary="Schemas" icon="ti ti-braces">
-              <div class="grid gap-3">
-                <StructuredDataPreview
-                  title="Input schema"
-                  data={
-                    isStructuredDataValue(props.selection.operation.inputSchema)
-                      ? props.selection.operation.inputSchema
-                      : { error: "Input schema is not valid JSON." }
-                  }
-                  maxRows={10}
-                />
-                <StructuredDataPreview
-                  title="Data schema"
-                  data={
-                    isStructuredDataValue(props.selection.operation.dataSchema)
-                      ? props.selection.operation.dataSchema
-                      : { error: "Data schema is not valid JSON." }
-                  }
-                  maxRows={10}
-                />
-              </div>
-            </Disclosure>
-          </div>
-        </section>
-        <ResponsePanel run={run} visible={resultVisible} selection={props.selection} />
-      </div>
-    </div>
+          </DetailPanel.Section>
+          <ResponsePanel run={run} visible={resultVisible} selection={props.selection} />
+        </DetailPanel.Group>
+      </DetailPanel.Body>
+    </DetailPanel>
   );
 }
 

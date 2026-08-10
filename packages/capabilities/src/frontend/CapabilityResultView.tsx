@@ -1,4 +1,13 @@
-import { CopyButton, Disclosure, IconButtonLink, isStructuredDataValue, Placeholder, StructuredDataPreview } from "@k2b/ui";
+import {
+  CopyButton,
+  DescriptionList,
+  DetailPanel,
+  Disclosure,
+  IconButtonLink,
+  isStructuredDataValue,
+  Placeholder,
+  StructuredDataPreview,
+} from "@k2b/ui";
 import type {
   CapabilityPage,
   CapabilitySemanticLink,
@@ -131,19 +140,20 @@ function ResourceReferences(props: { refs: CloudResourceRef[] }) {
   return (
     <div class="flex flex-col gap-2">
       <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Resource references</h3>
-      <div class="flex flex-col gap-1">
-        <For each={props.refs}>
-          {(ref) => (
-            <div class="detail-row min-w-0">
-              <i class="ti ti-cube detail-row-icon" aria-hidden="true" />
-              <code class="min-w-0 flex-1 truncate text-[11px] text-secondary" title={`${ref.type}:${ref.id}`}>
-                {ref.type} · {ref.id}
-              </code>
-              <CopyButton text={`${ref.type}:${ref.id}`} />
-            </div>
-          )}
-        </For>
-      </div>
+      <DescriptionList
+        layout="rows"
+        size="sm"
+        actionVisibility="always"
+        items={props.refs.map((ref) => ({
+          term: ref.type,
+          description: (
+            <code class="block min-w-0 truncate text-[11px] text-secondary" title={`${ref.type}:${ref.id}`}>
+              {ref.id}
+            </code>
+          ),
+          action: <CopyButton text={`${ref.type}:${ref.id}`} />,
+        }))}
+      />
     </div>
   );
 }
@@ -172,18 +182,13 @@ function SemanticLinks(props: { links: CapabilitySemanticLink[] }) {
       <div class="flex flex-col gap-1">
         <For each={props.links}>
           {(link) => (
-            <a href={link.href} class="detail-row group min-w-0 transition-colors hover:bg-[var(--ui-hover)]">
-              <i class={`${linkIcon(link)} detail-row-icon`} aria-hidden="true" />
-              <span class="min-w-0 flex-1">
-                <span class="block text-xs font-medium text-secondary transition-colors group-hover:app-accent-text">
-                  {linkLabel(link)}
-                </span>
-                <span class="block truncate text-[10px] text-dimmed" title={link.href}>
-                  {link.href}
-                </span>
-              </span>
-              <i class="ti ti-arrow-up-right text-dimmed" aria-hidden="true" />
-            </a>
+            <DetailPanel.Action
+              href={link.href}
+              leading={<i class={linkIcon(link)} aria-hidden="true" />}
+              title={linkLabel(link)}
+              description={link.href}
+              trailing={<i class="ti ti-arrow-up-right" aria-hidden="true" />}
+            />
           )}
         </For>
       </div>

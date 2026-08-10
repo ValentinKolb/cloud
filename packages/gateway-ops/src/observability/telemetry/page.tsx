@@ -1,16 +1,12 @@
-import { DataTable, type DataTableColumn, IconButtonLink, Placeholder, StatCell, StatGrid } from "@k2b/ui";
+import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@k2b/ui";
 import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import {
-  formatNumber as fmtCount,
-  formatDateTime as fmtDateTime,
-  formatDurationMs as fmtMs,
-  formatPercent as fmtRatio,
-} from "@valentinkolb/cloud/shared";
+import { formatNumber as fmtCount, formatDurationMs as fmtMs, formatPercent as fmtRatio } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { listAppSloWindows } from "../../grids-operational-health";
+import RouteDetailPanel from "./_components/RouteDetailPanel";
 import TelemetryFilterBar, { type TelemetryAppFilterOption } from "./_components/TelemetryFilterBar.island";
 import {
   buildTelemetryFilterUrl,
@@ -27,7 +23,6 @@ import {
   listTelemetryEvents,
   listTelemetryRoutes,
   SLOW_REQUEST_MS,
-  type TelemetryEventRow,
   type TelemetryRouteRow,
   type TelemetryRouteSort,
 } from "./service";
@@ -51,13 +46,6 @@ const normalizeIcon = (icon: string | undefined) => {
 
 /** Error rates only read as a problem above a floor; below it they are noise. */
 const isProblemRate = (errors: number, requests: number) => requests >= 20 && errors / requests >= 0.05;
-
-const statusTone = (status: number) => {
-  if (status >= 500) return "text-red-500";
-  if (status === 429) return "text-violet-600 dark:text-violet-400";
-  if (status >= 400) return "text-amber-600 dark:text-amber-400";
-  return "text-dimmed";
-};
 
 /**
  * DataTable has no sorting of its own, so sortable headers are plain links
@@ -113,13 +101,6 @@ export default ssr<AuthContext>(async (c) => {
     { id: "errorCount", header: <SortableHeader filter={filter} sort="errors" label="Errors" />, align: "right" },
     { id: "slow", header: <SortableHeader filter={filter} sort="slow" label="Slow" />, align: "right" },
     { id: "duration", header: <SortableHeader filter={filter} sort="duration" label="Avg / Max" />, align: "right" },
-  ];
-
-  const eventColumns: DataTableColumn<TelemetryEventRow>[] = [
-    { id: "time", header: "Time" },
-    { id: "method", header: "Method" },
-    { id: "status", header: "Status", align: "right" },
-    { id: "duration", header: "Duration", align: "right" },
   ];
 
   return () => (
@@ -265,47 +246,13 @@ export default ssr<AuthContext>(async (c) => {
           </section>
 
           {filter.route ? (
-            <aside class="paper min-h-0 overflow-y-auto" aria-label="Route detail">
-              <div class="flex items-start justify-between gap-2 px-3 py-2">
-                <div class="min-w-0">
-                  <code class="block truncate text-[11px] text-primary">{filter.route}</code>
-                  <p class="text-[10px] text-dimmed">Last {DRILLDOWN_EVENT_LIMIT} requests in this range</p>
-                </div>
-                <IconButtonLink href={closeRouteUrl(filter)} size="sm" label="Close route detail">
-                  <i class="ti ti-x" />
-                </IconButtonLink>
-              </div>
-              {events.length === 0 ? (
-                <Placeholder variant="compact" description="No individual requests retained for this range." />
-              ) : (
-                <DataTable
-                  rows={events}
-                  columns={eventColumns}
-                  getRowId={(row) => String(row.id)}
-                  highlightColumns={false}
-                  density="compact"
-                  renderCell={({ row, col }) => {
-                    if (col.id === "time") return <span class="text-[10px] text-dimmed">{fmtDateTime(row.occurredAt)}</span>;
-                    if (col.id === "method") return <span class="text-[10px] font-medium text-dimmed">{row.method}</span>;
-                    if (col.id === "status")
-                      return (
-                        <span class={`text-[10px] tabular-nums ${statusTone(row.status)}`} title={row.errorKind ?? undefined}>
-                          {row.status}
-                        </span>
-                      );
-                    if (col.id === "duration")
-                      return (
-                        <span
-                          class={`text-[10px] tabular-nums ${row.durationMs >= SLOW_REQUEST_MS ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
-                        >
-                          {fmtMs(row.durationMs)}
-                        </span>
-                      );
-                    return "";
-                  }}
-                />
-              )}
-            </aside>
+            <RouteDetailPanel
+              route={filter.route}
+              events={events}
+              eventLimit={DRILLDOWN_EVENT_LIMIT}
+              slowRequestMs={SLOW_REQUEST_MS}
+              closeHref={closeRouteUrl(filter)}
+            />
           ) : null}
         </div>
       </div>

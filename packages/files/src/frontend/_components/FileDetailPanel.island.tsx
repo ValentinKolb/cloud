@@ -1,5 +1,5 @@
-import { Button, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { dates, fileIcons, text } from "@k2b/stdlib";
+import { Button, DescriptionList, DetailPanel, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload, fileApiUrl, setDetailFileInUrl } from "./context";
@@ -131,6 +131,20 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
     return `${baseName}${path.startsWith("/") ? "" : "/"}${path}`;
   };
 
+  const detailSubtitle = () => {
+    const currentFile = file();
+    if (!currentFile || currentFile.type === "directory") return "Folder";
+    return `${CATEGORY_LABELS[category()] ?? "File"} · ${text.pprintBytes(currentFile.size)} · ${dates.formatDateTimeRelative(currentFile.mtime)}`;
+  };
+
+  const closeAction = () => (
+    <Tooltip.Anchor content="Close details">
+      <IconButton onClick={handleClose} label="Close file detail panel" size="sm" variant="ghost">
+        <i class="ti ti-x" aria-hidden="true" />
+      </IconButton>
+    </Tooltip.Anchor>
+  );
+
   const actionItems = createMemo<FileActionEntry[]>(() => {
     const currentFile = file();
     if (!currentFile) return [];
@@ -145,6 +159,16 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
     return items.filter((entry) => !entry.label.startsWith("Show "));
   });
 
+  const runAction = (entry: FileActionEntry) => {
+    if ("action" in entry && entry.action) {
+      void entry.action();
+      return;
+    }
+    if ("href" in entry && entry.href) {
+      window.open(entry.href, entry.external ? "_blank" : "_self");
+    }
+  };
+
   return (
     <Show
       when={file()}
@@ -155,84 +179,74 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       }
     >
       {(currentFile) => (
-        <div class="detail-stack" data-scroll-preserve={detailScrollPreserveKey()}>
-          <section class="detail-section" style="view-transition-name: files-detail-panel">
-            <div class="relative">
-              <div class="min-w-0 w-full flex flex-col items-center gap-3">
-                {category() === "image" && !isDirectory() ? (
-                  <img
-                    src={`${contentUrl()}&inline=true`}
-                    alt={currentFile().name}
-                    class="max-h-36 max-w-full rounded-[var(--ui-radius-surface)] object-contain"
-                  />
-                ) : (
-                  <div class="app-accent-text flex h-18 w-18 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
-                    <i class={`ti ${icon()} text-3xl`} />
-                  </div>
-                )}
-                <div class="min-w-0 text-center">
-                  <h2 class="break-all text-base font-semibold leading-tight text-primary">{currentFile().name}</h2>
-                  <p class="mt-1 text-[11px] text-dimmed">
-                    {isDirectory()
-                      ? "Folder"
-                      : `${CATEGORY_LABELS[category()] ?? "File"} · ${text.pprintBytes(currentFile().size)} · ${dates.formatDateTimeRelative(currentFile().mtime)}`}
-                  </p>
-                </div>
-              </div>
-              <Tooltip.Anchor content="Close details" class="absolute right-0 top-0 z-10">
-                <IconButton onClick={handleClose} label="Close file detail panel" size="sm" variant="ghost">
-                  <i class="ti ti-x" />
-                </IconButton>
-              </Tooltip.Anchor>
-            </div>
-          </section>
-
-          <section class="detail-section">
-            <h3 class="detail-section-label">Details</h3>
-            <dl class="detail-facts">
-              <dt class="detail-fact-key">Path</dt>
-              <dd class="break-all font-mono">{fullPath()}</dd>
-              <dt class="detail-fact-key">Kind</dt>
-              <dd>{isDirectory() ? "Folder" : (CATEGORY_LABELS[category()] ?? "File")}</dd>
-              <dt class="detail-fact-key">Modified</dt>
-              <dd>{dates.formatDateTime(currentFile().mtime)}</dd>
-              <Show when={!isDirectory()}>
-                <dt class="detail-fact-key">Size</dt>
-                <dd>{text.pprintBytes(currentFile().size)}</dd>
-              </Show>
-            </dl>
-          </section>
-
-          <Show when={actionItems().length > 0}>
-            <section class="detail-section">
-              <h3 class="detail-section-label">Actions</h3>
-              <div class="flex flex-col gap-0.5">
-                <For each={actionItems()}>
-                  {(entry) => (
-                    <Button
-                      variant={entry.variant === "danger" ? "danger" : "ghost"}
-                      size="sm"
-                      class="justify-start"
-                      title={entry.label}
-                      onClick={() => {
-                        if ("action" in entry && entry.action) {
-                          void entry.action();
-                          return;
-                        }
-                        if ("href" in entry && entry.href) {
-                          window.open(entry.href, entry.external ? "_blank" : "_self");
-                        }
-                      }}
-                    >
-                      {entry.icon && <i class={entry.icon} />}
-                      <span>{entry.label === "Open" && canOpenFileInline(currentFile()) ? "Preview" : entry.label}</span>
-                    </Button>
-                  )}
-                </For>
-              </div>
-            </section>
+        <DetailPanel>
+          <Show
+            when={category() === "image" && !isDirectory()}
+            fallback={
+              <DetailPanel.Header
+                class="[view-transition-name:files-detail-panel]"
+                icon={`ti ${icon()}`}
+                title={<span class="break-all">{currentFile().name}</span>}
+                subtitle={detailSubtitle()}
+                actions={closeAction()}
+              />
+            }
+          >
+            <DetailPanel.Header
+              class="[view-transition-name:files-detail-panel]"
+              leading={
+                <img
+                  src={`${contentUrl()}&inline=true`}
+                  alt={currentFile().name}
+                  class="h-8 w-8 rounded-[var(--ui-radius-control)] object-cover"
+                />
+              }
+              title={<span class="break-all">{currentFile().name}</span>}
+              subtitle={detailSubtitle()}
+              actions={closeAction()}
+            />
           </Show>
-        </div>
+
+          <DetailPanel.Body scrollPreserveKey={detailScrollPreserveKey()}>
+            <DetailPanel.Summary title="Details">
+              <DescriptionList
+                layout="rows"
+                size="sm"
+                items={[
+                  { term: "Path", description: <span class="break-all font-mono">{fullPath()}</span> },
+                  { term: "Kind", description: isDirectory() ? "Folder" : (CATEGORY_LABELS[category()] ?? "File") },
+                  { term: "Modified", description: dates.formatDateTime(currentFile().mtime) },
+                  ...(!isDirectory() ? [{ term: "Size", description: text.pprintBytes(currentFile().size) }] : []),
+                ]}
+              />
+            </DetailPanel.Summary>
+
+            <Show when={actionItems().length > 0}>
+              <DetailPanel.Section title="Actions" icon="ti ti-bolt" tone="accent">
+                <div class="flex flex-col gap-0.5">
+                  <For each={actionItems()}>
+                    {(entry) => {
+                      const label = () => (entry.label === "Open" && canOpenFileInline(currentFile()) ? "Preview" : entry.label);
+                      return entry.variant === "danger" ? (
+                        <Button variant="danger" size="sm" class="justify-start" title={entry.label} onClick={() => runAction(entry)}>
+                          {entry.icon && <i class={entry.icon} aria-hidden="true" />}
+                          <span>{label()}</span>
+                        </Button>
+                      ) : (
+                        <DetailPanel.Action
+                          type="button"
+                          onClick={() => runAction(entry)}
+                          leading={entry.icon ? <i class={entry.icon} aria-hidden="true" /> : undefined}
+                          title={label()}
+                        />
+                      );
+                    }}
+                  </For>
+                </div>
+              </DetailPanel.Section>
+            </Show>
+          </DetailPanel.Body>
+        </DetailPanel>
       )}
     </Show>
   );

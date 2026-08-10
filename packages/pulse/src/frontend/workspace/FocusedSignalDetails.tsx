@@ -1,7 +1,16 @@
-import { Button, IconButton, isStructuredDataValue, StructuredDataPreview, Tooltip, type StructuredDataValue } from "@k2b/ui";
+import {
+  Button,
+  DescriptionList,
+  DetailPanel,
+  IconButton,
+  isStructuredDataValue,
+  StructuredDataPreview,
+  type StructuredDataValue,
+  Tooltip,
+} from "@k2b/ui";
+import { Show } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
-import DetailHero from "./DetailHero";
-import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
+import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, type PulseDateContext, signalSubject } from "./helpers";
 
 const structuredData = (value: unknown, label: string): StructuredDataValue =>
   isStructuredDataValue(value) ? value : { error: `${label} is not valid JSON.` };
@@ -15,20 +24,20 @@ type SourceProps = {
   close: () => void;
 };
 
-const SourceInlineLink = (props: SourceProps) => {
-  if (!props.sourceId) return <span class="text-xs text-dimmed">-</span>;
-  return (
-    <button
-      type="button"
-      class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:app-accent-text"
-      onClick={() => props.openSource(props.sourceId)}
-      title="Open source"
-    >
-      <i class="ti ti-database-share shrink-0" />
-      <span class="truncate">{props.sourceNameById().get(props.sourceId) ?? "Unknown source"}</span>
-    </button>
-  );
-};
+const SourceAction = (props: SourceProps) => (
+  <Show when={props.sourceId} fallback={<p class="text-xs text-dimmed">-</p>}>
+    {(sourceId) => (
+      <DetailPanel.Action
+        type="button"
+        title={props.sourceNameById().get(sourceId()) ?? "Unknown source"}
+        description="Open source"
+        leading={<i class="ti ti-database-share" aria-hidden="true" />}
+        trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+        onClick={() => props.openSource(sourceId())}
+      />
+    )}
+  </Show>
+);
 
 const DetailClose = (props: SourceProps) => (
   <Tooltip.Anchor content="Close details">
@@ -54,161 +63,141 @@ const DetailQuickActions = (props: SourceProps) => (
 export const FocusedMetricSeriesDetail = (
   props: SourceProps & { item: PulseMetricSeries; metricName: string; metricUnit: string | null },
 ) => (
-  <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <DetailHero
-      eyebrow="Metric variant"
+  <DetailPanel>
+    <DetailPanel.Header
       title={signalSubject(props.item)}
       icon="ti ti-chart-dots"
-      description={
+      meta="Metric variant"
+      subtitle={
         <>
           {props.metricName} · {props.sourceNameById().get(props.item.sourceId ?? "") ?? "No source"}
         </>
       }
       actions={<DetailClose {...props} />}
-      quickActions={<DetailQuickActions {...props} />}
+      primaryActions={
+        <div class="flex flex-wrap items-center gap-2" role="group" aria-label={`${signalSubject(props.item)} actions`}>
+          <DetailQuickActions {...props} />
+        </div>
+      }
     />
-    <div class="detail-stack">
-      <section class="detail-section">
-        <h3 class="detail-section-label">Variant</h3>
-        <div class="detail-row">
-          <i class="ti ti-number detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Current</span>
-          <span class="truncate">
-            {props.item.latestValue === null ? "-" : formatMetricValue(props.item.latestValue, props.metricUnit)}
-          </span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-chart-dots detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Metric</span>
-          <span class="truncate">{props.metricName}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-cube detail-row-icon text-emerald-600" />
-          <span class="detail-row-label">Subject</span>
-          <span class="truncate">{signalSubject(props.item)}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-database detail-row-icon text-violet-500" />
-          <span class="detail-row-label">Source</span>
-          <span>
-            <SourceInlineLink {...props} sourceId={props.item.sourceId} />
-          </span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-clock detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Last seen</span>
-          <span>
-            {(props.item.latestSampleAt ?? props.item.lastSeenAt)
-              ? compactDateWithDelta((props.item.latestSampleAt ?? props.item.lastSeenAt)!, props.dateContext)
-              : "-"}
-          </span>
-        </div>
-      </section>
-      <section class="detail-section">
-        <StructuredDataPreview title="Dimensions" data={props.item.dimensions} empty="No dimensions." />
-      </section>
-    </div>
-  </div>
+    <DetailPanel.Body>
+      <DetailPanel.Summary title="Variant">
+        <DescriptionList
+          items={[
+            {
+              term: "Current",
+              description: props.item.latestValue === null ? "-" : formatMetricValue(props.item.latestValue, props.metricUnit),
+            },
+            { term: "Metric", description: props.metricName },
+            { term: "Subject", description: signalSubject(props.item) },
+            {
+              term: "Last seen",
+              description:
+                (props.item.latestSampleAt ?? props.item.lastSeenAt)
+                  ? compactDateWithDelta((props.item.latestSampleAt ?? props.item.lastSeenAt)!, props.dateContext)
+                  : "-",
+            },
+          ]}
+          layout="rows"
+          size="sm"
+        />
+      </DetailPanel.Summary>
+      <DetailPanel.Group label="Signal context">
+        <DetailPanel.Section title="Source" icon="ti ti-database-share" tone="accent">
+          <SourceAction {...props} sourceId={props.item.sourceId} />
+        </DetailPanel.Section>
+        <DetailPanel.Section title="Dimensions" icon="ti ti-tags" tone="neutral">
+          <StructuredDataPreview data={props.item.dimensions} empty="No dimensions." />
+        </DetailPanel.Section>
+      </DetailPanel.Group>
+    </DetailPanel.Body>
+  </DetailPanel>
 );
 
 export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentState }) => (
-  <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <DetailHero
-      eyebrow="State variant"
+  <DetailPanel>
+    <DetailPanel.Header
       title={signalSubject(props.state)}
       icon="ti ti-toggle-right"
-      description={
+      meta="State variant"
+      subtitle={
         <>
           {props.state.key} · {props.sourceNameById().get(props.state.sourceId ?? "") ?? "No source"}
         </>
       }
       actions={<DetailClose {...props} />}
-      quickActions={<DetailQuickActions {...props} />}
+      primaryActions={
+        <div class="flex flex-wrap items-center gap-2" role="group" aria-label={`${signalSubject(props.state)} actions`}>
+          <DetailQuickActions {...props} />
+        </div>
+      }
     />
-    <div class="detail-stack">
-      <section class="detail-section">
-        <h3 class="detail-section-label">Current value</h3>
-        <div class="detail-row">
-          <i class="ti ti-toggle-right detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Value</span>
-          <span class="truncate">{formatSignalValue(props.state.value)}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-cube detail-row-icon text-emerald-600" />
-          <span class="detail-row-label">Subject</span>
-          <span class="truncate">{signalSubject(props.state)}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-database detail-row-icon text-violet-500" />
-          <span class="detail-row-label">Source</span>
-          <span>
-            <SourceInlineLink {...props} sourceId={props.state.sourceId} />
-          </span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-clock detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Updated</span>
-          <span>{compactDateWithDelta(props.state.updatedAt, props.dateContext)}</span>
-        </div>
-      </section>
-      <section class="detail-section">
-        <StructuredDataPreview title="Dimensions" data={props.state.dimensions} empty="No dimensions." />
-      </section>
-    </div>
-  </div>
+    <DetailPanel.Body>
+      <DetailPanel.Summary title="Current value">
+        <DescriptionList
+          items={[
+            { term: "Value", description: formatSignalValue(props.state.value) },
+            { term: "Subject", description: signalSubject(props.state) },
+            { term: "Updated", description: compactDateWithDelta(props.state.updatedAt, props.dateContext) },
+          ]}
+          layout="rows"
+          size="sm"
+        />
+      </DetailPanel.Summary>
+      <DetailPanel.Group label="Signal context">
+        <DetailPanel.Section title="Source" icon="ti ti-database-share" tone="accent">
+          <SourceAction {...props} sourceId={props.state.sourceId} />
+        </DetailPanel.Section>
+        <DetailPanel.Section title="Dimensions" icon="ti ti-tags" tone="neutral">
+          <StructuredDataPreview data={props.state.dimensions} empty="No dimensions." />
+        </DetailPanel.Section>
+      </DetailPanel.Group>
+    </DetailPanel.Body>
+  </DetailPanel>
 );
 
 export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEvent }) => (
-  <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <DetailHero
-      eyebrow="Event row"
+  <DetailPanel>
+    <DetailPanel.Header
       title={signalSubject(props.event)}
       icon="ti ti-bolt"
-      description={
+      meta="Event row"
+      subtitle={
         <>
           {props.event.kind} · {props.sourceNameById().get(props.event.sourceId ?? "") ?? "No source"}
         </>
       }
       actions={<DetailClose {...props} />}
-      quickActions={<DetailQuickActions {...props} />}
+      primaryActions={
+        <div class="flex flex-wrap items-center gap-2" role="group" aria-label={`${signalSubject(props.event)} actions`}>
+          <DetailQuickActions {...props} />
+        </div>
+      }
     />
-    <div class="detail-stack">
-      <section class="detail-section">
-        <h3 class="detail-section-label">Event</h3>
-        <div class="detail-row">
-          <i class="ti ti-bolt detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Kind</span>
-          <span class="truncate">{props.event.kind}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-number detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Value</span>
-          <span>{props.event.value === null ? "-" : formatValue(props.event.value)}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-cube detail-row-icon text-emerald-600" />
-          <span class="detail-row-label">Subject</span>
-          <span class="truncate">{signalSubject(props.event)}</span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-database detail-row-icon text-violet-500" />
-          <span class="detail-row-label">Source</span>
-          <span>
-            <SourceInlineLink {...props} sourceId={props.event.sourceId} />
-          </span>
-        </div>
-        <div class="detail-row">
-          <i class="ti ti-clock detail-row-icon app-accent-text" />
-          <span class="detail-row-label">Time</span>
-          <span>{compactDateWithDelta(props.event.ts, props.dateContext)}</span>
-        </div>
-      </section>
-      <section class="detail-section">
-        <StructuredDataPreview title="Dimensions" data={props.event.dimensions} empty="No dimensions." />
-      </section>
-      <section class="detail-section">
-        <StructuredDataPreview title="Payload" data={structuredData(props.event.payload, "Event payload")} empty="No payload." />
-      </section>
-    </div>
-  </div>
+    <DetailPanel.Body>
+      <DetailPanel.Summary title="Event">
+        <DescriptionList
+          items={[
+            { term: "Kind", description: props.event.kind },
+            { term: "Value", description: props.event.value === null ? "-" : formatValue(props.event.value) },
+            { term: "Subject", description: signalSubject(props.event) },
+            { term: "Time", description: compactDateWithDelta(props.event.ts, props.dateContext) },
+          ]}
+          layout="rows"
+          size="sm"
+        />
+      </DetailPanel.Summary>
+      <DetailPanel.Group label="Signal context">
+        <DetailPanel.Section title="Source" icon="ti ti-database-share" tone="accent">
+          <SourceAction {...props} sourceId={props.event.sourceId} />
+        </DetailPanel.Section>
+        <DetailPanel.Section title="Dimensions" icon="ti ti-tags" tone="neutral">
+          <StructuredDataPreview data={props.event.dimensions} empty="No dimensions." />
+        </DetailPanel.Section>
+        <DetailPanel.Section title="Payload" icon="ti ti-braces" tone="neutral">
+          <StructuredDataPreview data={structuredData(props.event.payload, "Event payload")} empty="No payload." />
+        </DetailPanel.Section>
+      </DetailPanel.Group>
+    </DetailPanel.Body>
+  </DetailPanel>
 );

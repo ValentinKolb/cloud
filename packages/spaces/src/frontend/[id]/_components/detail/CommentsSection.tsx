@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, Button, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, Discussion, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
@@ -102,20 +102,57 @@ export default function CommentsSection(props: Props) {
   const sortedComments = () => [...props.comments].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   return (
-    <div class="flex flex-col gap-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h3 class="detail-section-label mb-0">{props.recurrenceId ? "Occurrence comments" : "Comments"}</h3>
-        <div class="flex items-center gap-2">
-          <span class="inline-flex items-center rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 text-[11px] font-medium text-secondary">
-            {props.total} {props.total === 1 ? "comment" : "comments"}
-          </span>
-          <Show when={props.canWrite && !composerOpen()}>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setComposerOpen(true)}>
-              <i class="ti ti-plus" /> Add comment
-            </Button>
-          </Show>
-        </div>
-      </div>
+    <Discussion
+      label={props.recurrenceId ? "Occurrence comments" : "Comments"}
+      icon="ti ti-message"
+      count={`${props.total} ${props.total === 1 ? "comment" : "comments"}`}
+      actions={
+        props.canWrite && !composerOpen() ? (
+          <Button type="button" variant="ghost" size="xs" onClick={() => setComposerOpen(true)}>
+            <i class="ti ti-plus" aria-hidden="true" /> Add comment
+          </Button>
+        ) : undefined
+      }
+      style="view-transition-name: space-item-detail-comments"
+    >
+      <Show when={props.canWrite && composerOpen()}>
+        <Discussion.Composer
+          onSubmit={handleSubmit}
+          actions={
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  setNewComment("");
+                  setComposerOpen(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createCommentMutation.loading() || !newComment().trim()}
+                loading={createCommentMutation.loading()}
+                size="xs"
+              >
+                <i class="ti ti-send" aria-hidden="true" /> Post comment
+              </Button>
+            </>
+          }
+        >
+          <TextInput
+            aria-label="Add comment"
+            value={() => newComment()}
+            onValueChange={setNewComment}
+            placeholder="Write a comment in markdown…"
+            markdown
+            disabled={createCommentMutation.loading()}
+            onSubmit={submitNewComment}
+          />
+        </Discussion.Composer>
+      </Show>
 
       <Show
         when={sortedComments().length > 0}
@@ -127,16 +164,16 @@ export default function CommentsSection(props: Props) {
           />
         }
       >
-        <>
-          <Show when={props.hasMore}>
-            <Button type="button" variant="ghost" size="sm" class="self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
-              <i class={`ti ${props.loadingMore ? "ti-loader-2 animate-spin" : "ti-history"}`} /> Load earlier comments
-            </Button>
-          </Show>
-          <ol class="flex flex-col gap-3">
-            <For each={sortedComments()}>
-              {(comment) => (
-                <li class="group flex gap-2">
+        <Show when={props.hasMore}>
+          <Button type="button" variant="ghost" size="xs" class="self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
+            <i class={`ti ${props.loadingMore ? "ti-loader-2 animate-spin" : "ti-history"}`} aria-hidden="true" /> Load earlier comments
+          </Button>
+        </Show>
+        <Discussion.List>
+          <For each={sortedComments()}>
+            {(comment) => (
+              <Discussion.Item
+                avatar={
                   <Avatar
                     name={comment.userName ?? "Unknown"}
                     fallback={((comment.userName ?? "Unknown").trim() || "?").slice(0, 2).toUpperCase()}
@@ -147,67 +184,35 @@ export default function CommentsSection(props: Props) {
                     }
                     size="xs"
                   />
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
-                      <span class="text-[11px] text-dimmed" title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
-                        {formatDate(comment.createdAt)}
-                      </span>
-                      <Show when={props.canWrite && comment.canDelete}>
-                        <Tooltip.Anchor content="Delete comment" class="ml-auto">
-                          <IconButton
-                            label="Delete comment"
-                            size="sm"
-                            onClick={() => deleteCommentMutation.mutate(comment.id)}
-                            disabled={deleteCommentMutation.loading()}
-                            class="h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
-                          >
-                            <i class="ti ti-trash" />
-                          </IconButton>
-                        </Tooltip.Anchor>
-                      </Show>
-                    </div>
-                    <div class="mt-1">
-                      <MarkdownView markdown={comment.content} smallHeadings class="text-sm" />
-                    </div>
-                  </div>
-                </li>
-              )}
-            </For>
-          </ol>
-        </>
+                }
+                author={comment.userName ?? "Unknown"}
+                timestamp={
+                  <time dateTime={comment.createdAt} title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                    {formatDate(comment.createdAt)}
+                  </time>
+                }
+                actions={
+                  props.canWrite && comment.canDelete ? (
+                    <Tooltip.Anchor content="Delete comment">
+                      <IconButton
+                        label="Delete comment"
+                        size="xs"
+                        onClick={() => deleteCommentMutation.mutate(comment.id)}
+                        disabled={deleteCommentMutation.loading()}
+                        class="hover:text-red-600 dark:hover:text-red-400"
+                      >
+                        <i class="ti ti-trash" aria-hidden="true" />
+                      </IconButton>
+                    </Tooltip.Anchor>
+                  ) : undefined
+                }
+              >
+                <MarkdownView markdown={comment.content} smallHeadings class="text-sm" />
+              </Discussion.Item>
+            )}
+          </For>
+        </Discussion.List>
       </Show>
-
-      <Show when={props.canWrite && composerOpen()}>
-        <form onSubmit={handleSubmit} class="flex flex-col gap-2">
-          <TextInput
-            aria-label="Add comment"
-            value={() => newComment()}
-            onValueChange={setNewComment}
-            placeholder="Write a comment in markdown…"
-            markdown
-            disabled={createCommentMutation.loading()}
-            onSubmit={submitNewComment}
-          />
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setNewComment("");
-                setComposerOpen(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={createCommentMutation.loading() || !newComment().trim()} size="sm">
-              {createCommentMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
-              Post comment
-            </Button>
-          </div>
-        </form>
-      </Show>
-    </div>
+    </Discussion>
   );
 }

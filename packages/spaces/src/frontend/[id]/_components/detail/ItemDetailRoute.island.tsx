@@ -211,7 +211,7 @@ export default function ItemDetailRoute(props: Props) {
 
   return (
     <AppWorkspace.Detail id="space-detail-panel" open={Boolean(detail())} viewTransitionName="space-detail-panel-shell">
-      <div class="h-full min-h-0 flex-1" data-scroll-preserve={scrollKey()}>
+      <div class="h-full min-h-0 flex-1">
         <Show
           when={detail()}
           keyed
@@ -238,6 +238,7 @@ export default function ItemDetailRoute(props: Props) {
               dateConfig={props.dateConfig}
               canWrite={props.canWrite}
               mailIntegrationAvailable={props.mailIntegrationAvailable}
+              scrollPreserveKey={scrollKey()}
             />
           )}
         </Show>

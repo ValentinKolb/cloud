@@ -1,0 +1,36 @@
+import { describe, expect, test } from "bun:test";
+import { buildJobsFilterUrl, defaultJobsFilter, parseJobsFilterFromUrl } from "./types";
+
+const baseUrl = "/admin/observability/jobs";
+
+describe("job run navigation", () => {
+  test("opening a run preserves the current source, filters, and page", () => {
+    const current = {
+      ...defaultJobsFilter,
+      window: "7d",
+      health: "failed",
+      search: "cleanup",
+      source: "mail.cleanup",
+      page: 3,
+    } as const;
+    const run = `${"a".repeat(32)}:${"b".repeat(16)}`;
+    const url = buildJobsFilterUrl(baseUrl, { run }, current);
+
+    expect(parseJobsFilterFromUrl(new URL(`http://cloud${url}`))).toEqual({ ...current, run });
+  });
+
+  test("closing a run removes only the run selection", () => {
+    const current = {
+      ...defaultJobsFilter,
+      duration: "1000",
+      type: "schedule",
+      source: "mail.cleanup",
+      run: `${"a".repeat(32)}:${"b".repeat(16)}`,
+      page: 2,
+    } as const;
+    const url = buildJobsFilterUrl(baseUrl, { run: null }, current);
+
+    expect(url).not.toContain("run=");
+    expect(parseJobsFilterFromUrl(new URL(`http://cloud${url}`))).toEqual({ ...current, run: null });
+  });
+});
