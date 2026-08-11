@@ -4,7 +4,7 @@ import { join } from "node:path";
 type PackageJson = {
   name?: string;
   scripts?: Record<string, string>;
-  workspaces?: string[];
+  workspaces?: { packages?: string[] };
 };
 
 export type TestSuite = {
@@ -27,7 +27,7 @@ const hasTestFiles = async (cwd: string): Promise<boolean> => {
 
 export const discoverTestSuites = async (workspaceRoot: string): Promise<TestSuite[]> => {
   const rootPackage = readPackageJson(join(workspaceRoot, "package.json"));
-  const workspaces = rootPackage.workspaces ?? [];
+  const workspaces = rootPackage.workspaces?.packages ?? [];
   const suites: TestSuite[] = [];
 
   for (const workspace of workspaces.toSorted()) {

@@ -27,11 +27,11 @@
     "@valentinkolb/cloud-app-spaces": "workspace:*",
     "@valentinkolb/cloud-app-tools": "workspace:*",
     "@valentinkolb/cloud-app-venue": "workspace:*",
-    "hono": "^4.11.1"
+    "hono": "catalog:"
   },
   "devDependencies": {
-    "@types/bun": "1.3.9",
-    "typescript": "^5.9.3"
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
   },
   "license": "AGPL-3.0-or-later"
 }

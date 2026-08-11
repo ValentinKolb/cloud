@@ -8,8 +8,10 @@ type Violation = {
 
 const workspaceRoot = join(import.meta.dir, "..");
 const packagesRoot = join(workspaceRoot, "packages");
-const rootPackage = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as { workspaces?: string[] };
-const workspacePackageNames = new Set((rootPackage.workspaces ?? []).map((workspace) => workspace.replace(/^packages\//, "")));
+const rootPackage = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as {
+  workspaces?: { packages?: string[] };
+};
+const workspacePackageNames = new Set((rootPackage.workspaces?.packages ?? []).map((workspace) => workspace.replace(/^packages\//, "")));
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 

@@ -8,10 +8,10 @@
 # ──────────────────────────────────────────────────────────────────────
 # Stage 1: deps — install workspace dependencies (cache-shared).
 # ──────────────────────────────────────────────────────────────────────
-FROM oven/bun:1-alpine AS deps
+FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS deps
 WORKDIR /app
 
-COPY package.json bun.lock ./
+COPY package.json bun.lock bunfig.toml ./
 COPY packages/accounts/package.json      packages/accounts/
 COPY packages/api-docs/package.json      packages/api-docs/
 COPY packages/assistant/package.json     packages/assistant/
@@ -46,7 +46,7 @@ COPY docs-site/package.json              docs-site/
 # Docker installs while preserving runtime/build dependencies.
 # --ignore-scripts: bun-plugin-tailwind declares `bun` as a peer dep, which
 # pulls the npm `bun` package whose postinstall extracts a platform binary
-# and fails inside the build sandbox. We don't need it (oven/bun image has bun).
+# and fails inside the build sandbox. We don't need it (the base image has bun).
 RUN bun install --frozen-lockfile --ignore-scripts --production
 
 # ──────────────────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ RUN bun run packages/cloud/scripts/build.ts
 # ──────────────────────────────────────────────────────────────────────
 # Stage 3: runtime — only the bundled output + bun runtime.
 # ──────────────────────────────────────────────────────────────────────
-FROM oven/bun:1-alpine AS runtime
+FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/dist ./

@@ -26,7 +26,7 @@ jobs:
           bun-version: 1.3.14
 
       - name: Install workspace dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
 
       - name: Typecheck package
         run: bun run --cwd packages/ui typecheck
@@ -52,14 +52,14 @@ jobs:
           bun-version: 1.3.14
 
       - name: Install workspace dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
 
       - name: Build @k2b/ui assets
         run: bun run --cwd packages/ui build
 
       - name: Install Fibel documentation dependencies
         working-directory: docs-site
-        run: bun install --frozen-lockfile
+        run: bun ci
 
       - name: Verify UI catalog
         run: bun run --cwd docs-site check:ui-catalog

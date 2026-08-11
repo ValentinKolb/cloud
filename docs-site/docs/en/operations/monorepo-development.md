@@ -5,7 +5,7 @@ section: Operations
 order: 1110
 description: Develop a built-in application inside the Cloud monorepo.
 tags: [development, monorepo, docker]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Monorepo development
@@ -53,6 +53,28 @@ bun run dev:status grids
 
 Rebuild after dependency, package-manifest, or Dockerfile changes. Source edits
 normally use the watch process already running in the container.
+
+## Manage dependencies
+
+Declare every dependency in the workspace that imports it. The isolated Bun
+linker intentionally prevents one package from relying on another package's
+installation.
+
+Shared versions live in the root workspace catalog and private packages refer
+to them with `catalog:`. Keep one-off dependencies exact in the owning package.
+Published packages use concrete versions because their npm artifacts must not
+contain workspace catalog references; their peer dependencies remain explicit
+compatibility ranges.
+
+`bun install` applies the three-day release-age gate when it resolves a new npm
+version. The first-party `@k2b/fibel`, `@k2b/nessi`, `@k2b/ssr`, `@k2b/stdlib`,
+and `@k2b/sync` packages are the only exceptions so a coordinated Cloud update
+can use a new release immediately. Dependency lifecycle scripts are denied by
+default. Add no trusted package without verifying why its install script is
+required.
+
+Run `bun run check:dependencies` after editing a manifest and commit the
+updated `bun.lock` with the manifest change.
 
 ## Use one Compose network
 
